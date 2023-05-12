@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+	<modelVersion>4.0.0</modelVersion>
+
+	<parent>
+		<groupId>org.eclipse.store</groupId>
+		<artifactId>store-storage-rest-parent</artifactId>
+		<version>0.9.0-SNAPSHOT</version>
+		<relativePath>../pom.xml</relativePath>
+	</parent>
+
+	<artifactId>store-storage-restclient-jersey</artifactId>
+	
+	<name>Eclipse Store Storage REST Client Jersey</name>
+	<description>Jersey REST Client Implementation</description>
+	
+	<properties>
+		<jersey.version>2.33</jersey.version>
+	</properties>
+
+	<dependencies>
+		<dependency>
+			<groupId>org.eclipse.store</groupId>
+			<artifactId>store-storage-restclient</artifactId>
+			<version>0.9.0-SNAPSHOT</version>
+		</dependency>
+		<dependency>
+			<groupId>org.glassfish.jersey.core</groupId>
+			<artifactId>jersey-client</artifactId>
+			<version>${jersey.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.glassfish.jersey.inject</groupId>
+			<artifactId>jersey-hk2</artifactId>
+			<version>${jersey.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>com.google.code.gson</groupId>
+			<artifactId>gson</artifactId>
+			<version>2.8.6</version>
+		</dependency>
+	</dependencies>
+
+</project>
