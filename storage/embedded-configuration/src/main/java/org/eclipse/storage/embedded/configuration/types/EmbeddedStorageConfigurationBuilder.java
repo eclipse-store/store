@@ -55,7 +55,6 @@ import org.eclipse.serializer.typing.KeyValue;
  *
  * @see EmbeddedStorageConfiguration
  * @see EmbeddedStorageConfigurationPropertyNames
- * @since 05.00.00
  *
  */
 public interface EmbeddedStorageConfigurationBuilder extends Configuration.Builder

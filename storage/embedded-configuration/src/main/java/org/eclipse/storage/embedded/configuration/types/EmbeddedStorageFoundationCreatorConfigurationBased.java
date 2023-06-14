@@ -47,8 +47,7 @@ import org.eclipse.serializer.chars.XChars;
 
 /**
  * Creator for a storage foundation, based on a configuration.
- * 
- * @since 05.00.00
+ *
  *
  */
 public interface EmbeddedStorageFoundationCreatorConfigurationBased extends EmbeddedStorageFoundation.Creator

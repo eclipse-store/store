@@ -37,7 +37,6 @@ import org.eclipse.storage.embedded.types.EmbeddedStorageFoundation;
  * Static utility class containing various utility methods to create and load storage configurations.
  * 
  * @see EmbeddedStorageConfigurationBuilder
- * @since 05.00.00
  *
  */
 public final class EmbeddedStorageConfiguration

@@ -26,7 +26,6 @@ import org.eclipse.storage.configuration.types.ByteSize;
 /**
  * All supported properties for external configuration files.
  *
- * @since 05.00.00
  */
 public interface EmbeddedStorageConfigurationPropertyNames
 {

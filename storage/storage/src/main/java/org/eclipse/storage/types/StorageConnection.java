@@ -208,8 +208,7 @@ public interface StorageConnection extends Persister
 	 * will be thrown
 	 * 
 	 * @param targetDirectory the directory to write the backup data into
-	 * 
-	 * @since 04.01.00
+	 *
 	 */
 	public default void issueFullBackup(final ADirectory targetDirectory)
 	{
@@ -236,8 +235,7 @@ public interface StorageConnection extends Persister
 	 * 
 	 * @param targetFileProvider file provider for backup files
 	 * @param typeDictionaryExporter custom type dictionary exporter
-	 * 
-	 * @since 04.01.00
+	 *
 	 */
 	public void issueFullBackup(
 		StorageLiveFileProvider           targetFileProvider    ,
