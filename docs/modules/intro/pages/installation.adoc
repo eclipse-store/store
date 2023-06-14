@@ -1,0 +1,173 @@
+= Installation
+
+== Build Configuration
+
+You can find the {product-name} libraries in the Maven Central repository.
+
+[source, xml, subs=attributes+, title="Maven [pom.xml]"]
+----
+<dependencies>
+	<dependency>
+		<groupId>org.eclipse.store</groupId>
+		<artifactId>storage-embedded</artifactId>
+		<version>{maven-version}</version>
+	</dependency>
+</dependencies>
+----
+
+[source, groovy, subs=attributes+, title="Gradle (Groovy) [build.gradle]"]
+----
+dependencies {
+	implementation 'org.eclipse.store:storage-embedded:{maven-version}'
+}
+----
+
+[source, kotlin, subs=attributes+, title="Gradle (Kotlin) [build.gradle.kts]"]
+----
+dependencies {
+	implementation("org.eclipse.store:storage-embedded:{maven-version}")
+}
+----
+
+[source, scala, subs=attributes+, title="Scala SBT [build.sbt]"]
+----
+libraryDependencies += "org.eclipse.store" % "storage-embedded" % "{maven-version}"
+----
+
+[source, xml, subs=attributes+, title="Apache Ivy [ivy.xml]"]
+----
+<dependencies>
+	<dependency org="org.eclipse.store"
+		name="storage-embedded"
+		rev="{maven-version}" />
+</dependencies>
+----
+
+[source, ruby, subs=attributes+, title="Apache Buildr [Buildfile]"]
+----
+define 'my-app' do
+	compile.with 'org.eclipse.store:storage-embedded:{maven-version}'
+end
+----
+
+[source, python, subs=attributes+, title="Bazel [WORKSPACE]"]
+----
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+RULES_JVM_EXTERNAL_TAG = "2.8"
+RULES_JVM_EXTERNAL_SHA = "79c9850690d7614ecdb72d68394f994fef7534b292c4867ce5e7dec0aa7bdfad"
+
+http_archive(
+	name = "rules_jvm_external",
+	strip_prefix = "rules_jvm_external-%s" % RULES_JVM_EXTERNAL_TAG,
+	sha256 = RULES_JVM_EXTERNAL_SHA,
+	url = "https://github.com/bazelbuild/rules_jvm_external/archive/%s.zip" % RULES_JVM_EXTERNAL_TAG,
+)
+
+load("@rules_jvm_external//:defs.bzl", "maven_install")
+
+maven_install(
+	artifacts = [
+		"org.eclipse.store:storage-embedded:{maven-version}"
+	],
+)
+----
+
+[source, python, subs=attributes+, title="Bazel [BUILD]"]
+----
+maven_jar(
+	name = "eclipsestore",
+	artifact = "org.eclipse.store:storage-embedded:{maven-version}"
+)
+----
+
+== Modules
+
+These are the different modules that make up {product-name}.
+
+[options="header",cols="1,2"]
+|===
+|ArtifactId |Description
+//-------------
+|base
+|Collection of common utilities. Math, IO, Exceptions, Threads, String operations, and so on.
+
+|configuration
+|General-purpose configuration layer.
+
+|configuration-hocon
+|Hocon extension for the configuration layer, which supports hocon, json and ini files.
+
+|configuration-yaml
+|Yaml extension for the configuration layer.
+
+|afs
+|Abstract file system (AFS) layer.
+
+|afs-aws-dynamodb
+|File system implementations for AWS DynamoDB.
+
+|afs-aws-s3
+|File system implementations for AWS S3.
+
+|afs-azure-storage
+|File system implementations for Azure Cloud (Azure Storage).
+
+|afs-blobstore
+|Base for all blob store file system implementations.
+
+|afs-hazelcast
+|File system implementation for Hazelcast.
+
+|afs-hibernate
+|Generic file system implementation for JPA / Hibernate.
+
+|afs-kafka
+|File system implementation for Apache Kafka.
+
+|afs-nio
+|File system implementation for the non-blocking IO implementation (java.nio.file) of the JDK.
+
+|afs-oraclecloud-objectstorage
+|File system implementation for Oracle Cloud Services (Object Storage).
+
+|afs-oracle-coherence
+|File system implementation for Oracle Coherence.
+
+|afs-redis
+|File system implementation for Redis.
+
+|afs-sql
+|File system implementation for SQL databases.
+
+|persistence-binary
+|Extension of the persistence base framework with a concrete implementation of the persistent form as binary data. This persistent form is superior to all text-based formats in storage and performance needs, making it the preferred method for storage and network serialization.
+
+|storage
+|Basic framework to manage a graph of Java data persisted as binary data as a database. Can be used both to implement an embedded database solution (in the same process as the Java application) and a standalone or server-mode database solution (in a separate process). Other forms of persistence than binary data are deliberately not supported because they would not bring any noteworthy advantages but many disadvantages for the task.
+
+|storage-embedded
+|Top-level framework for use in a Java application that adds an embedded database solution to its object graphs. Can be used directly in the program code of a Java application to comfortably and efficiently persist its data.
+
+|storage-embedded-configuration
+|Layer with support for external configuration files (XML, INI) and convenience functionality to create foundations for the embedded storage.
+
+|storage-restadapter
+|Adapter for low-level storage data externalization. Used by the xref:storage:rest-interface/index.adoc[REST service] to adapt to a {product-name} Storage.
+
+|storage-restclient
+|Abstract REST client interface, which serves as a Java wrapper for the xref:storage:rest-interface/rest-api.adoc[REST API].
+
+|storage-restclient-app
+|Executable xref:storage:rest-interface/client-gui.adoc[client app] with web user interface, which connects to a REST service.
+
+|storage-restclient-jersey
+|REST client implementation which utilizes Jersey as a webservice framework. 
+
+|storage-restservice
+|Abstract REST service interface, which uses the REST adapter to access low level storage data.
+
+|storage-restservice-sparkjava
+|REST service implementation which utilizes SparkJava and provides REST endpoints.
+|===
+

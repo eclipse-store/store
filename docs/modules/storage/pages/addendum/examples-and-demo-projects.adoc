@@ -1,0 +1,8 @@
+= Examples and Demo Projects
+
+== Examples Collection
+
+A collection of examples with different topics:
+
+https://github.com/eclipse-store/store/tree/master/examples
+

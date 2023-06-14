@@ -1,0 +1,20 @@
+= Welcome
+
+Welcome to the {product-name} Reference Manual.
+This manual includes concepts, instructions and examples to guide you on how to use {product-name} xref:storage:index.adoc[Storage], version {display-version}.
+
+You should be familiar with the Java programming language and you should have installed your preferred Integrated Development Environment (IDE).
+But since you are here we guest you got that covered ;)
+
+== What's new in {display-version}
+
+See xref:changelog.adoc[Changelog].
+
+
+== API Docs
+
+The API documentation is available at https://docs.eclipsestore.io/api/{api-version}/.
+
+== License
+
+{product-name} is available under https://www.eclipse.org/legal/epl-2.0/[Eclipse Public License - v 2.0].
