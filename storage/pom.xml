@@ -13,7 +13,7 @@
 		<relativePath>../pom.xml</relativePath>
 	</parent>
 
-	<artifactId>store-storage-parent</artifactId>
+	<artifactId>storage-parent</artifactId>
 	<packaging>pom</packaging>
 	
 	<name>Eclipse Store Storage</name>

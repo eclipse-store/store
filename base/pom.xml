@@ -13,7 +13,7 @@
 		<relativePath>../pom.xml</relativePath>
 	</parent>
 
-	<artifactId>store-storage-base</artifactId>
+	<artifactId>base</artifactId>
 
 	
 	<name>Eclipse Store Base utilities</name>
@@ -22,7 +22,7 @@
 	<dependencies>
 		<dependency>
 			<groupId>org.eclipse.serializer</groupId>
-			<artifactId>serializer-base</artifactId>
+			<artifactId>base</artifactId>
 			<version>${eclipse.serializer.version}</version>
 		</dependency>
 	</dependencies>

@@ -6,12 +6,12 @@
 
 	<parent>
 		<groupId>org.eclipse.store</groupId>
-		<artifactId>store-afs-parent</artifactId>
+		<artifactId>afs-parent</artifactId>
 		<version>1.0.0-SNAPSHOT</version>
 		<relativePath>../pom.xml</relativePath>
 	</parent>
 
-	<artifactId>store-afs-nio</artifactId>
+	<artifactId>afs-nio</artifactId>
 
 	<name>Eclipse Store Abstract File System - Java NIO</name>
 	<description>Java NIO Adapter for the Eclipse Store Abstract File System</description>
@@ -19,7 +19,7 @@
 	<dependencies>
 		<dependency>
 			<groupId>org.eclipse.store</groupId>
-			<artifactId>store-storage-afs</artifactId>
+			<artifactId>afs</artifactId>
 			<version>1.0.0-SNAPSHOT</version>
 		</dependency>
 	</dependencies>
