@@ -47,11 +47,11 @@ public final class EmbeddedStorageConfiguration
 	 * <p>
 	 * Either as system property or in the context's configuration, e.g. Spring's application.properties.
 	 *
-	 * @return "org.eclipse.storage.configuration.path"
+	 * @return "org.eclipse.store.storage.configuration.path"
 	 */
 	public static String PathProperty()
 	{
-		return "org.eclipse.storage.configuration.path";
+		return "org.eclipse.store.storage.configuration.path";
 	}
 
 	/**
@@ -59,11 +59,11 @@ public final class EmbeddedStorageConfiguration
 	 *
 	 * @see #load()
 	 *
-	 * @return "eclipse-storage.properties"
+	 * @return "eclipsestore.properties"
 	 */
 	public static String DefaultResourceName()
 	{
-		return "eclipse-storage.properties";
+		return "eclipsestore.properties";
 	}
 	
 	/**
@@ -82,8 +82,8 @@ public final class EmbeddedStorageConfiguration
 	/**
 	 * Tries to load the default storage configuration properties file.
 	 * <p>
-	 * The resource name is either set via the system property "org.eclipse.storage.configuration.path"
-	 * or the default name "eclipse-storage.properties".
+	 * The resource name is either set via the system property "org.eclipse.store.storage.configuration.path"
+	 * or the default name "eclipsestore.properties".
 	 * <p>
 	 * The search order is as described in {@link ConfigurationLoader#New(String)}.
 	 * 
@@ -126,8 +126,8 @@ public final class EmbeddedStorageConfiguration
 	/**
 	 * Tries to load the default storage configuration properties file.
 	 * <p>
-	 * The resource name is either set via the system property "org.eclipse.storage.configuration.path"
-	 * or the default name "eclipse-storage.properties".
+	 * The resource name is either set via the system property "org.eclipse.store.storage.configuration.path"
+	 * or the default name "eclipsestore.properties".
 	 * <p>
 	 * The search order is as described in {@link ConfigurationLoader#New(String)}.
 	 * 
