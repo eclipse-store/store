@@ -17,19 +17,19 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.restclient.app
+module org.eclipse.store.storage.restclient.app
 {
-	exports org.eclipse.storage.restclient.app.types;
-	exports org.eclipse.storage.restclient.app.ui;
+	exports org.eclipse.store.storage.restclient.app.types;
+	exports org.eclipse.store.storage.restclient.app.ui;
 	
 	requires flow.data;
 	requires flow.html.components;
 	requires flow.server;
 	requires gwt.elemental;
 	requires org.eclipse.store.base;
-	requires org.eclipse.store.restadapter;
-	requires org.eclipse.store.restclient;
-	requires org.eclipse.store.restclient.jersey;
+	requires org.eclipse.store.storage.restadapter;
+	requires org.eclipse.store.storage.restclient;
+	requires org.eclipse.store.storage.restclient.jersey;
 	requires org.apache.tomcat.embed.core;
 	requires org.slf4j;
 	requires spring.beans;

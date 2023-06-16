@@ -19,9 +19,9 @@
  */
 module org.eclipse.store.storage
 {
-	exports org.eclipse.storage.util;
-	exports org.eclipse.storage.types;
-	exports org.eclipse.storage.exceptions;
+	exports org.eclipse.store.storage.util;
+	exports org.eclipse.store.storage.types;
+	exports org.eclipse.store.storage.exceptions;
 
 	requires org.eclipse.store.afs;
 	requires org.eclipse.store.afs.nio;

@@ -17,14 +17,14 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.restclient.jersey
+module org.eclipse.store.storage.restclient.jersey
 {
-	exports org.eclipse.storage.restclient.jersey.types;
+	exports org.eclipse.store.storage.restclient.jersey.types;
 	
 	requires com.google.gson;
 	requires java.ws.rs;
 	requires org.eclipse.store.base;
 	requires org.eclipse.store.persistence.binary;
-	requires org.eclipse.store.restadapter;
-	requires org.eclipse.store.restclient;
+	requires org.eclipse.store.storage.restadapter;
+	requires org.eclipse.store.storage.restclient;
 }

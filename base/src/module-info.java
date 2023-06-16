@@ -20,18 +20,18 @@
 module org.eclipse.store.base
 {
 
-    exports org.eclipse.storage.base.collections;
-    exports org.eclipse.storage.base.concurrency;
-    exports org.eclipse.storage.base.exception;
-    exports org.eclipse.storage.base.io;
-    exports org.eclipse.storage.base.chars;
-    exports org.eclipse.storage.base.functional;
-    exports org.eclipse.storage.base.math;
-    exports org.eclipse.storage.base.memory;
-    exports org.eclipse.storage.base.reference;
-    exports org.eclipse.storage.base.typing;
-    exports org.eclipse.storage.base.util;
-    exports org.eclipse.storage.base;
+    exports org.eclipse.store.base.collections;
+    exports org.eclipse.store.base.concurrency;
+    exports org.eclipse.store.base.exception;
+    exports org.eclipse.store.base.io;
+    exports org.eclipse.store.base.chars;
+    exports org.eclipse.store.base.functional;
+    exports org.eclipse.store.base.math;
+    exports org.eclipse.store.base.memory;
+    exports org.eclipse.store.base.reference;
+    exports org.eclipse.store.base.typing;
+    exports org.eclipse.store.base.util;
+    exports org.eclipse.store.base;
 
     requires org.eclipse.serializer.base;
 }

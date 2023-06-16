@@ -70,7 +70,7 @@
 				<artifactId>spring-boot-maven-plugin</artifactId>
 				<version>${spring.boot.version}</version>
 				<configuration>
-					<mainClass>org.eclipse.storage.restclient.app.types.Application</mainClass>
+					<mainClass>org.eclipse.store.restclient.app.types.Application</mainClass>
 					<!-- Clean build and startup time for Vaadin apps sometimes may exceed 
 						the default Spring Boot's 30sec timeout. -->
 					<wait>500</wait>
@@ -93,7 +93,7 @@
 						<artifactId>spring-boot-maven-plugin</artifactId>
 						<version>${spring.boot.version}</version>
 						<configuration>
-							<mainClass>org.eclipse.storage.restclient.app.types.Application</mainClass>
+							<mainClass>org.eclipse.store.restclient.app.types.Application</mainClass>
 							<jvmArguments>-Dvaadin.productionMode</jvmArguments>
 							<layout>JAR</layout>
 						</configuration>

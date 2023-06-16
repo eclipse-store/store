@@ -19,7 +19,7 @@
  */
 module org.eclipse.store.configuration.yaml
 {
-	exports org.eclipse.storage.configuration.yaml.types;
+	exports org.eclipse.store.configuration.yaml.types;
 	
 	requires org.eclipse.store.base;
 	requires org.eclipse.store.configuration;

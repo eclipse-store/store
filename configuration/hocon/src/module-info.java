@@ -19,7 +19,7 @@
  */
 module org.eclipse.store.configuration.hocon
 {
-	exports org.eclipse.storage.configuration.hocon.types;
+	exports org.eclipse.store.configuration.hocon.types;
 	
 	requires org.eclipse.store.base;
 	requires org.eclipse.store.configuration;

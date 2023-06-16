@@ -17,10 +17,10 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.restservice
+module org.eclipse.store.storage.restservice
 {
-	exports org.eclipse.storage.restservice.types;
-	exports org.eclipse.storage.restservice.exceptions;
+	exports org.eclipse.store.storage.restservice.types;
+	exports org.eclipse.store.storage.restservice.exceptions;
 
-	requires org.eclipse.store.restadapter;
+	requires org.eclipse.store.storage.restadapter;
 }

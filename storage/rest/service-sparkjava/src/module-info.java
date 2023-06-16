@@ -17,15 +17,15 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.restservice.sparkjava
+module org.eclipse.store.storage.restservice.sparkjava
 {
-	exports org.eclipse.storage.restservice.sparkjava.exceptions;
-	exports org.eclipse.storage.restservice.sparkjava.types;
+	exports org.eclipse.store.storage.restservice.sparkjava.exceptions;
+	exports org.eclipse.store.storage.restservice.sparkjava.types;
 	
 	requires com.google.gson;
 	requires org.eclipse.store.base;
 	requires org.eclipse.store.storage;
-	requires org.eclipse.store.restadapter;
-	requires org.eclipse.store.restservice;
+	requires org.eclipse.store.storage.restadapter;
+	requires org.eclipse.store.storage.restservice;
 	requires spark.core;
 }

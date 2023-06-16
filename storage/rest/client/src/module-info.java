@@ -17,12 +17,12 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.restclient
+module org.eclipse.store.storage.restclient
 {
-	exports org.eclipse.storage.restclient.exceptions;
-	exports org.eclipse.storage.restclient.types;
+	exports org.eclipse.store.storage.restclient.exceptions;
+	exports org.eclipse.store.storage.restclient.types;
 	
 	requires org.eclipse.store.base;
 	requires org.eclipse.store.persistence.binary;
-	requires org.eclipse.store.restadapter;
+	requires org.eclipse.store.storage.restadapter;
 }

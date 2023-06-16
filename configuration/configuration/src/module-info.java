@@ -19,8 +19,8 @@
  */
 module org.eclipse.store.configuration
 {
-	exports org.eclipse.storage.configuration.exceptions;
-	exports org.eclipse.storage.configuration.types;
+	exports org.eclipse.store.configuration.exceptions;
+	exports org.eclipse.store.configuration.types;
 	
 	requires java.xml;
 	requires org.eclipse.store.base;

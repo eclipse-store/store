@@ -20,7 +20,7 @@
 module org.eclipse.store.persistence.binary
 {
 
-    exports org.eclipse.storage.persistence.types;
+    exports org.eclipse.store.persistence.types;
 
     requires org.eclipse.serializer.persistence;
     requires org.eclipse.serializer.persistence.binary;

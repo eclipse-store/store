@@ -1,5 +1,0 @@
-org.eclipse.storage.afs.sql.types.SqlFileSystemCreatorHana
-org.eclipse.storage.afs.sql.types.SqlFileSystemCreatorMariaDb
-org.eclipse.storage.afs.sql.types.SqlFileSystemCreatorOracle
-org.eclipse.storage.afs.sql.types.SqlFileSystemCreatorPostgres
-org.eclipse.storage.afs.sql.types.SqlFileSystemCreatorSqlite

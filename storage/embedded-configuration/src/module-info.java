@@ -19,7 +19,7 @@
  */
 module org.eclipse.store.storage.embedded.configuration
 {
-	exports org.eclipse.storage.embedded.configuration.types;
+	exports org.eclipse.store.storage.embedded.configuration.types;
 	
 	requires java.xml;
 	requires org.eclipse.store.afs;

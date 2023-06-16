@@ -10,7 +10,7 @@ It is usable as as replacement for the default Java serialization to convert obj
 <dependencies>
 	<dependency>
 		<groupId>one.eclipse.serializer</groupId>
-		<artifactId>persistence-binary</artifactId>
+		<artifactId>serializer</artifactId>
 		<version>{maven-version}</version>
 	</dependency>
 </dependencies>

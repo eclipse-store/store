@@ -1,6 +1,6 @@
 = Storage Files and Directories
 
-Using a Storage Live File Provider (`org.eclipse.storage.types.StorageLiveFileProvider`) allows to specify the location and naming rules for all storage related files.
+Using a Storage Live File Provider (`org.eclipse.store.storage.types.StorageLiveFileProvider`) allows to specify the location and naming rules for all storage related files.
 
 Available properties are:
 
