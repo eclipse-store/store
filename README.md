@@ -13,12 +13,12 @@ EclipseStore is available under [Eclipse Public License - v 2.0](LICENSE).
 
 ## Documentation
 
-- [Reference manual](https://docs.eclipsestore.io/manual)
-- [Get started](https://docs.eclipsestore.io/manual/storage/getting-started.html)
-- [Changelog](https://docs.eclipsestore.io/manual/intro/changelog.html)
+- [Reference manual](https://eclipse-store.github.io/docs-site/manual)
+<!--- [Get started](https://eclipse-store.github.io/docs-site/manual/storage/getting-started.html)
+- [Changelog](https://docs.eclipsestore.io/manual/intro/changelog.html) 
 - [Javadocs](https://docs.eclipsestore.io/api)
 - [Examples](/examples)
-- [Demo project](https://github.com/eclipse-store/bookstore-demo)
+- [Demo project](https://github.com/eclipse-store/bookstore-demo) -->
 
 ## Build
 
