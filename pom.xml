@@ -8,7 +8,7 @@
 
     <groupId>org.eclipse.store</groupId>
     <artifactId>store-parent</artifactId>
-    <version>0.9.0-SNAPSHOT</version>
+    <version>1.0.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>Eclipse Store</name>
@@ -33,13 +33,13 @@
         <maven.compiler.target>1.8</maven.compiler.target>
         <org.owasp.depencency.check.version>6.1.6</org.owasp.depencency.check.version>
         <org.eclipse.jdt.ecj.version>3.26.0</org.eclipse.jdt.ecj.version>
-        <license.inceptionYear>2019</license.inceptionYear>
+        <license.inceptionYear>2023</license.inceptionYear>
         <license.licenseName>epl_v2</license.licenseName>
         <license.licenceFile>${basedir}/LICENSE</license.licenceFile>
-        <api.version>0.9</api.version>
+        <api.version>1</api.version>
         <javadoc.failed.on.error>false</javadoc.failed.on.error>
 
-        <eclipse.serializer.version>0.9.0-SNAPSHOT</eclipse.serializer.version>
+        <eclipse.serializer.version>1.0.0-SNAPSHOT</eclipse.serializer.version>
     </properties>
 
     <modules>
@@ -56,6 +56,30 @@
         <url>https://github.com/eclipse-store</url>
         <tag>HEAD</tag>
     </scm>
+
+    <distributionManagement>
+        <snapshotRepository>
+            <id>ossrh</id>
+            <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+        </snapshotRepository>
+        <repository>
+            <id>ossrh</id>
+            <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+        </repository>
+    </distributionManagement>
+
+    <repositories>
+        <repository>
+            <id>ossrh</id>
+            <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+            <releases>
+                <enabled>false</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
 
 
     <dependencyManagement>
