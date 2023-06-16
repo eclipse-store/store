@@ -22,7 +22,7 @@ jobs:
           server-username: MAVEN_USERNAME
           server-password: MAVEN_PASSWORD
       - name: Make a snapshot
-        run: mvn -Pdeploy --no-transfer-progress --batch-mode clean deploy
+        run: mvn -Pdeploy --no-transfer-progress --batch-mode clean deploy -Dgpg.skip
         env:
           MAVEN_USERNAME: ${{ secrets.ORG_OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.ORG_OSSRH_PASSWORD }}
