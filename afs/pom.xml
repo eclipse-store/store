@@ -13,7 +13,7 @@
 		<relativePath>../pom.xml</relativePath>
 	</parent>
 
-	<artifactId>store-afs-parent</artifactId>
+	<artifactId>afs-parent</artifactId>
 	<packaging>pom</packaging>
 	
 	<name>Eclipse Store Abstract File System</name>

@@ -8,12 +8,12 @@
 
 	<parent>
 		<groupId>org.eclipse.store</groupId>
-		<artifactId>store-storage-rest-parent</artifactId>
+		<artifactId>storage-rest-parent</artifactId>
 		<version>1.0.0-SNAPSHOT</version>
 		<relativePath>../pom.xml</relativePath>
 	</parent>
 
-	<artifactId>store-storage-restclient-jersey</artifactId>
+	<artifactId>storage-restclient-jersey</artifactId>
 	
 	<name>Eclipse Store Storage REST Client Jersey</name>
 	<description>Jersey REST Client Implementation</description>
@@ -25,7 +25,7 @@
 	<dependencies>
 		<dependency>
 			<groupId>org.eclipse.store</groupId>
-			<artifactId>store-storage-restclient</artifactId>
+			<artifactId>storage-restclient</artifactId>
 			<version>1.0.0-SNAPSHOT</version>
 		</dependency>
 		<dependency>

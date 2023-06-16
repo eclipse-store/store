@@ -8,12 +8,12 @@
 
 	<parent>
 		<groupId>org.eclipse.store</groupId>
-		<artifactId>store-storage-parent</artifactId>
+		<artifactId>storage-parent</artifactId>
 		<version>1.0.0-SNAPSHOT</version>
 		<relativePath>../pom.xml</relativePath>
 	</parent>
 
-	<artifactId>store-storage-embedded</artifactId>
+	<artifactId>storage-embedded</artifactId>
 	
 	<name>Eclipse Store Embedded Storage</name>
 	<description>Eclipse Store Embedded Storage Implementation</description>
@@ -21,7 +21,7 @@
 	<dependencies>
 		<dependency>
 			<groupId>org.eclipse.store</groupId>
-			<artifactId>store-storage</artifactId>
+			<artifactId>storage</artifactId>
 			<version>1.0.0-SNAPSHOT</version>
 		</dependency>
 	</dependencies>

@@ -2,7 +2,7 @@
  * #%L
  * Eclipse Store Storage REST Service
  * %%
- * Copyright (C) 2019 - 2023 Eclipse Foundation
+ * Copyright (C) 2023 Eclipse Foundation
  * %%
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License 2.0 which is available at
@@ -17,10 +17,10 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.restservice
+module org.eclipse.store.storage.restservice
 {
-	exports org.eclipse.storage.restservice.types;
-	exports org.eclipse.storage.restservice.exceptions;
+	exports org.eclipse.store.storage.restservice.types;
+	exports org.eclipse.store.storage.restservice.exceptions;
 
-	requires org.eclipse.store.restadapter;
+	requires org.eclipse.store.storage.restadapter;
 }

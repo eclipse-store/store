@@ -2,7 +2,7 @@
  * #%L
  * Eclipse Store Configuration
  * %%
- * Copyright (C) 2019 - 2023 Eclipse Foundation
+ * Copyright (C) 2023 Eclipse Foundation
  * %%
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License 2.0 which is available at
@@ -19,8 +19,8 @@
  */
 module org.eclipse.store.configuration
 {
-	exports org.eclipse.storage.configuration.exceptions;
-	exports org.eclipse.storage.configuration.types;
+	exports org.eclipse.store.configuration.exceptions;
+	exports org.eclipse.store.configuration.types;
 	
 	requires java.xml;
 	requires org.eclipse.store.base;

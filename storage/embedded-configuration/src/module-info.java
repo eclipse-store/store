@@ -2,7 +2,7 @@
  * #%L
  * Eclipse Store Embedded Storage Configuration
  * %%
- * Copyright (C) 2019 - 2023 Eclipse Foundation
+ * Copyright (C) 2023 Eclipse Foundation
  * %%
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License 2.0 which is available at
@@ -19,7 +19,7 @@
  */
 module org.eclipse.store.storage.embedded.configuration
 {
-	exports org.eclipse.storage.embedded.configuration.types;
+	exports org.eclipse.store.storage.embedded.configuration.types;
 	
 	requires java.xml;
 	requires org.eclipse.store.afs;

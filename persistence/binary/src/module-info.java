@@ -1,8 +1,8 @@
 /*-
  * #%L
- * Eclipse Store Storage Persistence Binary
+ * Eclipse Store Persistence Binary
  * %%
- * Copyright (C) 2019 - 2023 Eclipse Foundation
+ * Copyright (C) 2023 Eclipse Foundation
  * %%
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License 2.0 which is available at
@@ -20,7 +20,7 @@
 module org.eclipse.store.persistence.binary
 {
 
-    exports org.eclipse.storage.persistence.types;
+    exports org.eclipse.store.persistence.types;
 
     requires org.eclipse.serializer.persistence;
     requires org.eclipse.serializer.persistence.binary;

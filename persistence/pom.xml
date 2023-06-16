@@ -13,11 +13,11 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>store-storage-persistence-parent</artifactId>
+    <artifactId>persistence-parent</artifactId>
     <packaging>pom</packaging>
 
-    <name>Eclipse Store Storage Persistence Parent</name>
-    <description>Eclipse Store Storage Persistence Parent Project</description>
+    <name>Eclipse Store Persistence Parent</name>
+    <description>Eclipse Store Persistence Parent Project</description>
 
     <modules>
         <module>binary</module>

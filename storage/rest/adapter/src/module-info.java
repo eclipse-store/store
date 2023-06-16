@@ -2,7 +2,7 @@
  * #%L
  * Eclipse Storage REST Adapter
  * %%
- * Copyright (C) 2019 - 2023 Eclipse Foundation
+ * Copyright (C) 2023 Eclipse Foundation
  * %%
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License 2.0 which is available at
@@ -17,10 +17,10 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.restadapter
+module org.eclipse.store.storage.restadapter
 {
-	exports org.eclipse.storage.restadapter.types;
-	exports org.eclipse.storage.restadapter.exceptions;
+	exports org.eclipse.store.storage.restadapter.types;
+	exports org.eclipse.store.storage.restadapter.exceptions;
 
 	requires org.eclipse.serializer.base;
 	requires org.eclipse.serializer.persistence;

@@ -1,0 +1,58 @@
+= SQLite
+
+[source, xml, subs=attributes+]
+----
+<dependency>
+	<groupId>org.eclipse.store</groupId>
+	<artifactId>afs-sql</artifactId>
+	<version>{maven-version}</version>
+</dependency>
+<dependency>
+	<groupId>org.xerial</groupId>
+	<artifactId>sqlite-jdbc</artifactId>
+	<version>3.32.3</version>
+</dependency>
+----
+
+[source, java]
+----
+SQLiteDataSource dataSource = new SQLiteDataSource();
+dataSource.setUrl("jdbc:sqlite:eclipsestoredb");
+
+SqlFileSystem fileSystem = SqlFileSystem.New(
+	SqlConnector.Caching(
+		SqlProviderSqlite.New(dataSource)
+	)
+);
+
+EmbeddedStorage.start(fileSystem.ensureDirectoryPath("storage"));
+----
+
+== Configuration
+
+When using xref:configuration/index.adoc#external-configuration[external configuration] SQLite can be set as follows.
+Please note that you have to define a data source provider.
+
+[source, text, title="eclipsestore.properties"]
+----
+storage-filesystem.sql.sqlite.data-source-provider=com.sample.MyDataSourceProvider
+storage-filesystem.sql.sqlite.catalog=mycatalog
+storage-filesystem.sql.sqlite.schema=myschema
+storage-filesystem.sql.sqlite.url=jdbc:sqlite:eclipsestoredb
+----
+
+[source, java, title="MyDataSourceProvider.java"]
+----
+package com.sample;
+
+import org.eclipse.afs.sql.types.SqlDataSourceProvider
+
+public class MyDataSourceProvider implements SqlDataSourceProvider
+{
+	public DataSource provideDataSource(Configuration configuration)
+	{
+		String url = configuration.get("url");
+		// TODO: return data source of your choice, e.g. from a connection pool
+	}
+}
+----

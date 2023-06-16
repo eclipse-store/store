@@ -8,12 +8,12 @@
 
 	<parent>
 		<groupId>org.eclipse.store</groupId>
-		<artifactId>store-storage-parent</artifactId>
+		<artifactId>storage-parent</artifactId>
 		<version>1.0.0-SNAPSHOT</version>
 		<relativePath>../pom.xml</relativePath>
 	</parent>
 
-	<artifactId>store-storage</artifactId>
+	<artifactId>storage</artifactId>
 	
 	<name>Eclipse Store Storage</name>
 	<description>Eclipse Store Storage Implementation</description>
@@ -21,12 +21,12 @@
 	<dependencies>
 		<dependency>
 			<groupId>org.eclipse.store</groupId>
-			<artifactId>store-afs-nio</artifactId>
+			<artifactId>afs-nio</artifactId>
 			<version>1.0.0-SNAPSHOT</version>
 		</dependency>
 		<dependency>
 			<groupId>org.eclipse.store</groupId>
-			<artifactId>store-storage-persistence-binary</artifactId>
+			<artifactId>persistence-binary</artifactId>
 			<version>1.0.0-SNAPSHOT</version>
 		</dependency>
 	</dependencies>

@@ -8,12 +8,12 @@
 
 	<parent>
 		<groupId>org.eclipse.store</groupId>
-		<artifactId>store-storage-rest-parent</artifactId>
+		<artifactId>storage-rest-parent</artifactId>
 		<version>1.0.0-SNAPSHOT</version>
 		<relativePath>../pom.xml</relativePath>
 	</parent>
 
-	<artifactId>store-storage-restservice-sparkjava</artifactId>
+	<artifactId>storage-restservice-sparkjava</artifactId>
 	
 	<name>Eclipse Storage REST Service Sparkjava</name>
 	<description>Eclipse Storage REST Service Implementation</description>
@@ -25,7 +25,7 @@
 	<dependencies>
 		<dependency>
 			<groupId>org.eclipse.store</groupId>
-			<artifactId>store-storage-restservice</artifactId>
+			<artifactId>storage-restservice</artifactId>
 			<version>1.0.0-SNAPSHOT</version>
 		</dependency>
 		<dependency>
