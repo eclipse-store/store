@@ -10,10 +10,11 @@ But since you are here we guest you got that covered ;)
 
 See xref:changelog.adoc[Changelog].
 
-
+////
 == API Docs
 
 The API documentation is available at https://docs.eclipsestore.io/api/{api-version}/.
+////
 
 == License
 
