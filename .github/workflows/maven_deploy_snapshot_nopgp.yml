@@ -1,0 +1,28 @@
+# This workflow will build a Java project with Maven
+# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-maven
+
+name: Make snapshot and deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Java for publishing to Maven Central Snapshot Repository
+        uses: actions/setup-java@v3
+        with:
+          java-version: '8'
+          distribution: 'temurin'
+          cache: 'maven'
+          server-id: ossrh
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+      - name: Make a snapshot
+        run: mvn -Pdeploy --no-transfer-progress --batch-mode clean deploy
+        env:
+          MAVEN_USERNAME: ${{ secrets.ORG_OSSRH_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.ORG_OSSRH_PASSWORD }}
