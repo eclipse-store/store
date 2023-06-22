@@ -45,10 +45,10 @@ import com.google.cloud.firestore.WriteBatch;
 import com.google.cloud.firestore.WriteResult;
 import com.google.protobuf.UnsafeByteOperations;
 
-import org.eclipse.storage.afs.blobstore.types.BlobStoreConnector;
-import org.eclipse.storage.afs.blobstore.types.BlobStorePath;
-import org.eclipse.storage.base.io.ByteBufferInputStream;
-import org.eclipse.storage.base.io.LimitedInputStream;
+import org.eclipse.store.afs.blobstore.types.BlobStoreConnector;
+import org.eclipse.store.afs.blobstore.types.BlobStorePath;
+import org.eclipse.store.base.io.ByteBufferInputStream;
+import org.eclipse.store.base.io.LimitedInputStream;
 import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.exceptions.IORuntimeException;
 

@@ -21,7 +21,7 @@ sparkjava# Storage Viewer HowTo:
 ```
 <dependency>
 	<groupId>org.eclipse.store</groupId>
-	<artifactId>store-storage-restservice-sparkjava</artifactId>
+	<artifactId>storage-restservice-sparkjava</artifactId>
 	<version>${eclips.store.version}</version>
 </dependency>
 ```
