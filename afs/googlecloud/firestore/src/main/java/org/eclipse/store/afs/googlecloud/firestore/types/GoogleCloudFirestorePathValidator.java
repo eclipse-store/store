@@ -22,7 +22,7 @@ package org.eclipse.store.afs.googlecloud.firestore.types;
 
 import java.util.regex.Pattern;
 
-import org.eclipse.storage.afs.blobstore.types.BlobStorePath;
+import org.eclipse.store.afs.blobstore.types.BlobStorePath;
 
 public interface GoogleCloudFirestorePathValidator extends BlobStorePath.Validator
 {

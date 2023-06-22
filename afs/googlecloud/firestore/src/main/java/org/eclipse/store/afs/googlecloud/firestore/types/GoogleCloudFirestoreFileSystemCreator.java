@@ -31,10 +31,10 @@ import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.FirestoreOptions;
 
-import org.eclipse.storage.afs.blobstore.types.BlobStoreFileSystem;
-import org.eclipse.storage.configuration.exceptions.ConfigurationException;
-import org.eclipse.storage.configuration.types.Configuration;
-import org.eclipse.storage.configuration.types.ConfigurationBasedCreator;
+import org.eclipse.store.afs.blobstore.types.BlobStoreFileSystem;
+import org.eclipse.store.configuration.exceptions.ConfigurationException;
+import org.eclipse.store.configuration.types.Configuration;
+import org.eclipse.store.configuration.types.ConfigurationBasedCreator;
 import org.eclipse.serializer.afs.types.AFileSystem;
 import org.eclipse.serializer.chars.XChars;
 
