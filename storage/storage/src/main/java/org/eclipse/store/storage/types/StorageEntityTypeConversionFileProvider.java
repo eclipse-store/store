@@ -1,5 +1,7 @@
 package org.eclipse.store.storage.types;
 
+import static org.eclipse.serializer.chars.XChars.notEmpty;
+
 /*-
  * #%L
  * Eclipse Store Storage
@@ -31,6 +33,24 @@ import org.eclipse.serializer.persistence.types.PersistenceTypeDefinition;
 public interface StorageEntityTypeConversionFileProvider
 {
 	public AWritableFile provideConversionFile(PersistenceTypeDefinition typeDescription, AFile sourceFile);
+	
+	/**
+	 * Pseudo-constructor method to create a new {@link StorageEntityTypeConversionFileProvider}.
+	 * @param directory the target directory
+	 * @param fileSuffix the suffix to use for the created files
+	 * @return a new {@link StorageEntityTypeConversionFileProvider}
+	 * @since 08.00.00
+	 */
+	public static StorageEntityTypeConversionFileProvider New(
+		final ADirectory directory ,
+		final String     fileSuffix
+	)
+	{
+		return new StorageEntityTypeConversionFileProvider.Default(
+			notNull(directory),
+			notEmpty(fileSuffix)
+		);
+	}
 
 
 

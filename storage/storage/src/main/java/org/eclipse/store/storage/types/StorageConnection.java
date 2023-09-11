@@ -304,6 +304,43 @@ public interface StorageConnection extends Persister
 		StorageEntityTypeExportFileProvider         exportFileProvider,
 		Predicate<? super StorageEntityTypeHandler> isExportType
 	);
+	
+	/**
+	 * Alias for {@code this.exportTypes(StorageEntityTypeExportFileProvider.New(targetDirectory));}, meaning all types are exported.
+	 * 
+	 * @param targetDirectory the target directory for the export files
+	 * 
+	 * @return a {@link StorageEntityTypeExportStatistics} information instance about the completed export.
+	 * 
+	 * @see #exportTypes(StorageEntityTypeExportFileProvider, Predicate)
+	 */
+	public default StorageEntityTypeExportStatistics exportTypes(
+		final ADirectory targetDirectory
+	)
+	{
+		return this.exportTypes(StorageEntityTypeExportFileProvider.New(targetDirectory));
+	}
+
+	/**
+	 * Alias for {@code this.exportTypes(StorageEntityTypeExportFileProvider.New(targetDirectory), isExportType);}.
+	 * 
+	 * @param targetDirectory the target directory for the export files
+	 * @param isExportType a {@link Predicate} selecting which type's entity data to be exported.
+	 * 
+	 * @return a {@link StorageEntityTypeExportStatistics} information instance about the completed export.
+	 * 
+	 * @see #exportTypes(StorageEntityTypeExportFileProvider, Predicate)
+	 */
+	public default StorageEntityTypeExportStatistics exportTypes(
+		final ADirectory                                  targetDirectory,
+		final Predicate<? super StorageEntityTypeHandler> isExportType
+	)
+	{
+		return this.exportTypes(
+			StorageEntityTypeExportFileProvider.New(targetDirectory),
+			isExportType
+		);
+	}
 
 	/**
 	 * Alias for {@code this.exportTypes(exportFileProvider, null);}, meaning all types are exported.

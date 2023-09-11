@@ -57,6 +57,16 @@ import org.eclipse.store.storage.exceptions.StorageException;
 public interface StorageDataConverterTypeCsvToBinary<S>
 {
 	public void convertCsv(S source);
+	
+	/**
+	 * Batch-converts given list of sources.
+	 * @param <I> source type
+	 * @param sources sources to convert
+	 */
+	public default <I extends Iterable<S>> void convertCsv(final I sources)
+	{
+		sources.forEach(this::convertCsv);
+	}
 
 
 
