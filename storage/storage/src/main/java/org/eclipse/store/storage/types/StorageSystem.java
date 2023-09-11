@@ -26,9 +26,6 @@ import static org.eclipse.serializer.util.X.notNull;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.eclipse.store.storage.exceptions.StorageExceptionInitialization;
-import org.eclipse.store.storage.exceptions.StorageExceptionNotAcceptingTasks;
-import org.eclipse.store.storage.exceptions.StorageExceptionNotRunning;
 import org.eclipse.serializer.afs.types.AFileSystem;
 import org.eclipse.serializer.meta.XDebug;
 import org.eclipse.serializer.persistence.binary.types.ObjectIdsSelector;
@@ -37,6 +34,9 @@ import org.eclipse.serializer.persistence.types.Persistence;
 import org.eclipse.serializer.persistence.types.Unpersistable;
 import org.eclipse.serializer.reference.Referencing;
 import org.eclipse.serializer.util.logging.Logging;
+import org.eclipse.store.storage.exceptions.StorageExceptionInitialization;
+import org.eclipse.store.storage.exceptions.StorageExceptionNotAcceptingTasks;
+import org.eclipse.store.storage.exceptions.StorageExceptionNotRunning;
 import org.slf4j.Logger;
 
 // (21.03.2016 TM)TODO: what is the difference between ~Manager and ~Controller here? Merge into Controller or comment.
@@ -346,7 +346,8 @@ public interface StorageSystem extends StorageController
 				this.backupHandler = this.backupSetup.setupHandler(
 					this.operationController,
 					this.writeController,
-					this.backupDataFileValidatorCreator
+					this.backupDataFileValidatorCreator,
+					this.typeDictionary()
 				);
 			}
 			
