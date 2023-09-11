@@ -23,10 +23,10 @@ package org.eclipse.store.storage.types;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
-import org.eclipse.store.afs.base.AFSUtils;
+import org.eclipse.serializer.afs.types.AFSUtils;
+import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.store.storage.exceptions.StorageExceptionIo;
 import org.eclipse.store.storage.exceptions.StorageExceptionIoWriting;
-import org.eclipse.serializer.afs.types.AFile;
 
 
 /**

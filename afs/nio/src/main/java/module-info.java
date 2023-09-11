@@ -21,5 +21,5 @@ module org.eclipse.store.afs.nio
 {
 	exports org.eclipse.store.afs.nio.types;
 
-	requires transitive org.eclipse.store.afs;
+	requires transitive org.eclipse.serializer.afs;
 }

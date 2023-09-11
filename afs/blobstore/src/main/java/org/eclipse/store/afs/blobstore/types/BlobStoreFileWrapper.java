@@ -22,7 +22,7 @@ package org.eclipse.store.afs.blobstore.types;
 
 import static org.eclipse.serializer.util.X.notNull;
 
-import org.eclipse.store.afs.base.exceptions.AfsExceptionRetiredFile;
+import org.eclipse.serializer.afs.exceptions.AfsExceptionRetiredFile;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.chars.XChars;
 

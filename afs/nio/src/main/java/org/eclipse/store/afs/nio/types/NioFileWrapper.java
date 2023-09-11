@@ -28,7 +28,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 
-import org.eclipse.store.afs.base.exceptions.AfsExceptionRetiredFile;
+import org.eclipse.serializer.afs.exceptions.AfsExceptionRetiredFile;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.exceptions.IORuntimeException;

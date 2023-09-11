@@ -26,6 +26,7 @@ import java.nio.ByteBuffer;
 import java.util.Iterator;
 
 import org.eclipse.serializer.afs.types.AFS;
+import org.eclipse.serializer.afs.types.AFSUtils;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AWritableFile;
 import org.eclipse.serializer.chars.EscapeHandler;
@@ -50,7 +51,6 @@ import org.eclipse.serializer.util.xcsv.XCsvConfiguration;
 import org.eclipse.serializer.util.xcsv.XCsvRecordParserCharArray;
 import org.eclipse.serializer.util.xcsv.XCsvRowCollector;
 import org.eclipse.serializer.util.xcsv.XCsvSegmentsParser;
-import org.eclipse.store.afs.base.AFSUtils;
 import org.eclipse.store.storage.exceptions.StorageException;
 
 
