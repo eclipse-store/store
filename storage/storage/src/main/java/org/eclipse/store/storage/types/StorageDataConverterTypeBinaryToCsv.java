@@ -61,6 +61,27 @@ import org.eclipse.store.storage.exceptions.StorageExceptionIoWriting;
 public interface StorageDataConverterTypeBinaryToCsv
 {
 	public void convertDataFile(AReadableFile file);
+	
+	/**
+	 * Batch-converts a list of files.
+	 * 
+	 * @param files the binary files to convert to CSV
+	 */
+	public default <I extends Iterable<AFile>> void convertDataFiles(final I files)
+	{
+		for(final AFile file : files)
+		{
+			final AReadableFile dataFile = file.useReading();
+			try
+			{
+				this.convertDataFile(dataFile);
+			}
+			finally
+			{
+				dataFile.close();
+			}
+		}
+	}
 
 
 

@@ -1,5 +1,7 @@
 package org.eclipse.store.storage.types;
 
+import static org.eclipse.serializer.chars.XChars.notEmpty;
+
 /*-
  * #%L
  * Eclipse Store Storage
@@ -80,6 +82,50 @@ public interface StorageEntityTypeExportFileProvider
 		{
 			throw new StorageException("Invalid TypeId String in file name \"" + uniqueTypeFileName + "\".", e);
 		}
+	}
+	
+
+	public interface Defaults
+	{
+		/**
+		 * Default file suffix for binary files.
+		 * 
+		 * @return {@code "bin"}
+		 */
+		public static String defaultFileSuffix()
+		{
+			return "bin";
+		}
+	}
+
+
+	/**
+	 * Pseudo-constructor method to create a new {@link StorageEntityTypeExportFileProvider}.
+	 * 
+	 * @param directory target directory for the export files
+	 * @return a new {@link StorageEntityTypeExportFileProvider}
+	 */
+	public static StorageEntityTypeExportFileProvider New(final ADirectory directory)
+	{
+		return New(
+			directory,
+			Defaults.defaultFileSuffix()
+		);
+	}
+
+	/**
+	 * Pseudo-constructor method to create a new {@link StorageEntityTypeExportFileProvider}.
+	 * 
+	 * @param directory target directory for the export files
+	 * @param fileSuffix suffix for created files
+	 * return a new {@link StorageEntityTypeExportFileProvider}
+	 */
+	public static StorageEntityTypeExportFileProvider New(final ADirectory directory, final String fileSuffix)
+	{
+		return new StorageEntityTypeExportFileProvider.Default(
+			notNull(directory),
+			notEmpty(fileSuffix)
+		);
 	}
 	
 
