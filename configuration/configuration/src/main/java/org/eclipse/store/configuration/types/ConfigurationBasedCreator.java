@@ -34,6 +34,7 @@ public interface ConfigurationBasedCreator<T>
 	public T create(Configuration configuration);
 	
 	
+	@SuppressWarnings("unchecked") // type-safety ensured by logic
 	public static <T> List<ConfigurationBasedCreator<T>> registeredCreators(
 		final Class<T> resultType
 	)
@@ -43,8 +44,8 @@ public interface ConfigurationBasedCreator<T>
 			false
 		)
 		.filter(creator -> resultType.isAssignableFrom(creator.resultType()))
-		.collect(Collectors.toList())
-		;
+		.map(c -> (ConfigurationBasedCreator<T>)c)
+		.collect(Collectors.toList());
 	}
 	
 	
