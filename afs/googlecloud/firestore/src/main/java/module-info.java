@@ -1,6 +1,6 @@
 /*-
  * #%L
- * afs-oracle-coherence
+ * afs-googlecloud-firestore
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,15 +17,21 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.afs.ocacle.coherence
+module org.eclipse.store.afs.googlecloud.firestore
 {
-	exports org.eclipse.storage.afs.oracle.coherence.types;
+	exports org.eclipse.store.afs.googlecloud.firestore.types;
 	
-	provides org.eclipse.storage.configuration.types.ConfigurationBasedCreator
-	    with org.eclipse.storage.afs.oracle.coherence.types.OracleCoherenceFileSystemCreator
+	provides org.eclipse.store.configuration.types.ConfigurationBasedCreator
+	    with org.eclipse.store.afs.googlecloud.firestore.types.GoogleCloudFirestoreFileSystemCreator
 	;
 	
 	requires transitive org.eclipse.store.configuration;
 	requires transitive org.eclipse.store.afs.blobstore;
-	requires transitive com.oracle.coherence.ce;
+	requires transitive com.google.api.apicommon;
+	requires transitive com.google.auth;
+	requires transitive com.google.auth.oauth2;
+	requires transitive com.google.protobuf;
+	requires transitive gax;
+	requires transitive google.cloud.core;
+	requires transitive google.cloud.firestore;
 }

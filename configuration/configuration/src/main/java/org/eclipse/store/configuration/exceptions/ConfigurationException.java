@@ -1,5 +1,7 @@
 package org.eclipse.store.configuration.exceptions;
 
+import org.eclipse.serializer.exceptions.BaseException;
+
 /*-
  * #%L
  * Eclipse Store Configuration
@@ -21,7 +23,6 @@ package org.eclipse.store.configuration.exceptions;
  */
 
 import org.eclipse.store.configuration.types.Configuration;
-import org.eclipse.serializer.exceptions.BaseException;
 
 public class ConfigurationException extends BaseException
 {

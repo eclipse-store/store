@@ -1,6 +1,6 @@
 /*-
  * #%L
- * Eclipse Storage REST Adapter
+ * Eclipse Store Abstract File System - SQL
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,13 +17,19 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.storage.restadapter
+module org.eclipse.store.afs.sql
 {
-	exports org.eclipse.store.storage.restadapter.types;
-	exports org.eclipse.store.storage.restadapter.exceptions;
-
-	requires org.eclipse.serializer.base;
-	requires org.eclipse.serializer.persistence;
-	requires org.eclipse.serializer.persistence.binary;
-	requires org.eclipse.store.storage;
+	exports org.eclipse.store.afs.sql.types;
+	
+	provides org.eclipse.store.configuration.types.ConfigurationBasedCreator
+    	with org.eclipse.store.afs.sql.types.SqlFileSystemCreatorHana,
+	         org.eclipse.store.afs.sql.types.SqlFileSystemCreatorMariaDb,
+			 org.eclipse.store.afs.sql.types.SqlFileSystemCreatorOracle,
+			 org.eclipse.store.afs.sql.types.SqlFileSystemCreatorPostgres,
+			 org.eclipse.store.afs.sql.types.SqlFileSystemCreatorSqlite
+	;
+	
+	requires transitive org.eclipse.store.afs;
+	requires transitive org.eclipse.store.configuration;
+	requires transitive java.sql;
 }

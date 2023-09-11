@@ -1,6 +1,6 @@
 /*-
  * #%L
- * afs-azure-storage
+ * Eclipse Store Storage REST Client Jersey
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,17 +17,11 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.afs.azure.storage
+module org.eclipse.store.storage.restclient.jersey
 {
-	exports org.eclipse.storage.afs.azure.storage.types;
+	exports org.eclipse.store.storage.restclient.jersey.types;
 	
-	provides org.eclipse.storage.configuration.types.ConfigurationBasedCreator
-	    with org.eclipse.storage.afs.azure.storage.types.AzureStorageFileSystemCreator
-	;
-	
-	requires transitive org.eclipse.store.configuration;
-	requires transitive org.eclipse.store.afs.blobstore;
-	requires transitive com.azure.core;
-	requires transitive com.azure.storage.blob;
-	requires transitive com.azure.storage.common;
+	requires transitive com.google.gson;
+	requires transitive java.ws.rs;
+	requires transitive org.eclipse.store.storage.restclient;
 }

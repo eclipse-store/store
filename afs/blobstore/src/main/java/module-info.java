@@ -1,6 +1,6 @@
 /*-
  * #%L
- * Eclipse Store Embedded Storage Configuration
+ * afs-blobstore
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,15 +17,9 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.storage.embedded.configuration
+module org.eclipse.store.afs.blobstore
 {
-	exports org.eclipse.store.storage.embedded.configuration.types;
+	exports org.eclipse.store.afs.blobstore.types;
 	
-	requires java.xml;
-	requires org.eclipse.store.afs;
-	requires org.eclipse.store.afs.nio;
-	requires org.eclipse.store.base;
-	requires org.eclipse.store.configuration;
-	requires org.eclipse.store.persistence.binary;
-	requires org.eclipse.store.storage.embedded;
+	requires transitive org.eclipse.store.afs;
 }

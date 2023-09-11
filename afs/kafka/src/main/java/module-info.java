@@ -1,6 +1,6 @@
 /*-
  * #%L
- * Eclipse Store Abstract File System - Java NIO
+ * afs-kafka
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,10 +17,15 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.afs.nio
+module org.eclipse.store.afs.kafka
 {
-	exports org.eclipse.storage.afs.nio.types;
+	exports org.eclipse.store.afs.kafka.types;
 	
-	requires org.eclipse.store.afs;
-	requires org.eclipse.store.base;
+	provides org.eclipse.store.configuration.types.ConfigurationBasedCreator
+	    with org.eclipse.store.afs.kafka.types.KafkaFileSystemCreator
+	;
+	
+	requires transitive org.eclipse.store.configuration;
+	requires transitive org.eclipse.store.afs.blobstore;
+	requires transitive kafka.clients;
 }

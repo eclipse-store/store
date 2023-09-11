@@ -1,6 +1,6 @@
 /*-
  * #%L
- * afs-kafka
+ * Eclipse Store Storage
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,15 +17,12 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.afs.kafka
+module org.eclipse.store.storage
 {
-	exports org.eclipse.storage.afs.kafka.types;
-	
-	provides org.eclipse.storage.configuration.types.ConfigurationBasedCreator
-	    with org.eclipse.storage.afs.kafka.types.KafkaFileSystemCreator
-	;
-	
-	requires transitive org.eclipse.store.configuration;
-	requires transitive org.eclipse.store.afs.blobstore;
-	requires transitive kafka.clients;
+	exports org.eclipse.store.storage.util;
+	exports org.eclipse.store.storage.types;
+	exports org.eclipse.store.storage.exceptions;
+
+	requires transitive org.eclipse.store.afs.nio;
+	requires transitive org.eclipse.serializer.persistence.binary;
 }

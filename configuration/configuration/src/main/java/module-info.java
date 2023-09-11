@@ -22,6 +22,6 @@ module org.eclipse.store.configuration
 	exports org.eclipse.store.configuration.exceptions;
 	exports org.eclipse.store.configuration.types;
 	
-	requires java.xml;
-	requires org.eclipse.store.base;
+	requires transitive java.xml;
+	requires transitive org.eclipse.serializer.base;
 }

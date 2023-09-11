@@ -1,6 +1,6 @@
 /*-
  * #%L
- * Eclipse Store Configuration Hocon
+ * Eclipse Store Embedded Storage
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,11 +17,10 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.configuration.hocon
+module org.eclipse.store.storage.embedded
 {
-	exports org.eclipse.store.configuration.hocon.types;
+	exports org.eclipse.store.storage.embedded.types;
 	
-	requires org.eclipse.store.base;
-	requires org.eclipse.store.configuration;
-	requires typesafe.config;
+	requires transitive org.eclipse.store.storage;
+	requires transitive org.slf4j;
 }

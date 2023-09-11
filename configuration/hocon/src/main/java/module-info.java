@@ -1,6 +1,6 @@
 /*-
  * #%L
- * Eclipse Store Abstract File System Implementation
+ * Eclipse Store Configuration Hocon
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,11 +17,10 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.afs
+module org.eclipse.store.configuration.hocon
 {
-	exports org.eclipse.storage.afs.base.exceptions;
-    exports org.eclipse.storage.afs.base;
-
-    requires transitive org.eclipse.serializer.base;
-	requires transitive org.eclipse.serializer.afs;
+	exports org.eclipse.store.configuration.hocon.types;
+	
+	requires transitive org.eclipse.store.configuration;
+	requires transitive typesafe.config;
 }

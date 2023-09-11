@@ -1,6 +1,6 @@
 /*-
  * #%L
- * afs-aws
+ * Eclipse Store Embedded Storage Configuration
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,15 +17,11 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.afs.aws
+module org.eclipse.store.storage.embedded.configuration
 {
-	exports org.eclipse.storage.afs.aws.types;
+	exports org.eclipse.store.storage.embedded.configuration.types;
 	
-	requires transitive org.eclipse.store.afs;
+	requires java.xml;
 	requires transitive org.eclipse.store.configuration;
-	requires transitive software.amazon.awssdk.auth;
-	requires transitive software.amazon.awssdk.awscore;
-	requires transitive software.amazon.awssdk.core;
-	requires transitive software.amazon.awssdk.regions;
-	requires transitive software.amazon.awssdk.utils;
+	requires transitive org.eclipse.store.storage.embedded;
 }

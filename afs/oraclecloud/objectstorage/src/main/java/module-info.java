@@ -1,6 +1,6 @@
 /*-
  * #%L
- * afs-redis
+ * afs-oraclecloud-objectstorage
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,17 +17,17 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.afs.redis
+module org.eclipse.store.afs.oraclecloud.objectstorage
 {
-	exports org.eclipse.storage.afs.redis.types;
+	exports org.eclipse.store.afs.oraclecloud.objectstorage.types;
 	
-	provides org.eclipse.storage.configuration.types.ConfigurationBasedCreator
-	    with org.eclipse.storage.afs.redis.types.RedisFileSystemCreator
+	provides org.eclipse.store.configuration.types.ConfigurationBasedCreator
+	    with org.eclipse.store.afs.oraclecloud.objectstorage.types.OracleCloudObjectStorageFileSystemCreator
 	;
 	
 	requires transitive org.eclipse.store.configuration;
 	requires transitive org.eclipse.store.afs.blobstore;
-	requires transitive io.netty.buffer;
-	requires transitive io.netty.common;
-	requires transitive lettuce.core;
+	requires transitive oci.java.sdk.common;
+	requires transitive oci.java.sdk.objectstorage.extensions;
+	requires transitive oci.java.sdk.objectstorage.generated;
 }

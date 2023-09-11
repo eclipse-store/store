@@ -22,10 +22,14 @@ module org.eclipse.store.storage.restservice.sparkjava
 	exports org.eclipse.store.storage.restservice.sparkjava.exceptions;
 	exports org.eclipse.store.storage.restservice.sparkjava.types;
 	
-	requires com.google.gson;
-	requires org.eclipse.store.base;
-	requires org.eclipse.store.storage;
-	requires org.eclipse.store.storage.restadapter;
-	requires org.eclipse.store.storage.restservice;
-	requires spark.core;
+	provides org.eclipse.store.storage.restadapter.types.StorageViewDataConverter
+	    with org.eclipse.store.storage.restservice.sparkjava.types.StorageViewDataConverterJson
+	;
+	provides org.eclipse.store.storage.restservice.types.StorageRestServiceProvider
+	    with org.eclipse.store.storage.restservice.sparkjava.types.StorageRestServiceProviderSparkJava
+	;
+
+	requires transitive org.eclipse.store.storage.restservice;
+	requires transitive com.google.gson;
+	requires transitive spark.core;
 }

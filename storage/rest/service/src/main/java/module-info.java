@@ -1,6 +1,6 @@
 /*-
  * #%L
- * afs-blobstore
+ * Eclipse Store Storage REST Service
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,10 +17,10 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.afs.blobstore
+module org.eclipse.store.storage.restservice
 {
-	exports org.eclipse.storage.afs.blobstore.types;
-	
-	requires transitive org.eclipse.store.afs;
-	requires transitive org.eclipse.store.base;
+	exports org.eclipse.store.storage.restservice.types;
+	exports org.eclipse.store.storage.restservice.exceptions;
+
+	requires transitive org.eclipse.store.storage.restadapter;
 }

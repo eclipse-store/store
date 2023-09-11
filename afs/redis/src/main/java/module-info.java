@@ -1,6 +1,6 @@
 /*-
  * #%L
- * Eclipse Store Storage
+ * afs-redis
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,16 +17,17 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.storage
+module org.eclipse.store.afs.redis
 {
-	exports org.eclipse.store.storage.util;
-	exports org.eclipse.store.storage.types;
-	exports org.eclipse.store.storage.exceptions;
-
-	requires org.eclipse.store.afs;
-	requires org.eclipse.store.afs.nio;
-	requires org.eclipse.store.base;
-	requires org.eclipse.store.persistence.binary;
-	requires org.eclipse.serializer.persistence;
-	requires org.eclipse.serializer.persistence.binary;
+	exports org.eclipse.store.afs.redis.types;
+	
+	provides org.eclipse.store.configuration.types.ConfigurationBasedCreator
+	    with org.eclipse.store.afs.redis.types.RedisFileSystemCreator
+	;
+	
+	requires transitive org.eclipse.store.configuration;
+	requires transitive org.eclipse.store.afs.blobstore;
+	requires transitive io.netty.buffer;
+	requires transitive io.netty.common;
+	requires transitive lettuce.core;
 }
