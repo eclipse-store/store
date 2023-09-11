@@ -39,8 +39,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.LongFunction;
 
-import org.eclipse.store.base.io.ByteBufferInputStream;
-import org.eclipse.store.base.io.LimitedInputStream;
+import org.eclipse.serializer.io.ByteBufferInputStream;
+import org.eclipse.serializer.io.LimitedInputStream;
 import org.eclipse.serializer.reference.Reference;
 import org.eclipse.serializer.typing.KeyValue;
 

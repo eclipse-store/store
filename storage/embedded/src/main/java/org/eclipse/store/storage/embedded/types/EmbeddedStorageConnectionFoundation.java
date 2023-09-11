@@ -24,7 +24,6 @@ import static org.eclipse.serializer.util.X.notNull;
 
 import java.util.function.Supplier;
 
-import org.eclipse.store.persistence.types.PersistenceLiveStorerRegistry;
 import org.eclipse.store.storage.types.StorageConnection;
 import org.eclipse.store.storage.types.StorageRequestAcceptor;
 import org.eclipse.store.storage.types.StorageSystem;
@@ -34,6 +33,7 @@ import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.binary.types.BinaryLoader;
 import org.eclipse.serializer.persistence.binary.types.BinaryPersistenceFoundation;
 import org.eclipse.serializer.persistence.binary.types.BinaryStorer;
+import org.eclipse.serializer.persistence.binary.types.PersistenceLiveStorerRegistry;
 import org.eclipse.serializer.persistence.types.PersistenceManager;
 import org.eclipse.serializer.persistence.types.PersistenceStorer;
 import org.eclipse.serializer.reference.Reference;

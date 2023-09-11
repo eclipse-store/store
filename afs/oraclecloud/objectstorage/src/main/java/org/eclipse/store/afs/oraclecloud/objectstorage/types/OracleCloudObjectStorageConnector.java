@@ -49,9 +49,9 @@ import com.oracle.bmc.objectstorage.transfer.UploadManager.UploadRequest;
 
 import org.eclipse.store.afs.blobstore.types.BlobStoreConnector;
 import org.eclipse.store.afs.blobstore.types.BlobStorePath;
-import org.eclipse.store.base.io.ByteBufferInputStream;
-import org.eclipse.store.base.io.LimitedInputStream;
 import org.eclipse.serializer.exceptions.IORuntimeException;
+import org.eclipse.serializer.io.ByteBufferInputStream;
+import org.eclipse.serializer.io.LimitedInputStream;
 
 /**
  * Connector for the <a href="https://www.oracle.com/cloud/storage/object-storage.html">Oracle cloud object storage</a>.

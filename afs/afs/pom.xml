@@ -22,12 +22,6 @@
 			<artifactId>afs</artifactId>
 			<version>${eclipse.serializer.version}</version>
 		</dependency>
-
-		<dependency>
-			<groupId>org.eclipse.store</groupId>
-			<artifactId>base</artifactId>
-			<version>1.0.0-SNAPSHOT</version>
-		</dependency>
 	</dependencies>
 	
 </project>

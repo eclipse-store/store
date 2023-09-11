@@ -20,8 +20,8 @@ package org.eclipse.store.storage.types;
  * #L%
  */
 
-import org.eclipse.store.base.chars.CharsUtils;
 import org.eclipse.serializer.afs.types.AFile;
+import org.eclipse.serializer.chars.CharsUtils;
 import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.collections.EqConstHashTable;
 import org.eclipse.serializer.collections.EqHashTable;

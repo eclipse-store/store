@@ -25,7 +25,6 @@ import static org.eclipse.serializer.util.X.notNull;
 import java.nio.file.FileSystem;
 import java.nio.file.Path;
 
-import org.eclipse.store.base.io.IOUtils;
 import org.eclipse.serializer.afs.types.ADirectory;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AFileSystem;
@@ -143,13 +142,13 @@ public interface NioFileSystem extends AFileSystem, AResolver<Path, Path>
 		@Override
 		public String deriveFileIdentifier(final String fileName, final String fileType)
 		{
-			return IOUtils.addFileSuffix(fileName, fileType);
+			return XIO.addFileSuffix(fileName, fileType);
 		}
 		
 		@Override
 		public String deriveFileName(final String fileIdentifier)
 		{
-			return IOUtils.getFilePrefix(fileIdentifier);
+			return XIO.getFilePrefix(fileIdentifier);
 		}
 		
 		@Override
@@ -161,7 +160,7 @@ public interface NioFileSystem extends AFileSystem, AResolver<Path, Path>
 		@Override
 		public String getFileName(final AFile file)
 		{
-			return IOUtils.getFilePrefix(file.identifier());
+			return XIO.getFilePrefix(file.identifier());
 		}
 		
 		@Override
@@ -188,19 +187,19 @@ public interface NioFileSystem extends AFileSystem, AResolver<Path, Path>
 				return this.createFile(parent, name);
 			}
 			
-			return this.createFile(parent, IOUtils.addFileSuffix(name, type));
+			return this.createFile(parent, XIO.addFileSuffix(name, type));
 		}
 		
 		@Override
 		public String[] resolveDirectoryToPath(final Path directory)
 		{
-			return IOUtils.splitPath(directory);
+			return XIO.splitPath(directory);
 		}
 
 		@Override
 		public String[] resolveFileToPath(final Path file)
 		{
-			return IOUtils.splitPath(file);
+			return XIO.splitPath(file);
 		}
 
 		@Override
@@ -220,7 +219,7 @@ public interface NioFileSystem extends AFileSystem, AResolver<Path, Path>
 		@Override
 		protected VarString assembleItemPath(final AItem item, final VarString vs)
 		{
-			return IOUtils.assemblePath(vs, item.toPath());
+			return XIO.assemblePath(vs, item.toPath());
 		}
 		
 		@Override

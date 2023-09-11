@@ -20,9 +20,9 @@ package org.eclipse.store.storage.types;
  * #L%
  */
 
-import org.eclipse.store.persistence.types.ObjectIdsSelector;
-import org.eclipse.store.persistence.types.PersistenceLiveStorerRegistry;
 import org.eclipse.serializer.memory.XMemory;
+import org.eclipse.serializer.persistence.binary.types.ObjectIdsSelector;
+import org.eclipse.serializer.persistence.binary.types.PersistenceLiveStorerRegistry;
 import org.eclipse.serializer.reference.Referencing;
 import org.eclipse.serializer.util.BufferSizeProvider;
 import org.eclipse.serializer.util.BufferSizeProviderIncremental;

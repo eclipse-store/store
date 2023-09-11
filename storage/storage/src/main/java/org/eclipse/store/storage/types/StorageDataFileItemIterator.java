@@ -23,14 +23,13 @@ package org.eclipse.store.storage.types;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
-import org.eclipse.store.base.memory.MemoryUtils;
-import org.eclipse.store.storage.exceptions.StorageException;
-import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
-import org.eclipse.store.storage.exceptions.StorageExceptionIo;
 import org.eclipse.serializer.afs.types.AReadableFile;
 import org.eclipse.serializer.exceptions.IndexBoundsException;
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.persistence.binary.types.Binary;
+import org.eclipse.store.storage.exceptions.StorageException;
+import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
+import org.eclipse.store.storage.exceptions.StorageExceptionIo;
 
 
 public interface StorageDataFileItemIterator
@@ -67,7 +66,7 @@ public interface StorageDataFileItemIterator
 		public default ByteBuffer provideInitialBuffer()
 		{
 			// default-(page-ish)-sized direct byte buffer as default
-			return MemoryUtils.allocateDirectNativeDefault();
+			return XMemory.allocateDirectNativeDefault();
 		}
 
 		/**

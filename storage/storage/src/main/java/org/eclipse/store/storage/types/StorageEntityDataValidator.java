@@ -22,9 +22,9 @@ package org.eclipse.store.storage.types;
 
 import static org.eclipse.serializer.util.X.notNull;
 
-import org.eclipse.store.persistence.types.BinaryEntityRawDataAcceptor;
 import org.eclipse.serializer.meta.XDebug;
 import org.eclipse.serializer.persistence.binary.types.Binary;
+import org.eclipse.serializer.persistence.binary.types.BinaryEntityRawDataAcceptor;
 import org.eclipse.serializer.util.UtilStackTrace;
 
 

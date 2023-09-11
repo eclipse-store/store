@@ -38,15 +38,12 @@
         <license.licenceFile>${basedir}/LICENSE</license.licenceFile>
         <api.version>1</api.version>
         <javadoc.failed.on.error>false</javadoc.failed.on.error>
-
         <eclipse.serializer.version>1.0.0-SNAPSHOT</eclipse.serializer.version>
     </properties>
 
     <modules>
         <module>afs</module>
-        <module>base</module>
         <module>configuration</module>
-        <module>persistence</module>
         <module>storage</module>
     </modules>
 

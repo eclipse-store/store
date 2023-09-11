@@ -20,9 +20,9 @@ package org.eclipse.store.storage.types;
  * #L%
  */
 
-import org.eclipse.store.base.chars.CharsUtils;
-import org.eclipse.store.base.math.MathUtils;
+import org.eclipse.serializer.chars.CharsUtils;
 import org.eclipse.serializer.chars.VarString;
+import org.eclipse.serializer.math.XMath;
 import org.eclipse.serializer.persistence.binary.types.BinaryChannelCountProvider;
 
 
@@ -81,7 +81,7 @@ public interface StorageChannelCountProvider extends BinaryChannelCountProvider
 		public static boolean isValidChannelCountPow2Value(final int channelCount)
 		{
 			// breakpoint-friendly statement
-			return MathUtils.isPow2(channelCount)
+			return XMath.isPow2(channelCount)
 				? true
 				: false
 			;

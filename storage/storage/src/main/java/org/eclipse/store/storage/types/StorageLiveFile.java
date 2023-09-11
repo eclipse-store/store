@@ -22,8 +22,8 @@ package org.eclipse.store.storage.types;
 
 import java.util.function.Consumer;
 
-import org.eclipse.store.base.collections.ArraysUtils;
 import org.eclipse.serializer.afs.types.AFile;
+import org.eclipse.serializer.collections.ArraysUtils;
 import org.eclipse.serializer.collections.XArrays;
 
 

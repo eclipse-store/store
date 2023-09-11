@@ -1,5 +1,7 @@
 package org.eclipse.store.storage.types;
 
+import static org.eclipse.serializer.math.XMath.notNegative;
+
 /*-
  * #%L
  * Eclipse Store Storage
@@ -23,31 +25,29 @@ package org.eclipse.store.storage.types;
 
 import static org.eclipse.serializer.util.X.mayNull;
 import static org.eclipse.serializer.util.X.notNull;
-import static org.eclipse.serializer.math.XMath.notNegative;
 
 import java.nio.ByteBuffer;
 import java.util.function.Consumer;
 
-import org.eclipse.store.afs.base.AFSUtils;
-import org.eclipse.store.base.Utils;
-import org.eclipse.store.base.exception.MultiCauseException;
-import org.eclipse.store.base.typing.Disposable;
-import org.eclipse.store.storage.exceptions.StorageException;
-import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
-import org.eclipse.store.storage.exceptions.StorageExceptionIoReading;
-import org.eclipse.store.storage.exceptions.StorageExceptionIoWriting;
-import org.eclipse.store.storage.exceptions.StorageExceptionIoWritingChunk;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.EqHashTable;
 import org.eclipse.serializer.collections.XSort;
 import org.eclipse.serializer.collections.types.XGettingSequence;
+import org.eclipse.serializer.exceptions.MultiCauseException;
 import org.eclipse.serializer.memory.XMemory;
+import org.eclipse.serializer.typing.Disposable;
 import org.eclipse.serializer.typing.XTypes;
 import org.eclipse.serializer.util.BufferSizeProvider;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.logging.Logging;
+import org.eclipse.store.afs.base.AFSUtils;
+import org.eclipse.store.storage.exceptions.StorageException;
+import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
+import org.eclipse.store.storage.exceptions.StorageExceptionIoReading;
+import org.eclipse.store.storage.exceptions.StorageExceptionIoWriting;
+import org.eclipse.store.storage.exceptions.StorageExceptionIoWritingChunk;
 import org.slf4j.Logger;
 
 
@@ -175,11 +175,11 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		;
 		
 		private final Iterable<? extends ByteBuffer>
-			entryBufferWrapFileCreation   = Utils.ArrayView(this.entryBufferFileCreation  ),
-			entryBufferWrapStore          = Utils.ArrayView(this.entryBufferStore         ),
-			entryBufferWrapTransfer       = Utils.ArrayView(this.entryBufferTransfer      ),
-			entryBufferWrapFileDeletion   = Utils.ArrayView(this.entryBufferFileDeletion  ),
-			entryBufferWrapFileTruncation = Utils.ArrayView(this.entryBufferFileTruncation)
+			entryBufferWrapFileCreation   = X.ArrayView(this.entryBufferFileCreation  ),
+			entryBufferWrapStore          = X.ArrayView(this.entryBufferStore         ),
+			entryBufferWrapTransfer       = X.ArrayView(this.entryBufferTransfer      ),
+			entryBufferWrapFileDeletion   = X.ArrayView(this.entryBufferFileDeletion  ),
+			entryBufferWrapFileTruncation = X.ArrayView(this.entryBufferFileTruncation)
 		;
 
 		private final long
@@ -598,7 +598,7 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			this.checkForNewFile();
 			final long   oldTotalLength   = this.ensureHeadFileTotalLength();
 			final long[] storagePositions = allChunksStoragePositions(dataBuffers, oldTotalLength);
-			final long   writeCount       = this.writer.writeStore(this.headFile, Utils.ArrayView(dataBuffers));
+			final long   writeCount       = this.writer.writeStore(this.headFile, X.ArrayView(dataBuffers));
 			final long   newTotalLength   = oldTotalLength + writeCount;
 			
 			if(newTotalLength != this.headFile.size())

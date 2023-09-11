@@ -35,9 +35,10 @@ import java.util.stream.Stream;
 
 import org.eclipse.store.afs.blobstore.types.BlobStoreConnector;
 import org.eclipse.store.afs.blobstore.types.BlobStorePath;
-import org.eclipse.store.base.io.ByteBufferInputStream;
-import org.eclipse.store.base.io.LimitedInputStream;
 import org.eclipse.serializer.exceptions.IORuntimeException;
+import org.eclipse.serializer.io.ByteBufferInputStream;
+import org.eclipse.serializer.io.LimitedInputStream;
+
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeDefinition;

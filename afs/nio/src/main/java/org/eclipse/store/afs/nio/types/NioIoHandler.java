@@ -28,7 +28,6 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-import org.eclipse.store.base.io.IOUtils;
 import org.eclipse.serializer.afs.types.ADirectory;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AIoHandler;
@@ -282,9 +281,9 @@ public interface NioIoHandler extends AIoHandler
 		}
 		
 		@Override
-		protected boolean specificIsEmpty(final ADirectory directory) 
-		{		
-			return XIO.unchecked.hasNoFiles(this.toSubjectDirectory(directory));			
+		protected boolean specificIsEmpty(final ADirectory directory)
+		{
+			return XIO.unchecked.hasNoFiles(this.toSubjectDirectory(directory));
 		}
 
 		@Override
@@ -343,7 +342,7 @@ public interface NioIoHandler extends AIoHandler
 
 			try
 			{
-				IOUtils.truncate(targetFile.fileChannel(), newSize);
+				XIO.truncate(targetFile.fileChannel(), newSize);
 			}
 			catch (final IOException e)
 			{
@@ -356,7 +355,7 @@ public interface NioIoHandler extends AIoHandler
 		{
 			try
 			{
-				return IOUtils.delete(file.path());
+				return XIO.delete(file.path());
 			}
 			catch (final IOException e)
 			{
@@ -418,7 +417,7 @@ public interface NioIoHandler extends AIoHandler
 		{
 			try
 			{
-				return IOUtils.read(sourceFile.ensureOpenChannel(), targetBuffer);
+				return XIO.read(sourceFile.ensureOpenChannel(), targetBuffer);
 			}
 			catch(final IOException e)
 			{
@@ -435,7 +434,7 @@ public interface NioIoHandler extends AIoHandler
 		{
 			try
 			{
-				return IOUtils.read(sourceFile.ensureOpenChannel(), targetBuffer, position);
+				return XIO.read(sourceFile.ensureOpenChannel(), targetBuffer, position);
 			}
 			catch(final IOException e)
 			{
@@ -664,7 +663,7 @@ public interface NioIoHandler extends AIoHandler
 			
 			try
 			{
-				return IOUtils.write(targetFile.fileChannel(), sourceBuffers);
+				return XIO.write(targetFile.fileChannel(), sourceBuffers);
 			}
 			catch (final IOException e)
 			{
@@ -699,7 +698,7 @@ public interface NioIoHandler extends AIoHandler
 		{
 			try
 			{
-				IOUtils.move(
+				XIO.move(
 					sourceFile.path(),
 					targetFile.path()
 				);

@@ -26,13 +26,13 @@ import static org.eclipse.serializer.util.X.notNull;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.eclipse.store.persistence.types.ObjectIdsSelector;
-import org.eclipse.store.persistence.types.PersistenceLiveStorerRegistry;
 import org.eclipse.store.storage.exceptions.StorageExceptionInitialization;
 import org.eclipse.store.storage.exceptions.StorageExceptionNotAcceptingTasks;
 import org.eclipse.store.storage.exceptions.StorageExceptionNotRunning;
 import org.eclipse.serializer.afs.types.AFileSystem;
 import org.eclipse.serializer.meta.XDebug;
+import org.eclipse.serializer.persistence.binary.types.ObjectIdsSelector;
+import org.eclipse.serializer.persistence.binary.types.PersistenceLiveStorerRegistry;
 import org.eclipse.serializer.persistence.types.Persistence;
 import org.eclipse.serializer.persistence.types.Unpersistable;
 import org.eclipse.serializer.reference.Referencing;

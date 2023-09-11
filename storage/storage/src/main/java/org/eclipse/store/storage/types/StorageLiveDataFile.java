@@ -1,5 +1,7 @@
 package org.eclipse.store.storage.types;
 
+import static org.eclipse.serializer.math.XMath.notNegative;
+
 /*-
  * #%L
  * Eclipse Store Storage
@@ -21,13 +23,12 @@ package org.eclipse.store.storage.types;
  */
 
 import static org.eclipse.serializer.util.X.notNull;
-import static org.eclipse.serializer.math.XMath.notNegative;
 
 import java.util.function.Consumer;
 
-import org.eclipse.store.base.math.MathUtils;
-import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
 import org.eclipse.serializer.afs.types.AFile;
+import org.eclipse.serializer.math.XMath;
+import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
 
 
 public interface StorageLiveDataFile
@@ -388,7 +389,7 @@ extends StorageDataFile, StorageLiveChannelFile<StorageLiveDataFile>, StorageCre
 		{
 			return this.getClass().getSimpleName() + " " + this.file().identifier()
 				+ " (" + this.fileDataLength + " / " + this.fileTotalLength
-				+ ", " + MathUtils.fractionToPercent(this.dataFillRatio()) + ")"
+				+ ", " + XMath.fractionToPercent(this.dataFillRatio()) + ")"
 			;
 		}
 		

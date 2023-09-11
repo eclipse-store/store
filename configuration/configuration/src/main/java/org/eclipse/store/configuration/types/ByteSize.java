@@ -1,5 +1,7 @@
 package org.eclipse.store.configuration.types;
 
+import static org.eclipse.serializer.math.XMath.notNegative;
+
 /*-
  * #%L
  * Eclipse Store Configuration
@@ -21,9 +23,8 @@ package org.eclipse.store.configuration.types;
  */
 
 import static org.eclipse.serializer.util.X.notNull;
-import static org.eclipse.serializer.math.XMath.notNegative;
 
-import org.eclipse.store.base.math.MathUtils;
+import org.eclipse.serializer.math.XMath;
 
 
 /**
@@ -171,7 +172,7 @@ public interface ByteSize extends Comparable<ByteSize>
 		@Override
 		public String toString()
 		{
-			return MathUtils.isMathematicalInteger(this.amount)
+			return XMath.isMathematicalInteger(this.amount)
 				? Long.toString((long)this.amount) + this.unit.name()
 				: Double.toString(this.amount)     + this.unit.name()
 			;

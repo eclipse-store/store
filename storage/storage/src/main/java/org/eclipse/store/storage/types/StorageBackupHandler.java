@@ -22,18 +22,18 @@ package org.eclipse.store.storage.types;
 
 import static org.eclipse.serializer.util.X.notNull;
 
+import org.eclipse.serializer.afs.types.AFile;
+import org.eclipse.serializer.collections.BulkList;
+import org.eclipse.serializer.collections.EqHashTable;
+import org.eclipse.serializer.util.X;
+import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.afs.base.AFSUtils;
-import org.eclipse.store.base.Utils;
 import org.eclipse.store.storage.exceptions.StorageExceptionBackup;
 import org.eclipse.store.storage.exceptions.StorageExceptionBackupCopying;
 import org.eclipse.store.storage.exceptions.StorageExceptionBackupEmptyStorageBackupAhead;
 import org.eclipse.store.storage.exceptions.StorageExceptionBackupEmptyStorageForNonEmptyBackup;
 import org.eclipse.store.storage.exceptions.StorageExceptionBackupInconsistentFileLength;
 import org.eclipse.store.storage.types.StorageBackupHandler.Default.ChannelInventory;
-import org.eclipse.serializer.afs.types.AFile;
-import org.eclipse.serializer.collections.BulkList;
-import org.eclipse.serializer.collections.EqHashTable;
-import org.eclipse.serializer.util.logging.Logging;
 import org.slf4j.Logger;
 
 public interface StorageBackupHandler extends Runnable, StorageActivePart
@@ -91,7 +91,7 @@ public interface StorageBackupHandler extends Runnable, StorageActivePart
 	{
 		final StorageBackupFileProvider backupFileProvider = backupSetup.backupFileProvider();
 		
-		final ChannelInventory[] cis = Utils.Array(ChannelInventory.class, channelCount, i ->
+		final ChannelInventory[] cis = X.Array(ChannelInventory.class, channelCount, i ->
 		{
 			return new ChannelInventory(i, backupFileProvider);
 		});

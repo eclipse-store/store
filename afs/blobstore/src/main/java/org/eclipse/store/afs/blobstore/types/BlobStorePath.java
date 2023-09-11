@@ -24,8 +24,8 @@ import static java.util.stream.Collectors.joining;
 
 import java.util.Arrays;
 
-import org.eclipse.store.base.chars.CharsUtils;
-import org.eclipse.store.base.collections.ArraysUtils;
+import org.eclipse.serializer.chars.CharsUtils;
+import org.eclipse.serializer.collections.ArraysUtils;
 
 
 public interface BlobStorePath

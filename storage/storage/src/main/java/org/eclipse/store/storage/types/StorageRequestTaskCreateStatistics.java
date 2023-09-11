@@ -22,7 +22,7 @@ package org.eclipse.store.storage.types;
 
 import java.util.Date;
 
-import org.eclipse.store.base.collections.CollectionsUtils;
+import org.eclipse.serializer.collections.CollectionsUtils;
 import org.eclipse.serializer.time.XTime;
 
 

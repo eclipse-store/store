@@ -27,11 +27,10 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.function.Predicate;
 
-import org.eclipse.store.base.functional.ThrowingProcedure;
-import org.eclipse.store.base.typing.Disposable;
 import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
 import org.eclipse.serializer.afs.types.AWritableFile;
 import org.eclipse.serializer.collections.BulkList;
+import org.eclipse.serializer.functional.ThrowingProcedure;
 import org.eclipse.serializer.functional._longProcedure;
 import org.eclipse.serializer.persistence.binary.types.Chunk;
 import org.eclipse.serializer.persistence.binary.types.ChunksBuffer;
@@ -39,6 +38,7 @@ import org.eclipse.serializer.persistence.binary.types.ChunksBufferByteReversing
 import org.eclipse.serializer.persistence.types.PersistenceIdSet;
 import org.eclipse.serializer.persistence.types.Unpersistable;
 import org.eclipse.serializer.time.XTime;
+import org.eclipse.serializer.typing.Disposable;
 import org.eclipse.serializer.typing.KeyValue;
 import org.eclipse.serializer.util.BufferSizeProviderIncremental;
 import org.eclipse.serializer.util.X;

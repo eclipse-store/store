@@ -24,18 +24,17 @@ import static org.eclipse.serializer.util.X.notNull;
 
 import java.nio.ByteBuffer;
 
-import org.eclipse.store.base.Utils;
-import org.eclipse.store.base.chars.CharsUtils;
-import org.eclipse.store.base.collections.ArraysUtils;
-import org.eclipse.store.base.concurrency.ThreadsUtils;
-import org.eclipse.store.storage.exceptions.StorageException;
-import org.eclipse.store.storage.exceptions.StorageExceptionInitialization;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AFileSystem;
+import org.eclipse.serializer.chars.CharsUtils;
 import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.collections.ArrayView;
+import org.eclipse.serializer.collections.ArraysUtils;
+import org.eclipse.serializer.concurrency.ThreadsUtils;
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.util.X;
+import org.eclipse.store.storage.exceptions.StorageException;
+import org.eclipse.store.storage.exceptions.StorageExceptionInitialization;
 
 
 public interface StorageLockFileManager extends Runnable
@@ -109,7 +108,7 @@ public interface StorageLockFileManager extends Runnable
 			
 			// 2 timestamps with separators and an identifier. Should suffice.
 			this.wrappedByteBuffer = new ByteBuffer[1];
-			this.wrappedWrappedByteBuffer = Utils.ArrayView(this.wrappedByteBuffer);
+			this.wrappedWrappedByteBuffer = X.ArrayView(this.wrappedByteBuffer);
 
 			this.stringReadBuffer = new byte[64];
 			this.stringWriteBuffer = this.stringReadBuffer.clone();
