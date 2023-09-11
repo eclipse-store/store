@@ -1,6 +1,6 @@
 /*-
  * #%L
- * afs-oraclecloud-objectstorage
+ * afs-azure-storage
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,17 +17,17 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.afs.oraclecloud.objectstorage
+module org.eclipse.store.afs.azure.storage
 {
-	exports org.eclipse.storage.afs.oraclecloud.objectstorage.types;
+	exports org.eclipse.store.afs.azure.storage.types;
 	
-	provides org.eclipse.storage.configuration.types.ConfigurationBasedCreator
-	    with org.eclipse.storage.afs.oraclecloud.objectstorage.types.OracleCloudObjectStorageFileSystemCreator
+	provides org.eclipse.store.configuration.types.ConfigurationBasedCreator
+	    with org.eclipse.store.afs.azure.storage.types.AzureStorageFileSystemCreator
 	;
 	
 	requires transitive org.eclipse.store.configuration;
 	requires transitive org.eclipse.store.afs.blobstore;
-	requires transitive oci.java.sdk.common;
-	requires transitive oci.java.sdk.objectstorage.extensions;
-	requires transitive oci.java.sdk.objectstorage.generated;
+	requires transitive com.azure.core;
+	requires transitive com.azure.storage.blob;
+	requires transitive com.azure.storage.common;
 }

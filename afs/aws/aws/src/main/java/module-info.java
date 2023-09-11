@@ -1,6 +1,6 @@
 /*-
  * #%L
- * afs-aws-s3
+ * afs-aws
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,16 +17,15 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.afs.aws.s3
+module org.eclipse.store.afs.aws
 {
-	exports org.eclipse.storage.afs.aws.s3.types;
+	exports org.eclipse.store.afs.aws.types;
 	
-	provides org.eclipse.storage.configuration.types.ConfigurationBasedCreator
-	    with org.eclipse.storage.afs.aws.s3.types.S3FileSystemCreator
-	;
-	
-	requires transitive org.eclipse.store.afs.aws;
-	requires transitive org.eclipse.store.afs.blobstore;
-	requires transitive software.amazon.awssdk.http;
-	requires transitive software.amazon.awssdk.services.s3;
+	requires transitive org.eclipse.store.afs;
+	requires transitive org.eclipse.store.configuration;
+	requires transitive software.amazon.awssdk.auth;
+	requires transitive software.amazon.awssdk.awscore;
+	requires transitive software.amazon.awssdk.core;
+	requires transitive software.amazon.awssdk.regions;
+	requires transitive software.amazon.awssdk.utils;
 }

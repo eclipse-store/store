@@ -1,5 +1,9 @@
 package org.eclipse.store.afs.sql.types;
 
+import static org.eclipse.serializer.chars.XChars.notEmpty;
+
+import java.lang.reflect.InvocationTargetException;
+
 /*-
  * #%L
  * Eclipse Store Abstract File System - SQL
@@ -22,12 +26,10 @@ package org.eclipse.store.afs.sql.types;
 
 import javax.sql.DataSource;
 
+import org.eclipse.serializer.afs.types.AFileSystem;
 import org.eclipse.store.configuration.exceptions.ConfigurationException;
 import org.eclipse.store.configuration.types.Configuration;
 import org.eclipse.store.configuration.types.ConfigurationBasedCreator;
-import org.eclipse.serializer.afs.types.AFileSystem;
-
-import static org.eclipse.serializer.chars.XChars.notEmpty;
 
 public abstract class SqlFileSystemCreator extends ConfigurationBasedCreator.Abstract<AFileSystem>
 {
@@ -64,7 +66,7 @@ public abstract class SqlFileSystemCreator extends ConfigurationBasedCreator.Abs
 		try
 		{
 			final SqlDataSourceProvider dataSourceProvider = (SqlDataSourceProvider)
-				Class.forName(dataSourceProviderClassName).newInstance()
+				Class.forName(dataSourceProviderClassName).getDeclaredConstructor().newInstance()
 			;
 			final SqlProvider sqlProvider = this.createSqlProvider(
 				sqlConfiguration,
@@ -76,7 +78,11 @@ public abstract class SqlFileSystemCreator extends ConfigurationBasedCreator.Abs
 				: SqlConnector.New(sqlProvider)
 			);
 		}
-		catch(InstantiationException | IllegalAccessException | ClassNotFoundException e)
+		catch(InstantiationException | IllegalAccessException |
+			  ClassNotFoundException | IllegalArgumentException |
+			  InvocationTargetException | NoSuchMethodException |
+			  SecurityException e
+		)
 		{
 			throw new ConfigurationException(sqlConfiguration, e);
 		}

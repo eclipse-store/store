@@ -1,6 +1,6 @@
 /*-
  * #%L
- * Eclipse Store Storage REST Client Jersey
+ * Eclipse Store Abstract File System Implementation
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,14 +17,10 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.storage.restclient.jersey
+module org.eclipse.store.afs
 {
-	exports org.eclipse.store.storage.restclient.jersey.types;
-	
-	requires com.google.gson;
-	requires java.ws.rs;
-	requires org.eclipse.store.base;
-	requires org.eclipse.store.persistence.binary;
-	requires org.eclipse.store.storage.restadapter;
-	requires org.eclipse.store.storage.restclient;
+	exports org.eclipse.store.afs.base.exceptions;
+    exports org.eclipse.store.afs.base;
+
+	requires transitive org.eclipse.serializer.afs;
 }

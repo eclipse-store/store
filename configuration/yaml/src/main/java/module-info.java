@@ -1,6 +1,6 @@
 /*-
  * #%L
- * Eclipse Store Storage REST Service
+ * Eclipse Store Configuration YAML
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,10 +17,10 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.storage.restservice
+module org.eclipse.store.configuration.yaml
 {
-	exports org.eclipse.store.storage.restservice.types;
-	exports org.eclipse.store.storage.restservice.exceptions;
-
-	requires org.eclipse.store.storage.restadapter;
+	exports org.eclipse.store.configuration.yaml.types;
+	
+	requires transitive org.eclipse.store.configuration;
+	requires transitive org.yaml.snakeyaml;
 }

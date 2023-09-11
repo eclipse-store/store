@@ -2,8 +2,7 @@
 
 == Does {product-name} work with the Java Module System (Jigsaw)?
 
-Yes, all jars bring the necessary module-info class, in the multi-version sub-directory in the META-INF folder. +
-Meaning, despite {product-name} is compiled with Java 8, it is fully compatible with the JMS.
+Yes, all jars bring the necessary module-info class.
 
 [#records]
 == Can {product-name} handle Records?

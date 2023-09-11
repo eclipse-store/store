@@ -17,16 +17,21 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
+
 module org.eclipse.store.storage.restclient.app
 {
 	exports org.eclipse.store.storage.restclient.app.types;
 	exports org.eclipse.store.storage.restclient.app.ui;
 	
+	provides com.vaadin.flow.server.VaadinServiceInitListener
+	    with org.eclipse.store.storage.restclient.app.types.ApplicationServiceInitListener
+	;
+	
 	requires flow.data;
 	requires flow.html.components;
 	requires flow.server;
 	requires gwt.elemental;
-	requires org.eclipse.store.base;
+	requires org.eclipse.serializer.base;
 	requires org.eclipse.store.storage.restadapter;
 	requires org.eclipse.store.storage.restclient;
 	requires org.eclipse.store.storage.restclient.jersey;
@@ -38,6 +43,7 @@ module org.eclipse.store.storage.restclient.app
 	requires spring.context;
 	requires spring.core;
 	requires spring.web;
+	requires vaadin.spring;
 	requires vaadin.button.flow;
 	requires vaadin.combo.box.flow;
 	requires vaadin.details.flow;

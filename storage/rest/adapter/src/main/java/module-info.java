@@ -1,6 +1,6 @@
 /*-
  * #%L
- * afs-aws-dynamodb
+ * Eclipse Storage REST Adapter
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,15 +17,10 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.afs.aws.dynamodb
+module org.eclipse.store.storage.restadapter
 {
-	exports org.eclipse.storage.afs.aws.dynamodb.types;
-	
-	provides org.eclipse.storage.configuration.types.ConfigurationBasedCreator
-	    with org.eclipse.storage.afs.aws.dynamodb.types.DynamoDbFileSystemCreator
-	;
-	
-	requires transitive org.eclipse.store.afs.aws;
-	requires transitive org.eclipse.store.afs.blobstore;
-	requires transitive software.amazon.awssdk.services.dynamodb;
+	exports org.eclipse.store.storage.restadapter.types;
+	exports org.eclipse.store.storage.restadapter.exceptions;
+
+	requires transitive org.eclipse.store.storage;
 }

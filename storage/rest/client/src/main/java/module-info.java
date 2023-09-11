@@ -1,6 +1,6 @@
 /*-
  * #%L
- * afs-hazelcast
+ * Eclipse Store Storage REST Client
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,15 +17,10 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.afs.hazelcast
+module org.eclipse.store.storage.restclient
 {
-	exports org.eclipse.storage.afs.hazelcast.types;
+	exports org.eclipse.store.storage.restclient.exceptions;
+	exports org.eclipse.store.storage.restclient.types;
 	
-	provides org.eclipse.storage.configuration.types.ConfigurationBasedCreator
-	    with org.eclipse.storage.afs.hazelcast.types.HazelcastFileSystemCreator
-	;
-	
-	requires transitive org.eclipse.store.configuration;
-	requires transitive org.eclipse.store.afs.blobstore;
-	requires transitive com.hazelcast.core;
+	requires transitive org.eclipse.store.storage.restadapter;
 }

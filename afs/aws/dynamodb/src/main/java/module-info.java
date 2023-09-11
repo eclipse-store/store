@@ -1,6 +1,6 @@
 /*-
  * #%L
- * Eclipse Store Configuration YAML
+ * afs-aws-dynamodb
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,11 +17,15 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.configuration.yaml
+module org.eclipse.store.afs.aws.dynamodb
 {
-	exports org.eclipse.store.configuration.yaml.types;
+	exports org.eclipse.store.afs.aws.dynamodb.types;
 	
-	requires org.eclipse.store.base;
-	requires org.eclipse.store.configuration;
-	requires org.yaml.snakeyaml;
+	provides org.eclipse.store.configuration.types.ConfigurationBasedCreator
+	    with org.eclipse.store.afs.aws.dynamodb.types.DynamoDbFileSystemCreator
+	;
+	
+	requires transitive org.eclipse.store.afs.aws;
+	requires transitive org.eclipse.store.afs.blobstore;
+	requires transitive software.amazon.awssdk.services.dynamodb;
 }

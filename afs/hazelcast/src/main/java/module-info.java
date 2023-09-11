@@ -1,6 +1,6 @@
 /*-
  * #%L
- * Eclipse Store Abstract File System - SQL
+ * afs-hazelcast
  * %%
  * Copyright (C) 2023 Eclipse Foundation
  * %%
@@ -17,19 +17,15 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
-module org.eclipse.store.afs.sql
+module org.eclipse.store.afs.hazelcast
 {
-	exports org.eclipse.storage.afs.sql.types;
+	exports org.eclipse.store.afs.hazelcast.types;
 	
-	provides org.eclipse.storage.configuration.types.ConfigurationBasedCreator
-    	with org.eclipse.storage.afs.sql.types.SqlFileSystemCreatorHana,
-	         org.eclipse.storage.afs.sql.types.SqlFileSystemCreatorMariaDb,
-			 org.eclipse.storage.afs.sql.types.SqlFileSystemCreatorOracle,
-			 org.eclipse.storage.afs.sql.types.SqlFileSystemCreatorPostgres,
-			 org.eclipse.storage.afs.sql.types.SqlFileSystemCreatorSqlite
+	provides org.eclipse.store.configuration.types.ConfigurationBasedCreator
+	    with org.eclipse.store.afs.hazelcast.types.HazelcastFileSystemCreator
 	;
 	
-	requires transitive org.eclipse.store.afs;
 	requires transitive org.eclipse.store.configuration;
-	requires transitive java.sql;
+	requires transitive org.eclipse.store.afs.blobstore;
+	requires transitive com.hazelcast.core;
 }
