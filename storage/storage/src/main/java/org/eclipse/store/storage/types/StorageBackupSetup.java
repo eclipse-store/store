@@ -1,5 +1,7 @@
 package org.eclipse.store.storage.types;
 
+import static org.eclipse.serializer.util.X.notNull;
+
 /*-
  * #%L
  * Eclipse Store Storage
@@ -22,8 +24,6 @@ package org.eclipse.store.storage.types;
 
 import org.eclipse.serializer.afs.types.ADirectory;
 
-import static org.eclipse.serializer.util.X.notNull;
-
 public interface StorageBackupSetup
 {
 	public StorageBackupFileProvider backupFileProvider();
@@ -35,7 +35,8 @@ public interface StorageBackupSetup
 	public StorageBackupHandler setupHandler(
 		StorageOperationController       operationController           ,
 		StorageWriteController           writeController               ,
-		StorageDataFileValidator.Creator backupDataFileValidatorCreator
+		StorageDataFileValidator.Creator backupDataFileValidatorCreator,
+		StorageTypeDictionary            storageTypeDictionary
 	);
 	
 
@@ -135,7 +136,8 @@ public interface StorageBackupSetup
 		public StorageBackupHandler setupHandler(
 			final StorageOperationController       operationController,
 			final StorageWriteController           writeController    ,
-			final StorageDataFileValidator.Creator validatorCreator
+			final StorageDataFileValidator.Creator validatorCreator   ,
+			final StorageTypeDictionary            typeDictionary
 		)
 		{
 			final int channelCount = operationController.channelCountProvider().getChannelCount();
@@ -145,7 +147,8 @@ public interface StorageBackupSetup
 				this.itemQueue     ,
 				operationController,
 				writeController    ,
-				validatorCreator
+				validatorCreator   ,
+				typeDictionary
 			);
 		}
 		
