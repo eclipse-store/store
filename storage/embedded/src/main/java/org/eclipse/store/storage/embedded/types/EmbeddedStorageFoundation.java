@@ -23,7 +23,6 @@ package org.eclipse.store.storage.embedded.types;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-import org.eclipse.store.persistence.types.PersistenceLiveStorerRegistry;
 import org.eclipse.store.storage.types.Database;
 import org.eclipse.store.storage.types.Databases;
 import org.eclipse.store.storage.types.StorageChannelsCreator;
@@ -43,6 +42,7 @@ import org.eclipse.store.storage.types.StorageTypeDictionary;
 import org.eclipse.store.storage.types.StorageWriteController;
 import org.eclipse.serializer.exceptions.MissingFoundationPartException;
 import org.eclipse.serializer.persistence.binary.types.Binary;
+import org.eclipse.serializer.persistence.binary.types.PersistenceLiveStorerRegistry;
 import org.eclipse.serializer.persistence.types.Persistence;
 import org.eclipse.serializer.persistence.types.PersistenceObjectIdProvider;
 import org.eclipse.serializer.persistence.types.PersistenceRefactoringMappingProvider;

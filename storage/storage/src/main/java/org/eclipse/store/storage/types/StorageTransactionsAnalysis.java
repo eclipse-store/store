@@ -27,11 +27,6 @@ import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
-import org.eclipse.store.afs.base.AFSUtils;
-import org.eclipse.store.base.memory.MemoryUtils;
-import org.eclipse.store.storage.exceptions.StorageException;
-import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
-import org.eclipse.store.storage.exceptions.StorageExceptionIoReading;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AReadableFile;
 import org.eclipse.serializer.chars.VarString;
@@ -41,6 +36,10 @@ import org.eclipse.serializer.collections.types.XGettingSequence;
 import org.eclipse.serializer.collections.types.XGettingTable;
 import org.eclipse.serializer.exceptions.IndexBoundsException;
 import org.eclipse.serializer.memory.XMemory;
+import org.eclipse.store.afs.base.AFSUtils;
+import org.eclipse.store.storage.exceptions.StorageException;
+import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
+import org.eclipse.store.storage.exceptions.StorageExceptionIoReading;
 
 
 public interface StorageTransactionsAnalysis
@@ -323,7 +322,7 @@ public interface StorageTransactionsAnalysis
 				throw new IndexBoundsException(actualFileLength, boundPosition);
 			}
 
-			final ByteBuffer buffer  = MemoryUtils.allocateDirectNativeDefault();
+			final ByteBuffer buffer  = XMemory.allocateDirectNativeDefault();
 			final long       address = XMemory.getDirectByteBufferAddress(buffer);
 
 			// process whole file part by part

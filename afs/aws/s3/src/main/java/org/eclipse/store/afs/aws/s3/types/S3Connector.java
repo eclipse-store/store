@@ -32,8 +32,9 @@ import java.util.stream.Stream;
 
 import org.eclipse.store.afs.blobstore.types.BlobStoreConnector;
 import org.eclipse.store.afs.blobstore.types.BlobStorePath;
-import org.eclipse.store.base.io.ByteBufferInputStream;
 import org.eclipse.serializer.exceptions.IORuntimeException;
+import org.eclipse.serializer.io.ByteBufferInputStream;
+
 import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.internal.util.Mimetype;
 import software.amazon.awssdk.core.sync.RequestBody;

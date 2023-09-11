@@ -25,8 +25,8 @@ import static org.eclipse.serializer.math.XMath.positive;
 
 import java.nio.charset.Charset;
 
-import org.eclipse.store.base.util.ProcessIdentityProvider;
 import org.eclipse.serializer.persistence.types.Persistence;
+import org.eclipse.serializer.util.ProcessIdentityProvider;
 
 
 public interface StorageLockFileSetup

@@ -26,10 +26,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
-import org.eclipse.store.base.collections.CollectionsUtils;
 import org.eclipse.store.storage.exceptions.StorageExceptionExportFailed;
 import org.eclipse.serializer.afs.types.AWritableFile;
 import org.eclipse.serializer.collections.BulkList;
+import org.eclipse.serializer.collections.CollectionsUtils;
 import org.eclipse.serializer.collections.EqHashTable;
 import org.eclipse.serializer.typing.KeyValue;
 

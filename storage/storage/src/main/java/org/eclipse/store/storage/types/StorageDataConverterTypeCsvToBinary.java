@@ -26,11 +26,11 @@ import java.nio.ByteBuffer;
 import java.util.Iterator;
 
 import org.eclipse.store.afs.base.AFSUtils;
-import org.eclipse.store.base.chars.CharsUtils;
 import org.eclipse.store.storage.exceptions.StorageException;
 import org.eclipse.serializer.afs.types.AFS;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AWritableFile;
+import org.eclipse.serializer.chars.CharsUtils;
 import org.eclipse.serializer.chars.EscapeHandler;
 import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.chars.XChars;

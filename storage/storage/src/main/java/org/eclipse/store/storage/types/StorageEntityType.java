@@ -22,8 +22,8 @@ package org.eclipse.store.storage.types;
 
 import java.util.function.Predicate;
 
-import org.eclipse.store.base.functional.ThrowingProcedure;
 import org.eclipse.store.storage.exceptions.StorageException;
+import org.eclipse.serializer.functional.ThrowingProcedure;
 import org.eclipse.serializer.persistence.types.Persistence;
 import org.eclipse.serializer.persistence.types.PersistenceObjectIdAcceptor;
 

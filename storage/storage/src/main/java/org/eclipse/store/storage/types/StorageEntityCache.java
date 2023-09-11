@@ -1,5 +1,8 @@
 package org.eclipse.store.storage.types;
 
+import static org.eclipse.serializer.math.XMath.notNegative;
+import static org.eclipse.serializer.math.XMath.positive;
+
 /*-
  * #%L
  * Eclipse Store Storage
@@ -21,30 +24,27 @@ package org.eclipse.store.storage.types;
  */
 
 import static org.eclipse.serializer.util.X.notNull;
-import static org.eclipse.serializer.math.XMath.notNegative;
-import static org.eclipse.serializer.math.XMath.positive;
 
 import java.nio.ByteBuffer;
 
-import org.eclipse.store.base.functional.ThrowingProcedure;
-import org.eclipse.store.persistence.types.ObjectIdsSelector;
-import org.eclipse.store.storage.exceptions.StorageException;
-import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
-import org.eclipse.store.storage.exceptions.StorageExceptionGarbageCollector;
-import org.eclipse.store.storage.exceptions.StorageExceptionInitialization;
 import org.eclipse.serializer.collections.EqHashEnum;
 import org.eclipse.serializer.collections.Set_long;
+import org.eclipse.serializer.functional.ThrowingProcedure;
 import org.eclipse.serializer.functional._longPredicate;
 import org.eclipse.serializer.math.XMath;
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.binary.types.ChunksBuffer;
+import org.eclipse.serializer.persistence.binary.types.ObjectIdsSelector;
 import org.eclipse.serializer.persistence.types.ObjectIdsProcessor;
 import org.eclipse.serializer.persistence.types.Persistence;
 import org.eclipse.serializer.persistence.types.Unpersistable;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.logging.Logging;
-import org.eclipse.store.base.math.MathUtils;
+import org.eclipse.store.storage.exceptions.StorageException;
+import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
+import org.eclipse.store.storage.exceptions.StorageExceptionGarbageCollector;
+import org.eclipse.store.storage.exceptions.StorageExceptionInitialization;
 import org.slf4j.Logger;
 
 
@@ -167,7 +167,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		{
 			super();
 			this.channelIndex         = notNegative(channelIndex)     ;
-			this.channelHashShift     = MathUtils.log2pow2   (channelCount)     ;
+			this.channelHashShift     = XMath.log2pow2   (channelCount)     ;
 			this.entityCacheEvaluator = notNull    (cacheEvaluator)   ;
 			this.typeDictionary       = notNull    (typeDictionary)   ;
 			this.markMonitor          = notNull    (markMonitor)      ;

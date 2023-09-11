@@ -22,7 +22,7 @@ package org.eclipse.store.storage.types;
 
 import static org.eclipse.serializer.util.X.notNull;
 
-import org.eclipse.store.persistence.types.BinaryEntityRawDataIterator;
+import org.eclipse.serializer.persistence.binary.types.BinaryEntityRawDataIterator;
 import org.eclipse.store.storage.exceptions.StorageExceptionIncompleteValidation;
 
 

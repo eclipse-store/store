@@ -22,8 +22,6 @@ package org.eclipse.store.afs.sql.types;
 
 import static org.eclipse.serializer.util.X.notNull;
 
-import org.eclipse.store.base.chars.CharsUtils;
-import org.eclipse.store.base.io.IOUtils;
 import org.eclipse.serializer.afs.types.ADirectory;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AFileSystem;
@@ -31,6 +29,7 @@ import org.eclipse.serializer.afs.types.AItem;
 import org.eclipse.serializer.afs.types.AReadableFile;
 import org.eclipse.serializer.afs.types.AResolver;
 import org.eclipse.serializer.afs.types.AWritableFile;
+import org.eclipse.serializer.chars.CharsUtils;
 import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.io.XIO;
 
@@ -111,7 +110,7 @@ public interface SqlFileSystem extends AFileSystem, AResolver<SqlPath, SqlPath>
 			final String fileType
 		)
 		{
-			return IOUtils.addFileSuffix(fileName, fileType);
+			return XIO.addFileSuffix(fileName, fileType);
 		}
 
 		@Override
@@ -119,7 +118,7 @@ public interface SqlFileSystem extends AFileSystem, AResolver<SqlPath, SqlPath>
 			final String fileIdentifier
 		)
 		{
-			return IOUtils.getFilePrefix(fileIdentifier);
+			return XIO.getFilePrefix(fileIdentifier);
 		}
 
 		@Override
@@ -135,7 +134,7 @@ public interface SqlFileSystem extends AFileSystem, AResolver<SqlPath, SqlPath>
 			final AFile file
 		)
 		{
-			return IOUtils.getFilePrefix(file.identifier());
+			return XIO.getFilePrefix(file.identifier());
 		}
 
 		@Override

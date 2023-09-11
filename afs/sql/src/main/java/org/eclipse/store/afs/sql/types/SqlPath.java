@@ -25,8 +25,8 @@ import static org.eclipse.serializer.util.X.notNull;
 
 import java.util.Arrays;
 
-import org.eclipse.store.base.chars.CharsUtils;
-import org.eclipse.store.base.collections.ArraysUtils;
+import org.eclipse.serializer.chars.CharsUtils;
+import org.eclipse.serializer.collections.ArraysUtils;
 
 
 public interface SqlPath

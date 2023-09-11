@@ -26,19 +26,14 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
-import org.eclipse.store.afs.base.AFSUtils;
-import org.eclipse.store.base.Utils;
-import org.eclipse.store.base.chars.MemoryCharConversionIntegersUTF8;
-import org.eclipse.store.base.chars.MemoryCharConversionUTF8;
-import org.eclipse.store.base.chars.MemoryCharConversion_doubleUTF8;
-import org.eclipse.store.storage.exceptions.StorageException;
-import org.eclipse.store.storage.exceptions.StorageExceptionIo;
-import org.eclipse.store.storage.exceptions.StorageExceptionIoWriting;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AReadableFile;
 import org.eclipse.serializer.afs.types.AWritableFile;
 import org.eclipse.serializer.chars.CharConversion_float;
 import org.eclipse.serializer.chars.EscapeHandler;
+import org.eclipse.serializer.chars.MemoryCharConversionIntegersUTF8;
+import org.eclipse.serializer.chars.MemoryCharConversionUTF8;
+import org.eclipse.serializer.chars.MemoryCharConversion_doubleUTF8;
 import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.collections.Constant;
@@ -57,6 +52,10 @@ import org.eclipse.serializer.reference.Swizzling;
 import org.eclipse.serializer.typing.XTypes;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.xcsv.XCsvConfiguration;
+import org.eclipse.store.afs.base.AFSUtils;
+import org.eclipse.store.storage.exceptions.StorageException;
+import org.eclipse.store.storage.exceptions.StorageExceptionIo;
+import org.eclipse.store.storage.exceptions.StorageExceptionIoWriting;
 
 
 public interface StorageDataConverterTypeBinaryToCsv
@@ -464,7 +463,7 @@ public interface StorageDataConverterTypeBinaryToCsv
 		private boolean writeCsvHeaderControlCharacterDefinition(final VarString vs)
 		{
 			// write control characters definition (if explicitely desired)
-			if(Utils.isNotTrue(this.csvConfiguration.hasControlCharacterDefinitionHeader()))
+			if(X.isNotTrue(this.csvConfiguration.hasControlCharacterDefinitionHeader()))
 			{
 				// abort if false or null (CSV standard as default behavior)
 				return false;
@@ -499,7 +498,7 @@ public interface StorageDataConverterTypeBinaryToCsv
 		
 		private boolean writeCsvHeaderColumnTypes(final VarString vs, final boolean linePresent)
 		{
-			if(Utils.isFalse(this.csvConfiguration.hasColumnTypesHeader()))
+			if(X.isFalse(this.csvConfiguration.hasColumnTypesHeader()))
 			{
 				// against CSV standard, but this is really important. But suppressible if desired.
 				return false;

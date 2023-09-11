@@ -24,11 +24,11 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import org.eclipse.store.base.exception.MultiCauseException;
-import org.eclipse.store.base.functional.ThrowingProcedure;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.types.XCollection;
 import org.eclipse.serializer.collections.types.XGettingCollection;
+import org.eclipse.serializer.exceptions.MultiCauseException;
+import org.eclipse.serializer.functional.ThrowingProcedure;
 import org.eclipse.serializer.util.UtilStackTrace;
 
 

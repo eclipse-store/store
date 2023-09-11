@@ -22,10 +22,10 @@ package org.eclipse.store.storage.types;
 
 import java.nio.ByteBuffer;
 
-import org.eclipse.store.persistence.types.BinaryEntityRawDataAcceptor;
-import org.eclipse.store.persistence.types.BinaryEntityRawDataIterator;
 import org.eclipse.store.storage.exceptions.StorageExceptionIoReading;
 import org.eclipse.serializer.memory.XMemory;
+import org.eclipse.serializer.persistence.binary.types.BinaryEntityRawDataAcceptor;
+import org.eclipse.serializer.persistence.binary.types.BinaryEntityRawDataIterator;
 import org.eclipse.serializer.util.X;
 
 

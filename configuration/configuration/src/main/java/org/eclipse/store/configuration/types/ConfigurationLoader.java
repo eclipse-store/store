@@ -34,7 +34,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-import org.eclipse.store.base.chars.CharsUtils;
+import org.eclipse.serializer.chars.CharsUtils;
 import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.configuration.exceptions.ConfigurationException;

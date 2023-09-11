@@ -24,10 +24,10 @@ import static org.eclipse.serializer.util.X.notNull;
 
 import java.nio.ByteBuffer;
 
-import org.eclipse.store.persistence.types.BinaryEntityRawDataIterator;
 import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.persistence.binary.types.Binary;
+import org.eclipse.serializer.persistence.binary.types.BinaryEntityRawDataIterator;
 
 
 public interface StorageDataChunkValidator

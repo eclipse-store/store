@@ -20,9 +20,8 @@ package org.eclipse.store.storage.types;
  * #L%
  */
 
-import org.eclipse.store.base.functional.ThrowingProcedure;
-import org.eclipse.store.base.memory.MemoryUtils;
 import org.eclipse.serializer.afs.types.AWritableFile;
+import org.eclipse.serializer.functional.ThrowingProcedure;
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.binary.types.MemoryRangeReader;
@@ -419,7 +418,7 @@ public interface StorageEntity
 
 		final void putCacheData(final long sourceAddress, final long length)
 		{
-			XMemory.copyRange(sourceAddress, this.cacheAddress = MemoryUtils.allocate(length), length);
+			XMemory.copyRange(sourceAddress, this.cacheAddress = XMemory.allocate(length), length);
 		}
 
 		final void updateStorageInformation(
@@ -564,7 +563,7 @@ public interface StorageEntity
 		public final long clearCache()
 		{
 			final long currentDataLength = this.cachedDataLength();
-			MemoryUtils.free(this.cacheAddress());
+			XMemory.free(this.cacheAddress());
 			this.cacheAddress = 0;
 			this.onlyRefsCached = false;
 			return currentDataLength;

@@ -24,8 +24,8 @@ import static org.eclipse.serializer.util.X.notNull;
 
 import java.util.function.Supplier;
 
-import org.eclipse.store.base.functional.ThrowingProcedure;
 import org.eclipse.serializer.collections.types.XCollection;
+import org.eclipse.serializer.functional.ThrowingProcedure;
 
 
 public interface DisruptionCollectorExecuting<E> extends DisruptionCollector

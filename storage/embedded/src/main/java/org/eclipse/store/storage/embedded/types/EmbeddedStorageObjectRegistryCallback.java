@@ -20,7 +20,7 @@ package org.eclipse.store.storage.embedded.types;
  * #L%
  */
 
-import org.eclipse.store.persistence.types.ObjectIdsSelector;
+import org.eclipse.serializer.persistence.binary.types.ObjectIdsSelector;
 import org.eclipse.serializer.persistence.types.ObjectIdsProcessor;
 import org.eclipse.serializer.persistence.types.PersistenceObjectRegistry;
 
