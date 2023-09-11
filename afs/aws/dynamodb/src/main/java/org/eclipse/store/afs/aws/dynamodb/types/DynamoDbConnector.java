@@ -33,19 +33,19 @@ import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-import org.eclipse.store.afs.blobstore.types.BlobStoreConnector;
-import org.eclipse.store.afs.blobstore.types.BlobStorePath;
 import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.serializer.io.ByteBufferInputStream;
 import org.eclipse.serializer.io.LimitedInputStream;
+import org.eclipse.store.afs.blobstore.types.BlobStoreConnector;
+import org.eclipse.store.afs.blobstore.types.BlobStorePath;
 
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeDefinition;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.BillingMode;
 import software.amazon.awssdk.services.dynamodb.model.CreateTableRequest;
 import software.amazon.awssdk.services.dynamodb.model.Delete;
-import software.amazon.awssdk.services.dynamodb.model.DescribeLimitsResponse;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.KeySchemaElement;
@@ -162,8 +162,7 @@ public interface DynamoDbConnector extends BlobStoreConnector
 			}
 			catch(final ResourceNotFoundException e)
 			{
-				final DescribeLimitsResponse limits  = this.client.describeLimits();
-				final CreateTableRequest     request = CreateTableRequest.builder()
+				final CreateTableRequest request = CreateTableRequest.builder()
 					.tableName(name)
 					.keySchema(
 						KeySchemaElement.builder()
@@ -185,10 +184,7 @@ public interface DynamoDbConnector extends BlobStoreConnector
 							.attributeType(ScalarAttributeType.N)
 							.build()
 					)
-					.provisionedThroughput(builder -> builder
-						.readCapacityUnits (limits.tableMaxReadCapacityUnits ())
-						.writeCapacityUnits(limits.tableMaxWriteCapacityUnits())
-					)
+					.billingMode(BillingMode.PAY_PER_REQUEST)
 					.build()
 				;
 				return this.client.createTable(request).tableDescription();
