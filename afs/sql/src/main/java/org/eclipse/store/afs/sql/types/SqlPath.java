@@ -25,8 +25,8 @@ import static org.eclipse.serializer.util.X.notNull;
 
 import java.util.Arrays;
 
-import org.eclipse.serializer.chars.CharsUtils;
-import org.eclipse.serializer.collections.ArraysUtils;
+import org.eclipse.serializer.chars.XChars;
+import org.eclipse.serializer.collections.XArrays;
 
 
 public interface SqlPath
@@ -47,7 +47,7 @@ public interface SqlPath
 		final String fullQualifiedPath
 	)
 	{
-		return CharsUtils.splitSimple(fullQualifiedPath, DIRECTORY_TABLE_NAME_SEPARATOR);
+		return XChars.splitSimple(fullQualifiedPath, DIRECTORY_TABLE_NAME_SEPARATOR);
 	}
 
 	public static SqlPath New(
@@ -104,7 +104,7 @@ public interface SqlPath
 		{
 			return this.pathElements.length > 1
 				? new SqlPath.Default(
-					ArraysUtils.copyRange(this.pathElements, 0, this.pathElements.length - 1)
+					XArrays.copyRange(this.pathElements, 0, this.pathElements.length - 1)
 				)
 				: null;
 		}

@@ -23,7 +23,6 @@ package org.eclipse.store.storage.types;
 import java.util.function.Consumer;
 
 import org.eclipse.serializer.afs.types.AFile;
-import org.eclipse.serializer.collections.ArraysUtils;
 import org.eclipse.serializer.collections.XArrays;
 
 
@@ -175,7 +174,7 @@ public interface StorageLiveFile<S extends StorageLiveFile<S>> extends StorageCl
 			{
 				if(this.usages[i].user == fileUser)
 				{
-					ArraysUtils.removeFromIndex(this.usages, this.usagesSize--, i);
+					XArrays.removeFromIndex(this.usages, this.usagesSize--, i);
 					this.checkForUsagesArrayClearing();
 					
 					return true;
@@ -195,7 +194,7 @@ public interface StorageLiveFile<S extends StorageLiveFile<S>> extends StorageCl
 				{
 					if(this.usages[i].decrement())
 					{
-						ArraysUtils.removeFromIndex(this.usages, this.usagesSize--, i);
+						XArrays.removeFromIndex(this.usages, this.usagesSize--, i);
 						this.checkForUsagesArrayClearing();
 						
 						return true;

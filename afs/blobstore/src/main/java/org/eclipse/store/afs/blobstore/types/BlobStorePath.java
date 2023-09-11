@@ -24,8 +24,8 @@ import static java.util.stream.Collectors.joining;
 
 import java.util.Arrays;
 
-import org.eclipse.serializer.chars.CharsUtils;
-import org.eclipse.serializer.collections.ArraysUtils;
+import org.eclipse.serializer.chars.XChars;
+import org.eclipse.serializer.collections.XArrays;
 
 
 public interface BlobStorePath
@@ -61,7 +61,7 @@ public interface BlobStorePath
 		final String fullQualifiedPath
 	)
 	{
-		return CharsUtils.splitSimple(fullQualifiedPath, SEPARATOR);
+		return XChars.splitSimple(fullQualifiedPath, SEPARATOR);
 	}
 
 	public static BlobStorePath New(
@@ -136,7 +136,7 @@ public interface BlobStorePath
 		{
 			return this.pathElements.length > 1
 				? new BlobStorePath.Default(
-					ArraysUtils.copyRange(this.pathElements, 0, this.pathElements.length - 1)
+					XArrays.copyRange(this.pathElements, 0, this.pathElements.length - 1)
 				)
 				: null;
 		}

@@ -25,12 +25,9 @@ import static org.eclipse.serializer.util.X.notNull;
 import java.nio.ByteBuffer;
 import java.util.Iterator;
 
-import org.eclipse.store.afs.base.AFSUtils;
-import org.eclipse.store.storage.exceptions.StorageException;
 import org.eclipse.serializer.afs.types.AFS;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AWritableFile;
-import org.eclipse.serializer.chars.CharsUtils;
 import org.eclipse.serializer.chars.EscapeHandler;
 import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.chars.XChars;
@@ -53,6 +50,8 @@ import org.eclipse.serializer.util.xcsv.XCsvConfiguration;
 import org.eclipse.serializer.util.xcsv.XCsvRecordParserCharArray;
 import org.eclipse.serializer.util.xcsv.XCsvRowCollector;
 import org.eclipse.serializer.util.xcsv.XCsvSegmentsParser;
+import org.eclipse.store.afs.base.AFSUtils;
+import org.eclipse.store.storage.exceptions.StorageException;
 
 
 public interface StorageDataConverterTypeCsvToBinary<S>
@@ -295,7 +294,7 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 			{
 				j--;
 			}
-			this.write_byte(CharsUtils.parse_byteDecimal(data, offset, j - offset + 1));
+			this.write_byte(XChars.parse_byteDecimal(data, offset, j - offset + 1));
 			return i;
 		}
 
@@ -320,14 +319,14 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 
 			final int literalLength = j - offset + 1;
 			if(literalLength == this.literalTrue.length
-			&& CharsUtils.equals(data, offset, this.literalTrue, 0, this.literalTrue.length)
+			&& XChars.equals(data, offset, this.literalTrue, 0, this.literalTrue.length)
 			)
 			{
 				this.write_boolean(true);
 				return i;
 			}
 			if(literalLength == this.literalFalse.length
-			&& CharsUtils.equals(data, offset, this.literalFalse, 0, this.literalFalse.length)
+			&& XChars.equals(data, offset, this.literalFalse, 0, this.literalFalse.length)
 			)
 			{
 				this.write_boolean(false);
@@ -355,7 +354,7 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 			{
 				j--;
 			}
-			this.write_short(CharsUtils.parse_shortDecimal(data, offset, j - offset + 1));
+			this.write_short(XChars.parse_shortDecimal(data, offset, j - offset + 1));
 			return i;
 		}
 
@@ -441,7 +440,7 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 			{
 				j--;
 			}
-			this.write_int(CharsUtils.parse_intLiteral(data, offset, j - offset + 1));
+			this.write_int(XChars.parse_intLiteral(data, offset, j - offset + 1));
 			return i;
 		}
 
@@ -463,7 +462,7 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 			{
 				j--;
 			}
-			this.write_float(CharsUtils.parse_float(data, offset, j - offset + 1));
+			this.write_float(XChars.parse_float(data, offset, j - offset + 1));
 			return i;
 		}
 
@@ -485,7 +484,7 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 			{
 				j--;
 			}
-			this.write_long(CharsUtils.parse_longDecimal(data, offset, j - offset + 1));
+			this.write_long(XChars.parse_longDecimal(data, offset, j - offset + 1));
 			return i;
 		}
 
@@ -507,7 +506,7 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 			{
 				j--;
 			}
-			this.write_double(CharsUtils.parse_double(data, offset, j - offset + 1));
+			this.write_double(XChars.parse_double(data, offset, j - offset + 1));
 			return i;
 		}
 
@@ -649,7 +648,7 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 				// parse literal
 				final int currentElementStart = i;
 				i = seekSimpleLiteralEnd(data, i, bound, listSeparator, listTerminator);
-				this.write_byte(CharsUtils.parse_byteDecimal(data, currentElementStart, i - currentElementStart));
+				this.write_byte(XChars.parse_byteDecimal(data, currentElementStart, i - currentElementStart));
 
 				// find literal terminating character (not the same as literal end: there might be white spaces)
 				i = seekListElementCompletion(data, i, bound, listSeparator, listTerminator);
@@ -697,12 +696,12 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 				i = seekSimpleLiteralEnd(data, i, bound, listSeparator, listTerminator);
 
 				// parse literal. A little more complex for boolean literals.
-				if(i - elementStart == lengthTrue && CharsUtils.equals(data, elementStart, literalTrue, 0, lengthTrue))
+				if(i - elementStart == lengthTrue && XChars.equals(data, elementStart, literalTrue, 0, lengthTrue))
 				{
 					this.write_boolean(true);
 				}
 				else if(i - elementStart == lengthFalse
-					&& CharsUtils.equals(data, elementStart, literalFalse, 0, lengthFalse)
+					&& XChars.equals(data, elementStart, literalFalse, 0, lengthFalse)
 				)
 				{
 					this.write_boolean(false);
@@ -753,7 +752,7 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 				// parse literal
 				final int currentElementStart = i;
 				i = seekSimpleLiteralEnd(data, i, bound, listSeparator, listTerminator);
-				this.write_short(CharsUtils.parse_shortDecimal(data, currentElementStart, i - currentElementStart));
+				this.write_short(XChars.parse_shortDecimal(data, currentElementStart, i - currentElementStart));
 
 				// find literal terminating character (not the same as literal end: there might be white spaces)
 				i = seekListElementCompletion(data, i, bound, listSeparator, listTerminator);
@@ -791,7 +790,7 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 				// parse literal
 				final int currentElementStart = i;
 				i = seekSimpleLiteralEnd(data, i, bound, listSeparator, listTerminator);
-				this.write_int(CharsUtils.parse_intLiteral(data, currentElementStart, i - currentElementStart));
+				this.write_int(XChars.parse_intLiteral(data, currentElementStart, i - currentElementStart));
 
 				// find literal terminating character (not the same as literal end: there might be white spaces)
 				i = seekListElementCompletion(data, i, bound, listSeparator, listTerminator);
@@ -829,7 +828,7 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 				// parse literal
 				final int currentElementStart = i;
 				i = seekSimpleLiteralEnd(data, i, bound, listSeparator, listTerminator);
-				this.write_float(CharsUtils.parse_float(data, currentElementStart, i - currentElementStart));
+				this.write_float(XChars.parse_float(data, currentElementStart, i - currentElementStart));
 
 				// find literal terminating character (not the same as literal end: there might be white spaces)
 				i = seekListElementCompletion(data, i, bound, listSeparator, listTerminator);
@@ -867,7 +866,7 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 				// parse literal
 				final int currentElementStart = i;
 				i = seekSimpleLiteralEnd(data, i, bound, listSeparator, listTerminator);
-				this.write_long(CharsUtils.parse_longDecimal(data, currentElementStart, i - currentElementStart));
+				this.write_long(XChars.parse_longDecimal(data, currentElementStart, i - currentElementStart));
 
 				// find literal terminating character (not the same as literal end: there might be white spaces)
 				i = seekListElementCompletion(data, i, bound, listSeparator, listTerminator);
@@ -905,7 +904,7 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 				// parse literal
 				final int currentElementStart = i;
 				i = seekSimpleLiteralEnd(data, i, bound, listSeparator, listTerminator);
-				this.write_double(CharsUtils.parse_double(data, currentElementStart, i - currentElementStart));
+				this.write_double(XChars.parse_double(data, currentElementStart, i - currentElementStart));
 
 				// find literal terminating character (not the same as literal end: there might be white spaces)
 				i = seekListElementCompletion(data, i, bound, listSeparator, listTerminator);
