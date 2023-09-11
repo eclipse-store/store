@@ -23,14 +23,14 @@ package org.eclipse.store.storage.types;
 
 import static org.eclipse.serializer.util.X.notNull;
 
-import org.eclipse.store.afs.base.AFSUtils;
-import org.eclipse.store.storage.exceptions.StorageException;
+import org.eclipse.serializer.afs.types.AFSUtils;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AReadableFile;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.types.XCollection;
 import org.eclipse.serializer.collections.types.XGettingSequence;
 import org.eclipse.serializer.util.X;
+import org.eclipse.store.storage.exceptions.StorageException;
 
 
 public interface StorageTransactionsEntries

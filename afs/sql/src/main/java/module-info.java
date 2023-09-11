@@ -29,7 +29,7 @@ module org.eclipse.store.afs.sql
 			 org.eclipse.store.afs.sql.types.SqlFileSystemCreatorSqlite
 	;
 	
-	requires transitive org.eclipse.store.afs;
+	requires transitive org.eclipse.serializer.afs;
 	requires transitive org.eclipse.store.configuration;
 	requires transitive java.sql;
 }

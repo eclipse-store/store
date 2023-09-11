@@ -20,7 +20,6 @@
 	<description>File System Abstraction Project of Eclipse Store</description>
 
 	<modules>
-		<module>afs</module>
 		<module>aws</module>
 		<module>azure</module>
 		<module>blobstore</module>

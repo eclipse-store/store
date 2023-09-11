@@ -1,5 +1,12 @@
 package org.eclipse.store.storage.util;
 
+import org.eclipse.serializer.afs.types.AFSUtils;
+import org.eclipse.serializer.afs.types.AFile;
+import org.eclipse.serializer.chars.VarString;
+import org.eclipse.serializer.collections.XArrays;
+import org.eclipse.serializer.concurrency.ThreadsUtils;
+import org.eclipse.serializer.io.XIO;
+
 /*-
  * #%L
  * Eclipse Store Storage
@@ -21,13 +28,7 @@ package org.eclipse.store.storage.util;
  */
 
 import org.eclipse.store.afs.nio.types.NioFileSystem;
-import org.eclipse.store.afs.base.AFSUtils;
 import org.eclipse.store.storage.types.StorageTransactionsAnalysis;
-import org.eclipse.serializer.afs.types.AFile;
-import org.eclipse.serializer.chars.VarString;
-import org.eclipse.serializer.collections.XArrays;
-import org.eclipse.serializer.concurrency.ThreadsUtils;
-import org.eclipse.serializer.io.XIO;
 
 
 /**

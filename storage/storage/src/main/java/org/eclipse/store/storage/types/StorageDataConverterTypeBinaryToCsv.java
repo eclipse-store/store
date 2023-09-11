@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
+import org.eclipse.serializer.afs.types.AFSUtils;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AReadableFile;
 import org.eclipse.serializer.afs.types.AWritableFile;
@@ -52,7 +53,6 @@ import org.eclipse.serializer.reference.Swizzling;
 import org.eclipse.serializer.typing.XTypes;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.xcsv.XCsvConfiguration;
-import org.eclipse.store.afs.base.AFSUtils;
 import org.eclipse.store.storage.exceptions.StorageException;
 import org.eclipse.store.storage.exceptions.StorageExceptionIo;
 import org.eclipse.store.storage.exceptions.StorageExceptionIoWriting;

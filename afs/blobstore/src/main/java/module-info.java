@@ -21,5 +21,5 @@ module org.eclipse.store.afs.blobstore
 {
 	exports org.eclipse.store.afs.blobstore.types;
 	
-	requires transitive org.eclipse.store.afs;
+	requires transitive org.eclipse.serializer.afs;
 }
