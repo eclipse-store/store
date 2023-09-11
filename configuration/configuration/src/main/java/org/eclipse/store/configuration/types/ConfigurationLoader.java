@@ -34,7 +34,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-import org.eclipse.serializer.chars.CharsUtils;
+import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.configuration.exceptions.ConfigurationException;
@@ -319,7 +319,7 @@ public interface ConfigurationLoader
 			
 			try
 			{
-				return CharsUtils.readStringFromInputStream(this.inputStream, this.charset);
+				return XChars.readStringFromInputStream(this.inputStream, this.charset);
 			}
 			catch(final IOException e)
 			{
@@ -357,7 +357,7 @@ public interface ConfigurationLoader
 			
 			try(InputStream in = this.url.openStream())
 			{
-				return CharsUtils.readStringFromInputStream(in, this.charset);
+				return XChars.readStringFromInputStream(in, this.charset);
 			}
 			catch(final IOException e)
 			{
@@ -395,7 +395,7 @@ public interface ConfigurationLoader
 			
 			try(InputStream in = Files.newInputStream(this.path))
 			{
-				return CharsUtils.readStringFromInputStream(in, this.charset);
+				return XChars.readStringFromInputStream(in, this.charset);
 			}
 			catch(final IOException e)
 			{
@@ -433,7 +433,7 @@ public interface ConfigurationLoader
 			
 			try(InputStream in = new FileInputStream(this.file))
 			{
-				return CharsUtils.readStringFromInputStream(in, this.charset);
+				return XChars.readStringFromInputStream(in, this.charset);
 			}
 			catch(final IOException e)
 			{

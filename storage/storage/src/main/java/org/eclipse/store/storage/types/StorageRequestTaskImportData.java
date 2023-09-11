@@ -23,16 +23,16 @@ package org.eclipse.store.storage.types;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
-import org.eclipse.store.afs.base.AFSUtils;
-import org.eclipse.store.storage.exceptions.StorageException;
-import org.eclipse.store.storage.exceptions.StorageExceptionImportFailed;
-import org.eclipse.store.storage.types.StorageDataFileItemIterator.ItemProcessor;
 import org.eclipse.serializer.afs.types.AFile;
-import org.eclipse.serializer.collections.ArraysUtils;
+import org.eclipse.serializer.collections.XArrays;
 import org.eclipse.serializer.collections.types.XGettingEnum;
 import org.eclipse.serializer.concurrency.ThreadsUtils;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.util.X;
+import org.eclipse.store.afs.base.AFSUtils;
+import org.eclipse.store.storage.exceptions.StorageException;
+import org.eclipse.store.storage.exceptions.StorageExceptionImportFailed;
+import org.eclipse.store.storage.types.StorageDataFileItemIterator.ItemProcessor;
 
 
 public interface StorageRequestTaskImportData extends StorageRequestTask
@@ -190,7 +190,7 @@ public interface StorageRequestTaskImportData extends StorageRequestTask
 				this.entityCaches    = entityCaches              ;
 				this.sourceFileHeads = sourceFileHeads           ;
 				this.channelHash     = sourceFileHeads.length - 1;
-				this.channelItems    = ArraysUtils.fill(
+				this.channelItems    = XArrays.fill(
 					new ChannelItem[sourceFileHeads.length],
 					() ->
 						new ChannelItem().resetChains()

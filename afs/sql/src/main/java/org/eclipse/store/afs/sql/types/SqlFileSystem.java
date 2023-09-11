@@ -29,8 +29,8 @@ import org.eclipse.serializer.afs.types.AItem;
 import org.eclipse.serializer.afs.types.AReadableFile;
 import org.eclipse.serializer.afs.types.AResolver;
 import org.eclipse.serializer.afs.types.AWritableFile;
-import org.eclipse.serializer.chars.CharsUtils;
 import org.eclipse.serializer.chars.VarString;
+import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.io.XIO;
 
 
@@ -183,7 +183,7 @@ public interface SqlFileSystem extends AFileSystem, AResolver<SqlPath, SqlPath>
 			final VarString vs
 		)
 		{
-			return CharsUtils.assembleSeparated(
+			return XChars.assembleSeparated(
 				vs,
 				SqlPath.DIRECTORY_TABLE_NAME_SEPARATOR_CHAR,
 				item.toPath()

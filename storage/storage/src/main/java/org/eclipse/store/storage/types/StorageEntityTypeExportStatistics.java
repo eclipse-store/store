@@ -21,8 +21,8 @@ package org.eclipse.store.storage.types;
  */
 
 import org.eclipse.serializer.afs.types.AFile;
-import org.eclipse.serializer.chars.CharsUtils;
 import org.eclipse.serializer.chars.VarString;
+import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.collections.EqConstHashTable;
 import org.eclipse.serializer.collections.EqHashTable;
 import org.eclipse.serializer.collections.types.XGettingTable;
@@ -70,7 +70,7 @@ public interface StorageEntityTypeExportStatistics
 		
 		public static final void assembleTableHeader(final VarString vs)
 		{
-			CharsUtils.assembleNewLinedTabbed(vs, TABLE_COLUMN_NAMES);
+			XChars.assembleNewLinedTabbed(vs, TABLE_COLUMN_NAMES);
 		}
 		
 		

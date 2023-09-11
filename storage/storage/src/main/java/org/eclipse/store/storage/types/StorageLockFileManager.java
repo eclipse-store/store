@@ -26,10 +26,10 @@ import java.nio.ByteBuffer;
 
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AFileSystem;
-import org.eclipse.serializer.chars.CharsUtils;
 import org.eclipse.serializer.chars.VarString;
+import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.collections.ArrayView;
-import org.eclipse.serializer.collections.ArraysUtils;
+import org.eclipse.serializer.collections.XArrays;
 import org.eclipse.serializer.concurrency.ThreadsUtils;
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.util.X;
@@ -278,8 +278,8 @@ public interface StorageLockFileManager extends Runnable
 			final int sep1Index = indexOfFirstNonNumberCharacter(chars, 0);
 			final int sep2Index = indexOfFirstNonNumberCharacter(chars, sep1Index + 1);
 			
-			final long   currentTime    = CharsUtils.parse_longDecimal(chars, 0, sep1Index);
-			final long   expirationTime = CharsUtils.parse_longDecimal(chars, sep1Index + 1, sep2Index - sep1Index - 1);
+			final long   currentTime    = XChars.parse_longDecimal(chars, 0, sep1Index);
+			final long   expirationTime = XChars.parse_longDecimal(chars, sep1Index + 1, sep2Index - sep1Index - 1);
 			final String identifier     = String.valueOf(chars, sep2Index + 1, chars.length - sep2Index - 1);
 			
 			return new LockFileData(currentTime, expirationTime, identifier);
@@ -429,7 +429,7 @@ public interface StorageLockFileManager extends Runnable
 			this.fillReadBufferFromFile();
 			
 			// performance-optimized JDK method
-			if(ArraysUtils.equals(this.stringReadBuffer, this.stringWriteBuffer, this.stringWriteBuffer.length))
+			if(XArrays.equals(this.stringReadBuffer, this.stringWriteBuffer, this.stringWriteBuffer.length))
 			{
 				return;
 			}
