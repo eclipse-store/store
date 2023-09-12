@@ -8,23 +8,19 @@
 
 	<parent>
 		<groupId>org.eclipse.store</groupId>
-		<artifactId>store-parent</artifactId>
+		<artifactId>storage-parent</artifactId>
 		<version>1.0.0-SNAPSHOT</version>
 		<relativePath>../pom.xml</relativePath>
 	</parent>
 
-	<artifactId>storage-parent</artifactId>
+	<artifactId>storage-embedded-tools-parent</artifactId>
 	<packaging>pom</packaging>
 	
-	<name>Eclipse Store Storage</name>
-	<description>Eclipse Store Storage Project</description>
+	<name>Eclipse Store Embedded Storage Tools Parent</name>
+	<description>Eclipse Store Embedded Storage Tools Parent</description>
 
 	<modules>
-		<module>storage</module>
-		<module>embedded</module>
-		<module>embedded-configuration</module>
-		<module>rest</module>
-		<module>embedded-tools</module>
+		<module>storage-converter</module>
 	</modules>
 
 </project>
