@@ -38,7 +38,7 @@
 						<configuration>
 							<transformers>
 								<transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-									<mainClass>one.microstream.storage.embedded.tools.storage.converter.MainUtilStorageConverter</mainClass>
+									<mainClass>org.eclipse.store.storage.embedded.tools.storage.converter.MainUtilStorageConverter</mainClass>
 								</transformer>
 							</transformers>
 						</configuration>
