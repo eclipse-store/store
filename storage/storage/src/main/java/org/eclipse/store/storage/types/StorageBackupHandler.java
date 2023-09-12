@@ -22,7 +22,7 @@ package org.eclipse.store.storage.types;
 
 import static org.eclipse.serializer.util.X.notNull;
 
-import org.eclipse.serializer.afs.types.AFSUtils;
+import org.eclipse.serializer.afs.types.AFS;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.EqHashTable;
@@ -478,7 +478,7 @@ public interface StorageBackupHandler extends Runnable, StorageActivePart
 			}
 			else
 			{
-				AFSUtils.executeWriting(deletionTargetFile, (wf) ->
+				AFS.executeWriting(deletionTargetFile, (wf) ->
 				{
 					backupTransactionFile.moveTo(wf);
 				});

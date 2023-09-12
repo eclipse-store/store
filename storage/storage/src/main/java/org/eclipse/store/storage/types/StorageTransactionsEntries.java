@@ -23,7 +23,7 @@ package org.eclipse.store.storage.types;
 
 import static org.eclipse.serializer.util.X.notNull;
 
-import org.eclipse.serializer.afs.types.AFSUtils;
+import org.eclipse.serializer.afs.types.AFS;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AReadableFile;
 import org.eclipse.serializer.collections.BulkList;
@@ -58,7 +58,7 @@ public interface StorageTransactionsEntries
 	
 	public static StorageTransactionsEntries parseFile(final AFile file)
 	{
-		return AFSUtils.apply(file, rf ->
+		return AFS.apply(file, rf ->
 		{
 			return parseFileContent(rf);
 		});

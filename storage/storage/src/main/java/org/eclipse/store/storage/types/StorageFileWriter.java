@@ -23,7 +23,7 @@ package org.eclipse.store.storage.types;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
-import org.eclipse.serializer.afs.types.AFSUtils;
+import org.eclipse.serializer.afs.types.AFS;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.store.storage.exceptions.StorageExceptionIo;
 import org.eclipse.store.storage.exceptions.StorageExceptionIoWriting;
@@ -65,20 +65,20 @@ public interface StorageFileWriter
 	/**
 	 * Logically the same as a store, but technically the same as a transfer with an external source file.
 	 * 
-	 * @param sourceFile the source file
+	 * @param source the import source
 	 * @param sourceOffset the source offset
 	 * @param copyLength the copy length
 	 * @param targetFile the target file
 	 * @return the amount of bytes written
 	 */
 	public default long writeImport(
-		final StorageFile         sourceFile  ,
+		final StorageImportSource source      ,
 		final long                sourceOffset,
 		final long                copyLength  ,
 		final StorageLiveDataFile targetFile
 	)
 	{
-		return sourceFile.copyTo(targetFile, sourceOffset, copyLength);
+		return source.copyTo(targetFile, sourceOffset, copyLength);
 	}
 	
 	public default long writeTransfer(
@@ -219,7 +219,7 @@ public interface StorageFileWriter
 				throw new IOException("Copying target already exist: " + targetFile);
 			}
 			
-			AFSUtils.executeWriting(targetFile, wf ->
+			AFS.executeWriting(targetFile, wf ->
 			{
 				// copyTo does ensureExists internally
 				sourceFile.copyTo(wf);
@@ -257,7 +257,7 @@ public interface StorageFileWriter
 		{
 			writeController.validateIsDeletionDirectoryEnabled();
 			
-			AFSUtils.executeWriting(deletionTargetFile, wf ->
+			AFS.executeWriting(deletionTargetFile, wf ->
 			{
 				/*
 				 * Target file explicitly may NOT be ensured to exist since

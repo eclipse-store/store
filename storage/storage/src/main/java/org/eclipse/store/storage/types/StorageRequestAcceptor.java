@@ -22,6 +22,7 @@ package org.eclipse.store.storage.types;
 
 import static org.eclipse.serializer.util.X.notNull;
 
+import java.nio.ByteBuffer;
 import java.util.function.Predicate;
 
 import org.eclipse.serializer.afs.types.AFile;
@@ -98,6 +99,8 @@ public interface StorageRequestAcceptor
 		throws InterruptedException;
 
 	public void importFiles(XGettingEnum<AFile> importFiles) throws InterruptedException;
+	
+	public void importData(XGettingEnum<ByteBuffer> importFiles) throws InterruptedException;
 
 	public StorageRawFileStatistics createStatistics() throws InterruptedException;
 
@@ -253,6 +256,12 @@ public interface StorageRequestAcceptor
 		public void importFiles(final XGettingEnum<AFile> importFiles) throws InterruptedException
 		{
 			waitOnTask(this.taskBroker.enqueueImportFromFilesTask(importFiles));
+		}
+		
+		@Override
+		public void importData(final XGettingEnum<ByteBuffer> importData) throws InterruptedException
+		{
+			waitOnTask(this.taskBroker.enqueueImportFromByteBuffersTask(importData));
 		}
 
 	}
