@@ -22,7 +22,7 @@ package org.eclipse.store.storage.types;
 
 import org.eclipse.serializer.afs.types.AFile;
 
-public interface StorageChannelFile extends StorageFile, StorageHashChannelPart
+public interface StorageChannelFile extends StorageClosableFile, StorageHashChannelPart
 {
 	@Override
 	public int channelIndex();
@@ -32,7 +32,7 @@ public interface StorageChannelFile extends StorageFile, StorageHashChannelPart
 	
 	public abstract class Abstract
 	extends StorageFile.Abstract
-	implements StorageChannelFile, StorageClosableFile
+	implements StorageChannelFile
 	{
 		///////////////////////////////////////////////////////////////////////////
 		// instance fields //
@@ -63,6 +63,18 @@ public interface StorageChannelFile extends StorageFile, StorageHashChannelPart
 		{
 			return this.channelIndex;
 		}
+		
+//		@Override
+//		public synchronized boolean isOpen()
+//		{
+//			return this.internalIsOpen();
+//		}
+//
+//		@Override
+//		public synchronized boolean close()
+//		{
+//			return this.internalClose();
+//		}
 		
 	}
 	
