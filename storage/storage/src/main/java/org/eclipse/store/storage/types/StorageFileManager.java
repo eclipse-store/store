@@ -29,6 +29,7 @@ import static org.eclipse.serializer.util.X.notNull;
 import java.nio.ByteBuffer;
 import java.util.function.Consumer;
 
+import org.eclipse.serializer.afs.types.AFSUtils;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.collections.BulkList;
@@ -42,7 +43,6 @@ import org.eclipse.serializer.typing.XTypes;
 import org.eclipse.serializer.util.BufferSizeProvider;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.logging.Logging;
-import org.eclipse.store.afs.base.AFSUtils;
 import org.eclipse.store.storage.exceptions.StorageException;
 import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
 import org.eclipse.store.storage.exceptions.StorageExceptionIoReading;

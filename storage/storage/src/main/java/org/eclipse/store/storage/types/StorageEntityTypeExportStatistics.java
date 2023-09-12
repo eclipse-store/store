@@ -24,7 +24,9 @@ import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.collections.EqConstHashTable;
+import org.eclipse.serializer.collections.EqHashEnum;
 import org.eclipse.serializer.collections.EqHashTable;
+import org.eclipse.serializer.collections.types.XGettingEnum;
 import org.eclipse.serializer.collections.types.XGettingTable;
 import org.eclipse.serializer.collections.types.XImmutableTable;
 import org.eclipse.serializer.typing.KeyValue;
@@ -43,6 +45,13 @@ public interface StorageEntityTypeExportStatistics
 	public XGettingTable<Long, ? extends TypeStatistic> typeStatistics();
 	
 	public XGettingTable<Integer, ? extends ChannelStatistic> channelStatistics();
+	
+	/**
+	 * Collects and returns all exported files.
+	 * 
+	 * @return all export files
+	 */
+	public XGettingEnum<AFile> files();
 	
 	
 	
@@ -136,6 +145,16 @@ public interface StorageEntityTypeExportStatistics
 		public final XGettingTable<Integer, ? extends ChannelStatistic> channelStatistics()
 		{
 			return this.viewChannelStatistics;
+		}
+		
+		@Override
+		public XGettingEnum<AFile> files()
+		{
+			final EqHashEnum<AFile> files = EqHashEnum.New();
+			this.viewTypeStatistics.values().forEach(s ->
+				files.add(s.file())
+			);
+			return files.immure();
 		}
 		
 		final void assembleTableRecord(final VarString vs)

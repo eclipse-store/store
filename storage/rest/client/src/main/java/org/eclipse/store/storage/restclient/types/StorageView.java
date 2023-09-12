@@ -26,9 +26,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import org.eclipse.store.storage.restadapter.types.ViewerObjectDescription;
-import org.eclipse.store.storage.restadapter.types.ViewerRootDescription;
-import org.eclipse.store.storage.restclient.exceptions.StorageViewExceptionMissingTypeDescription;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.types.XGettingSequence;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDescription;
@@ -36,6 +33,9 @@ import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMember
 import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMemberFieldGeneric;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMemberFieldGenericComplex;
 import org.eclipse.serializer.util.X;
+import org.eclipse.store.storage.restadapter.types.ViewerObjectDescription;
+import org.eclipse.store.storage.restadapter.types.ViewerRootDescription;
+import org.eclipse.store.storage.restclient.exceptions.StorageViewExceptionMissingTypeDescription;
 
 
 public interface StorageView
@@ -75,13 +75,26 @@ public interface StorageView
 		public StorageViewElement root()
 		{
 			final ViewerRootDescription      rootDesc   = this.client.requestRoot();
-			final ViewerObjectDescription    objectDesc = this.client.requestObject(
-				this.objectRequestBuilder(rootDesc.getObjectId()).build()
-			);
-			return this.createElement(
+
+			if(rootDesc.getObjectId() > 0)
+			{
+				final ViewerObjectDescription    objectDesc = this.client.requestObject(
+						this.objectRequestBuilder(rootDesc.getObjectId()).build()
+				);
+
+				return this.createElement(
+					null,
+					rootDesc.getName(),
+					objectDesc
+				);
+			}
+			//special case for not yet set root
+			return new StorageViewValue.Default(
+				null,
 				null,
 				rootDesc.getName(),
-				objectDesc
+				"NOT YET DEFINED",
+				null
 			);
 		}
 		
@@ -354,8 +367,8 @@ public interface StorageView
 			if(reference.getSimplified())
 			{
 				final String value = this.value(
-					String.valueOf(reference.getData()[0]), 
-					reference, 
+					String.valueOf(reference.getData()[0]),
+					reference,
 					typeDescription.typeName()
 				);
 				return new StorageViewObject.Simple(

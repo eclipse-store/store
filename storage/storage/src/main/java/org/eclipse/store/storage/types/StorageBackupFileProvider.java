@@ -23,11 +23,11 @@ package org.eclipse.store.storage.types;
 import static org.eclipse.serializer.util.X.mayNull;
 import static org.eclipse.serializer.util.X.notNull;
 
-import org.eclipse.store.afs.nio.types.NioFileSystem;
 import org.eclipse.serializer.afs.types.ADirectory;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AFileSystem;
 import org.eclipse.serializer.persistence.internal.PersistenceTypeDictionaryFileHandler;
+import org.eclipse.store.afs.nio.types.NioFileSystem;
 
 
 public interface StorageBackupFileProvider extends StorageFileProvider
@@ -47,6 +47,8 @@ public interface StorageBackupFileProvider extends StorageFileProvider
 	public StorageBackupTransactionsFile provideBackupTransactionsFile(
 		int channelIndex
 	);
+	
+	public AFile provideTypeDictionaryFile();
 	
 	
 	
@@ -136,6 +138,12 @@ public interface StorageBackupFileProvider extends StorageFileProvider
 			final AFile file = this.provideTransactionsFile(channelIndex);
 			
 			return StorageBackupTransactionsFile.New(file, channelIndex);
+		}
+		
+		@Override
+		public AFile provideTypeDictionaryFile()
+		{
+			return this.defineTypeDictionaryFile();
 		}
 							
 	}
