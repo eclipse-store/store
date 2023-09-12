@@ -26,7 +26,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
-import org.eclipse.serializer.afs.types.AFSUtils;
+import org.eclipse.serializer.afs.types.AFS;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AReadableFile;
 import org.eclipse.serializer.afs.types.AWritableFile;
@@ -611,7 +611,7 @@ public interface StorageDataConverterTypeBinaryToCsv
 		{
 			try
 			{
-				AFSUtils.close(this.targetFile, suppressed);
+				AFS.close(this.targetFile, suppressed);
 			}
 			finally
 			{

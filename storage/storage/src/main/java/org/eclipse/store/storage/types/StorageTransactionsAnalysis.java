@@ -27,7 +27,7 @@ import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
-import org.eclipse.serializer.afs.types.AFSUtils;
+import org.eclipse.serializer.afs.types.AFS;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AReadableFile;
 import org.eclipse.serializer.chars.VarString;
@@ -419,7 +419,7 @@ public interface StorageTransactionsAnalysis
 			}
 			finally
 			{
-				AFSUtils.close(rFile, suppressed);
+				AFS.close(rFile, suppressed);
 			}
 		}
 

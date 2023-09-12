@@ -22,6 +22,7 @@ package org.eclipse.store.storage.embedded.types;
 
 import static org.eclipse.serializer.util.X.notNull;
 
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.function.Predicate;
 
@@ -550,6 +551,12 @@ public interface EmbeddedStorageManager extends StorageManager
 		public final void importFiles(final XGettingEnum<AFile> importFiles)
 		{
 			this.singletonConnection().importFiles(importFiles);
+		}
+		
+		@Override
+		public void importData(final XGettingEnum<ByteBuffer> importData)
+		{
+			this.singletonConnection().importData(importData);
 		}
 
 	}

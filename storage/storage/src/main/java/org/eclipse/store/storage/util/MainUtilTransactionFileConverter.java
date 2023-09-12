@@ -1,6 +1,6 @@
 package org.eclipse.store.storage.util;
 
-import org.eclipse.serializer.afs.types.AFSUtils;
+import org.eclipse.serializer.afs.types.AFS;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.collections.XArrays;
@@ -72,7 +72,7 @@ public class MainUtilTransactionFileConverter
 		
 		try
 		{
-			AFSUtils.writeString(outputFile, result);
+			AFS.writeString(outputFile, result);
 		}
 		catch(final Exception e)
 		{

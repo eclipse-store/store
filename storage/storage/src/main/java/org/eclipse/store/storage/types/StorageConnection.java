@@ -22,6 +22,7 @@ package org.eclipse.store.storage.types;
 
 import static org.eclipse.serializer.util.X.notNull;
 
+import java.nio.ByteBuffer;
 import java.util.function.Predicate;
 
 import org.eclipse.serializer.afs.types.ADirectory;
@@ -369,6 +370,18 @@ public interface StorageConnection extends Persister
 	 * @param importFiles the files whose native binary content shall be imported.
 	 */
 	public void importFiles(XGettingEnum<AFile> importFiles);
+	
+	/**
+	 * Imports all data specified by the passed Enum (ordered set) of {@link ByteBuffer} in order.<br>
+	 * The buffers are assumed to be in the native binary format used internally by the storage.<br>
+	 * All entities contained in the specified buffers will be imported. If they already exist in the storage
+	 * (identified by their ObjectId), their current data will be replaced by the imported data.<br>
+	 * Note that importing data that is not reachable from any root entity will have no effect and will
+	 * eventually be deleted by the garbage collector.
+	 * 
+	 * @param importData the files whose native binary content shall be imported.
+	 */
+	public void importData(XGettingEnum<ByteBuffer> importData);
 
 	/**
 	 * @return the {@link PersistenceManager} used by this {@link StorageConnection}.
@@ -598,6 +611,20 @@ public interface StorageConnection extends Persister
 			try
 			{
 				this.connectionRequestAcceptor.importFiles(importFiles);
+			}
+			catch(final InterruptedException e)
+			{
+				// thread interrupted, task aborted, return
+				return;
+			}
+		}
+		
+		@Override
+		public void importData(final XGettingEnum<ByteBuffer> importData)
+		{
+			try
+			{
+				this.connectionRequestAcceptor.importData(importData);
 			}
 			catch(final InterruptedException e)
 			{

@@ -26,7 +26,6 @@ import java.nio.ByteBuffer;
 import java.util.Iterator;
 
 import org.eclipse.serializer.afs.types.AFS;
-import org.eclipse.serializer.afs.types.AFSUtils;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AWritableFile;
 import org.eclipse.serializer.chars.EscapeHandler;
@@ -1126,7 +1125,7 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 		{
 			try
 			{
-				AFSUtils.close(this.targetFile, suppressed);
+				AFS.close(this.targetFile, suppressed);
 			}
 			finally
 			{
@@ -1558,7 +1557,7 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 			}
 			catch(final Exception e)
 			{
-				AFSUtils.close(this.targetFile, e);
+				AFS.close(this.targetFile, e);
 				throw new StorageException(e);
 			}
 			finally

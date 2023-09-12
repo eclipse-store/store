@@ -1,5 +1,7 @@
 package org.eclipse.store.storage.types;
 
+import static org.eclipse.serializer.math.XMath.notNegative;
+
 /*-
  * #%L
  * Eclipse Store Storage
@@ -21,13 +23,11 @@ package org.eclipse.store.storage.types;
  */
 
 import static org.eclipse.serializer.util.X.notNull;
-import static org.eclipse.serializer.math.XMath.notNegative;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.function.Predicate;
 
-import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
 import org.eclipse.serializer.afs.types.AWritableFile;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.functional.ThrowingProcedure;
@@ -43,6 +43,7 @@ import org.eclipse.serializer.typing.KeyValue;
 import org.eclipse.serializer.util.BufferSizeProviderIncremental;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.logging.Logging;
+import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
 import org.slf4j.Logger;
 
 
@@ -78,7 +79,7 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 	// (19.07.2014 TM)TODO: refactor storage typing to avoid classes in public API
 	public StorageEntityCache.Default prepareImportData();
 
-	public void importData(StorageImportSourceFile importFile);
+	public void importData(StorageImportSource importSource);
 
 	public void rollbackImportData(Throwable cause);
 
@@ -628,9 +629,9 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		}
 
 		@Override
-		public void importData(final StorageImportSourceFile importFile)
+		public void importData(final StorageImportSource importSource)
 		{
-			this.fileManager.copyData(importFile);
+			this.fileManager.copyData(importSource);
 		}
 
 		@Override
