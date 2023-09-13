@@ -1,5 +1,11 @@
 package org.eclipse.store.storage.types;
 
+import static org.eclipse.serializer.util.X.notNull;
+
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.util.function.Consumer;
+
 /*-
  * #%L
  * Eclipse Store Storage
@@ -21,12 +27,6 @@ package org.eclipse.store.storage.types;
  */
 
 import org.eclipse.serializer.meta.XDebug;
-
-import static org.eclipse.serializer.util.X.notNull;
-
-import java.io.PrintWriter;
-import java.io.StringWriter;
-import java.util.function.Consumer;
 
 public interface StorageEventLogger
 {
@@ -97,7 +97,7 @@ public interface StorageEventLogger
 	
 	/**
 	 * NoOp StorageEventLogger
-	 * <p/>
+	 * <p>
 	 * Doesn't log any storage events
 	 *
 	 */
@@ -135,7 +135,7 @@ public interface StorageEventLogger
 	
 	/**
 	 * Default implementation of StorageEventLogger
-	 * <p/>
+	 * <p>
 	 * This implementation doesn't log behavior but logs exceptions
 	 *
 	 */
@@ -236,7 +236,7 @@ public interface StorageEventLogger
 	
 	/**
 	 * Debug implementation of StorageEventLogger
-	 * <p/>
+	 * <p>
 	 * This implementation logs behavior and exceptions
 	 *
 	 */

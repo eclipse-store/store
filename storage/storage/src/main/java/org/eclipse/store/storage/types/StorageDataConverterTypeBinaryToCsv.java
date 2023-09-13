@@ -65,6 +65,7 @@ public interface StorageDataConverterTypeBinaryToCsv
 	/**
 	 * Batch-converts a list of files.
 	 * 
+	 * @param <I> file collection type
 	 * @param files the binary files to convert to CSV
 	 */
 	public default <I extends Iterable<AFile>> void convertDataFiles(final I files)

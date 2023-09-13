@@ -20,6 +20,23 @@ package org.eclipse.store.afs.sql.types;
  * #L%
  */
 
+/**
+ * Configure the separator character used by the microstream SQL AFS implementation.
+ * Classes that implement this interface must provide the character as sting and as char.
+ * The supplied character is used to separate path components and file names when mapping
+ * directory structures to SQL-Table names.
+ * Therefore the supplied character must be allowed to be part of table names of the used
+ * SQL database the AFS is working with.
+ * <p>
+ * The configuration has to be done before any SQLFileSystem instance is created!
+ * <p>
+ * The configuration is done static via the {@link SqlPath} class.
+ * <p>
+ * E.g. to configure "_" as separator:
+ * <blockquote><pre>
+ * SqlPath.set(SqlPathSeparatorProvider.New("_", '_'));
+ * </pre></blockquote>
+ */
 public interface SqlPathSeparatorProvider
 {
 	final static String DIRECTORY_TABLE_NAME_SEPARATOR_DEFAULT      = "$";

@@ -25,14 +25,14 @@ import static org.eclipse.serializer.util.X.notNull;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.eclipse.store.storage.exceptions.StorageException;
-import org.eclipse.store.storage.restadapter.exceptions.StorageRestAdapterException;
-import org.eclipse.store.storage.types.StorageManager;
-import org.eclipse.store.storage.types.StorageRawFileStatistics;
 import org.eclipse.serializer.persistence.types.Persistence;
 import org.eclipse.serializer.persistence.types.PersistenceObjectRegistry;
 import org.eclipse.serializer.persistence.types.PersistenceRootsView;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDictionaryAssembler;
+import org.eclipse.store.storage.exceptions.StorageException;
+import org.eclipse.store.storage.restadapter.exceptions.StorageRestAdapterException;
+import org.eclipse.store.storage.types.StorageManager;
+import org.eclipse.store.storage.types.StorageRawFileStatistics;
 
 public interface EmbeddedStorageRestAdapter
 {
@@ -156,7 +156,7 @@ public interface EmbeddedStorageRestAdapter
 
 		/**
 		 * Get the current root name and object id.
-		 * <p/>
+		 * <p>
 		 * If no default root is registered the returned ViewerRootDescription
 		 * will have a "null" string as name and objectId 0.
 		 *
