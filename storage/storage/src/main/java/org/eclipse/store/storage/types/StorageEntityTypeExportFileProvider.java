@@ -118,7 +118,7 @@ public interface StorageEntityTypeExportFileProvider
 	 * 
 	 * @param directory target directory for the export files
 	 * @param fileSuffix suffix for created files
-	 * return a new {@link StorageEntityTypeExportFileProvider}
+	 * @return a new {@link StorageEntityTypeExportFileProvider}
 	 */
 	public static StorageEntityTypeExportFileProvider New(final ADirectory directory, final String fileSuffix)
 	{
