@@ -28,9 +28,9 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.eclipse.serializer.afs.types.AFileSystem;
 import org.eclipse.serializer.meta.XDebug;
-import org.eclipse.serializer.persistence.binary.types.ObjectIdsSelector;
-import org.eclipse.serializer.persistence.binary.types.PersistenceLiveStorerRegistry;
+import org.eclipse.serializer.persistence.types.ObjectIdsSelector;
 import org.eclipse.serializer.persistence.types.Persistence;
+import org.eclipse.serializer.persistence.types.PersistenceLiveStorerRegistry;
 import org.eclipse.serializer.persistence.types.Unpersistable;
 import org.eclipse.serializer.reference.Referencing;
 import org.eclipse.serializer.util.logging.Logging;
