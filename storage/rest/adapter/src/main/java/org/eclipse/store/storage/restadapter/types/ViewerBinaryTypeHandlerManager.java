@@ -184,7 +184,7 @@ public class ViewerBinaryTypeHandlerManager implements PersistenceTypeHandlerMan
 	}
 
 	@Override
-	public <T> long registerTypeHandlers(final Iterable<? extends PersistenceTypeHandler<Binary, T>> typeHandlers)
+	public long registerTypeHandlers(final Iterable<? extends PersistenceTypeHandler<Binary, ?>> typeHandlers)
 	{
 		throw new UnsupportedOperationException();
 	}
@@ -329,15 +329,15 @@ public class ViewerBinaryTypeHandlerManager implements PersistenceTypeHandlerMan
 	(
 			final PersistenceTypeDefinition legacyTypeDefinition,
 			final PersistenceTypeHandler<Binary, ? super T> currentTypeHandler
-	) 
+	)
 	{
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void iteratePerIds(final BiConsumer<Long, ? super Class<?>> consumer) 
+	public void iteratePerIds(final BiConsumer<Long, ? super Class<?>> consumer)
 	{
-		throw new UnsupportedOperationException();		
+		throw new UnsupportedOperationException();
 	}
 
 }
