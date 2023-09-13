@@ -20,8 +20,8 @@ package org.eclipse.store.storage.embedded.types;
  * #L%
  */
 
-import org.eclipse.serializer.persistence.binary.types.ObjectIdsSelector;
 import org.eclipse.serializer.persistence.types.ObjectIdsProcessor;
+import org.eclipse.serializer.persistence.types.ObjectIdsSelector;
 import org.eclipse.serializer.persistence.types.PersistenceObjectRegistry;
 
 public interface EmbeddedStorageObjectRegistryCallback extends ObjectIdsSelector

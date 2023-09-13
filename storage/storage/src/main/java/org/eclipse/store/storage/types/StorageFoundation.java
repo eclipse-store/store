@@ -24,9 +24,9 @@ import java.nio.ByteOrder;
 
 import org.eclipse.serializer.exceptions.MissingFoundationPartException;
 import org.eclipse.serializer.persistence.binary.types.BinaryEntityRawDataIterator;
-import org.eclipse.serializer.persistence.binary.types.ObjectIdsSelector;
-import org.eclipse.serializer.persistence.binary.types.PersistenceLiveStorerRegistry;
+import org.eclipse.serializer.persistence.types.ObjectIdsSelector;
 import org.eclipse.serializer.persistence.types.Persistence;
+import org.eclipse.serializer.persistence.types.PersistenceLiveStorerRegistry;
 import org.eclipse.serializer.persistence.types.Unpersistable;
 import org.eclipse.serializer.reference.Reference;
 import org.eclipse.serializer.util.InstanceDispatcher;
