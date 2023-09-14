@@ -18,6 +18,7 @@
 	
 	<name>Eclipse Store Embedded Storage Tools Parent</name>
 	<description>Eclipse Store Embedded Storage Tools Parent</description>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<modules>
 		<module>storage-converter</module>

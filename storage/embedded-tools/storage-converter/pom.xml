@@ -17,6 +17,7 @@
 
 	<name>Eclipse Store Embedded Storage Tools Storage Converter</name>
 	<description>Eclipse Store Embedded Storage Tools Storage Converter</description>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>
 		<dependency>

@@ -17,6 +17,7 @@
 	
 	<name>Eclipse Storage REST Adapter</name>
 	<description>Eclipse Storage Adapter for Low-Level Data Externalization</description>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>
 		<dependency>

@@ -17,6 +17,7 @@
 	
 	<name>Eclipse Storage REST Service Sparkjava</name>
 	<description>Eclipse Storage REST Service Implementation</description>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
 	
 	<properties>
 		<sparkjava.version>2.9.3</sparkjava.version>

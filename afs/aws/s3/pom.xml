@@ -14,6 +14,7 @@
 	</parent>
 
 	<artifactId>afs-aws-s3</artifactId>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>
 		<dependency>

@@ -18,6 +18,7 @@
 	
 	<name>Eclipse Store Storage</name>
 	<description>Eclipse Store Storage Project</description>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<modules>
 		<module>storage</module>
