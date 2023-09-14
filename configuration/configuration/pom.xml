@@ -15,6 +15,7 @@
 	
 	<name>Eclipse Store Configuration</name>
 	<description>Eclipse Store General Purpose Configuration</description>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>
 		<dependency>

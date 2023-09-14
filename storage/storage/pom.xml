@@ -17,6 +17,7 @@
 	
 	<name>Eclipse Store Storage</name>
 	<description>Eclipse Store Storage Implementation</description>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
 	
 	<dependencies>
 		<dependency>

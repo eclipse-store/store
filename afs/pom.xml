@@ -18,6 +18,7 @@
 	
 	<name>Eclipse Store Abstract File System</name>
 	<description>File System Abstraction Project of Eclipse Store</description>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<modules>
 		<module>aws</module>

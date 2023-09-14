@@ -17,6 +17,7 @@
 	
 	<name>Eclipse Store Configuration YAML</name>
 	<description>Eclipse Store Configuration YAML Adapter</description>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>
 		<dependency>
