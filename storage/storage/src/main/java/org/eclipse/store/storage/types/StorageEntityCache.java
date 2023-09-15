@@ -76,7 +76,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 	public final class Default
 	implements StorageEntityCache<StorageEntity.Default>, Unpersistable
 	{
-		private final static Logger logger = Logging.getLogger(Default.class);
+		private final static Logger logger = Logging.getLogger(StorageEntityCache.class);
 		
 		
 		private static boolean gcEnabled = true;

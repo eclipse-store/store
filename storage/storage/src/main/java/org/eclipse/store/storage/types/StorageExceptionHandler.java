@@ -50,7 +50,7 @@ public interface StorageExceptionHandler
 	
 	public final class Default implements StorageExceptionHandler
 	{
-		private final static Logger logger = Logging.getLogger(Default.class);
+		private final static Logger logger = Logging.getLogger(StorageExceptionHandler.class);
 		
 		Default()
 		{

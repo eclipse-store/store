@@ -51,7 +51,7 @@ public interface StorageStructureValidator {
 	
 	public class Default implements StorageStructureValidator {
 			
-		private final static Logger logger = Logging.getLogger(Default.class);
+		private final static Logger logger = Logging.getLogger(StorageStructureValidator.class);
 		
 		///////////////////////////////////////////////////////////////////////////
 		// instance fields //

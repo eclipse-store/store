@@ -108,7 +108,7 @@ public interface StorageBackupHandler extends Runnable, StorageActivePart
 	
 	public final class Default implements StorageBackupHandler, StorageBackupInventory, PersistenceTypeDictionaryStorer
 	{
-		private final static Logger logger = Logging.getLogger(Default.class);
+		private final static Logger logger = Logging.getLogger(StorageBackupHandler.class);
 		
 		///////////////////////////////////////////////////////////////////////////
 		// instance fields //

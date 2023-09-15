@@ -95,7 +95,7 @@ public interface EmbeddedStorageManager extends StorageManager
 
 	public final class Default implements EmbeddedStorageManager, Unpersistable, LazyReferenceManager.Controller
 	{
-		private final static Logger logger = Logging.getLogger(Default.class);
+		private final static Logger logger = Logging.getLogger(EmbeddedStorageManager.class);
 		
 		
 		///////////////////////////////////////////////////////////////////////////
