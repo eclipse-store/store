@@ -25,6 +25,7 @@ import org.eclipse.serializer.collections.EqHashTable;
 import org.eclipse.serializer.collections.XSort;
 import org.eclipse.serializer.collections.types.XGettingEnum;
 import org.eclipse.serializer.collections.types.XGettingTable;
+import org.eclipse.serializer.monitoring.MonitoringManager;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.types.Persistence;
 import org.eclipse.serializer.persistence.types.PersistenceManager;
@@ -40,6 +41,8 @@ import org.eclipse.serializer.reference.Swizzling;
 import org.eclipse.serializer.typing.KeyValue;
 import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
+import org.eclipse.store.storage.monitoring.StorageManagerMonitor;
+import org.eclipse.store.storage.monitoring.ObjectRegistryMonitor;
 import org.eclipse.store.storage.types.Database;
 import org.eclipse.store.storage.types.StorageConfiguration;
 import org.eclipse.store.storage.types.StorageConnection;
@@ -75,14 +78,16 @@ public interface EmbeddedStorageManager extends StorageManager
 		final Database                               database            ,
 		final StorageConfiguration                   configuration       ,
 		final EmbeddedStorageConnectionFoundation<?> connectionFoundation,
-		final PersistenceRootsProvider<?> rootsProvider
+		final PersistenceRootsProvider<?>            rootsProvider       ,
+		final MonitoringManager                  monitorManager
 	)
 	{
 		return new EmbeddedStorageManager.Default(
 			notNull(database)            ,
 			notNull(configuration)       ,
 			notNull(connectionFoundation),
-			notNull(rootsProvider)
+			notNull(rootsProvider)       ,
+			monitorManager
 		);
 	}
 
@@ -104,6 +109,8 @@ public interface EmbeddedStorageManager extends StorageManager
 				
 		private StorageConnection singletonConnection;
 
+		private final MonitoringManager monitorManager;
+
 
 
 		///////////////////////////////////////////////////////////////////////////
@@ -114,7 +121,8 @@ public interface EmbeddedStorageManager extends StorageManager
 			final Database                               database            ,
 			final StorageConfiguration                   configuration       ,
 			final EmbeddedStorageConnectionFoundation<?> connectionFoundation,
-			final PersistenceRootsProvider<?>            rootsProvider
+			final PersistenceRootsProvider<?>            rootsProvider       ,
+			final MonitoringManager                  monitorManager
 		)
 		{
 			super();
@@ -123,6 +131,7 @@ public interface EmbeddedStorageManager extends StorageManager
 			this.storageSystem        = connectionFoundation.getStorageSystem(); // to ensure consistency
 			this.connectionFoundation = connectionFoundation                   ;
 			this.rootsProvider        = rootsProvider                          ;
+			this.monitorManager       = monitorManager                         ;
 		}
 
 
@@ -270,6 +279,8 @@ public interface EmbeddedStorageManager extends StorageManager
 				throw t;
 			}
 			
+			this.monitorManager.registerMonitor(new StorageManagerMonitor(this));
+			
 			return this;
 		}
 		
@@ -354,6 +365,8 @@ public interface EmbeddedStorageManager extends StorageManager
 			try
 			{
 				final StorageConnection initConnection = this.createConnection();
+				
+				this.monitorManager.registerMonitor(new ObjectRegistryMonitor(initConnection.persistenceManager().objectRegistry()));
 
 				PersistenceRoots loadedRoots = this.loadExistingRoots(initConnection);
 				if(loadedRoots == null)

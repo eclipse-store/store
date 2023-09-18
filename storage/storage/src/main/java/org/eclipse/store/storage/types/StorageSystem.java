@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.eclipse.serializer.afs.types.AFileSystem;
 import org.eclipse.serializer.meta.XDebug;
+import org.eclipse.serializer.monitoring.MonitoringManager;
 import org.eclipse.serializer.persistence.types.ObjectIdsSelector;
 import org.eclipse.serializer.persistence.types.Persistence;
 import org.eclipse.serializer.persistence.types.PersistenceLiveStorerRegistry;
@@ -112,6 +113,7 @@ public interface StorageSystem extends StorageController
 		private final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry             ;
 		private final boolean                                    switchByteOrder               ;
 		private final StorageStructureValidator                  storageStructureValidator     ;
+		private final MonitoringManager                      monitorManager                ;
 		
 		// state flags //
 		private final AtomicBoolean    isStartingUp       = new AtomicBoolean();
@@ -166,7 +168,8 @@ public interface StorageSystem extends StorageController
 			final StorageEventLogger                         eventLogger                   ,
 			final ObjectIdsSelector                          liveObjectIdChecker           ,
 			final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry             ,
-			final StorageStructureValidator                  storageStructureValidator
+			final StorageStructureValidator                  storageStructureValidator     ,
+			final MonitoringManager                      monitorManager
 		)
 		{
 			super();
@@ -212,6 +215,7 @@ public interface StorageSystem extends StorageController
 			this.refStorerRegistry              = notNull(refStorerRegistry)                   ;
 			this.switchByteOrder                =         switchByteOrder                      ;
 			this.storageStructureValidator      = notNull(storageStructureValidator)           ;
+			this.monitorManager                 = notNull(monitorManager)                      ;
 		}
 
 
@@ -463,7 +467,8 @@ public interface StorageSystem extends StorageController
 				this.liveObjectIdChecker                   ,
 				this.refStorerRegistry                     ,
 				this.switchByteOrder                       ,
-				this.rootTypeIdProvider.provideRootTypeId()
+				this.rootTypeIdProvider.provideRootTypeId(),
+				this.monitorManager
 			);
 
 			final ChannelKeeper[] keepers = this.channelKeepers;
@@ -546,6 +551,8 @@ public interface StorageSystem extends StorageController
 			this.shutdownBackup();
 			
 			this.operationController.deactivate();
+			
+			this.monitorManager.shutdown();
 
 			/* (07.03.2019 TM)FIXME: Shutdown must wait for ongoing activities.
 			 * Such as a StorageBackupHandler thread with a non-empty item queue.

@@ -199,12 +199,12 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			return this.sweepGeneration;
 		}
 
-		final long lastSweepStart()
+		public final long lastSweepStart()
 		{
 			return this.lastSweepStart;
 		}
 
-		final long lastSweepEnd()
+		public final long lastSweepEnd()
 		{
 			return this.lastSweepEnd;
 		}
