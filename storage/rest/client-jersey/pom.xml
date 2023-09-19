@@ -17,6 +17,7 @@
 	
 	<name>Eclipse Store Storage REST Client Jersey</name>
 	<description>Jersey REST Client Implementation</description>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
 	
 	<properties>
 		<jersey.version>2.33</jersey.version>

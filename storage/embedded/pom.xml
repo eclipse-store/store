@@ -17,6 +17,7 @@
 	
 	<name>Eclipse Store Embedded Storage</name>
 	<description>Eclipse Store Embedded Storage Implementation</description>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>
 		<dependency>

@@ -18,6 +18,7 @@
 	
 	<name>Eclipse Store Configuration</name>
 	<description>Eclipse Store Configuration Project</description>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<modules>
 		<module>configuration</module>

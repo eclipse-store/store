@@ -17,6 +17,7 @@
 	
 	<name>Eclipse Store Storage REST Client</name>
 	<description>Java Wrapper for the Eclipse Store Storage REST API</description>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>
 		<dependency>

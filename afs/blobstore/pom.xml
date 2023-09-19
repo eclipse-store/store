@@ -12,6 +12,7 @@
 	</parent>
 
 	<artifactId>afs-blobstore</artifactId>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
 	
 	<dependencies>
 		<dependency>
