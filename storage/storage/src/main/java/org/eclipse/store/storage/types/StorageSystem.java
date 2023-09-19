@@ -76,7 +76,7 @@ public interface StorageSystem extends StorageController
 
 	public final class Default implements StorageSystem, Unpersistable, StorageKillable
 	{
-		private final static Logger logger = Logging.getLogger(Default.class);
+		private final static Logger logger = Logging.getLogger(StorageSystem.class);
 		
 		
 		///////////////////////////////////////////////////////////////////////////

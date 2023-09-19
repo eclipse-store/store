@@ -293,7 +293,7 @@ public interface ConfigurationLoader
 	
 	public static class InputStreamLoader implements ConfigurationLoader
 	{
-		private final static Logger logger = Logging.getLogger(InputStreamLoader.class);
+		private final static Logger logger = Logging.getLogger(ConfigurationLoader.class);
 		
 		private final InputStream inputStream;
 		private final Charset     charset    ;
@@ -331,7 +331,7 @@ public interface ConfigurationLoader
 	
 	public static class UrlLoader implements ConfigurationLoader
 	{
-		private final static Logger logger = Logging.getLogger(UrlLoader.class);
+		private final static Logger logger = Logging.getLogger(ConfigurationLoader.class);
 		
 		private final URL     url    ;
 		private final Charset charset;
@@ -369,7 +369,7 @@ public interface ConfigurationLoader
 	
 	public static class PathLoader implements ConfigurationLoader
 	{
-		private final static Logger logger = Logging.getLogger(PathLoader.class);
+		private final static Logger logger = Logging.getLogger(ConfigurationLoader.class);
 		
 		private final Path    path   ;
 		private final Charset charset;
@@ -407,7 +407,7 @@ public interface ConfigurationLoader
 	
 	public static class FileLoader implements ConfigurationLoader
 	{
-		private final static Logger logger = Logging.getLogger(FileLoader.class);
+		private final static Logger logger = Logging.getLogger(ConfigurationLoader.class);
 		
 		private final File    file   ;
 		private final Charset charset;

@@ -22,7 +22,6 @@ package org.eclipse.store.storage.types;
 
 import java.util.function.Supplier;
 
-import org.eclipse.store.storage.exceptions.StorageException;
 import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.math.XMath;
 import org.eclipse.serializer.persistence.types.PersistenceLiveStorerRegistry;
@@ -30,6 +29,7 @@ import org.eclipse.serializer.persistence.types.PersistenceObjectIdAcceptor;
 import org.eclipse.serializer.reference.Referencing;
 import org.eclipse.serializer.reference.Swizzling;
 import org.eclipse.serializer.util.logging.Logging;
+import org.eclipse.store.storage.exceptions.StorageException;
 import org.slf4j.Logger;
 
 
@@ -177,7 +177,7 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 
 	final class Default implements StorageEntityMarkMonitor, StorageReferenceMarker
 	{
-		private final static Logger logger = Logging.getLogger(Default.class);
+		private final static Logger logger = Logging.getLogger(StorageEntityMarkMonitor.class);
 		
 		///////////////////////////////////////////////////////////////////////////
 		// instance fields //

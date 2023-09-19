@@ -109,7 +109,7 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 	public final class Default implements StorageFileManager, StorageFileUser
 	{
-		private final static Logger logger = Logging.getLogger(Default.class);
+		private final static Logger logger = Logging.getLogger(StorageFileManager.class);
 		
 		///////////////////////////////////////////////////////////////////////////
 		// constants //

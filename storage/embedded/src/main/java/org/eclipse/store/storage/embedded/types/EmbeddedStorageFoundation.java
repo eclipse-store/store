@@ -23,6 +23,22 @@ package org.eclipse.store.storage.embedded.types;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
+import org.eclipse.serializer.exceptions.MissingFoundationPartException;
+import org.eclipse.serializer.persistence.binary.types.Binary;
+import org.eclipse.serializer.persistence.types.Persistence;
+import org.eclipse.serializer.persistence.types.PersistenceLiveStorerRegistry;
+import org.eclipse.serializer.persistence.types.PersistenceObjectIdProvider;
+import org.eclipse.serializer.persistence.types.PersistenceRefactoringMappingProvider;
+import org.eclipse.serializer.persistence.types.PersistenceRootResolverProvider;
+import org.eclipse.serializer.persistence.types.PersistenceRootsProvider;
+import org.eclipse.serializer.persistence.types.PersistenceTypeDictionary;
+import org.eclipse.serializer.persistence.types.PersistenceTypeEvaluator;
+import org.eclipse.serializer.persistence.types.PersistenceTypeHandler;
+import org.eclipse.serializer.persistence.types.PersistenceTypeHandlerManager;
+import org.eclipse.serializer.persistence.types.PersistenceTypeHandlerRegistration;
+import org.eclipse.serializer.persistence.types.PersistenceTypeManager;
+import org.eclipse.serializer.reference.Reference;
+import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.storage.types.Database;
 import org.eclipse.store.storage.types.Databases;
 import org.eclipse.store.storage.types.StorageChannelsCreator;
@@ -40,22 +56,6 @@ import org.eclipse.store.storage.types.StorageTaskBroker;
 import org.eclipse.store.storage.types.StorageTimestampProvider;
 import org.eclipse.store.storage.types.StorageTypeDictionary;
 import org.eclipse.store.storage.types.StorageWriteController;
-import org.eclipse.serializer.exceptions.MissingFoundationPartException;
-import org.eclipse.serializer.persistence.binary.types.Binary;
-import org.eclipse.serializer.persistence.types.Persistence;
-import org.eclipse.serializer.persistence.types.PersistenceLiveStorerRegistry;
-import org.eclipse.serializer.persistence.types.PersistenceObjectIdProvider;
-import org.eclipse.serializer.persistence.types.PersistenceRefactoringMappingProvider;
-import org.eclipse.serializer.persistence.types.PersistenceRootResolverProvider;
-import org.eclipse.serializer.persistence.types.PersistenceRootsProvider;
-import org.eclipse.serializer.persistence.types.PersistenceTypeDictionary;
-import org.eclipse.serializer.persistence.types.PersistenceTypeEvaluator;
-import org.eclipse.serializer.persistence.types.PersistenceTypeHandler;
-import org.eclipse.serializer.persistence.types.PersistenceTypeHandlerManager;
-import org.eclipse.serializer.persistence.types.PersistenceTypeHandlerRegistration;
-import org.eclipse.serializer.persistence.types.PersistenceTypeManager;
-import org.eclipse.serializer.reference.Reference;
-import org.eclipse.serializer.util.logging.Logging;
 import org.slf4j.Logger;
 
 
@@ -381,7 +381,7 @@ extends StorageFoundation<F>, PersistenceTypeHandlerRegistration.Executor<Binary
 	extends StorageFoundation.Default<F>
 	implements EmbeddedStorageFoundation<F>
 	{
-		private final static Logger logger = Logging.getLogger(EmbeddedStorageFoundation.Default.class);
+		private final static Logger logger = Logging.getLogger(EmbeddedStorageFoundation.class);
 		
 		///////////////////////////////////////////////////////////////////////////
 		// instance fields //

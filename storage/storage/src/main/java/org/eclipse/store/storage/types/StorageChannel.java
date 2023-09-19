@@ -113,7 +113,7 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 
 	public final class Default implements StorageChannel, Unpersistable, StorageHousekeepingExecutor
 	{
-		private final static Logger logger = Logging.getLogger(Default.class);
+		private final static Logger logger = Logging.getLogger(StorageChannel.class);
 		
 		///////////////////////////////////////////////////////////////////////////
 		// instance fields //
