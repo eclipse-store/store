@@ -1,6 +1,6 @@
 {
     "handler": {
-        "org.eclipse.storage.restservice.sparkjava.types.RouteGetRoot": {
+        "org.eclipse.store.storage.restservice.sparkjava.types.RouteGetRoot": {
             "get": {
                 "description": "get the user defined root",
                 "parameter": {},
@@ -30,7 +30,7 @@
                 "description": "get detailed informations"
             }
         },
-        "org.eclipse.storage.restservice.sparkjava.types.RouteGetObject": {
+        "org.eclipse.store.storage.restservice.sparkjava.types.RouteGetObject": {
             "options": {
                 "description": "get detailed informations"
             },
@@ -132,7 +132,7 @@
                 }
             }
         },
-        "org.eclipse.storage.restservice.sparkjava.types.RouteTypeDictionary": {
+        "org.eclipse.store.storage.restservice.sparkjava.types.RouteTypeDictionary": {
             "get": {
                 "description": "get storage type dictionary",
                 "parameter": {},
@@ -152,7 +152,7 @@
                 "description": "get detailed informations"
             }
         },
-        "org.eclipse.storage.restservice.sparkjava.types.RouteStorageFilesStatistics": {
+        "org.eclipse.store.storage.restservice.sparkjava.types.RouteStorageFilesStatistics": {
             "get": {
                 "description": "get statistics for all storage files",
                 "parameter": {},
@@ -172,7 +172,7 @@
                 "description": "get detailed informations"
             }
         },
-        "org.eclipse.storage.restservice.sparkjava.types.RouteAllRoutes": {
+        "org.eclipse.store.storage.restservice.sparkjava.types.RouteAllRoutes": {
             "get": {
                 "description": "get a list of all available routes",
                 "parameter": {},
