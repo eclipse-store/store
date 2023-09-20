@@ -55,7 +55,7 @@ public class StorageViewDataConverterJson implements StorageViewDataConverter
 		super();
 
 
-        final JsonSerializer<Date> serializerDate = new JsonSerializer<Date>()
+        final JsonSerializer<Date> serializerDate = new JsonSerializer<>()
         {
             @Override
             public JsonElement serialize(final Date src, final Type typeOfSrc, final JsonSerializationContext context)
