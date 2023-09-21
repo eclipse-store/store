@@ -15,6 +15,9 @@
 
 	<artifactId>afs-aws-parent</artifactId>
 	<packaging>pom</packaging>
+	
+	<name>EclipseStore Abstract File System AWS Parent</name>
+	<description>EclipseStore File System Abstraction for AWS</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<modules>

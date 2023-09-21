@@ -15,6 +15,9 @@
 
 	<artifactId>afs-oraclecloud-parent</artifactId>
 	<packaging>pom</packaging>
+	
+	<name>EclipseStore Abstract File System Oracle Cloud Parent</name>
+	<description>EclipseStore File System Abstraction for Oracle Cloud</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<modules>

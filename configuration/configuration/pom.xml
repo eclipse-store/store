@@ -13,8 +13,8 @@
 
 	<artifactId>configuration</artifactId>
 	
-	<name>Eclipse Store Configuration</name>
-	<description>Eclipse Store General Purpose Configuration</description>
+	<name>EclipseStore Configuration</name>
+	<description>EclipseStore General Purpose Configuration</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>

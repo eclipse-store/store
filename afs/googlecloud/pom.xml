@@ -15,6 +15,9 @@
 
 	<artifactId>afs-googlecloud-parent</artifactId>
 	<packaging>pom</packaging>
+	
+	<name>EclipseStore Abstract File System Google Cloud Parent</name>
+	<description>EclipseStore File System Abstraction for Google Cloud</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<modules>

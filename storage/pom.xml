@@ -16,8 +16,8 @@
 	<artifactId>storage-parent</artifactId>
 	<packaging>pom</packaging>
 	
-	<name>Eclipse Store Storage</name>
-	<description>Eclipse Store Storage Project</description>
+	<name>EclipseStore Storage Parent</name>
+	<description>EclipseStore Storage Project</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<modules>

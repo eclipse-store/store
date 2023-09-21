@@ -15,7 +15,7 @@
 
 	<artifactId>storage-restclient-jersey</artifactId>
 	
-	<name>Eclipse Store Storage REST Client Jersey</name>
+	<name>EclipseStore Storage REST Client Jersey</name>
 	<description>Jersey REST Client Implementation</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 	

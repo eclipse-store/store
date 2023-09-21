@@ -13,8 +13,8 @@
 
 	<artifactId>afs-nio</artifactId>
 
-	<name>Eclipse Store Abstract File System - Java NIO</name>
-	<description>Java NIO Adapter for the Eclipse Store Abstract File System</description>
+	<name>EclipseStore Abstract File System - Java NIO</name>
+	<description>Java NIO Adapter for the EclipseStore Abstract File System</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 		
 	<dependencies>

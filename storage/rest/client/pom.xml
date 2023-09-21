@@ -15,8 +15,8 @@
 
 	<artifactId>storage-restclient</artifactId>
 	
-	<name>Eclipse Store Storage REST Client</name>
-	<description>Java Wrapper for the Eclipse Store Storage REST API</description>
+	<name>EclipseStore Storage REST Client</name>
+	<description>Java Wrapper for the EclipseStore Storage REST API</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>

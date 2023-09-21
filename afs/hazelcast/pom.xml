@@ -14,6 +14,9 @@
 	</parent>
 
 	<artifactId>afs-hazelcast</artifactId>
+	
+	<name>EclipseStore Abstract File System Hazelcast</name>
+	<description>EclipseStore File System Abstraction for Hazelcast</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>

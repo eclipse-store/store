@@ -13,6 +13,10 @@
 
 	<artifactId>afs-azure-storage</artifactId>
 	
+	<name>EclipseStore Abstract File System Azure Storage</name>
+	<description>EclipseStore File System Abstraction for Azure Storage</description>
+    <url>https://projects.eclipse.org/projects/technology.store</url>
+	
 	<dependencies>
 		<dependency>
 			<groupId>org.eclipse.store</groupId>

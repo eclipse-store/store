@@ -15,8 +15,8 @@
 
 	<artifactId>configuration-hocon</artifactId>
 	
-	<name>Eclipse Store Configuration Hocon</name>
-	<description>Eclipse Store Configuration Hocon Adapter</description>
+	<name>EclipseStore Configuration Hocon</name>
+	<description>EclipseStore Configuration Hocon Adapter</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>

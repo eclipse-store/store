@@ -15,8 +15,8 @@
 
 	<artifactId>configuration-yaml</artifactId>
 	
-	<name>Eclipse Store Configuration YAML</name>
-	<description>Eclipse Store Configuration YAML Adapter</description>
+	<name>EclipseStore Configuration YAML</name>
+	<description>EclipseStore Configuration YAML Adapter</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>

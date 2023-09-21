@@ -2,9 +2,9 @@ package org.eclipse.store.afs.azure.storage.types;
 
 /*-
  * #%L
- * afs-azure-storage
+ * EclipseStore Abstract File System Azure Storage
  * %%
- * Copyright (C) 2023 Eclipse Foundation
+ * Copyright (C) 2023 MicroStream Software
  * %%
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License 2.0 which is available at

@@ -14,6 +14,9 @@
 	</parent>
 
 	<artifactId>afs-oraclecloud-objectstorage</artifactId>
+	
+	<name>EclipseStore Abstract File System Oracle Cloud ObjectStorage</name>
+	<description>EclipseStore File System Abstraction for Oracle Cloud ObjectStorage</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>

@@ -16,8 +16,8 @@
 	<artifactId>storage-embedded-tools-parent</artifactId>
 	<packaging>pom</packaging>
 	
-	<name>Eclipse Store Embedded Storage Tools Parent</name>
-	<description>Eclipse Store Embedded Storage Tools Parent</description>
+	<name>EclipseStore Storage Embedded Tools Parent</name>
+	<description>EclipseStore Embedded Storage Tools Parent</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<modules>

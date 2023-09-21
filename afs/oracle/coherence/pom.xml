@@ -14,6 +14,9 @@
 	</parent>
 
 	<artifactId>afs-oracle-coherence</artifactId>
+	
+	<name>EclipseStore Abstract File System Oracle Coherence</name>
+	<description>EclipseStore File System Abstraction for Oracle Coherence</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencyManagement>

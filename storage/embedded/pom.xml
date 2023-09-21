@@ -15,8 +15,8 @@
 
 	<artifactId>storage-embedded</artifactId>
 	
-	<name>Eclipse Store Embedded Storage</name>
-	<description>Eclipse Store Embedded Storage Implementation</description>
+	<name>EclipseStore Storage Embedded</name>
+	<description>EclipseStore Embedded Storage Implementation</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>

@@ -14,6 +14,9 @@
 	</parent>
 
 	<artifactId>afs-aws-s3</artifactId>
+	
+	<name>EclipseStore Abstract File System AWS S3</name>
+	<description>EclipseStore File System Abstraction for AWS S3</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>

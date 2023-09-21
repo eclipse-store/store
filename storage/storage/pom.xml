@@ -15,8 +15,8 @@
 
 	<artifactId>storage</artifactId>
 	
-	<name>Eclipse Store Storage</name>
-	<description>Eclipse Store Storage Implementation</description>
+	<name>EclipseStore Storage</name>
+	<description>EclipseStore Storage Implementation</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 	
 	<dependencies>

@@ -15,8 +15,8 @@
 
 	<artifactId>storage-restservice-sparkjava</artifactId>
 	
-	<name>Eclipse Storage REST Service Sparkjava</name>
-	<description>Eclipse Storage REST Service Implementation</description>
+	<name>EclipseStore Storage REST Service Sparkjava</name>
+	<description>EclipseStore Storage REST Service Implementation</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 	
 	<properties>
