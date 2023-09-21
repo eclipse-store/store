@@ -39,7 +39,6 @@ public interface StorageEntityTypeConversionFileProvider
 	 * @param directory the target directory
 	 * @param fileSuffix the suffix to use for the created files
 	 * @return a new {@link StorageEntityTypeConversionFileProvider}
-	 * @since 08.00.00
 	 */
 	public static StorageEntityTypeConversionFileProvider New(
 		final ADirectory directory ,
