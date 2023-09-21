@@ -26,12 +26,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
-import org.eclipse.store.storage.exceptions.StorageExceptionExportFailed;
 import org.eclipse.serializer.afs.types.AWritableFile;
 import org.eclipse.serializer.collections.BulkList;
-import org.eclipse.serializer.collections.CollectionsUtils;
 import org.eclipse.serializer.collections.EqHashTable;
+import org.eclipse.serializer.collections.XUtilsCollection;
 import org.eclipse.serializer.typing.KeyValue;
+import org.eclipse.store.storage.exceptions.StorageExceptionExportFailed;
 
 
 public interface StorageRequestTaskExportEntitiesByType extends StorageRequestTask
@@ -66,7 +66,7 @@ public interface StorageRequestTaskExportEntitiesByType extends StorageRequestTa
 			final int                                                                          channelCount           ,
 			final StorageEntityTypeExportFileProvider                                          fileProvider           ,
 			final Predicate<? super StorageEntityTypeHandler>                                  isExportType           ,
-			final Function<? super StorageEntityTypeHandler, Predicate<? super StorageEntity>> predicateEntityProvider, 
+			final Function<? super StorageEntityTypeHandler, Predicate<? super StorageEntity>> predicateEntityProvider,
 			final StorageOperationController                                                   controller
 		)
 		{
@@ -222,7 +222,7 @@ public interface StorageRequestTaskExportEntitiesByType extends StorageRequestTa
 			if(this.result == null)
 			{
 				this.result = new StorageEntityTypeExportStatistics.Default(
-						CollectionsUtils.toTable(this.channelResults)
+					XUtilsCollection.toTable(this.channelResults)
 				);
 			}
 			return this.result;
