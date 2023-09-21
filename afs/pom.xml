@@ -16,8 +16,8 @@
 	<artifactId>afs-parent</artifactId>
 	<packaging>pom</packaging>
 	
-	<name>Eclipse Store Abstract File System</name>
-	<description>File System Abstraction Project of Eclipse Store</description>
+	<name>EclipseStore Abstract File System</name>
+	<description>File System Abstraction Project of EclipseStore</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<modules>

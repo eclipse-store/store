@@ -12,6 +12,9 @@
 	</parent>
 
 	<artifactId>afs-kafka</artifactId>
+	
+	<name>EclipseStore Abstract File System Kafka</name>
+	<description>EclipseStore File System Abstraction for Apache Kafka</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 	
 	<dependencies>

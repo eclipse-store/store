@@ -11,14 +11,14 @@
     <version>1.0.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
-    <name>Eclipse Store</name>
-    <description>Eclipse Store Project</description>
+    <name>EclipseStore</name>
+    <description>EclipseStore Project</description>
     <url>https://projects.eclipse.org/projects/technology.store</url>
 
     <organization>
-        <name>Eclipse Foundation</name>
-        <url>https://eclipse.org</url>
-    </organization>
+		<name>MicroStream Software</name>
+		<url>https://microstream.one</url>
+	</organization>
 
     <licenses>
         <license>
@@ -243,9 +243,8 @@
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>license-maven-plugin</artifactId>
-                    <version>2.1.0</version>
+                    <version>2.2.0</version>
                     <configuration>
-                        <overrideFile>false</overrideFile>
                         <includes>
                             <include>**/*.java</include>
                         </includes>

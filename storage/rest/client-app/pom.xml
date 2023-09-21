@@ -15,7 +15,7 @@
 
 	<artifactId>storage-restclient-app</artifactId>
 	
-	<name>Eclipse Store Storage REST Client App</name>
+	<name>EclipseStore Storage REST Client App</name>
 	<description>Executable Client App with Web User Interface</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 

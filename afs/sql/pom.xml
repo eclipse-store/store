@@ -13,8 +13,8 @@
 
 	<artifactId>afs-sql</artifactId>
 	
-	<name>Eclipse Store Abstract File System - SQL</name>
-	<description>SQL Adapter for the Eclipse Store Abstract File System</description>
+	<name>EclipseStore Abstract File System SQL</name>
+	<description>SQL Adapter for the EclipseStore Abstract File System</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 	
 	<dependencies>

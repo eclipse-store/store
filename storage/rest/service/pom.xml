@@ -15,7 +15,7 @@
 
 	<artifactId>storage-restservice</artifactId>
 	
-	<name>Eclipse Store Storage REST Service</name>
+	<name>EclipseStore Storage REST Service</name>
 	<description>Abstract REST Service Interface</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 

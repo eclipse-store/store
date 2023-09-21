@@ -15,8 +15,8 @@
 
 	<artifactId>storage-embedded-configuration</artifactId>
 	
-	<name>Eclipse Store Embedded Storage Configuration</name>
-	<description>Eclipse Store Embedded Storage Configuration Layer</description>
+	<name>EclipseStore Storage Embedded Configuration</name>
+	<description>EclipseStore Embedded Storage Configuration Layer</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>

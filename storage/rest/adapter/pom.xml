@@ -15,8 +15,8 @@
 
 	<artifactId>storage-restadapter</artifactId>
 	
-	<name>Eclipse Storage REST Adapter</name>
-	<description>Eclipse Storage Adapter for Low-Level Data Externalization</description>
+	<name>EclipseStore Storage REST Adapter</name>
+	<description>EclipseStore REST Adapter for Low-Level Data Externalization</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>

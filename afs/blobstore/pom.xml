@@ -12,6 +12,9 @@
 	</parent>
 
 	<artifactId>afs-blobstore</artifactId>
+	
+	<name>EclipseStore Abstract File System Blobstore</name>
+	<description>EclipseStore File System Abstraction for Blob Stores</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 	
 	<dependencies>

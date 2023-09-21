@@ -14,6 +14,9 @@
 	</parent>
 
 	<artifactId>afs-aws-dynamodb</artifactId>
+	
+	<name>EclipseStore Abstract File System AWS DynamoDB</name>
+	<description>EclipseStore File System Abstraction for AWS DynamoDB</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>

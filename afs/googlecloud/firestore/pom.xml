@@ -14,6 +14,9 @@
 	</parent>
 
 	<artifactId>afs-googlecloud-firestore</artifactId>
+	
+	<name>EclipseStore Abstract File System Google Cloud Firestore</name>
+	<description>EclipseStore File System Abstraction for Google Cloud Firestore</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>

@@ -4,9 +4,9 @@ import static org.eclipse.serializer.chars.XChars.notEmpty;
 
 /*-
  * #%L
- * Eclipse Store Storage
+ * EclipseStore Storage
  * %%
- * Copyright (C) 2023 Eclipse Foundation
+ * Copyright (C) 2023 MicroStream Software
  * %%
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License 2.0 which is available at
@@ -39,7 +39,6 @@ public interface StorageEntityTypeConversionFileProvider
 	 * @param directory the target directory
 	 * @param fileSuffix the suffix to use for the created files
 	 * @return a new {@link StorageEntityTypeConversionFileProvider}
-	 * @since 08.00.00
 	 */
 	public static StorageEntityTypeConversionFileProvider New(
 		final ADirectory directory ,

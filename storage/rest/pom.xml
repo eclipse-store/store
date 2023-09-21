@@ -16,8 +16,8 @@
 	<artifactId>storage-rest-parent</artifactId>
 	<packaging>pom</packaging>
 	
-	<name>Eclipse Store Storage REST</name>
-	<description>Eclipse Store Storage REST Project</description>
+	<name>EclipseStore Storage REST Parent</name>
+	<description>EclipseStore Storage REST Project</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<modules>

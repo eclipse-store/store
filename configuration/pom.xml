@@ -16,8 +16,8 @@
 	<artifactId>configuration-parent</artifactId>
 	<packaging>pom</packaging>
 	
-	<name>Eclipse Store Configuration</name>
-	<description>Eclipse Store Configuration Project</description>
+	<name>EclipseStore Configuration Parent</name>
+	<description>EclipseStore Configuration Project</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<modules>
