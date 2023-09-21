@@ -245,7 +245,6 @@
                     <artifactId>license-maven-plugin</artifactId>
                     <version>2.1.0</version>
                     <configuration>
-                        <overrideFile>false</overrideFile>
                         <includes>
                             <include>**/*.java</include>
                         </includes>
