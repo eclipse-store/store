@@ -22,7 +22,7 @@ package org.eclipse.store.storage.types;
 
 import java.util.Date;
 
-import org.eclipse.serializer.collections.CollectionsUtils;
+import org.eclipse.serializer.collections.XUtilsCollection;
 import org.eclipse.serializer.time.XTime;
 
 
@@ -53,7 +53,7 @@ public interface StorageRequestTaskCreateStatistics extends StorageRequestTask
 
 		Default(
 			final long                       timestamp   ,
-			final int                        channelCount, 
+			final int                        channelCount,
 			final StorageOperationController controller
 		)
 		{
@@ -111,7 +111,7 @@ public interface StorageRequestTaskCreateStatistics extends StorageRequestTask
 					fileCount                                    ,
 					liveDataLength                               ,
 					totalDataLength                              ,
-					CollectionsUtils.toTable(this.channelResults)
+					XUtilsCollection.toTable(this.channelResults)
 			);
 		}
 
