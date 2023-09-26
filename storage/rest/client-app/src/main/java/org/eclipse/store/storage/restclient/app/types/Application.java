@@ -29,7 +29,7 @@ import com.vaadin.flow.spring.annotation.EnableVaadin;
 
 
 @SpringBootApplication
-@EnableVaadin("org.eclipse.storage.restclient.app.ui")
+@EnableVaadin("org.eclipse.store.storage.restclient.app.ui")
 public class Application extends SpringBootServletInitializer
 {
 	public static void main(
