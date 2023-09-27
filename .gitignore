@@ -86,6 +86,7 @@ profile
 
 # Asciidoctor
 .asciidoctor/
+.asciidoctorconfig.adoc
 
 # Vim
 *.swp
