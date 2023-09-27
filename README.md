@@ -30,6 +30,10 @@ Just run
 mvn install
 ```
 
+## Contribute
+
+If you want to contribute to this project, please read our [guidelines](CONTRIBUTING.md).
+
 
 ## Links
 
