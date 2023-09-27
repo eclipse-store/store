@@ -34,3 +34,9 @@ Contact the project developers via the project's mailing list.
 
 - Fork the repository in GitHub and make changes in your fork.
 - Submit a pull request.
+- All commits must be [signed](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits).
+- By contributing, you agree that your contributions will be licensed under the [Eclipse Public License v 2.0](https://www.eclipse.org/legal/epl-2.0/)
+
+## Code of Conduct
+
+Please follow our [Code of Conduct](CODE_OF_CONDUCT.md).
