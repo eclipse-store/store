@@ -37,4 +37,6 @@ If you want to contribute to this project, please read our [guidelines](CONTRIBU
 
 ## Links
 
-- Website: <https://eclipsestore.io>
+- [Website](https://eclipsestore.io)
+- [Eclipse project page](https://projects.eclipse.org/projects/technology.store)
+- [Dev mailing list](https://accounts.eclipse.org/mailing-list/store-dev)
