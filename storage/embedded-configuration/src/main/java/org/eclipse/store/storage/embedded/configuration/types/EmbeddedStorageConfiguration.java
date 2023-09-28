@@ -25,12 +25,12 @@ import static org.eclipse.serializer.util.X.coalesce;
 
 import java.nio.charset.Charset;
 
-import org.eclipse.store.configuration.exceptions.ConfigurationExceptionNoConfigurationFound;
-import org.eclipse.store.configuration.types.Configuration;
-import org.eclipse.store.configuration.types.ConfigurationLoader;
-import org.eclipse.store.configuration.types.ConfigurationParser;
-import org.eclipse.store.configuration.types.ConfigurationParserIni;
-import org.eclipse.store.configuration.types.ConfigurationParserXml;
+import org.eclipse.serializer.configuration.exceptions.ConfigurationExceptionNoConfigurationFound;
+import org.eclipse.serializer.configuration.types.Configuration;
+import org.eclipse.serializer.configuration.types.ConfigurationLoader;
+import org.eclipse.serializer.configuration.types.ConfigurationParser;
+import org.eclipse.serializer.configuration.types.ConfigurationParserIni;
+import org.eclipse.serializer.configuration.types.ConfigurationParserXml;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation;
 
 

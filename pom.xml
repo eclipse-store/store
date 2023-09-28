@@ -47,7 +47,6 @@
 
     <modules>
         <module>afs</module>
-        <module>configuration</module>
         <module>storage</module>
     </modules>
 
