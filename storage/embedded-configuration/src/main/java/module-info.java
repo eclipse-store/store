@@ -22,6 +22,6 @@ module org.eclipse.store.storage.embedded.configuration
 	exports org.eclipse.store.storage.embedded.configuration.types;
 	
 	requires java.xml;
-	requires transitive org.eclipse.store.configuration;
+	requires transitive org.eclipse.serializer.configuration;
 	requires transitive org.eclipse.store.storage.embedded;
 }

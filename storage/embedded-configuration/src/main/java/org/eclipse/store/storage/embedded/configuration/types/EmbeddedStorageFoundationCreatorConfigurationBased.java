@@ -27,10 +27,6 @@ import java.time.Duration;
 import java.util.function.Supplier;
 
 import org.eclipse.store.afs.nio.types.NioFileSystem;
-import org.eclipse.store.configuration.exceptions.ConfigurationException;
-import org.eclipse.store.configuration.types.ByteSize;
-import org.eclipse.store.configuration.types.Configuration;
-import org.eclipse.store.configuration.types.ConfigurationBasedCreator;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation;
 import org.eclipse.store.storage.types.Storage;
@@ -44,6 +40,10 @@ import org.eclipse.store.storage.types.StorageLiveFileProvider;
 import org.eclipse.serializer.afs.types.ADirectory;
 import org.eclipse.serializer.afs.types.AFileSystem;
 import org.eclipse.serializer.chars.XChars;
+import org.eclipse.serializer.configuration.exceptions.ConfigurationException;
+import org.eclipse.serializer.configuration.types.ByteSize;
+import org.eclipse.serializer.configuration.types.Configuration;
+import org.eclipse.serializer.configuration.types.ConfigurationBasedCreator;
 
 
 /**

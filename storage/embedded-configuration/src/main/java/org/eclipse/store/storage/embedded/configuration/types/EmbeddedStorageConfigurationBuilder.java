@@ -25,12 +25,12 @@ import static org.eclipse.serializer.util.X.notNull;
 import java.io.File;
 import java.time.Duration;
 
-import org.eclipse.store.configuration.types.ByteSize;
-import org.eclipse.store.configuration.types.Configuration;
-import org.eclipse.store.configuration.types.ConfigurationValueMapperProvider;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation;
 import org.eclipse.store.storage.types.StorageEntityCacheEvaluator;
 import org.eclipse.serializer.collections.types.XGettingCollection;
+import org.eclipse.serializer.configuration.types.ByteSize;
+import org.eclipse.serializer.configuration.types.Configuration;
+import org.eclipse.serializer.configuration.types.ConfigurationValueMapperProvider;
 import org.eclipse.serializer.typing.KeyValue;
 
 
