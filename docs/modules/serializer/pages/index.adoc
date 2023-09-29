@@ -9,7 +9,7 @@ It is usable as as replacement for the default Java serialization to convert obj
 ----
 <dependencies>
 	<dependency>
-		<groupId>one.eclipse.serializer</groupId>
+		<groupId>org.eclipse.serializer</groupId>
 		<artifactId>serializer</artifactId>
 		<version>{maven-version}</version>
 	</dependency>
