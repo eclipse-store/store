@@ -13,6 +13,20 @@ Change or omit the `eclipseStoreVersion` and `typeDictionaryRelativePath` parame
 The codebase migration is only done when `eclipseStoreVersion` is set.
 The type dictionary migration is only done when `typeDictionaryRelativePath` is set.
 
+### Migration of both, source code and type dictionary:
+
 ````
-mvn org.openrewrite.maven:rewrite-maven-plugin:run -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:1.0.0-SNAPSHOT -Drewrite.plainTextMasks=**/*.ptd -DeclipseStoreVersion=1.0.0-SNAPSHOT -DtypeDictionaryRelativeFilePath=src/main/resources/PersistenceTypeDictionary.ptd
+mvn org.openrewrite.maven:rewrite-maven-plugin:run -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:1.0.0-SNAPSHOT -DeclipseStoreVersion=1.0.0-SNAPSHOT -Drewrite.plainTextMasks=**/*.ptd  -DtypeDictionaryRelativeFilePath=src/main/resources/PersistenceTypeDictionary.ptd
+````
+
+### Migration of source code only:
+
+````
+mvn org.openrewrite.maven:rewrite-maven-plugin:run -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:1.0.0-SNAPSHOT -DeclipseStoreVersion=1.0.0-SNAPSHOT
+````
+
+### Migration of type dictionary only:
+
+````
+mvn org.openrewrite.maven:rewrite-maven-plugin:run -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:1.0.0-SNAPSHOT -Drewrite.plainTextMasks=**/*.ptd  -DtypeDictionaryRelativeFilePath=src/main/resources/PersistenceTypeDictionary.ptd
 ````
