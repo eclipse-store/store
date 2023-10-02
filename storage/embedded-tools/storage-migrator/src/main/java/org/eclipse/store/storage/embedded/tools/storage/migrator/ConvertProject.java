@@ -9,23 +9,20 @@ package org.eclipse.store.storage.embedded.tools.storage.migrator;
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License 2.0 which is available at
  * http://www.eclipse.org/legal/epl-2.0.
- * 
+ *
  * This Source Code may also be made available under the following Secondary
  * Licenses when the conditions for such availability set forth in the Eclipse
  * Public License, v. 2.0 are satisfied: GNU General Public License, version 2
  * with the GNU Classpath Exception which is
  * available at https://www.gnu.org/software/classpath/license.html.
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  * #L%
  */
 
-import static org.eclipse.serializer.util.X.coalesce;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.EqualsAndHashCode;
 import org.eclipse.store.storage.embedded.tools.storage.migrator.mappings.DependencyMapping;
 import org.eclipse.store.storage.embedded.tools.storage.migrator.mappings.DependencyMappings;
 import org.eclipse.store.storage.embedded.tools.storage.migrator.mappings.PackageMappings;
@@ -33,13 +30,15 @@ import org.eclipse.store.storage.embedded.tools.storage.migrator.typedictionary.
 import org.openrewrite.Option;
 import org.openrewrite.Recipe;
 import org.openrewrite.java.ChangePackage;
+import org.openrewrite.java.ChangeType;
 import org.openrewrite.maven.AddDependency;
 import org.openrewrite.maven.ChangeDependencyGroupIdAndArtifactId;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
-import lombok.EqualsAndHashCode;
+import static org.eclipse.serializer.util.X.coalesce;
 
 
 @EqualsAndHashCode(callSuper = false)
@@ -119,6 +118,13 @@ public class ConvertProject extends Recipe
 			PackageMappings.INSTANCE.forEach(
 				mapping -> list.add(this.createChangePackage(mapping))
 			);
+			
+			// special case 'X'
+			list.add(new ChangeType(
+				"one.microstream.X",
+				"org.eclipse.serializer.util.X",
+				true
+			));
 		}
 		
 		if(this.typeDictionaryRelativeFilePath != null)
@@ -128,7 +134,7 @@ public class ConvertProject extends Recipe
 		
 		return list;
 	}
-
+	
 	private AddDependency createAddDependency()
 	{
 		// Detects usage of serializer utilities and adds extracted dependency.
@@ -147,7 +153,7 @@ public class ConvertProject extends Recipe
 			null
 		);
 	}
-
+	
 	private ChangeDependencyGroupIdAndArtifactId createChangeDependency(final DependencyMapping mapping)
 	{
 		return new ChangeDependencyGroupIdAndArtifactId(
@@ -159,7 +165,7 @@ public class ConvertProject extends Recipe
 			null
 		);
 	}
-
+	
 	private ChangePackage createChangePackage(final Map.Entry<String, String> mapping)
 	{
 		return new ChangePackage(
