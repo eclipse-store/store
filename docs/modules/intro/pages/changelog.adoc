@@ -1,3 +1,15 @@
 = Changelog
 
+== 1.0.0
+
+This is the first release of {product-name}, the successor of https://github.com/microstream-one[MicroStream].
+It is at the same state as the last MicroStream Storage release, https://github.com/microstream-one/microstream/releases[8.1.1].
+Just living in a different namespace.
+
+=== Migration
+
+Migration of MicroStream projects can easily be achieved with this https://github.com/eclipse-store/store/tree/main/storage/embedded-tools/storage-migrator[tool].
+
+It takes care of the proper rewrite of https://github.com/eclipse-store/store/tree/main/storage/embedded-tools/storage-migrator/src/resources/META-INF/dependency.mappings[dependencies] and https://github.com/eclipse-store/store/tree/main/storage/embedded-tools/storage-migrator/src/resources/META-INF/package.mappings[packages].
+
 
