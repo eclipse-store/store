@@ -36,7 +36,7 @@
         <maven.java.version.minimum>11</maven.java.version.minimum>
         <org.eclipse.jdt.ecj.version>3.29.0</org.eclipse.jdt.ecj.version>
         <license.inceptionYear>2023</license.inceptionYear>
-        <license.licenseName>epl_v2</license.licenseName>
+        <license.licenseName>epl_only_v2</license.licenseName>
         <license.licenceFile>${basedir}/LICENSE</license.licenceFile>
         <api.version>1</api.version>
         <javadoc.failed.on.error>false</javadoc.failed.on.error>
