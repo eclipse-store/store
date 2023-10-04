@@ -84,7 +84,7 @@
 	
 	<profiles>
 		<profile>
-			<id>migrator-standalone</id>
+			<id>production</id>
 			<build>
 	        <plugins>
 	            <plugin>
