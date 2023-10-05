@@ -1,12 +1,5 @@
 package org.eclipse.store.storage.util;
 
-import org.eclipse.serializer.afs.types.AFS;
-import org.eclipse.serializer.afs.types.AFile;
-import org.eclipse.serializer.chars.VarString;
-import org.eclipse.serializer.collections.XArrays;
-import org.eclipse.serializer.concurrency.ThreadsUtils;
-import org.eclipse.serializer.io.XIO;
-
 /*-
  * #%L
  * EclipseStore Storage
@@ -21,6 +14,12 @@ import org.eclipse.serializer.io.XIO;
  * #L%
  */
 
+import org.eclipse.serializer.afs.types.AFS;
+import org.eclipse.serializer.afs.types.AFile;
+import org.eclipse.serializer.chars.VarString;
+import org.eclipse.serializer.collections.XArrays;
+import org.eclipse.serializer.concurrency.XThreads;
+import org.eclipse.serializer.io.XIO;
 import org.eclipse.store.afs.nio.types.NioFileSystem;
 import org.eclipse.store.storage.types.StorageTransactionsAnalysis;
 
@@ -42,7 +41,7 @@ public class MainUtilTransactionFileConverter
 		if(XArrays.hasNoContent(args))
 		{
 			System.out.println("No transaction file specified. Exiting.");
-			ThreadsUtils.sleep(1000);
+			XThreads.sleep(1000);
 			System.exit(-1);
 		}
 		
@@ -50,7 +49,7 @@ public class MainUtilTransactionFileConverter
 		if(!file.exists())
 		{
 			System.out.println("File not found: " + args[0]);
-			ThreadsUtils.sleep(1000);
+			XThreads.sleep(1000);
 			System.exit(-2);
 		}
 
@@ -73,12 +72,12 @@ public class MainUtilTransactionFileConverter
 			// naive printing is okay for a tiny standalone-utility program.
 			e.printStackTrace(); // NOSONAR
 			
-			ThreadsUtils.sleep(1000);
+			XThreads.sleep(1000);
 			System.exit(-3);
 		}
 
 		System.out.println("Done.");
-		ThreadsUtils.sleep(1000);
+		XThreads.sleep(1000);
 		System.exit(0);
 	}
 

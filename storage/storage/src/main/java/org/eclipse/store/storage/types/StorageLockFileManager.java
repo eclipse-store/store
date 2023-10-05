@@ -24,7 +24,7 @@ import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.collections.ArrayView;
 import org.eclipse.serializer.collections.XArrays;
-import org.eclipse.serializer.concurrency.ThreadsUtils;
+import org.eclipse.serializer.concurrency.XThreads;
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.util.X;
 import org.eclipse.store.storage.exceptions.StorageException;
@@ -155,7 +155,7 @@ public interface StorageLockFileManager extends Runnable
 				// wait first after the initial write, then perform the regular update
 				while(this.checkIsRunning())
 				{
-					ThreadsUtils.sleep(updateInterval);
+					XThreads.sleep(updateInterval);
 					this.updateFile();
 				}
 			}
@@ -401,7 +401,7 @@ public interface StorageLockFileManager extends Runnable
 			if(firstAttempt)
 			{
 				// wait one interval and try a second time
-				ThreadsUtils.sleep(existingFiledata.updateInterval);
+				XThreads.sleep(existingFiledata.updateInterval);
 				return this.validateExistingLockFileData(false);
 				
 				// returning here means no exception (but expiration) on the second attempt, meaning success.
