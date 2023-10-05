@@ -22,9 +22,9 @@ import org.eclipse.store.storage.types.StorageBackupSetup;
 import org.eclipse.store.storage.types.StorageConfiguration;
 import org.eclipse.store.storage.types.StorageLiveFileProvider;
 import org.eclipse.serializer.afs.types.ADirectory;
-import org.eclipse.serializer.persistence.internal.PersistenceTypeDictionaryFileHandler;
 import org.eclipse.serializer.persistence.types.Persistence;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDictionary;
+import org.eclipse.serializer.persistence.types.PersistenceTypeDictionaryFileHandler;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDictionaryIoHandler;
 import org.eclipse.serializer.persistence.types.PersistenceTypeEvaluator;
 

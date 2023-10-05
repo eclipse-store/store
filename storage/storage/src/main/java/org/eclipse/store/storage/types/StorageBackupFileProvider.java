@@ -20,7 +20,7 @@ import static org.eclipse.serializer.util.X.notNull;
 import org.eclipse.serializer.afs.types.ADirectory;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AFileSystem;
-import org.eclipse.serializer.persistence.internal.PersistenceTypeDictionaryFileHandler;
+import org.eclipse.serializer.persistence.types.PersistenceTypeDictionaryFileHandler;
 import org.eclipse.store.afs.nio.types.NioFileSystem;
 
 
