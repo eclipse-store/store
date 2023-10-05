@@ -15,7 +15,7 @@ module org.eclipse.store.afs.sql
 {
 	exports org.eclipse.store.afs.sql.types;
 	
-	provides org.eclipse.store.configuration.types.ConfigurationBasedCreator
+	provides org.eclipse.serializer.configuration.types.ConfigurationBasedCreator
     	with org.eclipse.store.afs.sql.types.SqlFileSystemCreatorHana,
 	         org.eclipse.store.afs.sql.types.SqlFileSystemCreatorMariaDb,
 			 org.eclipse.store.afs.sql.types.SqlFileSystemCreatorOracle,
@@ -24,6 +24,6 @@ module org.eclipse.store.afs.sql
 	;
 	
 	requires transitive org.eclipse.serializer.afs;
-	requires transitive org.eclipse.store.configuration;
+	requires transitive org.eclipse.serializer.configuration;
 	requires transitive java.sql;
 }

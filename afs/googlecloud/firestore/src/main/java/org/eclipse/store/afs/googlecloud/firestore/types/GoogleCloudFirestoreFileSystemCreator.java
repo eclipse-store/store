@@ -20,17 +20,17 @@ import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 
+import org.eclipse.serializer.afs.types.AFileSystem;
+import org.eclipse.serializer.chars.XChars;
+import org.eclipse.serializer.configuration.exceptions.ConfigurationException;
+import org.eclipse.serializer.configuration.types.Configuration;
+import org.eclipse.serializer.configuration.types.ConfigurationBasedCreator;
+import org.eclipse.store.afs.blobstore.types.BlobStoreFileSystem;
+
 import com.google.api.gax.core.NoCredentialsProvider;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.FirestoreOptions;
-
-import org.eclipse.store.afs.blobstore.types.BlobStoreFileSystem;
-import org.eclipse.store.configuration.exceptions.ConfigurationException;
-import org.eclipse.store.configuration.types.Configuration;
-import org.eclipse.store.configuration.types.ConfigurationBasedCreator;
-import org.eclipse.serializer.afs.types.AFileSystem;
-import org.eclipse.serializer.chars.XChars;
 
 public class GoogleCloudFirestoreFileSystemCreator extends ConfigurationBasedCreator.Abstract<AFileSystem>
 {

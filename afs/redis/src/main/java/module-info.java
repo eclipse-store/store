@@ -15,11 +15,11 @@ module org.eclipse.store.afs.redis
 {
 	exports org.eclipse.store.afs.redis.types;
 	
-	provides org.eclipse.store.configuration.types.ConfigurationBasedCreator
+	provides org.eclipse.serializer.configuration.types.ConfigurationBasedCreator
 	    with org.eclipse.store.afs.redis.types.RedisFileSystemCreator
 	;
 	
-	requires transitive org.eclipse.store.configuration;
+	requires transitive org.eclipse.serializer.configuration;
 	requires transitive org.eclipse.store.afs.blobstore;
 	requires transitive io.netty.buffer;
 	requires transitive io.netty.common;

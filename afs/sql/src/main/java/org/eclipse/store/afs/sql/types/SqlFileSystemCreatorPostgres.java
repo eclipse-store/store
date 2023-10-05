@@ -16,7 +16,7 @@ package org.eclipse.store.afs.sql.types;
 
 import javax.sql.DataSource;
 
-import org.eclipse.store.configuration.types.Configuration;
+import org.eclipse.serializer.configuration.types.Configuration;
 
 
 public class SqlFileSystemCreatorPostgres extends SqlFileSystemCreator

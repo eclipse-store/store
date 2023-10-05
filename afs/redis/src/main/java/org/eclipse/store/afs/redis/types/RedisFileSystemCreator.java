@@ -14,11 +14,11 @@ package org.eclipse.store.afs.redis.types;
  * #L%
  */
 
-import org.eclipse.store.afs.blobstore.types.BlobStoreFileSystem;
-import org.eclipse.store.configuration.types.Configuration;
-import org.eclipse.store.configuration.types.ConfigurationBasedCreator;
 import org.eclipse.serializer.afs.types.AFileSystem;
 import org.eclipse.serializer.chars.XChars;
+import org.eclipse.serializer.configuration.types.Configuration;
+import org.eclipse.serializer.configuration.types.ConfigurationBasedCreator;
+import org.eclipse.store.afs.blobstore.types.BlobStoreFileSystem;
 
 
 public class RedisFileSystemCreator extends ConfigurationBasedCreator.Abstract<AFileSystem>

@@ -15,11 +15,11 @@ module org.eclipse.store.afs.hazelcast
 {
 	exports org.eclipse.store.afs.hazelcast.types;
 	
-	provides org.eclipse.store.configuration.types.ConfigurationBasedCreator
+	provides org.eclipse.serializer.configuration.types.ConfigurationBasedCreator
 	    with org.eclipse.store.afs.hazelcast.types.HazelcastFileSystemCreator
 	;
 	
-	requires transitive org.eclipse.store.configuration;
+	requires transitive org.eclipse.serializer.configuration;
 	requires transitive org.eclipse.store.afs.blobstore;
 	requires transitive com.hazelcast.core;
 }

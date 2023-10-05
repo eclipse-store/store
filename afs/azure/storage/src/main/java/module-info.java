@@ -15,11 +15,11 @@ module org.eclipse.store.afs.azure.storage
 {
 	exports org.eclipse.store.afs.azure.storage.types;
 	
-	provides org.eclipse.store.configuration.types.ConfigurationBasedCreator
+	provides org.eclipse.serializer.configuration.types.ConfigurationBasedCreator
 	    with org.eclipse.store.afs.azure.storage.types.AzureStorageFileSystemCreator
 	;
 	
-	requires transitive org.eclipse.store.configuration;
+	requires transitive org.eclipse.serializer.configuration;
 	requires transitive org.eclipse.store.afs.blobstore;
 	requires transitive com.azure.core;
 	requires transitive com.azure.storage.blob;

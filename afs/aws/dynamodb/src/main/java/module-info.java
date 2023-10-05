@@ -15,7 +15,7 @@ module org.eclipse.store.afs.aws.dynamodb
 {
 	exports org.eclipse.store.afs.aws.dynamodb.types;
 	
-	provides org.eclipse.store.configuration.types.ConfigurationBasedCreator
+	provides org.eclipse.serializer.configuration.types.ConfigurationBasedCreator
 	    with org.eclipse.store.afs.aws.dynamodb.types.DynamoDbFileSystemCreator
 	;
 	

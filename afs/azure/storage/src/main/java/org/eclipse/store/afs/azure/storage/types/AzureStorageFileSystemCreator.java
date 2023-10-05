@@ -14,15 +14,15 @@ package org.eclipse.store.afs.azure.storage.types;
  * #L%
  */
 
+import org.eclipse.serializer.afs.types.AFileSystem;
+import org.eclipse.serializer.configuration.types.Configuration;
+import org.eclipse.serializer.configuration.types.ConfigurationBasedCreator;
+import org.eclipse.store.afs.blobstore.types.BlobStoreFileSystem;
+
 import com.azure.core.credential.BasicAuthenticationCredential;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.common.StorageSharedKeyCredential;
-
-import org.eclipse.store.afs.blobstore.types.BlobStoreFileSystem;
-import org.eclipse.store.configuration.types.Configuration;
-import org.eclipse.store.configuration.types.ConfigurationBasedCreator;
-import org.eclipse.serializer.afs.types.AFileSystem;
 
 
 public class AzureStorageFileSystemCreator extends ConfigurationBasedCreator.Abstract<AFileSystem>

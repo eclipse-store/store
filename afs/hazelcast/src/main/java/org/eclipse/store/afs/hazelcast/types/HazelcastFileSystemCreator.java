@@ -19,6 +19,13 @@ import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 
+import org.eclipse.serializer.afs.types.AFileSystem;
+import org.eclipse.serializer.chars.XChars;
+import org.eclipse.serializer.configuration.exceptions.ConfigurationException;
+import org.eclipse.serializer.configuration.types.Configuration;
+import org.eclipse.serializer.configuration.types.ConfigurationBasedCreator;
+import org.eclipse.store.afs.blobstore.types.BlobStoreFileSystem;
+
 import com.hazelcast.config.ClasspathXmlConfig;
 import com.hazelcast.config.ClasspathYamlConfig;
 import com.hazelcast.config.Config;
@@ -28,13 +35,6 @@ import com.hazelcast.config.UrlXmlConfig;
 import com.hazelcast.config.UrlYamlConfig;
 import com.hazelcast.core.Hazelcast;
 import com.hazelcast.core.HazelcastInstance;
-
-import org.eclipse.store.afs.blobstore.types.BlobStoreFileSystem;
-import org.eclipse.store.configuration.exceptions.ConfigurationException;
-import org.eclipse.store.configuration.types.Configuration;
-import org.eclipse.store.configuration.types.ConfigurationBasedCreator;
-import org.eclipse.serializer.afs.types.AFileSystem;
-import org.eclipse.serializer.chars.XChars;
 
 
 public class HazelcastFileSystemCreator extends ConfigurationBasedCreator.Abstract<AFileSystem>

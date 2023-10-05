@@ -17,7 +17,7 @@ package org.eclipse.store.storage.types;
 import org.eclipse.serializer.afs.types.ADirectory;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AFileSystem;
-import org.eclipse.serializer.persistence.internal.PersistenceTypeDictionaryFileHandler;
+import org.eclipse.serializer.persistence.types.PersistenceTypeDictionaryFileHandler;
 
 import static org.eclipse.serializer.util.X.mayNull;
 import static org.eclipse.serializer.util.X.notNull;

@@ -15,11 +15,11 @@ module org.eclipse.store.afs.ocacle.coherence
 {
 	exports org.eclipse.store.afs.oracle.coherence.types;
 	
-	provides org.eclipse.store.configuration.types.ConfigurationBasedCreator
+	provides org.eclipse.serializer.configuration.types.ConfigurationBasedCreator
 	    with org.eclipse.store.afs.oracle.coherence.types.OracleCoherenceFileSystemCreator
 	;
 	
-	requires transitive org.eclipse.store.configuration;
+	requires transitive org.eclipse.serializer.configuration;
 	requires transitive org.eclipse.store.afs.blobstore;
 	requires transitive com.oracle.coherence.ce;
 }

@@ -14,10 +14,11 @@ package org.eclipse.store.afs.aws.dynamodb.types;
  * #L%
  */
 
+import org.eclipse.serializer.afs.types.AFileSystem;
+import org.eclipse.serializer.configuration.types.Configuration;
 import org.eclipse.store.afs.aws.types.AwsFileSystemCreator;
 import org.eclipse.store.afs.blobstore.types.BlobStoreFileSystem;
-import org.eclipse.store.configuration.types.Configuration;
-import org.eclipse.serializer.afs.types.AFileSystem;
+
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClientBuilder;
 

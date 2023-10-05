@@ -1,9 +1,5 @@
 package org.eclipse.store.afs.sql.types;
 
-import static org.eclipse.serializer.chars.XChars.notEmpty;
-
-import java.lang.reflect.InvocationTargetException;
-
 /*-
  * #%L
  * EclipseStore Abstract File System SQL
@@ -18,12 +14,16 @@ import java.lang.reflect.InvocationTargetException;
  * #L%
  */
 
+import static org.eclipse.serializer.chars.XChars.notEmpty;
+
+import java.lang.reflect.InvocationTargetException;
+
 import javax.sql.DataSource;
 
 import org.eclipse.serializer.afs.types.AFileSystem;
-import org.eclipse.store.configuration.exceptions.ConfigurationException;
-import org.eclipse.store.configuration.types.Configuration;
-import org.eclipse.store.configuration.types.ConfigurationBasedCreator;
+import org.eclipse.serializer.configuration.exceptions.ConfigurationException;
+import org.eclipse.serializer.configuration.types.Configuration;
+import org.eclipse.serializer.configuration.types.ConfigurationBasedCreator;
 
 public abstract class SqlFileSystemCreator extends ConfigurationBasedCreator.Abstract<AFileSystem>
 {

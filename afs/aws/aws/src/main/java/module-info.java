@@ -16,7 +16,7 @@ module org.eclipse.store.afs.aws
 	exports org.eclipse.store.afs.aws.types;
 	
 	requires transitive org.eclipse.serializer.afs;
-	requires transitive org.eclipse.store.configuration;
+	requires transitive org.eclipse.serializer.configuration;
 	requires transitive software.amazon.awssdk.auth;
 	requires transitive software.amazon.awssdk.awscore;
 	requires transitive software.amazon.awssdk.core;

@@ -22,19 +22,19 @@ import java.net.URL;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 
+import org.eclipse.serializer.afs.types.AFileSystem;
+import org.eclipse.serializer.chars.XChars;
+import org.eclipse.serializer.configuration.exceptions.ConfigurationException;
+import org.eclipse.serializer.configuration.types.Configuration;
+import org.eclipse.serializer.configuration.types.ConfigurationBasedCreator;
+import org.eclipse.store.afs.blobstore.types.BlobStoreFileSystem;
+
 import com.oracle.bmc.ClientConfiguration;
 import com.oracle.bmc.ClientConfiguration.ClientConfigurationBuilder;
 import com.oracle.bmc.ConfigFileReader;
 import com.oracle.bmc.auth.AuthenticationDetailsProvider;
 import com.oracle.bmc.auth.ConfigFileAuthenticationDetailsProvider;
 import com.oracle.bmc.objectstorage.ObjectStorageClient;
-
-import org.eclipse.store.afs.blobstore.types.BlobStoreFileSystem;
-import org.eclipse.store.configuration.exceptions.ConfigurationException;
-import org.eclipse.store.configuration.types.Configuration;
-import org.eclipse.store.configuration.types.ConfigurationBasedCreator;
-import org.eclipse.serializer.afs.types.AFileSystem;
-import org.eclipse.serializer.chars.XChars;
 
 public class OracleCloudObjectStorageFileSystemCreator extends ConfigurationBasedCreator.Abstract<AFileSystem>
 {
