@@ -16,15 +16,15 @@ package org.eclipse.store.afs.oracle.coherence.types;
 
 import java.util.Map;
 
-import com.tangosol.net.CacheFactory;
-import com.tangosol.net.NamedCache;
-
-import org.eclipse.store.afs.blobstore.types.BlobStoreFileSystem;
-import org.eclipse.store.configuration.exceptions.ConfigurationException;
-import org.eclipse.store.configuration.types.Configuration;
-import org.eclipse.store.configuration.types.ConfigurationBasedCreator;
 import org.eclipse.serializer.afs.types.AFileSystem;
 import org.eclipse.serializer.chars.XChars;
+import org.eclipse.serializer.configuration.exceptions.ConfigurationException;
+import org.eclipse.serializer.configuration.types.Configuration;
+import org.eclipse.serializer.configuration.types.ConfigurationBasedCreator;
+import org.eclipse.store.afs.blobstore.types.BlobStoreFileSystem;
+
+import com.tangosol.net.CacheFactory;
+import com.tangosol.net.NamedCache;
 
 
 public class OracleCoherenceFileSystemCreator extends ConfigurationBasedCreator.Abstract<AFileSystem>

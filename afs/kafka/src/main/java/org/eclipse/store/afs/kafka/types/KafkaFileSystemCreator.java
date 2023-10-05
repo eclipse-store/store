@@ -16,10 +16,10 @@ package org.eclipse.store.afs.kafka.types;
 
 import java.util.Properties;
 
-import org.eclipse.store.afs.blobstore.types.BlobStoreFileSystem;
-import org.eclipse.store.configuration.types.Configuration;
-import org.eclipse.store.configuration.types.ConfigurationBasedCreator;
 import org.eclipse.serializer.afs.types.AFileSystem;
+import org.eclipse.serializer.configuration.types.Configuration;
+import org.eclipse.serializer.configuration.types.ConfigurationBasedCreator;
+import org.eclipse.store.afs.blobstore.types.BlobStoreFileSystem;
 
 
 public class KafkaFileSystemCreator extends ConfigurationBasedCreator.Abstract<AFileSystem>

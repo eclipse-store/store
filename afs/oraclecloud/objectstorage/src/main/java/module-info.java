@@ -15,11 +15,11 @@ module org.eclipse.store.afs.oraclecloud.objectstorage
 {
 	exports org.eclipse.store.afs.oraclecloud.objectstorage.types;
 	
-	provides org.eclipse.store.configuration.types.ConfigurationBasedCreator
+	provides org.eclipse.serializer.configuration.types.ConfigurationBasedCreator
 	    with org.eclipse.store.afs.oraclecloud.objectstorage.types.OracleCloudObjectStorageFileSystemCreator
 	;
 	
-	requires transitive org.eclipse.store.configuration;
+	requires transitive org.eclipse.serializer.configuration;
 	requires transitive org.eclipse.store.afs.blobstore;
 	requires transitive oci.java.sdk.common;
 	requires transitive oci.java.sdk.objectstorage.extensions;

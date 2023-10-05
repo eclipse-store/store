@@ -1,5 +1,8 @@
 package org.eclipse.store.afs.aws.s3.types;
 
+import org.eclipse.serializer.afs.types.AFileSystem;
+import org.eclipse.serializer.configuration.types.Configuration;
+
 /*-
  * #%L
  * EclipseStore Abstract File System AWS S3
@@ -16,8 +19,7 @@ package org.eclipse.store.afs.aws.s3.types;
 
 import org.eclipse.store.afs.aws.types.AwsFileSystemCreator;
 import org.eclipse.store.afs.blobstore.types.BlobStoreFileSystem;
-import org.eclipse.store.configuration.types.Configuration;
-import org.eclipse.serializer.afs.types.AFileSystem;
+
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
 
