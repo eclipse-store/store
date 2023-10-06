@@ -9,6 +9,7 @@ on:
 
 jobs:
   publish:
+    if: github.repository == 'eclipse-store/store'
     runs-on: ubuntu-latest
     steps:
       - id: install-secret-key
