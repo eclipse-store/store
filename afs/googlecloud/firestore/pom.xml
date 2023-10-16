@@ -9,7 +9,7 @@
 	<parent>
 		<groupId>org.eclipse.store</groupId>
 		<artifactId>afs-googlecloud-parent</artifactId>
-		<version>1.0.0-alpha</version>
+		<version>1.0.0</version>
 		<relativePath>../pom.xml</relativePath>
 	</parent>
 
