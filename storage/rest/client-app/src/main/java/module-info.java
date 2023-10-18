@@ -48,4 +48,6 @@ module org.eclipse.store.storage.restclient.app
 	requires transitive vaadin.split.layout.flow;
 	requires transitive vaadin.tabs.flow;
 	requires transitive vaadin.text.field.flow;
+	
+	opens org.eclipse.store.storage.restclient.app.types;
 }
