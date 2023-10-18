@@ -21,6 +21,8 @@ module org.eclipse.store.storage.restclient.app
 	    with org.eclipse.store.storage.restclient.app.types.ApplicationServiceInitListener
 	;
 	
+	requires transitive vaadin.flow.components.base;
+	requires transitive vaadin.renderer.flow;
 	requires transitive flow.data;
 	requires transitive flow.html.components;
 	requires transitive flow.server;
