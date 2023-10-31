@@ -148,6 +148,11 @@ public class StorageManagerMonitor implements StorageManagerMonitorMXBean, Metri
 			return this.liveDataLength;
 		}
 
+		public double getUsageRatio()
+		{
+			return  ((double)this.liveDataLength / (double)this.totalDataLength);
+		}
+		
 		public List<ChannelStatistics> getChannelStatistics()
 		{
 			return this.channelStatistics;
