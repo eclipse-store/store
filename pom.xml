@@ -27,6 +27,13 @@
         </license>
     </licenses>
 
+    <developers>
+        <developer>
+            <name>MicroStream Software</name>
+            <url>https://microstream.one</url>
+        </developer>
+    </developers>
+
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>11</maven.compiler.source>
