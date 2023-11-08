@@ -47,7 +47,7 @@
         <license.licenceFile>${basedir}/LICENSE</license.licenceFile>
         <api.version>1</api.version>
         <javadoc.failed.on.error>false</javadoc.failed.on.error>
-        <eclipse.serializer.version>1.0.0-SNAPSHOT</eclipse.serializer.version>
+        <eclipse.serializer.version>1.1.0-SNAPSHOT</eclipse.serializer.version>
         <failsafe.rerunFailingTestsCount>2</failsafe.rerunFailingTestsCount>
         <surefire.rerunFailingTestsCount>2</surefire.rerunFailingTestsCount>
     </properties>
