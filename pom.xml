@@ -379,6 +379,12 @@
 
     <profiles>
         <profile>
+            <id>examples</id>
+            <modules>
+                <module>examples</module>
+            </modules>
+        </profile>
+        <profile>
             <id>production</id>
             <build>
                 <plugins>

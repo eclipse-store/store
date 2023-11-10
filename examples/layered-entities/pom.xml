@@ -1,0 +1,86 @@
+<?xml version="1.0"?>
+
+<project
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd"
+	xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+	<modelVersion>4.0.0</modelVersion>
+
+	<parent>
+		<groupId>org.eclipse.store</groupId>
+		<artifactId>examples-parent</artifactId>
+		<version>1.0.0-SNAPSHOT</version>
+		<relativePath>../pom.xml</relativePath>
+	</parent>
+
+	<artifactId>examples-layered-entities</artifactId>
+	
+	<name>EclipseStore Example Layered Entities</name>
+	<description>EclipseStore Layered Entities Example</description>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
+
+	<dependencies>
+		<dependency>
+			<groupId>org.eclipse.serializer</groupId>
+			<artifactId>base</artifactId>
+			<version>1.0.0-SNAPSHOT</version>
+		</dependency>
+		<dependency>
+			<groupId>org.eclipse.serializer</groupId>
+			<artifactId>codegen-entity</artifactId>
+			<version>1.0.0-SNAPSHOT</version>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<configuration>
+					<compilerId>javac</compilerId>
+				</configuration>
+				<executions>
+					<execution>
+						<id>process-annotations</id>
+						<phase>generate-sources</phase>
+						<goals>
+							<goal>compile</goal>
+						</goals>
+						<configuration>
+							<annotationProcessors>
+								<annotationProcessor>org.eclipse.serializer.codegen.entity.EntityProcessor</annotationProcessor>
+							</annotationProcessors>
+							<compilerArgs>
+								<arg>-proc:only</arg>
+								<arg>-Amicrostream.entity.hashequalator=true</arg>
+								<arg>-Amicrostream.entity.appendable=true</arg>
+							</compilerArgs>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>build-helper-maven-plugin</artifactId>
+            <version>3.4.0</version>
+            <executions>
+                <execution>
+                    <id>add-source</id>
+                    <phase>generate-sources</phase>
+                    <goals>
+                        <goal>add-source</goal>
+                    </goals>
+                    <configuration>
+                        <sources>
+                            <source>${project.build.directory}/generated-sources/annotations</source>
+                        </sources>
+                    </configuration>
+                </execution> 
+            </executions>
+        </plugin>
+		</plugins>
+	</build>
+
+</project>
