@@ -58,7 +58,7 @@ The continuous backup can be written to all supported xref:storage-targets/index
 [source,java,title="foundation classes:"]
 ----
 SQLiteDataSource dataSource = new SQLiteDataSource();
-dataSource.setUrl("jdbc:sqlite:eclipsestore_bkup_db");
+dataSource.setUrl("jdbc:sqlite:microstream_bkup_db");
 
 SqlFileSystem fileSystem = SqlFileSystem.New(
 	SqlConnector.Caching(
@@ -89,18 +89,17 @@ When using external configuration the specific target configuration must be appl
 
 [source,text,title="external configuration:"]
 ----
-storage-filesystem.sql.sqlite.data-source-provider=com.sample.MyDataSourceProvider
-storage-filesystem.sql.sqlite.catalog=mycatalog
-storage-filesystem.sql.sqlite.schema=myschema
-storage-filesystem.sql.sqlite.url=jdbc:sqlite:eclipsestoredb
+storage-filesystem.aws.s3.credentials.type=static
+storage-filesystem.aws.s3.credentials.access-key-id=my-access-key-id
+storage-filesystem.aws.s3.credentials.secret-acces-key=my-secret-access-key
+storage-filesystem.aws.s3.credentials.region=us-east-1
 
 storage-directory=storageDir
 
 backup-filesystem.sql.sqlite.data-source-provider=com.sample.MyDataSourceProvider
 backup-filesystem.sql.sqlite.catalog=mycatalog
 backup-filesystem.sql.sqlite.schema=myschema
-backup-filesystem.sql.sqlite.url=jdbc:sqlite:eclipsestore_bkup_db
+backup-filesystem.sql.sqlite.url=jdbc:sqlite:microstream_bkup_db
 
 backup-directory=backupDir
 ----
-
