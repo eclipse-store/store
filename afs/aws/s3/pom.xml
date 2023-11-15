@@ -28,6 +28,7 @@
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>s3</artifactId>
+			<scope>provided</scope>
 		</dependency>
 	</dependencies>
 

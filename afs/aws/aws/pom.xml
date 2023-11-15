@@ -33,14 +33,12 @@
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>auth</artifactId>
+			<scope>provided</scope>
 		</dependency>
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
-			<artifactId>s3</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>software.amazon.awssdk</groupId>
-			<artifactId>dynamodb</artifactId>
+			<artifactId>aws-core</artifactId>
+			<scope>provided</scope>
 		</dependency>
 	</dependencies>
 
