@@ -7,6 +7,10 @@
 	<artifactId>afs-aws-s3</artifactId>
 	<version>{maven-version}</version>
 </dependency>
+<dependency>
+	<groupId>software.amazon.awssdk</groupId>
+	<artifactId>s3</artifactId>
+</dependency>
 ----
 
 [source, java]

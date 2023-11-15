@@ -7,6 +7,10 @@
 	<artifactId>afs-kafka</artifactId>
 	<version>{maven-version}</version>
 </dependency>
+<dependency>
+    <groupId>org.apache.kafka</groupId>
+    <artifactId>kafka-clients</artifactId>
+</dependency>
 ----
 
 [source, java]

@@ -7,6 +7,10 @@
 	<artifactId>afs-redis</artifactId>
 	<version>{maven-version}</version>
 </dependency>
+<dependency>
+	<groupId>io.lettuce</groupId>
+	<artifactId>lettuce-core</artifactId>
+</dependency>
 ----
 
 [source, java]

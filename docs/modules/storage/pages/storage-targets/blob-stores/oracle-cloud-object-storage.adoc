@@ -7,6 +7,10 @@
 	<artifactId>afs-oraclecloud-objectstorage</artifactId>
 	<version>{maven-version}</version>
 </dependency>
+<dependency>
+	<groupId>com.oracle.oci.sdk</groupId>
+	<artifactId>oci-java-sdk-objectstorage</artifactId>
+</dependency>
 ----
 
 [source, java]
