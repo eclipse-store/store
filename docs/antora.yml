@@ -10,4 +10,4 @@ asciidoc:
     product-name: 'EclipseStore'
     display-version: '1.0'
     api-version: '1.0'
-    maven-version: '1.0.0-SNAPSHOT'
+    maven-version: '1.0.0'
