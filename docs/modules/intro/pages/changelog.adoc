@@ -8,8 +8,8 @@ Just living in a different namespace.
 
 === Migration
 
-Migration of MicroStream projects can easily be achieved with this https://github.com/eclipse-store/store/tree/main/storage/embedded-tools/storage-migrator[tool].
+Migration of MicroStream projects can easily be achieved with this https://github.com/eclipse-store/store/tree/release/1x/storage/embedded-tools/storage-migrator[tool].
 
-It takes care of the proper rewrite of https://github.com/eclipse-store/store/blob/main/storage/embedded-tools/storage-migrator/src/main/resources/META-INF/mappings/dependency.mappings[dependencies] and https://github.com/eclipse-store/store/blob/main/storage/embedded-tools/storage-migrator/src/main/resources/META-INF/mappings/package.mappings[packages].
+It takes care of the proper rewrite of https://github.com/eclipse-store/store/blob/release/1x/storage/embedded-tools/storage-migrator/src/main/resources/META-INF/mappings/dependency.mappings[dependencies] and https://github.com/eclipse-store/store/blob/release/1x/storage/embedded-tools/storage-migrator/src/main/resources/META-INF/mappings/package.mappings[packages].
 
 
