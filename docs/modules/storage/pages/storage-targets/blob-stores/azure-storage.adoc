@@ -7,6 +7,12 @@
 	<artifactId>afs-azure-storage</artifactId>
 	<version>{maven-version}</version>
 </dependency>
+<dependency>
+	<groupId>com.azure</groupId>
+	<artifactId>azure-storage-blob</artifactId>
+	<version>1.0.2</version>
+</dependency>
+	
 ----
 
 [source, java]
