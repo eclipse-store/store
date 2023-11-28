@@ -1,5 +1,5 @@
 
-package one.microstream.cache.types;
+package org.eclipse.store.cache.types;
 
 /*-
  * #%L
@@ -20,10 +20,10 @@ import java.util.Iterator;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
-import one.microstream.X;
-import one.microstream.collections.EqHashTable;
-import one.microstream.functional.Aggregator;
-import one.microstream.typing.KeyValue;
+import org.eclipse.serializer.collections.EqHashTable;
+import org.eclipse.serializer.functional.Aggregator;
+import org.eclipse.serializer.typing.KeyValue;
+import org.eclipse.serializer.util.X;
 
 
 public interface CacheTable

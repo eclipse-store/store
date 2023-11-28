@@ -1,5 +1,7 @@
 
-package one.microstream.cache.types;
+package org.eclipse.store.cache.types;
+
+import static org.eclipse.serializer.chars.XChars.notEmpty;
 
 /*-
  * #%L
@@ -15,9 +17,8 @@ package one.microstream.cache.types;
  * #L%
  */
 
-import static one.microstream.X.coalesce;
-import static one.microstream.X.notNull;
-import static one.microstream.chars.XChars.notEmpty;
+import static org.eclipse.serializer.util.X.coalesce;
+import static org.eclipse.serializer.util.X.notNull;
 
 import java.io.File;
 import java.io.InputStream;
@@ -40,14 +41,13 @@ import javax.cache.expiry.ExpiryPolicy;
 import javax.cache.integration.CacheLoader;
 import javax.cache.integration.CacheWriter;
 
-import one.microstream.chars.VarString;
-import one.microstream.chars.XChars;
-import one.microstream.configuration.exceptions.ConfigurationException;
-import one.microstream.configuration.types.Configuration;
-import one.microstream.configuration.types.ConfigurationLoader;
-import one.microstream.configuration.types.ConfigurationParserIni;
-import one.microstream.persistence.binary.util.SerializerFoundation;
-import one.microstream.storage.embedded.types.EmbeddedStorageManager;
+import org.eclipse.serializer.SerializerFoundation;
+import org.eclipse.serializer.chars.VarString;
+import org.eclipse.serializer.chars.XChars;
+import org.eclipse.serializer.configuration.types.Configuration;
+import org.eclipse.serializer.configuration.types.ConfigurationLoader;
+import org.eclipse.serializer.configuration.types.ConfigurationParserIni;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 
 /**
  * Extended {@link CompleteConfiguration} used by MicroStream's {@link Cache}.

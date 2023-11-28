@@ -1,4 +1,4 @@
-package one.microstream.cache.types;
+package org.eclipse.store.cache.types;
 
 /*-
  * #%L
@@ -14,20 +14,20 @@ package one.microstream.cache.types;
  * #L%
  */
 
-import static one.microstream.X.notNull;
+import static org.eclipse.serializer.util.X.notNull;
+
+import java.lang.reflect.InvocationTargetException;
 
 import javax.cache.CacheException;
 import javax.cache.configuration.Factory;
 
-import one.microstream.chars.XChars;
-import one.microstream.configuration.types.Configuration;
-import one.microstream.configuration.types.ConfigurationLoader;
-import one.microstream.configuration.types.ConfigurationParserIni;
-import one.microstream.configuration.types.ConfigurationParserXml;
-import one.microstream.storage.embedded.configuration.types.EmbeddedStorageFoundationCreatorConfigurationBased;
-import one.microstream.storage.embedded.types.EmbeddedStorageManager;
-
-import java.lang.reflect.InvocationTargetException;
+import org.eclipse.serializer.chars.XChars;
+import org.eclipse.serializer.configuration.types.Configuration;
+import org.eclipse.serializer.configuration.types.ConfigurationLoader;
+import org.eclipse.serializer.configuration.types.ConfigurationParserIni;
+import org.eclipse.serializer.configuration.types.ConfigurationParserXml;
+import org.eclipse.store.storage.embedded.configuration.types.EmbeddedStorageFoundationCreatorConfigurationBased;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 
 public interface CacheConfigurationBuilderConfigurationBased
 {

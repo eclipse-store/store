@@ -1,5 +1,5 @@
 
-package one.microstream.cache.types;
+package org.eclipse.store.cache.types;
 
 /*-
  * #%L
@@ -15,7 +15,7 @@ package one.microstream.cache.types;
  * #L%
  */
 
-import static one.microstream.X.notNull;
+import static org.eclipse.serializer.util.X.notNull;
 
 import java.util.function.BiConsumer;
 
@@ -28,13 +28,13 @@ import javax.cache.event.CacheEntryRemovedListener;
 import javax.cache.event.CacheEntryUpdatedListener;
 import javax.cache.event.EventType;
 
-import one.microstream.collections.BulkList;
-import one.microstream.collections.EqHashTable;
-import one.microstream.collections.types.XIterable;
-import one.microstream.collections.types.XList;
-import one.microstream.collections.types.XTable;
-import one.microstream.util.cql.CQL;
-import one.microstream.util.cql.CqlSelection;
+import org.eclipse.serializer.collections.BulkList;
+import org.eclipse.serializer.collections.EqHashTable;
+import org.eclipse.serializer.collections.types.XIterable;
+import org.eclipse.serializer.collections.types.XList;
+import org.eclipse.serializer.collections.types.XTable;
+import org.eclipse.serializer.util.cql.CQL;
+import org.eclipse.serializer.util.cql.CqlSelection;
 
 
 /*
@@ -49,7 +49,7 @@ public interface CacheEventDispatcher<K, V>
 	);
 	
 	public void dispatch(
-		XIterable<CacheEntryListenerRegistration<K, V>> registrations
+		org.eclipse.serializer.collections.types.XIterable<CacheEntryListenerRegistration<K, V>> registrations
 	);
 	
 	public static <K, V> CacheEventDispatcher<K, V> New()
@@ -119,8 +119,8 @@ public interface CacheEventDispatcher<K, V>
 			final XList<CacheEvent<K, V>> events;
 			if((events = this.eventMap.get(type)) != null)
 			{
-				registrations.iterate(registration -> 
-				{				
+				registrations.iterate(registration ->
+				{
 					final CacheEntryListener<? super K, ? super V> listener;
 					if(type.isInstance(listener = registration.getCacheEntryListener()))
 					{

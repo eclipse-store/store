@@ -1,5 +1,5 @@
 
-package one.microstream.cache.types;
+package org.eclipse.store.cache.types;
 
 /*-
  * #%L
@@ -15,7 +15,7 @@ package one.microstream.cache.types;
  * #L%
  */
 
-import static one.microstream.X.notNull;
+import static org.eclipse.serializer.util.X.notNull;
 
 import java.lang.ref.WeakReference;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -24,8 +24,8 @@ import javax.cache.configuration.CacheEntryListenerConfiguration;
 import javax.cache.configuration.MutableCacheEntryListenerConfiguration;
 import javax.cache.event.CacheEntryCreatedListener;
 
-import one.microstream.reference._longReference;
-import one.microstream.typing.KeyValue;
+import org.eclipse.serializer.reference._longReference;
+import org.eclipse.serializer.typing.KeyValue;
 
 
 public interface EvictionManager<K, V>

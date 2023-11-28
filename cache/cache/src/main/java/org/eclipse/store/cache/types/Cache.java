@@ -1,5 +1,5 @@
 
-package one.microstream.cache.types;
+package org.eclipse.store.cache.types;
 
 /*-
  * #%L
@@ -15,8 +15,8 @@ package one.microstream.cache.types;
  * #L%
  */
 
-import static one.microstream.X.coalesce;
-import static one.microstream.X.notNull;
+import static org.eclipse.serializer.util.X.coalesce;
+import static org.eclipse.serializer.util.X.notNull;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -55,18 +55,17 @@ import javax.cache.integration.CompletionListener;
 import javax.cache.processor.EntryProcessor;
 import javax.cache.processor.EntryProcessorException;
 
+import org.eclipse.serializer.Serializer;
+import org.eclipse.serializer.collections.BulkList;
+import org.eclipse.serializer.collections.types.XList;
+import org.eclipse.serializer.exceptions.IORuntimeException;
+import org.eclipse.serializer.reference.Reference;
+import org.eclipse.serializer.reflect.ClassLoaderProvider;
+import org.eclipse.serializer.typing.KeyValue;
+import org.eclipse.serializer.util.X;
+import org.eclipse.serializer.util.logging.Logging;
+import org.eclipse.store.cache.types.MBeanServerUtils.MBeanType;
 import org.slf4j.Logger;
-
-import one.microstream.X;
-import one.microstream.cache.types.MBeanServerUtils.MBeanType;
-import one.microstream.collections.BulkList;
-import one.microstream.collections.types.XList;
-import one.microstream.exceptions.IORuntimeException;
-import one.microstream.persistence.binary.util.Serializer;
-import one.microstream.reference.Reference;
-import one.microstream.reflect.ClassLoaderProvider;
-import one.microstream.typing.KeyValue;
-import one.microstream.util.logging.Logging;
 
 /**
  * JSR-107 compliant {@link javax.cache.Cache}.

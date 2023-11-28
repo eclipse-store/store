@@ -1,5 +1,7 @@
 
-package one.microstream.cache.types;
+package org.eclipse.store.cache.types;
+
+import static org.eclipse.serializer.chars.XChars.notEmpty;
 
 /*-
  * #%L
@@ -15,8 +17,7 @@ package one.microstream.cache.types;
  * #L%
  */
 
-import static one.microstream.X.notNull;
-import static one.microstream.chars.XChars.notEmpty;
+import static org.eclipse.serializer.util.X.notNull;
 
 import java.lang.ref.WeakReference;
 import java.net.URI;
@@ -27,7 +28,7 @@ import javax.cache.CacheException;
 import javax.cache.configuration.CompleteConfiguration;
 import javax.cache.configuration.Configuration;
 
-import one.microstream.collections.EqHashTable;
+import org.eclipse.serializer.collections.EqHashTable;
 
 
 /**

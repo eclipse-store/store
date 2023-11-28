@@ -1,5 +1,7 @@
 
-package one.microstream.cache.types;
+package org.eclipse.store.cache.types;
+
+import org.eclipse.serializer.typing.KeyValue;
 
 /*-
  * #%L
@@ -14,8 +16,6 @@ package one.microstream.cache.types;
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
-
-import one.microstream.typing.KeyValue;
 
 
 public interface CacheEntry<K, V> extends javax.cache.Cache.Entry<K, V>, KeyValue<K, V>, Unwrappable

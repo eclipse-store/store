@@ -1,22 +1,8 @@
 
-package one.microstream.cache.types;
+package org.eclipse.store.cache.types;
 
-/*-
- * #%L
- * microstream-cache
- * %%
- * Copyright (C) 2019 - 2022 MicroStream Software
- * %%
- * This program and the accompanying materials are made
- * available under the terms of the Eclipse Public License 2.0
- * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
- * SPDX-License-Identifier: EPL-2.0
- * #L%
- */
-
-import static one.microstream.X.notNull;
-import static one.microstream.chars.XChars.notEmpty;
+import static org.eclipse.serializer.chars.XChars.notEmpty;
+import static org.eclipse.serializer.util.X.notNull;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -30,10 +16,10 @@ import javax.cache.integration.CacheLoaderException;
 import javax.cache.integration.CacheWriter;
 import javax.cache.integration.CacheWriterException;
 
-import one.microstream.collections.EqHashTable;
-import one.microstream.collections.types.XTable;
-import one.microstream.reference.Lazy;
-import one.microstream.storage.types.StorageManager;
+import org.eclipse.serializer.collections.EqHashTable;
+import org.eclipse.serializer.collections.types.XTable;
+import org.eclipse.serializer.reference.Lazy;
+import org.eclipse.store.storage.types.StorageManager;
 
 
 public interface CacheStore<K, V> extends CacheLoader<K, V>, CacheWriter<K, V>

@@ -1,5 +1,5 @@
 
-package one.microstream.cache.types;
+package org.eclipse.store.cache.types;
 
 /*-
  * #%L
@@ -15,7 +15,7 @@ package one.microstream.cache.types;
  * #L%
  */
 
-import static one.microstream.X.notNull;
+import static org.eclipse.serializer.util.X.notNull;
 
 import javax.cache.integration.CacheLoader;
 import javax.cache.integration.CacheLoaderException;

@@ -13,14 +13,18 @@
  */
 module microstream.cache
 {
-	exports one.microstream.cache.types;
+	exports org.eclipse.store.cache.types;
 	
 	provides javax.cache.spi.CachingProvider
-	    with one.microstream.cache.types.CachingProvider
+	    with org.eclipse.store.cache.types.CachingProvider
 	;
 	
-	requires transitive microstream.persistence.binary;
-	requires transitive microstream.storage.embedded.configuration;
+	requires transitive org.eclipse.serializer.persistence.binary;
+	requires transitive org.eclipse.store.storage.embedded.configuration;
 	requires transitive cache.api;
 	requires transitive java.management;
+	requires org.eclipse.store.storage.embedded;
+	requires org.eclipse.serializer.configuration;
+	requires org.eclipse.serializer;
+	requires org.eclipse.serializer.base;
 }

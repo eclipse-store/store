@@ -1,5 +1,5 @@
 
-package one.microstream.cache.types;
+package org.eclipse.store.cache.types;
 
 /*-
  * #%L
@@ -15,9 +15,9 @@ package one.microstream.cache.types;
  * #L%
  */
 
-import static one.microstream.X.notNull;
+import static org.eclipse.serializer.util.X.notNull;
 
-import one.microstream.persistence.binary.types.Binary;
+import org.eclipse.serializer.persistence.binary.types.Binary;
 
 
 public interface SerializedObject extends ByteSized

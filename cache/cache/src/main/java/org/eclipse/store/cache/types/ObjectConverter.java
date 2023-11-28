@@ -1,8 +1,8 @@
 
-package one.microstream.cache.types;
+package org.eclipse.store.cache.types;
 
-import one.microstream.persistence.binary.types.Binary;
-import one.microstream.persistence.binary.util.Serializer;
+import org.eclipse.serializer.Serializer;
+import org.eclipse.serializer.persistence.binary.types.Binary;
 
 /*-
  * #%L
