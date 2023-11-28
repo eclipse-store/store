@@ -11,7 +11,7 @@
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
-module microstream.cache
+module org.eclipse.store.cache
 {
 	exports org.eclipse.store.cache.types;
 	

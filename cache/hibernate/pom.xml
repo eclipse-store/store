@@ -15,9 +15,9 @@
 
 	<artifactId>cache-hibernate</artifactId>
 
-	<name>MicroStream Cache for Hibernate</name>
+	<name>EclipseStore Cache for Hibernate</name>
 	<description>Hibernate Cache Region Factory</description>
-	<url>https://microstream.one</url>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>
 		<dependency>

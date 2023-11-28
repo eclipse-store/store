@@ -11,12 +11,13 @@
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
-module microstream.cache.hibernate
+module org.eclipse.store.cache.hibernate
 {
 	exports org.eclipse.store.cache.hibernate.types;
 	
-	requires transitive microstream.cache;
+	requires transitive org.eclipse.store.cache;
 	requires transitive java.naming;
 	requires transitive java.persistence;
 	requires transitive org.hibernate.orm.core;
+	requires org.eclipse.serializer.base;
 }

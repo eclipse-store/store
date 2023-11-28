@@ -15,9 +15,9 @@
 
 	<artifactId>cache</artifactId>
 	
-	<name>MicroStream Cache</name>
+	<name>EclipseStore Cache</name>
 	<description>JSR-107 (JCache) Implementation</description>
-	<url>https://microstream.one</url>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<dependencies>
 		<dependency>

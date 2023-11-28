@@ -16,9 +16,9 @@
 	<artifactId>cache-parent</artifactId>
 	<packaging>pom</packaging>
 	
-	<name>MicroStream Cache</name>
-	<description>MicroStream Cache Project</description>
-	<url>https://microstream.one</url>
+	<name>EclipseStore Cache Parent</name>
+	<description>EclipseStore Cache Project</description>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<modules>
 		<module>cache</module>
