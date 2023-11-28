@@ -1,4 +1,4 @@
-package one.microstream.cache.hibernate.types;
+package org.eclipse.store.cache.hibernate.types;
 
 /*-
  * #%L
@@ -20,7 +20,7 @@ package one.microstream.cache.hibernate.types;
  * #L%
  */
 
-import one.microstream.chars.XChars;
+import org.eclipse.serializer.chars.XChars;
 
 public enum MissingCacheStrategy
 {
@@ -39,7 +39,7 @@ public enum MissingCacheStrategy
 
 	MissingCacheStrategy(
 		final String externalRepresentation
-	) 
+	)
 	{
 		this.externalRepresentation = externalRepresentation;
 	}
@@ -49,23 +49,23 @@ public enum MissingCacheStrategy
 		return this.externalRepresentation;
 	}
 
-	public static MissingCacheStrategy ofSetting(Object value) 
+	public static MissingCacheStrategy ofSetting(Object value)
 	{
-		if(value instanceof MissingCacheStrategy) 
+		if(value instanceof MissingCacheStrategy)
 		{
 			return (MissingCacheStrategy)value;
 		}
 
-		final String externalRepresentation = value == null 
-			? null 
+		final String externalRepresentation = value == null
+			? null
 			: value.toString().trim();
 
-		if(XChars.isEmpty(externalRepresentation)) 
+		if(XChars.isEmpty(externalRepresentation))
 		{
 			return MissingCacheStrategy.Default();
 		}
 
-		for(MissingCacheStrategy strategy : values()) 
+		for(MissingCacheStrategy strategy : values())
 		{
 			if(strategy.externalRepresentation.equals(externalRepresentation))
 			{

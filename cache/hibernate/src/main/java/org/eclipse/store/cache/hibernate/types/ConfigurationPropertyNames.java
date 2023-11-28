@@ -1,4 +1,4 @@
-package one.microstream.cache.hibernate.types;
+package org.eclipse.store.cache.hibernate.types;
 
 /*-
  * #%L

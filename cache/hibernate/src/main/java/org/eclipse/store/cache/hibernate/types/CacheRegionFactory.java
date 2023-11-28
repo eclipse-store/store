@@ -1,4 +1,4 @@
-package one.microstream.cache.hibernate.types;
+package org.eclipse.store.cache.hibernate.types;
 
 /*-
  * #%L
@@ -29,6 +29,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
+import org.eclipse.serializer.chars.XChars;
+import org.eclipse.serializer.configuration.types.ConfigurationMapperMap;
+import org.eclipse.store.cache.types.Cache;
+import org.eclipse.store.cache.types.CacheConfiguration;
+import org.eclipse.store.cache.types.CacheConfigurationBuilderConfigurationBased;
+import org.eclipse.store.cache.types.CacheManager;
+import org.eclipse.store.cache.types.CachingProvider;
 import org.hibernate.boot.registry.classloading.spi.ClassLoaderService;
 import org.hibernate.boot.spi.SessionFactoryOptions;
 import org.hibernate.cache.CacheException;
@@ -44,14 +51,6 @@ import org.hibernate.cache.spi.support.RegionFactoryTemplate;
 import org.hibernate.cache.spi.support.RegionNameQualifier;
 import org.hibernate.cache.spi.support.SimpleTimestamper;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
-
-import one.microstream.cache.types.Cache;
-import one.microstream.cache.types.CacheConfiguration;
-import one.microstream.cache.types.CacheConfigurationBuilderConfigurationBased;
-import one.microstream.cache.types.CacheManager;
-import one.microstream.cache.types.CachingProvider;
-import one.microstream.chars.XChars;
-import one.microstream.configuration.types.ConfigurationMapperMap;
 
 
 public class CacheRegionFactory extends RegionFactoryTemplate

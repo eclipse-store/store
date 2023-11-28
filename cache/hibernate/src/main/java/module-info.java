@@ -19,7 +19,7 @@
  */
 module microstream.cache.hibernate
 {
-	exports one.microstream.cache.hibernate.types;
+	exports org.eclipse.store.cache.hibernate.types;
 	
 	requires transitive microstream.cache;
 	requires transitive java.naming;

@@ -1,4 +1,4 @@
-package one.microstream.cache.hibernate.types;
+package org.eclipse.store.cache.hibernate.types;
 
 /*-
  * #%L
@@ -20,14 +20,13 @@ package one.microstream.cache.hibernate.types;
  * #L%
  */
 
-import static one.microstream.X.notNull;
+import static org.eclipse.serializer.util.X.notNull;
 
 import javax.cache.CacheException;
 
+import org.eclipse.store.cache.types.Cache;
 import org.hibernate.cache.spi.support.DomainDataStorageAccess;
 import org.hibernate.engine.spi.SharedSessionContractImplementor;
-
-import one.microstream.cache.types.Cache;
 
 
 public interface StorageAccess extends DomainDataStorageAccess
@@ -54,7 +53,7 @@ public interface StorageAccess extends DomainDataStorageAccess
 		
 		@Override
 		public Object getFromCache(
-			final Object key, 
+			final Object key,
 			final SharedSessionContractImplementor session
 		)
 		{
@@ -70,8 +69,8 @@ public interface StorageAccess extends DomainDataStorageAccess
 		
 		@Override
 		public void putIntoCache(
-			final Object key, 
-			final Object value, 
+			final Object key,
+			final Object value,
 			final SharedSessionContractImplementor session
 		)
 		{
