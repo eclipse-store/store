@@ -2,9 +2,9 @@ package org.eclipse.store.cache.hibernate.types;
 
 /*-
  * #%L
- * microstream-cache-hibernate
+ * EclipseStore Cache for Hibernate
  * %%
- * Copyright (C) 2019 - 2022 MicroStream Software
+ * Copyright (C) 2023 MicroStream Software
  * %%
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -15,6 +15,7 @@ package org.eclipse.store.cache.hibernate.types;
  */
 
 import org.eclipse.serializer.chars.XChars;
+
 
 public enum MissingCacheStrategy
 {

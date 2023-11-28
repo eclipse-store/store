@@ -3,9 +3,9 @@ package org.eclipse.store.cache.types;
 
 /*-
  * #%L
- * microstream-cache
+ * EclipseStore Cache
  * %%
- * Copyright (C) 2019 - 2022 MicroStream Software
+ * Copyright (C) 2023 MicroStream Software
  * %%
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -66,6 +66,7 @@ import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.cache.types.MBeanServerUtils.MBeanType;
 import org.slf4j.Logger;
+
 
 /**
  * JSR-107 compliant {@link javax.cache.Cache}.

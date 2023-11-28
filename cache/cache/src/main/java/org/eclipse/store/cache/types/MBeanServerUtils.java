@@ -3,9 +3,9 @@ package org.eclipse.store.cache.types;
 
 /*-
  * #%L
- * microstream-cache
+ * EclipseStore Cache
  * %%
- * Copyright (C) 2019 - 2022 MicroStream Software
+ * Copyright (C) 2023 MicroStream Software
  * %%
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -26,15 +26,15 @@ import javax.management.ObjectName;
 class MBeanServerUtils
 {
 	public static enum MBeanType
-	{		
-		CacheConfiguration,		
-		CacheStatistics	
+	{
+		CacheConfiguration,
+		CacheStatistics
 	}
 	
 	private static MBeanServer mBeanServer = ManagementFactory.getPlatformMBeanServer();
 	
 	public static void registerCacheObject(
-		final Cache<?, ?> cache, 
+		final Cache<?, ?> cache,
 		final Object bean,
 		final MBeanType beanType
 	)
@@ -56,7 +56,7 @@ class MBeanServerUtils
 	}
 	
 	public static void unregisterCacheObject(
-		final Cache<?, ?> cache, 
+		final Cache<?, ?> cache,
 		final Object bean,
 		final MBeanType beanType
 	)

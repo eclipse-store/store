@@ -1,13 +1,11 @@
 
 package org.eclipse.store.cache.types;
 
-import static org.eclipse.serializer.chars.XChars.notEmpty;
-
 /*-
  * #%L
- * microstream-cache
+ * EclipseStore Cache
  * %%
- * Copyright (C) 2019 - 2022 MicroStream Software
+ * Copyright (C) 2023 MicroStream Software
  * %%
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -17,6 +15,7 @@ import static org.eclipse.serializer.chars.XChars.notEmpty;
  * #L%
  */
 
+import static org.eclipse.serializer.chars.XChars.notEmpty;
 import static org.eclipse.serializer.util.X.notNull;
 
 import java.lang.ref.WeakReference;

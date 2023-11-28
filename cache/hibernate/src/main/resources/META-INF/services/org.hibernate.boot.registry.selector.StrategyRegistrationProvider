@@ -1,1 +1,1 @@
-one.microstream.cache.hibernate.types.CacheStrategyRegistrationProvider
+org.eclipse.store.cache.hibernate.types.CacheStrategyRegistrationProvider

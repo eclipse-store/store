@@ -3,7 +3,7 @@ package org.eclipse.store.cache.types;
 
 /*-
  * #%L
- * MicroStream Cache
+ * EclipseStore Cache
  * %%
  * Copyright (C) 2023 MicroStream Software
  * %%

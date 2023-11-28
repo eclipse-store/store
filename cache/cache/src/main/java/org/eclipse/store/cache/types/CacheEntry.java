@@ -1,13 +1,11 @@
 
 package org.eclipse.store.cache.types;
 
-import org.eclipse.serializer.typing.KeyValue;
-
 /*-
  * #%L
- * microstream-cache
+ * EclipseStore Cache
  * %%
- * Copyright (C) 2019 - 2022 MicroStream Software
+ * Copyright (C) 2023 MicroStream Software
  * %%
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -16,6 +14,8 @@ import org.eclipse.serializer.typing.KeyValue;
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import org.eclipse.serializer.typing.KeyValue;
 
 
 public interface CacheEntry<K, V> extends javax.cache.Cache.Entry<K, V>, KeyValue<K, V>, Unwrappable
