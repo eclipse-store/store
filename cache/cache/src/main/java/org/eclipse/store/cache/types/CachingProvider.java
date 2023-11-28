@@ -36,7 +36,7 @@ public class CachingProvider implements javax.cache.spi.CachingProvider
 	{
 		try
 		{
-			return new URI("microstream");
+			return new URI("eclipsestore");
 		}
 		catch(final URISyntaxException e)
 		{

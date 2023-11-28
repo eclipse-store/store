@@ -50,14 +50,14 @@ import org.eclipse.serializer.configuration.types.ConfigurationParserIni;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 
 /**
- * Extended {@link CompleteConfiguration} used by MicroStream's {@link Cache}.
+ * Extended {@link CompleteConfiguration} used by EclipseStore's {@link Cache}.
  * <p>
  * Added features:<br>
  * - {@link #getEvictionManagerFactory()}<br>
  * - {@link #getSerializerFoundation()}
  * </p>
  * <p>
- * Can be adapted to MicroStream's generic {@link Configuration} layer.
+ * Can be adapted to EclipseStore's generic {@link Configuration} layer.
  *
  * @param <K> the key type
  * @param <V> the value type
@@ -69,11 +69,11 @@ public interface CacheConfiguration<K, V> extends CompleteConfiguration<K, V>
 	 * <p>
 	 * Either as system property or in the context's configuration, e.g. Spring's application.properties.
 	 *
-	 * @return "microstream.cache.configuration.path"
+	 * @return "eclipsestore.cache.configuration.path"
 	 */
 	public static String PathProperty()
 	{
-		return "microstream.cache.configuration.path";
+		return "eclipsestore.cache.configuration.path";
 	}
 
 	/**
@@ -81,11 +81,11 @@ public interface CacheConfiguration<K, V> extends CompleteConfiguration<K, V>
 	 *
 	 * @see #load()
 	 *
-	 * @return "microstream-cache.properties"
+	 * @return "eclipsestore-cache.properties"
 	 */
 	public static String DefaultResourceName()
 	{
-		return "microstream-cache.properties";
+		return "eclipsestore-cache.properties";
 	}
 
 	/**
@@ -93,8 +93,8 @@ public interface CacheConfiguration<K, V> extends CompleteConfiguration<K, V>
 	 * <p>
 	 * The search order is as follows:
 	 * <ul>
-	 * <li>The path set in the system property "microstream.cache.configuration.path"</li>
-	 * <li>The file named "microstream-cache.properties" in
+	 * <li>The path set in the system property "eclipsestore.cache.configuration.path"</li>
+	 * <li>The file named "eclipsestore-cache.properties" in
 	 * <ul>
 	 * <li>The classpath</li>
 	 * <li>The application's directory</li>
@@ -117,8 +117,8 @@ public interface CacheConfiguration<K, V> extends CompleteConfiguration<K, V>
 	 * <p>
 	 * The search order is as follows:
 	 * <ul>
-	 * <li>The path set in the system property "microstream.cache.configuration.path"</li>
-	 * <li>The file named "microstream-cache.properties" in
+	 * <li>The path set in the system property "eclipsestore.cache.configuration.path"</li>
+	 * <li>The file named "eclipsestore-cache.properties" in
 	 * <ul>
 	 * <li>The classpath</li>
 	 * <li>The application's directory</li>
@@ -175,8 +175,8 @@ public interface CacheConfiguration<K, V> extends CompleteConfiguration<K, V>
 	 * <p>
 	 * The search order is as follows:
 	 * <ul>
-	 * <li>The path set in the system property "microstream.cache.configuration.path"</li>
-	 * <li>The file named "microstream-cache.properties" in
+	 * <li>The path set in the system property "eclipsestore.cache.configuration.path"</li>
+	 * <li>The file named "eclipsestore-cache.properties" in
 	 * <ul>
 	 * <li>The classpath</li>
 	 * <li>The application's directory</li>
@@ -210,8 +210,8 @@ public interface CacheConfiguration<K, V> extends CompleteConfiguration<K, V>
 	 * <p>
 	 * The search order is as follows:
 	 * <ul>
-	 * <li>The path set in the system property "microstream.cache.configuration.path"</li>
-	 * <li>The file named "microstream-cache.properties" in
+	 * <li>The path set in the system property "eclipsestore.cache.configuration.path"</li>
+	 * <li>The file named "eclipsestore-cache.properties" in
 	 * <ul>
 	 * <li>The classpath</li>
 	 * <li>The application's directory</li>
@@ -852,7 +852,7 @@ public interface CacheConfiguration<K, V> extends CompleteConfiguration<K, V>
 	
 	/**
 	 * Creates a new {@link Builder} for a {@link CacheConfiguration}, which uses
-	 * the generic MicroStream <code>configuration</code>'s values.
+	 * the generic EclipseStore <code>configuration</code>'s values.
 	 *
 	 * @param configuration the {@link Configuration} to take the initial values from
 	 * @return the newly created builder
@@ -868,7 +868,7 @@ public interface CacheConfiguration<K, V> extends CompleteConfiguration<K, V>
 	
 	/**
 	 * Creates a new {@link Builder} for a {@link CacheConfiguration}, which uses
-	 * the generic MicroStream <code>configuration</code>'s values.
+	 * the generic EclipseStore <code>configuration</code>'s values.
 	 *
 	 * @param <K> the key type
 	 * @param <V> the value type

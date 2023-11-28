@@ -177,7 +177,7 @@ public class CacheRegionFactory extends RegionFactoryTemplate
 		}
 
 		// 2. Check for properties in context config
-		final String              prefix            = "hibernate.cache.microstream.";
+		final String              prefix            = "hibernate.cache.eclipsestore.";
 		final Map<String, String> msCacheProperties = ((Map<Object, Object>)properties).entrySet().stream()
 			.filter(kv -> kv.getKey().toString().startsWith(prefix))
 			.collect(Collectors.toMap(
@@ -426,7 +426,7 @@ public class CacheRegionFactory extends RegionFactoryTemplate
 				);
 
 			case FAIL:
-				throw new CacheException("On-the-fly creation of MicroStream Cache objects is not supported [" + regionName + "]");
+				throw new CacheException("On-the-fly creation of EclipseStore Cache objects is not supported [" + regionName + "]");
 
 			default:
 				throw new IllegalStateException("Unsupported missing cache strategy: " + this.missingCacheStrategy);

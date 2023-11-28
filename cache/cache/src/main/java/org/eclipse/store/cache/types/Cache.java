@@ -280,7 +280,7 @@ public interface Cache<K, V> extends javax.cache.Cache<K, V>, Unwrappable
 			}
 			
 			logger.debug(
-				"MicroStream Cache '{}' created with following configuration:\n{}",
+				"EclipseStore Cache '{}' created with following configuration:\n{}",
 				name,
 				configuration
 			);
@@ -409,7 +409,7 @@ public interface Cache<K, V> extends javax.cache.Cache<K, V>, Unwrappable
 
 			this.cacheTable.clear();
 			
-			logger.debug("MicroStream Cache '{}' closed", this.name);
+			logger.debug("EclipseStore Cache '{}' closed", this.name);
 		}
 
 		@Override

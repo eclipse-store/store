@@ -16,7 +16,7 @@ package org.eclipse.store.cache.hibernate.types;
 
 public interface ConfigurationPropertyNames
 {
-	public static final String PREFIX                      = "hibernate.cache.microstream.";
+	public static final String PREFIX                      = "hibernate.cache.eclipsestore.";
 	                                                 
 	public static final String CACHE_MANAGER               = PREFIX + "cache-manager";
 	public static final String MISSING_CACHE_STRATEGY      = PREFIX + "missing-cache-strategy";

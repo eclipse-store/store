@@ -34,7 +34,7 @@ public interface CacheConfigurationPropertyNames
 	public static final String VALUE_TYPE                          = "value-type";
 	
 	/**
-	 * Path for the {@link one.microstream.configuration.types.Configuration} for the backing store.
+	 * Path for the {@link org.eclipse.serializer.configuration.types.Configuration} for the backing store.
 	 */
 	public static final String STORAGE_CONFIGURATION_RESOURCE_NAME = "storage-configuration-resource-name";
 	
