@@ -25,7 +25,7 @@ For the channel configuration the following configuration xref:configuration/pro
 |Default is `"channel_"`
 
 |data-file-suffix
-|Default is `".dat"`
+|Default is `"dat"`
 |===
 
 Channel file size configuration is done by the the xref:configuration/housekeeping.adoc#storage-data-file-evaluator[Storage Data File Evaluator].
@@ -38,7 +38,7 @@ EmbeddedStorageManager storageManager = EmbeddedStorageConfigurationBuilder.New(
 	.setChannelCount(4)
 	.setChannelDirectoryPrefix("channel_")
 	.setDataFilePrefix("channel_")
-	.setDataFileSuffix(".bin")
+	.setDataFileSuffix("bin")
 	.createEmbeddedStorageFoundation()
 	.createEmbeddedStorageManager();
 ----
@@ -49,7 +49,7 @@ EmbeddedStorageManager storageManager = EmbeddedStorageConfigurationBuilder.New(
 	<property name="channel-count" value="4" />
 	<property name="channel-directory-prefix" value="channel_" />
 	<property name="data-file-prefix value="channel_" />
-	<property name="data-file-suffix" value=".dat" />
+	<property name="data-file-suffix" value="dat" />
 </properties>
 ----
 
