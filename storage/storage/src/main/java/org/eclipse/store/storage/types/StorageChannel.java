@@ -68,6 +68,8 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 
 	public boolean issuedEntityCacheCheck(long nanoTimeBudget, StorageEntityCacheEvaluator entityEvaluator);
 
+	public boolean issuedTransactionsLogCleanup();
+	
 	public void exportData(StorageLiveFileProvider fileProvider);
 
 	// (19.07.2014 TM)TODO: refactor storage typing to avoid classes in public API
