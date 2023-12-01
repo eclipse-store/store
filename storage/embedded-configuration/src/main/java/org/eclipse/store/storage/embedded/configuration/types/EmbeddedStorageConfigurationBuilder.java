@@ -19,13 +19,13 @@ import static org.eclipse.serializer.util.X.notNull;
 import java.io.File;
 import java.time.Duration;
 
-import org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation;
-import org.eclipse.store.storage.types.StorageEntityCacheEvaluator;
 import org.eclipse.serializer.collections.types.XGettingCollection;
 import org.eclipse.serializer.configuration.types.ByteSize;
 import org.eclipse.serializer.configuration.types.Configuration;
 import org.eclipse.serializer.configuration.types.ConfigurationValueMapperProvider;
 import org.eclipse.serializer.typing.KeyValue;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation;
+import org.eclipse.store.storage.types.StorageEntityCacheEvaluator;
 
 
 /**
@@ -312,6 +312,14 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 	 */
 	public EmbeddedStorageConfigurationBuilder setDataFileCleanupHeadFile(boolean dataFileCleanupHeadFile);
 
+	/**
+	 * Maximum file size for a transaction file to avoid cleaning it up. Default is 1 GiB.
+	 *
+	 * @param transactionFileMaximumSize the new maximum file size
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setTransactionFileMaximumSize(ByteSize transactionFileMaximumSize);
+	
 	/**
 	 * Creates an {@link EmbeddedStorageFoundation} based on the settings of this builder.
 	 *
@@ -628,6 +636,14 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 		)
 		{
 			return this.set(DATA_FILE_CLEANUP_HEAD_FILE, Boolean.toString(dataFileCleanupHeadFile));
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setTransactionFileMaximumSize(
+			final ByteSize transactionFileMaximumSize
+		)
+		{
+			return this.set(TRANSACTION_FILE_MAXIMUM_SIZE, transactionFileMaximumSize.toString());
 		}
 
 	}
