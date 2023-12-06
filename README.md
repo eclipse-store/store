@@ -17,6 +17,8 @@ EclipseStore is available under [Eclipse Public License - v 2.0](LICENSE).
 - [Reference manual](https://docs.eclipsestore.io)
 - [Get started](https://docs.eclipsestore.io/manual/storage/getting-started.html)
 - [Changelog](https://docs.eclipsestore.io/manual/intro/changelog.html)
+- [Examples](/examples)
+- [Demo project](https://github.com/eclipse-store/bookstore-demo)
 
 ## Build
 
