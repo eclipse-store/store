@@ -54,6 +54,7 @@
 
     <modules>
         <module>afs</module>
+        <module>cache</module>
         <module>storage</module>
     </modules>
 
