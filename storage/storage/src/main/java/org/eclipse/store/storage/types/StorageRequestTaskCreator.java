@@ -92,6 +92,11 @@ public interface StorageRequestTaskCreator
 		StorageOperationController  operationController
 	);
 
+	public StorageRequestTaskTransactionsLogCleanup CreateTransactionsLogCleanupTask(
+		int                        channelCount       ,
+		StorageOperationController operationController
+	);
+	
 	public StorageRequestTaskImportDataFiles createImportFromFilesTask(
 		int                           channelCount          ,
 		StorageDataFileEvaluator      fileEvaluator         ,
@@ -298,6 +303,18 @@ public interface StorageRequestTaskCreator
 			);
 		}
 
+		@Override
+		public StorageRequestTaskTransactionsLogCleanup CreateTransactionsLogCleanupTask(
+			final int channelCount,
+			final StorageOperationController operationController)
+		{
+			return new StorageRequestTaskTransactionsLogCleanup.Default(
+				this.timestampProvider.currentNanoTimestamp(),
+				channelCount,
+				operationController
+			);
+		}
+		
 		@Override
 		public StorageRequestTaskImportDataFiles createImportFromFilesTask(
 			final int                           channelCount          ,

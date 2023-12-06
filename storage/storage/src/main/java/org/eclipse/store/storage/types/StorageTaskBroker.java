@@ -94,6 +94,9 @@ public interface StorageTaskBroker
 	)
 		throws InterruptedException;
 
+	public StorageRequestTaskTransactionsLogCleanup issueTransactionsLogCleanup()
+		throws InterruptedException;
+	
 	public StorageOperationController operationController();
 
 	public final class Default implements StorageTaskBroker
@@ -266,6 +269,18 @@ public interface StorageTaskBroker
 			final StorageRequestTaskFileCheck task = this.taskCreator.createFullFileCheckTask(
 				this.channelCount,
 				nanoTimeBudget,
+				this.operationController
+			);
+			this.enqueueTaskAndNotifyAll(task);
+			return task;
+		}
+		
+		@Override
+		public final synchronized StorageRequestTaskTransactionsLogCleanup issueTransactionsLogCleanup()
+			throws InterruptedException
+		{
+			final StorageRequestTaskTransactionsLogCleanup task = this.taskCreator.CreateTransactionsLogCleanupTask(
+				this.channelCount,
 				this.operationController
 			);
 			this.enqueueTaskAndNotifyAll(task);
