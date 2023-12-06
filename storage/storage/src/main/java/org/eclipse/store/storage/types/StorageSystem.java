@@ -328,6 +328,8 @@ public interface StorageSystem extends StorageController
 				}
 				initializingTask.waitOnCompletion();
 			}
+			
+			this.timestampProvider.set(initializingTask.latestTimestamp());
 						
 			return initializingTask.idAnalysis();
 		}
