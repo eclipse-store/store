@@ -13,7 +13,7 @@ mvn dependency:get -Dartifact=org.eclipse.store:storage-restclient-app:{maven-ve
 
 or this direct link:
 
-https://oss.sonatype.org/content/repositories/snapshots/org/eclipse/store/storage-restclient-app/{maven-version}/storage-restclient-app-{maven-version}.jar
+https://repo1.maven.org/maven2/org/eclipse/store/storage-restclient-app/{maven-version}/storage-restclient-app-{maven-version}.jar
 
 Start the client.
 The port parameter is optional, default port is 8080.
