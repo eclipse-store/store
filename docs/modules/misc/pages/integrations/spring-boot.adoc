@@ -202,3 +202,13 @@ to obtain all Eclipse Store configuration keys:
 ----
 
 Key values containing "password" are replaced by "xxxxx".
+
+== Register JDK 17 and JDK 8 Handlers
+Handler for JDK 17 are registered automatically.
+Handler for JDK 8 are not registered automatically, because of the backwards compatibility. If you create a new storage you can enable these handlers. If you have an existing storage created with JDK8 handlers, you have to active it too.
+If you need to register JDK 8 handlers, you can do it by adding the following code to your configuration:
+
+[source,properties]
+----
+org.eclipse.store.register-jdk8-handlers=true
+----

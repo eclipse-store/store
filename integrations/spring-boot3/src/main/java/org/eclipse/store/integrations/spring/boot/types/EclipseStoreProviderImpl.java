@@ -17,6 +17,7 @@ package org.eclipse.store.integrations.spring.boot.types;
 import java.util.Map;
 
 import org.eclipse.serializer.persistence.binary.jdk17.types.BinaryHandlersJDK17;
+import org.eclipse.serializer.persistence.binary.jdk8.types.BinaryHandlersJDK8;
 import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.integrations.spring.boot.types.configuration.ConfigurationPair;
 import org.eclipse.store.integrations.spring.boot.types.configuration.EclipseStoreProperties;
@@ -46,7 +47,7 @@ public class EclipseStoreProviderImpl implements EclipseStoreProvider
     public EmbeddedStorageManager createStorage(EclipseStoreProperties eclipseStoreProperties, ConfigurationPair... additionalConfiguration)
     {
         EmbeddedStorageFoundation<?> storageFoundation = createStorageFoundation(eclipseStoreProperties, additionalConfiguration);
-        return createStorage(storageFoundation, eclipseStoreProperties.getAutoStart());
+        return createStorage(storageFoundation, eclipseStoreProperties.isAutoStart());
     }
 
     @Override
@@ -92,6 +93,11 @@ public class EclipseStoreProviderImpl implements EclipseStoreProvider
 
         storageFoundation.getConnectionFoundation()
                 .setClassLoaderProvider(typeName -> this.applicationContext.getClassLoader());
+
+        if (eclipseStoreProperties.isRegisterJdk8Handlers()) {
+            this.logger.debug("Register JDK8 handlers. ");
+            storageFoundation.onConnectionFoundation(BinaryHandlersJDK8::registerJDK8TypeHandlers);
+        }
 
         if (eclipseStoreProperties.isRegisterJdk17Handlers()) {
             this.logger.debug("Register JDK17 handlers. ");

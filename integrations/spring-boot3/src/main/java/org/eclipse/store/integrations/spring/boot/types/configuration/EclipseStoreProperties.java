@@ -15,6 +15,8 @@ package org.eclipse.store.integrations.spring.boot.types.configuration;
  */
 
 
+import java.time.Duration;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 import org.springframework.context.annotation.Configuration;
@@ -133,6 +135,33 @@ public class EclipseStoreProperties
     private String housekeepingTimeBudget;
 
     /**
+     * Usage of an adaptive housekeeping controller, which will increase the time budgets on demand,
+     * if the garbage collector needs more time to reach the sweeping phase.
+     */
+    private boolean housekeepingAdaptive = false;
+
+    /**
+     * The threshold of the adaption cycle to calculate new budgets for the housekeeping process. Default is 5 seconds.
+     */
+    private String housekeepingIncreaseThreshold;
+
+    /**
+     * The amount the housekeeping budgets will be increased each cycle. Default is 50 ms.
+     */
+    private String housekeepingIncreaseAmount;
+
+    /**
+     * The upper limit of the housekeeping time budgets. Default is 0.5 seconds.
+     */
+    private String housekeepingMaximumTimeBudget;
+
+    /**
+     * The maximum size of a transaction file. If the file is larger than this value, it will be split into multiple files.
+     * Default is 1 GiB.
+     */
+    private String transactionFileMaximumSize;
+
+    /**
      * Timeout in milliseconds for the entity cache evaluator.
      * If an entity was not accessed in this timespan it will be removed from the cache. Default is 1 day.
      */
@@ -176,6 +205,14 @@ public class EclipseStoreProperties
      * Default value is true.
      */
     private boolean registerJdk17Handlers = true;
+
+    /**
+     * Determines whether to register default handlers for JDK 1.8 classes.
+     * By default, this is set to false for compatibility reasons with previously created storage.
+     * Enabling this requires adding these handlers to your storage configuration later when used in another application with Eclipse Store.
+     * Default value is false.
+     */
+    private boolean registerJdk8Handlers;
 
     public Class<?> getRoot()
     {
@@ -357,6 +394,56 @@ public class EclipseStoreProperties
         this.housekeepingTimeBudget = housekeepingTimeBudget;
     }
 
+    public boolean isHousekeepingAdaptive()
+    {
+        return housekeepingAdaptive;
+    }
+
+    public void setHousekeepingAdaptive(boolean housekeepingAdaptive)
+    {
+        this.housekeepingAdaptive = housekeepingAdaptive;
+    }
+
+    public String getHousekeepingIncreaseThreshold()
+    {
+        return housekeepingIncreaseThreshold;
+    }
+
+    public void setHousekeepingIncreaseThreshold(String housekeepingIncreaseThreshold)
+    {
+        this.housekeepingIncreaseThreshold = housekeepingIncreaseThreshold;
+    }
+
+    public String getHousekeepingIncreaseAmount()
+    {
+        return housekeepingIncreaseAmount;
+    }
+
+    public void setHousekeepingIncreaseAmount(String housekeepingIncreaseAmount)
+    {
+        this.housekeepingIncreaseAmount = housekeepingIncreaseAmount;
+    }
+
+    public String getHousekeepingMaximumTimeBudget()
+    {
+        return housekeepingMaximumTimeBudget;
+    }
+
+    public void setHousekeepingMaximumTimeBudget(String housekeepingMaximumTimeBudget)
+    {
+        this.housekeepingMaximumTimeBudget = housekeepingMaximumTimeBudget;
+    }
+
+    public String getTransactionFileMaximumSize()
+    {
+        return transactionFileMaximumSize;
+    }
+
+    public void setTransactionFileMaximumSize(String transactionFileMaximumSize)
+    {
+        this.transactionFileMaximumSize = transactionFileMaximumSize;
+    }
+
     public String getEntityCacheTimeout()
     {
         return entityCacheTimeout;
@@ -417,7 +504,7 @@ public class EclipseStoreProperties
         this.dataFileCleanupHeadFile = dataFileCleanupHeadFile;
     }
 
-    public boolean getAutoStart()
+    public boolean isAutoStart()
     {
         return autoStart;
     }
@@ -425,11 +512,6 @@ public class EclipseStoreProperties
     public void setAutoStart(boolean autoStart)
     {
         this.autoStart = autoStart;
-    }
-
-    public boolean isAutoStart()
-    {
-        return autoStart;
     }
 
     public boolean isRegisterJdk17Handlers()
@@ -440,5 +522,15 @@ public class EclipseStoreProperties
     public void setRegisterJdk17Handlers(boolean registerJdk17Handlers)
     {
         this.registerJdk17Handlers = registerJdk17Handlers;
+    }
+
+    public boolean isRegisterJdk8Handlers()
+    {
+        return registerJdk8Handlers;
+    }
+
+    public void setRegisterJdk8Handlers(boolean registerJdk8Handlers)
+    {
+        this.registerJdk8Handlers = registerJdk8Handlers;
     }
 }

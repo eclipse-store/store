@@ -58,6 +58,7 @@ public class EclipseStoreConfigConverter
     protected static final String DATA_FILE_SUFFIX = EmbeddedStorageConfigurationPropertyNames.DATA_FILE_SUFFIX;
     protected static final String TRANSACTION_FILE_PREFIX = EmbeddedStorageConfigurationPropertyNames.TRANSACTION_FILE_PREFIX;
     protected static final String TRANSACTION_FILE_SUFFIX = EmbeddedStorageConfigurationPropertyNames.TRANSACTION_FILE_SUFFIX;
+    protected static final String TRANSACTION_FILE_MAXIMUM_SIZE = EmbeddedStorageConfigurationPropertyNames.TRANSACTION_FILE_MAXIMUM_SIZE;
     protected static final String TYPE_DICTIONARY_FILE_NAME = EmbeddedStorageConfigurationPropertyNames.TYPE_DICTIONARY_FILE_NAME;
     protected static final String RESCUED_FILE_SUFFIX = EmbeddedStorageConfigurationPropertyNames.RESCUED_FILE_SUFFIX;
     protected static final String LOCK_FILE_NAME = EmbeddedStorageConfigurationPropertyNames.LOCK_FILE_NAME;
@@ -65,6 +66,10 @@ public class EclipseStoreConfigConverter
     // Fields for the housekeeping configuration
     protected static final String HOUSEKEEPING_INTERVAL = EmbeddedStorageConfigurationPropertyNames.HOUSEKEEPING_INTERVAL;
     protected static final String HOUSEKEEPING_TIME_BUDGET = EmbeddedStorageConfigurationPropertyNames.HOUSEKEEPING_TIME_BUDGET;
+    protected static final String HOUSEKEEPING_ADAPTIVE = EmbeddedStorageConfigurationPropertyNames.HOUSEKEEPING_ADAPTIVE;
+    protected static final String HOUSEKEEPING_INCREASE_THRESHOLD = EmbeddedStorageConfigurationPropertyNames.HOUSEKEEPING_INCREASE_THRESHOLD;
+    protected static final String HOUSEKEEPING_INCREASE_AMOUNT = EmbeddedStorageConfigurationPropertyNames.HOUSEKEEPING_INCREASE_AMOUNT;
+    protected static final String HOUSEKEEPING_MAXIMUM_TIME_BUDGET = EmbeddedStorageConfigurationPropertyNames.HOUSEKEEPING_MAXIMUM_TIME_BUDGET;
 
     // Fields for the entity cache configuration
     protected static final String ENTITY_CACHE_THRESHOLD = EmbeddedStorageConfigurationPropertyNames.ENTITY_CACHE_THRESHOLD;
@@ -110,11 +115,16 @@ public class EclipseStoreConfigConverter
         configValues.put(DATA_FILE_SUFFIX, properties.getDataFileSuffix());
         configValues.put(TRANSACTION_FILE_PREFIX, properties.getTransactionFilePrefix());
         configValues.put(TRANSACTION_FILE_SUFFIX, properties.getTransactionFileSuffix());
+        configValues.put(TRANSACTION_FILE_MAXIMUM_SIZE, properties.getTransactionFileMaximumSize());
         configValues.put(TYPE_DICTIONARY_FILE_NAME, properties.getTypeDictionaryFileName());
         configValues.put(RESCUED_FILE_SUFFIX, properties.getRescuedFileSuffix());
         configValues.put(LOCK_FILE_NAME, properties.getLockFileName());
         configValues.put(HOUSEKEEPING_INTERVAL, properties.getHousekeepingInterval());
         configValues.put(HOUSEKEEPING_TIME_BUDGET, properties.getHousekeepingTimeBudget());
+        configValues.put(HOUSEKEEPING_ADAPTIVE, properties.isHousekeepingAdaptive() ? "true" : null);
+        configValues.put(HOUSEKEEPING_INCREASE_THRESHOLD, properties.getHousekeepingIncreaseThreshold());
+        configValues.put(HOUSEKEEPING_INCREASE_AMOUNT, properties.getHousekeepingIncreaseAmount());
+        configValues.put(HOUSEKEEPING_MAXIMUM_TIME_BUDGET, properties.getHousekeepingMaximumTimeBudget());
         configValues.put(ENTITY_CACHE_THRESHOLD, properties.getEntityCacheThreshold());
         configValues.put(ENTITY_CACHE_TIMEOUT, properties.getEntityCacheTimeout());
         configValues.put(DATA_FILE_MINIMUM_SIZE, properties.getDataFileMinimumSize());

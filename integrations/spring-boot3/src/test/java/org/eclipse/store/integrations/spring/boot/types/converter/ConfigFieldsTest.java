@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -42,12 +43,16 @@ public class ConfigFieldsTest
 
         List<String> originalFieldNames = Arrays.stream(originalFields)
                 .map(Field::getName)
-                .toList();
+                .collect(Collectors.toList());
 
         List<String> converterFieldsNames = Arrays.stream(converterFields)
                 .map(Field::getName)
                 .toList();
 
-        assertTrue(converterFieldsNames.containsAll(originalFieldNames));
+        //show different between original and converter
+        originalFieldNames.removeAll(converterFieldsNames);
+
+        assertTrue(originalFieldNames.isEmpty(), "The following fields are missing in Eclipse Store Configuration: " + originalFieldNames);
+
     }
 }
