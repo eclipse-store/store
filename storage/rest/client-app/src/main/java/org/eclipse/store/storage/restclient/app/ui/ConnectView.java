@@ -30,7 +30,6 @@ import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.html.H3;
 import com.vaadin.flow.component.html.Hr;
 import com.vaadin.flow.component.html.Image;
-import com.vaadin.flow.component.html.Label;
 import com.vaadin.flow.component.html.NativeLabel;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.Notification.Position;
@@ -136,7 +135,7 @@ public class ConnectView extends VerticalLayout implements HasDynamicTitle
 				final VerticalLayout content = new VerticalLayout(
 					header,
 					new Hr(),
-					new Label(this.getTranslation("INTERNAL_ERROR_HINT", baseUrl)),
+					new NativeLabel(this.getTranslation("INTERNAL_ERROR_HINT", baseUrl)),
 					close
 				);
 				content.setHorizontalComponentAlignment(Alignment.END, close);

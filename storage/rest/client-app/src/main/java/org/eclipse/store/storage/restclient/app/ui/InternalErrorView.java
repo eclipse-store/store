@@ -23,7 +23,7 @@ import org.eclipse.store.storage.restclient.app.types.SessionData;
 import com.vaadin.flow.component.details.Details;
 import com.vaadin.flow.component.html.H3;
 import com.vaadin.flow.component.html.Hr;
-import com.vaadin.flow.component.html.Label;
+import com.vaadin.flow.component.html.NativeLabel;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.router.BeforeEnterEvent;
@@ -82,7 +82,7 @@ public class InternalErrorView extends VerticalLayout
 		final SessionData sessionData = session.getAttribute(SessionData.class);
 		if(sessionData != null)
 		{
-			this.add(new Label(this.getTranslation("INTERNAL_ERROR_HINT", sessionData.baseUrl())));
+			this.add(new NativeLabel(this.getTranslation("INTERNAL_ERROR_HINT", sessionData.baseUrl())));
 		}
 		
 		final Throwable t = (Throwable)session.getAttribute(

@@ -21,7 +21,7 @@ import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.dependency.CssImport;
 import com.vaadin.flow.component.html.Image;
-import com.vaadin.flow.component.html.Label;
+import com.vaadin.flow.component.html.NativeLabel;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.page.AppShellConfigurator;
@@ -41,8 +41,8 @@ public class RootLayout extends VerticalLayout
 {
 	public final static String PAGE_TITLE = "Eclipse Store Client";
 	
-	private Component toolBar;
-	private Label     headerLabel;
+	private Component   toolBar;
+	private NativeLabel headerLabel;
 	
 	public RootLayout()
 	{
@@ -57,7 +57,7 @@ public class RootLayout extends VerticalLayout
 	
 	private Component createHeader()
 	{
-		this.headerLabel = new Label();
+		this.headerLabel = new NativeLabel();
 		
 		final Button cmdDisconnect = new Button(this.getTranslation("DISCONNECT"), event -> {
 			this.getUI().ifPresent(ui -> {
