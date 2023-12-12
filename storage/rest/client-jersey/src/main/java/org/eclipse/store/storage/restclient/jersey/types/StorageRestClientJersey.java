@@ -20,22 +20,22 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Consumer;
 
-import javax.ws.rs.client.Client;
-import javax.ws.rs.client.ClientBuilder;
-import javax.ws.rs.client.WebTarget;
-import javax.ws.rs.core.MediaType;
-
-import org.eclipse.store.storage.restadapter.types.ViewerObjectDescription;
-import org.eclipse.store.storage.restadapter.types.ViewerRootDescription;
-import org.eclipse.store.storage.restadapter.types.ViewerStorageFileStatistics;
-import org.eclipse.store.storage.restclient.types.ObjectRequest;
-import org.eclipse.store.storage.restclient.types.StorageRestClient;
 import org.eclipse.serializer.persistence.binary.types.BinaryFieldLengthResolver;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDescription;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDictionaryParser;
 import org.eclipse.serializer.persistence.types.PersistenceTypeNameMapper;
 import org.eclipse.serializer.persistence.types.PersistenceTypeResolver;
 import org.eclipse.serializer.reflect.ClassLoaderProvider;
+import org.eclipse.store.storage.restadapter.types.ViewerObjectDescription;
+import org.eclipse.store.storage.restadapter.types.ViewerRootDescription;
+import org.eclipse.store.storage.restadapter.types.ViewerStorageFileStatistics;
+import org.eclipse.store.storage.restclient.types.ObjectRequest;
+import org.eclipse.store.storage.restclient.types.StorageRestClient;
+
+import jakarta.ws.rs.client.Client;
+import jakarta.ws.rs.client.ClientBuilder;
+import jakarta.ws.rs.client.WebTarget;
+import jakarta.ws.rs.core.MediaType;
 
 
 public interface StorageRestClientJersey extends StorageRestClient
@@ -90,7 +90,7 @@ public interface StorageRestClientJersey extends StorageRestClient
 			final Consumer<ClientBuilder> clientCustomizer
 		)
 		{
-			this.clientCustomizer = clientCustomizer;		
+			this.clientCustomizer = clientCustomizer;
 		}
 		
 		private WebTarget storageRestService()

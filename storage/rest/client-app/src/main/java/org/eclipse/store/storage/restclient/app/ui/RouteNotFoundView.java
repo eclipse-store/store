@@ -14,8 +14,6 @@ package org.eclipse.store.storage.restclient.app.ui;
  * #L%
  */
 
-import javax.servlet.http.HttpServletResponse;
-
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.router.BeforeEnterEvent;
 import com.vaadin.flow.router.ErrorParameter;
@@ -23,6 +21,8 @@ import com.vaadin.flow.router.NotFoundException;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.router.RouteNotFoundError;
+
+import jakarta.servlet.http.HttpServletResponse;
 
 @Route(value = "404", layout = RootLayout.class)
 @PageTitle("404 - " + RootLayout.PAGE_TITLE)
@@ -36,7 +36,7 @@ public class RouteNotFoundView extends RouteNotFoundError
 	@Override
 	public int setErrorParameter(BeforeEnterEvent event, ErrorParameter<NotFoundException> parameter)
 	{
-		getElement().appendChild(new Span("404 - not found").getElement());
+		this.getElement().appendChild(new Span("404 - not found").getElement());
 		
         return HttpServletResponse.SC_NOT_FOUND;
 	}
