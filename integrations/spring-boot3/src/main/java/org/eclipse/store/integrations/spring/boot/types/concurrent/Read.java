@@ -1,4 +1,4 @@
-package org.eclipse.store.integrations.spring.boot.types.concurent;
+package org.eclipse.store.integrations.spring.boot.types.concurrent;
 
 /*-
  * #%L
@@ -20,28 +20,26 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * The {@code Mutex} annotation can be used to specify a named lock for a type or a method.
+ * The {@code Read} annotation is used to mark methods that should acquire a read lock before execution.
  * This annotation is used in conjunction with the {@code LockAspect} to handle concurrent access to shared resources.
  *
  * <p>Here's an example of how to use this annotation:</p>
  * <pre>
  * <code>
- * {@literal @}Mutex("myLock")
- *    public class MyClass {
+ * public class MyClass {
  *
- *      {@literal @}Mutex("myMethodLock")
- *       public void myMethod() {
- *          // method implementation
- *       }
- *  }
+ *     {@literal @}Read
+ *      public void myMethod() {
+ *         // method implementation
+ *      }
+ * }
  * </code>
  * </pre>
- *
- * In this example, the {@code MyClass} type and the {@code myMethod} method each have their own named lock.
+ * <p>
+ * In this example, the {@code myMethod} method will acquire a read lock before execution.
  */
-@Target({ElementType.TYPE, ElementType.METHOD})
+@Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
-public @interface Mutex
+public @interface Read
 {
-    String value();
 }

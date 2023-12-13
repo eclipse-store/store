@@ -23,7 +23,7 @@ open module org.eclipse.store.integrations.spring.boot
 	exports org.eclipse.store.integrations.spring.boot.types.configuration.sql;
 	exports org.eclipse.store.integrations.spring.boot.types;
     exports org.eclipse.store.integrations.spring.boot.types.converter;
-	exports org.eclipse.store.integrations.spring.boot.types.concurent;
+	exports org.eclipse.store.integrations.spring.boot.types.concurrent;
 
 	requires transitive spring.beans;
 	requires transitive spring.boot;

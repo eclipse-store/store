@@ -8,7 +8,7 @@
         </encoder>
     </appender>
 
-    <logger name="org.eclipse.store.integrations.spring.boot.types.concurent" level="trace" />
+    <logger name="org.eclipse.store.integrations.spring.boot.types.concurrent" level="trace" />
 
     <root level="debug">
         <appender-ref ref="STDOUT" />

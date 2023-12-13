@@ -1,4 +1,4 @@
-package org.eclipse.store.integrations.spring.boot.types.concurent;
+package org.eclipse.store.integrations.spring.boot.types.concurrent;
 
 /*-
  * #%L
@@ -20,7 +20,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * The {@code Read} annotation is used to mark methods that should acquire a read lock before execution.
+ * The {@code Write} annotation is used to mark methods that should acquire a write lock before execution.
  * This annotation is used in conjunction with the {@code LockAspect} to handle concurrent access to shared resources.
  *
  * <p>Here's an example of how to use this annotation:</p>
@@ -28,18 +28,18 @@ import java.lang.annotation.Target;
  * <code>
  * public class MyClass {
  *
- *     {@literal @}Read
+ *     {@literal @}Write
  *      public void myMethod() {
  *         // method implementation
  *      }
  * }
  * </code>
  * </pre>
- * <p>
- * In this example, the {@code myMethod} method will acquire a read lock before execution.
+ *
+ * In this example, the {@code myMethod} method will acquire a write lock before execution.
  */
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
-public @interface Read
+public @interface Write
 {
 }

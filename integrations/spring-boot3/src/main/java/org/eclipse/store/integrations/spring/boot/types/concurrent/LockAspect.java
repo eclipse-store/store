@@ -1,4 +1,4 @@
-package org.eclipse.store.integrations.spring.boot.types.concurent;
+package org.eclipse.store.integrations.spring.boot.types.concurrent;
 
 /*-
  * #%L

@@ -14,14 +14,12 @@ package org.microstream.spring.boot.example.service;
  * #L%
  */
 
-import org.eclipse.store.integrations.spring.boot.types.concurent.Write;
+import org.eclipse.store.integrations.spring.boot.types.concurrent.Write;
 import org.microstream.spring.boot.example.storage.JokesStorage;
 import org.springframework.stereotype.Service;
-import org.springframework.util.ResourceUtils;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;

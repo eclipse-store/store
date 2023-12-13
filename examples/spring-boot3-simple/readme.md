@@ -1,18 +1,23 @@
 # Spring Boot Eclipse Store Sample Application
 
-This application is aimed at showcasing the capabilities of the Eclipse Store Spring Boot extension. It demonstrates how to integrate a pre-configured storage into an application as a bean, how to utilize the locking API, and how to design an MVC application using Eclipse Store.
+This application serves as a comprehensive display of the Eclipse Store Spring Boot extension's functionalities. It exemplifies the seamless integration of a pre-configured storage into an application as a bean, illustrates effective utilization of the locking API, and provides insights into designing an MVC application using Eclipse Store.
+
+Moreover, it offers practical demonstrations on leveraging concurrent extensions within the Eclipse Store API, showcasing the implementation of annotations like `@Read` and `@Write` for optimized functionality.
 
 ## Implementation Notes
 * Synchronization over shared data structures is handled using the annotations `@Read` and `@Write`.
 * The Controller performs data conversion into JSON, therefore it must always operate with immutable data or, in the case of mutable data, it must receive a copy of such data.
+* Minimum Java version is 17.
+* Build tool is Maven.
 
 ## Build
 
-The generation of the executable jar file can be performed by issuing the following command
+The generation of the executable jar file can be performed by issuing the following command:
 
 ```shell
 mvn clean package
 ```
+
 
 This will create an executable jar file **spring-boot3-simple.jar** within the _target_ maven folder. This can be started by executing the following command
 
@@ -21,13 +26,14 @@ java -jar target/spring-boot3-simple.jar
 ```
 
 To launch the test page, open your browser at the following URL
-
 ```shell
 http://localhost:8080/  
 ```
 
 ## Using App rest api
-Load sample data
+This examples use Curl for Linux/MacOS. You can use any other tool for sending HTTP requests.
+§
+Load sample data. Without this step, the application will not contain any data. It is not mandatory to execute this step, but without it you will have to add all your data manually.
 ```shell
 curl --location --request POST 'http://localhost:8080/init' \
 --header 'Content-Type: application/json'

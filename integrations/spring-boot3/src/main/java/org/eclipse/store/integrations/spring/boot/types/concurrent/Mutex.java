@@ -1,4 +1,4 @@
-package org.eclipse.store.integrations.spring.boot.types.concurent;
+package org.eclipse.store.integrations.spring.boot.types.concurrent;
 
 /*-
  * #%L
@@ -20,26 +20,28 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * The {@code Write} annotation is used to mark methods that should acquire a write lock before execution.
+ * The {@code Mutex} annotation can be used to specify a named lock for a type or a method.
  * This annotation is used in conjunction with the {@code LockAspect} to handle concurrent access to shared resources.
  *
  * <p>Here's an example of how to use this annotation:</p>
  * <pre>
  * <code>
- * public class MyClass {
+ * {@literal @}Mutex("myLock")
+ *    public class MyClass {
  *
- *     {@literal @}Write
- *      public void myMethod() {
- *         // method implementation
- *      }
- * }
+ *      {@literal @}Mutex("myMethodLock")
+ *       public void myMethod() {
+ *          // method implementation
+ *       }
+ *  }
  * </code>
  * </pre>
  *
- * In this example, the {@code myMethod} method will acquire a write lock before execution.
+ * In this example, the {@code MyClass} type and the {@code myMethod} method each have their own named lock.
  */
-@Target(ElementType.METHOD)
+@Target({ElementType.TYPE, ElementType.METHOD})
 @Retention(RetentionPolicy.RUNTIME)
-public @interface Write
+public @interface Mutex
 {
+    String value();
 }
