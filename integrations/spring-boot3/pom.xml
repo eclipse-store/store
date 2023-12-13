@@ -10,7 +10,7 @@
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
-    <artifactId>integrattions-spring-boot3</artifactId>
+    <artifactId>integrations-spring-boot3</artifactId>
 
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
