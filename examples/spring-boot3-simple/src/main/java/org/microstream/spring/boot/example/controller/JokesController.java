@@ -46,6 +46,7 @@ public class JokesController
 
     /**
      * Constructs a new {@code JokesController} with the provided {@code JokesServices}.
+     * JokesServices is a Spring component and is injected by Spring.
      *
      * @param jokesServices The services used to perform operations on jokes.
      */

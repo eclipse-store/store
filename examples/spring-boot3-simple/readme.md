@@ -18,7 +18,6 @@ The generation of the executable jar file can be performed by issuing the follow
 mvn clean package
 ```
 
-
 This will create an executable jar file **spring-boot3-simple.jar** within the _target_ maven folder. This can be started by executing the following command
 
 ```shell
@@ -32,7 +31,6 @@ http://localhost:8080/
 
 ## Using App rest api
 This examples use Curl for Linux/MacOS. You can use any other tool for sending HTTP requests.
-§
 Load sample data. Without this step, the application will not contain any data. It is not mandatory to execute this step, but without it you will have to add all your data manually.
 ```shell
 curl --location --request POST 'http://localhost:8080/init' \
