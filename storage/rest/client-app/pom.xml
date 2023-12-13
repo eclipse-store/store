@@ -64,6 +64,12 @@
 		    <groupId>jakarta.activation</groupId>
 		    <artifactId>jakarta.activation-api</artifactId>
 		</dependency>
+		<dependency>
+			<groupId>org.slf4j</groupId>
+			<artifactId>slf4j-api</artifactId>
+			<!-- required version 2.0.9 for spring 3 -->
+			<version>2.0.9</version>
+		</dependency>
 	</dependencies>
 
 	<build>
