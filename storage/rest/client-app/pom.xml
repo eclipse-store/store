@@ -14,7 +14,7 @@
 	</parent>
 
 	<artifactId>storage-restclient-app</artifactId>
-	
+
 	<name>EclipseStore Storage REST Client App</name>
 	<description>Executable Client App with Web User Interface</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
@@ -61,8 +61,8 @@
 			<artifactId>vaadin-spring-boot-starter</artifactId>
 		</dependency>
 		<dependency>
-		    <groupId>jakarta.activation</groupId>
-		    <artifactId>jakarta.activation-api</artifactId>
+			<groupId>jakarta.activation</groupId>
+			<artifactId>jakarta.activation-api</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.slf4j</groupId>
@@ -80,25 +80,27 @@
 				<artifactId>spring-boot-maven-plugin</artifactId>
 				<version>${spring.boot.version}</version>
 				<configuration>
-					<mainClass>org.eclipse.store.storage.restclient.app.types.Application</mainClass>
-					<!-- Clean build and startup time for Vaadin apps sometimes may exceed 
+					<mainClass>
+						org.eclipse.store.storage.restclient.app.types.Application</mainClass>
+					<!-- Clean build and startup time for Vaadin apps sometimes
+					may exceed 
 						the default Spring Boot's 30sec timeout. -->
 					<wait>500</wait>
 					<maxAttempts>240</maxAttempts>
 				</configuration>
 			</plugin>
 			<plugin>
-                <groupId>com.vaadin</groupId>
-                <artifactId>vaadin-maven-plugin</artifactId>
-                <version>${vaadin.version}</version>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>prepare-frontend</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
+				<groupId>com.vaadin</groupId>
+				<artifactId>vaadin-maven-plugin</artifactId>
+				<version>${vaadin.version}</version>
+				<executions>
+					<execution>
+						<goals>
+							<goal>prepare-frontend</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
 		</plugins>
 	</build>
 
@@ -115,7 +117,8 @@
 						<artifactId>spring-boot-maven-plugin</artifactId>
 						<version>${spring.boot.version}</version>
 						<configuration>
-							<mainClass>org.eclipse.store.storage.restclient.app.types.Application</mainClass>
+							<mainClass>
+								org.eclipse.store.storage.restclient.app.types.Application</mainClass>
 							<jvmArguments>-Dvaadin.productionMode</jvmArguments>
 							<layout>JAR</layout>
 						</configuration>
@@ -128,18 +131,18 @@
 						</executions>
 					</plugin>
 					<plugin>
-                        <groupId>com.vaadin</groupId>
-                        <artifactId>vaadin-maven-plugin</artifactId>
-                        <version>${vaadin.version}</version>
-                        <executions>
-                            <execution>
-                                <goals>
-                                    <goal>build-frontend</goal>
-                                </goals>
-                                <phase>compile</phase>
-                            </execution>
-                        </executions>
-                    </plugin>
+						<groupId>com.vaadin</groupId>
+						<artifactId>vaadin-maven-plugin</artifactId>
+						<version>${vaadin.version}</version>
+						<executions>
+							<execution>
+								<goals>
+									<goal>build-frontend</goal>
+								</goals>
+								<phase>compile</phase>
+							</execution>
+						</executions>
+					</plugin>
 				</plugins>
 			</build>
 		</profile>
