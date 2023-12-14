@@ -73,7 +73,7 @@ public class JokesController
      * @return The joke with the specified ID.
      */
     @GetMapping("/joke")
-    public String getOneJoke(@RequestParam(required = false) Integer id)
+    public String getOneJoke(@RequestParam(name = "id") Integer id)
     {
         return jokesServices.oneJoke(id);
     }
