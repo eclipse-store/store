@@ -15,7 +15,7 @@
 
 	<artifactId>storage-rest-parent</artifactId>
 	<packaging>pom</packaging>
-	
+
 	<name>EclipseStore Storage REST Parent</name>
 	<description>EclipseStore Storage REST Project</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
@@ -23,10 +23,21 @@
 	<modules>
 		<module>adapter</module>
 		<module>client</module>
-		<module>client-app</module>
 		<module>client-jersey</module>
 		<module>service</module>
 		<module>service-sparkjava</module>
 	</modules>
+
+	<profiles>
+		<profile>
+			<id>from_java_17</id>
+			<activation>
+				<jdk>[17,)</jdk>
+			</activation>
+			<modules>
+				<module>client-app</module>
+			</modules>
+		</profile>
+	</profiles>
 
 </project>
