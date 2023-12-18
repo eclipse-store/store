@@ -14,7 +14,7 @@ Tested and officially supported JDKs:
 | 11, 17, 21
 
 | https://adoptium.net/[Adoptium Temurin (HotSpot / OpenJ9)]
-| 11, 17
+| 11, 17, 21
 
 | https://developers.redhat.com/products/openjdk/download/[Red Hat OpenJDK]
 | 11
