@@ -54,70 +54,70 @@ public class StorageFilesystem
 
     public Sql getSql()
     {
-        return sql;
+        return this.sql;
     }
 
-    public void setSql(Sql sql)
+    public void setSql(final Sql sql)
     {
         this.sql = sql;
     }
 
     public Aws getAws()
     {
-        return aws;
+        return this.aws;
     }
 
-    public void setAws(Aws aws)
+    public void setAws(final Aws aws)
     {
         this.aws = aws;
     }
 
     public Map<String, String> getKafkaProperties()
     {
-        return kafkaProperties;
+        return this.kafkaProperties;
     }
 
-    public void setKafkaProperties(Map<String, String> kafkaProperties)
+    public void setKafkaProperties(final Map<String, String> kafkaProperties)
     {
         this.kafkaProperties = kafkaProperties;
     }
 
     public Oraclecloud getOraclecloud()
     {
-        return oraclecloud;
+        return this.oraclecloud;
     }
 
-    public void setOraclecloud(Oraclecloud oraclecloud)
+    public void setOraclecloud(final Oraclecloud oraclecloud)
     {
         this.oraclecloud = oraclecloud;
     }
 
     public Redis getRedis()
     {
-        return redis;
+        return this.redis;
     }
 
-    public void setRedis(Redis redis)
+    public void setRedis(final Redis redis)
     {
         this.redis = redis;
     }
 
     public Azure getAzure()
     {
-        return azure;
+        return this.azure;
     }
 
-    public void setAzure(Azure azure)
+    public void setAzure(final Azure azure)
     {
         this.azure = azure;
     }
 
     public Googlecloud getGooglecloud()
     {
-        return googlecloud;
+        return this.googlecloud;
     }
 
-    public void setGooglecloud(Googlecloud googlecloud)
+    public void setGooglecloud(final Googlecloud googlecloud)
     {
         this.googlecloud = googlecloud;
     }

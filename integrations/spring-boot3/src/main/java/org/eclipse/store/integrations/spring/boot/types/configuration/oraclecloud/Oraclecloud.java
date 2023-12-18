@@ -24,10 +24,10 @@ public class Oraclecloud
 
     public ObjectStorage getObjectStorage()
     {
-        return objectStorage;
+        return this.objectStorage;
     }
 
-    public void setObjectStorage(ObjectStorage objectStorage)
+    public void setObjectStorage(final ObjectStorage objectStorage)
     {
         this.objectStorage = objectStorage;
     }

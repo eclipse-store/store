@@ -46,18 +46,18 @@ public class RestartStorageBeanTest
     EmbeddedStorageManager injectStorageTest()
     {
 
-        ApplicationTemp temp = new ApplicationTemp();
+        final ApplicationTemp temp = new ApplicationTemp();
         tempFolder = temp.getDir().getAbsolutePath();
-        myConfiguration.setStorageDirectory(temp.getDir().getAbsolutePath());
-        EmbeddedStorageFoundation<?> storageFoundation = provider.createStorageFoundation(myConfiguration);
+        this.myConfiguration.setStorageDirectory(temp.getDir().getAbsolutePath());
+        final EmbeddedStorageFoundation<?> storageFoundation = this.provider.createStorageFoundation(this.myConfiguration);
 
         return storageFoundation.createEmbeddedStorageManager();
     }
 
     @Test
-    void restartStorageTest(@Autowired EmbeddedStorageManager manager)
+    void restartStorageTest(@Autowired final EmbeddedStorageManager manager)
     {
-        RestartRoot root = new RestartRoot("hello");
+        final RestartRoot root = new RestartRoot("hello");
         manager.start();
         manager.setRoot(root);
         manager.storeRoot();
@@ -65,13 +65,13 @@ public class RestartStorageBeanTest
 
         Assertions.assertEquals(tempFolder, manager.configuration().fileProvider().baseDirectory().toPathString());
 
-        ConfigurationPair pair = new ConfigurationPair("someKey", "someValue");
-        EmbeddedStorageFoundation<?> storageFoundation = provider.createStorageFoundation(myConfiguration, pair);
-        RestartRoot root2 = new RestartRoot();
+        final ConfigurationPair pair = new ConfigurationPair("someKey", "someValue");
+        final EmbeddedStorageFoundation<?> storageFoundation = this.provider.createStorageFoundation(this.myConfiguration, pair);
+        final RestartRoot root2 = new RestartRoot();
         storageFoundation.setRoot(root2);
         try (EmbeddedStorageManager storage = storageFoundation.start())
         {
-            RestartRoot rootFromStorage = (RestartRoot) storage.root();
+            final RestartRoot rootFromStorage = (RestartRoot) storage.root();
             Assertions.assertEquals("hello", rootFromStorage.getValue());
         }
     }
@@ -79,7 +79,7 @@ public class RestartStorageBeanTest
     static class RestartRoot {
         private String value;
 
-        public RestartRoot(String value)
+        public RestartRoot(final String value)
         {
             this.value = value;
         }
@@ -90,10 +90,10 @@ public class RestartStorageBeanTest
 
         public String getValue()
         {
-            return value;
+            return this.value;
         }
 
-        public void setValue(String value)
+        public void setValue(final String value)
         {
             this.value = value;
         }

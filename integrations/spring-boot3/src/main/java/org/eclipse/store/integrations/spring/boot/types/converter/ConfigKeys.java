@@ -81,14 +81,14 @@ public enum ConfigKeys
     SQL_PASSWORD("password")
     ;
 
-    private String value;
+    private final String value;
 
     /**
      * Constructs a new {@code ConfigKeys} enum with the provided value.
      *
      * @param value The string value of the configuration key.
      */
-    ConfigKeys(String value)
+    ConfigKeys(final String value)
     {
         this.value = value;
     }
@@ -100,6 +100,6 @@ public enum ConfigKeys
      */
     public String value()
     {
-        return value;
+        return this.value;
     }
 }

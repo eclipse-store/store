@@ -23,18 +23,18 @@ public class SecondRoot
     public String toString()
     {
         return "SecondRoot{" +
-                "intValue=" + intValue +
-                ", c=" + c +
+                "intValue=" + this.intValue +
+                ", c=" + this.c +
                 '}';
     }
 
     public Integer getIntValue()
     {
-        return intValue;
+        return this.intValue;
     }
 
     public char getC()
     {
-        return c;
+        return this.c;
     }
 }

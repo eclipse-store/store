@@ -16,5 +16,4 @@ package org.eclipse.store.integrations.spring.boot.types.configuration.aws;
 
 public class S3 extends AbstractAwsProperties
 {
-
 }

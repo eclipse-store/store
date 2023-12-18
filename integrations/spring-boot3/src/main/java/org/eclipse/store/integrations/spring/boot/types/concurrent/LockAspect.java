@@ -57,11 +57,11 @@ public class LockAspect
      * @throws Throwable If the method call throws an exception.
      */
     @Around("@annotation(Read)")
-    public Object readOperation(ProceedingJoinPoint joinPoint) throws Throwable
+    public Object readOperation(final ProceedingJoinPoint joinPoint) throws Throwable
     {
-        ReentrantReadWriteLock lock = this.findLock(joinPoint);
+        final ReentrantReadWriteLock lock = this.findLock(joinPoint);
         lock.readLock().lock();
-        logger.trace("lock readLock");
+        this.logger.trace("lock readLock");
         Object proceed;
         try
         {
@@ -69,7 +69,7 @@ public class LockAspect
         } finally
         {
             lock.readLock().unlock();
-            logger.trace("unlock readLock");
+            this.logger.trace("unlock readLock");
         }
         return proceed;
     }
@@ -82,11 +82,11 @@ public class LockAspect
      * @throws Throwable If the method call throws an exception.
      */
     @Around("@annotation(Write)")
-    public Object writeOperation(ProceedingJoinPoint joinPoint) throws Throwable
+    public Object writeOperation(final ProceedingJoinPoint joinPoint) throws Throwable
     {
-        ReentrantReadWriteLock lock = this.findLock(joinPoint);
+        final ReentrantReadWriteLock lock = this.findLock(joinPoint);
         lock.writeLock().lock();
-        logger.trace("write lock");
+        this.logger.trace("write lock");
 
         Object proceed;
         try
@@ -95,7 +95,7 @@ public class LockAspect
         } finally
         {
             lock.writeLock().unlock();
-            logger.trace("write unlock");
+            this.logger.trace("write unlock");
         }
 
         return proceed;
@@ -109,34 +109,34 @@ public class LockAspect
      * @param joinPoint The join point representing the method call.
      * @return The lock to be used.
      */
-    private ReentrantReadWriteLock findLock(ProceedingJoinPoint joinPoint)
+    private ReentrantReadWriteLock findLock(final ProceedingJoinPoint joinPoint)
     {
-        MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
-        Method method = methodSignature.getMethod();
+        final MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
+        final Method method = methodSignature.getMethod();
 
         //method annotation first
         ReentrantReadWriteLock finalLock;
-        Mutex annotation = method.getAnnotation(Mutex.class);
+        final Mutex annotation = method.getAnnotation(Mutex.class);
         if (annotation != null)
         {
-            String lockName = annotation.value();
-            logger.trace("Found method lock annotation for lock: {}", lockName);
-            finalLock = getOrCreateLock(lockName);
+            final String lockName = annotation.value();
+            this.logger.trace("Found method lock annotation for lock: {}", lockName);
+            finalLock = this.getOrCreateLock(lockName);
         } else
         {
             //class annotation second
-            Class<?> declaringClass = method.getDeclaringClass();
-            Mutex classAnnotation = declaringClass.getAnnotation(Mutex.class);
+            final Class<?> declaringClass = method.getDeclaringClass();
+            final Mutex classAnnotation = declaringClass.getAnnotation(Mutex.class);
             if (classAnnotation != null)
             {
-                String classLockName = classAnnotation.value();
-                logger.trace("Found class lock annotation for lock: {}", classLockName);
-                finalLock = getOrCreateLock(classLockName);
+                final String classLockName = classAnnotation.value();
+                this.logger.trace("Found class lock annotation for lock: {}", classLockName);
+                finalLock = this.getOrCreateLock(classLockName);
             } else
             {
                 // no annotation, use global lock
-                logger.trace("Found no @Lockable annotation, use global lock");
-                finalLock = globalLock;
+                this.logger.trace("Found no @Lockable annotation, use global lock");
+                finalLock = this.globalLock;
             }
         }
         return finalLock;
@@ -148,9 +148,9 @@ public class LockAspect
      * @param lockName The name of the lock.
      * @return The named lock.
      */
-    private ReentrantReadWriteLock getOrCreateLock(String lockName) {
-        return locks.computeIfAbsent(lockName, k -> {
-            logger.trace("Lock for name: {} not found, creating a new one", lockName);
+    private ReentrantReadWriteLock getOrCreateLock(final String lockName) {
+        return this.locks.computeIfAbsent(lockName, k -> {
+            this.logger.trace("Lock for name: {} not found, creating a new one", lockName);
             return new ReentrantReadWriteLock();
         });
     }
@@ -162,7 +162,7 @@ public class LockAspect
     static class AspectJCondition implements Condition
     {
         @Override
-        public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+        public boolean matches(final ConditionContext context, final AnnotatedTypeMetadata metadata) {
             return ClassUtils.isPresent("org.aspectj.lang.ProceedingJoinPoint", context.getClassLoader());
         }
     }

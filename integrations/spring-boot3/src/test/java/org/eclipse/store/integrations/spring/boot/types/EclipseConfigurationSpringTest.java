@@ -1,5 +1,10 @@
 package org.eclipse.store.integrations.spring.boot.types;
 
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.Map;
+
 /*-
  * #%L
  * spring-boot3
@@ -22,11 +27,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestPropertySource;
 
-import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 @TestPropertySource("classpath:application-test.properties")
 @SpringBootTest(classes = {EclipseStoreSpringBoot.class})
 public class EclipseConfigurationSpringTest
@@ -42,13 +42,13 @@ public class EclipseConfigurationSpringTest
     @Test
     void checkStorageDirectoryValue()
     {
-        assertNotNull(values.getStorageDirectory());
+        assertNotNull(this.values.getStorageDirectory());
     }
 
     @Test
     void converterBasicTest()
     {
-        Map<String, String> valueMap = converter.convertConfigurationToMap(values);
+        final Map<String, String> valueMap = this.converter.convertConfigurationToMap(this.values);
 
         assertTrue(valueMap.containsKey("storage-filesystem.sql.postgres.data-source-provider"));
 

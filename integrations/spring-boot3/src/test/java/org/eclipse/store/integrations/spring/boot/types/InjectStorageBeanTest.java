@@ -32,9 +32,9 @@ public class InjectStorageBeanTest
     @Test
     void storeSomething()
     {
-        manager.start();
-        manager.setRoot("hello");
-        manager.storeRoot();
-        manager.shutdown();
+        this.manager.start();
+        this.manager.setRoot("hello");
+        this.manager.storeRoot();
+        this.manager.shutdown();
     }
 }

@@ -41,10 +41,10 @@ public class Credentials
 
     public String getType()
     {
-        return type;
+        return this.type;
     }
 
-    public void setType(String type)
+    public void setType(final String type)
     {
         this.type = type;
     }

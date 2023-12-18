@@ -37,23 +37,23 @@ public class EclipseStoreProviderImpl implements EclipseStoreProvider
 
     private final Logger logger = Logging.getLogger(EclipseStoreProviderImpl.class);
 
-    public EclipseStoreProviderImpl(EclipseStoreConfigConverter converter, ApplicationContext applicationContext)
+    public EclipseStoreProviderImpl(final EclipseStoreConfigConverter converter, final ApplicationContext applicationContext)
     {
         this.converter = converter;
         this.applicationContext = applicationContext;
     }
 
     @Override
-    public EmbeddedStorageManager createStorage(EclipseStoreProperties eclipseStoreProperties, ConfigurationPair... additionalConfiguration)
+    public EmbeddedStorageManager createStorage(final EclipseStoreProperties eclipseStoreProperties, final ConfigurationPair... additionalConfiguration)
     {
-        EmbeddedStorageFoundation<?> storageFoundation = createStorageFoundation(eclipseStoreProperties, additionalConfiguration);
-        return createStorage(storageFoundation, eclipseStoreProperties.isAutoStart());
+        final EmbeddedStorageFoundation<?> storageFoundation = this.createStorageFoundation(eclipseStoreProperties, additionalConfiguration);
+        return this.createStorage(storageFoundation, eclipseStoreProperties.isAutoStart());
     }
 
     @Override
-    public EmbeddedStorageManager createStorage(EmbeddedStorageFoundation<?> foundation, boolean autoStart)
+    public EmbeddedStorageManager createStorage(final EmbeddedStorageFoundation<?> foundation, final boolean autoStart)
     {
-        EmbeddedStorageManager storageManager = foundation.createEmbeddedStorageManager();
+        final EmbeddedStorageManager storageManager = foundation.createEmbeddedStorageManager();
         if (autoStart)
         {
             storageManager.start();
@@ -62,12 +62,12 @@ public class EclipseStoreProviderImpl implements EclipseStoreProvider
     }
 
     @Override
-    public EmbeddedStorageFoundation<?> createStorageFoundation(EclipseStoreProperties eclipseStoreProperties, ConfigurationPair... additionalConfiguration)
+    public EmbeddedStorageFoundation<?> createStorageFoundation(final EclipseStoreProperties eclipseStoreProperties, final ConfigurationPair... additionalConfiguration)
     {
 
         final EmbeddedStorageConfigurationBuilder builder = EmbeddedStorageConfigurationBuilder.New();
-        Map<String, String> valueMap = converter.convertConfigurationToMap(eclipseStoreProperties);
-        for (ConfigurationPair pair : additionalConfiguration) {
+        final Map<String, String> valueMap = this.converter.convertConfigurationToMap(eclipseStoreProperties);
+        for (final ConfigurationPair pair : additionalConfiguration) {
             valueMap.put(pair.key(), pair.value());
         }
 
@@ -76,15 +76,15 @@ public class EclipseStoreProviderImpl implements EclipseStoreProvider
         {
             if (value != null)
             {
-                String logValue = key.contains("password") ? "xxxxxx" : value;
+                final String logValue = key.contains("password") ? "xxxxxx" : value;
                 this.logger.debug(key + " : " + logValue);
                 builder.set(key, value);
             }
         });
 
-        EmbeddedStorageFoundation<?> storageFoundation = builder.createEmbeddedStorageFoundation();
+        final EmbeddedStorageFoundation<?> storageFoundation = builder.createEmbeddedStorageFoundation();
 
-        Object root = provideRoot(eclipseStoreProperties);
+        final Object root = this.provideRoot(eclipseStoreProperties);
         if (root != null)
         {
             this.logger.debug("Root object: " + root.getClass().getName());
@@ -107,9 +107,9 @@ public class EclipseStoreProviderImpl implements EclipseStoreProvider
         return storageFoundation;
     }
 
-    private Object provideRoot(EclipseStoreProperties properties)
+    private Object provideRoot(final EclipseStoreProperties properties)
     {
-        Class<?> rootClass = properties.getRoot();
+        final Class<?> rootClass = properties.getRoot();
         if (rootClass == null)
         {
             return null;
@@ -117,7 +117,7 @@ public class EclipseStoreProviderImpl implements EclipseStoreProvider
         try
         {
             return rootClass.getDeclaredConstructor().newInstance();
-        } catch (Exception e)
+        } catch (final Exception e)
         {
             throw new RuntimeException("Failed to instantiate class: " + rootClass, e);
         }

@@ -20,14 +20,14 @@ public class FirstRoot
 
     public String getValue()
     {
-        return value;
+        return this.value;
     }
 
     @Override
     public String toString()
     {
         return "FirstRoot{" +
-                "value='" + value + '\'' +
+                "value='" + this.value + '\'' +
                 '}';
     }
 

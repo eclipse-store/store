@@ -23,7 +23,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Lazy;
-import org.springframework.context.annotation.Profile;
 
 @TestConfiguration
 public class TwoBeanConfiguration
@@ -49,17 +48,17 @@ public class TwoBeanConfiguration
     @Bean
     @Lazy
     @Qualifier("first_storage")
-    EmbeddedStorageManager createFirstStorage(@Qualifier("first_config") EclipseStoreProperties firstStoreProperties)
+    EmbeddedStorageManager createFirstStorage(@Qualifier("first_config") final EclipseStoreProperties firstStoreProperties)
     {
-        return provider.createStorage(firstStoreProperties);
+        return this.provider.createStorage(firstStoreProperties);
     }
 
     @Bean
     @Lazy
     @Qualifier("second_storage")
-    EmbeddedStorageManager createSecondStorage(@Qualifier("second_config") EclipseStoreProperties secondStoreProperties)
+    EmbeddedStorageManager createSecondStorage(@Qualifier("second_config") final EclipseStoreProperties secondStoreProperties)
     {
-        return provider.createStorage(secondStoreProperties);
+        return this.provider.createStorage(secondStoreProperties);
     }
 
 

@@ -47,4 +47,65 @@ public class Firestore
 
     @NestedConfigurationProperty
     private Credentials credentials;
+
+	public String getDatabaseId()
+	{
+		return this.databaseId;
+	}
+
+	public void setDatabaseId(final String databaseId)
+	{
+		this.databaseId = databaseId;
+	}
+
+	public String getEmulatorHost()
+	{
+		return this.emulatorHost;
+	}
+
+	public void setEmulatorHost(final String emulatorHost)
+	{
+		this.emulatorHost = emulatorHost;
+	}
+
+	public String getHost()
+	{
+		return this.host;
+	}
+
+	public void setHost(final String host)
+	{
+		this.host = host;
+	}
+
+	public String getProjectId()
+	{
+		return this.projectId;
+	}
+
+	public void setProjectId(final String projectId)
+	{
+		this.projectId = projectId;
+	}
+
+	public String getQuotaProjectId()
+	{
+		return this.quotaProjectId;
+	}
+
+	public void setQuotaProjectId(final String quotaProjectId)
+	{
+		this.quotaProjectId = quotaProjectId;
+	}
+
+	public Credentials getCredentials()
+	{
+		return this.credentials;
+	}
+
+	public void setCredentials(final Credentials credentials)
+	{
+		this.credentials = credentials;
+	}
+    
 }

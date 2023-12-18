@@ -24,10 +24,10 @@ public class Googlecloud
 
     public Firestore getFirestore()
     {
-        return firestore;
+        return this.firestore;
     }
 
-    public void setFirestore(Firestore firestore)
+    public void setFirestore(final Firestore firestore)
     {
         this.firestore = firestore;
     }

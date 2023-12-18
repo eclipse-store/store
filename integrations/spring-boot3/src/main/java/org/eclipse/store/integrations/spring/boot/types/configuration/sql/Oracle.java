@@ -17,5 +17,4 @@ package org.eclipse.store.integrations.spring.boot.types.configuration.sql;
 
 public class Oracle extends AbstractSqlConfiguration
 {
-
 }

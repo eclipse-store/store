@@ -1,5 +1,12 @@
 package org.eclipse.store.integrations.spring.boot.types.converter;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.Map;
+
 /*-
  * #%L
  * spring-boot3
@@ -20,10 +27,6 @@ import org.eclipse.store.integrations.spring.boot.types.configuration.sql.Mariad
 import org.eclipse.store.integrations.spring.boot.types.configuration.sql.Sql;
 import org.junit.jupiter.api.Test;
 
-import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.*;
-
 class EclipseStoreConfigConverterTest
 {
 
@@ -32,11 +35,11 @@ class EclipseStoreConfigConverterTest
     @Test
     void testBasicConversion()
     {
-        EclipseStoreProperties properties = new EclipseStoreProperties();
+        final EclipseStoreProperties properties = new EclipseStoreProperties();
         properties.setChannelCount("4");
 
-        EclipseStoreConfigConverter converter = new EclipseStoreConfigConverter();
-        Map<String, String> stringStringMap = converter.convertConfigurationToMap(properties);
+        final EclipseStoreConfigConverter converter = new EclipseStoreConfigConverter();
+        final Map<String, String> stringStringMap = converter.convertConfigurationToMap(properties);
 
         assertNotNull(stringStringMap);
         assertEquals(1, stringStringMap.size());
@@ -47,18 +50,18 @@ class EclipseStoreConfigConverterTest
     {
         final String CATALOG = "super_catalog";
 
-        Sql sql = new Sql();
-        Mariadb mariadb = new Mariadb();
+        final Sql sql = new Sql();
+        final Mariadb mariadb = new Mariadb();
         mariadb.setCatalog(CATALOG);
         mariadb.setPassword("myPssw");
         sql.setMariadb(mariadb);
-        StorageFilesystem storageFilesystem = new StorageFilesystem();
+        final StorageFilesystem storageFilesystem = new StorageFilesystem();
         storageFilesystem.setSql(sql);
-        EclipseStoreProperties values = new EclipseStoreProperties();
+        final EclipseStoreProperties values = new EclipseStoreProperties();
         values.setStorageFilesystem(storageFilesystem);
 
-        EclipseStoreConfigConverter converter = new EclipseStoreConfigConverter();
-        Map<String, String> valueMap = converter.convertConfigurationToMap(values);
+        final EclipseStoreConfigConverter converter = new EclipseStoreConfigConverter();
+        final Map<String, String> valueMap = converter.convertConfigurationToMap(values);
 
         assertTrue(valueMap.containsKey("storage-filesystem.sql.mariadb.catalog"));
         assertEquals(CATALOG, valueMap.get("storage-filesystem.sql.mariadb.catalog"));
@@ -66,29 +69,29 @@ class EclipseStoreConfigConverterTest
 
     @Test
     void testConvertConfigurationToMap() {
-        EclipseStoreProperties configValues = new EclipseStoreProperties();
-        Map<String, String> result = converter.convertConfigurationToMap(configValues);
+        final EclipseStoreProperties configValues = new EclipseStoreProperties();
+        final Map<String, String> result = this.converter.convertConfigurationToMap(configValues);
         assertNotNull(result);
         assertTrue(result.isEmpty());
     }
 
     @Test
     void testConvertConfigurationToMapWithStorageDirectory() {
-        EclipseStoreProperties configValues = new EclipseStoreProperties();
+        final EclipseStoreProperties configValues = new EclipseStoreProperties();
         configValues.setStorageDirectory("storage/dir");
-        Map<String, String> result = converter.convertConfigurationToMap(configValues);
+        final Map<String, String> result = this.converter.convertConfigurationToMap(configValues);
         assertNotNull(result);
         assertEquals("storage/dir", result.get(EclipseStoreConfigConverter.STORAGE_DIRECTORY));
     }
 
     @Test
     void testNullValuesAreRemoved() {
-        EclipseStoreProperties configValues = new EclipseStoreProperties();
+        final EclipseStoreProperties configValues = new EclipseStoreProperties();
         configValues.setStorageDirectory(null);
         configValues.setStorageFilesystem(new StorageFilesystem());
         configValues.setBackupDirectory("backup/dir");
 
-        Map<String, String> result = converter.convertConfigurationToMap(configValues);
+        final Map<String, String> result = this.converter.convertConfigurationToMap(configValues);
 
         assertNull(result.get(EclipseStoreConfigConverter.STORAGE_DIRECTORY));
         assertNotNull(result.get(EclipseStoreConfigConverter.BACKUP_DIRECTORY));
@@ -96,7 +99,7 @@ class EclipseStoreConfigConverterTest
 
     @Test
     void testComposeKey() {
-        String result = converter.composeKey("prefix", "suffix");
+        final String result = this.converter.composeKey("prefix", "suffix");
         assertEquals("prefix.suffix", result);
     }
 }

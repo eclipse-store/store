@@ -42,8 +42,8 @@ public class TwoStoragesTest
     @Test
     void name()
     {
-        Assertions.assertEquals("FirstRoot{value='First root value'}", firstStorage.root().toString());
-        Assertions.assertEquals("SecondRoot{intValue=50, c=c}", secondStorage.root().toString());
+        Assertions.assertEquals("FirstRoot{value='First root value'}", this.firstStorage.root().toString());
+        Assertions.assertEquals("SecondRoot{intValue=50, c=c}", this.secondStorage.root().toString());
     }
 
 }

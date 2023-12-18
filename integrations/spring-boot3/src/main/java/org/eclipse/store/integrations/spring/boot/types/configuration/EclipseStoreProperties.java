@@ -1,22 +1,5 @@
 package org.eclipse.store.integrations.spring.boot.types.configuration;
 
-/*-
- * #%L
- * spring-boot3
- * %%
- * Copyright (C) 2023 MicroStream Software
- * %%
- * This program and the accompanying materials are made
- * available under the terms of the Eclipse Public License 2.0
- * which is available at https://www.eclipse.org/legal/epl-2.0/
- *
- * SPDX-License-Identifier: EPL-2.0
- * #L%
- */
-
-
-import java.time.Duration;
-
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 import org.springframework.context.annotation.Configuration;
@@ -216,320 +199,320 @@ public class EclipseStoreProperties
 
     public Class<?> getRoot()
     {
-        return root;
+        return this.root;
     }
 
-    public void setRoot(Class<?> root)
+    public void setRoot(final Class<?> root)
     {
         this.root = root;
     }
 
     public String getStorageDirectory()
     {
-        return storageDirectory;
+        return this.storageDirectory;
     }
 
-    public void setStorageDirectory(String storageDirectory)
+    public void setStorageDirectory(final String storageDirectory)
     {
         this.storageDirectory = storageDirectory;
     }
 
     public StorageFilesystem getStorageFilesystem()
     {
-        return storageFilesystem;
+        return this.storageFilesystem;
     }
 
-    public void setStorageFilesystem(StorageFilesystem storageFilesystem)
+    public void setStorageFilesystem(final StorageFilesystem storageFilesystem)
     {
         this.storageFilesystem = storageFilesystem;
     }
 
     public String getDeletionDirectory()
     {
-        return deletionDirectory;
+        return this.deletionDirectory;
     }
 
-    public void setDeletionDirectory(String deletionDirectory)
+    public void setDeletionDirectory(final String deletionDirectory)
     {
         this.deletionDirectory = deletionDirectory;
     }
 
     public String getTruncationDirectory()
     {
-        return truncationDirectory;
+        return this.truncationDirectory;
     }
 
-    public void setTruncationDirectory(String truncationDirectory)
+    public void setTruncationDirectory(final String truncationDirectory)
     {
         this.truncationDirectory = truncationDirectory;
     }
 
     public String getBackupDirectory()
     {
-        return backupDirectory;
+        return this.backupDirectory;
     }
 
-    public void setBackupDirectory(String backupDirectory)
+    public void setBackupDirectory(final String backupDirectory)
     {
         this.backupDirectory = backupDirectory;
     }
 
     public StorageFilesystem getBackupFilesystem()
     {
-        return backupFilesystem;
+        return this.backupFilesystem;
     }
 
-    public void setBackupFilesystem(StorageFilesystem backupFilesystem)
+    public void setBackupFilesystem(final StorageFilesystem backupFilesystem)
     {
         this.backupFilesystem = backupFilesystem;
     }
 
     public String getChannelCount()
     {
-        return channelCount;
+        return this.channelCount;
     }
 
-    public void setChannelCount(String channelCount)
+    public void setChannelCount(final String channelCount)
     {
         this.channelCount = channelCount;
     }
 
     public String getChannelDirectoryPrefix()
     {
-        return channelDirectoryPrefix;
+        return this.channelDirectoryPrefix;
     }
 
-    public void setChannelDirectoryPrefix(String channelDirectoryPrefix)
+    public void setChannelDirectoryPrefix(final String channelDirectoryPrefix)
     {
         this.channelDirectoryPrefix = channelDirectoryPrefix;
     }
 
     public String getDataFilePrefix()
     {
-        return dataFilePrefix;
+        return this.dataFilePrefix;
     }
 
-    public void setDataFilePrefix(String dataFilePrefix)
+    public void setDataFilePrefix(final String dataFilePrefix)
     {
         this.dataFilePrefix = dataFilePrefix;
     }
 
     public String getDataFileSuffix()
     {
-        return dataFileSuffix;
+        return this.dataFileSuffix;
     }
 
-    public void setDataFileSuffix(String dataFileSuffix)
+    public void setDataFileSuffix(final String dataFileSuffix)
     {
         this.dataFileSuffix = dataFileSuffix;
     }
 
     public String getTransactionFilePrefix()
     {
-        return transactionFilePrefix;
+        return this.transactionFilePrefix;
     }
 
-    public void setTransactionFilePrefix(String transactionFilePrefix)
+    public void setTransactionFilePrefix(final String transactionFilePrefix)
     {
         this.transactionFilePrefix = transactionFilePrefix;
     }
 
     public String getTransactionFileSuffix()
     {
-        return transactionFileSuffix;
+        return this.transactionFileSuffix;
     }
 
-    public void setTransactionFileSuffix(String transactionFileSuffix)
+    public void setTransactionFileSuffix(final String transactionFileSuffix)
     {
         this.transactionFileSuffix = transactionFileSuffix;
     }
 
     public String getTypeDictionaryFileName()
     {
-        return typeDictionaryFileName;
+        return this.typeDictionaryFileName;
     }
 
-    public void setTypeDictionaryFileName(String typeDictionaryFileName)
+    public void setTypeDictionaryFileName(final String typeDictionaryFileName)
     {
         this.typeDictionaryFileName = typeDictionaryFileName;
     }
 
     public String getRescuedFileSuffix()
     {
-        return rescuedFileSuffix;
+        return this.rescuedFileSuffix;
     }
 
-    public void setRescuedFileSuffix(String rescuedFileSuffix)
+    public void setRescuedFileSuffix(final String rescuedFileSuffix)
     {
         this.rescuedFileSuffix = rescuedFileSuffix;
     }
 
     public String getLockFileName()
     {
-        return lockFileName;
+        return this.lockFileName;
     }
 
-    public void setLockFileName(String lockFileName)
+    public void setLockFileName(final String lockFileName)
     {
         this.lockFileName = lockFileName;
     }
 
     public String getHousekeepingInterval()
     {
-        return housekeepingInterval;
+        return this.housekeepingInterval;
     }
 
-    public void setHousekeepingInterval(String housekeepingInterval)
+    public void setHousekeepingInterval(final String housekeepingInterval)
     {
         this.housekeepingInterval = housekeepingInterval;
     }
 
     public String getHousekeepingTimeBudget()
     {
-        return housekeepingTimeBudget;
+        return this.housekeepingTimeBudget;
     }
 
-    public void setHousekeepingTimeBudget(String housekeepingTimeBudget)
+    public void setHousekeepingTimeBudget(final String housekeepingTimeBudget)
     {
         this.housekeepingTimeBudget = housekeepingTimeBudget;
     }
 
     public boolean isHousekeepingAdaptive()
     {
-        return housekeepingAdaptive;
+        return this.housekeepingAdaptive;
     }
 
-    public void setHousekeepingAdaptive(boolean housekeepingAdaptive)
+    public void setHousekeepingAdaptive(final boolean housekeepingAdaptive)
     {
         this.housekeepingAdaptive = housekeepingAdaptive;
     }
 
     public String getHousekeepingIncreaseThreshold()
     {
-        return housekeepingIncreaseThreshold;
+        return this.housekeepingIncreaseThreshold;
     }
 
-    public void setHousekeepingIncreaseThreshold(String housekeepingIncreaseThreshold)
+    public void setHousekeepingIncreaseThreshold(final String housekeepingIncreaseThreshold)
     {
         this.housekeepingIncreaseThreshold = housekeepingIncreaseThreshold;
     }
 
     public String getHousekeepingIncreaseAmount()
     {
-        return housekeepingIncreaseAmount;
+        return this.housekeepingIncreaseAmount;
     }
 
-    public void setHousekeepingIncreaseAmount(String housekeepingIncreaseAmount)
+    public void setHousekeepingIncreaseAmount(final String housekeepingIncreaseAmount)
     {
         this.housekeepingIncreaseAmount = housekeepingIncreaseAmount;
     }
 
     public String getHousekeepingMaximumTimeBudget()
     {
-        return housekeepingMaximumTimeBudget;
+        return this.housekeepingMaximumTimeBudget;
     }
 
-    public void setHousekeepingMaximumTimeBudget(String housekeepingMaximumTimeBudget)
+    public void setHousekeepingMaximumTimeBudget(final String housekeepingMaximumTimeBudget)
     {
         this.housekeepingMaximumTimeBudget = housekeepingMaximumTimeBudget;
     }
 
     public String getTransactionFileMaximumSize()
     {
-        return transactionFileMaximumSize;
+        return this.transactionFileMaximumSize;
     }
 
-    public void setTransactionFileMaximumSize(String transactionFileMaximumSize)
+    public void setTransactionFileMaximumSize(final String transactionFileMaximumSize)
     {
         this.transactionFileMaximumSize = transactionFileMaximumSize;
     }
 
     public String getEntityCacheTimeout()
     {
-        return entityCacheTimeout;
+        return this.entityCacheTimeout;
     }
 
-    public void setEntityCacheTimeout(String entityCacheTimeout)
+    public void setEntityCacheTimeout(final String entityCacheTimeout)
     {
         this.entityCacheTimeout = entityCacheTimeout;
     }
 
     public String getEntityCacheThreshold()
     {
-        return entityCacheThreshold;
+        return this.entityCacheThreshold;
     }
 
-    public void setEntityCacheThreshold(String entityCacheThreshold)
+    public void setEntityCacheThreshold(final String entityCacheThreshold)
     {
         this.entityCacheThreshold = entityCacheThreshold;
     }
 
     public String getDataFileMinimumSize()
     {
-        return dataFileMinimumSize;
+        return this.dataFileMinimumSize;
     }
 
-    public void setDataFileMinimumSize(String dataFileMinimumSize)
+    public void setDataFileMinimumSize(final String dataFileMinimumSize)
     {
         this.dataFileMinimumSize = dataFileMinimumSize;
     }
 
     public String getDataFileMaximumSize()
     {
-        return dataFileMaximumSize;
+        return this.dataFileMaximumSize;
     }
 
-    public void setDataFileMaximumSize(String dataFileMaximumSize)
+    public void setDataFileMaximumSize(final String dataFileMaximumSize)
     {
         this.dataFileMaximumSize = dataFileMaximumSize;
     }
 
     public String getDataFileMinimumUseRatio()
     {
-        return dataFileMinimumUseRatio;
+        return this.dataFileMinimumUseRatio;
     }
 
-    public void setDataFileMinimumUseRatio(String dataFileMinimumUseRatio)
+    public void setDataFileMinimumUseRatio(final String dataFileMinimumUseRatio)
     {
         this.dataFileMinimumUseRatio = dataFileMinimumUseRatio;
     }
 
     public String getDataFileCleanupHeadFile()
     {
-        return dataFileCleanupHeadFile;
+        return this.dataFileCleanupHeadFile;
     }
 
-    public void setDataFileCleanupHeadFile(String dataFileCleanupHeadFile)
+    public void setDataFileCleanupHeadFile(final String dataFileCleanupHeadFile)
     {
         this.dataFileCleanupHeadFile = dataFileCleanupHeadFile;
     }
 
     public boolean isAutoStart()
     {
-        return autoStart;
+        return this.autoStart;
     }
 
-    public void setAutoStart(boolean autoStart)
+    public void setAutoStart(final boolean autoStart)
     {
         this.autoStart = autoStart;
     }
 
     public boolean isRegisterJdk17Handlers()
     {
-        return registerJdk17Handlers;
+        return this.registerJdk17Handlers;
     }
 
-    public void setRegisterJdk17Handlers(boolean registerJdk17Handlers)
+    public void setRegisterJdk17Handlers(final boolean registerJdk17Handlers)
     {
         this.registerJdk17Handlers = registerJdk17Handlers;
     }
 
     public boolean isRegisterJdk8Handlers()
     {
-        return registerJdk8Handlers;
+        return this.registerJdk8Handlers;
     }
 
-    public void setRegisterJdk8Handlers(boolean registerJdk8Handlers)
+    public void setRegisterJdk8Handlers(final boolean registerJdk8Handlers)
     {
         this.registerJdk8Handlers = registerJdk8Handlers;
     }
