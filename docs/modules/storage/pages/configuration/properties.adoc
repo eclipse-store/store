@@ -6,8 +6,8 @@ They can be found as constants in `EmbeddedStorageConfigurationPropertyNames`.
 
 [options="header",cols="1,2"]
 |===
-|Property 
-|Short Description   
+|Property
+|Short Description
 //-------------
 |storage-directory
 |The base directory of the storage in the file system. Default is `"storage"` in the working directory.
@@ -16,11 +16,11 @@ They can be found as constants in `EmbeddedStorageConfigurationPropertyNames`.
 |The live file system configuration. See xref:storage-targets/index.adoc[storage targets] configuration.
 
 |deletion-directory
-|If configured, the storage will not delete files. Instead of deleting a file it will be moved to this directory. 
+|If configured, the storage will not delete files. Instead of deleting a file it will be moved to this directory.
 
 |truncation-directory
 |If configured, files that will get truncated are copied into this directory.
- 
+
 |backup-directory
 |The backup directory.
 |backup-filesystem
@@ -90,8 +90,7 @@ They can be found as constants in `EmbeddedStorageConfigurationPropertyNames`.
 |A flag defining whether the current head file (the only file actively written to) shall be subjected to file cleanups as well.
 
 |xref:#transaction-file-maximum-size[transaction-file-maximum-size]
-|Maximum file size for each channels transactions log file. If this limit is exceeded the file wile be cleaned up during housekeeping. Default is 100 MiB.
-Maximum value is 1 GiB.
+|Maximum file size for each channels transactions log file. If this limit is exceeded the file wile be cleaned up during housekeeping. Default is 100 MiB. Maximum value is 1 GiB.
 |===
 
 
@@ -142,9 +141,9 @@ Time used for each housekeeping cycle.
 However, no matter how low the number is, one item of work will always be completed.
 But if there is nothing to clean up, no processor time will be wasted.
 Default is `10000000` (10 million nanoseconds = 10 milliseconds = 0.01 seconds).
-+ However, no matter how small the time is, one item is done at least.
+However, no matter how small the time is, one item is done at least.
 This is to avoid no-ops, if a too small time window is configured.
-+ This time budget is a "best effort" threshold, meaning when at 1ns left, a huge file has to be cleaned or the references of a huge collection have to be marked for GC, then this budget can be exceeded considerably.
+This time budget is a "best effort" threshold, meaning when at 1ns left, a huge file has to be cleaned or the references of a huge collection have to be marked for GC, then this budget can be exceeded considerably.
 
 For further information see xref:configuration/housekeeping.adoc[Housekeeping].
 
@@ -152,13 +151,13 @@ For further information see xref:configuration/housekeeping.adoc[Housekeeping].
 === data-file-minimum-size
 
 Minimum file size in bytes of a storage file to avoid merging with other files during housekeeping.
-+ Must be greater than 1, maximum is 2GB.
+Must be greater than 1, maximum is 2GB.
 
 [#data-file-maximum-size]
 === data-file-maximum-size
 
 Maximum file size in bytes of a storage file to avoid splitting in more files during housekeeping.
-+ Must be greater than 1, maximum is 2GB.
+Must be greater than 1, maximum is 2GB.
 
 TIP: Due to internal implementation details files larger than 2GB are not supported!
 
@@ -178,7 +177,7 @@ for each storage files. FileCreation entries are kept, FileDeletion entries are 
 if the storage data file still exists on the file system. Otherwise all entries related
 to deleted files are removed if the storage data file does no more exist.
 
-Default is 100 MB. 
+Default is 100 MB.
 Maximum value is 1 GB.
 
 == Involved Types
