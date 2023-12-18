@@ -2,7 +2,7 @@
 
 image::https://upload.wikimedia.org/wikipedia/commons/4/44/Spring_Framework_Logo_2018.svg[]
 
-Eclipse Store comes with a Spring Boot integration.
+{product-name} comes with a Spring Boot integration.
 It is available within this artifact:
 
 [source, xml, title="pom.xml", subs=attributes+]
@@ -30,7 +30,7 @@ org.eclipse.store.storage-directory=/opt/data/eclipse-store-storage
 org.eclipse.store.channel-count=2
 ----
 
-The list of all Eclipse Store configuration properties and their meaning are listed on our xref:storage:configuration/properties.adoc[documentation page].
+The list of all {product-name} configuration properties and their meaning are listed on our xref:storage:configuration/properties.adoc[documentation page].
 
 The configuration values are handled using the https://docs.spring.io/spring-boot/docs/current/reference/html/features.html#features.external-config.typesafe-configuration-properties[typesafe configuration] approach, and you can read these values by accessing the `EclipseStoreProperties` Spring bean.
 
@@ -155,7 +155,7 @@ org.eclipse.store.second.root=org.eclipse.store.integrations.spring.boot.types.s
 ----
 
 == Mutext Locking
-Eclipse store supports mutex locking. This is useful if you have multiple processes that need to access the same objects. Easiest way to use it is to use the annotation `@read` and `@write` on the methods that need to be locked. The annotation @read is used for methods that only read data and @write is used for methods that modify data.
+{product-name} supports mutex locking. This is useful if you have multiple processes that need to access the same objects. Easiest way to use it is to use the annotation `@read` and `@write` on the methods that need to be locked. The annotation @read is used for methods that only read data and @write is used for methods that modify data.
 
 [source,java]
 ----
@@ -189,9 +189,9 @@ public class JokesStorageImpl implements JokesStorage
 
 == Logging
 
-Eclipse Store Spring module supports standard Spring logging, so you can add this into your config:
+{product-name} Spring module supports standard Spring logging, so you can add this into your config:
 `logging.level.org.eclipse.store=debug`
-to obtain all Eclipse Store configuration keys:
+to obtain all {product-name} configuration keys:
 
 [source, log]
 ----

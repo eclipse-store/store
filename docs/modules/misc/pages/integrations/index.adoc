@@ -1,8 +1,8 @@
 = Integrations
 
-Various Eclise Store integrations are currently available.
+Various {product-name} integrations are currently available.
 
-Integrations created by MicroStream are
+Currently available integrations:
 
 - xref:misc:integrations/spring-boot.adoc[Spring Boot]
 
