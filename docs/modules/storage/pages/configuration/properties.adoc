@@ -90,8 +90,7 @@ They can be found as constants in `EmbeddedStorageConfigurationPropertyNames`.
 |A flag defining whether the current head file (the only file actively written to) shall be subjected to file cleanups as well.
 
 |xref:#transaction-file-maximum-size[transaction-file-maximum-size]
-Maximum file size for each channels transactions log file. If this limit is exceeded the file wile be cleaned up during housekeeping. Default is 100 MiB.
-Maximum value is 1 GiB.
+|Maximum file size for each channels transactions log file. If this limit is exceeded the file wile be cleaned up during housekeeping. Default is 100 MiB. Maximum value is 1 GiB.
 |===
 
 
