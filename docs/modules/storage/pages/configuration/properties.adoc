@@ -155,9 +155,13 @@ Signed double, same as Java's `double`.
 === Duration
 Time interval, either in ISO format `PnDTnHnMn.nS`, or simple amount and unit `amount[ns|ms|s|m|h|d]`, e.g. `30 M`
 
+More details in https://github.com/eclipse-serializer/serializer/blob/main/configuration/configuration/src/main/java/org/eclipse/serializer/configuration/types/DurationParser.java[DurationParser].
+
 [#type-bytes]
 === Bytes
 Amount of bytes: `amount[b|kb|kib|mb|mib|gb|big|tb|tib|pb|pib]`, e.g. `1.5 GB`
+
+More details in https://github.com/eclipse-serializer/serializer/blob/main/configuration/configuration/src/main/java/org/eclipse/serializer/configuration/types/ByteSizeParser.java[ByteSizeParser] and https://github.com/eclipse-serializer/serializer/blob/main/configuration/configuration/src/main/java/org/eclipse/serializer/configuration/types/ByteUnit.java[ByteUnit].
 
 
 == Detailed Description
