@@ -57,3 +57,47 @@ jobs:
           MAVEN_USERNAME: ${{ secrets.ORG_OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.ORG_OSSRH_PASSWORD }}
           PASSPHRASE: ${{ secrets.ORG_GPG_PASSPHRASE }}
+
+        #java 17 build
+      - uses: actions/checkout@v3
+      - name: Set up Java for publishing to Maven Central Snapshot Repository
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+          server-id: ossrh
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+          gpg-passphrase: PASSPHRASE
+      - name: Prepare suffix
+        run: |
+          function prepareSuffix() {
+            local branch=$1
+            local result=${branch//\//_}
+            result=${result//#/}
+            local maxLength=10
+            if (( ${#result} > maxLength )); then
+              result=${result:0:maxLength}
+            fi
+            local hashFromContent=$(echo -n "$branch" | md5sum | cut -f1 -d" ")
+            echo "${result}-${hashFromContent:0:10}"
+          }
+          suffix=$(prepareSuffix ${GITHUB_REF#refs/heads/})
+          echo "Suffix: $suffix"
+          echo "SUFFIX=$suffix" >> $GITHUB_ENV
+      - name: Update project version java 17
+        run: |
+          currentVersion=$(mvn -q -Dexec.executable=echo -Dexec.args='${project.version}' --non-recursive exec:exec)
+          newVersion="${currentVersion}-$SUFFIX"
+          mvn versions:set -DnewVersion=$newVersion --batch-mode
+      - name: Make a snapshot java 17
+        run: |
+          mvn -pl integrations/spring-boot3 clean install -am -B
+      - name: Deploy module build with java 17
+        run: |
+          mvn -Pdeploy -pl integrations/spring-boot3 deploy
+        env:
+          MAVEN_USERNAME: ${{ secrets.ORG_OSSRH_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.ORG_OSSRH_PASSWORD }}
+          PASSPHRASE: ${{ secrets.ORG_GPG_PASSPHRASE }}
