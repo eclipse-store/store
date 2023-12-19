@@ -49,7 +49,8 @@ jobs:
       - name: Update project version
         run: |
           currentVersion=$(mvn -q -Dexec.executable=echo -Dexec.args='${project.version}' --non-recursive exec:exec)
-          newVersion="${currentVersion}-$SUFFIX"
+          currentVersionWithoutSnapshot=${currentVersion%-SNAPSHOT}
+          newVersion="${currentVersionWithoutSnapshot}-$SUFFIX-SNAPSHOT"
           mvn versions:set -DnewVersion=$newVersion --batch-mode
       - name: Make a snapshot
         run: mvn -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy -U
@@ -89,7 +90,8 @@ jobs:
       - name: Update project version java 17
         run: |
           currentVersion=$(mvn -q -Dexec.executable=echo -Dexec.args='${project.version}' --non-recursive exec:exec)
-          newVersion="${currentVersion}-$SUFFIX"
+          currentVersionWithoutSnapshot=${currentVersion%-SNAPSHOT}
+          newVersion="${currentVersionWithoutSnapshot}-$SUFFIX-SNAPSHOT"
           mvn versions:set -DnewVersion=$newVersion --batch-mode
       - name: Make a snapshot java 17
         run: |
