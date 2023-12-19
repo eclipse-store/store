@@ -10,27 +10,6 @@ on:
       - 'release/**'
 
 jobs:
-  prepareSuffix:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Prepare suffix
-        run: |
-          function prepareSuffix() {
-            local branch=$1
-            local result=${branch//\//_}
-            result=${result//#/}
-            local maxLength=10
-            if (( ${#result} > maxLength )); then
-              result=${result:0:maxLength}
-            fi
-            local hashFromContent=$(echo -n "$branch" | md5sum | cut -f1 -d" ")
-            echo "${result}-${hashFromContent:0:10}"
-          }
-          echo "Suffix: $(prepareSuffix ${GITHUB_REF#refs/heads/})"
-
   publish:
     if: github.repository == 'eclipse-store/store'
     runs-on: ubuntu-latest
@@ -51,6 +30,20 @@ jobs:
           server-username: MAVEN_USERNAME
           server-password: MAVEN_PASSWORD
           gpg-passphrase: PASSPHRASE
+      - name: Prepare suffix
+        run: |
+          function prepareSuffix() {
+            local branch=$1
+            local result=${branch//\//_}
+            result=${result//#/}
+            local maxLength=10
+            if (( ${#result} > maxLength )); then
+              result=${result:0:maxLength}
+            fi
+            local hashFromContent=$(echo -n "$branch" | md5sum | cut -f1 -d" ")
+            echo "${result}-${hashFromContent:0:10}"
+          }
+          echo "Suffix: $(prepareSuffix ${GITHUB_REF#refs/heads/})"
       - name: Update project version
         run: |
           currentVersion=$(mvn -q -Dexec.executable=echo -Dexec.args='${project.version}' --non-recursive exec:exec)
