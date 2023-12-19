@@ -1,0 +1,65 @@
+# This workflow will build a Java project with Maven
+# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-maven
+
+name: Make snapshot and deploy
+
+on:
+  push:
+    branches-ignore:
+      - main
+      - 'release/**'
+
+jobs:
+  prepareSuffix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Prepare suffix
+        run: |
+          function prepareSuffix() {
+            local branch=$1
+            local result=${branch//\//_}
+            result=${result//#/}
+            local maxLength=10
+            if (( ${#result} > maxLength )); then
+              result=${result:0:maxLength}
+            fi
+            local hashFromContent=$(echo -n "$branch" | md5sum | cut -f1 -d" ")
+            echo "${result}-${hashFromContent:0:10}"
+          }
+          echo "Suffix: $(prepareSuffix ${GITHUB_REF#refs/heads/})"
+
+  publish:
+    if: github.repository == 'eclipse-store/store'
+    runs-on: ubuntu-latest
+    steps:
+      - id: install-secret-key
+        name: Install gpg secret key
+        run: |
+          cat <(echo -e "${{ secrets.ORG_GPG_PRIVATE_KEY }}") | gpg --batch --import
+          gpg --list-secret-keys --keyid-format LONG
+      - uses: actions/checkout@v3
+      - name: Set up Java for publishing to Maven Central Snapshot Repository
+        uses: actions/setup-java@v3
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+          cache: 'maven'
+          server-id: ossrh
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+          gpg-passphrase: PASSPHRASE
+      - name: Update project version
+        run: |
+          currentVersion=$(mvn -q -Dexec.executable=echo -Dexec.args='${project.version}' --non-recursive exec:exec)
+          newVersion="${currentVersion}-${{ needs.prepareSuffix.outputs.suffix }}"
+          mvn versions:set -DnewVersion=$newVersion --batch-mode
+      - name: Make a snapshot
+        # run: mvn -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy -U
+        run: mvn -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean package -U #testing without deploy
+        env:
+          MAVEN_USERNAME: ${{ secrets.ORG_OSSRH_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.ORG_OSSRH_PASSWORD }}
+          PASSPHRASE: ${{ secrets.ORG_GPG_PASSPHRASE }}
