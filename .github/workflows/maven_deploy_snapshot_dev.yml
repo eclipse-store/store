@@ -43,11 +43,13 @@ jobs:
             local hashFromContent=$(echo -n "$branch" | md5sum | cut -f1 -d" ")
             echo "${result}-${hashFromContent:0:10}"
           }
-          echo "Suffix: $(prepareSuffix ${GITHUB_REF#refs/heads/})"
+          suffix=$(prepareSuffix ${GITHUB_REF#refs/heads/})
+          echo "Suffix: $suffix"
+          echo "SUFFIX=$suffix" >> $GITHUB_ENV
       - name: Update project version
         run: |
           currentVersion=$(mvn -q -Dexec.executable=echo -Dexec.args='${project.version}' --non-recursive exec:exec)
-          newVersion="${currentVersion}-${{ needs.prepareSuffix.outputs.suffix }}"
+          newVersion="${currentVersion}-$SUFFIX"
           mvn versions:set -DnewVersion=$newVersion --batch-mode
       - name: Make a snapshot
         # run: mvn -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy -U
