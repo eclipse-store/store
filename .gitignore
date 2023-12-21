@@ -55,7 +55,6 @@ tmp/
 *.swp
 *~.nib
 local.properties
-.settings/
 .loadpath
 .recommenders
 .externalToolBuilders/
@@ -72,7 +71,6 @@ local.properties
 
 # NetBeans
 nbproject/private/
-build/
 nbbuild/
 dist/
 nbdist/
@@ -88,5 +86,3 @@ profile
 .asciidoctor/
 .asciidoctorconfig.adoc
 
-# Vim
-*.swp
