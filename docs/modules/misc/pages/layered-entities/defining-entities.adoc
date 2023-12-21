@@ -1,6 +1,6 @@
 = Defining Entities
 
-The entity types are just simple interfaces with value methods, which have following requirements:
+The entity types are just simple interfaces with value methods, which have the following requirements:
 
 * A return type, no void
 * No parameters
