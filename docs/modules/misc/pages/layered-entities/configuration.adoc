@@ -1,0 +1,43 @@
+= Configuration
+
+The layered entities code generator is an annotation processor, provided by the `codegen-entity` module.
+
+The maven configuration looks like this:
+
+[source, xml, title="pom.xml", subs=attributes+]
+----
+<dependencies>
+	<dependency>
+		<groupId>org.eclipse.serializer</groupId>
+		<artifactId>entity-codegen</artifactId>
+		<version>{maven-version}</version>
+	</dependency>
+</dependencies>
+
+<build>
+	<plugins>
+		<plugin>
+			<groupId>org.apache.maven.plugins</groupId>
+			<artifactId>maven-compiler-plugin</artifactId>
+			<version>3.8.1</version>
+			<configuration>
+				<source>1.8</source>
+				<target>1.8</target>
+				<encoding>UTF-8</encoding>
+				<annotationProcessors>
+					<annotationProcessor>org.eclipse.serializer.codegen.entity.EntityProcessor</annotationProcessor>
+				</annotationProcessors>
+				<compilerArgs>
+					<arg>-Aentity.hashequalator=true</arg>
+					<arg>-Aentity.appendable=true</arg>
+				</compilerArgs>
+			</configuration>
+		</plugin>
+	</plugins>
+</build>
+----
+
+If you don't want the `HashEqualator` to be generated, just set the `entity.hashequalator` argument to `false`.
+You can leave it out otherwise, the default value is `true`.
+
+The same applies to the `Appendable`.
