@@ -1,13 +1,13 @@
 = Communication
 
-Eclipse Serializer provides a module for simple object based network communication over TCP connections.
+{product-name} provides a module for simple object based network communication over TCP connections.
 
-This module utilizes the Eclipse Serializer engine to serialize and deserialize java objects and provides additional APIs to setup the required TCP connections.
+This module utilizes the Eclipse Serializer engine to serialize and deserialize Java objects and provides additional APIs to setup the required TCP connections.
 
 == Getting Started
 
 == Prerequisites
-If using Maven just add module *communication-binary* into your pom.xml dependencies.
+If using Maven, just add module *communication-binary* into your pom.xml dependencies.
 
 [source, xml, subs=attributes+, title="pom.xml"]
 ----
@@ -21,10 +21,10 @@ If using Maven just add module *communication-binary* into your pom.xml dependen
 ----
 
 == Hello World
-The Hello World example consists out of two applications. The Host and the Client application.
-The Host will open a network port and listen for incoming connections of the client.
-If a client connects successfully it awaits data from the client that will be send back to the client.  
-The basic example won't do any configuration so the connection is not secured and the client and host use
+The Hello World example consists of two applications. The Host and the Client application.
+The host will open a network port and listen for incoming connections from the client.
+If a client connects successfully, it awaits data from the client that will be sent back to the client.  
+The basic example won't do any configuration, so the connection is not secured, and the client and host use
 the local system address at port 1099.
 
 === Host
@@ -73,19 +73,19 @@ public class EchoClient
 
 == Configuration
 Configuration of host and client is done using the `ComFoundation.Default` implementation of the `ComFoundation` interface.
-To get a preconfigured foundation instance the classes `ComBinaryDynamic` and `ComBinary` provide the convenient method `Foundation()`.
+To get a preconfigured foundation instance, the classes `ComBinaryDynamic` and `ComBinary` provide the convenient method `Foundation()`.
 
 === ComBinaryDynamic and ComBinary
-The Object communication of Eclipse Serializer is available in two flavors:
-*Dynamic and non dynamic*.
+The Object communication of Eclipse Serializer is available in two flavours:
+*Dynamic and non-dynamic*.
 
-They differ in the way classes that should be serialized and transfered are handled: +
-The non dynamic version requires all classes that should be transfered to be registered at initialization time.
+They differ in the way classes that should be serialized and transferred are handled: +
+The non-dynamic version requires all classes that should be transferred to be registered at initialization time.
 This can be done with the `registerEntityType` methods of the `ComFoundation`.
-If a transfered object graph references any unregistered class an exception will occur!
+If a transferred object graph references any unregistered class, an exception will occur!
 
 The dynamic implementation automatically registers all classes that are part of the communication at runtime.
-It will also do a type-mapping if classes with the same name have different implementations on client and host.
+It will also do a type-mapping if classes with the same name have different implementations on the client and host.
 
 === Common configuration values
 
@@ -100,20 +100,20 @@ The address the client connects to is configured by
 `ComFoundation.setClientTargetAddress(InetSocketAddress)`.
 
 | *port only* +
-If no host or client target address is configured it is possible to use 
+If no host or client target address is configured, it is possible to use 
 `ComFoundation.setPort(int)`
-to set a port that is used together with the default ip addresses for host and client.
+to set a port that is used together with the default IP addresses for the host and client.
 
 | *registering entity types* + 
-to register entity types at startup use
+to register entity types at startup, use
 `ComFoundation.registerEntityTypes(Class<?>...)`
 for example.
 |===
 
 === TLS
-In order to use TLS encrypted communication you need to setup a `ComTLSConnectionHandler` and supply it  
+In order to use TLS encrypted communication, you need to setup a `ComTLSConnectionHandler` and supply it  
 using `ComFoundation.setConnectionHandler(ComConnectionHandler<C>)`.
-The default implementation of the ComTLSConnectionHandler uses the java https://docs.oracle.com/javase/8/docs/api/javax/net/ssl/SSLEngine.html[SSLEngine] .
+The default implementation of the ComTLSConnectionHandler uses the java https://docs.oracle.com/javase/8/docs/api/javax/net/ssl/SSLEngine.html[SSLEngine].
 The required configuration elements have to be provided using either the provided implementations of the
 `TLSKeyManagerProvider` ,
 `TLSTrustManagerProvider` ,
