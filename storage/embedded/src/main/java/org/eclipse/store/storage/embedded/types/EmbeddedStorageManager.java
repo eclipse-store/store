@@ -79,7 +79,7 @@ public interface EmbeddedStorageManager extends StorageManager
 		final StorageConfiguration                   configuration       ,
 		final EmbeddedStorageConnectionFoundation<?> connectionFoundation,
 		final PersistenceRootsProvider<?>            rootsProvider       ,
-		final MonitoringManager                  monitorManager
+		final MonitoringManager                      monitorManager
 	)
 	{
 		return new EmbeddedStorageManager.Default(
@@ -122,7 +122,7 @@ public interface EmbeddedStorageManager extends StorageManager
 			final StorageConfiguration                   configuration       ,
 			final EmbeddedStorageConnectionFoundation<?> connectionFoundation,
 			final PersistenceRootsProvider<?>            rootsProvider       ,
-			final MonitoringManager                  monitorManager
+			final MonitoringManager                      monitorManager
 		)
 		{
 			super();

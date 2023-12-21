@@ -52,7 +52,7 @@ public interface StorageChannelsCreator
 		Referencing<PersistenceLiveStorerRegistry> refStorerRegistry            ,
 		boolean                                    switchByteOrder              ,
 		long                                       rootTypeId                   ,
-		MonitoringManager                      monitorManager
+		MonitoringManager                          monitorManager
 	);
 
 

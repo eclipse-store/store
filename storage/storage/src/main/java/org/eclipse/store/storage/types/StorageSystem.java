@@ -113,7 +113,7 @@ public interface StorageSystem extends StorageController
 		private final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry             ;
 		private final boolean                                    switchByteOrder               ;
 		private final StorageStructureValidator                  storageStructureValidator     ;
-		private final MonitoringManager                      monitorManager                ;
+		private final MonitoringManager                          monitorManager                ;
 		
 		// state flags //
 		private final AtomicBoolean    isStartingUp       = new AtomicBoolean();
@@ -169,7 +169,7 @@ public interface StorageSystem extends StorageController
 			final ObjectIdsSelector                          liveObjectIdChecker           ,
 			final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry             ,
 			final StorageStructureValidator                  storageStructureValidator     ,
-			final MonitoringManager                      monitorManager
+			final MonitoringManager                          monitorManager
 		)
 		{
 			super();

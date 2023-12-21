@@ -890,7 +890,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		private ObjectIdsSelector                        liveObjectIdChecker          ;
 		private Reference<PersistenceLiveStorerRegistry> storerRegistryReference      ;
 		private StorageStructureValidator                storageStructureValidator    ;
-		private MonitoringManager                    storageMonitorManager        ;
+		private MonitoringManager                        storageMonitorManager        ;
 
 		
 		
