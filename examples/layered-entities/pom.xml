@@ -20,6 +20,10 @@
 	<description>EclipseStore Layered Entities Example</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
+	<properties>
+		<maven.compiler.useIncrementalCompilation>false</maven.compiler.useIncrementalCompilation>
+	</properties>
+
 	<dependencies>
 		<dependency>
 			<groupId>org.eclipse.serializer</groupId>
