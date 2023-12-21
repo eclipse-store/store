@@ -10,7 +10,7 @@ Just add the dependency to your project, the logger is optional.
 ----
 <dependencies>
    <dependency>
-      <groupId>org.eclise.store</groupId>
+      <groupId>org.eclipse.store</groupId>
       <artifactId>storage-restservice-sparkjava</artifactId>
       <version>{maven-version}</version>
    </dependency>
