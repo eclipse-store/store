@@ -31,7 +31,7 @@ public interface Person extends Entity
 }
 ----
 
-There needs to be a identity class:
+There needs to be an identity class:
 
 [source, java]
 ----
