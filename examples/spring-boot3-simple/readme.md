@@ -30,7 +30,7 @@ http://localhost:8080/
 ```
 
 ## Using App rest api
-This examples use Curl for Linux/MacOS. You can use any other tool for sending HTTP requests.
+This examples use Curl for Linux/macOS. You can use any other tool for sending HTTP requests.
 Load sample data. Without this step, the application will not contain any data. It is not mandatory to execute this step, but without it you will have to add all your data manually.
 ```shell
 curl --location --request POST 'http://localhost:8080/init' \

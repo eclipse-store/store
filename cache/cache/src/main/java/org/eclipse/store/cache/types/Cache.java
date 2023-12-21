@@ -110,7 +110,7 @@ public interface Cache<K, V> extends javax.cache.Cache<K, V>, Unwrappable
 	 * Short for <code>putAll(map, replaceExistingValues, true)</code>
 	 *
 	 * @param map entries to add
-	 * @param replaceExistingValues if values with same keys should be replaces
+	 * @param replaceExistingValues if values with same keys should be replaced
 	 * @see #putAll(Map, boolean, boolean)
 	 */
 	public default void putAll(
@@ -125,7 +125,7 @@ public interface Cache<K, V> extends javax.cache.Cache<K, V>, Unwrappable
 	 * Adds all entries to this cache.
 	 *
 	 * @param map entries to add
-	 * @param replaceExistingValues if values with same keys should be replaces
+	 * @param replaceExistingValues if values with same keys should be replaced
 	 * @param useWriteThrough enable write through mode for this operation
 	 */
 	public void putAll(
