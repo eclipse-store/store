@@ -16,6 +16,9 @@ package org.eclipse.store.storage.types;
 
 import static org.eclipse.serializer.util.X.notNull;
 
+import java.util.Objects;
+import java.util.stream.Stream;
+
 import org.eclipse.serializer.collections.EqHashEnum;
 import org.eclipse.serializer.collections.XSort;
 import org.eclipse.serializer.persistence.types.Persistence;
@@ -25,6 +28,7 @@ public interface StorageChannelTaskInitialize extends StorageChannelTask
 {
 	public StorageIdAnalysis idAnalysis();
 
+	public long latestTimestamp();
 
 
 	public final class Default
@@ -40,6 +44,7 @@ public interface StorageChannelTaskInitialize extends StorageChannelTask
 
 		private Long consistentStoreTimestamp   ;
 		private Long commonTaskHeadFileTimestamp;
+		private Long latestTimestamp            ;
 
 		private long maxEntityObjectOid  ;
 		private long maxEntityConstantOid;
@@ -200,6 +205,15 @@ public interface StorageChannelTaskInitialize extends StorageChannelTask
 
 			this.updateIdAnalysis(idAnalysis);
 
+			//Some storage targets like SQL will create "files" only if there is some data written.
+			//The transactionsFileAnalysis may be null if a new storage has been created
+			//and the transactions log is empty.
+			this.latestTimestamp = Stream.of(result)
+				.filter( r -> Objects.nonNull(r.transactionsFileAnalysis()))
+				.mapToLong( r -> r.transactionsFileAnalysis().maxTimestamp())
+				.max()
+				.orElse(0L);
+			
 			this.operationController.activate();
 		}
 
@@ -219,6 +233,12 @@ public interface StorageChannelTaskInitialize extends StorageChannelTask
 				this.maxEntityConstantOid,
 				this.occuringTypeIds
 			);
+		}
+
+		@Override
+		public long latestTimestamp()
+		{
+			return this.latestTimestamp;
 		}
 
 	}

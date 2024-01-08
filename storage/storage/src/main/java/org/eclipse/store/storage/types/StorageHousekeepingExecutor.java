@@ -29,5 +29,7 @@ public interface StorageHousekeepingExecutor
 	public boolean performGarbageCollection(long nanoTimeBudget);
 	
 	public boolean performEntityCacheCheck(long nanoTimeBudget);
+
+	public boolean performTransactionFileCheck(boolean checkSize);
 	
 }

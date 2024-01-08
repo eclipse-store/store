@@ -220,6 +220,8 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		// cleared and nulled by clearRegisteredFiles() / reset()
 		private StorageLiveDataFile.Default headFile;
 
+		private StorageTransactionsFileCleaner.Default transactionFileCleaner;
+
 
 
 		///////////////////////////////////////////////////////////////////////////
@@ -879,6 +881,14 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 					this.initializeBackupHandler(effectiveStorageInventory);
 				}
 
+				this.transactionFileCleaner = new StorageTransactionsFileCleaner.Default(
+					this.fileTransactions,
+					this.channelIndex,
+					this.dataFileEvaluator.transactionFileMaximumSize(),
+					this.fileProvider,
+					this.writer
+				);
+			
 				this.restartFileCleanupCursor();
 
 				return idAnalysis;
@@ -1249,7 +1259,7 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		 * The deleteBuffers method is used to allow an early deallocation
 		 * of the used DirectByteBuffers in order to reduce the off-heap
 		 * memory footprint without the need to relay on the GC.
-		 * after calling this method the StorageManager is left in a inoperable state.
+		 * after calling this method the StorageManager is left in an inoperable state.
 		 */
 		public final void deleteBuffers()
 		{
@@ -1355,6 +1365,11 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		public final boolean issuedFileCleanupCheck(final long nanoTimeBudgetBound)
 		{
 			return this.internalCheckForCleanup(nanoTimeBudgetBound, this.dataFileEvaluator);
+		}
+
+		public boolean issuedTransactionFileCheck(final boolean checkSize)
+		{
+			return this.internalTransactionFileCheck(checkSize);
 		}
 
 		private void deletePendingFile(final StorageLiveDataFile.Default file)
@@ -1503,7 +1518,7 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			 * The registration logic must be inverted in this case:
 			 * First register the file to be deleted (no longer needed), then, after that entry is ensured,
 			 * the file can be physically deleted (or left alive because of a killed process).
-			 * This way, the next startup validation know that the file is no longer needed and can react accrodingly
+			 * This way, the next startup validation know that the file is no longer needed and can react accordingly
 			 * (keep it alive to re-evaluate it or delete it, etc.)
 			 */
 			this.writeTransactionsEntryFileDeletion(file, this.timestampProvider.currentNanoTimestamp());
@@ -1580,7 +1595,6 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 		public void copyData(final StorageImportSource importSource)
 		{
-//			DEBUGStorage.println(this.channelIndex + " processing import source file " + importFile);
 			importSource.iterateBatches(this.importHelper.setSource(importSource));
 		}
 
@@ -1628,7 +1642,6 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			}
 
 			this.checkForNewFile();
-//			DEBUGStorage.println(this.channelIndex + " importing batch from source @" + position + "[" + length + "] to file #" + this.headFile.number());
 			this.writer.writeImport(source, position, length, this.headFile);
 		}
 
@@ -1736,6 +1749,18 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			}
 			
 			throw new StorageException(vs.toString());
+		}
+		
+		private boolean internalTransactionFileCheck(final boolean checkSize)
+		{
+			if(this.fileTransactions == null)
+			{
+				return true;
+			}
+			
+			this.transactionFileCleaner.compactTransactionsFile(checkSize);
+			
+			return true;
 		}
 
 	}

@@ -6,15 +6,13 @@ name: Java Converter Fat Jar build
 on:
   push:
     branches: 
-      - '*'
+      - '**'
   pull_request:
     branches: [ master ]
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
     steps:
       #Build with java 11
     - uses: actions/checkout@v2

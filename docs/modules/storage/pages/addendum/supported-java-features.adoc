@@ -140,9 +140,9 @@
 
 |Immutable Set
 |image::symbol-check.svg[]
-|Automatically handled until Java 14, for Java 15 and later use the persistence-binary-jdk17 module, see xref:addendum/specialized-type-handlers.adoc#JDK17[persistence-binary-jdk17]
+|Automatically handled until Java 14, for Java 15 and later use the persistence-binary-jdk17 module, see xref:addendum/specialized-type-handlers.adoc#jdk17[persistence-binary-jdk17]
 
 |Immutable List
 |image::symbol-check.svg[]
-|Automatically handled until Java 14, for Java 15 and later use the persistence-binary-jdk17 module, see xref:addendum/specialized-type-handlers.adoc#JDK17[persistence-binary-jdk17]
+|Automatically handled until Java 14, for Java 15 and later use the persistence-binary-jdk17 module, see xref:addendum/specialized-type-handlers.adoc#jdk17[persistence-binary-jdk17]
 |===

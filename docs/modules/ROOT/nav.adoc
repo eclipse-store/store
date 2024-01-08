@@ -70,8 +70,29 @@
 *** xref:storage:addendum/specialized-type-handlers.adoc[Specialized Type Handlers]
 *** xref:storage:addendum/examples-and-demo-projects.adoc[Examples and Demo Projects]
 * xref:serializer:index.adoc[Serializer]
+* xref:cache:index.adoc[Cache]
+** xref:cache:getting-started.adoc[Getting Started]
+** xref:cache:configuration/index.adoc[Configuration]
+*** xref:cache:configuration/properties.adoc[Properties]
+*** xref:cache:configuration/storage.adoc[Storage]
+** Use Cases
+*** xref:cache:use-cases/hibernate-second-level-cache.adoc[Hibernate Second Level Cache]
+*** xref:cache:use-cases/spring-cache.adoc[Spring Cache]
 * Miscellaneous
 ** xref:misc:logging/index.adoc[Logging]
+** xref:misc:integrations/index.adoc[Integrations]
+*** xref:misc:integrations/spring-boot.adoc[Spring-Boot]
+** xref:misc:layered-entities/index.adoc[Layered Entities]
+*** xref:misc:layered-entities/configuration.adoc[Configuration]
+*** xref:misc:layered-entities/defining-entities.adoc[Defining Entities]
+*** xref:misc:layered-entities/creating-entities.adoc[Creating Entities]
+*** xref:misc:layered-entities/updating-entities.adoc[Updating Entities]
+*** xref:misc:layered-entities/versioning.adoc[Versioning]
+*** xref:misc:layered-entities/logging.adoc[Logging]
+*** xref:misc:layered-entities/multiple-layers.adoc[Multiple Layers]
+** xref:misc:wrapping/index.adoc[Wrapping]
+*** xref:misc:wrapping/configuration.adoc[Configuration]
+*** xref:misc:wrapping/usage.adoc[Usage]
 
   
   

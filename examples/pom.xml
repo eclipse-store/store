@@ -13,13 +13,13 @@
 		<relativePath>../pom.xml</relativePath>
 	</parent>
 
-	<artifactId>examples-parent</artifactId>	
+	<artifactId>examples-parent</artifactId>
 	<packaging>pom</packaging>
-	
+
 	<name>EclipseStore Examples</name>
 	<description>Examples for EclipseStore</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
-	
+
 	<modules>
 		<module>blobs</module>
 		<module>custom-type-handler</module>
@@ -37,7 +37,7 @@
 		<module>reloader</module>
 		<module>storing</module>
 	</modules>
-	
+
 	<dependencyManagement>
 		<dependencies>
 			<dependency>
@@ -57,11 +57,11 @@
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
-	
-	<build>
-		<plugins>
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-deploy-plugin</artifactId>
                 <configuration>
                     <skip>true</skip>
@@ -77,4 +77,16 @@
         </plugins>
     </build>
 
+
+	<profiles>
+		<profile>
+			<id>from_java_17</id>
+			<activation>
+				<jdk>[17,)</jdk>
+			</activation>
+			<modules>
+				<module>spring-boot3-simple</module>
+			</modules>
+		</profile>
+	</profiles>
 </project>

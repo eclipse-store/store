@@ -70,6 +70,8 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 
 	public boolean issuedEntityCacheCheck(long nanoTimeBudget, StorageEntityCacheEvaluator entityEvaluator);
 
+	public boolean issuedTransactionsLogCleanup();
+	
 	public void exportData(StorageLiveFileProvider fileProvider);
 
 	// (19.07.2014 TM)TODO: refactor storage typing to avoid classes in public API
@@ -199,6 +201,7 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			tasks.add(this::houseKeepingCheckFileCleanup);
 			tasks.add(this::houseKeepingGarbageCollection);
 			tasks.add(this::houseKeepingEntityCacheCheck);
+			tasks.add(this::houseKeepingTransactionFile);
 			// (16.06.2020 TM)TODO: priv#49: housekeeping task that closes data files after a timeout.
 
 			return tasks.toArray(HousekeepingTask.class);
@@ -351,6 +354,19 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		}
 		
 		@Override
+		public boolean performTransactionFileCheck(final boolean checkSize)
+		{
+			if(!this.fileManager.isFileCleanupEnabled())
+			{
+				return true;
+			}
+			
+			logger.trace("StorageChannel#{} performing transaction file check", this.channelIndex);
+			
+			return this.fileManager.issuedTransactionFileCheck(checkSize);
+		}
+		
+		@Override
 		public final boolean issuedGarbageCollection(final long nanoTimeBudget)
 		{
 			return this.housekeepingBroker.performIssuedGarbageCollection(this, nanoTimeBudget);
@@ -369,6 +385,12 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		)
 		{
 			return this.housekeepingBroker.performIssuedEntityCacheCheck(this, nanoTimeBudget, entityEvaluator);
+		}
+		
+		@Override
+		public boolean issuedTransactionsLogCleanup()
+		{
+			return this.housekeepingBroker.performTransactionFileCheck(this, false);
 		}
 		
 		private long calculateSpecificHousekeepingTimeBudget(final long nanoTimeBudget)
@@ -406,6 +428,11 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			);
 			
 			return this.housekeepingBroker.performEntityCacheCheck(this, nanoTimeBudget);
+		}
+		
+		final boolean houseKeepingTransactionFile()
+		{
+			return this.housekeepingBroker.performTransactionFileCheck(this, true);
 		}
 
 		private void work() throws InterruptedException
