@@ -20,16 +20,20 @@
 	<description>EclipseStore Layered Entities Example</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
+	<properties>
+		<maven.compiler.useIncrementalCompilation>false</maven.compiler.useIncrementalCompilation>
+	</properties>
+
 	<dependencies>
 		<dependency>
 			<groupId>org.eclipse.serializer</groupId>
 			<artifactId>base</artifactId>
-			<version>1.0.0-SNAPSHOT</version>
+			<version>${eclipse.serializer.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.eclipse.serializer</groupId>
 			<artifactId>codegen-entity</artifactId>
-			<version>1.0.0-SNAPSHOT</version>
+			<version>${eclipse.serializer.version}</version>
 		</dependency>
 	</dependencies>
 

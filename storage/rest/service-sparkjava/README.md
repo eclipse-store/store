@@ -5,20 +5,20 @@ sparkjava# Storage Viewer HowTo:
 - [Usage](#2-usage)
 - [Example](#3-example)
 - [Routes](#4-available-routes)
-  - [typeDictionary](#4-1-typedictionary)
-  - [object](#4-2-object)
-  - [root](#4-3-root)
-  - [filesStatistics](#4-4-filesstatistics)
+  - [typeDictionary](#41-typedictionary)
+  - [object](#42-object)
+  - [root](#43-root)
+  - [filesStatistics](#44-filesstatistics)
 - [Configuration](#5-configuration)
-  - [Server](#5-1-server)
-    - [URL](#5-1-1-url-root)
-    - [port](#5-1-2-port)
-  - [Logging](#5-2-logging)
+  - [Server](#51-server)
+    - [URL](#511-url-root)
+    - [port](#512-port)
+  - [Logging](#52-logging)
 
 ## 1. Setup:
 
 ### Maven Dependencies
-```
+```xml
 <dependency>
 	<groupId>org.eclipse.store</groupId>
 	<artifactId>storage-restservice-sparkjava</artifactId>
@@ -34,7 +34,7 @@ org.eclipse.storage.restservice.types.StorageRestService
 ## 2. Usage
 
 ### 2.1.	Start the Eclipse Store storage as usual:
-```
+```java
 EmbeddedStorageManager storage =  EmbeddedStorage
 				.Foundation(storageDir)
 				.start();
@@ -44,7 +44,7 @@ EmbeddedStorageManager storage =  EmbeddedStorage
 - Start the server
 By default  the server will listen on port 4567
 
-```
+```java
 final StorageRestService service = RestServiceResolver.getType(storage, StorageRestServiceSparkJava.class);
 service.start();
 ```
@@ -56,7 +56,7 @@ service.stop();
 the EmbeddedStorageManager will not be stopped.
 
 ##	3.	Example
-```
+```java
 public class MainTestStorageRestService
 {
      public static void main(final String[] args)
@@ -72,20 +72,19 @@ public class MainTestStorageRestService
          service.start();
      }         
 }
-
 ```
 
 ##  4.	Available Routes
 
 ### 4.1 TypeDictionary
-/[InstanceName]/ dictionary
+`/[InstanceName]/ dictionary`
 Get the typeDictionary as String
 ```
-http://localhost:4567/store-data/dictionary"
+http://localhost:4567/store-data/dictionary
 ```
 
 ### 4.2 Object
-/[InstanceName]/object/:oid
+`/[InstanceName]/object/:oid`
 Get an objects description and values by the object’s storage id
 
 the default InstanceName is "store-data"
@@ -134,7 +133,7 @@ optional, default is default is java.lang.Long.MAX_VALUE \
 limit the number of returned resolved references to supplied count.\
 requires “references=true”
 
-### 4.3. Root 
+### 4.3. Root
 /[InstanceName]/root
 Get Name and object ID of the current storage root element
 ```
@@ -154,7 +153,7 @@ The Storage viewer uses the Spark micro framework from http://sparkjava.com/ as 
 
 To provide a custom configured server just create an Spark.service and initialize the StorageRestService with this Spark.service
 
-```
+```java
 final Service service = Service.ignite().port(port);
 final StorageRestServiceDefault service = RestServiceResolver.getType(storage, StorageRestServiceDefault.class);
 service.setSparkService(sparkService);
@@ -162,29 +161,27 @@ service.start();
 ```
 
 #### 5.1.1 Url Root
-To set an other url root then 'store-data' use the constructor:
+To set another url root then 'store-data' use the constructor:
 
-```
+```java
 final StorageRestServiceSparkJava service = RestServiceResolver.getType(storage, StorageRestServiceSparkJava.class);
 service.setInstanceName(storageName);
 service.start();
-	
 ```
 
 #### 5.1.2 Port
-To set an other port then the default port 4567 it is required to provide a custom configured Spark Server session to the StorageRestService constructor:
+To set another port then the default port 4567 it is required to provide a custom configured Spark Server session to the StorageRestService constructor:
 
-```
+```java
 final Service service = Service.ignite().port(port);
 final StorageRestServiceSparkJava service = RestServiceResolver.getType(storage, StorageRestServiceSparkJava.class);
 service.setSparkService(sparkService);
 service.start();
-
 ```
 
 ### 5.2 Logging
 To enable logging add the following dependency to the project:
-```
+```xml
 <dependency>
 	<groupId>org.slf4j</groupId>
 	<artifactId>slf4j-simple</artifactId>

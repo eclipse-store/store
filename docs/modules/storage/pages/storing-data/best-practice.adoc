@@ -2,7 +2,7 @@
 
 == Storing Hidden Encapsulated Objects
 
-In some cases, it can be necessary to store modified encapsulated objects that cannot be a accessed from your code.
+In some cases, it can be necessary to store modified encapsulated objects that cannot be accessed from your code.
 
 [source, java]
 ----

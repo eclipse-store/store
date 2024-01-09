@@ -203,7 +203,7 @@ public class CacheRegionFactory extends RegionFactoryTemplate
 			CacheConfiguration.load(Object.class, Object.class);
 		return configuration != null
 			? configuration
-		// 4. Otherwise use simple default configuration
+		// 4. Otherwise, use simple default configuration
 			: CacheConfiguration.Builder(Object.class, Object.class)
 				.storeByReference()
 				.build();

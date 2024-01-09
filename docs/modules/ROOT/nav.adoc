@@ -80,6 +80,19 @@
 *** xref:cache:use-cases/spring-cache.adoc[Spring Cache]
 * Miscellaneous
 ** xref:misc:logging/index.adoc[Logging]
+** xref:misc:integrations/index.adoc[Integrations]
+*** xref:misc:integrations/spring-boot.adoc[Spring-Boot]
+** xref:misc:layered-entities/index.adoc[Layered Entities]
+*** xref:misc:layered-entities/configuration.adoc[Configuration]
+*** xref:misc:layered-entities/defining-entities.adoc[Defining Entities]
+*** xref:misc:layered-entities/creating-entities.adoc[Creating Entities]
+*** xref:misc:layered-entities/updating-entities.adoc[Updating Entities]
+*** xref:misc:layered-entities/versioning.adoc[Versioning]
+*** xref:misc:layered-entities/logging.adoc[Logging]
+*** xref:misc:layered-entities/multiple-layers.adoc[Multiple Layers]
+** xref:misc:wrapping/index.adoc[Wrapping]
+*** xref:misc:wrapping/configuration.adoc[Configuration]
+*** xref:misc:wrapping/usage.adoc[Usage]
 
   
   

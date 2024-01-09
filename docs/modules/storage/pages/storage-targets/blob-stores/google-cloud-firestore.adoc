@@ -10,7 +10,7 @@
 <dependency>
 	<groupId>com.google.cloud</groupId>
 	<artifactId>google-cloud-firestore</artifactId>
-	<version>25.0.0</version>
+	<version>3.0.17</version>
 </dependency>
 ----
 

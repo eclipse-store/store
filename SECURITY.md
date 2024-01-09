@@ -10,7 +10,7 @@ These versions of Eclipse Store are currently being supported with security
 updates.
 
 | Version | Released   | Supported          | 
-| ------- | ---------- | ------------------ | 
+|---------|------------|--------------------| 
 | 1.0.0   | 2023-10-18 | :white_check_mark: | 
 
 ## Reporting a Vulnerability

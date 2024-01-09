@@ -111,6 +111,7 @@ EmbeddedStorageManager storageManager =
 	foundation.createEmbeddedStorageManager(myRoot).start();
 ----
 
+[#explicit-mapping]
 == Explicit Mapping
 
 All you need is two columns of strings: from old to new. +
