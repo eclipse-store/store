@@ -50,9 +50,11 @@ jobs:
       - name: Build with java 17
         run: |
           mvn -pl integrations/spring-boot3 clean install -am -B
+          mvn -P production -pl storage/rest/client-app clean install -am -B
       - name: Deploy module build with java 17
         run: |
           mvn -Pdeploy -pl integrations/spring-boot3 deploy
+          mvn -Pdeploy -pl storage/rest/client-app deploy
         env:
           MAVEN_USERNAME: ${{ secrets.ORG_OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.ORG_OSSRH_PASSWORD }}
