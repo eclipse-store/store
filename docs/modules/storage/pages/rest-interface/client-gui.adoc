@@ -4,6 +4,11 @@ Based on the REST API we provide a client, which serves a convenient web user in
 
 It is a runnable jar which starts a simple web server which then can be accessed by a browser of your choice.
 
+[NOTE]
+====
+Since {product-name} version 1.1.0 The Client GUI requires java 17!
+====
+
 To download it use the following Maven command to download it into the current directory.
 
 [source, shell, title="CLI"]
