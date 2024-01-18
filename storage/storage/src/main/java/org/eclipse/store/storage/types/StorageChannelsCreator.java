@@ -15,11 +15,14 @@ package org.eclipse.store.storage.types;
  */
 
 import org.eclipse.serializer.memory.XMemory;
+import org.eclipse.serializer.monitoring.MonitoringManager;
 import org.eclipse.serializer.persistence.types.ObjectIdsSelector;
 import org.eclipse.serializer.persistence.types.PersistenceLiveStorerRegistry;
 import org.eclipse.serializer.reference.Referencing;
 import org.eclipse.serializer.util.BufferSizeProvider;
 import org.eclipse.serializer.util.BufferSizeProviderIncremental;
+import org.eclipse.store.storage.monitoring.EntityCacheMonitor;
+import org.eclipse.store.storage.monitoring.EntityCacheSummaryMonitor;
 
 
 public interface StorageChannelsCreator
@@ -45,10 +48,11 @@ public interface StorageChannelsCreator
 		StorageEntityMarkMonitor.Creator           entityMarkMonitorCreator     ,
 		StorageBackupHandler                       backupHandler                ,
 		StorageEventLogger                         eventLogger                  ,
-		ObjectIdsSelector liveObjectIdChecker          ,
+		ObjectIdsSelector liveObjectIdChecker                                   ,
 		Referencing<PersistenceLiveStorerRegistry> refStorerRegistry            ,
 		boolean                                    switchByteOrder              ,
-		long                                       rootTypeId
+		long                                       rootTypeId                   ,
+		MonitoringManager                          monitorManager
 	);
 
 
@@ -84,7 +88,8 @@ public interface StorageChannelsCreator
 			final ObjectIdsSelector                          liveObjectIdChecker          ,
 			final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry            ,
 			final boolean                                    switchByteOrder              ,
-			final long                                       rootTypeId
+			final long                                       rootTypeId                   ,
+			final MonitoringManager                          monitorManager
 		)
 		{
 			// (14.07.2016 TM)TODO: make configuration dynamic
@@ -108,7 +113,9 @@ public interface StorageChannelsCreator
 			
 			final BufferSizeProviderIncremental loadingBufferSizeProvider = BufferSizeProviderIncremental.New(loadingBufferSize);
 			final BufferSizeProvider readingDefaultBufferSizeProvider     = BufferSizeProvider.New(readingDefaultBufferSize);
-
+			
+			final EntityCacheMonitor[] cacheMonitors = new EntityCacheMonitor[channelCount];
+			
 			for(int i = 0; i < channels.length; i++)
 			{
 				// entity cache to register entities, cache entity data, perform garbage collection
@@ -127,6 +134,9 @@ public interface StorageChannelsCreator
 					markingWaitTimeMs                                ,
 					markBufferLength
 				);
+				
+				cacheMonitors[i] = new EntityCacheMonitor(entityCache);
+				monitorManager.registerMonitor(cacheMonitors[i]);
 
 				// file manager to handle "file" IO (whatever "file" might be, might be a RDBMS binary table as well)
 				final StorageFileManager.Default fileManager = new StorageFileManager.Default(
@@ -157,10 +167,14 @@ public interface StorageChannelsCreator
 					switchByteOrder          ,
 					loadingBufferSizeProvider,
 					fileManager              ,
-					eventLogger
+					eventLogger              ,
+					monitorManager
 				);
 
 			}
+			
+			monitorManager.registerMonitor(new EntityCacheSummaryMonitor(cacheMonitors));
+			
 			return channels;
 		}
 

@@ -19,6 +19,7 @@ import static org.eclipse.serializer.util.X.notNull;
 import java.nio.ByteOrder;
 
 import org.eclipse.serializer.exceptions.MissingFoundationPartException;
+import org.eclipse.serializer.monitoring.MonitoringManager;
 import org.eclipse.serializer.persistence.binary.types.BinaryEntityRawDataIterator;
 import org.eclipse.serializer.persistence.types.ObjectIdsSelector;
 import org.eclipse.serializer.persistence.types.Persistence;
@@ -523,6 +524,8 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	 */
 	public StorageStructureValidator getStorageStructureValidator();
 	
+	public MonitoringManager getStorageMonitorManager();
+	
 	/**
 	 * Sets the {@link StorageConfiguration} instance to be used for the assembly.
 	 * 
@@ -833,6 +836,8 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	 */
 	public F setStorageStructureValidator(final StorageStructureValidator storageStructureValidator);
 	
+	public F setStorageMonitorManager(MonitoringManager storageMonitorManager);
+	
 	/**
 	 * Creates and returns a new {@link StorageSystem} instance by using the current state of all registered
 	 * logic part instances and by on-demand creating missing ones via a default logic.
@@ -897,6 +902,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		private ObjectIdsSelector                        liveObjectIdChecker          ;
 		private Reference<PersistenceLiveStorerRegistry> storerRegistryReference      ;
 		private StorageStructureValidator                storageStructureValidator    ;
+		private MonitoringManager                        storageMonitorManager        ;
 
 		
 		
@@ -1144,6 +1150,11 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 				this.getConfiguration().fileProvider(),
 				this.getConfiguration().channelCountProvider()
 			);
+		}
+		
+		protected MonitoringManager ensureStorageMonitorManager()
+		{
+			return MonitoringManager.New();
 		}
 		
 
@@ -1527,6 +1538,16 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 			return this.storageStructureValidator;
 		}
 		
+		@Override
+		public MonitoringManager getStorageMonitorManager()
+		{
+			if(this.storageMonitorManager == null)
+			{
+				this.storageMonitorManager = this.dispatch(this.ensureStorageMonitorManager());
+			}
+			return this.storageMonitorManager;
+		}
+		
 		
 		@Override
 		public F setOperationControllerCreator(
@@ -1827,6 +1848,13 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 			return this.$();
 		}
 		
+		@Override
+		public F setStorageMonitorManager(final MonitoringManager storageMonitorManager)
+		{
+			this.storageMonitorManager = storageMonitorManager;
+			return this.$();
+		}
+		
 		public final boolean isByteOrderMismatch()
 		{
 			/* (11.02.2019 TM)NOTE: On byte order switching:
@@ -1878,7 +1906,8 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 				this.getEventLogger()                  ,
 				this.getLiveObjectIdChecker()          ,
 				this.getLiveStorerRegistryReference()  ,
-				this.getStorageStructureValidator()
+				this.getStorageStructureValidator()    ,
+				this.getStorageMonitorManager()
 			);
 		}
 
