@@ -605,11 +605,13 @@ public interface StorageSystem extends StorageController
 				catch(final InterruptedException e)
 				{
 					this.operationController.deactivate();
+					this.monitorManager.shutdown();
 					throw new StorageExceptionInitialization(e);
 				}
 				catch(final Throwable t)
 				{
 					this.operationController.deactivate();
+					this.monitorManager.shutdown();
 					throw t;
 				}
 				finally
