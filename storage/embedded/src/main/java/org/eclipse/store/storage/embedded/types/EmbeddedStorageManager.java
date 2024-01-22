@@ -41,8 +41,8 @@ import org.eclipse.serializer.reference.Swizzling;
 import org.eclipse.serializer.typing.KeyValue;
 import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
-import org.eclipse.store.storage.monitoring.StorageManagerMonitor;
 import org.eclipse.store.storage.monitoring.ObjectRegistryMonitor;
+import org.eclipse.store.storage.monitoring.StorageManagerMonitor;
 import org.eclipse.store.storage.types.Database;
 import org.eclipse.store.storage.types.StorageConfiguration;
 import org.eclipse.store.storage.types.StorageConnection;
@@ -261,6 +261,7 @@ public interface EmbeddedStorageManager extends StorageManager
 				try
 				{
 					this.rollbackLazyReferenceManager(lazyReferenceManager);
+					this.monitorManager.shutdown();
 					
 					if(this.storageSystem instanceof StorageKillable)
 					{
