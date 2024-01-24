@@ -80,6 +80,7 @@
 *** xref:cache:use-cases/spring-cache.adoc[Spring Cache]
 * Miscellaneous
 ** xref:misc:logging/index.adoc[Logging]
+** xref:misc:monitoring/index.adoc[Monitoring]
 ** xref:misc:integrations/index.adoc[Integrations]
 *** xref:misc:integrations/spring-boot.adoc[Spring-Boot]
 ** xref:misc:layered-entities/index.adoc[Layered Entities]

@@ -1,0 +1,41 @@
+= Monitoring
+
+{product-name} supports monitoring using the https://docs.oracle.com/en/java/javase/11/management/monitoring-and-management-using-jmx-technology.html#GUID-805517EC-2D33-4D61-81D8-4D0FA770D1B8[Java Management Extensions (JMX) framework].
+
+== Enable JMX
+please see https://docs.oracle.com/en/java/javase/11/management/monitoring-and-management-using-jmx-technology.html#GUID-E17343B0-FED2-4050-88D7-E4793E704ED5[how to enable JMX].
+
+== Provided JMX beans
+By default, all provided beans use the domain org.eclipse.store.
+
+Storage specific beans have the key 'storage'. The value is composed of the string 'storage' and an increasing counter.
+
+Channel specific beans have the key 'channel'. The value is composed of the string 'channel-' and an increasing counter.
+
+The provided beans are:
+
+[options="header",cols="1,1"]
+|===
+|name
+|description
+
+|org.eclipse.store:name=LazyReferenceManager
+|Provides information from the storage LazyReferenceManager. There is only one instance of this bean.
+
+|org.eclipse.store:storage=storageX,name=EmbeddedStorage
+|Provides information about the amount of persisted data.
+
+|org.eclipse.store:storage=storageX,name=EntityCacheSummary
+|Provides information from the storage entity cache
+
+|org.eclipse.store:storage=storageX,name=ObjectRegistry
+|Provides information from the storage object registry
+
+|org.eclipse.store:storage=storageX,channel=channel-X,group=Entity cache
+|Provides information from each channel's entity cache
+
+|org.eclipse.store:storage=storageX,channel=channel-X,group=housekeeping
+|Provides information about the storage's channel housekeeping
+
+|===
+
