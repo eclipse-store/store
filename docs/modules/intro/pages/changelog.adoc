@@ -1,5 +1,24 @@
 = Changelog
 
+
+== 1.1.0
+
+=== Features
+
+* xref:misc:monitoring/index.adoc[Monitoring]
+* xref:communication:index.adoc[Communication layer]
+* JSR-107 compatible xref:cache:index.adoc[JCache provider] with additional xref:cache:use-cases/hibernate-second-level-cache.adoc[Hibernate cache region factory]
+* xref:misc:integrations/spring-boot.adoc[Spring Boot integration]
+* xref:storage:configuration/housekeeping.adoc[Adaptive housekeeping]
+* xref:storage:configuration/housekeeping.adoc#transaction-file-maximum-size[Transaction file housekeeping]
+* Update rest client UI to Vaadin 24 https://github.com/eclipse-store/store/pull/94[[94]]
+* Serialization support for Throwable https://github.com/eclipse-serializer/serializer/pull/86[[86]]
+
+=== Bugfixes
+
+* DynamoDB connector fix https://github.com/eclipse-store/store/pull/118[[118]]
+
+
 == 1.0.0
 
 This is the first release of {product-name}, the successor of https://github.com/microstream-one[MicroStream].
