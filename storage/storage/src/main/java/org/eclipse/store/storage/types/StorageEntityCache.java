@@ -199,12 +199,12 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			return this.sweepGeneration;
 		}
 
-		final long lastSweepStart()
+		public final long lastSweepStart()
 		{
 			return this.lastSweepStart;
 		}
 
-		final long lastSweepEnd()
+		public final long lastSweepEnd()
 		{
 			return this.lastSweepEnd;
 		}
@@ -1356,6 +1356,8 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			{
 				return true;
 			}
+			
+			this.markMonitor.resetCompletion();
 
 			// check time budget first for explicitly issued calls.
 			performGC:

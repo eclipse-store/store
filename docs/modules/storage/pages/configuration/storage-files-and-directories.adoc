@@ -25,9 +25,9 @@ Available properties are:
 StorageFileNameProvider fileNameProvider = StorageFileNameProvider.Builder()
 	.setChannelDirectoryPrefix("canal_")
 	.setDataFilePrefix        ("canal_")
-	.setDataFileSuffix        (".bin")
+	.setDataFileSuffix        ("bin")
 	.setTransactionsFilePrefix("events_")
-	.setTransactionsFileSuffix(".bin")
+	.setTransactionsFileSuffix("bin")
 	.setTypeDictionaryFileName("typeDictionary.txt")
 	.createFileNameProvider   ()
 ;

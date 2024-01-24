@@ -1,0 +1,214 @@
+= Spring Boot Integration
+
+image::https://upload.wikimedia.org/wikipedia/commons/4/44/Spring_Framework_Logo_2018.svg[]
+
+{product-name} comes with a Spring Boot integration.
+It is available within this artifact:
+
+[source, xml, title="pom.xml", subs=attributes+]
+----
+<dependencies>
+   <dependency>
+      <groupId>org.eclipse.store</groupId>
+      <artifactId>integrations-spring-boot3</artifactId>
+      <version>{maven-version}</version>
+   </dependency>
+</dependencies>
+----
+
+Official Spring Boot site: https://spring.io/projects/spring-boot[]
+
+The integration requires Spring Boot 3.x.
+
+== Configuration
+
+The configuration of the _StorageManager_ can be done using key/value pairs that are provided by Spring Boot external Configuration.  The configuration keys must be prefixed by `org.eclipse.store`
+
+[source,properties]
+----
+org.eclipse.store.storage-directory=/opt/data/eclipse-store-storage
+org.eclipse.store.channel-count=2
+----
+
+The list of all {product-name} configuration properties and their meaning are listed on our xref:storage:configuration/properties.adoc[documentation page].
+
+The configuration values are handled using the https://docs.spring.io/spring-boot/docs/current/reference/html/features.html#features.external-config.typesafe-configuration-properties[typesafe configuration] approach, and you can read these values by accessing the `EclipseStoreProperties` Spring bean.
+
+== StorageManager injection
+
+The simplest way to use this integration is when you can externalize all the configuration using Spring configuration files. Subsequently, you just create a Spring Boot application and add a dependency on the integration. Then, in the Bean where you need access to the StorageManager, you add the @Autowired annotation and a StorageManager is created for you. All configuration values are loaded from the external configuration and the StorageManager is already initialized and ready to use.
+
+=== Example:
+[source,java]
+----
+@SpringBootApplication
+@Import(EclipseStoreSpringBoot.class)
+public class SomeSpringApplication
+{
+    public static void main(String... args)
+    {
+        SpringApplication.run(SomeSpringApplication.class, args);
+    }
+}
+
+@Component
+public class JokesStorageImpl implements JokesStorage
+{
+    private final EmbeddedStorageManager storageManager;
+
+    // Inject the StorageManager (Constructor injection)
+    public JokesStorageImpl(EmbeddedStorageManager storageManager)
+    {
+        this.storageManager = storageManager;
+    }
+
+    // Implement the JokesStorage interface
+}
+----
+
+== Configuration Injection
+
+In case you need to modify the configuration in some way in the program, change something, add and the like, you can have the `EclipseStoreProperties` Spring bean injected into your class. This class contains all the configuration values that are used to create a `StorageManager`. You can modify these values and then use the `EclipseStoreProvider` Bean to create a new StorageManager or `EmbeddedStorageFoundation`.
+
+[source,java]
+----
+    @Bean
+    EmbeddedStorageManager injectStorageTest(@Autowired EclipseStoreProperties myConfiguration)
+    {
+        // Modify the configuration
+        myConfiguration.setStorageDirectory(temp.getDir().getAbsolutePath());
+        // Create a new StorageFoundation
+        EmbeddedStorageFoundation<?> storageFoundation = provider.createStorageFoundation(myConfiguration);
+
+        // Modify the storageFoundation
+        //storageFoundation.onConnectionFoundation(f -> f.someOperation);
+
+        // Create a new StorageManager
+        return storageFoundation.createEmbeddedStorageManager();
+    }
+
+----
+
+== Autostart
+- The _StorageManager_ is already started unless you specified the configuration value `org.eclipse.store.auto-start=false`.
+- If you have used the `org.eclipse.store.root` configuration item, the _StorageManager_ is already associated with an instance of that class as the Root object. This class must have a default or public no-argument constructor.
+
+It is also possible to obtain the entire configuration within the `StorageManagerConfiguration` Bean, enabling you to directly create a foundation and storage manager. This can be helpful if you need to stop storage at runtime and then restart it.
+
+== Multiple Storage Managers
+
+You can have a more than one Storage Manager in your application. This can be useful if you want to have different storage targets for different data. For example, you might want to have a datastore for your user data and another for your product data. You can do this by creating multiple configuration classes and multiple Storage Managers.
+
+[source,java]
+----
+@Configuration
+public class TwoBeanConfiguration
+{
+
+    @Autowired
+    private EclipseStoreProvider provider;
+
+    @Bean("first_config")
+    @ConfigurationProperties("org.eclipse.store.first")
+    EclipseStoreProperties firstStoreProperties()
+    {
+        return new EclipseStoreProperties();
+    }
+
+    @Bean("second_config")
+    @ConfigurationProperties("org.eclipse.store.second")
+    EclipseStoreProperties secondStoreProperties()
+    {
+        return new EclipseStoreProperties();
+    }
+
+    @Bean
+    @Lazy
+    @Qualifier("first_storage")
+    EmbeddedStorageManager createFirstStorage(@Qualifier("first_config") EclipseStoreProperties firstStoreProperties)
+    {
+        return provider.createStorage(firstStoreProperties);
+    }
+
+    @Bean
+    @Lazy
+    @Qualifier("second_storage")
+    EmbeddedStorageManager createSecondStorage(@Qualifier("second_config") EclipseStoreProperties secondStoreProperties)
+    {
+        return provider.createStorage(secondStoreProperties);
+    }
+
+}
+----
+
+The configuration properties are defined in the `application.properties` file with appropriate prefixes.
+
+[source,properties]
+----
+org.eclipse.store.first.storage-directory=${java.io.tmpdir}/${random.int}
+org.eclipse.store.first.auto-start=false
+org.eclipse.store.first.root=org.eclipse.store.integrations.spring.boot.types.storages.FirstRoot
+
+org.eclipse.store.second.storage-directory=${java.io.tmpdir}/${random.int}
+org.eclipse.store.second.auto-start=false
+org.eclipse.store.second.root=org.eclipse.store.integrations.spring.boot.types.storages.SecondRoot
+----
+
+== Mutext Locking
+{product-name} supports mutex locking. This is useful if you have multiple processes that need to access the same objects. Easiest way to use it is to use the annotation `@read` and `@write` on the methods that need to be locked. The annotation @read is used for methods that only read data and @write is used for methods that modify data.
+
+[source,java]
+----
+@Component
+public class SomeStorageImpl implements SomeStorage
+{
+    @Read
+    public String getSomethingById(Integer Id)
+    {
+        // Read something from the storage
+    }
+
+    @Write
+    public void addSomething(String something)
+    {
+        // Add something to the storage
+    }
+}
+----
+
+If you have larger object graph, you can consider to add more Mutexes and lock different parts of the object graph. This can be done by adding the `@Mutex` annotation to the class. The parameter of this annotation is the name of the mutex. If you have multiple classes with the same mutex name, they will be locked together.
+
+[source,java]
+----
+@Component
+@Mutex("jokes")
+public class JokesStorageImpl implements JokesStorage
+{
+}
+----
+
+== Logging
+
+{product-name} Spring module supports standard Spring logging, so you can add this into your config:
+`logging.level.org.eclipse.store=debug`
+to obtain all {product-name} configuration keys:
+
+[source, log]
+----
+15:57:34.923 [main] DEBUG o.e.s.i.s.b.t.EclipseStoreProviderImpl -- EclipseStore configuration items:
+15:57:34.923 [main] DEBUG o.e.s.i.s.b.t.EclipseStoreProviderImpl -- storage-directory : jokes_storage
+15:57:34.923 [main] DEBUG o.e.s.i.s.b.t.EclipseStoreProviderImpl -- channel-count : 2
+15:57:34.923 [main] DEBUG o.e.s.i.s.b.t.EclipseStoreProviderImpl -- auto-start : true
+----
+
+Key values containing "password" are replaced by "xxxxx".
+
+== Register JDK 17 and JDK 8 Handlers
+Handler for JDK 17 are registered automatically.
+Handler for JDK 8 are not registered automatically, because of the backwards compatibility. If you create a new storage you can enable these handlers. If you have an existing storage created with JDK8 handlers, you have to active it too.
+If you need to register JDK 8 handlers, you can do it by adding the following code to your configuration:
+
+[source,properties]
+----
+org.eclipse.store.register-jdk8-handlers=true
+----

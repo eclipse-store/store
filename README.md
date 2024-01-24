@@ -2,6 +2,7 @@
 
 ![GitHub](https://img.shields.io/github/license/eclipse-store/store?style=for-the-badge)
 ![GitHub issues](https://img.shields.io/github/issues/eclipse-store/store?style=for-the-badge)
+![Maven Central](https://img.shields.io/maven-central/v/org.eclipse.store/storage-embedded?style=for-the-badge)
 
 # High-Performance Java-Native-Persistence
 
@@ -15,10 +16,9 @@ EclipseStore is available under [Eclipse Public License - v 2.0](LICENSE).
 
 - [Reference manual](https://docs.eclipsestore.io)
 - [Get started](https://docs.eclipsestore.io/manual/storage/getting-started.html)
-<!-- [Changelog](https://docs.eclipsestore.io/manual/intro/changelog.html) 
-- [Javadocs](https://docs.eclipsestore.io/api)
+- [Changelog](https://docs.eclipsestore.io/manual/intro/changelog.html)
 - [Examples](/examples)
-- [Demo project](https://github.com/eclipse-store/bookstore-demo) -->
+- [Demo project](https://github.com/eclipse-store/bookstore-demo)
 
 ## Build
 

@@ -14,9 +14,12 @@ package org.eclipse.store.storage.types;
  * #L%
  */
 
+import static org.eclipse.serializer.util.X.notNull;
+
 import java.nio.ByteOrder;
 
 import org.eclipse.serializer.exceptions.MissingFoundationPartException;
+import org.eclipse.serializer.monitoring.MonitoringManager;
 import org.eclipse.serializer.persistence.binary.types.BinaryEntityRawDataIterator;
 import org.eclipse.serializer.persistence.types.ObjectIdsSelector;
 import org.eclipse.serializer.persistence.types.Persistence;
@@ -521,6 +524,8 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	 */
 	public StorageStructureValidator getStorageStructureValidator();
 	
+	public MonitoringManager getStorageMonitorManager();
+	
 	/**
 	 * Sets the {@link StorageConfiguration} instance to be used for the assembly.
 	 * 
@@ -800,8 +805,18 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	 */
 	public F setExceptionHandler(StorageExceptionHandler exceptionHandler);
 	
+	/**
+	 * Use {@link #addEventLogger(StorageEventLogger)} instead, multiple event loggers are supported now
+	 * 
+	 * @deprecated replaced by {@link #addEventLogger(StorageEventLogger)}
+	 */
+	@Deprecated
+	public default F setEventLogger(final StorageEventLogger eventLogger)
+	{
+		return this.addEventLogger(eventLogger);
+	}
 	
-	public F setEventLogger(StorageEventLogger eventLogger);
+	public F addEventLogger(StorageEventLogger eventLogger);
 	
 
 	public F setWriteController(StorageWriteController writeController);
@@ -820,6 +835,8 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	 * @return {@literal this} to allow method chaining.
 	 */
 	public F setStorageStructureValidator(final StorageStructureValidator storageStructureValidator);
+	
+	public F setStorageMonitorManager(MonitoringManager storageMonitorManager);
 	
 	/**
 	 * Creates and returns a new {@link StorageSystem} instance by using the current state of all registered
@@ -885,6 +902,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		private ObjectIdsSelector                        liveObjectIdChecker          ;
 		private Reference<PersistenceLiveStorerRegistry> storerRegistryReference      ;
 		private StorageStructureValidator                storageStructureValidator    ;
+		private MonitoringManager                        storageMonitorManager        ;
 
 		
 		
@@ -1022,7 +1040,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 
 		protected StorageTimestampProvider ensureTimestampProvider()
 		{
-			return new StorageTimestampProvider.Default();
+			return new StorageTimestampProvider.MonotonicTime();
 		}
 
 		protected StorageObjectIdRangeEvaluator ensureObjectIdRangeEvaluator()
@@ -1132,6 +1150,11 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 				this.getConfiguration().fileProvider(),
 				this.getConfiguration().channelCountProvider()
 			);
+		}
+		
+		protected MonitoringManager ensureStorageMonitorManager()
+		{
+			return MonitoringManager.New();
 		}
 		
 
@@ -1515,6 +1538,16 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 			return this.storageStructureValidator;
 		}
 		
+		@Override
+		public MonitoringManager getStorageMonitorManager()
+		{
+			if(this.storageMonitorManager == null)
+			{
+				this.storageMonitorManager = this.dispatch(this.ensureStorageMonitorManager());
+			}
+			return this.storageMonitorManager;
+		}
+		
 		
 		@Override
 		public F setOperationControllerCreator(
@@ -1767,9 +1800,14 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		}
 		
 		@Override
-		public F setEventLogger(final StorageEventLogger eventLogger)
+		public F addEventLogger(final StorageEventLogger eventLogger)
 		{
-			this.eventLogger = eventLogger;
+			notNull(eventLogger);
+			
+			this.eventLogger = this.eventLogger != null
+				? StorageEventLogger.Chain(this.eventLogger, eventLogger)
+				: eventLogger
+			;
 			return this.$();
 		}
 		
@@ -1807,6 +1845,13 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		public F setStorageStructureValidator(final StorageStructureValidator storageStructureValidator)
 		{
 			this.storageStructureValidator = storageStructureValidator;
+			return this.$();
+		}
+		
+		@Override
+		public F setStorageMonitorManager(final MonitoringManager storageMonitorManager)
+		{
+			this.storageMonitorManager = storageMonitorManager;
 			return this.$();
 		}
 		
@@ -1861,7 +1906,8 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 				this.getEventLogger()                  ,
 				this.getLiveObjectIdChecker()          ,
 				this.getLiveStorerRegistryReference()  ,
-				this.getStorageStructureValidator()
+				this.getStorageStructureValidator()    ,
+				this.getStorageMonitorManager()
 			);
 		}
 

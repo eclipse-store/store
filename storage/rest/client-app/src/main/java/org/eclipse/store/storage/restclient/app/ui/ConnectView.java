@@ -22,16 +22,15 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import javax.servlet.http.Cookie;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import org.eclipse.store.storage.restclient.app.types.SessionData;
+import org.eclipse.store.storage.restclient.jersey.types.StorageRestClientJersey;
 
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.html.H3;
 import com.vaadin.flow.component.html.Hr;
 import com.vaadin.flow.component.html.Image;
-import com.vaadin.flow.component.html.Label;
+import com.vaadin.flow.component.html.NativeLabel;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.Notification.Position;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
@@ -42,13 +41,14 @@ import com.vaadin.flow.router.Route;
 import com.vaadin.flow.server.VaadinRequest;
 import com.vaadin.flow.server.VaadinResponse;
 
-import org.eclipse.store.storage.restclient.app.types.SessionData;
-import org.eclipse.store.storage.restclient.jersey.types.StorageRestClientJersey;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 
 @Route(value = "", layout = RootLayout.class)
 public class ConnectView extends VerticalLayout implements HasDynamicTitle
-{	
+{
 	public ConnectView()
 	{
 		super();
@@ -56,11 +56,11 @@ public class ConnectView extends VerticalLayout implements HasDynamicTitle
 		final ComboBox<String> urlChooser = new ComboBox<>();
 		urlChooser.setId(ElementIds.COMBO_URL);
 		urlChooser.setMinWidth("50ch");
-		urlChooser.setDataProvider(DataProvider.ofCollection(this.urls()));
+		urlChooser.setItems(DataProvider.ofCollection(this.urls()));
 		urlChooser.setAllowCustomValue(true);
 		urlChooser.addCustomValueSetListener(event -> urlChooser.setValue(event.getDetail()));
 		
-		final Button cmdConnect = new Button(this.getTranslation("CONNECT"), 
+		final Button cmdConnect = new Button(this.getTranslation("CONNECT"),
 			event -> {
 				String url = urlChooser.getValue();
 				if(url != null && (url = url.trim()).length() > 0)
@@ -76,8 +76,8 @@ public class ConnectView extends VerticalLayout implements HasDynamicTitle
 		cmdConnect.setDisableOnClick(true);
 		
 		final HorizontalLayout connectLayout = new HorizontalLayout(
-			new Label(this.getTranslation("URL") + ":"), 
-			urlChooser, 
+			new NativeLabel(this.getTranslation("URL") + ":"),
+			urlChooser,
 			cmdConnect
 		);
 		connectLayout.setDefaultVerticalComponentAlignment(Alignment.CENTER);
@@ -128,15 +128,15 @@ public class ConnectView extends VerticalLayout implements HasDynamicTitle
 				header.addClassName(ClassNames.ERROR);
 				
 				final Button close = new Button(
-					this.getTranslation("OK"), 
+					this.getTranslation("OK"),
 					event -> notification.close()
 				);
 				
 				final VerticalLayout content = new VerticalLayout(
 					header,
 					new Hr(),
-					new Label(this.getTranslation("INTERNAL_ERROR_HINT", baseUrl)),
-					close 
+					new NativeLabel(this.getTranslation("INTERNAL_ERROR_HINT", baseUrl)),
+					close
 				);
 				content.setHorizontalComponentAlignment(Alignment.END, close);
 				
@@ -164,7 +164,7 @@ public class ConnectView extends VerticalLayout implements HasDynamicTitle
 			if(urlCookie != null)
 			{
 				final String urls = new String(
-					Base64.getUrlDecoder().decode(urlCookie.getValue()), 
+					Base64.getUrlDecoder().decode(urlCookie.getValue()),
 					StandardCharsets.UTF_8
 				);
 				for(final String url : urls.split("\n"))
@@ -187,15 +187,15 @@ public class ConnectView extends VerticalLayout implements HasDynamicTitle
 			
 			final HttpServletResponse response = (HttpServletResponse) VaadinResponse.getCurrent();
 			final Cookie cookie = new Cookie(
-				"URL", 
+				"URL",
 				new String(
 					Base64.getUrlEncoder().encode(
 						cookieData.getBytes(StandardCharsets.UTF_8)
-					), 
+					),
 					StandardCharsets.UTF_8
 				)
 			);
-			response.addCookie(cookie);			
+			response.addCookie(cookie);
 		}
 	}
 	

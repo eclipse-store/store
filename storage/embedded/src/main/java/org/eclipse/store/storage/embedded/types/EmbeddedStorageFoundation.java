@@ -807,7 +807,12 @@ extends StorageFoundation<F>, PersistenceTypeHandlerRegistration.Executor<Binary
 			this.initializeEmbeddedStorageRootTypeIdProvider(this.getRootTypeIdProvider(), thm);
 
 			// everything bundled together in the actual manager instance
-			final EmbeddedStorageManager esm = EmbeddedStorageManager.New(database, stm.configuration(), ecf, prp);
+			final EmbeddedStorageManager esm = EmbeddedStorageManager.New(
+				database,
+				stm.configuration(),
+				ecf,
+				prp,
+				this.getStorageMonitorManager());
 
 			// link back to database
 			database.setStorage(esm);

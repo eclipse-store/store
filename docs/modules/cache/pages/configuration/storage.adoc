@@ -1,0 +1,95 @@
+= Storage
+
+{product-name}'s storage can be used as a backing store for the cache.
+It functions as a CacheWriter as well as a CacheReader, depending on the writeThrough and readThrough configuration.
+Per default it is used for both.
+
+[source, java]
+----
+EmbeddedStorageManager storageManager = EmbeddedStorage.start();
+CachingProvider        provider       = Caching.getCachingProvider();
+CacheManager           cacheManager   = provider.getCacheManager();
+CacheConfiguration<Integer, String> configuration = CacheConfiguration
+	.Builder(Integer.class, String.class, "my-cache", storageManager)
+	.build();
+Cache<Integer, String> cache = cacheManager.createCache("jCache", configuration);
+----
+
+If you prefer an external configuration, you can link the xref:storage:configuration/index.adoc#external-configuration[storage configuration]:
+
+[source, text, title="cache-config.properties"]
+----
+key-type = java.lang.Integer
+value-type = java.lang.String
+
+read-through = true
+write-through = true
+
+storage-configuration-resource-name = eclipsestore-storage.properties
+----
+
+[source, text, title="eclipsestore-storage.properties"]
+----
+storage-directory = ~/cache-data
+channel-count = 4
+----
+
+Or you can embed the storage configuration within the cache configuration using the `storage.` prefix:
+
+[source, text, title="cache-config.properties"]
+----
+key-type = java.lang.Integer
+value-type = java.lang.String
+
+read-through = true
+write-through = true
+
+storage.storage-directory = ~/cache-data
+storage.channel-count = 4
+----
+
+== Cache expiry and StorageManager
+
+Since the validity of a Cache entry is only determined when the value is retrieved, the expiry durations are not always respected when using the `StorageManager` when the application is restarted. An example makes this clear.
+
+Suppose we have defined a cache where the https://github.com/jsr107/jsr107spec/blob/master/src/main/java/javax/cache/expiry/ExpiryPolicy.java[ExpiryPolicy] is set to 1 Minute.
+
+When we create an entry in this cache and we did not request the cache entry after the 1-minute expiry before we do shut down the application.
+
+When we start up the application again, When we request the cache entry, it is loaded from the {product-name} Storage Manager and 'created' with a new expiry of 1 minute.
+
+This means that even if the entry was already created more than 1 minute ago (even when we only take into consideration the application uptime), the entry is still returned to the calling code.
+
+== Spring example
+
+[source, text, title="application.properties"]
+----
+spring.jpa.properties.hibernate.cache.eclipsestore.missing_cache_strategy = create
+spring.jpa.properties.hibernate.cache.eclipsestore.readThrough = true
+spring.jpa.properties.hibernate.cache.eclipsestore.writeThrough = true
+spring.jpa.properties.hibernate.cache.eclipsestore.storage.baseDirectory = ~/cache-data
+spring.jpa.properties.hibernate.cache.eclipsestore.storage.channelCount = 4
+spring.jpa.properties.hibernate.cache.region.factory_class = org.eclipse.store.cache.hibernate.types.CacheRegionFactory
+spring.jpa.properties.hibernate.cache.use_query_cache = true
+spring.jpa.properties.hibernate.cache.use_second_level_cache = true
+----
+
+[source, yaml, title="application.yml"]
+----
+spring:
+	jpa:
+		properties:
+			hibernate:
+				cache:
+					eclipsestore:
+						missing_cache_strategy: create
+						readThrough: true
+						writeThrough: true
+						storage:
+						baseDirectory: ~/cache-data
+						channelCount: 4
+					region:
+						factory_class: org.eclipse.store.cache.hibernate.types.CacheRegionFactory
+					use_query_cache: true
+					use_second_level_cache: true
+----

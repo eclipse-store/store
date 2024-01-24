@@ -17,15 +17,13 @@ package org.eclipse.store.storage.restclient.app.ui;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 
-import javax.servlet.http.HttpServletResponse;
-
 import org.eclipse.store.storage.restclient.app.types.ApplicationErrorHandler;
 import org.eclipse.store.storage.restclient.app.types.SessionData;
 
 import com.vaadin.flow.component.details.Details;
 import com.vaadin.flow.component.html.H3;
 import com.vaadin.flow.component.html.Hr;
-import com.vaadin.flow.component.html.Label;
+import com.vaadin.flow.component.html.NativeLabel;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.router.BeforeEnterEvent;
@@ -36,9 +34,11 @@ import com.vaadin.flow.router.HasErrorParameter;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.server.VaadinSession;
 
+import jakarta.servlet.http.HttpServletResponse;
+
 
 @Route(value = "error", layout = RootLayout.class)
-public class InternalErrorView extends VerticalLayout 
+public class InternalErrorView extends VerticalLayout
 	implements HasDynamicTitle, HasErrorParameter<Exception>, BeforeEnterObserver
 {
 	public InternalErrorView()
@@ -51,12 +51,12 @@ public class InternalErrorView extends VerticalLayout
 	@Override
 	public String getPageTitle()
 	{
-		return getTranslation("ERROR") + " - " + RootLayout.PAGE_TITLE;
+		return this.getTranslation("ERROR") + " - " + RootLayout.PAGE_TITLE;
 	}
 	
 	@Override
 	public int setErrorParameter(
-		final BeforeEnterEvent event, 
+		final BeforeEnterEvent event,
 		final ErrorParameter<Exception> parameter
 	)
 	{
@@ -73,8 +73,8 @@ public class InternalErrorView extends VerticalLayout
 	public void beforeEnter(
 		final BeforeEnterEvent event
 	)
-	{					
-		final H3 header = new H3(getTranslation("INTERNAL_ERROR_TITLE"));
+	{
+		final H3 header = new H3(this.getTranslation("INTERNAL_ERROR_TITLE"));
 		header.addClassName(ClassNames.ERROR);
 		this.add(header);
 
@@ -82,7 +82,7 @@ public class InternalErrorView extends VerticalLayout
 		final SessionData sessionData = session.getAttribute(SessionData.class);
 		if(sessionData != null)
 		{
-			this.add(new Label(getTranslation("INTERNAL_ERROR_HINT", sessionData.baseUrl()))); 
+			this.add(new NativeLabel(this.getTranslation("INTERNAL_ERROR_HINT", sessionData.baseUrl())));
 		}
 		
 		final Throwable t = (Throwable)session.getAttribute(
@@ -103,7 +103,7 @@ public class InternalErrorView extends VerticalLayout
 			stackTrace.setReadOnly(true);
 			stackTrace.setWidth("100%");
 			
-			final Details details = new Details(getTranslation("DETAILS"), stackTrace);
+			final Details details = new Details(this.getTranslation("DETAILS"), stackTrace);
 			details.setOpened(false);
 			this.add(details);
 			this.setHorizontalComponentAlignment(Alignment.STRETCH, details);

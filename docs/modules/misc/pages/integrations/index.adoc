@@ -1,0 +1,12 @@
+= Integrations
+
+Various {product-name} integrations are currently available.
+
+Currently available integrations:
+
+* xref:misc:integrations/spring-boot.adoc[Spring Boot]
+
+And {product-name} is also integrated by the following vendors
+
+* xref:misc:integrations/micronaut.adoc[Micronaut]
+

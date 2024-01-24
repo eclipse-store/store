@@ -19,31 +19,30 @@ import org.eclipse.store.storage.restclient.app.types.SessionData;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
-import com.vaadin.flow.component.dependency.HtmlImport;
+import com.vaadin.flow.component.dependency.CssImport;
 import com.vaadin.flow.component.html.Image;
-import com.vaadin.flow.component.html.Label;
+import com.vaadin.flow.component.html.NativeLabel;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
+import com.vaadin.flow.component.page.AppShellConfigurator;
 import com.vaadin.flow.component.page.Push;
 import com.vaadin.flow.router.BeforeEnterEvent;
 import com.vaadin.flow.router.BeforeEnterObserver;
 import com.vaadin.flow.router.RouterLayout;
-import com.vaadin.flow.server.InitialPageSettings;
-import com.vaadin.flow.server.PageConfigurator;
 import com.vaadin.flow.theme.Theme;
 import com.vaadin.flow.theme.lumo.Lumo;
 
 
 @Push
-@Theme(value = Lumo.class, variant = Lumo.DARK)
-@HtmlImport("styles/shared-styles.html")
-public class RootLayout extends VerticalLayout 
-	implements RouterLayout, BeforeEnterObserver, PageConfigurator
+@Theme(themeClass = Lumo.class, variant = Lumo.DARK)
+@CssImport("./styles/shared-styles.css")
+public class RootLayout extends VerticalLayout
+	implements RouterLayout, BeforeEnterObserver, AppShellConfigurator
 {
 	public final static String PAGE_TITLE = "Eclipse Store Client";
 	
-	private Component toolBar;
-	private Label     headerLabel;
+	private Component   toolBar;
+	private NativeLabel headerLabel;
 	
 	public RootLayout()
 	{
@@ -58,7 +57,7 @@ public class RootLayout extends VerticalLayout
 	
 	private Component createHeader()
 	{
-		this.headerLabel = new Label();
+		this.headerLabel = new NativeLabel();
 		
 		final Button cmdDisconnect = new Button(this.getTranslation("DISCONNECT"), event -> {
 			this.getUI().ifPresent(ui -> {
@@ -90,7 +89,7 @@ public class RootLayout extends VerticalLayout
 	public void beforeEnter(
 		final BeforeEnterEvent event
 	)
-	{		
+	{
 		final SessionData sessionData = event.getUI().getSession().getAttribute(SessionData.class);
 		this.headerLabel.setText(
 			sessionData != null
@@ -103,12 +102,4 @@ public class RootLayout extends VerticalLayout
 		);
 	}
 	
-	@Override
-	public void configurePage(
-		final InitialPageSettings settings
-	)
-	{
-		settings.addLink   ("shortcut icon", UIUtils.imagePath("icon.ico")           );
-		settings.addFavIcon("icon"         , UIUtils.imagePath("icon.png"), "256x256");
-	}
 }
