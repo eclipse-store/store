@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import org.eclipse.serializer.chars.XChars;
@@ -362,10 +363,10 @@ public class CacheRegionFactory extends RegionFactoryTemplate
 			{
 				if(this.cacheExists(legacyDefaultRegionName, sessionFactory))
 				{
-					SecondLevelCacheLogger.INSTANCE.usingLegacyCacheName(
+					log(logger -> logger.usingLegacyCacheName(
 						defaultRegionName,
 						legacyDefaultRegionName
-					);
+					));
 					return legacyDefaultRegionName;
 				}
 			}
@@ -412,11 +413,11 @@ public class CacheRegionFactory extends RegionFactoryTemplate
 		switch(this.missingCacheStrategy)
 		{
 			case CREATE_WARN:
-				SecondLevelCacheLogger.INSTANCE.missingCacheCreated(
+				log(logger -> logger.missingCacheCreated(
 					regionName,
 					ConfigurationPropertyNames.MISSING_CACHE_STRATEGY,
 					MissingCacheStrategy.CREATE.getExternalRepresentation()
-				);
+				));
 				// fall-through to create
 
 			case CREATE:
@@ -449,6 +450,44 @@ public class CacheRegionFactory extends RegionFactoryTemplate
 			{
 				this.cacheManager = null;
 			}
+		}
+	}
+	
+	private static void log(final Consumer<SecondLevelCacheLogger> logAction)
+	{
+		try
+		{
+			final SecondLevelCacheLogger logger = acquireSecondLevelCacheLogger();
+			logAction.accept(logger);
+		}
+		catch(final Exception e)
+		{
+			// ignore, unable to acquire logger
+		}
+	}
+	
+	private static SecondLevelCacheLogger acquireSecondLevelCacheLogger()
+	{
+		try
+		{
+			// Hibernate < 6
+			return (SecondLevelCacheLogger)SecondLevelCacheLogger.class.getDeclaredField("INSTANCE").get(null);
+		}
+		catch(final NoSuchFieldException e)
+		{
+			try
+			{
+				// Hibernate >= 6
+				return (SecondLevelCacheLogger)SecondLevelCacheLogger.class.getDeclaredField("L2CACHE_LOGGER").get(null);
+			}
+			catch(final NoSuchFieldException | IllegalArgumentException | IllegalAccessException e2)
+			{
+				throw new RuntimeException(e);
+			}
+		}
+		catch(SecurityException | IllegalArgumentException | IllegalAccessException e)
+		{
+			throw new RuntimeException(e);
 		}
 	}
 
