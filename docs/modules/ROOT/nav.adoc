@@ -81,6 +81,7 @@
 * xref:communication:index.adoc[Communication]
 * Miscellaneous
 ** xref:misc:logging/index.adoc[Logging]
+** xref:misc:monitoring/index.adoc[Monitoring]
 ** xref:misc:integrations/index.adoc[Integrations]
 *** xref:misc:integrations/spring-boot.adoc[Spring-Boot]
 *** xref:misc:integrations/micronaut.adoc[Micronaut]
