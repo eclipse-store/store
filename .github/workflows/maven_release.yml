@@ -35,3 +35,28 @@ jobs:
           MAVEN_PASSWORD: ${{ secrets.ORG_OSSRH_PASSWORD }}
           PASSPHRASE: ${{ secrets.ORG_GPG_PASSPHRASE }}
 
+      #java 17 build
+      - uses: actions/checkout@v3
+      - name: Set up Java 17 for publishing to Maven Central Repository
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+          server-id: ossrh
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+          gpg-passphrase: PASSPHRASE
+      - name: Build with java 17
+        run: |
+          mvn -pl integrations/spring-boot3 clean install -am -B
+          mvn -P production -pl storage/rest/client-app clean install -am -B
+      - name: Deploy module build with java 17
+        run: |
+          mvn -Pdeploy -pl integrations/spring-boot3 deploy
+          mvn -Pdeploy -Pproduction -pl storage/rest/client-app deploy
+        env:
+          MAVEN_USERNAME: ${{ secrets.ORG_OSSRH_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.ORG_OSSRH_PASSWORD }}
+          PASSPHRASE: ${{ secrets.ORG_GPG_PASSPHRASE }}
+

@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
+import org.eclipse.serializer.concurrency.XThreads;
 import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.serializer.io.ByteBufferInputStream;
 import org.eclipse.serializer.io.LimitedInputStream;
@@ -40,6 +41,7 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.BillingMode;
 import software.amazon.awssdk.services.dynamodb.model.CreateTableRequest;
 import software.amazon.awssdk.services.dynamodb.model.Delete;
+import software.amazon.awssdk.services.dynamodb.model.DescribeTableRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.KeySchemaElement;
@@ -53,6 +55,7 @@ import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
 import software.amazon.awssdk.services.dynamodb.model.ScanResponse;
 import software.amazon.awssdk.services.dynamodb.model.Select;
 import software.amazon.awssdk.services.dynamodb.model.TableDescription;
+import software.amazon.awssdk.services.dynamodb.model.TableStatus;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest;
 
@@ -181,7 +184,16 @@ public interface DynamoDbConnector extends BlobStoreConnector
 					.billingMode(BillingMode.PAY_PER_REQUEST)
 					.build()
 				;
-				return this.client.createTable(request).tableDescription();
+				TableDescription description = this.client.createTable(request).tableDescription();
+				while(description.tableStatus() != TableStatus.ACTIVE)
+				{
+					XThreads.sleep(1000l);
+					
+					description = this.client.describeTable(
+						DescribeTableRequest.builder().tableName(name).build()
+					).table();
+				}
+				return description;
 			}
 		}
 

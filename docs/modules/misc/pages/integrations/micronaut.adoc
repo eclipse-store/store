@@ -1,0 +1,7 @@
+= Micronaut Integration
+
+The Micronaut integration for {product-name} ships with the official Micronaut releases and is hosted at their https://github.com/micronaut-projects/micronaut-eclipsestore[Github repository].
+
+For more information see the https://guides.micronaut.io/latest/micronaut-eclipsestore-persitence-gradle-java.html[official guide].
+
+Official Micronaut site: https://micronaut.io/[]

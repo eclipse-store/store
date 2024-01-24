@@ -26,6 +26,7 @@ import org.eclipse.serializer.afs.types.AWritableFile;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.functional.ThrowingProcedure;
 import org.eclipse.serializer.functional._longProcedure;
+import org.eclipse.serializer.monitoring.MonitoringManager;
 import org.eclipse.serializer.persistence.binary.types.Chunk;
 import org.eclipse.serializer.persistence.binary.types.ChunksBuffer;
 import org.eclipse.serializer.persistence.binary.types.ChunksBufferByteReversing;
@@ -38,6 +39,7 @@ import org.eclipse.serializer.util.BufferSizeProviderIncremental;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
+import org.eclipse.store.storage.monitoring.StorageChannelHousekeepingMonitor;
 import org.slf4j.Logger;
 
 
@@ -68,6 +70,8 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 
 	public boolean issuedEntityCacheCheck(long nanoTimeBudget, StorageEntityCacheEvaluator entityEvaluator);
 
+	public boolean issuedTransactionsLogCleanup();
+	
 	public void exportData(StorageLiveFileProvider fileProvider);
 
 	// (19.07.2014 TM)TODO: refactor storage typing to avoid classes in public API
@@ -142,7 +146,8 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		private long housekeepingIntervalBudgetNs;
 		
 		private boolean active;
-		
+
+		private final StorageChannelHousekeepingMonitor monitoringData;
 
 
 		///////////////////////////////////////////////////////////////////////////
@@ -160,7 +165,8 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			final boolean                       switchByteOrder          ,
 			final BufferSizeProviderIncremental loadingBufferSizeProvider,
 			final StorageFileManager.Default    fileManager              ,
-			final StorageEventLogger            eventLogger
+			final StorageEventLogger            eventLogger              ,
+			final MonitoringManager             monitorManager
 		)
 		{
 			super();
@@ -178,6 +184,9 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			
 			// depends on this.fileManager!
 			this.housekeepingTasks = this.defineHouseKeepingTasks();
+			
+			this.monitoringData = new StorageChannelHousekeepingMonitor(this.channelIndex);
+			monitorManager.registerMonitor(this.monitoringData);
 		}
 
 
@@ -192,6 +201,7 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			tasks.add(this::houseKeepingCheckFileCleanup);
 			tasks.add(this::houseKeepingGarbageCollection);
 			tasks.add(this::houseKeepingEntityCacheCheck);
+			tasks.add(this::houseKeepingTransactionFile);
 			// (16.06.2020 TM)TODO: priv#49: housekeeping task that closes data files after a timeout.
 
 			return tasks.toArray(HousekeepingTask.class);
@@ -300,7 +310,13 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			// turn budget into the budget bounding value for easier and faster checking
 			final long nanoTimeBudgetBound = XTime.calculateNanoTimeBudgetBound(nanoTimeBudget);
 			
-			return this.fileManager.incrementalFileCleanupCheck(nanoTimeBudgetBound);
+					
+			final StorageChannelHousekeepingResult result = StorageChannelHousekeepingResult.create(nanoTimeBudget,
+				() -> this.fileManager.incrementalFileCleanupCheck(nanoTimeBudgetBound));
+			
+			this.monitoringData.setFileCleanupCheckResult(result);
+			
+			return result.getResult();
 		}
 		
 		@Override
@@ -311,7 +327,12 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			// turn budget into the budget bounding value for easier and faster checking
 			final long nanoTimeBudgetBound = XTime.calculateNanoTimeBudgetBound(nanoTimeBudget);
 			
-			return this.entityCache.incrementalGarbageCollection(nanoTimeBudgetBound, this);
+			final StorageChannelHousekeepingResult result = StorageChannelHousekeepingResult.create(nanoTimeBudget,
+				() -> this.entityCache.incrementalGarbageCollection(nanoTimeBudgetBound, this));
+			
+			this.monitoringData.setGarbageCollectionResult(result);
+			
+			return result.getResult();
 		}
 		
 		@Override
@@ -324,7 +345,25 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			// turn budget into the budget bounding value for easier and faster checking
 			final long nanoTimeBudgetBound = XTime.calculateNanoTimeBudgetBound(nanoTimeBudget);
 			
-			return this.entityCache.incrementalEntityCacheCheck(nanoTimeBudgetBound);
+			final StorageChannelHousekeepingResult result = StorageChannelHousekeepingResult.create(nanoTimeBudget,
+				() -> this.entityCache.incrementalEntityCacheCheck(nanoTimeBudgetBound));
+			
+			this.monitoringData.setEntityCacheCheckResult(result);
+			
+			return result.getResult();
+		}
+		
+		@Override
+		public boolean performTransactionFileCheck(final boolean checkSize)
+		{
+			if(!this.fileManager.isFileCleanupEnabled())
+			{
+				return true;
+			}
+			
+			logger.trace("StorageChannel#{} performing transaction file check", this.channelIndex);
+			
+			return this.fileManager.issuedTransactionFileCheck(checkSize);
 		}
 		
 		@Override
@@ -346,6 +385,12 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		)
 		{
 			return this.housekeepingBroker.performIssuedEntityCacheCheck(this, nanoTimeBudget, entityEvaluator);
+		}
+		
+		@Override
+		public boolean issuedTransactionsLogCleanup()
+		{
+			return this.housekeepingBroker.performTransactionFileCheck(this, false);
 		}
 		
 		private long calculateSpecificHousekeepingTimeBudget(final long nanoTimeBudget)
@@ -383,6 +428,11 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			);
 			
 			return this.housekeepingBroker.performEntityCacheCheck(this, nanoTimeBudget);
+		}
+		
+		final boolean houseKeepingTransactionFile()
+		{
+			return this.housekeepingBroker.performTransactionFileCheck(this, true);
 		}
 
 		private void work() throws InterruptedException

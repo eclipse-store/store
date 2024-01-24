@@ -8,7 +8,7 @@
 
     <groupId>org.eclipse.store</groupId>
     <artifactId>store-parent</artifactId>
-    <version>1.0.1-SNAPSHOT</version>
+    <version>1.1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>EclipseStore</name>
@@ -16,9 +16,9 @@
     <url>https://projects.eclipse.org/projects/technology.store</url>
 
     <organization>
-		<name>MicroStream Software</name>
-		<url>https://microstream.one</url>
-	</organization>
+        <name>MicroStream Software</name>
+        <url>https://microstream.one</url>
+    </organization>
 
     <licenses>
         <license>
@@ -47,14 +47,16 @@
         <license.licenceFile>${basedir}/LICENSE</license.licenceFile>
         <api.version>1</api.version>
         <javadoc.failed.on.error>false</javadoc.failed.on.error>
-        <eclipse.serializer.version>1.0.0</eclipse.serializer.version>
+        <eclipse.serializer.version>1.1.0</eclipse.serializer.version>
         <failsafe.rerunFailingTestsCount>2</failsafe.rerunFailingTestsCount>
         <surefire.rerunFailingTestsCount>2</surefire.rerunFailingTestsCount>
     </properties>
 
     <modules>
         <module>afs</module>
+        <module>cache</module>
         <module>storage</module>
+        <module>integrations</module>
     </modules>
 
     <scm>
@@ -94,7 +96,7 @@
             <dependency>
                 <groupId>org.slf4j</groupId>
                 <artifactId>slf4j-api</artifactId>
-                <version>1.7.32</version>
+                <version>2.0.9</version>
             </dependency>
             <dependency>
                 <groupId>org.junit.jupiter</groupId>
@@ -155,12 +157,17 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
-                    <version>3.11.0</version>
+                    <version>3.12.0</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-dependency-plugin</artifactId>
-                    <version>3.6.0</version>
+                    <version>3.6.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-shade-plugin</artifactId>
+                    <version>3.5.1</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.felix</groupId>
@@ -221,10 +228,10 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-javadoc-plugin</artifactId>
-                    <version>3.5.0</version>
+                    <version>3.6.3</version>
                     <configuration>
                         <doclint>none</doclint>
-                        <failOnError>false</failOnError>
+                        <failOnError>${javadoc.failed.on.error}</failOnError>
                         <notree>true</notree>
                         <source>8</source>
                         <doctitle>Eclipse Store API</doctitle>
@@ -247,7 +254,7 @@
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>license-maven-plugin</artifactId>
-                    <version>2.2.0</version>
+                    <version>2.3.0</version>
                     <configuration>
                         <includes>
                             <include>**/*.java</include>
@@ -294,7 +301,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-enforcer-plugin</artifactId>
-                    <version>3.4.0</version>
+                    <version>3.4.1</version>
                     <executions>
                         <execution>
                             <id>enforce-env</id>
@@ -333,22 +340,17 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-site-plugin</artifactId>
-                    <version>4.0.0-M9</version>
-                </plugin>
-                <plugin>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-shade-plugin</artifactId>
-                    <version>3.5.0</version>
+                    <version>4.0.0-M13</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
-                    <version>3.1.0</version>
+                    <version>3.2.3</version>
                 </plugin>
                 <plugin>
                     <groupId>org.cyclonedx</groupId>
                     <artifactId>cyclonedx-maven-plugin</artifactId>
-                    <version>2.7.9</version>
+                    <version>2.7.10</version>
                     <executions>
                         <execution>
                             <phase>prepare-package</phase>
@@ -378,6 +380,12 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>examples</id>
+            <modules>
+                <module>examples</module>
+            </modules>
+        </profile>
         <profile>
             <id>production</id>
             <build>
@@ -430,36 +438,15 @@
             </build>
         </profile>
         <profile>
-            <id>module-info-check</id>
-            <activation>
-                <file>
-                    <exists>src/main/java</exists>
-                </file>
-            </activation>
+            <id>javadoc-check</id>
+            <properties>
+                <javadoc.failed.on.error>true</javadoc.failed.on.error>
+            </properties>
             <build>
                 <plugins>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-enforcer-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <id>enforce-files-exist</id>
-                                <goals>
-                                    <goal>enforce</goal>
-                                </goals>
-                                <configuration>
-                                    <rules>
-                                        <requireFilesExist>
-                                            <message>The module-info is not present</message>
-                                            <files>
-                                                <file>${project.basedir}/src/main/java/module-info.java</file>
-                                            </files>
-                                        </requireFilesExist>
-                                    </rules>
-                                    <fail>true</fail>
-                                </configuration>
-                            </execution>
-                        </executions>
+                        <artifactId>maven-javadoc-plugin</artifactId>
                     </plugin>
                 </plugins>
             </build>

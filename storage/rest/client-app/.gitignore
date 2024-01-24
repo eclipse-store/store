@@ -1,0 +1,38 @@
+*.class
+*.log
+~*
+
+# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
+hs_err_pid*
+
+# Maven
+target/
+.m2/
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+dependency-reduced-pom.xml
+release.properties
+buildNumber.properties
+.flattened-pom.xml
+
+# Gradle
+.gradle/
+build/
+
+# Package Files
+*.jar
+*.war
+*.nar
+frontend/
+node_modules/
+
+/package.json
+/package-lock.json
+/tsconfig.json
+/types.d.ts
+/vite.config.ts
+/vite.generated.ts

@@ -103,6 +103,26 @@ public interface EmbeddedStorageConfigurationPropertyNames
 	public final static String HOUSEKEEPING_TIME_BUDGET      = "housekeeping-time-budget";
 
 	/**
+	 * @see EmbeddedStorageConfigurationBuilder#setHousekeepingAdaptive(boolean)
+	 */
+	public final static String HOUSEKEEPING_ADAPTIVE         = "housekeeping-adaptive";
+
+	/**
+	 * @see EmbeddedStorageConfigurationBuilder#setHousekeepingIncreaseThreshold(java.time.Duration)
+	 */
+	public final static String HOUSEKEEPING_INCREASE_THRESHOLD  = "housekeeping-increase-threshold";
+
+	/**
+	 * @see EmbeddedStorageConfigurationBuilder#setHousekeepingIncreaseAmount(java.time.Duration)
+	 */
+	public final static String HOUSEKEEPING_INCREASE_AMOUNT     = "housekeeping-increase-amount";
+
+	/**
+	 * @see EmbeddedStorageConfigurationBuilder#setHousekeepingMaximumTimeBudget(java.time.Duration)
+	 */
+	public final static String HOUSEKEEPING_MAXIMUM_TIME_BUDGET = "housekeeping-maximum-time-budget";
+
+	/**
 	 * @see EmbeddedStorageConfigurationBuilder#setEntityCacheThreshold(long)
 	 */
 	public final static String ENTITY_CACHE_THRESHOLD        = "entity-cache-threshold";
@@ -126,6 +146,11 @@ public interface EmbeddedStorageConfigurationPropertyNames
 	 * @see EmbeddedStorageConfigurationBuilder#setDataFileMinimumUseRatio(double)
 	 */
 	public final static String DATA_FILE_MINIMUM_USE_RATIO   = "data-file-minimum-use-ratio";
+	
+	/**
+	 * @see EmbeddedStorageConfigurationBuilder#setTransactionFileMaximumSize(ByteSize)
+	 */
+	public final static String TRANSACTION_FILE_MAXIMUM_SIZE = "transaction-file-maximum-size";
 
 	/**
 	 * @see EmbeddedStorageConfigurationBuilder#setDataFileCleanupHeadFile(boolean)
