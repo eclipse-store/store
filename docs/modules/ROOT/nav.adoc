@@ -78,10 +78,12 @@
 ** Use Cases
 *** xref:cache:use-cases/hibernate-second-level-cache.adoc[Hibernate Second Level Cache]
 *** xref:cache:use-cases/spring-cache.adoc[Spring Cache]
+* xref:communication:index.adoc[Communication]
 * Miscellaneous
 ** xref:misc:logging/index.adoc[Logging]
 ** xref:misc:integrations/index.adoc[Integrations]
 *** xref:misc:integrations/spring-boot.adoc[Spring-Boot]
+*** xref:misc:integrations/micronaut.adoc[Micronaut]
 ** xref:misc:layered-entities/index.adoc[Layered Entities]
 *** xref:misc:layered-entities/configuration.adoc[Configuration]
 *** xref:misc:layered-entities/defining-entities.adoc[Defining Entities]
