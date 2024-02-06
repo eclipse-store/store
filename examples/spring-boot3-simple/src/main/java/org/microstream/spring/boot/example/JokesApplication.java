@@ -14,8 +14,10 @@ package org.microstream.spring.boot.example;
  * #L%
  */
 
+import org.eclipse.store.integrations.spring.boot.types.EclipseStoreSpringBoot;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Import;
 
 /**
  * The {@code EclipseStoreProperties} class holds the configuration properties for the Eclipse Store.
@@ -29,6 +31,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * The properties are loaded from the configuration files when the application starts.</p>
  */
 @SpringBootApplication
+@Import(EclipseStoreSpringBoot.class)
 public class JokesApplication
 {
     public static void main(String... args)

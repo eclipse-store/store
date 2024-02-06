@@ -1,4 +1,18 @@
-package org.eclipse.store.integrations.spring.boot.restconsole.types.rest;
+package org.eclipse.store.storage.restservice.spring.boot.types.rest;
+
+/*-
+ * #%L
+ * integrations-spring-boot3-console
+ * %%
+ * Copyright (C) 2023 - 2024 MicroStream Software
+ * %%
+ * This program and the accompanying materials are made
+ * available under the terms of the Eclipse Public License 2.0
+ * which is available at https://www.eclipse.org/legal/epl-2.0/
+ *
+ * SPDX-License-Identifier: EPL-2.0
+ * #L%
+ */
 
 import org.eclipse.store.storage.restadapter.types.StorageRestAdapter;
 import org.eclipse.store.storage.restadapter.types.ViewerObjectDescription;
@@ -12,14 +26,16 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.stream.Stream;
 
+import static org.eclipse.store.storage.restservice.spring.boot.types.rest.StorageDataRestRestController.STATIC_URL_PREFIX;
 import static org.springframework.http.ResponseEntity.ok;
 
 /**
  * Spring REST controller exposing storage data for the restclient.
  */
 @RestController
-@RequestMapping(value = "/status/store-data", produces = {MediaType.APPLICATION_JSON_VALUE})
+@RequestMapping(value = { STATIC_URL_PREFIX }, produces = {MediaType.APPLICATION_JSON_VALUE})
 public class StorageDataRestRestController {
+  public static final String STATIC_URL_PREFIX = "/status/store-data";
   private final StorageRestAdapter adapter;
 
   public StorageDataRestRestController(
@@ -31,12 +47,12 @@ public class StorageDataRestRestController {
   @GetMapping(value = "/")
   public ResponseEntity<List<RouteWithMethodsDto>> getAvailableRoutes() {
     var routes = Stream.of(
-        new RouteWithMethodsDto("/", HttpMethod.GET.name().toLowerCase()),
-        new RouteWithMethodsDto("/root", HttpMethod.GET.name().toLowerCase()),
-        new RouteWithMethodsDto("/dictionary", HttpMethod.GET.name().toLowerCase()),
-        new RouteWithMethodsDto("/object/:oid", HttpMethod.GET.name().toLowerCase()),
-        new RouteWithMethodsDto("/maintenance/filesStatistics", HttpMethod.GET.name().toLowerCase())
-        ).toList();
+        new RouteWithMethodsDto(STATIC_URL_PREFIX + "/", HttpMethod.GET.name().toLowerCase()),
+        new RouteWithMethodsDto(STATIC_URL_PREFIX + "/root", HttpMethod.GET.name().toLowerCase()),
+        new RouteWithMethodsDto(STATIC_URL_PREFIX + "/dictionary", HttpMethod.GET.name().toLowerCase()),
+        new RouteWithMethodsDto(STATIC_URL_PREFIX + "/object/:oid", HttpMethod.GET.name().toLowerCase()),
+        new RouteWithMethodsDto(STATIC_URL_PREFIX + "/maintenance/filesStatistics", HttpMethod.GET.name().toLowerCase())
+    ).toList();
     return ok(routes);
   }
 
@@ -65,7 +81,7 @@ public class StorageDataRestRestController {
     var storageObject = adapter.getObject(
         objectId,
         fixedOffset != null ? fixedOffset : 0L,
-        fixedLength  != null ? fixedLength : Long.MAX_VALUE,
+        fixedLength != null ? fixedLength : Long.MAX_VALUE,
         variableOffset != null ? variableOffset : 0L,
         variableLength != null ? variableLength : Long.MAX_VALUE,
         valueLength != null ? valueLength : Long.MAX_VALUE,

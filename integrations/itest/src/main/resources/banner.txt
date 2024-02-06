@@ -1,0 +1,1 @@
+Spring Boot I-Test, version: ${spring-boot.version}

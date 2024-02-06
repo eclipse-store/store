@@ -12,6 +12,7 @@
     </parent>
 
     <artifactId>integrations</artifactId>
+    <name>EclipseStore Integrations Parent</name>
     <packaging>pom</packaging>
 
     <profiles>
@@ -23,7 +24,13 @@
             <modules>
                 <module>spring-boot3</module>
                 <module>spring-boot3-console</module>
+                <!-- This module exists in order to run real itests with dependencies provided by the application -->
+                <module>itest</module>
             </modules>
+            <properties>
+                <maven.compiler.source>17</maven.compiler.source>
+                <maven.compiler.target>17</maven.compiler.target>
+            </properties>
         </profile>
     </profiles>
 

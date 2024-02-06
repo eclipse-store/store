@@ -34,8 +34,15 @@
 			<activation>
 				<jdk>[17,)</jdk>
 			</activation>
+			<properties>
+				<maven.compiler.source>17</maven.compiler.source>
+				<maven.compiler.target>17</maven.compiler.target>
+				<java.version>17</java.version>
+			</properties>
 			<modules>
+				<module>service-springboot</module>
 				<module>client-app</module>
+				<module>client-app-standalone-assembly</module>
 			</modules>
 		</profile>
 	</profiles>

@@ -3,7 +3,7 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-    
+
     <parent>
         <groupId>org.eclipse.store</groupId>
         <artifactId>integrations</artifactId>
@@ -11,8 +11,8 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>integrations-spring-boot3-console</artifactId>
-    <name>EclipseStore Integrations SpringBoot Console</name>
+    <artifactId>integrations-spring-boot3-itest</artifactId>
+    <name>EclipseStore Integrations SpringBoot ITest</name>
 
     <properties>
         <org.springframework.boot.version>3.2.0</org.springframework.boot.version>
@@ -20,40 +20,19 @@
 
     <dependencies>
         <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <version>${org.springframework.boot.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.eclipse.store</groupId>
             <artifactId>integrations-spring-boot3</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>org.eclipse.store</groupId>
-            <artifactId>storage-restservice-springboot</artifactId>
+            <artifactId>integrations-spring-boot3-console</artifactId>
             <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.eclipse.store</groupId>
-            <artifactId>storage-restclient-app</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-            <version>${org.springframework.boot.version}</version>
-            <scope>provided</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot</artifactId>
-            <version>${org.springframework.boot.version}</version>
-            <scope>provided</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-autoconfigure</artifactId>
-            <version>${org.springframework.boot.version}</version>
-            <scope>provided</scope>
         </dependency>
 
         <dependency>
