@@ -1,0 +1,40 @@
+= Forced write operations
+
+If the NioFileSystem is used as storage target, the storage relays on https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/nio/channels/FileChannel.html[java.nio.channels.FileChannel] to store data.
+The java FileChannel implementation provides to option the force updates to be written file system force updates to be written file system].
+By default this option is not used what may cause incomplete written data in case of abnormal storage termination.
+
+The storage can be configured to do a https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/nio/channels/FileChannel.html#force(boolean)[force]
+call after every write operation to increase reliability in exchange of a significant decreased write performance.
+
+Please be aware the, even if the updates of files are forced, all limits of java FileChannel still apply.
+
+== Configuring forced write operations.
+
+=== using the System.Property org.eclipse.store.enforceWrite
+The forced write operations can be enabled by the system property `org.eclipse.store.enforceWrite`.
+If present and set to "true" the storage will force updates of files to be written immediately to the file system.
+The property is only evaluated at the first initialization of a storage. Changing the property afterwards does not effect active storages or other storages started later on.
+
+[source, java, title="java command"]
+----
+java -Dorg.eclipse.store.enforceWrite=true
+----
+
+[source, java, title="code"]
+----
+System.setProperty("org.eclipse.store.enforceWrite", "true");
+----
+
+=== XIO API
+The XIO API allows changing the writing behavior dynamically, this applies to all active storages.
+
+[source, java, title="get"]
+----
+XIO.enforceWrite()
+----
+
+[source, java, title="set"]
+----
+XIO.enforceWrite(true)
+----
