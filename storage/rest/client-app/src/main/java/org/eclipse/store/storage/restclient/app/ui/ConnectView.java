@@ -151,8 +151,9 @@ public class ConnectView extends VerticalLayout implements HasDynamicTitle
 	private Set<String> urls()
 	{
 		final Set<String> urlSelection = new LinkedHashSet<>();
+		urlSelection.add("http://localhost:8080/status/store-data/");
 		urlSelection.add("http://localhost:4567/store-data/");
-		
+
 		final HttpServletRequest request = (HttpServletRequest) VaadinRequest.getCurrent();
 		final Cookie[]           cookies = request.getCookies();
 		if(cookies != null)
