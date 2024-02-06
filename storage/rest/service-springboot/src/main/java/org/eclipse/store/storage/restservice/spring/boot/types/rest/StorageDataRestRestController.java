@@ -14,10 +14,13 @@ package org.eclipse.store.storage.restservice.spring.boot.types.rest;
  * #L%
  */
 
+import jakarta.annotation.PostConstruct;
 import org.eclipse.store.storage.restadapter.types.StorageRestAdapter;
 import org.eclipse.store.storage.restadapter.types.ViewerObjectDescription;
 import org.eclipse.store.storage.restadapter.types.ViewerRootDescription;
 import org.eclipse.store.storage.restadapter.types.ViewerStorageFileStatistics;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -37,11 +40,17 @@ import static org.springframework.http.ResponseEntity.ok;
 public class StorageDataRestRestController {
   public static final String STATIC_URL_PREFIX = "/status/store-data";
   private final StorageRestAdapter adapter;
+  private final Logger logger = LoggerFactory.getLogger(StorageDataRestRestController.class);
 
   public StorageDataRestRestController(
       StorageRestAdapter adapter
   ) {
     this.adapter = adapter;
+  }
+
+  @PostConstruct
+  public void report() {
+    logger.info("[ECLIPSE STORE REST SERVICE]: Started service using '{}/'", STATIC_URL_PREFIX);
   }
 
   @GetMapping(value = "/")
