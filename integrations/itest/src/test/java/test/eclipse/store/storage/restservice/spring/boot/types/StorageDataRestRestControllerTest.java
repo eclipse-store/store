@@ -1,4 +1,4 @@
-package test.eclipse.store.integrations.spring.boot.restconsole.tyes;
+package test.eclipse.store.storage.restservice.spring.boot.types;
 
 /*-
  * #%L
@@ -9,7 +9,7 @@ package test.eclipse.store.integrations.spring.boot.restconsole.tyes;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -84,6 +84,32 @@ class StorageDataRestRestControllerTest {
     ;
 
     verify(storageRestAdapter).getUserRoot();
+    verifyNoMoreInteractions(storageRestAdapter);
+  }
+
+  @Test
+  public void provides_object() throws Exception {
+    var objectId = 81276318L;
+    var objectDescription = new ViewerObjectDescription();
+    objectDescription.setObjectId("" + objectId);
+    objectDescription.setTypeId("100000001");
+    when(storageRestAdapter.getObject(anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyBoolean()))
+        .thenReturn(
+            objectDescription
+        );
+
+    rest
+        .perform(get(baseUrl + "/object/" + objectId))
+        .andExpect(status().isOk())
+        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+        .andExpect(jsonPath("$").exists())
+        .andExpect(jsonPath("$.objectId").value(objectDescription.getObjectId()))
+        .andExpect(jsonPath("$.typeId").value(objectDescription.getTypeId()))
+    ;
+
+    verify(storageRestAdapter).getObject(
+        objectId, 0L, Long.MAX_VALUE, 0L, Long.MAX_VALUE,  Long.MAX_VALUE, false
+    );
     verifyNoMoreInteractions(storageRestAdapter);
   }
 

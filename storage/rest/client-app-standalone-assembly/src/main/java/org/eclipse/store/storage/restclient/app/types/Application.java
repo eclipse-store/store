@@ -20,9 +20,11 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
 
 import com.vaadin.flow.spring.annotation.EnableVaadin;
+import org.springframework.context.annotation.Import;
 
 
 @SpringBootApplication
+@Import(RestClientAppAutoConfiguration.class)
 public class Application extends SpringBootServletInitializer
 {
 	public static void main(

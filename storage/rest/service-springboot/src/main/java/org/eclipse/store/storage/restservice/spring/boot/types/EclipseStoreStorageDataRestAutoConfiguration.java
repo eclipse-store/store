@@ -14,8 +14,10 @@ package org.eclipse.store.storage.restservice.spring.boot.types;
  * #L%
  */
 
+import org.eclipse.store.integrations.spring.boot.types.EclipseStoreSpringBoot;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.eclipse.store.storage.restadapter.types.StorageRestAdapter;
+import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
@@ -26,6 +28,7 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 @ComponentScan
+@AutoConfigureAfter({EclipseStoreSpringBoot.class})
 public class EclipseStoreStorageDataRestAutoConfiguration {
 
   @Bean

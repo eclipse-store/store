@@ -14,18 +14,41 @@ package org.eclipse.store.integrations.spring.boot.restconsole;
  * #L%
  */
 
+import com.vaadin.flow.spring.VaadinConfigurationProperties;
 import jakarta.annotation.PostConstruct;
+import org.eclipse.store.integrations.spring.boot.restconsole.configuration.RestConsoleProperties;
+import org.eclipse.store.integrations.spring.boot.types.EclipseStoreSpringBoot;
+import org.eclipse.store.storage.restservice.spring.boot.types.EclipseStoreStorageDataRestAutoConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.AutoConfigureAfter;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
+@EnableConfigurationProperties(RestConsoleProperties.class)
+@AutoConfigureAfter({
+    EclipseStoreStorageDataRestAutoConfiguration.class
+})
+@ComponentScan
 public class RestConsoleAutoConfiguration {
-
   private final Logger logger = LoggerFactory.getLogger(RestConsoleAutoConfiguration.class);
+  private final VaadinConfigurationProperties properties;
+
+  public RestConsoleAutoConfiguration(@Autowired(required = false) VaadinConfigurationProperties properties) {
+    this.properties = properties;
+  }
 
   @PostConstruct
   public void initialize() {
-    logger.warn("[ECLIPSE STORE CONSOLE]: Starting rest console.");
+    final String prefix;
+    if (properties != null) {
+      prefix = properties.getUrlMapping();
+    } else {
+      prefix = "/";
+    }
+    logger.info("[ECLIPSE STORE CONSOLE]: Starting console service: '{}'.", prefix);
   }
 }
