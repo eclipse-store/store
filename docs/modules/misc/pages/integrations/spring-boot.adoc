@@ -73,7 +73,7 @@ In case you need to modify the configuration in some way in the program, change 
 [source,java]
 ----
     @Bean
-    EmbeddedStorageManager injectStorageTest(@Autowired EclipseStoreProperties myConfiguration)
+    EmbeddedStorageManager injectStorageTest(@Autowired EclipseStoreProperties myConfiguration, @Autowired EclipseStoreProvider provider)
     {
         // Modify the configuration
         myConfiguration.setStorageDirectory(temp.getDir().getAbsolutePath());
