@@ -11,7 +11,7 @@ Currently, two implementations are available:
 
 In this example, we will use Spring Boot implementation that {product-name} provides. This requires a fully functional
 Spring Boot 3 with Spring Web MVC already set-up and configured. If you are unsure how to do so, please consult the
-original https://spring.io/projects/[spring-boot] documentation.
+original https://spring.io/projects/spring-boot[SpringBoot] documentation.
 
 Please add the following dependencies to your project:
 
@@ -31,26 +31,16 @@ Please add the following dependencies to your project:
 </dependencies>
 ----
 
-Using your preferred configuration format, please activate the REST service in your configuration:
+Using your preferred configuration format, please activate the REST service in your configuration.
+For example using properties file the configuration looks like:
 
-[source, yaml, title="application.yaml", subs=attributes+]
-----
-org:
-  eclipse:
-    store:
-      rest:
-        enabled: true
-----
-
-or in a properties file:
-
-[source, properties, title="application.yaml", subs=attributes+]
+[source, properties, title="application.properties", subs=attributes+]
 ----
 org.eclipse.store.rest.enabled=true
 ----
 
-This is it. This configuration will provide an additional endpoint accessible via "/store-data/" providing information via REST.
-If your application starts a web server on port 8080, the complete base URL will be http://localhost:8080/store-data/. Open
+This is it. This configuration will provide an additional REST endpoint accessible via `/store-data/` providing information
+about your store. If your application starts a web server on port 8080, the complete base URL will be http://localhost:8080/store-data/. Open
 it a browser to see further available URLs provided by the REST service.
 
 === Additional Configuration
@@ -59,7 +49,7 @@ You might want to change the base URL of your service. This is possible using th
 application. The corresponding property is `org.eclipse.store.rest.base-url`. The example below changes the base URL to
 `/some/other/location`:
 
-[source, properties, title="application.yaml", subs=attributes+]
+[source, properties, title="application.properties", subs=attributes+]
 ----
 org.eclipse.store.rest.base-url=/some/other/location
 ----
