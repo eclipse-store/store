@@ -9,6 +9,7 @@
     </appender>
 
     <logger name="org.eclipse.store.integrations.spring.boot.types.concurrent" level="trace" />
+    <logger name="org.atmosphere" level="warn" />
 
     <root level="debug">
         <appender-ref ref="STDOUT" />

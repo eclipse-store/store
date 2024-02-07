@@ -1,4 +1,4 @@
-package org.eclipse.store.integrations.spring.boot.types.root;
+package test.eclipse.store.integrations.spring.boot.root;
 
 /*-
  * #%L

@@ -1,4 +1,4 @@
-package org.eclipse.store.integrations.spring.boot.types.root;
+package test.eclipse.store.integrations.spring.boot.root;
 
 /*-
  * #%L
@@ -9,31 +9,33 @@ package org.eclipse.store.integrations.spring.boot.types.root;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
-import org.eclipse.store.integrations.spring.boot.types.EclipseStoreSpringBoot;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestPropertySource;
+import test.eclipse.store.integrations.spring.boot.TestApplication;
 
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @TestPropertySource("classpath:application-autostart-root.properties")
-@SpringBootTest(classes = {EclipseStoreSpringBoot.class})
-public class AutostartRootTest
-{
+@SpringBootTest
+public class AutostartRootTest {
 
-    @Test
-    void name(@Autowired EmbeddedStorageManager storage)
-    {
-        assertTrue(storage.isRunning() || storage.isStartingUp());
+  @Autowired
+  private EmbeddedStorageManager storage;
 
-        Object o = storage.root();
-        assertTrue(o instanceof Root);
-    }
+  @Test
+  void autostarts_and_provides_root() {
+    assertTrue(storage.isRunning() || storage.isStartingUp());
+
+    Object o = storage.root();
+    assertInstanceOf(Root.class, o);
+  }
 }

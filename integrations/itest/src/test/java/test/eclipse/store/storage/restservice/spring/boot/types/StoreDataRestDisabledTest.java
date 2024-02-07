@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
     classes = ITestApplication.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
-        "org.eclipse.store.console.ui.enabled=false" // disable
+        "org.eclipse.store.console.ui.enabled=false", // disable
     }
 )
 @AutoConfigureMockMvc

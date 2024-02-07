@@ -25,6 +25,7 @@ import org.eclipse.store.integrations.spring.boot.types.configuration.EclipseSto
 import org.eclipse.store.integrations.spring.boot.types.configuration.StorageFilesystem;
 import org.eclipse.store.integrations.spring.boot.types.configuration.sql.Mariadb;
 import org.eclipse.store.integrations.spring.boot.types.configuration.sql.Sql;
+import org.eclipse.store.integrations.spring.boot.types.converter.EclipseStoreConfigConverter;
 import org.junit.jupiter.api.Test;
 
 class EclipseStoreConfigConverterTest

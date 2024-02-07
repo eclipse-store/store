@@ -1,4 +1,4 @@
-package org.eclipse.store.integrations.spring.boot.types.storages;
+package test.eclipse.store.integrations.spring.boot.storages;
 
 /*-
  * #%L

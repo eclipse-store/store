@@ -34,17 +34,17 @@ import org.springframework.context.annotation.Configuration;
 @ComponentScan
 public class RestConsoleAutoConfiguration {
   private final Logger logger = LoggerFactory.getLogger(RestConsoleAutoConfiguration.class);
-  private final VaadinConfigurationProperties properties;
+  private final VaadinConfigurationProperties vaadinProperties;
 
-  public RestConsoleAutoConfiguration(@Autowired(required = false) VaadinConfigurationProperties properties) {
-    this.properties = properties;
+  public RestConsoleAutoConfiguration(@Autowired(required = false) VaadinConfigurationProperties vaadinProperties) {
+    this.vaadinProperties = vaadinProperties;
   }
 
   @PostConstruct
   public void initialize() {
     final String prefix;
-    if (properties != null) {
-      prefix = properties.getUrlMapping();
+    if (vaadinProperties != null) {
+      prefix = vaadinProperties.getUrlMapping();
     } else {
       prefix = "/";
     }
