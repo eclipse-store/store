@@ -85,7 +85,7 @@
 						<artifactId>spring-boot-maven-plugin</artifactId>
 						<version>${spring.boot.version}</version>
 						<configuration>
-							<finalName>${project.artifactId}-${project.version}-standalone.jar</finalName>
+							<finalName>${project.artifactId}-${project.version}-standalone</finalName>
 							<mainClass>
 								org.eclipse.store.storage.restclient.app.types.Application</mainClass>
 							<jvmArguments>-Dvaadin.productionMode</jvmArguments>
