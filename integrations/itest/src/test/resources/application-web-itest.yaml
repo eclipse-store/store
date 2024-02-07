@@ -7,5 +7,6 @@ org:
 
 logging:
   level:
+    root: warn
     org.springframework.web: DEBUG
     org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping: TRACE
