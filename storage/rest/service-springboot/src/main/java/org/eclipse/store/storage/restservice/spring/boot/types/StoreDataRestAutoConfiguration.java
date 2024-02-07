@@ -17,24 +17,34 @@ package org.eclipse.store.storage.restservice.spring.boot.types;
 import org.eclipse.store.integrations.spring.boot.types.EclipseStoreSpringBoot;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.eclipse.store.storage.restadapter.types.StorageRestAdapter;
+import org.eclipse.store.storage.restservice.spring.boot.types.configuration.StoreDataRestServiceProperties;
+import org.eclipse.store.storage.restservice.spring.boot.types.rest.StoreDataRestController;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 
 /**
  * Auto-configuration for the Spring Web MVC Rest Service.
  */
 @Configuration
-@ComponentScan
 @AutoConfigureAfter({EclipseStoreSpringBoot.class})
-public class EclipseStoreStorageDataRestAutoConfiguration {
+@EnableConfigurationProperties(StoreDataRestServiceProperties.class)
+public class StoreDataRestAutoConfiguration {
 
   @Bean
   @ConditionalOnMissingBean
   public StorageRestAdapter defaultStorageRestAdapter(EmbeddedStorageManager storage) {
     return StorageRestAdapter.New(storage);
+  }
+
+  @Bean
+  @ConditionalOnProperty(prefix = "org.eclipse.store.rest", name = "enabled", havingValue = "true")
+  public StoreDataRestController storageDataRestController(StorageRestAdapter storageRestAdapter,
+                                                           StoreDataRestServiceProperties properties) {
+    return new StoreDataRestController(storageRestAdapter, properties);
   }
 
 }

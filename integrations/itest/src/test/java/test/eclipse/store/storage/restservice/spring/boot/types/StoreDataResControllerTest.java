@@ -16,6 +16,7 @@ package test.eclipse.store.storage.restservice.spring.boot.types;
 
 import org.assertj.core.util.Lists;
 import org.eclipse.store.storage.restadapter.types.*;
+import org.eclipse.store.storage.restservice.spring.boot.types.configuration.StoreDataRestServiceProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -40,20 +41,22 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 )
 @AutoConfigureMockMvc
 @ActiveProfiles("web-itest")
-class StorageDataRestRestControllerTest {
+class StoreDataResControllerTest {
 
   @Autowired
   private MockMvc rest;
 
-  private final String baseUrl = "/status/store-data";
+  @Autowired
+  private StoreDataRestServiceProperties properties;
 
   @MockBean
   private StorageRestAdapter storageRestAdapter;
 
   @Test
   public void provides_links() throws Exception {
+    var baseUrl = properties.getBaseUrl();
     rest
-        .perform(get(baseUrl + "/"))
+        .perform(get(properties.getBaseUrl() + "/"))
         .andExpect(status().isOk())
         .andExpect(content().contentType(MediaType.APPLICATION_JSON))
         .andExpect(jsonPath("$").isArray())
@@ -75,7 +78,7 @@ class StorageDataRestRestControllerTest {
         );
 
     rest
-        .perform(get(baseUrl + "/root"))
+        .perform(get(properties.getBaseUrl() + "/root"))
         .andExpect(status().isOk())
         .andExpect(content().contentType(MediaType.APPLICATION_JSON))
         .andExpect(jsonPath("$").exists())
@@ -99,7 +102,7 @@ class StorageDataRestRestControllerTest {
         );
 
     rest
-        .perform(get(baseUrl + "/object/" + objectId))
+        .perform(get(properties.getBaseUrl() + "/object/" + objectId))
         .andExpect(status().isOk())
         .andExpect(content().contentType(MediaType.APPLICATION_JSON))
         .andExpect(jsonPath("$").exists())
@@ -137,7 +140,7 @@ class StorageDataRestRestControllerTest {
         );
 
     rest
-        .perform(get(baseUrl + "/maintenance/filesStatistics"))
+        .perform(get(properties.getBaseUrl() + "/maintenance/filesStatistics"))
         .andExpect(status().isOk())
         .andExpect(content().contentType(MediaType.APPLICATION_JSON))
         .andExpect(jsonPath("$").exists())

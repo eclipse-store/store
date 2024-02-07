@@ -1,1 +1,1 @@
-org.eclipse.store.storage.restservice.spring.boot.types.EclipseStoreStorageDataRestAutoConfiguration
+org.eclipse.store.storage.restservice.spring.boot.types.StoreDataRestAutoConfiguration

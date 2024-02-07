@@ -17,8 +17,7 @@ package org.eclipse.store.integrations.spring.boot.restconsole;
 import com.vaadin.flow.spring.VaadinConfigurationProperties;
 import jakarta.annotation.PostConstruct;
 import org.eclipse.store.integrations.spring.boot.restconsole.configuration.RestConsoleProperties;
-import org.eclipse.store.integrations.spring.boot.types.EclipseStoreSpringBoot;
-import org.eclipse.store.storage.restservice.spring.boot.types.EclipseStoreStorageDataRestAutoConfiguration;
+import org.eclipse.store.storage.restservice.spring.boot.types.StoreDataRestAutoConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,7 +29,7 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @EnableConfigurationProperties(RestConsoleProperties.class)
 @AutoConfigureAfter({
-    EclipseStoreStorageDataRestAutoConfiguration.class
+    StoreDataRestAutoConfiguration.class
 })
 @ComponentScan
 public class RestConsoleAutoConfiguration {

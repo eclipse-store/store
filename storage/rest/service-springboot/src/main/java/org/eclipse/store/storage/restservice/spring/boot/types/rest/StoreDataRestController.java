@@ -19,6 +19,7 @@ import org.eclipse.store.storage.restadapter.types.StorageRestAdapter;
 import org.eclipse.store.storage.restadapter.types.ViewerObjectDescription;
 import org.eclipse.store.storage.restadapter.types.ViewerRootDescription;
 import org.eclipse.store.storage.restadapter.types.ViewerStorageFileStatistics;
+import org.eclipse.store.storage.restservice.spring.boot.types.configuration.StoreDataRestServiceProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpMethod;
@@ -27,40 +28,44 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Stream;
 
-import static org.eclipse.store.storage.restservice.spring.boot.types.rest.StorageDataRestRestController.STATIC_URL_PREFIX;
 import static org.springframework.http.ResponseEntity.ok;
 
 /**
  * Spring REST controller exposing storage data for the restclient.
  */
 @RestController
-@RequestMapping(value = { STATIC_URL_PREFIX }, produces = {MediaType.APPLICATION_JSON_VALUE})
-public class StorageDataRestRestController {
-  public static final String STATIC_URL_PREFIX = "/status/store-data";
+@RequestMapping(path = {"${org.eclipse.store.rest.base-url:#{T(org.eclipse.store.storage.restservice.spring.boot.types.configuration.StoreDataRestServiceProperties).DEFAULT_BASE_URL}}"}, produces = {MediaType.APPLICATION_JSON_VALUE})
+public class StoreDataRestController {
   private final StorageRestAdapter adapter;
-  private final Logger logger = LoggerFactory.getLogger(StorageDataRestRestController.class);
+  private final StoreDataRestServiceProperties properties;
+  private final Logger logger = LoggerFactory.getLogger(StoreDataRestController.class);
 
-  public StorageDataRestRestController(
-      StorageRestAdapter adapter
+  public StoreDataRestController(
+      StorageRestAdapter adapter,
+      StoreDataRestServiceProperties properties
   ) {
     this.adapter = adapter;
+    this.properties = properties;
   }
 
   @PostConstruct
-  public void report() {
-    logger.info("[ECLIPSE STORE REST SERVICE]: Started service using '{}/'", STATIC_URL_PREFIX);
+  public void validateSetup() {
+    Objects.requireNonNull(properties.getBaseUrl(), "Base URL must not be null. ");
+    logger.info("[ECLIPSE STORE REST SERVICE]: Started service using '{}/'", properties.getBaseUrl());
   }
 
   @GetMapping(value = "/")
   public ResponseEntity<List<RouteWithMethodsDto>> getAvailableRoutes() {
+    var prefix = properties.getBaseUrl();
     var routes = Stream.of(
-        new RouteWithMethodsDto(STATIC_URL_PREFIX + "/", HttpMethod.GET.name().toLowerCase()),
-        new RouteWithMethodsDto(STATIC_URL_PREFIX + "/root", HttpMethod.GET.name().toLowerCase()),
-        new RouteWithMethodsDto(STATIC_URL_PREFIX + "/dictionary", HttpMethod.GET.name().toLowerCase()),
-        new RouteWithMethodsDto(STATIC_URL_PREFIX + "/object/:oid", HttpMethod.GET.name().toLowerCase()),
-        new RouteWithMethodsDto(STATIC_URL_PREFIX + "/maintenance/filesStatistics", HttpMethod.GET.name().toLowerCase())
+        new RouteWithMethodsDto(prefix + "/", HttpMethod.GET.name().toLowerCase()),
+        new RouteWithMethodsDto(prefix + "/root", HttpMethod.GET.name().toLowerCase()),
+        new RouteWithMethodsDto(prefix + "/dictionary", HttpMethod.GET.name().toLowerCase()),
+        new RouteWithMethodsDto(prefix + "/object/:oid", HttpMethod.GET.name().toLowerCase()),
+        new RouteWithMethodsDto(prefix + "/maintenance/filesStatistics", HttpMethod.GET.name().toLowerCase())
     ).toList();
     return ok(routes);
   }
