@@ -32,9 +32,15 @@ It is made up of the following modules:
 |storage-restservice-sparkjava
 |REST service implementation which utilizes SparkJava and provides REST endpoints.
 
+|storage-restservice-springboot
+|REST service implementation which utilizes SpringBoot and Spring MVC and provides REST endpoints.
+
 |storage-restclient-jersey
 |REST client implementation which utilizes Jersey as a webservice framework.
 
 |storage-restclient-app
-|Executable client app with web user interface, which connects to a REST service and provides a simple UI to navigate through the Object Graph from the root.
+|Client app with web user interface, which connects to a REST service and provides a simple UI to navigate through the Object Graph from the root.
+
+|storage-restclient-app-standalone
+|A standalone executable running from command line encapsulating the Client app from storage-restclient-app.
 |===

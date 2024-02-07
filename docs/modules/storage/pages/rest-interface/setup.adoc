@@ -49,8 +49,8 @@ or in a properties file:
 org.eclipse.store.rest.enabled=true
 ----
 
-This is it. This configuration will provide a new endpoint "/store-data/" for accessing information via REST. If your
-application starts a web server on port 8080, the complete base URL will be http://localhost:8080/eclipsestore/. Open
+This is it. This configuration will provide an additional endpoint accessible via "/store-data/" providing information via REST.
+If your application starts a web server on port 8080, the complete base URL will be http://localhost:8080/store-data/. Open
 it a browser to see further available URLs provided by the REST service.
 
 === Additional Configuration
