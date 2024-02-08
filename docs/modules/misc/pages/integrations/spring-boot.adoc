@@ -230,27 +230,35 @@ Detailed documentation can be found at xref:storage:rest-interface/setup.adoc[Se
 
 == Activating Client GUI
 
-You can include the Client GUI application to be directly served by your application. For this purpose, you need to activate
-the SpringBoot REST Service and include the SpringBoot Console to your application classpath.
+You can include the Client GUI application to be directly as a module served by your application. For this purpose, include
+the SpringBoot Console to your application classpath. We assume that you are starting Spring MVC in your application already.
 
-Please add the following dependency to your classpath:
+Please add the following dependency to Maven pom.xml of your SpringBoot application:
 
 [source,xml]
 ----
-    <dependency>
-        <groupId>org.eclipse.store</groupId>
-        <artifactId>integrations-spring-boot3-console</artifactId>
-        <version>{maven-version}</version>
-    </dependency>
+<dependency>
+    <groupId>org.eclipse.store</groupId>
+    <artifactId>integrations-spring-boot3-console</artifactId>
+    <version>{maven-version}</version>
+</dependency>
 ----
 
-and configure the path of the console by setting the following properties in your configuration file:
+In order to operate properly, Client GUI requires a working SpringBoot REST Service. This is already prepackaged in the
+console module and needs to be activated. In addition, the path to the Client GUI needs to be configured.
+
+Please set the following properties in your configuration file:
 
 [source,properties]
 ----
+org.eclipse.store.rest.enabled=true
 vaadin.url-mapping=/store-console/*
 ----
 
-The console application starts with your application and will be available at the specified URL.
+The Client GUI will start with your application and will be available at the specified URL. So if your SpringBoot application
+starts a web server on port `8080` the Client GUI will be available at: http://localhost:8080/store-console/. Open this URL
+in your browser, select from the dropdown list the endpoint of the Spring REST Service (http://localhost:8080/store-data/)
+and click connect.
+
 
 
