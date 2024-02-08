@@ -68,7 +68,7 @@ public class DefaultEclipseStoreConfiguration {
    * @param embeddedStorageFoundationSupplier embedded storage foundation factory supplier.
    * @return storage manager.
    */
-  @Bean
+  @Bean(destroyMethod = "shutdown") // for now, always shutdown on spring shutdown without relying on auto-detection
   @Qualifier("defaultEclipseStore")
   @ConditionalOnMissingBean
   public EmbeddedStorageManager embeddedStorageManager(
