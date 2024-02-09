@@ -14,7 +14,6 @@ package org.eclipse.store.integrations.spring.boot.types.converter;
  * #L%
  */
 
-import org.eclipse.store.integrations.spring.boot.types.converter.EclipseStoreConfigConverter;
 import org.eclipse.store.storage.embedded.configuration.types.EmbeddedStorageConfigurationPropertyNames;
 import org.junit.jupiter.api.Test;
 
