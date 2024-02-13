@@ -298,6 +298,6 @@ public enum ConfigurationCoreProperties
 
 	public static class Constants
 	{
-		public static final String PREFIX = "one.microstream.";
+		public static final String PREFIX = "org.eclipse.store.";
 	}
 }

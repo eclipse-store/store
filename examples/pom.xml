@@ -36,6 +36,7 @@
 		<module>loading</module>
 		<module>reloader</module>
 		<module>storing</module>
+		<module>wildfly</module>
 	</modules>
 
 	<dependencyManagement>

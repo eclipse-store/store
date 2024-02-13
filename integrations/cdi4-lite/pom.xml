@@ -2,7 +2,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>microstream-integrations-cdi3</artifactId>
+    <artifactId>eclipse-store-integrations-cdi4-lite</artifactId>
 
     <parent>
         <groupId>org.eclipse.store</groupId>
@@ -22,7 +22,7 @@
         <dependency>
             <groupId>jakarta.enterprise</groupId>
             <artifactId>jakarta.enterprise.cdi-api</artifactId>
-            <version>4.0.1</version>
+            <version>3.0.0</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
@@ -34,7 +34,7 @@
         <dependency>
             <groupId>org.eclipse.microprofile.config</groupId>
             <artifactId>microprofile-config-api</artifactId>
-            <version>3.1</version>
+            <version>3.0.1</version>
             <scope>provided</scope>
         </dependency>
 
