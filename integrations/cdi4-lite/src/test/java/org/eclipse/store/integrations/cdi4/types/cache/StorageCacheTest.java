@@ -26,6 +26,7 @@ import org.eclipse.store.integrations.cdi4.types.extension.StorageExtension;
 import org.eclipse.store.integrations.cdi4.types.logging.TestLogger;
 import org.eclipse.store.storage.types.Database;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.eclipse.store.storage.types.StorageManager;
 import org.eclipse.store.storage.types.Databases;
 import org.jboss.weld.junit5.auto.AddBeanClasses;
 import org.jboss.weld.junit5.auto.AddExtensions;
