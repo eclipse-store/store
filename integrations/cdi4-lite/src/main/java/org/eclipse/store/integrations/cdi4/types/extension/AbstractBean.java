@@ -63,6 +63,12 @@ public abstract class AbstractBean<T> implements Bean<T>, PassivationCapable
 	}
 
 	@Override
+	public boolean isNullable()
+	{
+		return false;
+	}
+
+	@Override
 	public Set<InjectionPoint> getInjectionPoints()
 	{
 		return this.injectionPoints;

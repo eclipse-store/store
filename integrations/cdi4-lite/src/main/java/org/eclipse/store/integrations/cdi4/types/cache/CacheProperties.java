@@ -35,7 +35,7 @@ import org.eclipse.serializer.reflect.XReflect;
  */
 public enum CacheProperties implements Supplier<String>
 {
-	PREFIX("one.microstream."),
+	PREFIX("org.eclipse.store."),
 	/**
 	 * cacheLoaderFactory - A CacheLoader should be configured
 	 * for "Read Through" caches to load values when a cache miss occurs.

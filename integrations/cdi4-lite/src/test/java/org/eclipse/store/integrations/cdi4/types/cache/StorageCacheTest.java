@@ -9,7 +9,7 @@ package org.eclipse.store.integrations.cdi4.types.cache;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -25,9 +25,8 @@ import org.eclipse.store.integrations.cdi4.types.config.StorageManagerProducer;
 import org.eclipse.store.integrations.cdi4.types.extension.StorageExtension;
 import org.eclipse.store.integrations.cdi4.types.logging.TestLogger;
 import org.eclipse.store.storage.types.Database;
-import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
-import org.eclipse.store.storage.types.StorageManager;
 import org.eclipse.store.storage.types.Databases;
+import org.eclipse.store.storage.types.StorageManager;
 import org.jboss.weld.junit5.auto.AddBeanClasses;
 import org.jboss.weld.junit5.auto.AddExtensions;
 import org.jboss.weld.junit5.auto.EnableAutoWeld;
