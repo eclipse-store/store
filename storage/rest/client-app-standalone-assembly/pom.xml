@@ -64,7 +64,7 @@
 				<version>${spring.boot.version}</version>
 				<configuration>
 					<mainClass>
-						org.eclipse.store.storage.restclient.app.types.Application</mainClass>
+						org.eclipse.store.storage.restclient.app.standalone.types.Application</mainClass>
 					<!-- Clean build and startup time for Vaadin apps sometimes
 					may exceed 
 						the default Spring Boot's 30sec timeout. -->
@@ -87,7 +87,7 @@
 						<configuration>
 							<finalName>${project.artifactId}-${project.version}-standalone</finalName>
 							<mainClass>
-								org.eclipse.store.storage.restclient.app.types.Application</mainClass>
+								org.eclipse.store.storage.restclient.app.standalone.types.Application</mainClass>
 							<jvmArguments>-Dvaadin.productionMode</jvmArguments>
 							<layout>JAR</layout>
 						</configuration>

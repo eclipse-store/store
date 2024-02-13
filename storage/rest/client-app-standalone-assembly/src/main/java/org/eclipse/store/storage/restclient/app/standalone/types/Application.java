@@ -1,5 +1,5 @@
 
-package org.eclipse.store.storage.restclient.app.types;
+package org.eclipse.store.storage.restclient.app.standalone.types;
 
 /*-
  * #%L
@@ -15,11 +15,11 @@ package org.eclipse.store.storage.restclient.app.types;
  * #L%
  */
 
+import org.eclipse.store.storage.restclient.app.types.RestClientAppAutoConfiguration;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
 
-import com.vaadin.flow.spring.annotation.EnableVaadin;
 import org.springframework.context.annotation.Import;
 
 
