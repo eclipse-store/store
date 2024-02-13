@@ -43,7 +43,7 @@ class StorageCacheProducer
 {
 	private static final Logger      LOGGER         = Logger.getLogger(StorageCacheProducer.class.getName());
 	
-	private static final String      CACHE_PROVIDER = "one.microstream.cache.types.CachingProvider";
+	private static final String      CACHE_PROVIDER = "org.eclipse.store.cache.types.CachingProvider";
 	
 	private CachingProvider          provider;
 	
