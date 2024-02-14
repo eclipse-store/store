@@ -29,7 +29,7 @@ package org.slf4j.impl;
  * #L%
  */
 
-import org.eclipse.store.integrations.cdi4.types.logging.TestLoggerFactory;
+import org.eclipse.store.integrations.cdi.types.logging.TestLoggerFactory;
 import org.slf4j.ILoggerFactory;
 import org.slf4j.spi.LoggerFactoryBinder;
 

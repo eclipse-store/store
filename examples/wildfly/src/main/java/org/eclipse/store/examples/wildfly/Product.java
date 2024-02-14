@@ -17,8 +17,8 @@ package org.eclipse.store.examples.wildfly;
 
 import java.util.Objects;
 
-import javax.json.bind.annotation.JsonbCreator;
-import javax.json.bind.annotation.JsonbProperty;
+import jakarta.json.bind.annotation.JsonbCreator;
+import jakarta.json.bind.annotation.JsonbProperty;
 
 
 public class Product

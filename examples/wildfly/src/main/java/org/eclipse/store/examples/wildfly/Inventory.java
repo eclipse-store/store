@@ -16,9 +16,9 @@ package org.eclipse.store.examples.wildfly;
  */
 
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import org.eclipse.serializer.persistence.types.Persister;
-import org.eclipse.store.integrations.cdi4.Storage;
+import org.eclipse.store.integrations.cdi.Storage;
 
 import java.util.Collections;
 import java.util.HashSet;
