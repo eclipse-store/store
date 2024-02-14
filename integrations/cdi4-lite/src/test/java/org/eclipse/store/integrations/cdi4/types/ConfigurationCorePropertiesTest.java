@@ -32,13 +32,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-
 @EnableAutoWeld  // So that Weld container is started
 @AddExtensions(ConfigExtension.class)  // SmallRye Config extension to Support MicroProfile Config within this test
 class ConfigurationCorePropertiesTest
 {
 	// Testing the ConfigurationCoreProperties functionality.
-	// - convert the MicroProfile config key/values to Map entries as MicroStream config values.
+	// - convert the MicroProfile config key/values to Map entries as Eclipse Store config values.
 
 	@Inject
 	private Config config;
@@ -48,6 +47,8 @@ class ConfigurationCorePropertiesTest
 	{
 		TestLogger.reset();
 	}
+
+	private static final String PREFIX = ConfigurationCoreProperties.Constants.PREFIX;
 
 	@Test
 	void shouldLoadFromPropertiesFile()
@@ -97,7 +98,7 @@ class ConfigurationCorePropertiesTest
 	@Test
 	void shouldMapStorageFileSystem()
 	{
-		final String keyMicroProfile = "one.microstream.storage.filesystem.sql.postgres.data-source-provider";
+		final String keyMicroProfile = PREFIX + "storage.filesystem.sql.postgres.data-source-provider";
 		final String keyMicroStream = "storage-filesystem.sql.postgres.data-source-provider";
 		try
 		{
@@ -116,7 +117,7 @@ class ConfigurationCorePropertiesTest
 	@Test
 	void shouldSupportMicroStreamKeys()
 	{
-		final String keyMicroProfile = "one.microstream.storage-directory";
+		final String keyMicroProfile = PREFIX +"storage-directory";
 		try
 		{
 			System.setProperty(keyMicroProfile, "/storage");
@@ -136,7 +137,7 @@ class ConfigurationCorePropertiesTest
 	{
 		// Without CDI version, testing ConfigurationCoreProperties 'directly'
 
-		final String keyMicroProfile = "one.microstream.storage.filesystem.sql.postgres.data-source-provider";
+		final String keyMicroProfile = PREFIX + "storage.filesystem.sql.postgres.data-source-provider";
 		final String keyMicroStream = "storage-filesystem.sql.postgres.data-source-provider";
 
 		Optional<ConfigurationCoreProperties> property = ConfigurationCoreProperties.get(keyMicroProfile);
@@ -151,7 +152,7 @@ class ConfigurationCorePropertiesTest
 	{
 		// Not using CDI
 
-		final String keyMicroProfile = "one.microstream.storage.directory";
+		final String keyMicroProfile = PREFIX + "storage.directory";
 		final String keyMicroStream = "storage-directory";
 
 		Optional<ConfigurationCoreProperties> property = ConfigurationCoreProperties.get(keyMicroProfile);
@@ -165,7 +166,8 @@ class ConfigurationCorePropertiesTest
 	void findEnumValue()
 	{
 		// Not using CDI
-		final Optional<ConfigurationCoreProperties> property = ConfigurationCoreProperties.get("one.microstream.storage.directory");
+		String key = PREFIX + "storage.directory";
+		final Optional<ConfigurationCoreProperties> property = ConfigurationCoreProperties.get(key);
 		Assertions.assertTrue(property.isPresent());
 		Assertions.assertEquals(ConfigurationCoreProperties.STORAGE_DIRECTORY,  property.get());
 	}
@@ -174,7 +176,7 @@ class ConfigurationCorePropertiesTest
 	void findEnumValue_partial()
 	{
 		// Not using CDI
-		String key = "one.microstream.storage.filesystem.sql.postgres.data-source-provider";
+		String key = PREFIX + "storage.filesystem.sql.postgres.data-source-provider";
 		final Optional<ConfigurationCoreProperties> property = ConfigurationCoreProperties.get(key);
 		Assertions.assertTrue(property.isPresent());
 		Assertions.assertEquals(ConfigurationCoreProperties.STORAGE_FILESYSTEM,  property.get());
@@ -185,7 +187,8 @@ class ConfigurationCorePropertiesTest
 	void findEnumValue_NotCaseSensitive()
 	{
 		// Not using CDI
-		final Optional<ConfigurationCoreProperties> property = ConfigurationCoreProperties.get("one.microstream.Storage.Directory");
+		String key = PREFIX + "Storage.Directory";
+		final Optional<ConfigurationCoreProperties> property = ConfigurationCoreProperties.get(key);
 		Assertions.assertTrue(property.isEmpty());
 	}
 }

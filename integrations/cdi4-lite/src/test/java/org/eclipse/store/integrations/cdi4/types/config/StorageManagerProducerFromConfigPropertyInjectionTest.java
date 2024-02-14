@@ -73,7 +73,7 @@ class StorageManagerProducerFromConfigPropertyInjectionTest
         storageExtensionMock = Mockito.mock(StorageExtension.class);
         // This means we do have a @Inject @ConfigProperty StorageManager construct
         // And thus should 'take' StorageManger from MicroProfileConfig directly.
-        final Set<String> names = Set.of("one.microstream.ini");
+        final Set<String> names = Set.of("org.eclipse.store.ini");
         Mockito.when(storageExtensionMock.getStorageManagerConfigInjectionNames())
                 .thenReturn(names);
 
@@ -89,7 +89,7 @@ class StorageManagerProducerFromConfigPropertyInjectionTest
 
         //
         Mockito.verify(configMock)
-                .getValue("one.microstream.ini", StorageManager.class);  // Test if StorageManager from Config taken
+                .getValue("org.eclipse.store.ini", StorageManager.class);  // Test if StorageManager from Config taken
         Mockito.verifyNoMoreInteractions(configMock);
 
         // Another test to prove we did not create a real Storage Manager

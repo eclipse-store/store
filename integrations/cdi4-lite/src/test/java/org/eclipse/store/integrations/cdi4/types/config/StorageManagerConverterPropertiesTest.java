@@ -40,7 +40,7 @@ import java.util.List;
 public class StorageManagerConverterPropertiesTest extends AbstractStorageManagerConverterTest
 {
 	@Inject
-	@ConfigProperty(name = "one.microstream.properties")
+	@ConfigProperty(name = "org.eclipse.store.properties")
 	private StorageManager manager;
 
 	@Test
@@ -59,7 +59,7 @@ public class StorageManagerConverterPropertiesTest extends AbstractStorageManage
 
 		this.directoryHasChannels(new File("target/prop"), 2);
 
-		// No database-name defined in file so it takes the filename (value of "one.microstream.properties" MP key)
+		// No database-name defined in file so it takes the filename (value of "org.eclipse.store.properties" MP key)
 		Assertions.assertEquals("storage.properties", this.manager.databaseName());
 	}
 }
