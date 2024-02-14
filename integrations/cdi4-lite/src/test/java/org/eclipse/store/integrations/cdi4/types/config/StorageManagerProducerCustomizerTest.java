@@ -48,7 +48,7 @@ import java.util.stream.Collectors;
 @EnableWeld
 class StorageManagerProducerCustomizerTest
 {
-    public static final String STORAGE_DIRECTORY = "one.microstream.storage-directory";
+    public static final String STORAGE_DIRECTORY = "org.eclipse.store.storage-directory";
     // Test the StorageManagerProducer
     // - Support for creating a StorageManager based on configuration values (when no MicroProfile Config one used)
 

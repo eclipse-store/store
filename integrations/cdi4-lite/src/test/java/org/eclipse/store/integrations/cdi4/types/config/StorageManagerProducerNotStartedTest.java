@@ -48,8 +48,8 @@ import java.util.stream.Collectors;
 @EnableWeld
 class StorageManagerProducerNotStartedTest
 {
-    public static final String STORAGE_DIRECTORY = "one.microstream.storage-directory";
-    public static final String AUTO_START = "one.microstream.autoStart";
+    public static final String STORAGE_DIRECTORY = "org.eclipse.store.storage-directory";
+    public static final String AUTO_START = "org.eclipse.store.autoStart";
 
     // Test the StorageManagerProducer
     // - Support for creating a StorageManager based on configuration values (when no MicroProfile Config one used)
