@@ -185,7 +185,7 @@
                     </executions>
                     <configuration>
                         <instructions>
-                            <Export-Package>org.eclipse.storage*;-split-package:=merge-first</Export-Package>
+                            <Export-Package>org.eclipse.store*;-split-package:=merge-first</Export-Package>
                             <Import-Package>*</Import-Package>
                             <DynamicImport-Package>*</DynamicImport-Package>
                         </instructions>
