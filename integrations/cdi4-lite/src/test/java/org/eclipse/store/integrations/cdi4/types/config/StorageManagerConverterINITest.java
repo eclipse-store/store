@@ -42,7 +42,7 @@ import org.slf4j.event.LoggingEvent;
 public class StorageManagerConverterINITest extends AbstractStorageManagerConverterTest
 {
     @Inject
-    @ConfigProperty(name = "one.microstream.ini")
+    @ConfigProperty(name = "org.eclipse.store.ini")
     private StorageManager manager;
 
     @ApplicationScoped

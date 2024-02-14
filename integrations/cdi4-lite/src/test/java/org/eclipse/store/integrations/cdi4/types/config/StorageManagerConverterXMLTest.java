@@ -42,7 +42,7 @@ import java.util.List;
 public class StorageManagerConverterXMLTest extends AbstractStorageManagerConverterTest
 {
 	@Inject
-	@ConfigProperty(name = "one.microstream.xml")
+	@ConfigProperty(name = "org.eclipse.store.xml")
 	private StorageManager manager;
 	
 	@Test

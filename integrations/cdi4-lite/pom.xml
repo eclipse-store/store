@@ -15,7 +15,7 @@
     <description>Eclipse Store CDI 4 lite Extension</description>
 
     <properties>
-        <maven.test.skip>true</maven.test.skip>
+<!--        <maven.test.skip>true</maven.test.skip>-->
     </properties>
 
     <dependencies>
