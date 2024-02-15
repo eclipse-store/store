@@ -16,6 +16,6 @@ module org.eclipse.store.storage.restclient.jersey
 	exports org.eclipse.store.storage.restclient.jersey.types;
 	
 	requires transitive com.google.gson;
-	requires transitive java.ws.rs;
+	requires transitive jakarta.ws.rs;
 	requires transitive org.eclipse.store.storage.restclient;
 }

@@ -16,7 +16,9 @@ module org.eclipse.store.storage
 	exports org.eclipse.store.storage.util;
 	exports org.eclipse.store.storage.types;
 	exports org.eclipse.store.storage.exceptions;
+	exports org.eclipse.store.storage.monitoring;
 
 	requires transitive org.eclipse.store.afs.nio;
 	requires transitive org.eclipse.serializer.persistence.binary;
+	requires transitive org.eclipse.serializer.base;
 }
