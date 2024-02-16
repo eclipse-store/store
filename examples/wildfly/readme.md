@@ -26,16 +26,19 @@ To execute the tests:
 curl --location --request POST 'http://localhost:8080/products/' \
 --header 'Content-Type: application/json' \
 --data-raw '{"id": 1, "name": "banana", "description": "a fruit", "rating": 5}'
-
+```
+```shell
 curl --location --request POST 'http://localhost:8080/products/' \
 --header 'Content-Type: application/json' \
 --data-raw '{"id": 2, "name": "watermelon", "description": "watermelon sugar ahh", "rating": 4}'
-
+```
+```shell
 curl --location --request GET 'http://localhost:8080/products/'
-
+```
+```shell
 curl --location --request GET 'http://localhost:8080/products/1'
-
+```
+```shell
 curl --location --request DELETE 'http://localhost:8080/products/1'
-
 ```
 
