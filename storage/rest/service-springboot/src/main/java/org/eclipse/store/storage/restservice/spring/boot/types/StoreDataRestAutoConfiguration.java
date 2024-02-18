@@ -14,37 +14,42 @@ package org.eclipse.store.storage.restservice.spring.boot.types;
  * #L%
  */
 
-import org.eclipse.store.integrations.spring.boot.types.EclipseStoreSpringBoot;
+import org.eclipse.store.integrations.spring.boot.types.DefaultEclipseStoreConfiguration;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.eclipse.store.storage.restadapter.types.StorageRestAdapter;
 import org.eclipse.store.storage.restservice.spring.boot.types.configuration.StoreDataRestServiceProperties;
 import org.eclipse.store.storage.restservice.spring.boot.types.rest.StoreDataRestController;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.Map;
+import java.util.stream.Collectors;
+
 /**
  * Auto-configuration for the Spring Web MVC Rest Service.
  */
 @Configuration
-@AutoConfigureAfter({EclipseStoreSpringBoot.class})
+@AutoConfigureAfter({DefaultEclipseStoreConfiguration.class})
 @EnableConfigurationProperties(StoreDataRestServiceProperties.class)
 public class StoreDataRestAutoConfiguration {
 
   @Bean
-  @ConditionalOnMissingBean
-  public StorageRestAdapter defaultStorageRestAdapter(EmbeddedStorageManager storage) {
-    return StorageRestAdapter.New(storage);
+  @ConditionalOnProperty(prefix = "org.eclipse.store.rest", name = "enabled", havingValue = "true")
+  public Map<String, StorageRestAdapter> storageRestAdapters(Map<String, EmbeddedStorageManager> storages) {
+    return storages.entrySet().stream().collect(Collectors.toMap(
+        Map.Entry::getKey,
+        e -> StorageRestAdapter.New(e.getValue())
+    ));
   }
 
   @Bean
   @ConditionalOnProperty(prefix = "org.eclipse.store.rest", name = "enabled", havingValue = "true")
-  public StoreDataRestController storageDataRestController(StorageRestAdapter storageRestAdapter,
+  public StoreDataRestController storageDataRestController(Map<String, StorageRestAdapter> storageRestAdapters,
                                                            StoreDataRestServiceProperties properties) {
-    return new StoreDataRestController(storageRestAdapter, properties);
+    return new StoreDataRestController(storageRestAdapters, properties);
   }
 
 }
