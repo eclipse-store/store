@@ -69,8 +69,10 @@ public class JokesStorageImpl implements JokesStorage
 
 == Configuration Injection
 
-In case you need to modify the configuration in some way in the program, change something, add and the like, you can have the `EclipseStoreProperties` Spring bean injected into your class. This class contains all the configuration values that are used to create a `StorageManager`.
-You can modify these values and then use the `EmbeddedStorageManagerFactory` Bean to create a new `EmbeddedStorageManager` or `EmbeddedStorageFoundationFactory` to create a new  `EmbeddedStorageFoundation`.
+In case you need to modify the configuration in some way in the program, change something, add and the like, you can have the `EclipseStoreProperties` Spring bean injected into your class.
+This class contains all the configuration values that are used to create a `StorageManager`.
+You can modify these values and then use the `EmbeddedStorageManagerFactory` Bean to create
+a new `EmbeddedStorageManager` or `EmbeddedStorageFoundationFactory` to create a new  `EmbeddedStorageFoundation`.
 
 [source,java]
 ----

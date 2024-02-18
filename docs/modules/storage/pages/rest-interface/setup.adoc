@@ -40,8 +40,13 @@ org.eclipse.store.rest.enabled=true
 ----
 
 This is it. This configuration will provide an additional REST endpoint accessible via `/store-data/` providing information
-about your store. If your application starts a web server on port 8080, the complete base URL will be http://localhost:8080/store-data/. Open
-it a browser to see further available URLs provided by the REST service.
+about your store. If your application starts a web server on port 8080, and you haven't changed the default configuration,
+the complete base URL will be `http://localhost:8080/store-data/`. Open it a browser to see further available URLs
+provided by the REST service.
+
+The REST controller is able to provide information about multiple Storage managers of your system. For a storage manager called
+`some` its details are available via `/storage-data/some`. If you haven't changed the storage manager configuration and use the
+default one provided by the SpringBoot integration, it will be available via `/storage-data/default`.
 
 === Additional Configuration
 
