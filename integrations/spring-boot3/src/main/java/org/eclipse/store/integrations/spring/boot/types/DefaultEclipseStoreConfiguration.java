@@ -14,6 +14,7 @@ package org.eclipse.store.integrations.spring.boot.types;
  * #L%
  */
 
+import jakarta.annotation.PostConstruct;
 import org.eclipse.store.integrations.spring.boot.types.configuration.EclipseStoreProperties;
 import org.eclipse.store.integrations.spring.boot.types.factories.EmbeddedStorageFoundationFactory;
 import org.eclipse.store.integrations.spring.boot.types.factories.EmbeddedStorageManagerFactory;
@@ -32,12 +33,14 @@ import java.util.function.Supplier;
 @AutoConfigureAfter(EclipseStoreSpringBoot.class)
 public class DefaultEclipseStoreConfiguration {
 
+  public static final String DEFAULT_QUALIFIER = "defaultEclipseStore";
+
   /**
    * <p>This means is annotated with {@code @ConfigurationProperties},
    * which means its properties are bound to the "org.eclipse.store" prefix in the configuration files.</p>
    */
   @Bean
-  @Qualifier("defaultEclipseStoreProperties")
+  @Qualifier(DEFAULT_QUALIFIER)
   @ConfigurationProperties(prefix = "org.eclipse.store")
   public EclipseStoreProperties defaultEclipseStoreProperties() {
     return new EclipseStoreProperties();
@@ -51,10 +54,10 @@ public class DefaultEclipseStoreConfiguration {
    * @return embedded foundation factory supplier with provided properties.
    */
   @Bean
-  @Qualifier("defaultEclipseStore")
+  @Qualifier(DEFAULT_QUALIFIER)
   @ConditionalOnMissingBean
-  public Supplier<EmbeddedStorageFoundation<?>> embeddedStorageFoundationSupplier(
-      @Qualifier("defaultEclipseStoreProperties") EclipseStoreProperties eclipseStoreProperties,
+  public Supplier<EmbeddedStorageFoundation<?>> defaultStorageFoundationSupplier(
+      @Qualifier(DEFAULT_QUALIFIER) EclipseStoreProperties eclipseStoreProperties,
       EmbeddedStorageFoundationFactory foundationFactory
   ) {
     return () -> foundationFactory.createStorageFoundation(eclipseStoreProperties);
@@ -69,12 +72,12 @@ public class DefaultEclipseStoreConfiguration {
    * @return storage manager.
    */
   @Bean
-  @Qualifier("defaultEclipseStore")
+  @Qualifier(DEFAULT_QUALIFIER)
   @ConditionalOnMissingBean
-  public EmbeddedStorageManager embeddedStorageManager(
+  public EmbeddedStorageManager defaultStorageManager(
       EmbeddedStorageManagerFactory embeddedStorageManagerFactory,
-      @Qualifier("defaultEclipseStoreProperties") EclipseStoreProperties eclipseStoreProperties,
-      @Qualifier("defaultEclipseStore")
+      @Qualifier(DEFAULT_QUALIFIER) EclipseStoreProperties eclipseStoreProperties,
+      @Qualifier(DEFAULT_QUALIFIER)
       Supplier<EmbeddedStorageFoundation<?>> embeddedStorageFoundationSupplier
   ) {
     return embeddedStorageManagerFactory.createStorage(
