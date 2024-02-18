@@ -38,7 +38,7 @@ public class EclipseStoreConfigConverter
 {
 
     // Fields for testing if all keys from Eclipse Store Configuration are covered by these module.
-    // These fields are protected so they can be accessed in tests.
+    // These fields are protected, so they can be accessed in tests.
     // Each field represents a key in the Eclipse Store Configuration.
 
     // Fields for the storage directory configuration
