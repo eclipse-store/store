@@ -23,7 +23,7 @@ import javax.cache.Cache;
 import org.eclipse.store.integrations.cdi.ConfigurationCoreProperties;
 import org.eclipse.store.integrations.cdi.types.config.StorageManagerProducer;
 import org.eclipse.store.integrations.cdi.types.extension.StorageExtension;
-import org.eclipse.store.integrations.cdi.types.logging.TestLogger;
+import org.eclipse.store.integrations.cdi.types.logging.TestAppender;
 import org.eclipse.store.storage.types.Database;
 import org.eclipse.store.storage.types.Databases;
 import org.eclipse.store.storage.types.StorageManager;
@@ -48,7 +48,7 @@ public class StorageCacheTest
     {
         System.setProperty(CacheProperties.STORAGE.get(), Boolean.TRUE.toString());
         System.setProperty(ConfigurationCoreProperties.STORAGE_DIRECTORY.getMicroProfile(), "target/cache");
-        TestLogger.reset();
+        TestAppender.events.clear();
     }
 
     @AfterAll

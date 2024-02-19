@@ -20,7 +20,7 @@ import org.eclipse.store.integrations.cdi.types.config.test.SomeStorageManagerIn
 import org.eclipse.store.integrations.cdi.types.extension.StorageExtension;
 
 import org.eclipse.microprofile.config.Config;
-import org.eclipse.store.integrations.cdi.types.logging.TestLogger;
+import org.eclipse.store.integrations.cdi.types.logging.TestAppender;
 import org.eclipse.store.storage.types.Database;
 import org.eclipse.store.storage.types.Databases;
 import org.eclipse.store.storage.types.StorageManager;
@@ -66,7 +66,7 @@ class StorageManagerProducerNotStartedTest
     @BeforeEach
     public void setup()
     {
-        TestLogger.reset();
+        TestAppender.events.clear();
     }
 
     @AfterEach

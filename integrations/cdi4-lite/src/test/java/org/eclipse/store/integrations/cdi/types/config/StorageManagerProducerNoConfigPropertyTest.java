@@ -16,10 +16,12 @@ package org.eclipse.store.integrations.cdi.types.config;
 
 
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
 import org.eclipse.store.integrations.cdi.types.extension.StorageExtension;
 
 import org.eclipse.microprofile.config.Config;
-import org.eclipse.store.integrations.cdi.types.logging.TestLogger;
+import org.eclipse.store.integrations.cdi.types.logging.TestAppender;
 import org.eclipse.store.storage.types.Database;
 import org.eclipse.store.storage.types.Databases;
 import org.eclipse.store.storage.types.StorageManager;
@@ -31,7 +33,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
-import org.slf4j.event.Level;
 import org.slf4j.event.LoggingEvent;
 
 import jakarta.enterprise.inject.Produces;
@@ -58,7 +59,7 @@ class StorageManagerProducerNoConfigPropertyTest
     @BeforeEach
     public void setup()
     {
-        TestLogger.reset();
+        TestAppender.events.clear();
     }
 
     @AfterEach
@@ -112,8 +113,9 @@ class StorageManagerProducerNoConfigPropertyTest
                 .getPropertyNames();  // Test if all config property keys are used.
 
         // Another test to prove a real StorageManager is created to have a look at the logs
-        List<LoggingEvent> messages = TestLogger.getMessagesOfLevel(Level.INFO);
-        Optional<LoggingEvent> loggingEvent = messages.stream()
+        List<ILoggingEvent> messages = TestAppender.getMessagesOfLevel(Level.INFO);
+
+        Optional<ILoggingEvent> loggingEvent = messages.stream()
                 .filter(le -> le.getMessage()
                         .equals("Embedded storage manager initialized"))
                 .findAny();

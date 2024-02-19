@@ -19,7 +19,7 @@ package org.eclipse.store.integrations.cdi.types;
 import io.smallrye.config.inject.ConfigExtension;
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.store.integrations.cdi.ConfigurationCoreProperties;
-import org.eclipse.store.integrations.cdi.types.logging.TestLogger;
+import org.eclipse.store.integrations.cdi.types.logging.TestAppender;
 import org.eclipse.store.storage.embedded.configuration.types.EmbeddedStorageConfigurationPropertyNames;
 import org.jboss.weld.junit5.auto.AddExtensions;
 import org.jboss.weld.junit5.auto.EnableAutoWeld;
@@ -45,10 +45,10 @@ class ConfigurationCorePropertiesTest
 	@BeforeEach
 	public void setup()
 	{
-		TestLogger.reset();
+		TestAppender.events.clear();
 	}
 
-	private static final String PREFIX = ConfigurationCoreProperties.Constants.PREFIX;
+	private static final String PREFIX = "org.eclipse.store.";
 
 	@Test
 	void shouldLoadFromPropertiesFile()
@@ -123,7 +123,7 @@ class ConfigurationCorePropertiesTest
 			System.setProperty(keyMicroProfile, "/storage");
 			final Map<String, String> properties = ConfigurationCoreProperties.getProperties(this.config);
 			final String value = properties.get(EmbeddedStorageConfigurationPropertyNames.STORAGE_DIRECTORY);
-			Assertions.assertEquals("/storage", value);
+			Assertions.assertEquals("/storage", value, value);
 
 		} finally
 		{
@@ -152,7 +152,7 @@ class ConfigurationCorePropertiesTest
 	{
 		// Not using CDI
 
-		final String keyMicroProfile = PREFIX + "storage.directory";
+		final String keyMicroProfile = "org.eclipse.store.storage.directory";
 		final String keyMicroStream = "storage-directory";
 
 		Optional<ConfigurationCoreProperties> property = ConfigurationCoreProperties.get(keyMicroProfile);

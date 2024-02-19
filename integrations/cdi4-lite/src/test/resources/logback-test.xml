@@ -1,0 +1,8 @@
+<configuration>
+    <appender name="TEST" class="org.eclipse.store.integrations.cdi.types.logging.TestAppender">
+    </appender>
+
+    <root level="ALL">
+        <appender-ref ref="TEST" />
+    </root>
+</configuration>

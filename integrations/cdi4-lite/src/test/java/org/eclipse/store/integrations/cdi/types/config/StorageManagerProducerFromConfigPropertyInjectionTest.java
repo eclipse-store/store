@@ -16,9 +16,11 @@ package org.eclipse.store.integrations.cdi.types.config;
 
 
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
 import org.eclipse.store.integrations.cdi.types.extension.StorageExtension;
 import org.eclipse.microprofile.config.Config;
-import org.eclipse.store.integrations.cdi.types.logging.TestLogger;
+import org.eclipse.store.integrations.cdi.types.logging.TestAppender;
 import org.eclipse.store.storage.types.StorageManager;
 import org.jboss.weld.junit5.EnableWeld;
 import org.jboss.weld.junit5.WeldInitiator;
@@ -27,8 +29,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
-import org.slf4j.event.Level;
-import org.slf4j.event.LoggingEvent;
 
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Inject;
@@ -51,7 +51,7 @@ class StorageManagerProducerFromConfigPropertyInjectionTest
     @BeforeEach
     public void setup()
     {
-        TestLogger.reset();
+        TestAppender.events.clear();
     }
 
     private static Config configMock;
@@ -92,8 +92,8 @@ class StorageManagerProducerFromConfigPropertyInjectionTest
         Mockito.verifyNoMoreInteractions(configMock);
 
         // Another test to prove we did not create a real Storage Manager
-        List<LoggingEvent> messages = TestLogger.getMessagesOfLevel(Level.INFO);
-        Optional<LoggingEvent> loggingEvent = messages.stream()
+        List<ILoggingEvent> messages = TestAppender.getMessagesOfLevel(Level.INFO);
+        Optional<ILoggingEvent> loggingEvent = messages.stream()
                 .filter(le -> le.getMessage()
                         .equals("Embedded storage manager initialized"))
                 .findAny();

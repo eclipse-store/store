@@ -16,7 +16,8 @@ package org.eclipse.store.integrations.cdi.types.config;
 
 
 
-import org.eclipse.store.integrations.cdi.types.logging.TestLogger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import org.eclipse.store.integrations.cdi.types.logging.TestAppender;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -36,18 +37,18 @@ public abstract class AbstractStorageManagerConverterTest
     @BeforeAll
     public static void setup()
     {
-        TestLogger.reset();
+        TestAppender.events.clear();
     }
 
     @AfterEach
     public void cleanup()
     {
-        TestLogger.reset();
+        TestAppender.events.clear();
     }
 
-    protected void hasMessage(List<LoggingEvent> messages, String msg)
+    protected void hasMessage(List<ILoggingEvent> messages, String msg)
     {
-        final Optional<LoggingEvent> loggingEvent = messages.stream()
+        final Optional<ILoggingEvent> loggingEvent = messages.stream()
                 .filter(le -> le.getMessage()
                         .equals(msg))
                 .findAny();

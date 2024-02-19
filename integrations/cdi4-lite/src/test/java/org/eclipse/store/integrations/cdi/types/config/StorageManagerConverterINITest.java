@@ -19,12 +19,14 @@ package org.eclipse.store.integrations.cdi.types.config;
 import java.io.File;
 import java.util.List;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
 import io.smallrye.config.inject.ConfigExtension;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
-import org.eclipse.store.integrations.cdi.types.logging.TestLogger;
+import org.eclipse.store.integrations.cdi.types.logging.TestAppender;
 import org.eclipse.store.storage.types.StorageManager;
 import org.jboss.weld.junit5.auto.AddExtensions;
 import org.jboss.weld.junit5.auto.EnableAutoWeld;
@@ -32,8 +34,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
-import org.slf4j.event.Level;
-import org.slf4j.event.LoggingEvent;
 
 
 @EnableAutoWeld
@@ -60,7 +60,7 @@ public class StorageManagerConverterINITest extends AbstractStorageManagerConver
         // Don't use this.manager.isActive() as it is started already by the proxy.
         Assertions.assertTrue(active);
 
-        final List<LoggingEvent> messages = TestLogger.getMessagesOfLevel(Level.INFO);
+        final List<ILoggingEvent> messages = TestAppender.getMessagesOfLevel(Level.INFO);
 
         hasMessage(messages, "Loading configuration to start the class StorageManager from the key: storage.ini");
         hasMessage(messages, "Embedded storage manager initialized");
