@@ -2,7 +2,7 @@ package org.eclipse.store.integrations.cdi.types.cache;
 
 /*-
  * #%L
- * Eclipse Store Integrations CDI 4 - lite
+ * Eclipse Store Integrations CDI 4
  * %%
  * Copyright (C) 2023 - 2024 MicroStream Software
  * %%
@@ -13,8 +13,6 @@ package org.eclipse.store.integrations.cdi.types.cache;
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
-
-
 
 import javax.cache.configuration.Factory;
 import javax.cache.integration.CacheWriter;

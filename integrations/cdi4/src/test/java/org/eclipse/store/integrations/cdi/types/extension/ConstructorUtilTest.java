@@ -3,7 +3,7 @@ package org.eclipse.store.integrations.cdi.types.extension;
 
 /*-
  * #%L
- * Eclipse Store Integrations CDI 4 - lite
+ * Eclipse Store Integrations CDI 4
  * %%
  * Copyright (C) 2023 - 2024 MicroStream Software
  * %%
@@ -14,6 +14,8 @@ package org.eclipse.store.integrations.cdi.types.extension;
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+
 
 
 
