@@ -3,9 +3,9 @@ package org.eclipse.store.examples.wildfly;
 
 /*-
  * #%L
- * microstream-examples-wildfly
+ * EclipseStore Wildfly CDI 4 Example
  * %%
- * Copyright (C) 2019 - 2021 MicroStream Software
+ * Copyright (C) 2023 - 2024 MicroStream Software
  * %%
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -14,6 +14,8 @@ package org.eclipse.store.examples.wildfly;
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+
 
 
 import jakarta.inject.Inject;

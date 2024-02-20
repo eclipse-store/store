@@ -13,8 +13,8 @@
 		<relativePath>../pom.xml</relativePath>
 	</parent>
 
-	<artifactId>eclipse-store-examples-wildfly</artifactId>
-	<name>EclipseStore Wildfly CDI Example</name>
+	<artifactId>eclipse-store-examples-wildfly-cdi4</artifactId>
+	<name>EclipseStore Wildfly CDI 4 Example</name>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 	
 	<packaging>war</packaging>
