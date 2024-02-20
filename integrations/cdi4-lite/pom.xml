@@ -11,12 +11,8 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <name>Eclipse Store Integrations CDI 4 - lite</name>
-    <description>Eclipse Store CDI 4 lite Extension</description>
-
-    <properties>
-<!--        <maven.test.skip>true</maven.test.skip>-->
-    </properties>
+    <name>Eclipse Store Integrations CDI 4</name>
+    <description>Eclipse Store CDI 4 Extension</description>
 
     <dependencies>
         <dependency>
