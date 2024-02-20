@@ -36,7 +36,7 @@ import java.util.Set;
 @EnableAutoWeld
 @AddBeanClasses({StorageCacheProducer.class, StorageManagerProducer.class})  // For @StorageCache
 @AddExtensions({StorageExtension.class, ConfigExtension.class})
-// SmallRye Config extension And MicroStream extension for StorageManager
+// SmallRye Config extension And Eclipse Store extension for StorageManager
 public class StorageCacheProducerTest
 {
 	@Inject

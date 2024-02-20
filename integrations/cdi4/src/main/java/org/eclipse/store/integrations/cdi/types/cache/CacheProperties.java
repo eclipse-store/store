@@ -74,7 +74,7 @@ public enum CacheProperties implements Supplier<String>
 	 */
 	CACHE_MANAGEMENT(PREFIX.get() + "cache.management"),
 	/**
-	 * MicroStream’s storage can be used as a backing store for the cache.
+	 * Eclipse Store’s storage can be used as a backing store for the cache.
 	 * It functions as a CacheWriter as well as a CacheReader, depending on the writeThrough
 	 * and readThrough configuration. Per default, it is used for both.
 	 */
@@ -163,7 +163,7 @@ public enum CacheProperties implements Supplier<String>
 	}
 	
 	/**
-	 * MicroStream’s storage can be used as a backing store for the cache.
+	 * Eclipse Store’s storage can be used as a backing store for the cache.
 	 *
 	 * @param config
 	 *            the Eclipse Microprofile instance

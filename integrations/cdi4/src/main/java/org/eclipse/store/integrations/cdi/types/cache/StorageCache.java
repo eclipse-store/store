@@ -27,8 +27,8 @@ import jakarta.inject.Qualifier;
 
 
 /**
- * Defines a cache managed by MicroStream:
- * <a href="https://docs.microstream.one/manual/cache/getting-started.html">Getting started for Cache</a>
+ * Defines a cache managed by Eclipse store:
+ * <a href="https://docs.eclipsestore.io/manual/cache/getting-started.html">Getting started for Cache</a>
  */
 @Retention(RetentionPolicy.RUNTIME)
 @Target({ElementType.FIELD, ElementType.METHOD, ElementType.PARAMETER})
