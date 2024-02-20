@@ -1,4 +1,4 @@
-package org.microstream.spring.boot.example;
+package org.microstream.spring.boot.example.simple;
 
 /*-
  * #%L
@@ -18,8 +18,8 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class JokesApplication {
+public class SimpleJokesApplication {
   public static void main(String... args) {
-    SpringApplication.run(JokesApplication.class, args);
+    SpringApplication.run(SimpleJokesApplication.class, args);
   }
 }

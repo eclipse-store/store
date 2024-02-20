@@ -1,4 +1,4 @@
-package org.microstream.spring.boot.example.storage;
+package org.microstream.spring.boot.example.simple.storage;
 
 /*-
  * #%L

@@ -1,4 +1,4 @@
-package org.microstream.spring.boot.example.storage;
+package org.microstream.spring.boot.example.simple.storage;
 
 /*-
  * #%L
@@ -15,11 +15,10 @@ package org.microstream.spring.boot.example.storage;
  */
 
 import org.eclipse.serializer.persistence.types.Storer;
-import org.eclipse.store.integrations.spring.boot.types.concurrent.Mutex;
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Read;
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Write;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
-import org.microstream.spring.boot.example.model.Root;
+import org.microstream.spring.boot.example.simple.model.Root;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;

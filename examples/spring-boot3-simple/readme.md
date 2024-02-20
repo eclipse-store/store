@@ -36,8 +36,9 @@ and open http://localhost:8080/swagger-ui/index.html in your browser. Then navig
 
 ## Using Console
 
-You may be interested in the state of your data. The example includes the Console for debugging purposes. Please open http://localhost:8080/store-console/
-in your browser, select http://localhost:8080/store-data/ from the list, click connect and inspect the data in your store.
+You may be interested in the state of your data. The example includes the Console for debugging purposes. Please open 
+http://localhost:8080/store-console/ in your browser, select http://localhost:8080/store-data/default/ from the list, 
+click connect and inspect the data in your store.
 
 
 ## Using App rest api

@@ -1,4 +1,4 @@
-package org.microstream.spring.boot.example.controller;
+package org.microstream.spring.boot.example.simple.controller;
 
 /*-
  * #%L
@@ -14,7 +14,7 @@ package org.microstream.spring.boot.example.controller;
  * #L%
  */
 
-import org.microstream.spring.boot.example.service.JokesServices;
+import org.microstream.spring.boot.example.simple.service.JokesServices;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;

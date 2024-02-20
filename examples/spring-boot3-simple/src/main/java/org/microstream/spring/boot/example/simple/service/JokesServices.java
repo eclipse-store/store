@@ -1,4 +1,4 @@
-package org.microstream.spring.boot.example.service;
+package org.microstream.spring.boot.example.simple.service;
 
 /*-
  * #%L

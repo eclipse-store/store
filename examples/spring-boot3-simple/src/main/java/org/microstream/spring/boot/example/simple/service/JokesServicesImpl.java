@@ -1,4 +1,4 @@
-package org.microstream.spring.boot.example.service;
+package org.microstream.spring.boot.example.simple.service;
 
 /*-
  * #%L
@@ -15,7 +15,7 @@ package org.microstream.spring.boot.example.service;
  */
 
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Write;
-import org.microstream.spring.boot.example.storage.JokesStorage;
+import org.microstream.spring.boot.example.simple.storage.JokesStorage;
 import org.springframework.stereotype.Service;
 
 import java.io.*;
