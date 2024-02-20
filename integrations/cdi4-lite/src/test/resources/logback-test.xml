@@ -8,7 +8,7 @@
         </encoder>
     </appender>
 
-    <root level="ALL">
+    <root level="WARN">
         <appender-ref ref="TEST" />
         <appender-ref ref="STDOUT" />
     </root>
