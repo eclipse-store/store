@@ -19,6 +19,7 @@ import java.io.File;
 import java.util.List;
 import java.util.Optional;
 
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import io.smallrye.config.inject.ConfigExtension;
 import jakarta.inject.Inject;
@@ -51,28 +52,17 @@ public class StorageManagerConverterPropertiesTest extends AbstractStorageManage
         // Don't use this.manager.isActive() as it is started already by the proxy.
         Assertions.assertTrue(active);
 
-        //final List<LoggingEvent> messages = TestLogger.getMessagesOfLevel(Level.INFO);
+        final List<ILoggingEvent> messages = TestAppender.getMessagesOfLevel(Level.INFO);
 
         Assertions.assertNotEquals(0, TestAppender.events.size());
 
-        hasMessageLocal(TestAppender.events, "Loading configuration to start the class StorageManager from the key: storage.properties");
-        hasMessageLocal(TestAppender.events, "Embedded storage manager initialized");
+        hasMessage(messages, "Loading configuration to start the class StorageManager from the key: storage.properties");
+        hasMessage(messages, "Embedded storage manager initialized");
 
         this.directoryHasChannels(new File("target/prop"), 2);
 
         // No database-name defined in file so it takes the filename (value of "org.eclipse.store.properties" MP key)
         Assertions.assertEquals("storage.properties", this.manager.databaseName());
-    }
-
-    protected void hasMessageLocal(List<ILoggingEvent> messages, String msg)
-    {
-        final Optional<ILoggingEvent> loggingEvent = messages.stream()
-                .filter(le -> le.getMessage()
-                        .equals(msg))
-                .findAny();
-
-        Assertions.assertTrue(loggingEvent.isPresent(), msg);
-
     }
 
 }
