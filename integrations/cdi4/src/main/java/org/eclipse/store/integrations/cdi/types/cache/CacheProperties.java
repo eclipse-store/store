@@ -3,7 +3,7 @@ package org.eclipse.store.integrations.cdi.types.cache;
 
 /*-
  * #%L
- * Eclipse Store Integrations CDI 4
+ * EclipseStore Integrations CDI 4
  * %%
  * Copyright (C) 2023 - 2024 MicroStream Software
  * %%
@@ -29,7 +29,7 @@ import org.eclipse.serializer.reflect.XReflect;
 
 
 /**
- * The relation with the properties from Eclipse Store Cache docs:
+ * The relation with the properties from EclipseStore Cache docs:
  * <a href="https://docs.eclipsestore.io/manual/cache/configuration/properties.html">Configuration properties</a>
  */
 public enum CacheProperties implements Supplier<String>
@@ -73,7 +73,7 @@ public enum CacheProperties implements Supplier<String>
 	 */
 	CACHE_MANAGEMENT(PREFIX.get() + "cache.management"),
 	/**
-	 * Eclipse Store’s storage can be used as a backing store for the cache.
+	 * EclipseStore’s storage can be used as a backing store for the cache.
 	 * It functions as a CacheWriter as well as a CacheReader, depending on the writeThrough
 	 * and readThrough configuration. Per default, it is used for both.
 	 */
@@ -162,7 +162,7 @@ public enum CacheProperties implements Supplier<String>
 	}
 	
 	/**
-	 * Eclipse Store’s storage can be used as a backing store for the cache.
+	 * EclipseStore’s storage can be used as a backing store for the cache.
 	 *
 	 * @param config
 	 *            the Eclipse Microprofile instance

@@ -3,7 +3,7 @@ package org.eclipse.store.integrations.cdi.types;
 
 /*-
  * #%L
- * Eclipse Store Integrations CDI 4
+ * EclipseStore Integrations CDI 4
  * %%
  * Copyright (C) 2023 - 2024 MicroStream Software
  * %%
@@ -37,7 +37,7 @@ import java.util.Set;
 class ConfigurationCorePropertiesTest
 {
 	// Testing the ConfigurationCoreProperties functionality.
-	// - convert the MicroProfile config key/values to Map entries as Eclipse Store config values.
+	// - convert the MicroProfile config key/values to Map entries as EclipseStore config values.
 
 	@Inject
 	private Config config;

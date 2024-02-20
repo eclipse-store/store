@@ -14,7 +14,7 @@
 	</parent>
 
 	<artifactId>eclipse-store-examples-wildfly</artifactId>
-	<name>Eclipse Store Wildfly CDI Example</name>
+	<name>EclipseStore Wildfly CDI Example</name>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 	
 	<packaging>war</packaging>

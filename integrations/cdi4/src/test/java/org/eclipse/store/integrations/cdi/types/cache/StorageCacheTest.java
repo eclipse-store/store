@@ -2,7 +2,7 @@ package org.eclipse.store.integrations.cdi.types.cache;
 
 /*-
  * #%L
- * Eclipse Store Integrations CDI 4
+ * EclipseStore Integrations CDI 4
  * %%
  * Copyright (C) 2023 - 2024 MicroStream Software
  * %%
@@ -36,7 +36,7 @@ import org.junit.jupiter.api.*;
 @EnableAutoWeld  // So that Weld container is started
 @AddBeanClasses({StorageCacheProducer.class, StorageManagerProducer.class})  // For @StorageCache
 @AddExtensions({StorageExtension.class, ConfigExtension.class})
-// SmallRye Config extension And Eclipse Store extension for StorageManager
+// SmallRye Config extension And EclipseStore extension for StorageManager
 public class StorageCacheTest
 {
 

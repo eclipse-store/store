@@ -11,8 +11,8 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <name>Eclipse Store Integrations CDI 4</name>
-    <description>Eclipse Store CDI 4 Extension</description>
+    <name>EclipseStore Integrations CDI 4</name>
+    <description>EclipseStore CDI 4 Extension</description>
 
     <dependencies>
         <dependency>

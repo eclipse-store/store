@@ -3,7 +3,7 @@ package org.eclipse.store.integrations.cdi;
 
 /*-
  * #%L
- * Eclipse Store Integrations CDI 4
+ * EclipseStore Integrations CDI 4
  * %%
  * Copyright (C) 2023 - 2024 MicroStream Software
  * %%
@@ -236,11 +236,11 @@ public enum ConfigurationCoreProperties
 	}
 
 	/**
-	 * Returns the corresponding Eclipse Store version of the config key.  It replaces the MicroProfile part
-	 * with the Eclipse Store part. So the keys can be 'longer' as the value defined in the enum. A typical
+	 * Returns the corresponding EclipseStore version of the config key.  It replaces the MicroProfile part
+	 * with the EclipseStore part. So the keys can be 'longer' as the value defined in the enum. A typical
 	 * example is the 'storage filesystem' element.
 	 * @param key The Key as defined in MicroProfile config
-	 * @return The corresponding Eclipse Store version of this key.
+	 * @return The corresponding EclipseStore version of this key.
 	 */
 	public String getEclipseStore(final String key)
 	{

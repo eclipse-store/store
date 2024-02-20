@@ -3,7 +3,7 @@ package org.eclipse.store.integrations.cdi.types.cache;
 
 /*-
  * #%L
- * Eclipse Store Integrations CDI 4
+ * EclipseStore Integrations CDI 4
  * %%
  * Copyright (C) 2023 - 2024 MicroStream Software
  * %%
@@ -25,7 +25,7 @@ import jakarta.inject.Qualifier;
 
 
 /**
- * Defines a cache managed by Eclipse store:
+ * Defines a cache managed by EclipseStore:
  * <a href="https://docs.eclipsestore.io/manual/cache/getting-started.html">Getting started for Cache</a>
  */
 @Retention(RetentionPolicy.RUNTIME)

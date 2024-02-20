@@ -2,7 +2,7 @@ package org.eclipse.store.integrations.cdi.exceptions;
 
 /*-
  * #%L
- * Eclipse Store Integrations CDI 4
+ * EclipseStore Integrations CDI 4
  * %%
  * Copyright (C) 2023 - 2024 MicroStream Software
  * %%
