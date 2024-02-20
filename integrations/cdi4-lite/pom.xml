@@ -63,7 +63,7 @@
         <dependency>
             <groupId>io.smallrye.config</groupId>
             <artifactId>smallrye-config</artifactId>
-            <version>3.5.4</version>
+            <version>3.1.1</version>
             <scope>test</scope>
         </dependency>
 
@@ -102,6 +102,7 @@
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
             <version>1.4.14</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

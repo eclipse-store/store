@@ -10,11 +10,10 @@ package org.eclipse.store.integrations.cdi.types.config;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
-
 
 
 import java.util.Map;
@@ -67,10 +66,7 @@ public class StorageManagerProducer
         final String configName = this.storageExtension.getStorageManagerConfigInjectionNames()
                 .iterator()
                 .next();
-        LOGGER.info(
-                "Loading StorageManager from file indicated by MicroProfile Config key : "
-                        + configName
-        );
+        LOGGER.info("Loading StorageManager from file indicated by MicroProfile Config key : " + configName);
 
         // This will succeed since it is already validated during deployment of the application.
         return this.config.getValue(configName, StorageManager.class);
@@ -79,10 +75,7 @@ public class StorageManagerProducer
     private EmbeddedStorageManager storageManagerFromProperties()
     {
         final Map<String, String> properties = ConfigurationCoreProperties.getProperties(this.config);
-        LOGGER.info(
-                "Loading default StorageManager from MicroProfile Config properties. The keys: "
-                        + properties.keySet()
-        );
+        LOGGER.info("Loading default StorageManager from MicroProfile Config properties. The keys: " + properties.keySet());
 
         final EmbeddedStorageConfigurationBuilder builder = EmbeddedStorageConfigurationBuilder.New();
         for (final Map.Entry<String, String> entry : properties.entrySet())

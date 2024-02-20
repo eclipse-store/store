@@ -29,8 +29,8 @@ import java.util.stream.StreamSupport;
 
 
 /**
- * The relation with the properties from MicroStream docs:
- * <a href="https://docs.microstream.one/manual/storage/configuration/properties.html">Configuration properties</a>
+ * The relation with the properties from Eclipe Store docs:
+ * <a href="https://docs.eclipsestore.io/manual/storage/configuration/properties.html">Configuration properties</a>
  */
 public enum ConfigurationCoreProperties
 {
@@ -224,12 +224,12 @@ public enum ConfigurationCoreProperties
 	);
 
 	private final String microProfile;
-	private final String microStream;
+	private final String eclipseStore;
 
-	ConfigurationCoreProperties(final String microProfile, final String microStream)
+	ConfigurationCoreProperties(final String microProfile, final String eclipseStore)
 	{
 		this.microProfile = microProfile;
-		this.microStream = microStream;
+		this.eclipseStore = eclipseStore;
 	}
 
 	public String getMicroProfile()
@@ -238,15 +238,15 @@ public enum ConfigurationCoreProperties
 	}
 
 	/**
-	 * Returns the corresponding MicroStream version of the config key.  It replaces the MicroProfile part
-	 * with the MicroStream part. So the keys can be 'longer' as the value defined in the enum. A typical
+	 * Returns the corresponding Eclipse Store version of the config key.  It replaces the MicroProfile part
+	 * with the Eclipse Store part. So the keys can be 'longer' as the value defined in the enum. A typical
 	 * example is the 'storage filesystem' element.
 	 * @param key The Key as defined in MicroProfile config
-	 * @return The corresponding MicroStream version of this key.
+	 * @return The corresponding Eclipse Store version of this key.
 	 */
-	public String getMicroStream(final String key)
+	public String getEclipseStore(final String key)
 	{
-		return key.replaceAll(this.microProfile, this.microStream);
+		return key.replaceAll(this.microProfile, this.eclipseStore);
 	}
 
 	/**
@@ -264,8 +264,10 @@ public enum ConfigurationCoreProperties
 				.findAny();
 	}
 
+
 	public static Map<String, String> getProperties(final Config config)
 	{
+
 		final Map<String, String> properties = new HashMap<>();
 
 		StreamSupport.stream(config.getPropertyNames()
@@ -276,13 +278,13 @@ public enum ConfigurationCoreProperties
 		return properties;
 	}
 
-	private static String asMicroStreamConfigName(final String name)
+	private static String asEclipseStoreConfigName(final String name)
 	{
 		final Optional<ConfigurationCoreProperties> coreProperty = ConfigurationCoreProperties.get(name);
 		return coreProperty.isEmpty()
 				? name.substring(Constants.PREFIX.length())
 				: coreProperty.get()
-					.getMicroStream(name);
+					.getEclipseStore(name);
 	}
 
 	private static void addProperty(
@@ -292,7 +294,7 @@ public enum ConfigurationCoreProperties
 	)
 	{
 		config.getOptionalValue(configName, String.class)
-				.ifPresent(v -> properties.put(ConfigurationCoreProperties.asMicroStreamConfigName(configName), v))
+				.ifPresent(v -> properties.put(ConfigurationCoreProperties.asEclipseStoreConfigName(configName), v))
 		;
 	}
 

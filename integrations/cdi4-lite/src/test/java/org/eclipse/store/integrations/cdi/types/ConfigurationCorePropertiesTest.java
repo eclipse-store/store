@@ -56,7 +56,7 @@ class ConfigurationCorePropertiesTest
 		final Map<String, String> properties = ConfigurationCoreProperties.getProperties(this.config);
 		Assertions.assertNotNull(properties);
 		Assertions.assertEquals(4, properties.keySet()
-				.size());
+				.size(),properties.keySet().toString());
 		Assertions.assertEquals(Set.of("xml", "ini", "properties", "storage-directory"), properties.keySet());
 	}
 
@@ -68,7 +68,7 @@ class ConfigurationCorePropertiesTest
 		{
 			System.setProperty(microProfileKey, "target/");
 			final Map<String, String> properties = ConfigurationCoreProperties.getProperties(this.config);
-			final String storageDirectory = properties.get(ConfigurationCoreProperties.STORAGE_DIRECTORY.getMicroStream(microProfileKey));
+			final String storageDirectory = properties.get(ConfigurationCoreProperties.STORAGE_DIRECTORY.getEclipseStore(microProfileKey));
 			Assertions.assertNotNull(storageDirectory);
 			Assertions.assertEquals("target/", storageDirectory);
 		} finally
@@ -103,6 +103,7 @@ class ConfigurationCorePropertiesTest
 		try
 		{
 			System.setProperty(keyMicroProfile, "some_value");
+
 			final Map<String, String> properties = ConfigurationCoreProperties.getProperties(this.config);
 			final String value = properties.get(keyMicroStream);
 			Assertions.assertEquals("some_value", value);
@@ -143,7 +144,7 @@ class ConfigurationCorePropertiesTest
 		Optional<ConfigurationCoreProperties> property = ConfigurationCoreProperties.get(keyMicroProfile);
 		Assertions.assertTrue(property.isPresent());
 
-		String convertedKey = property.get().getMicroStream(keyMicroProfile);
+		String convertedKey = property.get().getEclipseStore(keyMicroProfile);
 		Assertions.assertEquals(keyMicroStream, convertedKey);
 	}
 
@@ -158,7 +159,7 @@ class ConfigurationCorePropertiesTest
 		Optional<ConfigurationCoreProperties> property = ConfigurationCoreProperties.get(keyMicroProfile);
 		Assertions.assertTrue(property.isPresent());
 
-		String convertedKey = property.get().getMicroStream(keyMicroProfile);
+		String convertedKey = property.get().getEclipseStore(keyMicroProfile);
 		Assertions.assertEquals(keyMicroStream, convertedKey);
 	}
 
@@ -180,7 +181,7 @@ class ConfigurationCorePropertiesTest
 		final Optional<ConfigurationCoreProperties> property = ConfigurationCoreProperties.get(key);
 		Assertions.assertTrue(property.isPresent());
 		Assertions.assertEquals(ConfigurationCoreProperties.STORAGE_FILESYSTEM,  property.get());
-		Assertions.assertEquals("storage-filesystem.sql.postgres.data-source-provider", property.get().getMicroStream(key));
+		Assertions.assertEquals("storage-filesystem.sql.postgres.data-source-provider", property.get().getEclipseStore(key));
 	}
 
 	@Test
