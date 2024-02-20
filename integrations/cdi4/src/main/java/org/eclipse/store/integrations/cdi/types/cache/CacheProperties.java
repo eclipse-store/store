@@ -30,8 +30,8 @@ import org.eclipse.serializer.reflect.XReflect;
 
 
 /**
- * The relation with the properties from MicroStream docs:
- * <a href="https://docs.microstream.one/manual/cache/configuration/properties.html">Configuration properties</a>
+ * The relation with the properties from Eclipse Store Cache docs:
+ * <a href="https://docs.eclipsestore.io/manual/cache/configuration/properties.html">Configuration properties</a>
  */
 public enum CacheProperties implements Supplier<String>
 {

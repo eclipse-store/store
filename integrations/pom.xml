@@ -15,7 +15,7 @@
     <packaging>pom</packaging>
 
     <modules>
-        <module>cdi4-lite</module>
+        <module>cdi4</module>
     </modules>
 
     <profiles>
