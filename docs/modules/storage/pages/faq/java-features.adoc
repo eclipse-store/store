@@ -1,5 +1,9 @@
 = Java Features
 
+== Does {product-name} work with the Java Module System (Jigsaw)?
+
+Yes, all jars bring the necessary module-info class.
+
 [#records]
 == Can {product-name} handle Records?
 

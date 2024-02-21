@@ -1,5 +1,15 @@
 = Changelog
 
+== 1.2.0
+
+=== Features
+
+* Module-infos are back https://github.com/eclipse-store/store/pull/144[[144]]
+
+=== Bugfixes
+
+* Fixed memory cleanup https://github.com/eclipse-serializer/serializer/pull/103[[103]]
+
 
 == 1.1.0
 
