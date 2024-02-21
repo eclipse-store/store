@@ -14,7 +14,6 @@ package org.eclipse.store.integrations.spring.boot.types;
  * #L%
  */
 
-import jakarta.annotation.PostConstruct;
 import org.eclipse.store.integrations.spring.boot.types.configuration.EclipseStoreProperties;
 import org.eclipse.store.integrations.spring.boot.types.factories.EmbeddedStorageFoundationFactory;
 import org.eclipse.store.integrations.spring.boot.types.factories.EmbeddedStorageManagerFactory;
