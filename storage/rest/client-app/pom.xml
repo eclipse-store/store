@@ -9,7 +9,7 @@
 	<parent>
 		<groupId>org.eclipse.store</groupId>
 		<artifactId>storage-rest-parent</artifactId>
-		<version>1.2.0-SNAPSHOT</version>
+		<version>1.2.0</version>
 		<relativePath>../pom.xml</relativePath>
 	</parent>
 
@@ -50,7 +50,7 @@
 		<dependency>
 			<groupId>org.eclipse.store</groupId>
 			<artifactId>storage-restclient-jersey</artifactId>
-			<version>1.2.0-SNAPSHOT</version>
+			<version>1.2.0</version>
 		</dependency>
 		<dependency>
 			<groupId>com.vaadin</groupId>
