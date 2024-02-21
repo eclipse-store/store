@@ -15,6 +15,9 @@ module org.eclipse.store.storage.restclient.app {
 	exports org.eclipse.store.storage.restclient.app.types;
 	exports org.eclipse.store.storage.restclient.app.ui;
 
+	provides com.vaadin.flow.server.VaadinServiceInitListener
+		with org.eclipse.store.storage.restclient.app.types.ApplicationServiceInitListener;
+	
 	requires flow.data;
 	requires flow.html.components;
 	requires flow.server;
