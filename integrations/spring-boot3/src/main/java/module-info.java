@@ -34,7 +34,5 @@ open module org.eclipse.store.integrations.spring.boot
 	requires transitive org.eclipse.serializer.configuration;
 	requires transitive org.eclipse.serializer.persistence.binary.jdk17;
 	requires transitive org.eclipse.serializer.persistence.binary.jdk8;
-    requires org.aspectj.weaver;
-
-
+  requires org.aspectj.weaver;
 }
