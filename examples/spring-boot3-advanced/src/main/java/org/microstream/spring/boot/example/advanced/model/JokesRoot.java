@@ -17,15 +17,18 @@ package org.microstream.spring.boot.example.advanced.model;
 import java.util.ArrayList;
 import java.util.List;
 
-public class JokesRoot {
+public class JokesRoot
+{
     private List<String> jokes = new ArrayList<>();
 
-    public List<String> getJokes() {
-    return jokes;
-  }
+    public List<String> getJokes()
+    {
+        return jokes;
+    }
 
-    public void setJokes(List<String> jokes) {
-    this.jokes = jokes;
-  }
+    public void setJokes(List<String> jokes)
+    {
+        this.jokes = jokes;
+    }
 
 }

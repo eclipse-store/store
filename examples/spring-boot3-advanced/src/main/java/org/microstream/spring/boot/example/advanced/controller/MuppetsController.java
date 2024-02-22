@@ -9,7 +9,7 @@ package org.microstream.spring.boot.example.advanced.controller;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -21,29 +21,32 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/muppets")
-public class MuppetsController {
+public class MuppetsController
+{
 
-  private final MuppetsInPort muppets;
+    private final MuppetsInPort muppets;
 
-  public MuppetsController(MuppetsInPort muppets) {
-    this.muppets = muppets;
-  }
+    public MuppetsController(MuppetsInPort muppets)
+    {
+        this.muppets = muppets;
+    }
 
-  @GetMapping
-  public List<String> getAll()
-  {
-    return muppets.getAllMuppets();
-  }
+    @GetMapping
+    public List<String> getAll()
+    {
+        return muppets.getAllMuppets();
+    }
 
-  @GetMapping("/muppet")
-  public String getOneJoke(@RequestParam(name = "id") Integer id)
-  {
-    return muppets.getMuppet(id);
-  }
+    @GetMapping("/muppet")
+    public String getOneJoke(@RequestParam(name = "id") Integer id)
+    {
+        return muppets.getMuppet(id);
+    }
 
-  @PostMapping("/init")
-  public void init() {
-    muppets.initialize();
-  }
+    @PostMapping("/init")
+    public void init()
+    {
+        muppets.initialize();
+    }
 
 }
