@@ -31,76 +31,89 @@ import java.util.Map;
 /**
  * The {@code EmbeddedStorageFoundationFactory} is responsible for the creation of the EmbeddedStorageFoundation instances.
  * It provides methods for creating EmbeddedStorageFoundation instances based on the provided configuration.
+ *
  * @since 1.2.0
  */
-public class EmbeddedStorageFoundationFactory {
-  private final EclipseStoreConfigConverter converter;
-  private final ClassLoaderProvider classLoaderProvider;
+public class EmbeddedStorageFoundationFactory
+{
+    private final EclipseStoreConfigConverter converter;
+    private final ClassLoaderProvider classLoaderProvider;
 
-  private final Logger logger = Logging.getLogger(EmbeddedStorageFoundationFactory.class);
+    private final Logger logger = Logging.getLogger(EmbeddedStorageFoundationFactory.class);
 
-  public EmbeddedStorageFoundationFactory(final EclipseStoreConfigConverter converter, final ClassLoaderProvider classLoaderProvider) {
-    this.converter = converter;
-    this.classLoaderProvider = classLoaderProvider;
-  }
-
-  /**
-   * Creates an {@code EmbeddedStorageFoundation} using the provided configuration. This method should be called when the additional configuration for the foundation is required.
-   *
-   * @param eclipseStoreProperties Configuration file structure representing configuration elements mapped by Spring Configuration.
-   * @param additionalConfiguration Optional additional parameters that allow the inclusion of configuration keys not present in {@code EclipseStoreProperties}.
-   * @return A new {@code EmbeddedStorageFoundation} instance based on the provided configuration.
-   */
-  public EmbeddedStorageFoundation<?> createStorageFoundation(final EclipseStoreProperties eclipseStoreProperties, final ConfigurationPair... additionalConfiguration) {
-    final EmbeddedStorageConfigurationBuilder builder = EmbeddedStorageConfigurationBuilder.New();
-    final Map<String, String> valueMap = this.converter.convertConfigurationToMap(eclipseStoreProperties);
-    for (final ConfigurationPair pair : additionalConfiguration) {
-      valueMap.put(pair.key(), pair.value());
-    }
-
-    this.logger.debug("EclipseStore configuration items: ");
-    valueMap.forEach((key, value) ->
+    public EmbeddedStorageFoundationFactory(final EclipseStoreConfigConverter converter, final ClassLoaderProvider classLoaderProvider)
     {
-      if (value != null) {
-        final String logValue = key.contains("password") ? "xxxxxx" : value;
-        this.logger.debug(key + " : " + logValue);
-        builder.set(key, value);
-      }
-    });
-
-    final EmbeddedStorageFoundation<?> storageFoundation = builder.createEmbeddedStorageFoundation();
-
-    final Object root = this.createNewRootInstance(eclipseStoreProperties);
-    if (root != null) {
-      this.logger.debug("Root object: " + root.getClass().getName());
-      storageFoundation.setRoot(root);
+        this.converter = converter;
+        this.classLoaderProvider = classLoaderProvider;
     }
 
-    storageFoundation.getConnectionFoundation().setClassLoaderProvider(classLoaderProvider);
+    /**
+     * Creates an {@code EmbeddedStorageFoundation} using the provided configuration. This method should be called when the additional configuration for the foundation is required.
+     *
+     * @param eclipseStoreProperties  Configuration file structure representing configuration elements mapped by Spring Configuration.
+     * @param additionalConfiguration Optional additional parameters that allow the inclusion of configuration keys not present in {@code EclipseStoreProperties}.
+     * @return A new {@code EmbeddedStorageFoundation} instance based on the provided configuration.
+     */
+    public EmbeddedStorageFoundation<?> createStorageFoundation(final EclipseStoreProperties eclipseStoreProperties, final ConfigurationPair... additionalConfiguration)
+    {
+        final EmbeddedStorageConfigurationBuilder builder = EmbeddedStorageConfigurationBuilder.New();
+        final Map<String, String> valueMap = this.converter.convertConfigurationToMap(eclipseStoreProperties);
+        for (final ConfigurationPair pair : additionalConfiguration)
+        {
+            valueMap.put(pair.key(), pair.value());
+        }
 
-    if (eclipseStoreProperties.isRegisterJdk8Handlers()) {
-      this.logger.debug("Register JDK8 handlers. ");
-      storageFoundation.onConnectionFoundation(BinaryHandlersJDK8::registerJDK8TypeHandlers);
+        this.logger.debug("EclipseStore configuration items: ");
+        valueMap.forEach((key, value) ->
+        {
+            if (value != null)
+            {
+                final String logValue = key.contains("password") ? "xxxxxx" : value;
+                this.logger.debug(key + " : " + logValue);
+                builder.set(key, value);
+            }
+        });
+
+        final EmbeddedStorageFoundation<?> storageFoundation = builder.createEmbeddedStorageFoundation();
+
+        final Object root = this.createNewRootInstance(eclipseStoreProperties);
+        if (root != null)
+        {
+            this.logger.debug("Root object: " + root.getClass().getName());
+            storageFoundation.setRoot(root);
+        }
+
+        storageFoundation.getConnectionFoundation().setClassLoaderProvider(classLoaderProvider);
+
+        if (eclipseStoreProperties.isRegisterJdk8Handlers())
+        {
+            this.logger.debug("Register JDK8 handlers. ");
+            storageFoundation.onConnectionFoundation(BinaryHandlersJDK8::registerJDK8TypeHandlers);
+        }
+
+        if (eclipseStoreProperties.isRegisterJdk17Handlers())
+        {
+            this.logger.debug("Register JDK17 handlers. ");
+            storageFoundation.onConnectionFoundation(BinaryHandlersJDK17::registerJDK17TypeHandlers);
+        }
+
+        return storageFoundation;
     }
 
-    if (eclipseStoreProperties.isRegisterJdk17Handlers()) {
-      this.logger.debug("Register JDK17 handlers. ");
-      storageFoundation.onConnectionFoundation(BinaryHandlersJDK17::registerJDK17TypeHandlers);
+    protected Object createNewRootInstance(final EclipseStoreProperties properties)
+    {
+        var rootClass = properties.getRoot();
+        if (rootClass == null)
+        {
+            return null;
+        }
+        try
+        {
+            return rootClass.getDeclaredConstructor().newInstance();
+        } catch (final Exception e)
+        {
+            throw new RuntimeException("Failed to instantiate storage root: " + rootClass, e);
+        }
     }
-
-    return storageFoundation;
-  }
-
-  protected Object createNewRootInstance(final EclipseStoreProperties properties) {
-    var rootClass = properties.getRoot();
-    if (rootClass == null) {
-      return null;
-    }
-    try {
-      return rootClass.getDeclaredConstructor().newInstance();
-    } catch (final Exception e) {
-      throw new RuntimeException("Failed to instantiate storage root: " + rootClass, e);
-    }
-  }
 
 }

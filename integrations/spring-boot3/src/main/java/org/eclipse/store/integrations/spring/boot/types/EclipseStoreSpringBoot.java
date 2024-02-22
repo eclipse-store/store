@@ -31,50 +31,57 @@ import org.springframework.context.annotation.Lazy;
  */
 
 @Configuration
-public class EclipseStoreSpringBoot {
-  /**
-   * Properties converter.
-   *
-   * @return properties converter.
-   */
-  @Bean
-  @ConditionalOnMissingBean
-  public EclipseStoreConfigConverter eclipseStoreConfigConverter() {
-    return new EclipseStoreConfigConverter();
-  }
+public class EclipseStoreSpringBoot
+{
+    /**
+     * Properties converter.
+     *
+     * @return properties converter.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public EclipseStoreConfigConverter eclipseStoreConfigConverter()
+    {
+        return new EclipseStoreConfigConverter();
+    }
 
-  /**
-   * Class loader provider based on Spring class loader.
-   *
-   * @param applicationContext application context.
-   * @return class loader provider.
-   */
-  @Bean
-  @Lazy
-  public ClassLoaderProvider classLoaderProvider(ApplicationContext applicationContext) {
-    return (typeName) -> applicationContext.getClassLoader();
-  }
+    /**
+     * Class loader provider based on Spring class loader.
+     *
+     * @param applicationContext application context.
+     * @return class loader provider.
+     */
+    @Bean
+    @Lazy
+    public ClassLoaderProvider classLoaderProvider(ApplicationContext applicationContext)
+    {
+        return (typeName) -> applicationContext.getClassLoader();
+    }
 
-  /**
-   * Creates embedded storage foundation factory.
-   * @param eclipseStoreConfigConverter converter to map Spring properties to EclipseStore foundation configuration.
-   * @param classLoaderProvider classloader to use in foundation.
-   * @return factory.
-   */
-  @Bean
-  public EmbeddedStorageFoundationFactory embeddedStorageFoundationFactory(
-      EclipseStoreConfigConverter eclipseStoreConfigConverter,
-      ClassLoaderProvider classLoaderProvider
-  ) {
-    return new EmbeddedStorageFoundationFactory(eclipseStoreConfigConverter, classLoaderProvider);
-  }
+    /**
+     * Creates embedded storage foundation factory.
+     *
+     * @param eclipseStoreConfigConverter converter to map Spring properties to EclipseStore foundation configuration.
+     * @param classLoaderProvider         classloader to use in foundation.
+     * @return factory.
+     */
+    @Bean
+    public EmbeddedStorageFoundationFactory embeddedStorageFoundationFactory(
+            EclipseStoreConfigConverter eclipseStoreConfigConverter,
+            ClassLoaderProvider classLoaderProvider
+    )
+    {
+        return new EmbeddedStorageFoundationFactory(eclipseStoreConfigConverter, classLoaderProvider);
+    }
 
-  /**
-   * Creates a new embedded storage manager factory.
-   * @return factory.
-   */
-  @Bean
-  public EmbeddedStorageManagerFactory embeddedStorageManagerFactory() {
-    return new EmbeddedStorageManagerFactory();
-  }
+    /**
+     * Creates a new embedded storage manager factory.
+     *
+     * @return factory.
+     */
+    @Bean
+    public EmbeddedStorageManagerFactory embeddedStorageManagerFactory()
+    {
+        return new EmbeddedStorageManagerFactory();
+    }
 }

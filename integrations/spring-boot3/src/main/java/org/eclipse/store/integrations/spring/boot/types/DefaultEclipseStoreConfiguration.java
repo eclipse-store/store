@@ -30,59 +30,63 @@ import java.util.function.Supplier;
 
 @Configuration
 @AutoConfigureAfter(EclipseStoreSpringBoot.class)
-public class DefaultEclipseStoreConfiguration {
+public class DefaultEclipseStoreConfiguration
+{
 
-  public static final String DEFAULT_QUALIFIER = "defaultEclipseStore";
+    public static final String DEFAULT_QUALIFIER = "defaultEclipseStore";
 
-  /**
-   * <p>This means is annotated with {@code @ConfigurationProperties},
-   * which means its properties are bound to the "org.eclipse.store" prefix in the configuration files.</p>
-   */
-  @Bean
-  @Qualifier(DEFAULT_QUALIFIER)
-  @ConfigurationProperties(prefix = "org.eclipse.store")
-  public EclipseStoreProperties defaultEclipseStoreProperties() {
-    return new EclipseStoreProperties();
-  }
+    /**
+     * <p>This means is annotated with {@code @ConfigurationProperties},
+     * which means its properties are bound to the "org.eclipse.store" prefix in the configuration files.</p>
+     */
+    @Bean
+    @Qualifier(DEFAULT_QUALIFIER)
+    @ConfigurationProperties(prefix = "org.eclipse.store")
+    public EclipseStoreProperties defaultEclipseStoreProperties()
+    {
+        return new EclipseStoreProperties();
+    }
 
-  /**
-   * Creates a supplier for embedded storage foundation.
-   *
-   * @param eclipseStoreProperties properties.
-   * @param foundationFactory      embedded foundation factory.
-   * @return embedded foundation factory supplier with provided properties.
-   */
-  @Bean
-  @Qualifier(DEFAULT_QUALIFIER)
-  @ConditionalOnMissingBean
-  public Supplier<EmbeddedStorageFoundation<?>> defaultStorageFoundationSupplier(
-      @Qualifier(DEFAULT_QUALIFIER) EclipseStoreProperties eclipseStoreProperties,
-      EmbeddedStorageFoundationFactory foundationFactory
-  ) {
-    return () -> foundationFactory.createStorageFoundation(eclipseStoreProperties);
-  }
+    /**
+     * Creates a supplier for embedded storage foundation.
+     *
+     * @param eclipseStoreProperties properties.
+     * @param foundationFactory      embedded foundation factory.
+     * @return embedded foundation factory supplier with provided properties.
+     */
+    @Bean
+    @Qualifier(DEFAULT_QUALIFIER)
+    @ConditionalOnMissingBean
+    public Supplier<EmbeddedStorageFoundation<?>> defaultStorageFoundationSupplier(
+            @Qualifier(DEFAULT_QUALIFIER) EclipseStoreProperties eclipseStoreProperties,
+            EmbeddedStorageFoundationFactory foundationFactory
+    )
+    {
+        return () -> foundationFactory.createStorageFoundation(eclipseStoreProperties);
+    }
 
-  /**
-   * Creates embedded storage manager based on a single configuration.
-   *
-   * @param embeddedStorageManagerFactory     embedded storage manager factory.
-   * @param eclipseStoreProperties            properties used for construction.
-   * @param embeddedStorageFoundationSupplier embedded storage foundation factory supplier.
-   * @return storage manager.
-   */
-  @Bean
-  @Qualifier(DEFAULT_QUALIFIER)
-  @ConditionalOnMissingBean
-  public EmbeddedStorageManager defaultStorageManager(
-      EmbeddedStorageManagerFactory embeddedStorageManagerFactory,
-      @Qualifier(DEFAULT_QUALIFIER) EclipseStoreProperties eclipseStoreProperties,
-      @Qualifier(DEFAULT_QUALIFIER)
-      Supplier<EmbeddedStorageFoundation<?>> embeddedStorageFoundationSupplier
-  ) {
-    return embeddedStorageManagerFactory.createStorage(
-        embeddedStorageFoundationSupplier.get(),
-        eclipseStoreProperties.isAutoStart()
-    );
-  }
+    /**
+     * Creates embedded storage manager based on a single configuration.
+     *
+     * @param embeddedStorageManagerFactory     embedded storage manager factory.
+     * @param eclipseStoreProperties            properties used for construction.
+     * @param embeddedStorageFoundationSupplier embedded storage foundation factory supplier.
+     * @return storage manager.
+     */
+    @Bean
+    @Qualifier(DEFAULT_QUALIFIER)
+    @ConditionalOnMissingBean
+    public EmbeddedStorageManager defaultStorageManager(
+            EmbeddedStorageManagerFactory embeddedStorageManagerFactory,
+            @Qualifier(DEFAULT_QUALIFIER) EclipseStoreProperties eclipseStoreProperties,
+            @Qualifier(DEFAULT_QUALIFIER)
+            Supplier<EmbeddedStorageFoundation<?>> embeddedStorageFoundationSupplier
+    )
+    {
+        return embeddedStorageManagerFactory.createStorage(
+                embeddedStorageFoundationSupplier.get(),
+                eclipseStoreProperties.isAutoStart()
+        );
+    }
 
 }

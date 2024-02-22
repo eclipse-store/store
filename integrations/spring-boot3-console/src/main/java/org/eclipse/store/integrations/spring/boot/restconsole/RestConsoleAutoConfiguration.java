@@ -29,25 +29,30 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @EnableConfigurationProperties(RestConsoleProperties.class)
 @AutoConfigureAfter({
-    StoreDataRestAutoConfiguration.class
+        StoreDataRestAutoConfiguration.class
 })
 @ComponentScan
-public class RestConsoleAutoConfiguration {
-  private final Logger logger = LoggerFactory.getLogger(RestConsoleAutoConfiguration.class);
-  private final VaadinConfigurationProperties vaadinProperties;
+public class RestConsoleAutoConfiguration
+{
+    private final Logger logger = LoggerFactory.getLogger(RestConsoleAutoConfiguration.class);
+    private final VaadinConfigurationProperties vaadinProperties;
 
-  public RestConsoleAutoConfiguration(@Autowired(required = false) VaadinConfigurationProperties vaadinProperties) {
-    this.vaadinProperties = vaadinProperties;
-  }
-
-  @PostConstruct
-  public void initialize() {
-    final String prefix;
-    if (vaadinProperties != null) {
-      prefix = vaadinProperties.getUrlMapping();
-    } else {
-      prefix = "/";
+    public RestConsoleAutoConfiguration(@Autowired(required = false) VaadinConfigurationProperties vaadinProperties)
+    {
+        this.vaadinProperties = vaadinProperties;
     }
-    logger.info("[ECLIPSE STORE CONSOLE]: Starting console service: '{}'.", prefix);
-  }
+
+    @PostConstruct
+    public void initialize()
+    {
+        final String prefix;
+        if (vaadinProperties != null)
+        {
+            prefix = vaadinProperties.getUrlMapping();
+        } else
+        {
+            prefix = "/";
+        }
+        logger.info("[ECLIPSE STORE CONSOLE]: Starting console service: '{}'.", prefix);
+    }
 }

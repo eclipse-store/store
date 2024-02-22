@@ -27,30 +27,35 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 
 @SuppressWarnings("removal")
 @Deprecated
-public class EclipseStoreProviderImpl implements EclipseStoreProvider {
+public class EclipseStoreProviderImpl implements EclipseStoreProvider
+{
 
-  private final EmbeddedStorageFoundationFactory embeddedStorageFoundationFactory;
-  private final EmbeddedStorageManagerFactory embeddedStorageManagerFactory;
+    private final EmbeddedStorageFoundationFactory embeddedStorageFoundationFactory;
+    private final EmbeddedStorageManagerFactory embeddedStorageManagerFactory;
 
-  public EclipseStoreProviderImpl(final EclipseStoreConfigConverter converter, final ClassLoaderProvider classLoaderProvider) {
-    this.embeddedStorageFoundationFactory = new EmbeddedStorageFoundationFactory(converter, classLoaderProvider);
-    this.embeddedStorageManagerFactory = new EmbeddedStorageManagerFactory();
-  }
+    public EclipseStoreProviderImpl(final EclipseStoreConfigConverter converter, final ClassLoaderProvider classLoaderProvider)
+    {
+        this.embeddedStorageFoundationFactory = new EmbeddedStorageFoundationFactory(converter, classLoaderProvider);
+        this.embeddedStorageManagerFactory = new EmbeddedStorageManagerFactory();
+    }
 
-  @Override
-  public EmbeddedStorageManager createStorage(final EclipseStoreProperties eclipseStoreProperties, final ConfigurationPair... additionalConfiguration) {
-    final EmbeddedStorageFoundation<?> storageFoundation = this.createStorageFoundation(eclipseStoreProperties, additionalConfiguration);
-    return this.createStorage(storageFoundation, eclipseStoreProperties.isAutoStart());
-  }
+    @Override
+    public EmbeddedStorageManager createStorage(final EclipseStoreProperties eclipseStoreProperties, final ConfigurationPair... additionalConfiguration)
+    {
+        final EmbeddedStorageFoundation<?> storageFoundation = this.createStorageFoundation(eclipseStoreProperties, additionalConfiguration);
+        return this.createStorage(storageFoundation, eclipseStoreProperties.isAutoStart());
+    }
 
-  @Override
-  public EmbeddedStorageManager createStorage(final EmbeddedStorageFoundation<?> foundation, final boolean autoStart) {
-    return embeddedStorageManagerFactory.createStorage(foundation, autoStart);
-  }
+    @Override
+    public EmbeddedStorageManager createStorage(final EmbeddedStorageFoundation<?> foundation, final boolean autoStart)
+    {
+        return embeddedStorageManagerFactory.createStorage(foundation, autoStart);
+    }
 
-  @Override
-  public EmbeddedStorageFoundation<?> createStorageFoundation(final EclipseStoreProperties eclipseStoreProperties, final ConfigurationPair... additionalConfiguration) {
-    return this.embeddedStorageFoundationFactory.createStorageFoundation(eclipseStoreProperties, additionalConfiguration);
-  }
+    @Override
+    public EmbeddedStorageFoundation<?> createStorageFoundation(final EclipseStoreProperties eclipseStoreProperties, final ConfigurationPair... additionalConfiguration)
+    {
+        return this.embeddedStorageFoundationFactory.createStorageFoundation(eclipseStoreProperties, additionalConfiguration);
+    }
 
 }

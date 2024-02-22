@@ -14,17 +14,20 @@ package org.eclipse.store.integrations.spring.boot.restconsole.configuration;
  * #L%
  */
 
-public class UIProperties {
-  /**
-   * Flag controlling if UI console is enabled, defaults to <code>true</code>
-   */
-  private boolean enabled = true;
+public class UIProperties
+{
+    /**
+     * Flag controlling if UI console is enabled, defaults to <code>true</code>
+     */
+    private boolean enabled = true;
 
-  public boolean isEnabled() {
-    return enabled;
-  }
+    public boolean isEnabled()
+    {
+        return enabled;
+    }
 
-  public void setEnabled(boolean enabled) {
-    this.enabled = enabled;
-  }
+    public void setEnabled(boolean enabled)
+    {
+        this.enabled = enabled;
+    }
 }
