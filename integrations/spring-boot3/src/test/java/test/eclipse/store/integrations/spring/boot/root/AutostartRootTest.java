@@ -26,16 +26,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @TestPropertySource("classpath:application-autostart-root.properties")
 @SpringBootTest
-public class AutostartRootTest {
+public class AutostartRootTest
+{
 
-  @Autowired
-  private EmbeddedStorageManager storage;
+    @Autowired
+    private EmbeddedStorageManager storage;
 
-  @Test
-  void autostarts_and_provides_root() {
-    assertTrue(storage.isRunning() || storage.isStartingUp());
+    @Test
+    void autostarts_and_provides_root()
+    {
+        assertTrue(storage.isRunning() || storage.isStartingUp());
 
-    Object o = storage.root();
-    assertInstanceOf(Root.class, o);
-  }
+        Object o = storage.root();
+        assertInstanceOf(Root.class, o);
+    }
 }

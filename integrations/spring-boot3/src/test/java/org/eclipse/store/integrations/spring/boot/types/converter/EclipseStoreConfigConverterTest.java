@@ -16,7 +16,7 @@ import java.util.Map;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -68,7 +68,8 @@ class EclipseStoreConfigConverterTest
     }
 
     @Test
-    void testConvertConfigurationToMap() {
+    void testConvertConfigurationToMap()
+    {
         final EclipseStoreProperties configValues = new EclipseStoreProperties();
         final Map<String, String> result = this.converter.convertConfigurationToMap(configValues);
         assertNotNull(result);
@@ -76,7 +77,8 @@ class EclipseStoreConfigConverterTest
     }
 
     @Test
-    void testConvertConfigurationToMapWithStorageDirectory() {
+    void testConvertConfigurationToMapWithStorageDirectory()
+    {
         final EclipseStoreProperties configValues = new EclipseStoreProperties();
         configValues.setStorageDirectory("storage/dir");
         final Map<String, String> result = this.converter.convertConfigurationToMap(configValues);
@@ -85,7 +87,8 @@ class EclipseStoreConfigConverterTest
     }
 
     @Test
-    void testNullValuesAreRemoved() {
+    void testNullValuesAreRemoved()
+    {
         final EclipseStoreProperties configValues = new EclipseStoreProperties();
         configValues.setStorageDirectory(null);
         configValues.setStorageFilesystem(new StorageFilesystem());
@@ -98,7 +101,8 @@ class EclipseStoreConfigConverterTest
     }
 
     @Test
-    void testComposeKey() {
+    void testComposeKey()
+    {
         final String result = this.converter.composeKey("prefix", "suffix");
         assertEquals("prefix.suffix", result);
     }

@@ -25,21 +25,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
 @TestPropertySource("classpath:application-inject-test.properties")
-public class InjectStorageBeanTest {
+public class InjectStorageBeanTest
+{
 
-  @Autowired
-  private EmbeddedStorageManager manager;
+    @Autowired
+    private EmbeddedStorageManager manager;
 
 
-  @Test
-  void injects_storage_manager() {
-    assertThat(manager.isRunning()).isFalse();
-    manager.start();
-    assertThat(manager.isRunning()).isTrue();
-    manager.setRoot("hello");
-    manager.storeRoot();
-    manager.shutdown();
-    assertThat(manager.isRunning()).isFalse();
-  }
+    @Test
+    void injects_storage_manager()
+    {
+        assertThat(manager.isRunning()).isFalse();
+        manager.start();
+        assertThat(manager.isRunning()).isTrue();
+        manager.setRoot("hello");
+        manager.storeRoot();
+        manager.shutdown();
+        assertThat(manager.isRunning()).isFalse();
+    }
 
 }

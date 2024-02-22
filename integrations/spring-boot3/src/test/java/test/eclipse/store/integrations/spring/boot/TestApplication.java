@@ -22,5 +22,6 @@ import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
  */
 @SpringBootConfiguration
 @EnableAutoConfiguration
-public class TestApplication {
+public class TestApplication
+{
 }

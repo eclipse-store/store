@@ -40,78 +40,88 @@ import java.nio.file.Path;
 @TestPropertySource("classpath:application-run-test.properties")
 @Import(RestartStorageBeanTest.RestartStorageBeanConfiguration.class)
 @ActiveProfiles("restart_storage")
-public class RestartStorageBeanTest {
-
-  @Autowired
-  private EmbeddedStorageFoundationFactory foundationFactory;
-
-  @Autowired
-  private EclipseStoreProperties myConfiguration;
-
-  @Autowired
-  @Qualifier("restartStorageBean")
-  private EmbeddedStorageManager manager;
-
-  @TempDir
-  static Path tempFolder;
-
-
-  @Test
-  void restarts_storage() {
-
-    final RestartRoot root = new RestartRoot("hello");
-    manager.start();
-    manager.setRoot(root);
-    manager.storeRoot();
-    manager.shutdown();
-
-    Assertions.assertEquals(tempFolder.toAbsolutePath().toString(), manager.configuration().fileProvider().baseDirectory().toPathString());
-
-    final ConfigurationPair pair = new ConfigurationPair("someKey", "someValue");
-    final EmbeddedStorageFoundation<?> storageFoundation = this.foundationFactory.createStorageFoundation(this.myConfiguration, pair);
-    final RestartRoot root2 = new RestartRoot();
-    storageFoundation.setRoot(root2);
-    try (EmbeddedStorageManager storage = storageFoundation.start()) {
-      final RestartRoot rootFromStorage = (RestartRoot) storage.root();
-      Assertions.assertEquals("hello", rootFromStorage.getValue());
-    }
-  }
-
-  static class RestartRoot {
-    private String value;
-
-    public RestartRoot(final String value) {
-      this.value = value;
-    }
-
-    public RestartRoot() {
-    }
-
-    public String getValue() {
-      return this.value;
-    }
-
-    public void setValue(final String value) {
-      this.value = value;
-    }
-  }
-
-  @TestConfiguration
-  @Profile("restart_storage")
-  static class RestartStorageBeanConfiguration {
+public class RestartStorageBeanTest
+{
 
     @Autowired
     private EmbeddedStorageFoundationFactory foundationFactory;
 
     @Autowired
-    @Qualifier("defaultEclipseStoreProperties")
     private EclipseStoreProperties myConfiguration;
 
-    @Bean("restartStorageBean")
-    EmbeddedStorageManager restartStorageBean() {
-      this.myConfiguration.setStorageDirectory(tempFolder.toAbsolutePath().toString());
-      final EmbeddedStorageFoundation<?> storageFoundation = this.foundationFactory.createStorageFoundation(this.myConfiguration);
-      return storageFoundation.createEmbeddedStorageManager();
+    @Autowired
+    @Qualifier("restartStorageBean")
+    private EmbeddedStorageManager manager;
+
+    @TempDir
+    static Path tempFolder;
+
+
+    @Test
+    void restarts_storage()
+    {
+
+        final RestartRoot root = new RestartRoot("hello");
+        manager.start();
+        manager.setRoot(root);
+        manager.storeRoot();
+        manager.shutdown();
+
+        Assertions.assertEquals(tempFolder.toAbsolutePath().toString(), manager.configuration().fileProvider().baseDirectory().toPathString());
+
+        final ConfigurationPair pair = new ConfigurationPair("someKey", "someValue");
+        final EmbeddedStorageFoundation<?> storageFoundation = this.foundationFactory.createStorageFoundation(this.myConfiguration, pair);
+        final RestartRoot root2 = new RestartRoot();
+        storageFoundation.setRoot(root2);
+        try (EmbeddedStorageManager storage = storageFoundation.start())
+        {
+            final RestartRoot rootFromStorage = (RestartRoot) storage.root();
+            Assertions.assertEquals("hello", rootFromStorage.getValue());
+        }
     }
-  }
+
+    static class RestartRoot
+    {
+        private String value;
+
+        public RestartRoot(final String value)
+        {
+            this.value = value;
+        }
+
+        public RestartRoot()
+        {
+        }
+
+        public String getValue()
+        {
+            return this.value;
+        }
+
+        public void setValue(final String value)
+        {
+            this.value = value;
+        }
+    }
+
+    @TestConfiguration
+    @Profile("restart_storage")
+    static class RestartStorageBeanConfiguration
+    {
+
+        @Autowired
+        private EmbeddedStorageFoundationFactory foundationFactory;
+
+        @Autowired
+        @Qualifier("defaultEclipseStoreProperties")
+        private EclipseStoreProperties myConfiguration;
+
+        @Bean("restartStorageBean")
+        EmbeddedStorageManager restartStorageBean()
+        {
+            this.myConfiguration.setStorageDirectory(tempFolder.toAbsolutePath().toString());
+            final EmbeddedStorageFoundation<?> storageFoundation = this.foundationFactory.createStorageFoundation(this.myConfiguration);
+            return storageFoundation.createEmbeddedStorageManager();
+        }
+    }
 }

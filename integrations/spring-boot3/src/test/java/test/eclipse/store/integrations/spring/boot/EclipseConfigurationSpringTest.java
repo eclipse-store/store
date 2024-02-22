@@ -9,7 +9,7 @@ package test.eclipse.store.integrations.spring.boot;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -28,21 +28,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @TestPropertySource("classpath:application-test.properties")
 @SpringBootTest
-public class EclipseConfigurationSpringTest {
+public class EclipseConfigurationSpringTest
+{
 
-  @Autowired
-  private EclipseStoreProperties values;
-  @Autowired
-  private EclipseStoreConfigConverter converter;
+    @Autowired
+    private EclipseStoreProperties values;
+    @Autowired
+    private EclipseStoreConfigConverter converter;
 
-  @Test
-  void checks_storage_directory_value() {
-    assertNotNull(this.values.getStorageDirectory());
-  }
+    @Test
+    void checks_storage_directory_value()
+    {
+        assertNotNull(this.values.getStorageDirectory());
+    }
 
-  @Test
-  void converts_value_from_properties() {
-    final Map<String, String> valueMap = this.converter.convertConfigurationToMap(this.values);
-    assertTrue(valueMap.containsKey("storage-filesystem.sql.postgres.data-source-provider"));
-  }
+    @Test
+    void converts_value_from_properties()
+    {
+        final Map<String, String> valueMap = this.converter.convertConfigurationToMap(this.values);
+        assertTrue(valueMap.containsKey("storage-filesystem.sql.postgres.data-source-provider"));
+    }
 }
