@@ -13,7 +13,7 @@ To download it use the following Maven command to download it into the current d
 
 [source, shell, title="CLI"]
 ----
-mvn dependency:get -Dartifact=org.eclipse.store:storage-restclient-app-stanalone:{maven-version}:jar -Dtransitive=false -Ddest=storage.restclient.app-{maven-version}.jar
+mvn dependency:get -Dartifact=org.eclipse.store:storage-restclient-app-standalone:{maven-version}:jar -Dtransitive=false -Ddest=storage.restclient.app-{maven-version}.jar
 ----
 
 or this direct link:
