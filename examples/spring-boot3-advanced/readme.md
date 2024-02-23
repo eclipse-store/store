@@ -26,7 +26,7 @@ java -jar target/spring-boot3-advanced.jar
 
 To launch the test page, open your browser at the following URL
 ```shell
-http://localhost:8081/  
+http://localhost:8080/  
 ```
 
 ## Using Swagger UI
@@ -39,8 +39,8 @@ send the requests.
 
 You may be interested in the state of your data. The example includes the Console for debugging purposes. 
 Please open http://localhost:8080/store-console/
-in your browser, enter http://localhost:8081/store-data/jokesStore/, click connect and inspect the data jokes in your store.
-Enter http://localhost:8081/store-data/muppetsStore/, click connect and inspect the data muppets in your store.
+in your browser, enter http://localhost:8080/store-data/jokesStore/, click connect and inspect the data jokes in your store.
+Enter http://localhost:8080/store-data/muppetsStore/, click connect and inspect the data muppets in your store.
 
 
 ## Using App rest api
@@ -68,4 +68,24 @@ Add new Joke
 curl --location --request POST 'http://localhost:8080/jokes/add' \
 --header 'Content-Type: application/json' \
 --data-raw '{great new joke}'
+```
+
+## Using App rest api for Muppets
+
+Load sample data for Muppets. Without this step, the application will not contain any Muppet data. It is not mandatory to execute this step, but without it there will be no data in the storage.
+```shell
+curl --location --request POST 'http://localhost:8080/muppets/init' \
+--header 'Content-Type: application/json'
+```
+
+Get all Muppets
+```shell
+curl --location --request GET 'http://localhost:8080/muppets' \
+--header 'Content-Type: application/json'
+```
+
+Get Muppet by Id
+```shell
+curl --location --request GET 'http://localhost:8080/muppets/muppet?id=5' \
+--header 'Content-Type: application/json' 
 ```
