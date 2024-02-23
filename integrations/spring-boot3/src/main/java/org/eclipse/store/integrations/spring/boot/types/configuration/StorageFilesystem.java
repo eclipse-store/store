@@ -39,7 +39,7 @@ public class StorageFilesystem
 
     /**
      * Supported properties
-     * All supported properties of Kafka, see https://kafka.apache.org/documentation/
+     * All supported properties of Kafka, see <a href="https://kafka.apache.org/documentation/">...</a>
      */
     private Map<String, String> kafkaProperties;
 

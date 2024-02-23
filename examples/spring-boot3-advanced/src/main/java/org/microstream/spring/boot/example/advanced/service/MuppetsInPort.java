@@ -16,13 +16,31 @@ package org.microstream.spring.boot.example.advanced.service;
 
 import java.util.List;
 
+/**
+ * The MuppetsInPort interface provides methods for managing Muppets in a port.
+ * This includes retrieving a specific Muppet by its ID, getting all Muppets, and initializing the port.
+ */
 public interface MuppetsInPort
 {
-
+    /**
+     * Retrieves a Muppet by its ID.
+     *
+     * @param id The ID of the Muppet to retrieve.
+     * @return The Muppet as a String.
+     */
     String getMuppet(Integer id);
 
+    /**
+     * Retrieves all Muppets in the port.
+     *
+     * @return A list of all Muppets as Strings.
+     */
     List<String> getAllMuppets();
 
+    /**
+     * Initializes the port. This method should be called before any operations are performed on the port.
+     * It is responsible for setting up necessary data structures and ensuring the port is ready for operations.
+     */
     void initialize();
 
 }

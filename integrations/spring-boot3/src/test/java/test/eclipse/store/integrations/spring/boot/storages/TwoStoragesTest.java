@@ -29,7 +29,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Profile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
-import test.eclipse.store.integrations.spring.boot.TestApplication;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

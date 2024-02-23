@@ -19,7 +19,7 @@ import org.springframework.boot.context.properties.NestedConfigurationProperty;
 public class Firestore
 {
     /**
-     * he database ID to use with this Firestore client.
+     * the database ID to use with this Firestore client.
      */
     private String databaseId;
 

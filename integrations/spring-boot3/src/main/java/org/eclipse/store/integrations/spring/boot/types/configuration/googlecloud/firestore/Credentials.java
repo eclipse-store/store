@@ -17,7 +17,7 @@ package org.eclipse.store.integrations.spring.boot.types.configuration.googleclo
 public class Credentials
 {
     /**
-     * The type of the credentials provider. Supported values are:
+     * The type of the credentials' provider. Supported values are:
      *
      * <ul>
      * <li>"none": No credentials are used.</li>
