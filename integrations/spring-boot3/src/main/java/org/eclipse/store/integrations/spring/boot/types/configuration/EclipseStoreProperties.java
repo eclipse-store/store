@@ -14,10 +14,7 @@ package org.eclipse.store.integrations.spring.boot.types.configuration;
  * #L%
  */
 
-import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
 
 /**
  * The {@code EclipseStoreProperties} class holds the configuration properties for the Eclipse Store.
