@@ -76,14 +76,14 @@ public class EmbeddedStorageFoundationFactory
 
         final EmbeddedStorageFoundation<?> storageFoundation = builder.createEmbeddedStorageFoundation();
 
+        storageFoundation.getConnectionFoundation().setClassLoaderProvider(classLoaderProvider);
+
         final Object root = this.createNewRootInstance(eclipseStoreProperties);
         if (root != null)
         {
             this.logger.debug("Root object: " + root.getClass().getName());
             storageFoundation.setRoot(root);
         }
-
-        storageFoundation.getConnectionFoundation().setClassLoaderProvider(classLoaderProvider);
 
         if (eclipseStoreProperties.isRegisterJdk8Handlers())
         {
