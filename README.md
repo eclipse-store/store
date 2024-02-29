@@ -8,6 +8,8 @@
 
 Store and load any Java Object Graph or Subgraphs partially, Relieved of Heavy-weight JPA. Microsecond Response Time. Ultra-High Throughput. Minimum of Latencies. Create Ultra-Fast In-Memory Database Applications & Microservices.
 
+EclipseStore is based on the [Eclipse Serializer](https://github.com/eclipse-serializer/serializer).
+
 ## License
 
 EclipseStore is available under [Eclipse Public License - v 2.0](LICENSE).
