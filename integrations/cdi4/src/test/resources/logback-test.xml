@@ -1,0 +1,15 @@
+<configuration>
+    <appender name="TEST" class="org.eclipse.store.integrations.cdi.types.logging.TestAppender">
+    </appender>
+
+<!--    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">-->
+<!--        <encoder>-->
+<!--            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>-->
+<!--        </encoder>-->
+<!--    </appender>-->
+
+    <root level="ALL">
+        <appender-ref ref="TEST" />
+<!--        <appender-ref ref="STDOUT" />-->
+    </root>
+</configuration>

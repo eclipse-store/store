@@ -15,6 +15,10 @@
     <name>EclipseStore Integrations Parent</name>
     <packaging>pom</packaging>
 
+    <modules>
+        <module>cdi4</module>
+    </modules>
+
     <profiles>
         <profile>
             <id>from_java_17</id>
