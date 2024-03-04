@@ -17,7 +17,9 @@ module org.eclipse.store.storage.restclient.app {
 
 	provides com.vaadin.flow.server.VaadinServiceInitListener
 		with org.eclipse.store.storage.restclient.app.types.ApplicationServiceInitListener;
-	
+
+	opens org.eclipse.store.storage.restclient.app.types to spring.core, spring.beans, spring.context;
+
 	requires flow.data;
 	requires flow.html.components;
 	requires flow.server;

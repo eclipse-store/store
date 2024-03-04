@@ -106,7 +106,7 @@ Returns description and values of a distinct object.
 [instance-name]/dictionary
 ----
 
-Returns the type dictionary as plain text.
+Returns the type dictionary as text output.
 
 [source, json, title="Response"]
 ----

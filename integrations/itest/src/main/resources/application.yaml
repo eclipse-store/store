@@ -1,0 +1,7 @@
+org:
+  eclipse:
+    store:
+      storage-directory: ${java.io.tmpdir}/${random.int}
+logging:
+  level:
+    root: WARN

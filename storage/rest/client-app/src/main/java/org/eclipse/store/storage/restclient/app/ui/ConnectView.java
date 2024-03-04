@@ -20,7 +20,6 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import org.eclipse.store.storage.restclient.app.types.SessionData;
 import org.eclipse.store.storage.restclient.jersey.types.StorageRestClientJersey;
@@ -63,7 +62,7 @@ public class ConnectView extends VerticalLayout implements HasDynamicTitle
 		final Button cmdConnect = new Button(this.getTranslation("CONNECT"),
 			event -> {
 				String url = urlChooser.getValue();
-				if(url != null && (url = url.trim()).length() > 0)
+				if(url != null && !(url = url.trim()).isEmpty())
 				{
 					this.tryConnect(url);
 				}
@@ -151,8 +150,9 @@ public class ConnectView extends VerticalLayout implements HasDynamicTitle
 	private Set<String> urls()
 	{
 		final Set<String> urlSelection = new LinkedHashSet<>();
+		urlSelection.add("http://localhost:8080/store-data/default/");
 		urlSelection.add("http://localhost:4567/store-data/");
-		
+
 		final HttpServletRequest request = (HttpServletRequest) VaadinRequest.getCurrent();
 		final Cookie[]           cookies = request.getCookies();
 		if(cookies != null)
@@ -167,10 +167,7 @@ public class ConnectView extends VerticalLayout implements HasDynamicTitle
 					Base64.getUrlDecoder().decode(urlCookie.getValue()),
 					StandardCharsets.UTF_8
 				);
-				for(final String url : urls.split("\n"))
-				{
-					urlSelection.add(url);
-				}
+        urlSelection.addAll(Arrays.asList(urls.split("\n")));
 			}
 		}
 		return urlSelection;
@@ -183,7 +180,7 @@ public class ConnectView extends VerticalLayout implements HasDynamicTitle
 		final Set<String> urls = this.urls();
 		if(urls.add(url))
 		{
-			final String cookieData = urls.stream().collect(Collectors.joining("\n"));
+			final String cookieData = String.join("\n", urls);
 			
 			final HttpServletResponse response = (HttpServletResponse) VaadinResponse.getCurrent();
 			final Cookie cookie = new Cookie(

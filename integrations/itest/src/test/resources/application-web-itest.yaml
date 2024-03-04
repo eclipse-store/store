@@ -1,0 +1,14 @@
+org:
+  eclipse:
+    store:
+      rest:
+        enabled: true # enable the REST endpoint
+        base-url: /itesturl # change the URL
+      console:
+        ui:
+          enabled: false # disable console (and entire vaadin)
+
+logging:
+  level:
+    org.springframework.web: DEBUG
+    org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping: TRACE
