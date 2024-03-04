@@ -9,7 +9,7 @@ package org.eclipse.store.integrations.spring.boot.types.converter;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -78,8 +78,7 @@ public enum ConfigKeys
     SQL_SCHEMA("schema"),
     SQL_URL("url"),
     SQL_USER("user"),
-    SQL_PASSWORD("password")
-    ;
+    SQL_PASSWORD("password");
 
     private final String value;
 

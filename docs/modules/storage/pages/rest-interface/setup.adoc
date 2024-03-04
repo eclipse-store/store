@@ -1,24 +1,85 @@
 = Setup
 
-== REST Service
+An application that will expose the REST endpoints needs one of the provided implementations by {product-name} or you need to implement the provided interfaces.
 
-An application that will expose the REST endpoints needs one of the provided implementations by {product-name} or you need to implement the provided interfaces. In this example, we will use the https://sparkjava.com/[Spark] implementation that {product-name} provides.
+Currently, two implementations are available:
+
+- SpringBoot 3.x REST Service
+- Spark Java REST Service
+
+== Spring Boot REST Service
+
+In this example, we will use Spring Boot implementation that {product-name} provides. This requires a fully functional
+Spring Boot 3 with Spring Web MVC already set-up and configured. If you are unsure how to do so, please consult the
+original https://spring.io/projects/spring-boot[SpringBoot] documentation.
+
+Please add the following dependencies to your project:
+
+[source, xml, title="pom.xml", subs=attributes+]
+----
+<dependencies>
+    <dependency>
+      <groupId>org.eclipse.store</groupId>
+      <artifactId>storage-restservice-springboot</artifactId>
+      <version>{maven-version}</version>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+        <version>${spring-boot.version}</version>
+    </dependency>
+</dependencies>
+----
+
+Using your preferred configuration format, please activate the REST service in your configuration.
+For example using properties file the configuration looks like:
+
+[source, properties, title="application.properties", subs=attributes+]
+----
+org.eclipse.store.rest.enabled=true
+----
+
+This is it. This configuration will provide an additional REST endpoint accessible via `/store-data/` providing information
+about your store. If your application starts a web server on port 8080, and you haven't changed the default configuration,
+the complete base URL will be `http://localhost:8080/store-data/`. Open it a browser to see further available URLs
+provided by the REST service.
+
+The REST controller is able to provide information about multiple Storage managers of your system. For a storage manager called
+`some` its details are available via `/storage-data/some`. If you haven't changed the storage manager configuration and use the
+default one provided by the SpringBoot integration, it will be available via `/storage-data/default`.
+
+=== Additional Configuration
+
+You might want to change the base URL of your service. This is possible using the configuration file of your SpringBoot
+application. The corresponding property is `org.eclipse.store.rest.base-url`. The example below changes the base URL to
+`/some/other/location`:
+
+[source, properties, title="application.properties", subs=attributes+]
+----
+org.eclipse.store.rest.base-url=/some/other/location
+----
+
+== Spark Java REST Service
+
+In this example, we will use the https://sparkjava.com/[Spark] implementation that {product-name} provides.
+This has no dependencies to other frameworks and makes no assumptions about your runtime environment, IoC container,
+dependency injection, web server or anything else.
 
 Just add the dependency to your project, the logger is optional.
 
 [source, xml, title="pom.xml", subs=attributes+]
 ----
 <dependencies>
-   <dependency>
-      <groupId>org.eclipse.store</groupId>
-      <artifactId>storage-restservice-sparkjava</artifactId>
-      <version>{maven-version}</version>
-   </dependency>
-   <dependency>
-      <groupId>org.slf4j</groupId>
-      <artifactId>slf4j-simple</artifactId>
-      <version>1.7.32</version>
-   </dependency>
+    <dependency>
+        <groupId>org.eclipse.store</groupId>
+        <artifactId>storage-restservice-sparkjava</artifactId>
+        <version>{maven-version}</version>
+    </dependency>
+    <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-simple</artifactId>
+        <version>1.7.32</version>
+    </dependency>
 </dependencies>
 ----
 
@@ -46,11 +107,11 @@ service.start();
 
 That's all you have to do to open the REST endpoints to access the stored data.
 
-The base URL of the provided endpoints is per default: http://localhost:4567/eclipsestore/ and you can find out all available endpoints on the root http://localhost:4567
+The base URL of the provided endpoints is per default: http://localhost:4567/store-data/ and you can find out all available endpoints on the root http://localhost:4567
 
-== Configuration
+=== Additional Configuration
 
-If you want to change the default port (4567) or instance name (_eclipsestore_) it can be done by using the rest service implementation directly, and not go through the _Resolver` as in the previous snippet.
+If you want to change the default port (4567) or instance name (_store-data_) it can be done by using the rest service implementation directly, and not go through the _Resolver` as in the previous snippet.
 
 The Spark service can then be customized to your liking.
 
@@ -63,4 +124,4 @@ service.setSparkService(
 service.setInstanceName("my-name");
 ----
 
-This will change the base URL to http://localhost/my-name/
+This will change the base URL to http://localhost:8888/my-name/

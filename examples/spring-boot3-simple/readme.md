@@ -29,6 +29,18 @@ To launch the test page, open your browser at the following URL
 http://localhost:8080/  
 ```
 
+## Using Swagger UI
+
+The example application provides a handy UI for sending REST request to provided endpoints. To use the UI, please run  the application
+and open http://localhost:8080/swagger-ui/index.html in your browser. Then navigate to desired operation, fill required data and send the requests.
+
+## Using Console
+
+You may be interested in the state of your data. The example includes the Console for debugging purposes. Please open 
+http://localhost:8080/store-console/ in your browser, select http://localhost:8080/store-data/default/ from the list, 
+click connect and inspect the data in your store.
+
+
 ## Using App rest api
 This examples use Curl for Linux/macOS. You can use any other tool for sending HTTP requests.
 Load sample data. Without this step, the application will not contain any data. It is not mandatory to execute this step, but without it you will have to add all your data manually.

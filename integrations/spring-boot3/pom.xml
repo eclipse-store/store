@@ -12,11 +12,10 @@
     </parent>
 
     <artifactId>integrations-spring-boot3</artifactId>
+    <name>EclipseStore Integrations SpringBoot</name>
 
     <properties>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
-        <org.springframework.boot.version>3.2.0</org.springframework.boot.version>
+        <org.springframework.boot.version>3.2.2</org.springframework.boot.version>
     </properties>
 
     <dependencies>
@@ -54,6 +53,12 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <version>${org.springframework.boot.version}</version>
             <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.aspectj</groupId>
+            <artifactId>aspectjweaver</artifactId>
+            <version>1.9.7</version>
         </dependency>
 
         <dependency>
@@ -116,13 +121,6 @@
                         </configuration>
                     </execution>
                 </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-javadoc-plugin</artifactId>
-                <configuration>
-                    <source>17</source>
-                </configuration>
             </plugin>
         </plugins>
     </build>

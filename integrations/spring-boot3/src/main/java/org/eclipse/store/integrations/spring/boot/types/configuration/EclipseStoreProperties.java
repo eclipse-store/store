@@ -1,23 +1,28 @@
 package org.eclipse.store.integrations.spring.boot.types.configuration;
 
-import org.springframework.boot.context.properties.ConfigurationProperties;
+/*-
+ * #%L
+ * EclipseStore Integrations SpringBoot
+ * %%
+ * Copyright (C) 2023 - 2024 MicroStream Software
+ * %%
+ * This program and the accompanying materials are made
+ * available under the terms of the Eclipse Public License 2.0
+ * which is available at https://www.eclipse.org/legal/epl-2.0/
+ *
+ * SPDX-License-Identifier: EPL-2.0
+ * #L%
+ */
+
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
 
 /**
  * The {@code EclipseStoreProperties} class holds the configuration properties for the Eclipse Store.
  * These properties are loaded from the application's configuration files and can be used to configure the Eclipse Store.
  *
- * <p>This class is annotated with {@code @Configuration}, {@code @Primary}, and {@code @ConfigurationProperties},
- * which means it is a Spring configuration class, it is the primary bean of its type, and its properties are bound to the "org.eclipse.store" prefix in the configuration files.</p>
- *
  * <p>Each property in this class corresponds to a configuration option for the Eclipse Store.
  * The properties are loaded from the configuration files when the application starts.</p>
  */
-@Configuration
-@Primary
-@ConfigurationProperties(prefix = "org.eclipse.store")
 public class EclipseStoreProperties
 {
 

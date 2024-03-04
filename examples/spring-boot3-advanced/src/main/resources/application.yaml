@@ -1,0 +1,21 @@
+org:
+  eclipse:
+    store:
+      jokes:
+        auto-start: true
+        root: org.microstream.spring.boot.example.advanced.model.JokesRoot
+        storage-directory: ${java.io.tmpdir}/jokes_storage
+      muppets:
+        auto-start: true
+        root: org.microstream.spring.boot.example.advanced.model.MuppetsRoot
+        storage-directory: ${java.io.tmpdir}/muppets_storage
+      rest:
+        enabled: true
+
+springdoc:
+  swagger-ui:
+    try-it-out-enabled: true
+    url: /v3/api-docs
+
+vaadin:
+  url-mapping: /store-console/*

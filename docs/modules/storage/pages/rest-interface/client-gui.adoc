@@ -6,29 +6,29 @@ It is a runnable jar which starts a simple web server which then can be accessed
 
 [NOTE]
 ====
-Since {product-name} version 1.1.0 The Client GUI requires java 17!
+Since {product-name} version 1.1.0 The Client GUI requires Java 17 to run!
 ====
 
 To download it use the following Maven command to download it into the current directory.
 
 [source, shell, title="CLI"]
 ----
-mvn dependency:get -Dartifact=org.eclipse.store:storage-restclient-app:{maven-version}:jar -Dtransitive=false -Ddest=storage.restclient.app-{maven-version}.jar
+mvn dependency:get -Dartifact=org.eclipse.store:storage-restclient-app-standalone:{maven-version}:jar -Dtransitive=false -Ddest=storage.restclient.app-{maven-version}.jar
 ----
 
 or this direct link:
 
-https://repo1.maven.org/maven2/org/eclipse/store/storage-restclient-app/{maven-version}/storage-restclient-app-{maven-version}.jar
+https://oss.sonatype.org/content/repositories/snapshots/org/eclipse/store/storage-restclient-app/{maven-version}/storage-restclient-app-standalone-{maven-version}.jar
 
 Start the client.
 The port parameter is optional, default port is 8080.
 
 [source, text, subs=attributes+]
 ----
-java -jar storage-restclient-app-{maven-version}.jar --server.port=8888
+java -jar storage-restclient-app-standalone-{maven-version}.jar --server.port=8888
 ----
 
-Then just open http://localhost:8888 in your browser, select the base URL of the REST service and click connect.
+Then just open http://localhost:8888/ in your browser, select the base URL of the REST service and click connect.
 
 image::rest-client-gui.png[]
 

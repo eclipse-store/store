@@ -9,7 +9,7 @@ package org.eclipse.store.integrations.spring.boot.types.configuration;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -24,7 +24,7 @@ package org.eclipse.store.integrations.spring.boot.types.configuration;
  * ConfigurationPair pair = new ConfigurationPair("key", "value");
  * </code>
  * </pre>
- *
+ * <p>
  * In this example, a new {@code ConfigurationPair} is created with the key "key" and the value "value".
  */
 public record ConfigurationPair(String key, String value)

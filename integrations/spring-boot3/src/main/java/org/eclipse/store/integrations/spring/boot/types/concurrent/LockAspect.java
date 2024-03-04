@@ -148,7 +148,8 @@ public class LockAspect
      * @param lockName The name of the lock.
      * @return The named lock.
      */
-    private ReentrantReadWriteLock getOrCreateLock(final String lockName) {
+    private ReentrantReadWriteLock getOrCreateLock(final String lockName)
+    {
         return this.locks.computeIfAbsent(lockName, k -> {
             this.logger.trace("Lock for name: {} not found, creating a new one", lockName);
             return new ReentrantReadWriteLock();
@@ -162,7 +163,8 @@ public class LockAspect
     static class AspectJCondition implements Condition
     {
         @Override
-        public boolean matches(final ConditionContext context, final AnnotatedTypeMetadata metadata) {
+        public boolean matches(final ConditionContext context, final AnnotatedTypeMetadata metadata)
+        {
             return ClassUtils.isPresent("org.aspectj.lang.ProceedingJoinPoint", context.getClassLoader());
         }
     }
