@@ -99,6 +99,13 @@
 							</execution>
 						</executions>
 					</plugin>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-deploy-plugin</artifactId>
+						<configuration>
+							<classifier>standalone</classifier>
+						</configuration>
+					</plugin>
 				</plugins>
 			</build>
 		</profile>
