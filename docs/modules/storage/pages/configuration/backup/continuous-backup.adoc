@@ -36,7 +36,7 @@ With {product-name} foundation classes:
 NioFileSystem      fileSystem  = NioFileSystem.New();
 		
 StorageBackupSetup backupSetup = StorageBackupSetup.New(
-	Sorage.BackupFileProviderBuilder(fileSystem)
+	Storage.BackupFileProviderBuilder(fileSystem)
 		.setDirectory(fileSystem.ensureDirectoryPath(BACKUPDIR))						
 		.setTruncationDirectory(fileSystem.ensureDirectoryPath(TRUNCATIONDIR))
 		.setDeletionDirectory(fileSystem.ensureDirectoryPath(DELETIONDIR))
@@ -67,7 +67,7 @@ SqlFileSystem fileSystem = SqlFileSystem.New(
 );
 
 StorageBackupSetup backupSetup = StorageBackupSetup.New(
-	Sorage.BackupFileProviderBuilder(fileSystem)
+	Storage.BackupFileProviderBuilder(fileSystem)
 		.setDirectory(fileSystem.ensureDirectoryPath(BACKUPDIR))						
 		.setTruncationDirectory(fileSystem.ensureDirectoryPath(TRUNCATIONDIR))
 		.setDeletionDirectory(fileSystem.ensureDirectoryPath(DELETIONDIR))
