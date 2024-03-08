@@ -14,6 +14,7 @@
     <artifactId>integrations</artifactId>
     <name>EclipseStore Integrations Parent</name>
     <packaging>pom</packaging>
+    <url>https://projects.eclipse.org/projects/technology.store</url>
 
     <modules>
         <module>cdi4</module>

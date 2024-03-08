@@ -13,6 +13,7 @@
 
     <artifactId>integrations-spring-boot3-console</artifactId>
     <name>EclipseStore Integrations SpringBoot Console</name>
+    <url>https://projects.eclipse.org/projects/technology.store</url>
 
     <properties>
         <org.springframework.boot.version>3.2.0</org.springframework.boot.version>
