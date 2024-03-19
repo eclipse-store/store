@@ -5,6 +5,7 @@ Various {product-name} integrations are currently available.
 Currently available integrations:
 
 * xref:misc:integrations/spring-boot.adoc[Spring Boot]
+* xref:misc:integrations/cdi.adoc[Jakarta EE CDI]
 
 And {product-name} is also integrated by the following vendors
 

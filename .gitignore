@@ -86,3 +86,5 @@ profile
 .asciidoctor/
 .asciidoctorconfig.adoc
 
+jokes_storage/
+storage/rest/client-app/src/main/dev-bundle/

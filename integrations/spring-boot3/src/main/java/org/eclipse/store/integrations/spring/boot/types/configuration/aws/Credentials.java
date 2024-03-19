@@ -9,7 +9,7 @@ package org.eclipse.store.integrations.spring.boot.types.configuration.aws;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -18,7 +18,7 @@ public class Credentials
 {
 
     /**
-     * The type of the credentials provider. Supported values are:
+     * The type of the credentials' provider. Supported values are:
      * <ul>
      *
      * <li>"environment-variables" Credentials will be loaded from the AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and AWS_SESSION_TOKEN environment variables.</li>

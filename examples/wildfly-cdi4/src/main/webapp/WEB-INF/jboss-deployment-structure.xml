@@ -1,0 +1,11 @@
+<jboss-deployment-structure>
+
+    <deployment>
+
+        <dependencies>
+            <module name="jdk.unsupported" export="TRUE" />
+        </dependencies>
+
+    </deployment>
+
+</jboss-deployment-structure>

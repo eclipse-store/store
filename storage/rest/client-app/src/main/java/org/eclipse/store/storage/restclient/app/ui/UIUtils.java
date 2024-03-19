@@ -30,7 +30,7 @@ final class UIUtils
 
 	public static String imagePath(String image)
 	{
-		return "frontend/images/" + image;
+		return "/frontend/images/" + image;
 	}
 	
 	

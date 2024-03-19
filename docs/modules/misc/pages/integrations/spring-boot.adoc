@@ -33,16 +33,17 @@ org.eclipse.store.channel-count=2
 The list of all {product-name} configuration properties and their meaning are listed on our xref:storage:configuration/properties.adoc[documentation page].
 
 The configuration values are handled using the https://docs.spring.io/spring-boot/docs/current/reference/html/features.html#features.external-config.typesafe-configuration-properties[typesafe configuration] approach, and you can read these values by accessing the `EclipseStoreProperties` Spring bean.
+The Spring Boot integration provides a set of Bean Factories which read the configuration and initialize the relevant {product-name} facilities for you,
+including `EmbeddedStorageManager`.
 
 == StorageManager injection
 
-The simplest way to use this integration is when you can externalize all the configuration using Spring configuration files. Subsequently, you just create a Spring Boot application and add a dependency on the integration. Then, in the Bean where you need access to the StorageManager, you add the @Autowired annotation and a StorageManager is created for you. All configuration values are loaded from the external configuration and the StorageManager is already initialized and ready to use.
+The simplest way to use this integration is when you can externalize all the configuration using Spring configuration files. Subsequently, you just create a Spring Boot application and add a dependency on the integration. Then, in the Bean where you need access to the StorageManager, you add the `@Autowired` annotation and a StorageManager is created for you. All configuration values are loaded from the external configuration and the StorageManager is already initialized and ready to use.
 
 === Example:
 [source,java]
 ----
 @SpringBootApplication
-@Import(EclipseStoreSpringBoot.class)
 public class SomeSpringApplication
 {
     public static void main(String... args)
@@ -68,23 +69,29 @@ public class JokesStorageImpl implements JokesStorage
 
 == Configuration Injection
 
-In case you need to modify the configuration in some way in the program, change something, add and the like, you can have the `EclipseStoreProperties` Spring bean injected into your class. This class contains all the configuration values that are used to create a `StorageManager`. You can modify these values and then use the `EclipseStoreProvider` Bean to create a new StorageManager or `EmbeddedStorageFoundation`.
+In case you need to modify the configuration in some way in the program, change something, add and the like, you can have the `EclipseStoreProperties` Spring bean injected into your class.
+This class contains all the configuration values that are used to create a `StorageManager`.
+You can modify these values and then use the `EmbeddedStorageManagerFactory` Bean to create
+a new `EmbeddedStorageManager` or `EmbeddedStorageFoundationFactory` to create a new  `EmbeddedStorageFoundation`.
 
 [source,java]
 ----
     @Bean
-    EmbeddedStorageManager injectStorageTest(@Autowired EclipseStoreProperties myConfiguration, @Autowired EclipseStoreProvider provider)
-    {
+    EmbeddedStorageManager injectStorageTest(
+        @Autowired EclipseStoreProperties myConfiguration,
+        @Autowired EmbeddedStorageManagerFactory managerFactory,
+        @Autowired EmbeddedStorageFoundationFactory foundationFactory
+   ) {
         // Modify the configuration
         myConfiguration.setStorageDirectory(temp.getDir().getAbsolutePath());
         // Create a new StorageFoundation
-        EmbeddedStorageFoundation<?> storageFoundation = provider.createStorageFoundation(myConfiguration);
+        EmbeddedStorageFoundation<?> storageFoundation = foundationFactory.createStorageFoundation(myConfiguration);
 
         // Modify the storageFoundation
         //storageFoundation.onConnectionFoundation(f -> f.someOperation);
 
         // Create a new StorageManager
-        return storageFoundation.createEmbeddedStorageManager();
+        return managerFactory.createEmbeddedStorageManager(storageFoundation, true);
     }
 
 ----
@@ -106,7 +113,9 @@ public class TwoBeanConfiguration
 {
 
     @Autowired
-    private EclipseStoreProvider provider;
+    private EmbeddedStorageFoundationFactory foundationFactory;
+    @Autowired
+    private EmbeddedStorageManagerFactory managerFactory;
 
     @Bean("first_config")
     @ConfigurationProperties("org.eclipse.store.first")
@@ -123,19 +132,21 @@ public class TwoBeanConfiguration
     }
 
     @Bean
-    @Lazy
     @Qualifier("first_storage")
-    EmbeddedStorageManager createFirstStorage(@Qualifier("first_config") EclipseStoreProperties firstStoreProperties)
-    {
-        return provider.createStorage(firstStoreProperties);
+    EmbeddedStorageManager createFirstStorage(@Qualifier("first_config") final EclipseStoreProperties firstStoreProperties) {
+      return managerFactory.createStorage(
+          foundationFactory.createStorageFoundation(firstStoreProperties),
+          firstStoreProperties.isAutoStart()
+      );
     }
 
     @Bean
-    @Lazy
     @Qualifier("second_storage")
-    EmbeddedStorageManager createSecondStorage(@Qualifier("second_config") EclipseStoreProperties secondStoreProperties)
-    {
-        return provider.createStorage(secondStoreProperties);
+    EmbeddedStorageManager createSecondStorage(@Qualifier("second_config") final EclipseStoreProperties secondStoreProperties) {
+      return managerFactory.createStorage(
+          foundationFactory.createStorageFoundation(secondStoreProperties),
+          secondStoreProperties.isAutoStart()
+      );
     }
 
 }
@@ -204,6 +215,7 @@ to obtain all {product-name} configuration keys:
 Key values containing "password" are replaced by "xxxxx".
 
 == Register JDK 17 and JDK 8 Handlers
+
 Handler for JDK 17 are registered automatically.
 Handler for JDK 8 are not registered automatically, because of the backwards compatibility. If you create a new storage you can enable these handlers. If you have an existing storage created with JDK8 handlers, you have to active it too.
 If you need to register JDK 8 handlers, you can do it by adding the following code to your configuration:
@@ -212,3 +224,43 @@ If you need to register JDK 8 handlers, you can do it by adding the following co
 ----
 org.eclipse.store.register-jdk8-handlers=true
 ----
+
+== Activating REST Service SpringBoot
+
+If you are interested in using the {product-name} REST service in your application, consider to include the SpringBoot REST Service.
+Detailed documentation can be found at xref:storage:rest-interface/setup.adoc[Setup of Spring Boot REST Service].
+
+== Activating Client GUI
+
+You can include the Client GUI application to be directly as a module served by your application. For this purpose, include
+the SpringBoot Console to your application classpath. We assume that you are starting Spring MVC in your application already.
+
+Please add the following dependency to Maven pom.xml of your SpringBoot application:
+
+[source,xml]
+----
+<dependency>
+    <groupId>org.eclipse.store</groupId>
+    <artifactId>integrations-spring-boot3-console</artifactId>
+    <version>{maven-version}</version>
+</dependency>
+----
+
+In order to operate properly, Client GUI requires a working SpringBoot REST Service. This is already prepackaged in the
+console module and needs to be activated. In addition, the path to the Client GUI needs to be configured.
+
+Please set the following properties in your configuration file:
+
+[source,properties]
+----
+org.eclipse.store.rest.enabled=true
+vaadin.url-mapping=/store-console/*
+----
+
+The Client GUI will start with your application and will be available at the specified URL. So if your SpringBoot application
+starts a web server on port `8080` the Client GUI will be available at: http://localhost:8080/store-console/. Open this URL
+in your browser, select from the dropdown list the endpoint of the Spring REST Service (http://localhost:8080/store-data/)
+and click connect.
+
+
+
