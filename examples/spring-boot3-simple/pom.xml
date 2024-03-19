@@ -12,6 +12,7 @@
 
     <name>EclipseStore Example Spring Boot3 Simple</name>
     <artifactId>examples-spring-boot3-simple</artifactId>
+    <url>https://projects.eclipse.org/projects/technology.store</url>
 
     <properties>
         <maven.compiler.source>17</maven.compiler.source>

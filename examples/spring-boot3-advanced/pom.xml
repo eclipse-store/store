@@ -12,6 +12,7 @@
 
     <name>EclipseStore Example Spring Boot3 Advanced</name>
     <artifactId>examples-spring-boot3-advanced</artifactId>
+    <url>https://projects.eclipse.org/projects/technology.store</url>
 
     <properties>
         <maven.compiler.source>17</maven.compiler.source>

@@ -13,6 +13,7 @@
 
     <name>EclipseStore Integrations CDI 4</name>
     <description>EclipseStore CDI 4 Extension</description>
+    <url>https://projects.eclipse.org/projects/technology.store</url>
 
     <dependencies>
         <dependency>
