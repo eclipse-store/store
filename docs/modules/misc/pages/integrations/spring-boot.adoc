@@ -165,8 +165,20 @@ org.eclipse.store.second.auto-start=false
 org.eclipse.store.second.root=org.eclipse.store.integrations.spring.boot.types.storages.SecondRoot
 ----
 
-== Mutext Locking
+== Mutex Locking
 {product-name} supports mutex locking. This is useful if you have multiple processes that need to access the same objects. Easiest way to use it is to use the annotation `@read` and `@write` on the methods that need to be locked. The annotation @read is used for methods that only read data and @write is used for methods that modify data.
+
+For Activation of Mutex Locking, you need to add the following dependency to Maven pom.xml of your SpringBoot application:
+
+[source, xml, title="pom.xml", subs=attributes+]
+----
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-aop</artifactId>
+    </dependency>
+----
+
+Then you can use the Mutex Locking in your code:
 
 [source,java]
 ----
