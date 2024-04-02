@@ -87,6 +87,12 @@ The version context can be used as a shared state object.
 So you can control versioning for multiple entities at once, or even for the hole entity graph.
 ====
 
+[WARNING]
+====
+Do not share auto-incrementing contexts!
+Use a mutable context instead.
+====
+
 The auto-incrementing contexts take care of the key creation.
 If you need to control it by yourself, use the mutable context.
 But be aware that you have to set the version before updating any data, otherwise the current one will be overwritten.
