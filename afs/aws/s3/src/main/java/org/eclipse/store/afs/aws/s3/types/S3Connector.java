@@ -24,10 +24,10 @@ import java.util.List;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-import org.eclipse.store.afs.blobstore.types.BlobStoreConnector;
-import org.eclipse.store.afs.blobstore.types.BlobStorePath;
 import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.serializer.io.ByteBufferInputStream;
+import org.eclipse.store.afs.blobstore.types.BlobStoreConnector;
+import org.eclipse.store.afs.blobstore.types.BlobStorePath;
 
 import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.internal.util.Mimetype;
@@ -38,7 +38,6 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
-import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
@@ -177,12 +176,14 @@ public interface S3Connector extends BlobStoreConnector
 		{
 			try
 			{
-				final HeadObjectRequest request = HeadObjectRequest.builder()
+				final PutObjectRequest request = PutObjectRequest
+					.builder()
 					.bucket(directory.container())
 					.key(toContainerKey(directory))
 					.build()
 				;
-				this.s3.headObject(request);
+				this.s3.putObject(request, RequestBody.empty());
+				
 				return true;
 			}
 			catch(final NoSuchKeyException e)
