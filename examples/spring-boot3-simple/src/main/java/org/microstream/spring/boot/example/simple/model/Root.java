@@ -15,11 +15,14 @@ package org.microstream.spring.boot.example.simple.model;
  */
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 public class Root
 {
     private List<String> jokes = new ArrayList<>();
+
+    private HashMap<Integer,String> jokeMap = new HashMap<>();
 
     public List<String> getJokes()
     {
@@ -29,5 +32,15 @@ public class Root
     public void setJokes(List<String> jokes)
     {
         this.jokes = jokes;
+    }
+
+    public HashMap<Integer, String> getJokeMap()
+    {
+        return jokeMap;
+    }
+
+    public void setJokeMap(HashMap<Integer, String> jokeMap)
+    {
+        this.jokeMap = jokeMap;
     }
 }

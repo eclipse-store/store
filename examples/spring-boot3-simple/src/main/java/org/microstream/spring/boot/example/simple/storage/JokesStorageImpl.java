@@ -55,6 +55,7 @@ public class JokesStorageImpl implements JokesStorage
     public List<String> allJokes()
     {
         Root root = (Root) storageManager.root();
+        root.getJokeMap().get(0);
         return new ArrayList<>(root.getJokes()); // Create new List... never return original one.
     }
 
@@ -74,6 +75,7 @@ public class JokesStorageImpl implements JokesStorage
     {
         Root root = (Root) storageManager.root();
         root.getJokes().addAll(jokes);
+        root.getJokeMap().put(0, "Something new joke");
         storageManager.store(root.getJokes());
     }
 
