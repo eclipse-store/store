@@ -17,6 +17,7 @@ package org.eclipse.store.integrations.spring.boot.types;
 import org.eclipse.store.integrations.spring.boot.types.configuration.EclipseStoreProperties;
 import org.eclipse.store.integrations.spring.boot.types.factories.EmbeddedStorageFoundationFactory;
 import org.eclipse.store.integrations.spring.boot.types.factories.EmbeddedStorageManagerFactory;
+import org.eclipse.store.integrations.spring.boot.types.suppliers.EmbeddedStorageFoundationSupplier;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -57,7 +58,7 @@ public class DefaultEclipseStoreConfiguration
     @Bean
     @Qualifier(DEFAULT_QUALIFIER)
     @ConditionalOnMissingBean
-    public Supplier<EmbeddedStorageFoundation<?>> defaultStorageFoundationSupplier(
+    public EmbeddedStorageFoundationSupplier<EmbeddedStorageFoundation<?>> defaultStorageFoundationSupplier(
             @Qualifier(DEFAULT_QUALIFIER) EclipseStoreProperties eclipseStoreProperties,
             EmbeddedStorageFoundationFactory foundationFactory
     )
@@ -80,7 +81,7 @@ public class DefaultEclipseStoreConfiguration
             EmbeddedStorageManagerFactory embeddedStorageManagerFactory,
             @Qualifier(DEFAULT_QUALIFIER) EclipseStoreProperties eclipseStoreProperties,
             @Qualifier(DEFAULT_QUALIFIER)
-            Supplier<EmbeddedStorageFoundation<?>> embeddedStorageFoundationSupplier
+            EmbeddedStorageFoundationSupplier<EmbeddedStorageFoundation<?>> embeddedStorageFoundationSupplier
     )
     {
         return embeddedStorageManagerFactory.createStorage(

@@ -25,6 +25,7 @@ open module org.eclipse.store.integrations.spring.boot
     exports org.eclipse.store.integrations.spring.boot.types.converter;
     exports org.eclipse.store.integrations.spring.boot.types.factories;
     exports org.eclipse.store.integrations.spring.boot.types.concurrent;
+    exports org.eclipse.store.integrations.spring.boot.types.suppliers;
 
     requires transitive spring.beans;
     requires transitive spring.boot;
