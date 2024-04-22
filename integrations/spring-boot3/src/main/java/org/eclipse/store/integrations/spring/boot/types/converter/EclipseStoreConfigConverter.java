@@ -33,7 +33,6 @@ import org.springframework.stereotype.Component;
  * The {@code EclipseStoreConfigConverter} class is a Spring component that converts the Eclipse Store properties into a map.
  * This map can then be used to configure the Eclipse Store.
  */
-@Component
 public class EclipseStoreConfigConverter
 {
 
