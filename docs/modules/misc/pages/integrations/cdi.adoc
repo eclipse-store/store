@@ -54,7 +54,7 @@ public void someMethod() {
 ----
 
 The _StorageManager_ configuration can be customized by CDI beans that implement the interface `org.eclipse.store.integrations.cdi.types.config.EmbeddedStorageFoundationCustomizer`.
-The `customize` method is called with an `EmbeddedStorageFoundationSupplier` which allows you to fully customize the _StorageManager_ that will be created. You can for example, add the specific Type Handlers for JDK 8 as described on the https://docs.eclipsestore.io/manual/storage/addendum/specialized-type-handlers.html[documentation].
+The `customize` method is called with an `EmbeddedStorageFoundation` which allows you to fully customize the _StorageManager_ that will be created. You can for example, add the specific Type Handlers for JDK 8 as described on the https://docs.eclipsestore.io/manual/storage/addendum/specialized-type-handlers.html[documentation].
 
 After the _StorageManager_ is created, the CDI beans that implement `org.eclipse.store.integrations.cdi.types.config.StorageManagerInitializer` are called.
 You have the opportunity to perform actions on the _StorageManager_ or root object.  Following rules apply to the _StorageManager_ that is passed to the `initialize` method of the interface.
