@@ -23,8 +23,10 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.function.Supplier;
@@ -58,6 +60,7 @@ public class DefaultEclipseStoreConfiguration
     @Bean
     @Qualifier(DEFAULT_QUALIFIER)
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "org.eclipse.store.foundation", name = "auto-create", havingValue = "true", matchIfMissing = true)
     public EmbeddedStorageFoundationSupplier<EmbeddedStorageFoundation<?>> defaultStorageFoundationSupplier(
             @Qualifier(DEFAULT_QUALIFIER) EclipseStoreProperties eclipseStoreProperties,
             EmbeddedStorageFoundationFactory foundationFactory
@@ -77,6 +80,7 @@ public class DefaultEclipseStoreConfiguration
     @Bean
     @Qualifier(DEFAULT_QUALIFIER)
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "org.eclipse.store.storage", name = "auto-create", havingValue = "true", matchIfMissing = true)
     public EmbeddedStorageManager defaultStorageManager(
             EmbeddedStorageManagerFactory embeddedStorageManagerFactory,
             @Qualifier(DEFAULT_QUALIFIER) EclipseStoreProperties eclipseStoreProperties,
