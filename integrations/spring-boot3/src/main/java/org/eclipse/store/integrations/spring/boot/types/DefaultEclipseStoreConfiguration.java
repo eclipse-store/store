@@ -57,7 +57,7 @@ public class DefaultEclipseStoreConfiguration
     @Bean
     @Qualifier(DEFAULT_QUALIFIER)
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "org.eclipse.store.foundation", name = "auto-create", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "org.eclipse.store", name = "auto-create-default-foundation", havingValue = "true", matchIfMissing = true)
     public EmbeddedStorageFoundationSupplier<EmbeddedStorageFoundation<?>> defaultStorageFoundationSupplier(
             @Qualifier(DEFAULT_QUALIFIER) EclipseStoreProperties eclipseStoreProperties,
             EmbeddedStorageFoundationFactory foundationFactory
@@ -77,7 +77,7 @@ public class DefaultEclipseStoreConfiguration
     @Bean
     @Qualifier(DEFAULT_QUALIFIER)
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "org.eclipse.store.storage", name = "auto-create", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "org.eclipse.store", name = "auto-create-default-storage", havingValue = "true", matchIfMissing = true)
     public EmbeddedStorageManager defaultStorageManager(
             EmbeddedStorageManagerFactory embeddedStorageManagerFactory,
             @Qualifier(DEFAULT_QUALIFIER) EclipseStoreProperties eclipseStoreProperties,
