@@ -17,16 +17,16 @@ package org.eclipse.store.integrations.spring.boot.types;
 import org.eclipse.store.integrations.spring.boot.types.configuration.EclipseStoreProperties;
 import org.eclipse.store.integrations.spring.boot.types.factories.EmbeddedStorageFoundationFactory;
 import org.eclipse.store.integrations.spring.boot.types.factories.EmbeddedStorageManagerFactory;
+import org.eclipse.store.integrations.spring.boot.types.suppliers.EmbeddedStorageFoundationSupplier;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
-import java.util.function.Supplier;
 
 @Configuration
 @AutoConfigureAfter(EclipseStoreSpringBoot.class)
@@ -57,7 +57,8 @@ public class DefaultEclipseStoreConfiguration
     @Bean
     @Qualifier(DEFAULT_QUALIFIER)
     @ConditionalOnMissingBean
-    public Supplier<EmbeddedStorageFoundation<?>> defaultStorageFoundationSupplier(
+    @ConditionalOnProperty(prefix = "org.eclipse.store", name = "auto-create-default-foundation", havingValue = "true", matchIfMissing = true)
+    public EmbeddedStorageFoundationSupplier<EmbeddedStorageFoundation<?>> defaultStorageFoundationSupplier(
             @Qualifier(DEFAULT_QUALIFIER) EclipseStoreProperties eclipseStoreProperties,
             EmbeddedStorageFoundationFactory foundationFactory
     )
@@ -76,11 +77,12 @@ public class DefaultEclipseStoreConfiguration
     @Bean
     @Qualifier(DEFAULT_QUALIFIER)
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "org.eclipse.store", name = "auto-create-default-storage", havingValue = "true", matchIfMissing = true)
     public EmbeddedStorageManager defaultStorageManager(
             EmbeddedStorageManagerFactory embeddedStorageManagerFactory,
             @Qualifier(DEFAULT_QUALIFIER) EclipseStoreProperties eclipseStoreProperties,
             @Qualifier(DEFAULT_QUALIFIER)
-            Supplier<EmbeddedStorageFoundation<?>> embeddedStorageFoundationSupplier
+            EmbeddedStorageFoundationSupplier<EmbeddedStorageFoundation<?>> embeddedStorageFoundationSupplier
     )
     {
         return embeddedStorageManagerFactory.createStorage(

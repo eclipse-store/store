@@ -202,6 +202,20 @@ public class EclipseStoreProperties
      */
     private boolean registerJdk8Handlers;
 
+    /**
+     * This flag determines if a default foundation should be automatically created.
+     * If no user-defined bean with EmbeddedStorageFoundation exists, a default one will be created.
+     * To prevent this automatic creation, set this flag to false.
+     */
+    private boolean autoCreateDefaultFoundation = true;
+
+    /**
+     * This flag determines if a default storage should be automatically created.
+     * If no user-defined bean with EmbeddedStorage exists, a default one will be created.
+     * To prevent this automatic creation, set this flag to false.
+     */
+    private boolean autoCreateDefaultStorage = true;
+
     public Class<?> getRoot()
     {
         return this.root;
@@ -520,5 +534,25 @@ public class EclipseStoreProperties
     public void setRegisterJdk8Handlers(final boolean registerJdk8Handlers)
     {
         this.registerJdk8Handlers = registerJdk8Handlers;
+    }
+
+    public boolean isAutoCreateDefaultFoundation()
+    {
+        return autoCreateDefaultFoundation;
+    }
+
+    public void setAutoCreateDefaultFoundation(boolean autoCreateDefaultFoundation)
+    {
+        this.autoCreateDefaultFoundation = autoCreateDefaultFoundation;
+    }
+
+    public boolean isAutoCreateDefaultStorage()
+    {
+        return autoCreateDefaultStorage;
+    }
+
+    public void setAutoCreateDefaultStorage(boolean autoCreateDefaultStorage)
+    {
+        this.autoCreateDefaultStorage = autoCreateDefaultStorage;
     }
 }
