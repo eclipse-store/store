@@ -214,7 +214,7 @@ public class EclipseStoreProperties
      * If no user-defined bean with EmbeddedStorage exists, a default one will be created.
      * To prevent this automatic creation, set this flag to false.
      */
-    private boolean isAutoCreateDefaultStorage = true;
+    private boolean autoCreateDefaultStorage = true;
 
     public Class<?> getRoot()
     {
@@ -548,11 +548,11 @@ public class EclipseStoreProperties
 
     public boolean isAutoCreateDefaultStorage()
     {
-        return isAutoCreateDefaultStorage;
+        return autoCreateDefaultStorage;
     }
 
     public void setAutoCreateDefaultStorage(boolean autoCreateDefaultStorage)
     {
-        isAutoCreateDefaultStorage = autoCreateDefaultStorage;
+        this.autoCreateDefaultStorage = autoCreateDefaultStorage;
     }
 }

@@ -17,7 +17,6 @@ package org.eclipse.store.integrations.spring.boot.types.suppliers;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation;
 
 @FunctionalInterface
-public interface EmbeddedStorageFoundationSupplier<T extends EmbeddedStorageFoundation<?>>
+public interface EmbeddedStorageFoundationSupplier<T extends EmbeddedStorageFoundation<?>> extends java.util.function.Supplier<T>
 {
-    T get();
 }
