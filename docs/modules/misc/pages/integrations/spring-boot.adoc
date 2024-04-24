@@ -102,6 +102,15 @@ a new `EmbeddedStorageManager` or `EmbeddedStorageFoundationFactory` to create a
 
 It is also possible to obtain the entire configuration within the `StorageManagerConfiguration` Bean, enabling you to directly create a foundation and storage manager. This can be helpful if you need to stop storage at runtime and then restart it.
 
+== Disable Auto StorageManager creation
+If the user does not define any beans of type _EmbeddedStorageFoundation_ and _EmbeddedStorageManager_, these beans are automatically created. This behavior can be changed using the following configuration.
+[source,properties]
+----
+org.eclipse.store.auto-create-default-storage=false
+org.eclipse.store.auto-create-default-foundation=false
+----
+If these configuration items are not present, these beans are created by default.
+
 == Multiple Storage Managers
 
 You can have a more than one Storage Manager in your application. This can be useful if you want to have different storage targets for different data. For example, you might want to have a datastore for your user data and another for your product data. You can do this by creating multiple configuration classes and multiple Storage Managers.
