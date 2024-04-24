@@ -109,7 +109,6 @@ If the user does not define any beans of type _EmbeddedStorageFoundation_ and _E
 org.eclipse.store.auto-create-default-storage=false
 org.eclipse.store.auto-create-default-foundation=false
 ----
-If these configuration items are not present, these beans are created by default.
 
 == Multiple Storage Managers
 
