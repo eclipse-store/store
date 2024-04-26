@@ -24,6 +24,23 @@ What is actually needed at this point is a deep copy. You need to create a compl
 == Deep Copy Utility (ObjectCopier)
 {product-name} provides full support for a deep copy. It can be relatively easily called and a deep copy of the data will be created.
 
+== Prerequisites
+The ObjectCopier is part of the eclipse serializer.
+
+[source, xml, title="pom.xml", subs=attributes+]
+----
+<dependencies>
+	<dependency>
+		<groupId>org.eclipse.serializer</groupId>
+		<artifactId>serializer</artifactId>
+		<version>{maven-version}</version>
+	</dependency>
+</dependencies>
+----
+
+== Usage
+To create a deep copy just create a ObjectCopier and use its copy method.
+
 [source, java]
 ----
         ObjectCopier objectCopier = ObjectCopier.New();
