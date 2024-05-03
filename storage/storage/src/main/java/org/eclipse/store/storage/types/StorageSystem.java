@@ -21,7 +21,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.eclipse.serializer.afs.types.AFileSystem;
-import org.eclipse.serializer.meta.XDebug;
 import org.eclipse.serializer.monitoring.MonitoringManager;
 import org.eclipse.serializer.persistence.types.ObjectIdsSelector;
 import org.eclipse.serializer.persistence.types.Persistence;
@@ -533,7 +532,7 @@ public interface StorageSystem extends StorageController
 			// note: this method is already entered under a lock protection, so there can't be a race condition here.
 			if(this.taskbroker == null)
 			{
-				XDebug.println("taskbroker is null");
+				logger.debug("taskbroker is null");
 				// storage not started in the first place
 				return;
 			}
