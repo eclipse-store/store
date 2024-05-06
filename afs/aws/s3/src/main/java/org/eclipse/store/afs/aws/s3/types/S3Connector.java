@@ -39,7 +39,6 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
-import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
@@ -178,12 +177,14 @@ public interface S3Connector extends BlobStoreConnector
 		{
 			try
 			{
-				final HeadObjectRequest request = HeadObjectRequest.builder()
+				final PutObjectRequest request = PutObjectRequest
+					.builder()
 					.bucket(directory.container())
 					.key(toContainerKey(directory))
 					.build()
 				;
-				this.s3.headObject(request);
+				this.s3.putObject(request, RequestBody.empty());
+				
 				return true;
 			}
 			catch(final NoSuchKeyException e)
