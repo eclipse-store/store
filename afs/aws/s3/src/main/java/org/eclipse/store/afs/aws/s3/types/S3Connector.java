@@ -20,14 +20,15 @@ import static org.eclipse.serializer.util.X.notNull;
 import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-import org.eclipse.store.afs.blobstore.types.BlobStoreConnector;
-import org.eclipse.store.afs.blobstore.types.BlobStorePath;
 import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.serializer.io.ByteBufferInputStream;
+import org.eclipse.store.afs.blobstore.types.BlobStoreConnector;
+import org.eclipse.store.afs.blobstore.types.BlobStorePath;
 
 import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.internal.util.Mimetype;
@@ -224,6 +225,31 @@ public interface S3Connector extends BlobStoreConnector
 
 		@Override
 		protected boolean internalDeleteBlobs(
+			final BlobStorePath            file,
+			final List<? extends S3Object> blobs
+		)
+		{
+			final int limit = 1000;
+			if(blobs.size() <= limit)
+			{
+				return this.internalDeleteBlobs0(file, blobs);
+			}
+			
+			boolean success = true;
+			final List<? extends S3Object> toDelete = new ArrayList<>(blobs);
+			while(!toDelete.isEmpty())
+			{
+				final List<? extends S3Object> subList = toDelete.subList(0, Math.min(limit, toDelete.size()));
+				toDelete.removeAll(subList);
+				if(!this.internalDeleteBlobs0(file, subList))
+				{
+					success = false;
+				}
+			}
+			return success;
+		}
+		
+		protected boolean internalDeleteBlobs0(
 			final BlobStorePath            file,
 			final List<? extends S3Object> blobs
 		)
