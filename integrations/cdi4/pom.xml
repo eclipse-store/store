@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.eclipse.store</groupId>
         <artifactId>integrations</artifactId>
-        <version>1.3.2-SNAPSHOT</version>
+        <version>1.3.2</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -38,12 +38,12 @@
         <dependency>
             <groupId>org.eclipse.store</groupId>
             <artifactId>storage-embedded</artifactId>
-            <version>1.3.2-SNAPSHOT</version>
+            <version>1.3.2</version>
         </dependency>
         <dependency>
             <groupId>org.eclipse.store</groupId>
             <artifactId>storage-embedded-configuration</artifactId>
-            <version>1.3.2-SNAPSHOT</version>
+            <version>1.3.2</version>
         </dependency>
         <dependency>
             <groupId>org.eclipse.serializer</groupId>
@@ -53,7 +53,7 @@
         <dependency>
             <groupId>org.eclipse.store</groupId>
             <artifactId>cache</artifactId>
-            <version>1.3.2-SNAPSHOT</version>
+            <version>1.3.2</version>
         </dependency>
 
         <!--Test-->
