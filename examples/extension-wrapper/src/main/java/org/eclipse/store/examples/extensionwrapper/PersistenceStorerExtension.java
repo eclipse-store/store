@@ -20,6 +20,7 @@ import org.eclipse.serializer.persistence.types.PersistenceObjectManager;
 import org.eclipse.serializer.persistence.types.PersistenceStorer;
 import org.eclipse.serializer.persistence.types.PersistenceTarget;
 import org.eclipse.serializer.persistence.types.PersistenceTypeHandlerManager;
+import org.eclipse.serializer.persistence.types.Persister;
 import org.eclipse.serializer.reference.ObjectSwizzling;
 import org.eclipse.serializer.util.BufferSizeProviderIncremental;
 
@@ -79,18 +80,19 @@ public class PersistenceStorerExtension extends PersistenceStorerWrapper
 			super();
 			this.delegate = delegate;
 		}
-
+		
 		@Override
 		public PersistenceStorer createLazyStorer(
 			final PersistenceTypeHandlerManager<Binary> typeManager       ,
 			final PersistenceObjectManager<Binary>      objectManager     ,
 			final ObjectSwizzling                       objectRetriever   ,
 			final PersistenceTarget<Binary>             target            ,
-			final BufferSizeProviderIncremental         bufferSizeProvider
+			final BufferSizeProviderIncremental         bufferSizeProvider,
+			final Persister                             persister
 		)
 		{
 			return new PersistenceStorerExtension(
-				this.delegate.createLazyStorer(typeManager, objectManager, objectRetriever, target, bufferSizeProvider)
+				this.delegate.createLazyStorer(typeManager, objectManager, objectRetriever, target, bufferSizeProvider, persister)
 			);
 		}
 
@@ -100,11 +102,12 @@ public class PersistenceStorerExtension extends PersistenceStorerWrapper
 			final PersistenceObjectManager<Binary>      objectManager     ,
 			final ObjectSwizzling                       objectRetriever   ,
 			final PersistenceTarget<Binary>             target            ,
-			final BufferSizeProviderIncremental         bufferSizeProvider
+			final BufferSizeProviderIncremental         bufferSizeProvider,
+			final Persister                             persister
 		)
 		{
 			return new PersistenceStorerExtension(
-				this.delegate.createEagerStorer(typeManager, objectManager, objectRetriever, target, bufferSizeProvider)
+				this.delegate.createEagerStorer(typeManager, objectManager, objectRetriever, target, bufferSizeProvider, persister)
 			);
 		}
 		
