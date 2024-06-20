@@ -1,5 +1,7 @@
 package org.eclipse.store.examples.extensionwrapper;
 
+import org.eclipse.serializer.persistence.types.PersistenceCommitListener;
+
 /*-
  * #%L
  * EclipseStore Example Extension Wrapper
@@ -120,7 +122,11 @@ public class PersistenceStorerWrapper implements PersistenceStorer
 		return this.delegate.maximumCapacity();
 	}
 
-	
+	@Override
+	public void registerCommitListener(final PersistenceCommitListener listener)
+	{
+		this.delegate.registerCommitListener(listener);
+	}
 	
 	
 }
