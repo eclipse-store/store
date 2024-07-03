@@ -177,10 +177,16 @@ public interface S3Connector extends BlobStoreConnector
 		{
 			try
 			{
+				final String containerKey = toContainerKey(directory);
+				if(containerKey.isBlank() || BlobStorePath.SEPARATOR.equals(containerKey))
+				{
+					return true;
+				}
+				
 				final PutObjectRequest request = PutObjectRequest
 					.builder()
 					.bucket(directory.container())
-					.key(toContainerKey(directory))
+					.key(containerKey)
 					.build()
 				;
 				this.s3.putObject(request, RequestBody.empty());
@@ -213,9 +219,15 @@ public interface S3Connector extends BlobStoreConnector
 			final BlobStorePath directory
 		)
 		{
+			final String containerKey = toContainerKey(directory);
+			if(containerKey.isBlank() || BlobStorePath.SEPARATOR.equals(containerKey))
+			{
+				return true;
+			}
+			
 			final PutObjectRequest request = PutObjectRequest.builder()
 				.bucket(directory.container())
-				.key(toContainerKey(directory))
+				.key(containerKey)
 				.build()
 			;
 			final RequestBody body = RequestBody.empty();
