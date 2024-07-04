@@ -444,19 +444,19 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 			final StorageLiveDataFile.Default headFile = this.headFile;
 
-			long headfilelength = headFile.totalLength();
+			long headFileLength = headFile.totalLength();
 			
 			// do the actual file-level copying in one go at the end and validate the byte count to be sure
 			long bytes = this.writer.writeTransfer(sourceFile, copyStart, copyLength, headFile);
 			if(copyLength != bytes) {
 				
-				logger.error("Data transfer error! Expected {} bytes transfered to head file but only {} bytes had been transferred! Trying again.", copyLength, bytes);
-				headFile.truncate(headfilelength);
+				logger.error("Data transfer error! Expected {} bytes transferred to head file but only {} bytes had been transferred! Trying again.", copyLength, bytes);
+				headFile.truncate(headFileLength);
 				
 				bytes = this.writer.writeTransfer(sourceFile, copyStart, copyLength, headFile);
 				if(copyLength != bytes) {
-					logger.error("Data transfer retry error! Expected {} bytes transfered to head file but only {} bytes had been transferred! Aborting!", copyLength, bytes);
-					throw new StorageExceptionIoWriting("Transfer to head file failed, only " + bytes + " of " + copyLength + " bytes transfered.");
+					logger.error("Data transfer retry error! Expected {} bytes transferred to head file but only {} bytes had been transferred! Aborting!", copyLength, bytes);
+					throw new StorageExceptionIoWriting("Transfer to head file failed, only " + bytes + " of " + copyLength + " bytes transferred.");
 				}
 			}
 
