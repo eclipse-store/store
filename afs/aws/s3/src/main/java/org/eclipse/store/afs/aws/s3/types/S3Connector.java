@@ -40,6 +40,7 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
@@ -118,16 +119,28 @@ public interface S3Connector extends BlobStoreConnector
 		@Override
 		protected Stream<S3Object> blobs(final BlobStorePath file)
 		{
-			final String  prefix  = toBlobKeyPrefix(file);
-			final Pattern pattern = Pattern.compile(blobKeyRegex(prefix));
-			final ListObjectsV2Request request = ListObjectsV2Request
-                .builder()
-                .bucket(file.container())
-                .prefix(prefix)
-                .build();
-			return this.s3.listObjectsV2(request)
-				.contents()
-				.stream()
+			final String         prefix            = toBlobKeyPrefix(file);
+			final Pattern        pattern           = Pattern.compile(blobKeyRegex(prefix));
+			final List<S3Object> blobs             = new ArrayList<>();
+			String               continuationToken = null;
+			do
+			{
+				final ListObjectsV2Request request = ListObjectsV2Request
+	                .builder()
+	                .bucket(file.container())
+	                .prefix(prefix)
+	                .continuationToken(continuationToken)
+	                .build();
+				final ListObjectsV2Response response = this.s3.listObjectsV2(request);
+				blobs.addAll(response.contents());
+				continuationToken = response.isTruncated()
+					? response.nextContinuationToken()
+					: null
+				;
+			}
+			while(continuationToken != null);
+			
+			return blobs.stream()
 				.filter(obj -> pattern.matcher(obj.key()).matches())
 				.sorted(this.blobComparator())
 			;
