@@ -1,0 +1,13 @@
+= Tools
+
+== Storage Migrator
+
+With this utility you can easily migrate MicroStream projects to EclipseStore.
+
+For more information see the https://github.com/eclipse-store/store/tree/main/storage/embedded-tools/storage-migrator[readme file].
+
+== Storage Converter
+
+The storage converter provides an option to copy a storage to another storage target, for example to change the channel count or move the storage from the local disk to the cloud.
+
+For more information see the https://github.com/eclipse-store/store/tree/main/storage/embedded-tools/storage-converter[readme file].
