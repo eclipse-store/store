@@ -68,6 +68,7 @@
 ** Addendum
 *** xref:storage:addendum/supported-java-features.adoc[Supported Java Features]
 *** xref:storage:addendum/specialized-type-handlers.adoc[Specialized Type Handlers]
+*** xref:storage:addendum/tools.adoc[Tools]
 *** xref:storage:addendum/examples-and-demo-projects.adoc[Examples and Demo Projects]
 * xref:serializer:index.adoc[Serializer]
 * xref:cache:index.adoc[Cache]
