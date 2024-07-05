@@ -1,7 +1,7 @@
 
-# Eclipse Store Storage Converter
+# EclipseStore Storage Converter
 
-Main purpose of the Eclipse Store Storage converter is providing an option to copy a storage to another storage target.
+Main purpose of the EclipseStore Storage converter is providing an option to copy a storage to another storage target.
 
 The converter will not copy redundant older persisted objects. It only copies the objects latest version.
 It is possible to define a different channel count for the target than the source storage has.
