@@ -58,13 +58,15 @@ import software.amazon.awssdk.services.s3.model.S3Object;
  * );
  * </pre>
  *
- * 
+ * <p>
+ * If you are using general purpose buckets, create a connector with {@link #New(S3Client)} or {@link #Caching(S3Client)},
+ * if you want to use directory buckets, like Express One Zone, use {@link #NewDirectory(S3Client)} or {@link #CachingDirectory(S3Client)}.
  *
  */
 public interface S3Connector extends BlobStoreConnector
 {
 	/**
-	 * Pseudo-constructor method which creates a new {@link S3Connector}.
+	 * Pseudo-constructor method which creates a new {@link S3Connector} for general purpose buckets.
 	 *
 	 * @param s3 connection to the S3 storage
 	 * @return a new {@link S3Connector}
@@ -80,7 +82,7 @@ public interface S3Connector extends BlobStoreConnector
 	}
 	
 	/**
-	 * Pseudo-constructor method which creates a new {@link S3Connector} with cache.
+	 * Pseudo-constructor method which creates a new {@link S3Connector} with cache for general purpose buckets.
 	 *
 	 * @param s3 connection to the S3 storage
 	 * @return a new {@link S3Connector}
@@ -94,13 +96,44 @@ public interface S3Connector extends BlobStoreConnector
 			true
 		);
 	}
+	/**
+	 * Pseudo-constructor method which creates a new {@link S3Connector} for directory buckets.
+	 *
+	 * @param s3 connection to the S3 storage
+	 * @return a new {@link S3Connector}
+	 */
+	public static S3Connector NewDirectory(
+		final S3Client s3
+	)
+	{
+		return new S3Connector.Directory(
+			notNull(s3),
+			false
+		);
+	}
+	
+	/**
+	 * Pseudo-constructor method which creates a new {@link S3Connector} with cache for directory buckets.
+	 *
+	 * @param s3 connection to the S3 storage
+	 * @return a new {@link S3Connector}
+	 */
+	public static S3Connector CachingDirectory(
+		final S3Client s3
+	)
+	{
+		return new S3Connector.Directory(
+			notNull(s3),
+			true
+		);
+	}
 
 
 	public static class Default
 	extends    BlobStoreConnector.Abstract<S3Object>
 	implements S3Connector
 	{
-		private final S3Client s3;
+		protected final S3Client s3;
 
 		Default(
 			final S3Client s3      ,
@@ -328,6 +361,51 @@ public interface S3Connector extends BlobStoreConnector
 			return totalSize;
 		}
 
+	}
+	
+	
+	public static class Directory extends Default
+	{
+
+		Directory(final S3Client s3, final boolean useCache)
+		{
+			super(s3, useCache);
+		}
+		
+		/*
+		 * Needs to load all objects in a "directory" and filter afterwards,
+		 * because directory buckets only support listing with prefixes ending in '/'.
+		 */
+		@Override
+		protected Stream<S3Object> blobs(final BlobStorePath file)
+		{
+			final String         prefix            = toChildKeysPrefix(file.parentPath());
+			final Pattern        pattern           = Pattern.compile(blobKeyRegex(toBlobKeyPrefix(file)));
+			final List<S3Object> blobs             = new ArrayList<>();
+			String               continuationToken = null;
+			do
+			{
+				final ListObjectsV2Request request = ListObjectsV2Request
+	                .builder()
+	                .bucket(file.container())
+	                .prefix(prefix)
+	                .continuationToken(continuationToken)
+	                .build();
+				final ListObjectsV2Response response = this.s3.listObjectsV2(request);
+				blobs.addAll(response.contents());
+				continuationToken = response.isTruncated()
+					? response.nextContinuationToken()
+					: null
+				;
+			}
+			while(continuationToken != null);
+			
+			return blobs.stream()
+				.filter(obj -> pattern.matcher(obj.key()).matches())
+				.sorted(this.blobComparator())
+			;
+		}
+		
 	}
 
 }
