@@ -20,7 +20,7 @@ S3Client client = ...;
 BlobStoreFileSystem fileSystem = BlobStoreFileSystem.New(
 	S3Connector.Caching(client)
 );
-EmbeddedStorage.start(fileSystem.ensureDirectoryPath("storage"));
+EmbeddedStorage.start(fileSystem.ensureDirectoryPath("bucket-name/folder/subfolder"));
 ----
 
 == Configuration
@@ -29,10 +29,11 @@ When using xref:configuration/index.adoc#external-configuration[external configu
 
 [source, text, title="eclipsestore.properties"]
 ----
+storage-directory=bucket-name/folder/subfolder
 storage-filesystem.aws.s3.credentials.type=static
 storage-filesystem.aws.s3.credentials.access-key-id=my-access-key-id
-storage-filesystem.aws.s3.credentials.secret-acces-key=my-secret-access-key
-storage-filesystem.aws.s3.credentials.region=us-east-1
+storage-filesystem.aws.s3.credentials.secret-access-key=my-secret-access-key
+storage-filesystem.aws.s3.region=us-east-1
 ----
 
 == Supported properties
