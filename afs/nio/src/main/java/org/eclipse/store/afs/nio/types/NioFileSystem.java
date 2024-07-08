@@ -18,6 +18,7 @@ import static org.eclipse.serializer.util.X.notNull;
 
 import java.nio.file.FileSystem;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import org.eclipse.serializer.afs.types.ADirectory;
 import org.eclipse.serializer.afs.types.AFile;
@@ -41,6 +42,16 @@ public interface NioFileSystem extends AFileSystem, AResolver<Path, Path>
 	 */
 	@Override
 	public ADirectory ensureDefaultRoot();
+	
+	@Override
+	public default String[] resolvePath(final String fullPath)
+	{
+		final String resolved = fullPath.startsWith("~/") || fullPath.startsWith("~\\")
+			? Paths.get(System.getProperty("user.home"), fullPath.substring(2)).toString()
+			: fullPath
+		;
+		return AFileSystem.super.resolvePath(resolved);
+	}
 		
 	
 	public interface Defaults
