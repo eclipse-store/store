@@ -17,18 +17,22 @@ package org.eclipse.store.integrations.spring.boot.types.configuration.aws;
 public class S3 extends AbstractAwsProperties
 {
     /**
-     * <code>true</code> if a directory bucket is used, <code>false</code> for general purpose buckets
+     * <code>true</code> if a directory bucket (e.g. Express One Zone) is used,
+     * <code>false</code> for general purpose buckets (e.g. Standard)
+     * 
+     * @see https://aws.amazon.com/s3/storage-classes/
+     * @see https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-buckets-overview.html
      */
-    private boolean directory = false;
+    private boolean directoryBucket = false;
 
-	public boolean isDirectory()
+	public boolean isDirectoryBucket()
 	{
-		return this.directory;
+		return this.directoryBucket;
 	}
 
-	public void setDirectory(final boolean directory)
+	public void setDirectoryBucket(final boolean directoryBucket)
 	{
-		this.directory = directory;
+		this.directoryBucket = directoryBucket;
 	}
     
 }

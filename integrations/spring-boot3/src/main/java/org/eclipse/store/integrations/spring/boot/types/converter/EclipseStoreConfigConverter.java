@@ -207,7 +207,7 @@ public class EclipseStoreConfigConverter
         {
             final String s3Key = this.composeKey(key, ConfigKeys.S3.value());
 			values.putAll(this.prepareAwsProperties(s3, s3Key));
-			values.put(this.composeKey(s3Key, ConfigKeys.AWS_DIRECTORY.value()), Boolean.toString(s3.isDirectory()));
+			values.put(this.composeKey(s3Key, ConfigKeys.AWS_DIRECTORY_BUCKET.value()), Boolean.toString(s3.isDirectoryBucket()));
         }
         return values;
     }

@@ -46,7 +46,7 @@ public class S3FileSystemCreator extends AwsFileSystemCreator
 		
 		final S3Client    client    = clientBuilder.build();
 		final boolean     cache     = s3Configuration.optBoolean("cache").orElse(true);
-		final boolean     directory = s3Configuration.optBoolean("directory").orElse(false);
+		final boolean     directory = s3Configuration.optBoolean("directory-bucket").orElse(false);
 		final S3Connector connector =
 			directory
 				?	(cache

@@ -75,7 +75,7 @@ When using xref:configuration/index.adoc#external-configuration[external configu
 [source, text, title="eclipsestore.properties"]
 ----
 storage-directory=bucket-name/folder/subfolder
-storage-filesystem.aws.s3.directory=true
+storage-filesystem.aws.s3.directory-bucket=true
 storage-filesystem.aws.s3.credentials.type=static
 storage-filesystem.aws.s3.credentials.access-key-id=my-access-key-id
 storage-filesystem.aws.s3.credentials.secret-access-key=my-secret-access-key

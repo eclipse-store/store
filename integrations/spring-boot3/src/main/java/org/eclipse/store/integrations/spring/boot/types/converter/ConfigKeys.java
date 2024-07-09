@@ -41,7 +41,7 @@ public enum ConfigKeys
     AWS_CREDENTIALS_SECRET_ACCESS_KEY("credentials.secret-access-key"),
     AWS_ENDPOINT_OVERRIDE("endpoint-override"),
     AWS_REGION("region"),
-    AWS_DIRECTORY("directory"),
+    AWS_DIRECTORY_BUCKET("directory-bucket"),
 
     //azure
     AZURE("azure"),
