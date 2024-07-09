@@ -203,11 +203,11 @@ public class EclipseStoreConfigConverter
             values.putAll(this.prepareAwsProperties(aws.getDynamodb(), this.composeKey(key, ConfigKeys.DYNAMODB.value())));
         }
         final S3 s3 = aws.getS3();
-		if (s3 != null)
+        if (s3 != null)
         {
             final String s3Key = this.composeKey(key, ConfigKeys.S3.value());
-			values.putAll(this.prepareAwsProperties(s3, s3Key));
-			values.put(this.composeKey(s3Key, ConfigKeys.AWS_DIRECTORY_BUCKET.value()), Boolean.toString(s3.isDirectoryBucket()));
+            values.putAll(this.prepareAwsProperties(s3, s3Key));
+            values.put(this.composeKey(s3Key, ConfigKeys.AWS_DIRECTORY_BUCKET.value()), Boolean.toString(s3.isDirectoryBucket()));
         }
         return values;
     }
