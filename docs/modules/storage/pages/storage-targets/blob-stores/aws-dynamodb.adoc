@@ -37,16 +37,19 @@ storage-filesystem.aws.dynamodb.credentials.region=us-east-1
 
 == Supported properties
 
-[options="header", cols="1,2a"]
+[options="header", cols="1,2a,3"]
 |===
 |Property   
 |Description   
+|Type   
 //-------------
 |endpoint-override
 |The endpoint with which the SDK should communicate.
+|String
 
 |cache
 |Defines if the DynamoDbConnector should use caching.
+|Boolean
 
 |region
 |Configure the region with which the SDK should communicate.
@@ -56,6 +59,7 @@ If this is not specified, the SDK will attempt to identify the endpoint automati
 . Check the 'AWS_REGION' environment variable for the region. 
 . Check the {user.home}/.aws/credentials and {user.home}/.aws/config files for the region. 
 . If running in EC2, check the EC2 metadata service for the region.
+|String
 
 |credentials.type
 |The type of the credentials provider. Supported values are:
@@ -73,12 +77,15 @@ Credentials provider chain that looks for credentials in this order:
 . Credential profiles file at the default location (~/.aws/credentials) shared by all AWS SDKs and the AWS CLI 
 . Credentials delivered through the Amazon EC2 container service if AWS_CONTAINER_CREDENTIALS_RELATIVE_URI" environment variable is set and security manager has permission to access the variable, 
 . Instance profile credentials delivered through the Amazon EC2 metadata service
+|String
 
 |credentials.access-key-id
 |The access key id, used when "credentials.type" is "static".
+|String
 
 |credentials.secret-access-key
 |The secret access key, used when "credentials.type" is "static".
+|String
 |===
 
 CAUTION: Depending on the amount of data and transactions, charges may apply depending on service usage. Please check with your service provider for details.

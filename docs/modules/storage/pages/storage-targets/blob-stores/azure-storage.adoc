@@ -37,19 +37,23 @@ storage-filesystem.azure.storage.credentials.password=secret
 
 == Supported properties
 
-[options="header",cols="1,2a"]
+[options="header",cols="1,2a,3"]
 |===
 |Property   
 |Description   
+|Type   
 //-------------
 |endpoint
 |Sets the blob service endpoint, additionally parses it for information (SAS token).
+|String
 
 |connection-string
 |Sets the connection string to connect to the service.
+|String
 
 |encryption-scope
 |Sets the encryption scope that is used to encrypt blob contents on the server.
+|String
 
 |credentials.type
 |The type of the credentials provider. Supported values are:
@@ -58,18 +62,23 @@ storage-filesystem.azure.storage.credentials.password=secret
 Credentials will be loaded from the credentials.username and credentials.password properties.
 * "shared-key" +
 Credentials will be loaded from the credentials.account-name and credentials.account-key properties.
+|String
 
 |credentials.username
 |The username, used when "credentials.type" is "basic".
+|String
 
 |credentials.password
 |The password, used when "credentials.type" is "basic".
+|String
 
 |credentials.account-name
 |The account name, used when "credentials.type" is "shared-key".
+|String
 
 |credentials.account-key
 |The account key, used when "credentials.type" is "shared-key".
+|String
 |===
 
 CAUTION: Depending on the amount of data and transactions, charges may apply depending on service usage. Please check with your service provider for details.
