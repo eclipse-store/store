@@ -16,4 +16,19 @@ package org.eclipse.store.integrations.spring.boot.types.configuration.aws;
 
 public class S3 extends AbstractAwsProperties
 {
+    /**
+     * <code>true</code> if a directory bucket is used, <code>false</code> for general purpose buckets
+     */
+    private boolean directory = false;
+
+	public boolean isDirectory()
+	{
+		return this.directory;
+	}
+
+	public void setDirectory(final boolean directory)
+	{
+		this.directory = directory;
+	}
+    
 }

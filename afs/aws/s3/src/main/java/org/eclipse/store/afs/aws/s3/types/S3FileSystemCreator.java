@@ -45,10 +45,18 @@ public class S3FileSystemCreator extends AwsFileSystemCreator
 		this.populateBuilder(clientBuilder, s3Configuration);
 		
 		final S3Client    client    = clientBuilder.build();
-		final boolean     cache     = configuration.optBoolean("cache").orElse(true);
-		final S3Connector connector = cache
-			? S3Connector.Caching(client)
-			: S3Connector.New(client)
+		final boolean     cache     = s3Configuration.optBoolean("cache").orElse(true);
+		final boolean     directory = s3Configuration.optBoolean("directory").orElse(false);
+		final S3Connector connector =
+			directory
+				?	(cache
+						? S3Connector.CachingDirectory(client)
+						: S3Connector.NewDirectory(client)
+					)
+				:	(cache
+						? S3Connector.Caching(client)
+						: S3Connector.New(client)
+					)
 		;
 		return BlobStoreFileSystem.New(connector);
 	}

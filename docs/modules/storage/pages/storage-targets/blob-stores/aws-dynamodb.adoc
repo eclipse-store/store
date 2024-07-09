@@ -45,6 +45,9 @@ storage-filesystem.aws.dynamodb.credentials.region=us-east-1
 |endpoint-override
 |The endpoint with which the SDK should communicate.
 
+|cache
+|Defines if the DynamoDbConnector should use caching.
+
 |region
 |Configure the region with which the SDK should communicate.
 If this is not specified, the SDK will attempt to identify the endpoint automatically using the following logic:
