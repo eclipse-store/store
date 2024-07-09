@@ -28,7 +28,10 @@ public enum ConfigKeys
     ORACLE("oracle"),
     POSTGRES("postgres"),
     SQLITE("sqlite"),
-
+    
+    // commons
+    CACHE("cache"),
+    
     //aws
     AWS("aws"),
     DYNAMODB("dynamodb"),
@@ -36,8 +39,9 @@ public enum ConfigKeys
     AWS_CREDENTIALS_TYPE("credentials.type"),
     AWS_CREDENTIALS_ACCESS_KEY_ID("credentials.access-key-id"),
     AWS_CREDENTIALS_SECRET_ACCESS_KEY("credentials.secret-access-key"),
-    AWS_ENDPOINT_OVERRIDE("endpointOverride"),
+    AWS_ENDPOINT_OVERRIDE("endpoint-override"),
     AWS_REGION("region"),
+    AWS_DIRECTORY_BUCKET("directory-bucket"),
 
     //azure
     AZURE("azure"),

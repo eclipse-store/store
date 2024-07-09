@@ -44,7 +44,7 @@ public class DynamoDbFileSystemCreator extends AwsFileSystemCreator
 		this.populateBuilder(clientBuilder, dynamoConfiguration);
 		
 		final DynamoDbClient    client    = clientBuilder.build();
-		final boolean           cache     = configuration.optBoolean("cache").orElse(true);
+		final boolean           cache     = dynamoConfiguration.optBoolean("cache").orElse(true);
 		final DynamoDbConnector connector = cache
 			? DynamoDbConnector.Caching(client)
 			: DynamoDbConnector.New(client)

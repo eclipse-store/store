@@ -10,29 +10,77 @@
 <dependency>
 	<groupId>software.amazon.awssdk</groupId>
 	<artifactId>s3</artifactId>
-	<version>2.17.272</version>
+	<version>2.26.14</version>
 </dependency>
 ----
 
+== General Purpose Buckets
+
+For general purpose buckets you can create a S3Connector handing over a S3Client.
+Please refer to the official https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/home.html[AWS SDK Documentation] for details.
+
 [source, java]
 ----
-S3Client client = ...;
+S3Client client = S3Client.builder()
+	.credentialsProvider(StaticCredentialsProvider.create(
+		AwsBasicCredentials.create(ACCESS_KEY, SECRET_ACCESS_KEY)
+	))
+	.region(Region.EU_NORTH_1)
+	.build()
+;
 BlobStoreFileSystem fileSystem = BlobStoreFileSystem.New(
 	S3Connector.Caching(client)
 );
-EmbeddedStorage.start(fileSystem.ensureDirectoryPath("storage"));
+EmbeddedStorage.start(fileSystem.ensureDirectoryPath("bucket-name", "folder", "subfolder"));
 ----
 
-== Configuration
+=== Configuration
 
-When using xref:configuration/index.adoc#external-configuration[external configuration] AWS S3 can be set as follows.
+When using xref:configuration/index.adoc#external-configuration[external configuration], the properties can be set as follows.
 
 [source, text, title="eclipsestore.properties"]
 ----
+storage-directory=bucket-name/folder/subfolder
 storage-filesystem.aws.s3.credentials.type=static
 storage-filesystem.aws.s3.credentials.access-key-id=my-access-key-id
-storage-filesystem.aws.s3.credentials.secret-acces-key=my-secret-access-key
-storage-filesystem.aws.s3.credentials.region=us-east-1
+storage-filesystem.aws.s3.credentials.secret-access-key=my-secret-access-key
+storage-filesystem.aws.s3.region=us-east-1
+----
+
+== Directory Buckets
+
+If you want to use https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-buckets-overview.html[directory buckets] just create a S3Connector with a different factory method.
+Additionally you have to specify the https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-express-networking.html#s3-express-endpoints[zonal endpoint].
+
+[source, java]
+----
+S3Client client = S3Client.builder()
+	.credentialsProvider(StaticCredentialsProvider.create(
+		AwsBasicCredentials.create(ACCESS_KEY, SECRET_ACCESS_KEY)
+	))
+	.region(Region.EU_NORTH_1)
+	.endpointOverride(new URI("https://s3express-eun1-az1.eu-north-1.amazonaws.com"))
+	.build()
+;
+BlobStoreFileSystem fileSystem = BlobStoreFileSystem.New(
+	S3Connector.CachingDirectory(client)
+);
+EmbeddedStorage.start(fileSystem.ensureDirectoryPath("bucket-name", "folder", "subfolder"));
+----
+
+=== Configuration
+
+When using xref:configuration/index.adoc#external-configuration[external configuration], the properties can be set as follows.
+
+[source, text, title="eclipsestore.properties"]
+----
+storage-directory=bucket-name/folder/subfolder
+storage-filesystem.aws.s3.directory-bucket=true
+storage-filesystem.aws.s3.credentials.type=static
+storage-filesystem.aws.s3.credentials.access-key-id=my-access-key-id
+storage-filesystem.aws.s3.credentials.secret-access-key=my-secret-access-key
+storage-filesystem.aws.s3.region=eu-north-1
+storage-filesystem.aws.s3.endpoint-override=https://s3express-eun1-az1.eu-north-1.amazonaws.com
 ----
 
 == Supported properties
@@ -43,6 +91,13 @@ storage-filesystem.aws.s3.credentials.region=us-east-1
 //-------------
 |endpoint-override
 |The endpoint with which the SDK should communicate.
+
+|cache
+|Defines if the S3Connector should use caching.
+
+|directory-bucket
+|true if a directory bucket is used, false for general purpose buckets.  
+For details see the official AWS documentation https://aws.amazon.com/s3/storage-classes/[[1]] https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-buckets-overview.html[[2]]
 
 |region
 |Configure the region with which the SDK should communicate.

@@ -16,10 +16,16 @@ package org.eclipse.store.storage.embedded.configuration.types;
 
 import static org.eclipse.serializer.util.X.notNull;
 
-import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.function.Supplier;
 
+import org.eclipse.serializer.afs.types.ADirectory;
+import org.eclipse.serializer.afs.types.AFileSystem;
+import org.eclipse.serializer.chars.XChars;
+import org.eclipse.serializer.configuration.exceptions.ConfigurationException;
+import org.eclipse.serializer.configuration.types.ByteSize;
+import org.eclipse.serializer.configuration.types.Configuration;
+import org.eclipse.serializer.configuration.types.ConfigurationBasedCreator;
 import org.eclipse.store.afs.nio.types.NioFileSystem;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation;
@@ -31,13 +37,6 @@ import org.eclipse.store.storage.types.StorageEntityCacheEvaluator;
 import org.eclipse.store.storage.types.StorageFileNameProvider;
 import org.eclipse.store.storage.types.StorageHousekeepingController;
 import org.eclipse.store.storage.types.StorageLiveFileProvider;
-import org.eclipse.serializer.afs.types.ADirectory;
-import org.eclipse.serializer.afs.types.AFileSystem;
-import org.eclipse.serializer.chars.XChars;
-import org.eclipse.serializer.configuration.exceptions.ConfigurationException;
-import org.eclipse.serializer.configuration.types.ByteSize;
-import org.eclipse.serializer.configuration.types.Configuration;
-import org.eclipse.serializer.configuration.types.ConfigurationBasedCreator;
 
 
 /**
@@ -112,7 +111,7 @@ public interface EmbeddedStorageFoundationCreatorConfigurationBased extends Embe
 
 			this.configuration.opt(BACKUP_DIRECTORY)
 				.filter(backupDirectory -> !XChars.isEmpty(backupDirectory))
-				.map(this::createDirectoryPath)
+				.map(fileSystem::resolvePath)
 				.ifPresent(backupDirectory ->
 				{
 					final AFileSystem backupFileSystem = this.createFileSystem(
@@ -155,7 +154,7 @@ public interface EmbeddedStorageFoundationCreatorConfigurationBased extends Embe
 		private StorageLiveFileProvider createFileProvider(final AFileSystem fileSystem)
 		{
 			final ADirectory baseDirectory = fileSystem.ensureDirectoryPath(
-				this.createDirectoryPath(
+				fileSystem.resolvePath(
 					this.configuration.opt(STORAGE_DIRECTORY)
 						.orElse(StorageLiveFileProvider.Defaults.defaultStorageDirectory())
 				)
@@ -269,16 +268,6 @@ public interface EmbeddedStorageFoundationCreatorConfigurationBased extends Embe
 				this.configuration.optLong(ENTITY_CACHE_THRESHOLD)
 					.orElse(StorageEntityCacheEvaluator.Defaults.defaultCacheThreshold())
 			);
-		}
-		
-		private String createDirectoryPath(
-			final String path
-		)
-		{
-			return path.startsWith("~/") || path.startsWith("~\\")
-				? Paths.get(System.getProperty("user.home"), path.substring(2)).toString()
-				: path
-			;
 		}
 		
 	}

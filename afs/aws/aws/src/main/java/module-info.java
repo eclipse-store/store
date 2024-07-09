@@ -20,6 +20,7 @@ module org.eclipse.store.afs.aws
 	requires transitive software.amazon.awssdk.auth;
 	requires transitive software.amazon.awssdk.awscore;
 	requires transitive software.amazon.awssdk.core;
+	requires transitive software.amazon.awssdk.identity.spi;
 	requires transitive software.amazon.awssdk.regions;
 	requires transitive software.amazon.awssdk.utils;
 }

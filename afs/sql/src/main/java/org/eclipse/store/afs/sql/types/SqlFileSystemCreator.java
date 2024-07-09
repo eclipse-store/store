@@ -66,7 +66,7 @@ public abstract class SqlFileSystemCreator extends ConfigurationBasedCreator.Abs
 				sqlConfiguration,
 				dataSourceProvider.provideDataSource(sqlConfiguration.detach())
 			);
-			final boolean cache = configuration.optBoolean("cache").orElse(true);
+			final boolean cache = sqlConfiguration.optBoolean("cache").orElse(true);
 			return SqlFileSystem.New(cache
 				? SqlConnector.Caching(sqlProvider)
 				: SqlConnector.New(sqlProvider)

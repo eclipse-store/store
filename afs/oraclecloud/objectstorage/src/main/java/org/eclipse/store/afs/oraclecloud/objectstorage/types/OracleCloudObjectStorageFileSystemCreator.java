@@ -107,7 +107,7 @@ public class OracleCloudObjectStorageFileSystemCreator extends ConfigurationBase
 				value -> client.setEndpoint(value)
 			);
 
-			final boolean        cache           = configuration.optBoolean("cache").orElse(true);
+			final boolean        cache           = objectStorageConfiguration.optBoolean("cache").orElse(true);
 			final OracleCloudObjectStorageConnector connector       = cache
 				? OracleCloudObjectStorageConnector.Caching(client)
 				: OracleCloudObjectStorageConnector.New(client)

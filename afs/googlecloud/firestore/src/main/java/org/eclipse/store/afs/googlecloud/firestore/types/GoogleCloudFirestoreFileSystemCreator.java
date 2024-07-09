@@ -84,7 +84,7 @@ public class GoogleCloudFirestoreFileSystemCreator extends ConfigurationBasedCre
 		);
 		
 		final Firestore                     firestore = optionsBuilder.build().getService();
-		final boolean                       cache     = configuration.optBoolean("cache").orElse(true);
+		final boolean                       cache     = firestoreConfiguration.optBoolean("cache").orElse(true);
 		final GoogleCloudFirestoreConnector connector = cache
 			? GoogleCloudFirestoreConnector.Caching(firestore)
 			: GoogleCloudFirestoreConnector.New(firestore)

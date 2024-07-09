@@ -37,6 +37,11 @@ public abstract class AbstractAwsProperties
      * </ol>
      */
     private String region;
+    
+    /**
+     * Defines if the S3Connector should use caching.
+     */
+    private boolean cache = true;
 
 
     public Credentials getCredentials()
@@ -68,4 +73,15 @@ public abstract class AbstractAwsProperties
     {
         this.region = region;
     }
+
+	public boolean isCache()
+	{
+		return this.cache;
+	}
+
+	public void setCache(final boolean cache)
+	{
+		this.cache = cache;
+	}
+    
 }

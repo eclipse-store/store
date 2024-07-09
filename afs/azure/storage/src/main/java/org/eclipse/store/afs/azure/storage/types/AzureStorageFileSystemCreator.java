@@ -101,7 +101,7 @@ public class AzureStorageFileSystemCreator extends ConfigurationBasedCreator.Abs
 		}
 
 		final BlobServiceClient     client    = clientBuilder.buildClient();
-		final boolean               cache     = configuration.optBoolean("cache").orElse(true);
+		final boolean               cache     = azureConfiguration.optBoolean("cache").orElse(true);
 		final AzureStorageConnector connector = cache
 			? AzureStorageConnector.Caching(client)
 			: AzureStorageConnector.New(client)

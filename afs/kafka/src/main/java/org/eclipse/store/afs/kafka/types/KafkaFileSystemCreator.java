@@ -42,7 +42,7 @@ public class KafkaFileSystemCreator extends ConfigurationBasedCreator.Abstract<A
 		
 		final Properties     kafkaProperties = new Properties();
 		kafkaProperties.putAll(kafkaConfiguration.coalescedMap());
-		final boolean        cache           = configuration.optBoolean("cache").orElse(true);
+		final boolean        cache           = kafkaConfiguration.optBoolean("cache").orElse(true);
 		final KafkaConnector connector       = cache
 			? KafkaConnector.Caching(kafkaProperties)
 			: KafkaConnector.New(kafkaProperties)

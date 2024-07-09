@@ -33,13 +33,19 @@ public class RedisFileSystemCreator extends ConfigurationBasedCreator.Abstract<A
 		final Configuration configuration
 	)
 	{
-		final String redisUri = configuration.get("redis.uri");
+		final Configuration redisConfiguration = configuration.child("redis");
+		if(redisConfiguration == null)
+		{
+			return null;
+		}
+		
+		final String redisUri = redisConfiguration.get("uri");
 		if(XChars.isEmpty(redisUri))
 		{
 			return null;
 		}
 
-		final boolean        cache     = configuration.optBoolean("cache").orElse(true);
+		final boolean        cache     = redisConfiguration.optBoolean("cache").orElse(true);
 		final RedisConnector connector = cache
 			? RedisConnector.Caching(redisUri)
 			: RedisConnector.New(redisUri)
