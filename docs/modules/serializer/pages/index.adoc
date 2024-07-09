@@ -38,6 +38,37 @@ The `SerializerFoundation` provides an API like the MicroStream storage to confi
 The default Serializer implementation does not include type information in the serialized output!
 If you want to deserialize that with another serializer instance you must register all classes using the `SerializerFoundation` before you create the serializer or use a `TypedSerializer`!
 
+== TypeDictionary
+The serializer internally generates a dictionary that describes all serialized types. It can be exported and imported to exchange those type informations between different serializer instances.
+
+=== Exporting the type dictionary
+The current type information can be optained as Sting using the serializers exportTypeDictionay() method:
+[source, java]
+----
+final String typeDictionaryString = serializer.exportTypeDictionay();
+----
+
+=== Importing the type dictionary
+To import an initial type dictionary it has to be supplied as a String. The SerializerFoundation offers to methods to import that type dictionary string before the serializer instance is generated:
+
+.Using the static New(String typeDictionaryString) Method:
+[source, java]
+----
+final SerializerFoundation<?> foundation = SerializerFoundation.New(typeDictionaryString);
+----
+
+.Using the setInitialTypeDictionary(String typeDictionaryString) method:
+[source, java]
+----
+final SerializerFoundation<?> foundation = SerializerFoundation.New();
+foundation.setInitialTypeDictionary(typeDictionaryString);
+----
+
+
+
+=== Importing the type dictionary
+
+
 == TypedSerializer
 The `TypedSerializer` implementation includes type information into the serialized output.
 By default the complete set of type information is included in all serialized output.
