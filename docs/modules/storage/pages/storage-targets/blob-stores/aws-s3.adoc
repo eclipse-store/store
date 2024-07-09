@@ -95,8 +95,9 @@ storage-filesystem.aws.s3.endpoint-override=https://s3express-eun1-az1.eu-north-
 |cache
 |Defines if the S3Connector should use caching.
 
-|directory
-|true if a directory bucket is used, false for general purpose buckets
+|directory-bucket
+|true if a directory bucket is used, false for general purpose buckets.  
+For details see the official AWS documentation https://aws.amazon.com/s3/storage-classes/[[1]] https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-buckets-overview.html[[2]]
 
 |region
 |Configure the region with which the SDK should communicate.
