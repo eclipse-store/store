@@ -444,8 +444,21 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 			final StorageLiveDataFile.Default headFile = this.headFile;
 
+			long headFileLength = headFile.totalLength();
+			
 			// do the actual file-level copying in one go at the end and validate the byte count to be sure
-			this.writer.writeTransfer(sourceFile, copyStart, copyLength, headFile);
+			long bytes = this.writer.writeTransfer(sourceFile, copyStart, copyLength, headFile);
+			if(copyLength != bytes) {
+				
+				logger.error("Data transfer error! Expected {} bytes transferred to head file but only {} bytes had been transferred! Trying again.", copyLength, bytes);
+				headFile.truncate(headFileLength);
+				
+				bytes = this.writer.writeTransfer(sourceFile, copyStart, copyLength, headFile);
+				if(copyLength != bytes) {
+					logger.error("Data transfer retry error! Expected {} bytes transferred to head file but only {} bytes had been transferred! Aborting!", copyLength, bytes);
+					throw new StorageExceptionIoWriting("Transfer to head file failed, only " + bytes + " of " + copyLength + " bytes transferred.");
+				}
+			}
 
 			// increase content length by length of chain
 			// (15.02.2019 TM)NOTE: changed from arithmetic inside #addChainToTail to directly using copyLength in here.
