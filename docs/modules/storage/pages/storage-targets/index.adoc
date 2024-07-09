@@ -21,7 +21,7 @@ NioFileSystem fileSystem = NioFileSystem.New();
 EmbeddedStorage.start(fileSystem.ensureDirectoryPath("path", "to", "storage"));
 ----
 
-The file system API is the same for all connectors, like for S3. +
+The file system API is the same for all connectors, like for xref:storage-targets/blob-stores/aws-s3.adoc[S3].  
 This is part of another module.
 
 [source, xml, subs=attributes+]
@@ -43,5 +43,5 @@ BlobStoreFileSystem fileSystem = BlobStoreFileSystem.New(
 	// use caching connector
 	S3Connector.Caching(client)
 );
-EmbeddedStorage.start(fileSystem.ensureDirectoryPath("path", "to", "storage"));
+EmbeddedStorage.start(fileSystem.ensureDirectoryPath("bucket-name", "folder", "subfolder"));
 ----
