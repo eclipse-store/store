@@ -1,7 +1,7 @@
 = Serializer
 
-{product-name}'s serialization engine, which is used by the storage, can be used standalone as well.
-It is usable as as replacement for the default Java serialization to convert objects to a binary format and vice versa. This API is part of the persistence-binary module:
+{product-name}'s serialization engine, which is used by the storage, can also be used standalone.
+It is usable as a replacement for the default Java serialization to convert objects to a binary format and vice versa. This API is part of the persistence-binary module:
 
 == Prerequisites
 
@@ -18,7 +18,7 @@ It is usable as as replacement for the default Java serialization to convert obj
 
 == Usage
 
-You can use any medium type, but for most purposes the byte array version should be sufficient, to transfer the serialized form over the transport layer of your choice.
+You can use any medium type, but for most purposes, the byte array version should be sufficient to transfer the serialized form over the transport layer of your choice.
 Simply create a serializer instance, optionally based on a foundation, and call the serialize and deserialize methods.
 
 [source, java]
@@ -36,11 +36,37 @@ The `SerializerFoundation` provides an API like the MicroStream storage to confi
 
 [IMPORTANT]
 The default Serializer implementation does not include type information in the serialized output!
-If you want to deserialize that with another serializer instance you must register all classes using the `SerializerFoundation` before you create the serializer or use a `TypedSerializer`!
+If you want to deserialize that with another serializer instance, you must register all classes using the `SerializerFoundation` before you create the serializer or use a `TypedSerializer`!
+
+== TypeDictionary
+The serializer internally generates a dictionary that describes all serialized types. This dictionary can be exported and imported to exchange those type informations between different serializer instances.
+
+=== Exporting the type dictionary
+The current type information can be obtained as Sting using the serializers exportTypeDictionay() method:
+[source, java]
+----
+final String typeDictionaryString = serializer.exportTypeDictionay();
+----
+
+=== Importing the type dictionary
+To import an initial type dictionary, it must be supplied as a String. The SerializerFoundation offers methods to import that type dictionary string before the serializer instance is generated:
+
+.Using the static New(String typeDictionaryString) Method:
+[source, java]
+----
+final SerializerFoundation<?> foundation = SerializerFoundation.New(typeDictionaryString);
+----
+
+.Using the setInitialTypeDictionary(String typeDictionaryString) method:
+[source, java]
+----
+final SerializerFoundation<?> foundation = SerializerFoundation.New();
+foundation.setInitialTypeDictionary(typeDictionaryString);
+----
 
 == TypedSerializer
 The `TypedSerializer` implementation includes type information into the serialized output.
-By default the complete set of type information is included in all serialized output.
+By default, the complete set of type information is included in all serialized output.
 
 [source, java]
 ----
@@ -50,7 +76,7 @@ Customer restored = serializer.deserialize(data);
 ----
 
 === Configuring the included type information
-To reduce the serialized data it is possible to configure the included type information by suppling a `SerializerTypeInfoStrategyCreator` to the `SerializerFoundation`.
+To reduce the serialized data, it is possible to configure the included type information by supplying a `SerializerTypeInfoStrategyCreator` to the `SerializerFoundation`.
 [source, java]
 ----
 final SerializerFoundation<?> foundation = SerializerFoundation.New()
@@ -67,14 +93,14 @@ return TypedSerializer.Bytes(foundation);
 |Description
 //-------------  
 |TypeDictionary
-|Includes type information for all types currently known to the serializer including those registered during the setup.
+|Includes type information for all types currently known to the serializer, including those registered during the setup.
 |Diff
-|Includes type information for all types currently known to the serializer including those registered during the setup.
+|Includes type information for all types currently known to the serializer, including those registered during the setup.
 |IncrementalDiff
-|Includes only type information for types added to the serializers type registry in the current serialization. Types that are registered during the serializers setup are never included.
+|Includes only type information for types added to the serializers type registry in the current serialization. Types that are registered during the serializer's setup are never included.
 |===
 
 ==== The `includeTypeInfoOnce` parameter:
-All three serializer type handling strategies allow to specify that the type information gets included only once if it has not changed by setting the parameter `includeTypeInfoOnce = true`.
-If so, the type information is only included if there where new types registered during the current serialization.
+All three serializer type handling strategies allow specifying that the type information gets included only once if it has not changed by setting the parameter `includeTypeInfoOnce = true`.
+If so, the type information is only included if new types are registered during the current serialization.
 
