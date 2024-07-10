@@ -27,34 +27,20 @@ import org.eclipse.serializer.configuration.types.ConfigurationBasedCreator;
 
 public abstract class SqlFileSystemCreator extends ConfigurationBasedCreator.Abstract<AFileSystem>
 {
-	private final String name;
-
-	protected SqlFileSystemCreator(
-		final String name
-	)
+	protected SqlFileSystemCreator(final String name)
 	{
-		super(AFileSystem.class);
-		this.name = notEmpty(name);
+		super(AFileSystem.class, "sql." + notEmpty(name));
 	}
 	
 	@Override
-	public AFileSystem create(
-		final Configuration configuration
-	)
+	public AFileSystem create(final Configuration configuration)
 	{
-		final String        configurationKey = "sql." + this.name;
-		final Configuration sqlConfiguration = configuration.child(configurationKey);
-		if(sqlConfiguration == null)
-		{
-			return null;
-		}
-		
-		final String dataSourceProviderClassName = sqlConfiguration.get("data-source-provider");
+		final String dataSourceProviderClassName = configuration.get("data-source-provider");
 		if(dataSourceProviderClassName == null)
 		{
 			throw new ConfigurationException(
-				sqlConfiguration,
-				configurationKey + ".data-source-provider must be set"
+				configuration,
+				this.key() + ".data-source-provider must be set"
 			);
 		}
 		try
@@ -63,10 +49,10 @@ public abstract class SqlFileSystemCreator extends ConfigurationBasedCreator.Abs
 				Class.forName(dataSourceProviderClassName).getDeclaredConstructor().newInstance()
 			;
 			final SqlProvider sqlProvider = this.createSqlProvider(
-				sqlConfiguration,
-				dataSourceProvider.provideDataSource(sqlConfiguration.detach())
+				configuration,
+				dataSourceProvider.provideDataSource(configuration.detach())
 			);
-			final boolean cache = sqlConfiguration.optBoolean("cache").orElse(true);
+			final boolean cache = configuration.optBoolean("cache").orElse(true);
 			return SqlFileSystem.New(cache
 				? SqlConnector.Caching(sqlProvider)
 				: SqlConnector.New(sqlProvider)
@@ -78,12 +64,12 @@ public abstract class SqlFileSystemCreator extends ConfigurationBasedCreator.Abs
 			  SecurityException e
 		)
 		{
-			throw new ConfigurationException(sqlConfiguration, e);
+			throw new ConfigurationException(configuration, e);
 		}
 	}
 	
 	protected abstract SqlProvider createSqlProvider(
-		Configuration sqlConfiguration,
+		Configuration configuration,
 		DataSource    dataSource
 	);
 	

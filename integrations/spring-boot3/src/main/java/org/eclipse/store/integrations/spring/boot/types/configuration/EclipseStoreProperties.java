@@ -42,7 +42,7 @@ public class EclipseStoreProperties
      */
     @NestedConfigurationProperty
     private StorageFilesystem storageFilesystem;
-
+    
     /**
      * If configured, the storage will not delete files. Instead of deleting a file it will be moved to this directory.
      */
@@ -538,20 +538,20 @@ public class EclipseStoreProperties
 
     public boolean isAutoCreateDefaultFoundation()
     {
-        return autoCreateDefaultFoundation;
+        return this.autoCreateDefaultFoundation;
     }
 
-    public void setAutoCreateDefaultFoundation(boolean autoCreateDefaultFoundation)
+    public void setAutoCreateDefaultFoundation(final boolean autoCreateDefaultFoundation)
     {
         this.autoCreateDefaultFoundation = autoCreateDefaultFoundation;
     }
 
     public boolean isAutoCreateDefaultStorage()
     {
-        return autoCreateDefaultStorage;
+        return this.autoCreateDefaultStorage;
     }
 
-    public void setAutoCreateDefaultStorage(boolean autoCreateDefaultStorage)
+    public void setAutoCreateDefaultStorage(final boolean autoCreateDefaultStorage)
     {
         this.autoCreateDefaultStorage = autoCreateDefaultStorage;
     }

@@ -29,6 +29,9 @@ When using xref:configuration/index.adoc#external-configuration[external configu
 
 [source, properties, title="eclipsestore.properties"]
 ----
+# optional, enforces checks
+storage-filesystem.target=oraclecloud.object-storage
+
 storage-filesystem.oraclecloud.object-storage.config-file.profile=production
 storage-filesystem.oraclecloud.object-storage.region=us-phoenix-1
 ----

@@ -28,13 +28,13 @@ public class SqlFileSystemCreatorOracle extends SqlFileSystemCreator
 	
 	@Override
 	protected SqlProvider createSqlProvider(
-		final Configuration sqlConfiguration,
+		final Configuration configuration,
 		final DataSource    dataSource
 	)
 	{
 		return SqlProviderOracle.New(
-			sqlConfiguration.get("catalog"),
-			sqlConfiguration.get("schema") ,
+			configuration.get("catalog"),
+			configuration.get("schema") ,
 			dataSource
 		);
 	}

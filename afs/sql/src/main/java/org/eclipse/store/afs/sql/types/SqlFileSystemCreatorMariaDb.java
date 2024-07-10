@@ -28,13 +28,13 @@ public class SqlFileSystemCreatorMariaDb extends SqlFileSystemCreator
 	
 	@Override
 	protected SqlProvider createSqlProvider(
-		final Configuration sqlConfiguration,
+		final Configuration configuration,
 		final DataSource    dataSource
 	)
 	{
 		return SqlProviderMariaDb.New(
-			sqlConfiguration.get("catalog"),
-			sqlConfiguration.get("schema") ,
+			configuration.get("catalog"),
+			configuration.get("schema") ,
 			dataSource
 		);
 	}

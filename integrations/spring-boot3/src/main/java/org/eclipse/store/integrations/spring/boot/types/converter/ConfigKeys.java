@@ -31,6 +31,7 @@ public enum ConfigKeys
     
     // commons
     CACHE("cache"),
+    TARGET("target"),
     
     //aws
     AWS("aws"),

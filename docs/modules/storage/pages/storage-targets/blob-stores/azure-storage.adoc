@@ -30,6 +30,9 @@ When using xref:configuration/index.adoc#external-configuration[external configu
 
 [source, properties, title="eclipsestore.properties"]
 ----
+# optional, enforces checks
+storage-filesystem.target=azure.storage
+
 storage-filesystem.azure.storage.credentials.type=basic
 storage-filesystem.azure.storage.credentials.username=user
 storage-filesystem.azure.storage.credentials.password=secret

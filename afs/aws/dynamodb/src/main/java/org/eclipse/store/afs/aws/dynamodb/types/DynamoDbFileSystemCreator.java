@@ -26,25 +26,17 @@ public class DynamoDbFileSystemCreator extends AwsFileSystemCreator
 {
 	public DynamoDbFileSystemCreator()
 	{
-		super();
+		super("aws.dynamodb");
 	}
 	
 	@Override
-	public AFileSystem create(
-		final Configuration configuration
-	)
+	public AFileSystem create(final Configuration configuration)
 	{
-		final Configuration dynamoConfiguration = configuration.child("aws.dynamodb");
-		if(dynamoConfiguration == null)
-		{
-			return null;
-		}
-		
 		final DynamoDbClientBuilder clientBuilder = DynamoDbClient.builder();
-		this.populateBuilder(clientBuilder, dynamoConfiguration);
+		this.populateBuilder(clientBuilder, configuration);
 		
 		final DynamoDbClient    client    = clientBuilder.build();
-		final boolean           cache     = dynamoConfiguration.optBoolean("cache").orElse(true);
+		final boolean           cache     = configuration.optBoolean("cache").orElse(true);
 		final DynamoDbConnector connector = cache
 			? DynamoDbConnector.Caching(client)
 			: DynamoDbConnector.New(client)

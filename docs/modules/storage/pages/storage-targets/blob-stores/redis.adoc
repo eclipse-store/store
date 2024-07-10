@@ -29,6 +29,9 @@ When using xref:configuration/index.adoc#external-configuration[external configu
 
 [source, properties, title="eclipsestore.properties"]
 ----
+# optional, enforces checks
+storage-filesystem.target=redis
+
 storage-filesystem.redis.uri=redis://localhost:6379/0
 ----
 

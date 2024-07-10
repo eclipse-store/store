@@ -28,13 +28,13 @@ public class SqlFileSystemCreatorPostgres extends SqlFileSystemCreator
 	
 	@Override
 	protected SqlProvider createSqlProvider(
-		final Configuration sqlConfiguration,
+		final Configuration configuration,
 		final DataSource    dataSource
 	)
 	{
 		return SqlProviderPostgres.New(
-			sqlConfiguration.get("catalog"),
-			sqlConfiguration.get("schema") ,
+			configuration.get("catalog"),
+			configuration.get("schema") ,
 			dataSource
 		);
 	}

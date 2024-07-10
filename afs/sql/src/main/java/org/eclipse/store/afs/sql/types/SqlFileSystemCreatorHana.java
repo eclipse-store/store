@@ -28,11 +28,11 @@ public class SqlFileSystemCreatorHana extends SqlFileSystemCreator
 	
 	@Override
 	protected SqlProvider createSqlProvider(
-		final Configuration sqlConfiguration,
+		final Configuration configuration,
 		final DataSource    dataSource
 	)
 	{
-		final SqlProviderHana.StoreType storeType = sqlConfiguration.opt("store-type")
+		final SqlProviderHana.StoreType storeType = configuration.opt("store-type")
 			.map(name -> SqlProviderHana.StoreType.valueOf(name.toUpperCase()))
 			.orElse(SqlProviderHana.StoreType.ROW)
 		;
