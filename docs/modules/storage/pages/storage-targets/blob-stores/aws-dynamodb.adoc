@@ -31,7 +31,7 @@ When using xref:configuration/index.adoc#external-configuration[external configu
 ----
 storage-filesystem.aws.dynamodb.credentials.type=static
 storage-filesystem.aws.dynamodb.credentials.access-key-id=my-access-key-id
-storage-filesystem.aws.dynamodb.credentials.secret-acces-key=my-secret-access-key
+storage-filesystem.aws.dynamodb.credentials.secret-access-key=my-secret-access-key
 storage-filesystem.aws.dynamodb.credentials.region=us-east-1
 ----
 
