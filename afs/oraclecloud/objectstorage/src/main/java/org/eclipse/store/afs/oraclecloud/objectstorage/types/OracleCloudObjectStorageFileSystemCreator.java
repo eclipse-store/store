@@ -42,24 +42,16 @@ public class OracleCloudObjectStorageFileSystemCreator extends ConfigurationBase
 
 	public OracleCloudObjectStorageFileSystemCreator()
 	{
-		super(AFileSystem.class);
+		super(AFileSystem.class, "oraclecloud.object-storage");
 	}
 
 	@Override
-	public AFileSystem create(
-		final Configuration configuration
-	)
+	public AFileSystem create(final Configuration configuration)
 	{
-		final Configuration objectStorageConfiguration = configuration.child("oraclecloud.object-storage");
-		if(objectStorageConfiguration == null)
-		{
-			return null;
-		}
-
 		String              filePath                = null;
 		String              profile                 = null;
 		Charset             charset                 = StandardCharsets.UTF_8;
-		final Configuration configFileConfiguration = objectStorageConfiguration.child("config-file");
+		final Configuration configFileConfiguration = configuration.child("config-file");
 		if(configFileConfiguration != null)
 		{
 			filePath = configFileConfiguration.get("path");
@@ -87,7 +79,7 @@ public class OracleCloudObjectStorageFileSystemCreator extends ConfigurationBase
 			;
 
 			final ClientConfigurationBuilder clientConfigurationBuilder = ClientConfiguration.builder();
-			final Configuration              clientConfiguration        = objectStorageConfiguration.child("client");
+			final Configuration              clientConfiguration        = configuration.child("client");
 			if(clientConfiguration != null)
 			{
 				this.createClientConfiguration(
@@ -100,14 +92,14 @@ public class OracleCloudObjectStorageFileSystemCreator extends ConfigurationBase
 				authDetailsProvider,
 				clientConfigurationBuilder.build()
 			);
-			objectStorageConfiguration.opt("region").ifPresent(
+			configuration.opt("region").ifPresent(
 				value -> client.setRegion(value)
 			);
-			objectStorageConfiguration.opt("endpoint").ifPresent(
+			configuration.opt("endpoint").ifPresent(
 				value -> client.setEndpoint(value)
 			);
 
-			final boolean        cache           = objectStorageConfiguration.optBoolean("cache").orElse(true);
+			final boolean        cache           = configuration.optBoolean("cache").orElse(true);
 			final OracleCloudObjectStorageConnector connector       = cache
 				? OracleCloudObjectStorageConnector.Caching(client)
 				: OracleCloudObjectStorageConnector.New(client)
@@ -116,7 +108,7 @@ public class OracleCloudObjectStorageFileSystemCreator extends ConfigurationBase
 		}
 		catch(final IOException e)
 		{
-			throw new ConfigurationException(objectStorageConfiguration, e);
+			throw new ConfigurationException(configuration, e);
 		}
 	}
 

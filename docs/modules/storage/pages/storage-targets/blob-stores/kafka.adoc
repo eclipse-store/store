@@ -33,7 +33,10 @@ When using xref:configuration/index.adoc#external-configuration[external configu
 
 [source, properties, title="eclipsestore.properties"]
 ----
-storage-filesystem.kafka-properties.bootstrap.servers=localhost:9093
+# optional, enforces checks
+storage-filesystem.target=kafka
+
+storage-filesystem.kafka.bootstrap.servers=localhost:9093
 ----
 
 == Supported properties

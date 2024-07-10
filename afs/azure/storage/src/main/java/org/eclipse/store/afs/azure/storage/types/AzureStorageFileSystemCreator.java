@@ -29,7 +29,7 @@ public class AzureStorageFileSystemCreator extends ConfigurationBasedCreator.Abs
 {
 	public AzureStorageFileSystemCreator()
 	{
-		super(AFileSystem.class);
+		super(AFileSystem.class, "azure.storage");
 	}
 
 	@Override
@@ -37,27 +37,21 @@ public class AzureStorageFileSystemCreator extends ConfigurationBasedCreator.Abs
 		final Configuration configuration
 	)
 	{
-		final Configuration azureConfiguration = configuration.child("azure.storage");
-		if(azureConfiguration == null)
-		{
-			return null;
-		}
-
 		final BlobServiceClientBuilder clientBuilder = new BlobServiceClientBuilder();
 
-		azureConfiguration.opt("endpoint").ifPresent(
+		configuration.opt("endpoint").ifPresent(
 			value -> clientBuilder.endpoint(value)
 		);
 
-		azureConfiguration.opt("connection-string").ifPresent(
+		configuration.opt("connection-string").ifPresent(
 			value -> clientBuilder.connectionString(value)
 		);
 
-		azureConfiguration.opt("encryption-scope").ifPresent(
+		configuration.opt("encryption-scope").ifPresent(
 			value -> clientBuilder.encryptionScope(value)
 		);
 
-		azureConfiguration.opt("credentials.type").ifPresent(credentialsType ->
+		configuration.opt("credentials.type").ifPresent(credentialsType ->
 		{
 			switch(credentialsType)
 			{
@@ -65,8 +59,8 @@ public class AzureStorageFileSystemCreator extends ConfigurationBasedCreator.Abs
 				{
 					clientBuilder.credential(
 						new BasicAuthenticationCredential(
-							azureConfiguration.get("credentials.username"),
-							azureConfiguration.get("credentials.password")
+							configuration.get("credentials.username"),
+							configuration.get("credentials.password")
 						)
 					);
 				}
@@ -76,8 +70,8 @@ public class AzureStorageFileSystemCreator extends ConfigurationBasedCreator.Abs
 				{
 					clientBuilder.credential(
 						new StorageSharedKeyCredential(
-							azureConfiguration.get("credentials.account-name"),
-							azureConfiguration.get("credentials.account-key")
+							configuration.get("credentials.account-name"),
+							configuration.get("credentials.account-key")
 						)
 					);
 				}
@@ -88,7 +82,7 @@ public class AzureStorageFileSystemCreator extends ConfigurationBasedCreator.Abs
 			}
 		});
 
-		final Configuration furtherConfiguration = azureConfiguration.child("configuration");
+		final Configuration furtherConfiguration = configuration.child("configuration");
 		if(furtherConfiguration != null)
 		{
 			final com.azure.core.util.Configuration config = new com.azure.core.util.Configuration();
@@ -101,7 +95,7 @@ public class AzureStorageFileSystemCreator extends ConfigurationBasedCreator.Abs
 		}
 
 		final BlobServiceClient     client    = clientBuilder.buildClient();
-		final boolean               cache     = azureConfiguration.optBoolean("cache").orElse(true);
+		final boolean               cache     = configuration.optBoolean("cache").orElse(true);
 		final AzureStorageConnector connector = cache
 			? AzureStorageConnector.Caching(client)
 			: AzureStorageConnector.New(client)

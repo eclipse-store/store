@@ -142,6 +142,13 @@ public class EclipseStoreConfigConverter
     private Map<String, String> prepareFileSystem(final StorageFilesystem properties, final String key)
     {
         final Map<String, String> values = new HashMap<>();
+        
+        final String target = properties.getTarget();
+        if(target != null)
+        {
+        	values.put(this.composeKey(key, ConfigKeys.TARGET.value()), target);
+        }
+        
         if (properties.getSql() != null)
         {
             values.putAll(this.prepareSql(properties.getSql(), this.composeKey(key, ConfigKeys.SQL.value())));

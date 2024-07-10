@@ -137,14 +137,30 @@ public interface EmbeddedStorageFoundationCreatorConfigurationBased extends Embe
 			final Configuration configuration = this.configuration.child(configurationKey);
 			if(configuration != null)
 			{
+				final String  fileSystemTypeKey = this.configuration.opt(configurationKey + ".target").orElse(null);
+				final boolean fileSystemTypeSet = !XChars.isEmpty(fileSystemTypeKey);
 				for(final ConfigurationBasedCreator<AFileSystem> creator :
 					ConfigurationBasedCreator.registeredCreators(AFileSystem.class))
 				{
-					final AFileSystem fileSystem = creator.create(configuration);
-					if(fileSystem != null)
+					if(!fileSystemTypeSet || creator.key().equals(fileSystemTypeKey))
 					{
-						return fileSystem;
+						final Configuration child = configuration.child(creator.key());
+						if(child != null)
+						{
+							final AFileSystem fileSystem = creator.create(child);
+							if(fileSystem != null)
+							{
+								return fileSystem;
+							}
+						}
 					}
+				}
+				if(fileSystemTypeSet)
+				{
+					throw new IllegalStateException(
+						"No " + configurationKey + " provider found for '" + fileSystemTypeKey +
+						"'. Please ensure that all required dependencies are present."
+					);
 				}
 			}
 			

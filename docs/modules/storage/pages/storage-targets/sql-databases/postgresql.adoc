@@ -37,6 +37,9 @@ Please note that you have to define a data source provider.
 
 [source, properties, title="eclipsestore.properties"]
 ----
+# optional, enforces checks
+storage-filesystem.target=sql.postgres
+
 storage-filesystem.sql.postgres.data-source-provider=com.sample.MyDataSourceProvider
 storage-filesystem.sql.postgres.catalog=mycatalog
 storage-filesystem.sql.postgres.schema=myschema

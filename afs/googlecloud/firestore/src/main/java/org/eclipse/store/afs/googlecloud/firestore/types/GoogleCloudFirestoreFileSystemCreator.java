@@ -38,53 +38,45 @@ public class GoogleCloudFirestoreFileSystemCreator extends ConfigurationBasedCre
 		
 	public GoogleCloudFirestoreFileSystemCreator()
 	{
-		super(AFileSystem.class);
+		super(AFileSystem.class, "googlecloud.firestore");
 	}
 	
 	@Override
-	public AFileSystem create(
-		final Configuration configuration
-	)
+	public AFileSystem create(final Configuration configuration)
 	{
-		final Configuration firestoreConfiguration = configuration.child("googlecloud.firestore");
-		if(firestoreConfiguration == null)
-		{
-			return null;
-		}
-		
 		final FirestoreOptions.Builder optionsBuilder = FirestoreOptions.getDefaultInstance().toBuilder();
 				
-		firestoreConfiguration.opt("client-lib-token").ifPresent(
+		configuration.opt("client-lib-token").ifPresent(
 			value -> optionsBuilder.setClientLibToken(value)
 		);
 		
-		firestoreConfiguration.opt("database-id").ifPresent(
+		configuration.opt("database-id").ifPresent(
 			value -> optionsBuilder.setDatabaseId(value)
 		);
 		
-		firestoreConfiguration.opt("emulator-host").ifPresent(
+		configuration.opt("emulator-host").ifPresent(
 			value -> optionsBuilder.setEmulatorHost(value)
 		);
 		
-		firestoreConfiguration.opt("host").ifPresent(
+		configuration.opt("host").ifPresent(
 			value -> optionsBuilder.setHost(value)
 		);
 		
-		firestoreConfiguration.opt("project-id").ifPresent(
+		configuration.opt("project-id").ifPresent(
 			value -> optionsBuilder.setProjectId(value)
 		);
 		
-		firestoreConfiguration.opt("quota-project-id").ifPresent(
+		configuration.opt("quota-project-id").ifPresent(
 			value -> optionsBuilder.setQuotaProjectId(value)
 		);
 				
 		this.createCredentials(
-			firestoreConfiguration,
+			configuration,
 			optionsBuilder
 		);
 		
 		final Firestore                     firestore = optionsBuilder.build().getService();
-		final boolean                       cache     = firestoreConfiguration.optBoolean("cache").orElse(true);
+		final boolean                       cache     = configuration.optBoolean("cache").orElse(true);
 		final GoogleCloudFirestoreConnector connector = cache
 			? GoogleCloudFirestoreConnector.Caching(firestore)
 			: GoogleCloudFirestoreConnector.New(firestore)

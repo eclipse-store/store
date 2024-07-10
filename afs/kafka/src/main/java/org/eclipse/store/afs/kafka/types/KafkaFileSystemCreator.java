@@ -26,7 +26,7 @@ public class KafkaFileSystemCreator extends ConfigurationBasedCreator.Abstract<A
 {
 	public KafkaFileSystemCreator()
 	{
-		super(AFileSystem.class);
+		super(AFileSystem.class, "kafka");
 	}
 	
 	@Override
@@ -34,15 +34,9 @@ public class KafkaFileSystemCreator extends ConfigurationBasedCreator.Abstract<A
 		final Configuration configuration
 	)
 	{
-		final Configuration kafkaConfiguration = configuration.child("kafka-properties");
-		if(kafkaConfiguration == null)
-		{
-			return null;
-		}
-		
 		final Properties     kafkaProperties = new Properties();
-		kafkaProperties.putAll(kafkaConfiguration.coalescedMap());
-		final boolean        cache           = kafkaConfiguration.optBoolean("cache").orElse(true);
+		kafkaProperties.putAll(configuration.coalescedMap());
+		final boolean        cache           = configuration.optBoolean("cache").orElse(true);
 		final KafkaConnector connector       = cache
 			? KafkaConnector.Caching(kafkaProperties)
 			: KafkaConnector.New(kafkaProperties)

@@ -27,26 +27,18 @@ public class S3FileSystemCreator extends AwsFileSystemCreator
 {
 	public S3FileSystemCreator()
 	{
-		super();
+		super("aws.s3");
 	}
 	
 	@Override
-	public AFileSystem create(
-		final Configuration configuration
-	)
+	public AFileSystem create(final Configuration configuration)
 	{
-		final Configuration s3Configuration = configuration.child("aws.s3");
-		if(s3Configuration == null)
-		{
-			return null;
-		}
-		
 		final S3ClientBuilder clientBuilder = S3Client.builder();
-		this.populateBuilder(clientBuilder, s3Configuration);
+		this.populateBuilder(clientBuilder, configuration);
 		
 		final S3Client    client    = clientBuilder.build();
-		final boolean     cache     = s3Configuration.optBoolean("cache").orElse(true);
-		final boolean     directory = s3Configuration.optBoolean("directory-bucket").orElse(false);
+		final boolean     cache     = configuration.optBoolean("cache").orElse(true);
+		final boolean     directory = configuration.optBoolean("directory-bucket").orElse(false);
 		final S3Connector connector =
 			directory
 				?	(cache

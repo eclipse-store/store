@@ -29,6 +29,9 @@ When using xref:configuration/index.adoc#external-configuration[external configu
 
 [source, properties, title="eclipsestore.properties"]
 ----
+# optional, enforces checks
+storage-filesystem.target=aws.dynamodb
+
 storage-filesystem.aws.dynamodb.credentials.type=static
 storage-filesystem.aws.dynamodb.credentials.access-key-id=my-access-key-id
 storage-filesystem.aws.dynamodb.credentials.secret-access-key=my-secret-access-key

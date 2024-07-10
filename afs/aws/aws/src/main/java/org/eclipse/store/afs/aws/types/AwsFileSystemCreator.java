@@ -32,9 +32,9 @@ import software.amazon.awssdk.regions.Region;
 
 public abstract class AwsFileSystemCreator extends ConfigurationBasedCreator.Abstract<AFileSystem>
 {
-	protected AwsFileSystemCreator()
+	protected AwsFileSystemCreator(final String key)
 	{
-		super(AFileSystem.class);
+		super(AFileSystem.class, key);
 	}
 
 	protected void populateBuilder(

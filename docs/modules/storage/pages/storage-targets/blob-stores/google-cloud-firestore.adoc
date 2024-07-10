@@ -29,6 +29,9 @@ When using xref:configuration/index.adoc#external-configuration[external configu
 
 [source, properties, title="eclipsestore.properties"]
 ----
+# optional, enforces checks
+storage-filesystem.target=googlecloud.firestore
+
 storage-filesystem.googlecloud.firestore.credentials.type=default
 storage-filesystem.googlecloud.firestore.database-id=my-database-id
 storage-filesystem.googlecloud.firestore.project-id=my-project-id

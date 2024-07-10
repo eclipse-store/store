@@ -40,6 +40,9 @@ When using xref:configuration/index.adoc#external-configuration[external configu
 
 [source, properties, title="eclipsestore.properties"]
 ----
+# optional, enforces checks
+storage-filesystem.target=aws.s3
+
 storage-directory=bucket-name/folder/subfolder
 storage-filesystem.aws.s3.credentials.type=static
 storage-filesystem.aws.s3.credentials.access-key-id=my-access-key-id

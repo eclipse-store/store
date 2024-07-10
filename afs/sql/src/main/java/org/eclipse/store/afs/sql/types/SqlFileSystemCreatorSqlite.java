@@ -28,13 +28,13 @@ public class SqlFileSystemCreatorSqlite extends SqlFileSystemCreator
 	
 	@Override
 	protected SqlProvider createSqlProvider(
-		final Configuration sqlConfiguration,
+		final Configuration configuration,
 		final DataSource    dataSource
 	)
 	{
 		return SqlProviderSqlite.New(
-			sqlConfiguration.get("catalog"),
-			sqlConfiguration.get("schema") ,
+			configuration.get("catalog"),
+			configuration.get("schema") ,
 			dataSource
 		);
 	}
