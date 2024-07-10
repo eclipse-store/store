@@ -17,7 +17,7 @@ Cache<Integer, String> cache = cacheManager.createCache("jCache", configuration)
 
 If you prefer an external configuration, you can link the xref:storage:configuration/index.adoc#external-configuration[storage configuration]:
 
-[source, text, title="cache-config.properties"]
+[source, properties, title="cache-config.properties"]
 ----
 key-type = java.lang.Integer
 value-type = java.lang.String
@@ -28,7 +28,7 @@ write-through = true
 storage-configuration-resource-name = eclipsestore-storage.properties
 ----
 
-[source, text, title="eclipsestore-storage.properties"]
+[source, properties, title="eclipsestore-storage.properties"]
 ----
 storage-directory = ~/cache-data
 channel-count = 4
@@ -36,7 +36,7 @@ channel-count = 4
 
 Or you can embed the storage configuration within the cache configuration using the `storage.` prefix:
 
-[source, text, title="cache-config.properties"]
+[source, properties, title="cache-config.properties"]
 ----
 key-type = java.lang.Integer
 value-type = java.lang.String
@@ -62,7 +62,7 @@ This means that even if the entry was already created more than 1 minute ago (ev
 
 == Spring example
 
-[source, text, title="application.properties"]
+[source, properties, title="application.properties"]
 ----
 spring.jpa.properties.hibernate.cache.eclipsestore.missing_cache_strategy = create
 spring.jpa.properties.hibernate.cache.eclipsestore.readThrough = true

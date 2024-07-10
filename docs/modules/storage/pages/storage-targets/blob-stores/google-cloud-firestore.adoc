@@ -27,7 +27,7 @@ EmbeddedStorage.start(fileSystem.ensureDirectoryPath("storage"));
 
 When using xref:configuration/index.adoc#external-configuration[external configuration] Google Cloud Firestore can be set as follows.
 
-[source, text, title="eclipsestore.properties"]
+[source, properties, title="eclipsestore.properties"]
 ----
 storage-filesystem.googlecloud.firestore.credentials.type=default
 storage-filesystem.googlecloud.firestore.database-id=my-database-id
@@ -35,25 +35,31 @@ storage-filesystem.googlecloud.firestore.project-id=my-project-id
 ----
 
 == Supported properties
-[options="header", cols="1,2a"]
+[options="header", cols="1,2a,3"]
 |===
 |Property   
 |Description   
+|Type   
 //-------------
 |database-id
 |The database ID to use with this Firestore client.
+|String
 
 |emulator-host
 |The emulator host to use with this Firestore client.
+|String
 
 |host
 |The service host.
+|String
 
 |project-id
 |The project ID. If no project ID is set, the project ID from the environment will be used.
+|String
 
 |quota-project-id
 |The project ID that specifies the project used for quota and billing purposes.
+|String
 
 |credentials.type
 |The type of the credentials provider. Supported values are:
@@ -71,7 +77,7 @@ Returns the Application Default Credentials which are used to identify and autho
 . Google App Engine built-in credentials 
 . Google Cloud Shell built-in credentials 
 . Google Compute Engine built-in credentials 
-
+|String
 |===
 
 CAUTION: Depending on the amount of data and transactions, charges may apply depending on service usage. Please check with your service provider for details.

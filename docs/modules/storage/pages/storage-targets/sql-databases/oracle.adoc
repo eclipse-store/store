@@ -35,7 +35,7 @@ EmbeddedStorage.start(fileSystem.ensureDirectoryPath("storage"));
 When using xref:configuration/index.adoc#external-configuration[external configuration] Oracle can be set as follows.
 Please note that you have to define a data source provider.
 
-[source, text, title="eclipsestore.properties"]
+[source, properties, title="eclipsestore.properties"]
 ----
 storage-filesystem.sql.oracle.data-source-provider=com.sample.MyDataSourceProvider
 storage-filesystem.sql.oracle.catalog=mycatalog
