@@ -28,6 +28,10 @@ jobs:
           server-username: MAVEN_USERNAME
           server-password: MAVEN_PASSWORD
           gpg-passphrase: PASSPHRASE
+      - name: Maven change version
+        run: mvn versions:set -DnewVersion=${{ github.event.release.tag_name }} --batch-mode
+      - name: Maven change serializer version
+        run:  mvn versions:set-property -Dproperty=eclipse.serializer.version -DnewVersion=${{ github.event.release.tag_name }}
       - name: Make a release
         run: mvn -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy
         env:
@@ -47,6 +51,10 @@ jobs:
           server-username: MAVEN_USERNAME
           server-password: MAVEN_PASSWORD
           gpg-passphrase: PASSPHRASE
+      - name: Maven change version
+        run: mvn versions:set -DnewVersion=${{ github.event.release.tag_name }} --batch-mode
+      - name: Maven change serializer version
+        run:  mvn versions:set-property -Dproperty=eclipse.serializer.version -DnewVersion=${{ github.event.release.tag_name }}
       - name: Build with java 17
         run: |
           mvn -pl integrations/spring-boot3 clean install -am -B
