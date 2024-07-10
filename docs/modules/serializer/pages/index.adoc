@@ -64,11 +64,6 @@ final SerializerFoundation<?> foundation = SerializerFoundation.New();
 foundation.setInitialTypeDictionary(typeDictionaryString);
 ----
 
-
-
-=== Importing the type dictionary
-
-
 == TypedSerializer
 The `TypedSerializer` implementation includes type information into the serialized output.
 By default the complete set of type information is included in all serialized output.
