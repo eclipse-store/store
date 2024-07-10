@@ -27,7 +27,7 @@ EmbeddedStorage.start(fileSystem.ensureDirectoryPath("storage"));
 
 When using xref:configuration/index.adoc#external-configuration[external configuration] Oracle Cloud Object Storage can be set as follows.
 
-[source, text, title="eclipsestore.properties"]
+[source, properties, title="eclipsestore.properties"]
 ----
 storage-filesystem.oraclecloud.object-storage.config-file.profile=production
 storage-filesystem.oraclecloud.object-storage.region=us-phoenix-1

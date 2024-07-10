@@ -38,7 +38,7 @@ EmbeddedStorage.start(fileSystem.ensureDirectoryPath("bucket-name", "folder", "s
 
 When using xref:configuration/index.adoc#external-configuration[external configuration], the properties can be set as follows.
 
-[source, text, title="eclipsestore.properties"]
+[source, properties, title="eclipsestore.properties"]
 ----
 storage-directory=bucket-name/folder/subfolder
 storage-filesystem.aws.s3.credentials.type=static
@@ -72,7 +72,7 @@ EmbeddedStorage.start(fileSystem.ensureDirectoryPath("bucket-name", "folder", "s
 
 When using xref:configuration/index.adoc#external-configuration[external configuration], the properties can be set as follows.
 
-[source, text, title="eclipsestore.properties"]
+[source, properties, title="eclipsestore.properties"]
 ----
 storage-directory=bucket-name/folder/subfolder
 storage-filesystem.aws.s3.directory-bucket=true

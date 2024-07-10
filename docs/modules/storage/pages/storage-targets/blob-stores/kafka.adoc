@@ -31,7 +31,7 @@ EmbeddedStorage.start(fileSystem.ensureDirectoryPath("storage"));
 
 When using xref:configuration/index.adoc#external-configuration[external configuration] Kafka can be set as follows.
 
-[source, text, title="eclipsestore.properties"]
+[source, properties, title="eclipsestore.properties"]
 ----
 storage-filesystem.kafka-properties.bootstrap.servers=localhost:9093
 ----

@@ -27,7 +27,7 @@ EmbeddedStorage.start(fileSystem.ensureDirectoryPath("storage"));
 
 When using xref:configuration/index.adoc#external-configuration[external configuration] AWS DynamoDB can be set as follows.
 
-[source, text, title="eclipsestore.properties"]
+[source, properties, title="eclipsestore.properties"]
 ----
 storage-filesystem.aws.dynamodb.credentials.type=static
 storage-filesystem.aws.dynamodb.credentials.access-key-id=my-access-key-id

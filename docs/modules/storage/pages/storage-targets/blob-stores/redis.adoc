@@ -27,7 +27,7 @@ EmbeddedStorage.start(fileSystem.ensureDirectoryPath("storage"));
 
 When using xref:configuration/index.adoc#external-configuration[external configuration] Redis can be set as follows.
 
-[source, text, title="eclipsestore.properties"]
+[source, properties, title="eclipsestore.properties"]
 ----
 storage-filesystem.redis.uri=redis://localhost:6379/0
 ----

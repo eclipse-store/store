@@ -27,7 +27,7 @@ EmbeddedStorage.start(fileSystem.ensureDirectoryPath("storage"));
 
 When using xref:configuration/index.adoc#external-configuration[external configuration] Google Cloud Firestore can be set as follows.
 
-[source, text, title="eclipsestore.properties"]
+[source, properties, title="eclipsestore.properties"]
 ----
 storage-filesystem.googlecloud.firestore.credentials.type=default
 storage-filesystem.googlecloud.firestore.database-id=my-database-id

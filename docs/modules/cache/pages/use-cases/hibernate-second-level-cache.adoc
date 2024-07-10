@@ -42,7 +42,7 @@ If you use a good old persistence.xml, set the property there:
 
 == Spring Example
 
-[source, text, title="application.properties"]
+[source, properties, title="application.properties"]
 ----
 spring.jpa.properties.hibernate.cache.eclipsestore.missing_cache_strategy=create
 spring.jpa.properties.hibernate.cache.region.factory_class=org.eclipse.store.cache.hibernate.types.CacheRegionFactory
