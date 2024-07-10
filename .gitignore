@@ -88,3 +88,6 @@ profile
 
 jokes_storage/
 storage/rest/client-app/src/main/dev-bundle/
+
+node_modules/
+
