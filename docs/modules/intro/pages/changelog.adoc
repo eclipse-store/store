@@ -1,6 +1,22 @@
 = Changelog
 
+== 1.4.0
+
+=== Features
+
+* S3 Express One Zone integration https://github.com/eclipse-store/store/issues/224[[224]]
+* S3 Enhancements https://github.com/eclipse-store/store/issues/233[[233]] https://github.com/eclipse-store/store/pull/242[[242]]
+* Type Dictionary Import and Export for Serializer https://github.com/eclipse-serializer/serializer/pull/128[[128]]
+
+=== Bugfixes
+
+* S3 Fixes https://github.com/eclipse-store/store/issues/234[[234]]
+* NIO Transfer Workaround https://github.com/eclipse-store/store/pull/238[[238]]
+
+
 == 1.3.2
+
+=== Features
 
 * Spring Boot improvements https://github.com/eclipse-store/store/pull/206[[206]]
 * Ensure Minio compatibility https://github.com/eclipse-store/store/pull/197[[197]]
@@ -12,6 +28,8 @@
 
 
 == 1.3.1
+
+=== Features
 
 * Spring Boot improvements https://github.com/eclipse-store/store/pull/136[[136]]
 * xref:misc:integrations/cdi.adoc[CDI Integration]
