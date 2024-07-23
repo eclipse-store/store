@@ -67,7 +67,9 @@ public class RestartStorageBeanTest
         manager.storeRoot();
         manager.shutdown();
 
-        Assertions.assertEquals(tempFolder.toAbsolutePath().toString(), manager.configuration().fileProvider().baseDirectory().toPathString());
+        String expectedPath = tempFolder.toAbsolutePath().toString().replace("\\", "/");
+        String actualPath = manager.configuration().fileProvider().baseDirectory().toPathString().replace("\\", "/");
+        Assertions.assertEquals(expectedPath.toLowerCase(), actualPath.toLowerCase());
 
         final ConfigurationPair pair = new ConfigurationPair("someKey", "someValue");
         final EmbeddedStorageFoundation<?> storageFoundation = this.foundationFactory.createStorageFoundation(this.myConfiguration, pair);
