@@ -63,7 +63,7 @@ public class AdvanceRestartTest
 
         String expectedPath = tempFolder.toAbsolutePath().toString().replace("\\", "/");
         String actualPath = manager.configuration().fileProvider().baseDirectory().toPathString().replace("\\", "/");
-        Assertions.assertEquals(expectedPath.toLowerCase(), actualPath.toLowerCase());
+        assertEquals(expectedPath.toLowerCase(), actualPath.toLowerCase());
 
         final EmbeddedStorageFoundation<?> storageFoundation = this.foundationFactory.createStorageFoundation(this.myConfiguration);
         try (EmbeddedStorageManager storage = storageFoundation.start())
