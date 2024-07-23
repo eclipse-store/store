@@ -20,7 +20,6 @@ import org.eclipse.store.integrations.spring.boot.types.configuration.EclipseSto
 import org.eclipse.store.integrations.spring.boot.types.factories.EmbeddedStorageFoundationFactory;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,6 +33,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 
 import java.nio.file.Path;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 
 @SpringBootTest
@@ -69,14 +70,14 @@ public class RestartStorageBeanTest
 
         String expectedPath = tempFolder.toAbsolutePath().toString().replace("\\", "/");
         String actualPath = manager.configuration().fileProvider().baseDirectory().toPathString().replace("\\", "/");
-        Assertions.assertEquals(expectedPath.toLowerCase(), actualPath.toLowerCase());
+        assertEquals(expectedPath.toLowerCase(), actualPath.toLowerCase());
 
         final ConfigurationPair pair = new ConfigurationPair("someKey", "someValue");
         final EmbeddedStorageFoundation<?> storageFoundation = this.foundationFactory.createStorageFoundation(this.myConfiguration, pair);
         try (EmbeddedStorageManager storage = storageFoundation.start())
         {
             final RestartRoot rootFromStorage = (RestartRoot) storage.root();
-            Assertions.assertEquals("hello", rootFromStorage.getValue());
+            assertEquals("hello", rootFromStorage.getValue());
         }
     }
 
