@@ -32,6 +32,8 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 @SpringBootTest
 @TestPropertySource("classpath:application-advance-restart-test.properties")
 @ActiveProfiles("advance_restart_storage")
@@ -59,13 +61,15 @@ public class AdvanceRestartTest
         manager.storeRoot();
         manager.shutdown();
 
-        Assertions.assertEquals(tempFolder.toAbsolutePath().toString(), manager.configuration().fileProvider().baseDirectory().toPathString());
+        String expectedPath = tempFolder.toAbsolutePath().toString().replace("\\", "/");
+        String actualPath = manager.configuration().fileProvider().baseDirectory().toPathString().replace("\\", "/");
+        Assertions.assertEquals(expectedPath.toLowerCase(), actualPath.toLowerCase());
 
         final EmbeddedStorageFoundation<?> storageFoundation = this.foundationFactory.createStorageFoundation(this.myConfiguration);
         try (EmbeddedStorageManager storage = storageFoundation.start())
         {
             final AdvanceRestartRoot rootFromStorage = (AdvanceRestartRoot) storage.root();
-            Assertions.assertEquals("hello", rootFromStorage.getValue());
+            assertEquals("hello", rootFromStorage.getValue());
         }
     }
 
