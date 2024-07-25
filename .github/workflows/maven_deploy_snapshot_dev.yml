@@ -22,7 +22,7 @@ jobs:
       - name: Check if branch exists in another repository
         id: check_branch
         run: |
-          BRANCH_NAME=$1
+          BRANCH_NAME=${{ github.ref }}
           REPO_OWNER="eclipse-serializer"
           REPO_NAME="serializer"
           RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/branches/$BRANCH_NAME)
