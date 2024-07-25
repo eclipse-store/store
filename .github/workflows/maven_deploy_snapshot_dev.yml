@@ -106,7 +106,7 @@ jobs:
           newVersion="${currentVersionWithoutSnapshot}-$SUFFIX-SNAPSHOT"
           mvn versions:set -DnewVersion=$newVersion --batch-mode
       - name: Check if branch exists in another repository
-        id: check_branch
+        id: check_branch_17
         run: |
           BRANCH_NAME=${{ github.ref }}
           REPO_OWNER="eclipse-serializer"
