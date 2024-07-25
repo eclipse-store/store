@@ -62,6 +62,17 @@
             <artifactId>integrations-spring-boot3-console</artifactId>
             <version>${project.version}</version>
         </dependency>
+
+        <dependency>
+            <groupId>org.eclipse.store</groupId>
+            <artifactId>afs-aws-s3</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>2.17.272</version>
+        </dependency>
     </dependencies>
 
     <build>

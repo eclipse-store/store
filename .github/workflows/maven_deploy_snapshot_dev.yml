@@ -51,6 +51,7 @@ jobs:
           currentVersion=$(mvn -q -Dexec.executable=echo -Dexec.args='${project.version}' --non-recursive exec:exec)
           currentVersionWithoutSnapshot=${currentVersion%-SNAPSHOT}
           newVersion="${currentVersionWithoutSnapshot}-$SUFFIX-SNAPSHOT"
+          echo "NEW_VERSION=$newVersion" >> $GITHUB_ENV
           mvn versions:set -DnewVersion=$newVersion --batch-mode
           BRANCH_NAME=${{ github.ref }}
           REPO_OWNER="eclipse-serializer"
@@ -80,28 +81,9 @@ jobs:
           server-username: MAVEN_USERNAME
           server-password: MAVEN_PASSWORD
           gpg-passphrase: PASSPHRASE
-      - name: Prepare suffix
-        run: |
-          function prepareSuffix() {
-            local branch=$1
-            local result=${branch//\//_}
-            result=${result//#/}
-            local maxLength=10
-            if (( ${#result} > maxLength )); then
-              result=${result:0:maxLength}
-            fi
-            local hashFromContent=$(echo -n "$branch" | md5sum | cut -f1 -d" ")
-            echo "${result}-${hashFromContent:0:10}"
-          }          
-          suffix=$(prepareSuffix ${GITHUB_REF#refs/heads/})
-          echo "Suffix: $suffix"
-          echo "SUFFIX=$suffix" >> $GITHUB_ENV
       - name: Update project version java 17
         run: |
-          currentVersion=$(mvn -q -Dexec.executable=echo -Dexec.args='${project.version}' --non-recursive exec:exec)
-          currentVersionWithoutSnapshot=${currentVersion%-SNAPSHOT}
-          newVersion="${currentVersionWithoutSnapshot}-$SUFFIX-SNAPSHOT"
-          mvn versions:set -DnewVersion=$newVersion --batch-mode
+          mvn versions:set -DnewVersion=${{ env.NEW_VERSION}} --batch-mode
           BRANCH_NAME=${{ github.ref }}
           REPO_OWNER="eclipse-serializer"
           REPO_NAME="serializer"
