@@ -27,12 +27,11 @@ jobs:
           REPO_NAME="serializer"
           RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/branches/$BRANCH_NAME)
           if [ $RESPONSE -eq 200 ]; then
-            echo "Branch exists"
-            echo "::set-output name=branch_exists::true"
+            SERIALIZE_BRANCH_EXISTS=true
           else
-            echo "Branch does not exist"
-            echo "::set-output name=branch_exists::false"
+            SERIALIZE_BRANCH_EXISTS=false          
           fi
+          echo "Serialize branch exists: $SERIALIZE_BRANCH_EXISTS"
       - uses: actions/checkout@v3
       - name: Set up Java for publishing to Maven Central Snapshot Repository
         uses: actions/setup-java@v3
