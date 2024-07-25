@@ -52,6 +52,15 @@ jobs:
           currentVersionWithoutSnapshot=${currentVersion%-SNAPSHOT}
           newVersion="${currentVersionWithoutSnapshot}-$SUFFIX-SNAPSHOT"
           mvn versions:set -DnewVersion=$newVersion --batch-mode
+          BRANCH_NAME=${{ github.ref }}
+          REPO_OWNER="eclipse-serializer"
+          REPO_NAME="serializer"
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/branches/$BRANCH_NAME)
+          if [ $RESPONSE -eq 200 ]; then
+            mvn versions:set-property -Dproperty=eclipse.serializer.version -DnewVersion=$newVersion
+          else
+            echo "Branch does not exist in serializer repository, skipping serializer version change"          
+          fi
       - name: Make a snapshot
         run: mvn -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy -U
         env:
@@ -83,7 +92,7 @@ jobs:
             fi
             local hashFromContent=$(echo -n "$branch" | md5sum | cut -f1 -d" ")
             echo "${result}-${hashFromContent:0:10}"
-          }
+          }          
           suffix=$(prepareSuffix ${GITHUB_REF#refs/heads/})
           echo "Suffix: $suffix"
           echo "SUFFIX=$suffix" >> $GITHUB_ENV
@@ -93,6 +102,15 @@ jobs:
           currentVersionWithoutSnapshot=${currentVersion%-SNAPSHOT}
           newVersion="${currentVersionWithoutSnapshot}-$SUFFIX-SNAPSHOT"
           mvn versions:set -DnewVersion=$newVersion --batch-mode
+          BRANCH_NAME=${{ github.ref }}
+          REPO_OWNER="eclipse-serializer"
+          REPO_NAME="serializer"
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/branches/$BRANCH_NAME)
+          if [ $RESPONSE -eq 200 ]; then
+            mvn versions:set-property -Dproperty=eclipse.serializer.version -DnewVersion=$newVersion
+          else
+            echo "Branch does not exist in serializer repository, skipping serializer version change"          
+          fi
       - name: Make a snapshot java 17
         run: |
           mvn -pl integrations/spring-boot3 clean install -am -B
