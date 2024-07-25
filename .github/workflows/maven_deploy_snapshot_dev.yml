@@ -65,6 +65,7 @@ jobs:
           currentVersionWithoutSnapshot=${currentVersion%-SNAPSHOT}
           newVersion="${currentVersionWithoutSnapshot}-$SUFFIX-SNAPSHOT"
           mvn versions:set -DnewVersion=$newVersion --batch-mode
+          mvn versions:set-property -Dproperty=eclipse.serializer.version -DnewVersion=$newVersion
       - name: Make a snapshot
         run: mvn -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy -U
         env:
@@ -86,17 +87,6 @@ jobs:
           gpg-passphrase: PASSPHRASE
       - name: Prepare suffix
         run: |
-          function prepareSuffix() {
-            local branch=$1
-            local result=${branch//\//_}
-            result=${result//#/}
-            local maxLength=10
-            if (( ${#result} > maxLength )); then
-              result=${result:0:maxLength}
-            fi
-            local hashFromContent=$(echo -n "$branch" | md5sum | cut -f1 -d" ")
-            echo "${result}-${hashFromContent:0:10}"
-          }
           suffix=$(prepareSuffix ${GITHUB_REF#refs/heads/})
           echo "Suffix: $suffix"
           echo "SUFFIX=$suffix" >> $GITHUB_ENV
@@ -106,6 +96,7 @@ jobs:
           currentVersionWithoutSnapshot=${currentVersion%-SNAPSHOT}
           newVersion="${currentVersionWithoutSnapshot}-$SUFFIX-SNAPSHOT"
           mvn versions:set -DnewVersion=$newVersion --batch-mode
+          mvn versions:set-property -Dproperty=eclipse.serializer.version -DnewVersion=$newVersion
       - name: Make a snapshot java 17
         run: |
           mvn -pl integrations/spring-boot3 clean install -am -B
