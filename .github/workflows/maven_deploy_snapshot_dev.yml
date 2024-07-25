@@ -19,6 +19,20 @@ jobs:
         run: |
           cat <(echo -e "${{ secrets.ORG_GPG_PRIVATE_KEY }}") | gpg --batch --import
           gpg --list-secret-keys --keyid-format LONG
+      - name: Check if branch exists in another repository
+        id: check_branch
+        run: |
+          BRANCH_NAME=$1
+          REPO_OWNER="eclipse-serializer"
+          REPO_NAME="serializer"
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/branches/$BRANCH_NAME)
+          if [ $RESPONSE -eq 200 ]; then
+            echo "Branch exists"
+            echo "::set-output name=branch_exists::true"
+          else
+            echo "Branch does not exist"
+            echo "::set-output name=branch_exists::false"
+          fi
       - uses: actions/checkout@v3
       - name: Set up Java for publishing to Maven Central Snapshot Repository
         uses: actions/setup-java@v3
