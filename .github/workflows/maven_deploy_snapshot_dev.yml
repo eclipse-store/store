@@ -19,19 +19,6 @@ jobs:
         run: |
           cat <(echo -e "${{ secrets.ORG_GPG_PRIVATE_KEY }}") | gpg --batch --import
           gpg --list-secret-keys --keyid-format LONG
-      - name: Check if branch exists in another repository
-        id: check_branch
-        run: |
-          BRANCH_NAME=${{ github.ref }}
-          REPO_OWNER="eclipse-serializer"
-          REPO_NAME="serializer"
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/branches/$BRANCH_NAME)
-          if [ $RESPONSE -eq 200 ]; then
-            SERIALIZE_BRANCH_EXISTS=true
-          else
-            SERIALIZE_BRANCH_EXISTS=false          
-          fi
-          echo "Serialize branch exists: $SERIALIZE_BRANCH_EXISTS"
       - uses: actions/checkout@v3
       - name: Set up Java for publishing to Maven Central Snapshot Repository
         uses: actions/setup-java@v3
@@ -65,12 +52,17 @@ jobs:
           currentVersionWithoutSnapshot=${currentVersion%-SNAPSHOT}
           newVersion="${currentVersionWithoutSnapshot}-$SUFFIX-SNAPSHOT"
           mvn versions:set -DnewVersion=$newVersion --batch-mode
-      - name: Change serializer version
+      - name: Check if branch exists in another repository
+        id: check_branch
         run: |
-          if [ $SERIALIZE_BRANCH_EXISTS = true ]; then
+          BRANCH_NAME=${{ github.ref }}
+          REPO_OWNER="eclipse-serializer"
+          REPO_NAME="serializer"
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/branches/$BRANCH_NAME)
+          if [ $RESPONSE -eq 200 ]; then
             mvn versions:set-property -Dproperty=eclipse.serializer.version -DnewVersion=$newVersion
           else
-            echo "Branch does not exist in serializer repository, skipping serializer version change"
+            echo "Branch does not exist in serializer repository, skipping serializer version change"          
           fi
       - name: Make a snapshot
         run: mvn -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy -U
@@ -113,8 +105,17 @@ jobs:
           currentVersionWithoutSnapshot=${currentVersion%-SNAPSHOT}
           newVersion="${currentVersionWithoutSnapshot}-$SUFFIX-SNAPSHOT"
           mvn versions:set -DnewVersion=$newVersion --batch-mode
-          if [ $SERIALIZE_BRANCH_EXISTS = true ]; then
+      - name: Check if branch exists in another repository
+        id: check_branch
+        run: |
+          BRANCH_NAME=${{ github.ref }}
+          REPO_OWNER="eclipse-serializer"
+          REPO_NAME="serializer"
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/branches/$BRANCH_NAME)
+          if [ $RESPONSE -eq 200 ]; then
             mvn versions:set-property -Dproperty=eclipse.serializer.version -DnewVersion=$newVersion
+          else
+            echo "Branch does not exist in serializer repository, skipping serializer version change"          
           fi
       - name: Make a snapshot java 17
         run: |
