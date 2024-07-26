@@ -23,7 +23,7 @@ This CDI extension makes use of the `Extension` interface and the `BeanManager` 
 
 == Configuration
 
-The configuration of the _StorageManager_ can be done using key/value pairs that are provided by MicroProfile Config.  The configuration keys must be prefixed by `org.clipse.store`
+The configuration of the _StorageManager_ can be done using key/value pairs that are provided by MicroProfile Config.  The configuration keys must be prefixed by `org.eclipse.store`
 
 [source]
 ----
