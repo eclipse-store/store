@@ -87,4 +87,22 @@
         </plugins>
     </build>
 
+    <profiles>
+        <profile>
+            <id>awss3</id>
+            <dependencies>
+                <dependency>
+                    <groupId>org.eclipse.store</groupId>
+                    <artifactId>afs-aws-s3</artifactId>
+                    <version>${project.version}</version>
+                </dependency>
+                <dependency>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>s3</artifactId>
+                    <version>2.26.14</version>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
+
 </project>
