@@ -67,3 +67,18 @@ curl --location --request POST 'http://localhost:8080/add' \
 --header 'Content-Type: application/json' \
 --data-raw '{great new joke}'
 ```
+
+## Using Example with AWS S3
+We have prepared a sample configuration for using AWS S3. To use it, please follow these steps:
+1. In the application-awss3.properties file, set the following properties:
+
+   `org.eclipse.store.storage-directory=bucket/jokes_storage`
+   Replace bucket with your actual bucket name.
+2. Build the application with the following command:
+```shell
+mvn -Pawss3 clean package 
+```
+3. Run the application with the following command:
+```shell
+java -jar -Dspring.profiles.active=awss3 target/spring-boot3-simple.jar 
+```
