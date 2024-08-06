@@ -361,7 +361,7 @@ public interface StorageFile
 			}
 		}
 				
-		public final synchronized void truncate(final long newLength)
+		public synchronized void truncate(final long newLength)
 		{
 			this.ensureWritable().truncate(newLength);
 		}

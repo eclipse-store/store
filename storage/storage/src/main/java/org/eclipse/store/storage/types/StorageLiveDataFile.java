@@ -153,6 +153,15 @@ extends StorageDataFile, StorageLiveChannelFile<StorageLiveDataFile>, StorageCre
 			return this.fileTotalLength;
 		}
 		
+		@Override
+		public synchronized void truncate(long newLength)
+		{
+			//Do not use this.internalOpenWriting() because this method does an size check
+			//if the file is re-opened.
+			//This size check is not appropriate if the file shall be opened with write access for truncation.
+			super.internalOpenWriting();
+			super.truncate(newLength);
+		}
 
 		final TypeInFile typeInFile(final StorageEntityType.Default type)
 		{
@@ -287,7 +296,7 @@ extends StorageDataFile, StorageLiveChannelFile<StorageLiveDataFile>, StorageCre
 			
 			return true;
 		}
-
+		
 		@Override
 		public final double dataFillRatio()
 		{
