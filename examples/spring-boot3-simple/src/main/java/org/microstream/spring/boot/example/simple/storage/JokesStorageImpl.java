@@ -64,7 +64,7 @@ public class JokesStorageImpl implements JokesStorage
     {
         Root root = (Root) storageManager.root();
         root.getJokes().add(joke);
-        storageManager.storeRoot();
+        storageManager.store(root.getJokes());
         return root.getJokes().size();
     }
 

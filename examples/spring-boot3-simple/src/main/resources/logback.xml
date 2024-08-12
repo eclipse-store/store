@@ -11,7 +11,7 @@
     <logger name="org.eclipse.store.integrations.spring.boot.types.concurrent" level="trace" />
     <logger name="org.atmosphere" level="warn" />
 
-    <root level="INFO    ">
+    <root level="INFO">
         <appender-ref ref="STDOUT" />
     </root>
 </configuration>
