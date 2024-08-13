@@ -21,7 +21,9 @@ import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -34,6 +36,7 @@ import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.internal.util.Mimetype;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
@@ -184,16 +187,50 @@ public interface S3Connector extends BlobStoreConnector
 			final BlobStorePath directory
 		)
 		{
-			final ListObjectsV2Request request = ListObjectsV2Request
-                .builder()
-                .bucket(directory.container())
-                .prefix(toChildKeysPrefix(directory))
-                .delimiter(BlobStorePath.SEPARATOR)
-                .build();
-			return this.s3.listObjectsV2(request)
-				.contents()
+			final Set<String> childKeys         = new LinkedHashSet<>();
+			final String      prefix            = toChildKeysPrefix(directory);
+			String            continuationToken = null;
+			do
+			{
+				final ListObjectsV2Request request = ListObjectsV2Request
+	                .builder()
+	                .bucket(directory.container())
+	                .prefix(prefix)
+	                .delimiter(BlobStorePath.SEPARATOR)
+	                .continuationToken(continuationToken)
+	                .build()
+	            ;
+				final ListObjectsV2Response response = this.s3.listObjectsV2(request);
+				// add "directories"
+				childKeys.addAll(
+					response
+						.commonPrefixes()
+						.stream()
+						.map(CommonPrefix::prefix)
+						.collect(toList())
+				);
+				// add "files"
+				childKeys.addAll(
+					response
+						.contents()
+						.stream()
+						.map(S3Object::key)
+						.collect(toList())
+				);
+				continuationToken = response.isTruncated()
+					? response.nextContinuationToken()
+					: null
+				;
+			}
+			while(continuationToken != null);
+			
+			return childKeys
 				.stream()
-				.map(S3Object::key)
+				/*
+				 * Requested base "directory" will be returned as well if it was created explicitly
+				 * but we don't need it in the child keys listing.
+				 */
+				.filter(path -> !path.equals(prefix))
 			;
 		}
 
@@ -229,17 +266,18 @@ public interface S3Connector extends BlobStoreConnector
 					return true;
 				}
 				
-				final PutObjectRequest request = PutObjectRequest
-					.builder()
-					.bucket(directory.container())
-					.key(containerKey)
-					.build()
-				;
-				this.s3.putObject(request, RequestBody.empty());
-				
-				return true;
+				final ListObjectsV2Request request = ListObjectsV2Request
+	                .builder()
+	                .bucket(directory.container())
+	                .prefix(containerKey)
+	                .delimiter(BlobStorePath.SEPARATOR)
+	                .maxKeys(1)
+	                .build()
+	            ;
+				final List<S3Object> objects = this.s3.listObjectsV2(request).contents();
+				return !objects.isEmpty();
 			}
-			catch(final NoSuchKeyException e)
+			catch(final NoSuchBucketException | NoSuchKeyException e)
 			{
 				return false;
 			}
@@ -276,8 +314,10 @@ public interface S3Connector extends BlobStoreConnector
 				.key(containerKey)
 				.build()
 			;
-			final RequestBody body = RequestBody.empty();
-			this.s3.putObject(request, body);
+			this.s3.putObject(
+				request,
+				RequestBody.empty()
+			);
 			
 			return true;
 		}

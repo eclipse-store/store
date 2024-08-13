@@ -1,21 +1,5 @@
 package org.eclipse.store.afs.blobstore.types;
 
-/*-
- * #%L
- * EclipseStore Abstract File System Blobstore
- * %%
- * Copyright (C) 2023 MicroStream Software
- * %%
- * This program and the accompanying materials are made
- * available under the terms of the Eclipse Public License 2.0
- * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
- * SPDX-License-Identifier: EPL-2.0
- * #L%
- */
-
-import org.eclipse.serializer.reference.Reference;
-
 import static java.util.stream.Collectors.toList;
 import static org.eclipse.serializer.util.X.checkArrayRange;
 import static org.eclipse.serializer.util.X.notNull;
@@ -37,6 +21,22 @@ import java.util.function.ToLongFunction;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+/*-
+ * #%L
+ * EclipseStore Abstract File System Blobstore
+ * %%
+ * Copyright (C) 2023 MicroStream Software
+ * %%
+ * This program and the accompanying materials are made
+ * available under the terms of the Eclipse Public License 2.0
+ * which is available at https://www.eclipse.org/legal/epl-2.0/
+ * 
+ * SPDX-License-Identifier: EPL-2.0
+ * #L%
+ */
+
+import org.eclipse.serializer.reference.Reference;
 
 
 /**
@@ -146,7 +146,12 @@ public interface BlobStoreConnector extends AutoCloseable
 			final BlobStorePath directory
 		)
 		{
-			return Arrays.stream(directory.pathElements())
+			final String[] pathElements = directory.pathElements();
+			if(pathElements.length <= 1)
+			{
+				return "";
+			}
+			return Arrays.stream(pathElements)
 				.skip(1L) // skip container
 				.collect(Collectors.joining(BlobStorePath.SEPARATOR, "", BlobStorePath.SEPARATOR))
 			;
