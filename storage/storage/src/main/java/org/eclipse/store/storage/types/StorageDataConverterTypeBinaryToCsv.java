@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
+import org.eclipse.serializer.afs.types.ADirectory;
 import org.eclipse.serializer.afs.types.AFS;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AReadableFile;
@@ -109,6 +110,84 @@ public interface StorageDataConverterTypeBinaryToCsv
 		};
 	}
 
+	
+	/**
+	 * Pseudo-constructor method to create a new {@link StorageDataConverterTypeBinaryToCsv}.
+	 * 
+	 * @param targetDirectory write target directory
+	 * @param typeDictionary the type dictionary to use
+	 * @return a new {@link StorageDataConverterTypeBinaryToCsv}
+	 */
+	public static StorageDataConverterTypeBinaryToCsv New(
+		final ADirectory                targetDirectory,
+		final PersistenceTypeDictionary typeDictionary
+	)
+	{
+		return New(
+			StorageDataConverterCsvConfiguration.defaultConfiguration(),
+			new StorageEntityTypeConversionFileProvider.Default(
+				targetDirectory,
+				"csv"
+			),
+			typeDictionary
+		);
+	}
+	
+	
+	/**
+	 * Pseudo-constructor method to create a new {@link StorageDataConverterTypeBinaryToCsv}.
+	 * 
+	 * @param configuration the CSV configuration to use
+	 * @param fileProvider target file provider
+	 * @param typeDictionary the type dictionary to use
+	 * @return a new {@link StorageDataConverterTypeBinaryToCsv}
+	 */
+	public static StorageDataConverterTypeBinaryToCsv New(
+		final StorageDataConverterCsvConfiguration    configuration ,
+		final StorageEntityTypeConversionFileProvider fileProvider  ,
+		final PersistenceTypeDictionary               typeDictionary
+	)
+	{
+		return New(
+			configuration ,
+			fileProvider  ,
+			typeDictionary,
+			null          ,
+			0             ,
+			0
+		);
+	}
+	
+	
+	/**
+	 * Pseudo-constructor method to create a new {@link StorageDataConverterTypeBinaryToCsv}.
+	 * 
+	 * @param configuration the CSV configuration to use
+	 * @param fileProvider target file provider
+	 * @param typeDictionary the type dictionary to use
+	 * @param typeNameMapper optional type name mapper
+	 * @param readBufferSize buffer size for reading
+	 * @param writeBufferSize buffer size for writing
+	 * @return a new {@link StorageDataConverterTypeBinaryToCsv}
+	 */
+	public static StorageDataConverterTypeBinaryToCsv New(
+		final StorageDataConverterCsvConfiguration    configuration  ,
+		final StorageEntityTypeConversionFileProvider fileProvider   ,
+		final PersistenceTypeDictionary               typeDictionary ,
+		final TypeNameMapper                          typeNameMapper ,
+		final int                                     readBufferSize ,
+		final int                                     writeBufferSize
+	)
+	{
+		return new StorageDataConverterTypeBinaryToCsv.UTF8(
+			configuration  ,
+			fileProvider   ,
+			typeDictionary ,
+			typeNameMapper ,
+			readBufferSize ,
+			writeBufferSize
+		);
+	}
 
 
 	public final class UTF8
