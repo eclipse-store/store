@@ -374,6 +374,7 @@ public interface StorageLockFileManager extends Runnable
 
 			this.lockFileData = new LockFileData(this.setup.processIdentity(), this.setup.updateInterval());
 			
+			this.lockFile.file().ensureExists();
 			this.writeLockFileData();
 		}
 		
