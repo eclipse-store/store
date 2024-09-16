@@ -16,6 +16,7 @@ package org.eclipse.store.examples.extensionwrapper;
 
 import org.eclipse.serializer.persistence.types.PersistenceCommitListener;
 import org.eclipse.serializer.persistence.types.PersistenceStorer;
+import org.eclipse.serializer.persistence.types.Storer;
 
 /**
  * Wrapper for {@link PersistenceStorer}, used as base for extensions
@@ -125,6 +126,12 @@ public class PersistenceStorerWrapper implements PersistenceStorer
 	public void registerCommitListener(final PersistenceCommitListener listener)
 	{
 		this.delegate.registerCommitListener(listener);
+	}
+	
+	@Override
+	public boolean registerSubStorer(final Storer subStorer)
+	{
+		return this.delegate.registerSubStorer(subStorer);
 	}
 	
 	
