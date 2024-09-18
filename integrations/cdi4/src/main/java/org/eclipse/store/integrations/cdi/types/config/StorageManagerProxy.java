@@ -19,7 +19,6 @@ import java.nio.ByteBuffer;
 import java.util.Optional;
 import java.util.function.Predicate;
 
-import jakarta.enterprise.inject.spi.CDI;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.collections.types.XGettingEnum;
@@ -28,12 +27,25 @@ import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.types.PersistenceManager;
 import org.eclipse.serializer.persistence.types.PersistenceRootsView;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDictionaryExporter;
+import org.eclipse.serializer.reference.UsageMarkable;
 import org.eclipse.store.integrations.cdi.ConfigurationCoreProperties;
 import org.eclipse.store.storage.embedded.configuration.types.EmbeddedStorageConfiguration;
 import org.eclipse.store.storage.embedded.configuration.types.EmbeddedStorageConfigurationBuilder;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
-import org.eclipse.store.storage.types.*;
+import org.eclipse.store.storage.types.Database;
+import org.eclipse.store.storage.types.StorageConfiguration;
+import org.eclipse.store.storage.types.StorageConnection;
+import org.eclipse.store.storage.types.StorageEntityCacheEvaluator;
+import org.eclipse.store.storage.types.StorageEntityTypeExportFileProvider;
+import org.eclipse.store.storage.types.StorageEntityTypeExportStatistics;
+import org.eclipse.store.storage.types.StorageEntityTypeHandler;
+import org.eclipse.store.storage.types.StorageLiveFileProvider;
+import org.eclipse.store.storage.types.StorageManager;
+import org.eclipse.store.storage.types.StorageRawFileStatistics;
+import org.eclipse.store.storage.types.StorageTypeDictionary;
+
+import jakarta.enterprise.inject.spi.CDI;
 
 
 /**
@@ -43,7 +55,7 @@ import org.eclipse.store.storage.types.*;
  * And to avoid the creating of the StorageManager at deployment time, we have this proxy that
  * delays the creation of the StorageManager until first use.
  */
-public class StorageManagerProxy implements StorageManager
+public class StorageManagerProxy extends UsageMarkable.Default implements StorageManager
 {
 
     private static final Object LOCK = new Object();
