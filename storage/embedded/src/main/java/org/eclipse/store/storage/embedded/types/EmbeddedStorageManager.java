@@ -38,6 +38,7 @@ import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.serializer.persistence.types.Unpersistable;
 import org.eclipse.serializer.reference.LazyReferenceManager;
 import org.eclipse.serializer.reference.Swizzling;
+import org.eclipse.serializer.reference.UsageMarkable;
 import org.eclipse.serializer.typing.KeyValue;
 import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
@@ -92,7 +93,9 @@ public interface EmbeddedStorageManager extends StorageManager
 	}
 
 
-	public final class Default implements EmbeddedStorageManager, Unpersistable, LazyReferenceManager.Controller
+	public final class Default
+	extends UsageMarkable.Default
+	implements EmbeddedStorageManager, Unpersistable, LazyReferenceManager.Controller
 	{
 		private final static Logger logger = Logging.getLogger(EmbeddedStorageManager.class);
 		
@@ -318,7 +321,7 @@ public interface EmbeddedStorageManager extends StorageManager
 			final EqHashTable<String, Object> loadedEntries  = normalize(loadedRoots.entries());
 			final EqHashTable<String, Object> definedEntries = normalize(this.rootsProvider.provideRoots().entries());
 			
-			final boolean match = loadedEntries.equalsContent(definedEntries, Default::isEqualRootEntry);
+			final boolean match = loadedEntries.equalsContent(definedEntries, EmbeddedStorageManager.Default::isEqualRootEntry);
 			if(!match)
 			{
 				// change detected. Entries of loadedRoots must be updated/replaced

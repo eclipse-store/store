@@ -29,6 +29,7 @@ import org.eclipse.serializer.persistence.types.PersistenceTypeDictionaryFileHan
 import org.eclipse.serializer.persistence.types.Persister;
 import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.serializer.persistence.types.Unpersistable;
+import org.eclipse.serializer.reference.UsageMarkable;
 import org.eclipse.store.storage.exceptions.StorageExceptionBackupFullBackupTargetNotEmpty;
 
 
@@ -40,7 +41,7 @@ import org.eclipse.store.storage.exceptions.StorageExceptionBackupFullBackupTarg
  * Since {@link StorageManager} implements this interface, is normally sufficient to use just that.
  *
  */
-public interface StorageConnection extends Persister
+public interface StorageConnection extends UsageMarkable, Persister
 {
 	/* (11.05.2014 TM)TODO: Proper InterruptedException handling
 	 *  just returning, especially returning null (see below) seems quite dangerous.
@@ -469,7 +470,7 @@ public interface StorageConnection extends Persister
 	}
 	
 
-	public final class Default implements StorageConnection, Unpersistable
+	public final class Default extends UsageMarkable.Default implements StorageConnection, Unpersistable
 	{
 		///////////////////////////////////////////////////////////////////////////
 		// instance fields //
