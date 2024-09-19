@@ -209,7 +209,7 @@ public interface StorageLockFileManager extends Runnable
 				this.stringReadBuffer = new byte[fileLength];
 			}
 			
-			this.directByteBuffer.limit(fileLength);
+			this.directByteBuffer.clear();
 			
 			return this.directByteBuffer;
 		}
@@ -217,7 +217,7 @@ public interface StorageLockFileManager extends Runnable
 		private ArrayView<ByteBuffer> ensureWritingBuffer(final byte[] bytes)
 		{
 			this.ensureBufferCapacity(bytes.length);
-			this.directByteBuffer.limit(bytes.length);
+			this.directByteBuffer.clear();
 			
 			this.stringWriteBuffer = bytes;
 			
