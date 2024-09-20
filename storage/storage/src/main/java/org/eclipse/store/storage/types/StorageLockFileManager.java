@@ -27,8 +27,10 @@ import org.eclipse.serializer.collections.XArrays;
 import org.eclipse.serializer.concurrency.XThreads;
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.util.X;
+import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.storage.exceptions.StorageException;
 import org.eclipse.store.storage.exceptions.StorageExceptionInitialization;
+import org.slf4j.Logger;
 
 
 public interface StorageLockFileManager extends Runnable
@@ -64,6 +66,8 @@ public interface StorageLockFileManager extends Runnable
 	
 	public final class Default implements StorageLockFileManager
 	{
+		private final static Logger logger = Logging.getLogger(StorageLockFileManager.class);
+		
 		///////////////////////////////////////////////////////////////////////////
 		// instance fields //
 		////////////////////
@@ -351,6 +355,8 @@ public interface StorageLockFileManager extends Runnable
 				
 		private void initialize()
 		{
+			logger.info("initializing lock file manager for storage {}", this.setup.processIdentity());
+			
 			final StorageLiveFileProvider fileProvider = this.setup.lockFileProvider();
 			final AFile lockFile     = fileProvider.provideLockFile();
 			this.lockFile = StorageLockFile.New(lockFile);
@@ -386,6 +392,7 @@ public interface StorageLockFileManager extends Runnable
 			if(identifier.equals(existingFiledata.identifier))
 			{
 				// database is already owned by "this" process (e.g. crash shorty before), so just continue and reuse.
+				logger.info("Storage already owned by process!");
 				return existingFiledata;
 			}
 			
@@ -395,6 +402,7 @@ public interface StorageLockFileManager extends Runnable
 				 * The lock file is no longer updated, meaning the database is not used anymore
 				 * and the lockfile is just a zombie, probably left by a crash.
 				 */
+				logger.info("Storage lock file outdated, aquiring storage!");
 				return existingFiledata;
 			}
 			
@@ -402,6 +410,7 @@ public interface StorageLockFileManager extends Runnable
 			if(firstAttempt)
 			{
 				// wait one interval and try a second time
+				logger.warn("Non expired storage lock found!");
 				XThreads.sleep(existingFiledata.updateInterval);
 				return this.validateExistingLockFileData(false);
 				
@@ -446,12 +455,15 @@ public interface StorageLockFileManager extends Runnable
 			}
 			
 			this.lockFileData.update();
-			
-
+						
 			final ArrayView<ByteBuffer> bb = this.setToWriteBuffer(this.lockFileData);
 			
 			// no need for the writer detour (for now) since it makes no sense to backup lock files.
+			
+			//don't delete file!
+			this.lockFile.truncate(0);
 			this.lockFile.writeBytes(bb);
+			
 		}
 		
 		private ArrayView<ByteBuffer> setToWriteBuffer(final LockFileData lockFileData)
@@ -466,6 +478,7 @@ public interface StorageLockFileManager extends Runnable
 			final ArrayView<ByteBuffer> bb = this.ensureWritingBuffer(bytes);
 			
 			XMemory.copyArrayToAddress(bytes, XMemory.getDirectByteBufferAddress(this.directByteBuffer));
+			this.directByteBuffer.limit(bytes.length);
 			
 			return bb;
 		}
