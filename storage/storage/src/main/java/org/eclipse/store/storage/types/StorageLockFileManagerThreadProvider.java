@@ -1,5 +1,7 @@
 package org.eclipse.store.storage.types;
 
+import java.util.concurrent.ThreadFactory;
+
 /*-
  * #%L
  * EclipseStore Storage
@@ -15,25 +17,30 @@ package org.eclipse.store.storage.types;
  */
 
 @FunctionalInterface
-public interface StorageLockFileManagerThreadProvider extends StorageThreadProviding
+public interface StorageLockFileManagerThreadProvider extends StorageThreadProviding, ThreadFactory
 {
 	/**
-	 * Provides a newly created, yet un-started {@link Thread} instance wrapping the passed
-	 * {@link StorageLockFileManager} instance.
-	 * The thread will be used as an exclusive, permanent lock file validator and updater worker thread
-	 * until the storage is shut down.
-	 * Interfering with the thread from outside the storage compound has undefined and potentially
-	 * unpredictable and erroneous behavior.
-	 * @param lockFileManager the lock file manager to wrap
-	 * @return a {@link Thread} instance to be used as a storage lock file managing worker thread.
+	 * Provide a ThreadFactory for the StorageLockFileManager that uses the configured StorageThreadNameProvider
+	 * to name threads.
 	 */
-	public default Thread provideLockFileManagerThread(final StorageLockFileManager lockFileManager)
+	@Override
+	public default Thread newThread(final Runnable runnable)
 	{
-		return this.provideLockFileManagerThread(lockFileManager, StorageThreadNameProvider.NoOp());
+		return this.provideLockFileManagerThread(runnable, StorageThreadNameProvider.NoOp());
 	}
 	
+
+
+	@Deprecated
+	public default Thread provideLockFileManagerThread(final Runnable runnable)
+	{
+		return this.provideLockFileManagerThread(runnable, StorageThreadNameProvider.NoOp());
+	}
+	
+
+	@Deprecated
 	public Thread provideLockFileManagerThread(
-		StorageLockFileManager    lockFileManager   ,
+		Runnable                  runnable          ,
 		StorageThreadNameProvider threadNameProvider
 	);
 	
@@ -53,14 +60,14 @@ public interface StorageLockFileManagerThreadProvider extends StorageThreadProvi
 		
 		@Override
 		public Thread provideLockFileManagerThread(
-			final StorageLockFileManager    lockFileManager   ,
+			final Runnable                  runnable          ,
 			final StorageThreadNameProvider threadNameProvider
 		)
 		{
 			final String threadName = StorageLockFileManager.class.getSimpleName();
 			
 			return new Thread(
-				lockFileManager,
+				runnable,
 				threadNameProvider.provideThreadName(this, threadName)
 			);
 		}
