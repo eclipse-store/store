@@ -129,8 +129,6 @@ public interface StorageSystem extends StorageController
 		private          Thread                   backupThread ;
 		
 		private          StorageLockFileManager   lockFileManager;
-		//private          Thread                   lockFileManagerThread;
-		//private          ScheduledExecutorService lockFileManagerExecutor;
 		
 		private          StorageIdAnalysis        initializationIdAnalysis;
 
@@ -416,7 +414,6 @@ public interface StorageSystem extends StorageController
 			
 			this.lockFileManager.stop();
 		}
-
 
 		// "Please do not disturb the Keepers" :-D
 		static final class ChannelKeeper implements StorageActivePart

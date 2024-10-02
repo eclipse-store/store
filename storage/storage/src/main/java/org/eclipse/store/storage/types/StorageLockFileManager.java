@@ -373,7 +373,7 @@ public interface StorageLockFileManager extends Runnable
 			this.lockFile.readBytes(this.ensureReadingBuffer(fileLength), 0, fileLength);
 			XMemory.copyRangeToArray(XMemory.getDirectByteBufferAddress(this.directByteBuffer), this.stringReadBuffer);
 		}
-						
+		
 		private LockFileData readLockFileData()
 		{
 			final String currentFileData = this.readString();
@@ -460,8 +460,8 @@ public interface StorageLockFileManager extends Runnable
 		{
 			return this.lockFile.exists() && this.lockFile.size() > 0;
 		}
-						
-				
+		
+		
 		private void checkForModifiedLockFile()
 		{
 			if(this.isReadOnlyMode() && !this.lockFileHasContent())
