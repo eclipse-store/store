@@ -17,6 +17,8 @@ package org.eclipse.store.storage.types;
 import static org.eclipse.serializer.math.XMath.positive;
 import static org.eclipse.serializer.util.X.notNull;
 
+import java.util.function.Supplier;
+
 import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.util.logging.Logging;
 import org.slf4j.Logger;
@@ -253,6 +255,7 @@ public interface StorageHousekeepingController
 	 * 
 	 * @see #New()
 	 * 
+	 * @param monitorSupplier mark monitor used to query GC state
 	 * @param increaseThresholdMs the threshold in milliseconds of the adaption cycle to calculate new budgets for the housekeeping process
 	 * @param increaseAmountNs the amount in nanoseconds the budgets will be increased each cycle
 	 * @param maximumTimeBudgetNs the upper limit of the time budgets in nanoseconds
@@ -260,14 +263,16 @@ public interface StorageHousekeepingController
 	 * @return a new {@link StorageHousekeepingController} instance.
 	 */
 	public static StorageHousekeepingController Adaptive(
-		final long                 increaseThresholdMs,
-		final long                 increaseAmountNs   ,
-		final long                 maximumTimeBudgetNs,
-		final StorageFoundation<?> foundation
+		final Supplier<StorageEntityMarkMonitor> monitorSupplier    ,
+		final long                               increaseThresholdMs,
+		final long                               increaseAmountNs   ,
+		final long                               maximumTimeBudgetNs,
+		final StorageFoundation<?>               foundation
 	)
 	{
 		return Adaptive(
 			StorageHousekeepingController.New(),
+			monitorSupplier                    ,
 			increaseThresholdMs                ,
 			increaseAmountNs                   ,
 			maximumTimeBudgetNs                ,
@@ -285,6 +290,7 @@ public interface StorageHousekeepingController
 	 * @see #New(long, long)
 	 * 
 	 * @param delegate the wrapped controller delivering the original budget values
+	 * @param monitorSupplier mark monitor used to query GC state
 	 * @param increaseThresholdMs the threshold in milliseconds of the adaption cycle to calculate new budgets for the housekeeping process
 	 * @param increaseAmountNs the amount in nanoseconds the budgets will be increased each cycle
 	 * @param maximumTimeBudgetNs the upper limit of the time budgets in nanoseconds
@@ -292,15 +298,17 @@ public interface StorageHousekeepingController
 	 * @return a new {@link StorageHousekeepingController} instance.
 	 */
 	public static StorageHousekeepingController Adaptive(
-		final StorageHousekeepingController delegate           ,
-		final long                          increaseThresholdMs,
-		final long                          increaseAmountNs   ,
-		final long                          maximumTimeBudgetNs,
-		final StorageFoundation<?>          foundation
+		final StorageHousekeepingController      delegate           ,
+		final Supplier<StorageEntityMarkMonitor> monitorSupplier    ,
+		final long                               increaseThresholdMs,
+		final long                               increaseAmountNs   ,
+		final long                               maximumTimeBudgetNs,
+		final StorageFoundation<?>               foundation
 	)
 	{
 		final StorageHousekeepingController.Adaptive controller = new StorageHousekeepingController.Adaptive(
 			notNull (delegate           ),
+			notNull (monitorSupplier    ),
 			positive(increaseThresholdMs),
 			positive(increaseAmountNs   ),
 			positive(maximumTimeBudgetNs)
@@ -313,11 +321,16 @@ public interface StorageHousekeepingController
 	 * Pseudo-constructor method to create a new adaptive {@link StorageHousekeepingController} builder.
 	 * It will wrap a {@link StorageHousekeepingController} with default values.
 	 * 
+	 * @param monitorSupplier mark monitor used to query GC state
+	 * 
 	 * @return a new {@link AdaptiveBuilder} instance
 	 */
-	public static AdaptiveBuilder AdaptiveBuilder()
+	public static AdaptiveBuilder AdaptiveBuilder(final Supplier<StorageEntityMarkMonitor> monitorSupplier)
 	{
-		return AdaptiveBuilder(StorageHousekeepingController.New());
+		return AdaptiveBuilder(
+			StorageHousekeepingController.New(),
+			monitorSupplier
+		);
 	}
 	
 	/**
@@ -325,12 +338,18 @@ public interface StorageHousekeepingController
 	 * It will wrap the given {@link StorageHousekeepingController}.
 	 * 
 	 * @param delegate the wrapped controller delivering the original budget values
+	 * @param monitorSupplier mark monitor used to query GC state
+	 * 
 	 * @return a new {@link AdaptiveBuilder} instance
 	 */
-	public static AdaptiveBuilder AdaptiveBuilder(final StorageHousekeepingController delegate)
+	public static AdaptiveBuilder AdaptiveBuilder(
+		final StorageHousekeepingController      delegate       ,
+		final Supplier<StorageEntityMarkMonitor> monitorSupplier
+	)
 	{
 		return new AdaptiveBuilder.Default(
-			notNull(delegate)
+			notNull(delegate       ),
+			notNull(monitorSupplier)
 		);
 	}
 	
@@ -371,15 +390,20 @@ public interface StorageHousekeepingController
 		
 		public static class Default implements AdaptiveBuilder
 		{
-			private final StorageHousekeepingController delegate            ;
-			private long                                increaseThresholdMs = Adaptive.Defaults.defaultAdaptiveHousekeepingIncreaseThresholdMs();
-			private long                                increaseAmountNs    = Adaptive.Defaults.defaultAdaptiveHousekeepingIncreaseAmountNs   ();
-			private long                                maximumTimeBudgetNs = Adaptive.Defaults.defaultAdaptiveHousekeepingMaximumTimeBudgetNs();
+			private final StorageHousekeepingController      delegate            ;
+			private final Supplier<StorageEntityMarkMonitor> monitorSupplier     ;
+			private long                                     increaseThresholdMs = Adaptive.Defaults.defaultAdaptiveHousekeepingIncreaseThresholdMs();
+			private long                                     increaseAmountNs    = Adaptive.Defaults.defaultAdaptiveHousekeepingIncreaseAmountNs   ();
+			private long                                     maximumTimeBudgetNs = Adaptive.Defaults.defaultAdaptiveHousekeepingMaximumTimeBudgetNs();
 			
-			Default(final StorageHousekeepingController delegate)
+			Default(
+				final StorageHousekeepingController      delegate,
+				final Supplier<StorageEntityMarkMonitor> monitorSupplier
+			)
 			{
 				super();
-				this.delegate = delegate;
+				this.delegate         = delegate        ;
+				this.monitorSupplier  = monitorSupplier ;
 			}
 		
 			@Override
@@ -408,6 +432,7 @@ public interface StorageHousekeepingController
 			{
 				final StorageHousekeepingController.Adaptive controller = new StorageHousekeepingController.Adaptive(
 					this.delegate           ,
+					this.monitorSupplier    ,
 					this.increaseThresholdMs,
 					this.increaseAmountNs   ,
 					this.maximumTimeBudgetNs
@@ -449,10 +474,11 @@ public interface StorageHousekeepingController
 		// instance fields //
 		////////////////////
 		
-		private final StorageHousekeepingController delegate           ;
-		private final long                          increaseThresholdMs;
-		private final long                          increaseAmountNs   ;
-		private final long                          maximumTimeBudgetNs;
+		private final StorageHousekeepingController      delegate           ;
+		private final Supplier<StorageEntityMarkMonitor> monitorSupplier    ;
+		private final long                               increaseThresholdMs;
+		private final long                               increaseAmountNs   ;
+		private final long                               maximumTimeBudgetNs;
 				
 		// mutable adaptive state
 		
@@ -465,14 +491,16 @@ public interface StorageHousekeepingController
 		/////////////////
 
 		Adaptive(
-			final StorageHousekeepingController delegate           ,
-			final long                          increaseThresholdMs,
-			final long                          increaseAmountNs   ,
-			final long                          maximumNsTimeBudget
+			final StorageHousekeepingController      delegate           ,
+			final Supplier<StorageEntityMarkMonitor> monitorSupplier    ,
+			final long                               increaseThresholdMs,
+			final long                               increaseAmountNs   ,
+			final long                               maximumNsTimeBudget
 		)
 		{
 			super();
 			this.delegate            = delegate           ;
+			this.monitorSupplier     = monitorSupplier    ;
 			this.increaseThresholdMs = increaseThresholdMs;
 			this.increaseAmountNs    = increaseAmountNs   ;
 			this.maximumTimeBudgetNs = maximumNsTimeBudget;
@@ -486,18 +514,29 @@ public interface StorageHousekeepingController
 		private synchronized void reset()
 		{
 			this.lastFinishedGCCycle = this.lastIncrease = System.currentTimeMillis();
-			this.internalSetIncrease(0);
+			if(this.currentIncreaseNs != 0)
+			{
+				this.currentIncreaseNs = 0;
+				logger.debug("Housekeeping time budget reset to default");
+			}
 		}
 		
 		private synchronized long increaseNs()
 		{
-			final long now = System.currentTimeMillis();
-			if( now - this.increaseThresholdMs > this.lastFinishedGCCycle
-			&& (this.lastIncrease <= 0 || now - this.lastIncrease > this.increaseThresholdMs)
-			)
+			if(this.monitorSupplier.get().isComplete())
 			{
-				this.lastIncrease = now;
-				this.internalSetIncrease(this.currentIncreaseNs + this.increaseAmountNs);
+				this.reset();
+			}
+			else
+			{
+				final long now = System.currentTimeMillis();
+				if( now - this.increaseThresholdMs > this.lastFinishedGCCycle
+				&& (this.lastIncrease <= 0 || now - this.lastIncrease > this.increaseThresholdMs)
+				)
+				{
+					this.lastIncrease = now;
+					this.internalSetIncrease(this.currentIncreaseNs + this.increaseAmountNs);
+				}
 			}
 			return this.currentIncreaseNs;
 		}
@@ -508,7 +547,7 @@ public interface StorageHousekeepingController
 				this.maximumTimeBudgetNs,
 				increaseNs
 			);
-			logger.debug("Housekeeping time budgets increased by {} ns", String.format("%,d", this.currentIncreaseNs));
+			logger.debug("Housekeeping time budget increased by {} ns", String.format("%,d", this.currentIncreaseNs));
 		}
 
 		@Override

@@ -44,6 +44,8 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 	public void advanceMarking(StorageObjectIdMarkQueue objectIdMarkQueue, int amount);
 
 	public void clearPendingStoreUpdate(StorageEntityCache<?> channel);
+	
+	public boolean isComplete();
 
 	public boolean isComplete(StorageEntityCache<?> channel);
 
@@ -96,6 +98,8 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			Referencing<PersistenceLiveStorerRegistry> refStorerRegistry
 		);
 		
+		public StorageEntityMarkMonitor cachedInstance();
+		
 		
 		
 		public interface Defaults
@@ -129,8 +133,8 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			// instance fields //
 			////////////////////
 			
-			private final int referenceCacheLength;
-			
+			private final int                referenceCacheLength;
+			private StorageEntityMarkMonitor cachedInstance      ;
 			
 			
 			///////////////////////////////////////////////////////////////////////////
@@ -156,12 +160,18 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 				final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry
 			)
 			{
-				return new StorageEntityMarkMonitor.Default(
+				return this.cachedInstance = new StorageEntityMarkMonitor.Default(
 					objectIdMarkQueues.clone(),
 					eventLogger,
 					refStorerRegistry,
 					this.referenceCacheLength
 				);
+			}
+			
+			@Override
+			public StorageEntityMarkMonitor cachedInstance()
+			{
+				return this.cachedInstance;
 			}
 
 		}
@@ -691,6 +701,12 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 		public final synchronized void resetCompletion()
 		{
 			this.gcHotPhaseComplete = this.gcColdPhaseComplete = false;
+		}
+		
+		@Override
+		public final synchronized boolean isComplete()
+		{
+			return this.gcColdPhaseComplete;
 		}
 
 		@Override
