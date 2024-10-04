@@ -244,6 +244,38 @@ public interface StorageHousekeepingController
 		}
 
 	}
+	
+	/**
+	 * Pseudo-constructor method to create a new adaptive {@link StorageHousekeepingController} instance
+	 * using the passed values.
+	 * <p>
+	 * It will wrap a {@link StorageHousekeepingController} with default values and increase the time budgets on demand,
+	 * if the garbage collector needs more time to reach the sweeping phase.
+	 * 
+	 * @see #New()
+	 * 
+	 * @param increaseThresholdMs the threshold in milliseconds of the adaption cycle to calculate new budgets for the housekeeping process
+	 * @param increaseAmountNs the amount in nanoseconds the budgets will be increased each cycle
+	 * @param maximumTimeBudgetNs the upper limit of the time budgets in nanoseconds
+	 * @param foundation the {@link StorageFoundation} the controller is created for
+	 * @return a new {@link StorageHousekeepingController} instance.
+	 */
+	public static StorageHousekeepingController Adaptive(
+		final long                               increaseThresholdMs,
+		final long                               increaseAmountNs   ,
+		final long                               maximumTimeBudgetNs,
+		final StorageFoundation<?>               foundation
+	)
+	{
+		return Adaptive(
+			StorageHousekeepingController.New(),
+			foundation.getEntityMarkMonitorCreator()::cachedInstance,
+			increaseThresholdMs                                     ,
+			increaseAmountNs                                        ,
+			maximumTimeBudgetNs                                     ,
+			foundation
+		);
+	}
 
 	
 	/**
@@ -290,6 +322,40 @@ public interface StorageHousekeepingController
 	 * @see #New(long, long)
 	 * 
 	 * @param delegate the wrapped controller delivering the original budget values
+	 * @param increaseThresholdMs the threshold in milliseconds of the adaption cycle to calculate new budgets for the housekeeping process
+	 * @param increaseAmountNs the amount in nanoseconds the budgets will be increased each cycle
+	 * @param maximumTimeBudgetNs the upper limit of the time budgets in nanoseconds
+	 * @param foundation the {@link StorageFoundation} the controller is created for
+	 * @return a new {@link StorageHousekeepingController} instance.
+	 */
+	public static StorageHousekeepingController Adaptive(
+		final StorageHousekeepingController      delegate           ,
+		final long                               increaseThresholdMs,
+		final long                               increaseAmountNs   ,
+		final long                               maximumTimeBudgetNs,
+		final StorageFoundation<?>               foundation
+	)
+	{
+		return Adaptive(
+			delegate,
+			foundation.getEntityMarkMonitorCreator()::cachedInstance,
+			increaseThresholdMs,
+			increaseAmountNs,
+			maximumTimeBudgetNs,
+			foundation
+		);
+	}
+	
+	/**
+	 * Pseudo-constructor method to create a new adaptive {@link StorageHousekeepingController} instance
+	 * using the passed values.
+	 * <p>
+	 * It will wrap the given {@link StorageHousekeepingController} and increase the time budgets on demand,
+	 * if the garbage collector needs more time to reach the sweeping phase.
+	 * 
+	 * @see #New(long, long)
+	 * 
+	 * @param delegate the wrapped controller delivering the original budget values
 	 * @param monitorSupplier mark monitor used to query GC state
 	 * @param increaseThresholdMs the threshold in milliseconds of the adaption cycle to calculate new budgets for the housekeeping process
 	 * @param increaseAmountNs the amount in nanoseconds the budgets will be increased each cycle
@@ -321,6 +387,22 @@ public interface StorageHousekeepingController
 	 * Pseudo-constructor method to create a new adaptive {@link StorageHousekeepingController} builder.
 	 * It will wrap a {@link StorageHousekeepingController} with default values.
 	 * 
+	 * @param foundation foundation to create the builder parts with
+	 * 
+	 * @return a new {@link AdaptiveBuilder} instance
+	 */
+	public static AdaptiveBuilder AdaptiveBuilder(final StorageFoundation<?> foundation)
+	{
+		return AdaptiveBuilder(
+			StorageHousekeepingController.New(),
+			foundation.getEntityMarkMonitorCreator()::cachedInstance
+		);
+	}
+	
+	/**
+	 * Pseudo-constructor method to create a new adaptive {@link StorageHousekeepingController} builder.
+	 * It will wrap a {@link StorageHousekeepingController} with default values.
+	 * 
 	 * @param monitorSupplier mark monitor used to query GC state
 	 * 
 	 * @return a new {@link AdaptiveBuilder} instance
@@ -330,6 +412,26 @@ public interface StorageHousekeepingController
 		return AdaptiveBuilder(
 			StorageHousekeepingController.New(),
 			monitorSupplier
+		);
+	}
+	
+	/**
+	 * Pseudo-constructor method to create a new adaptive {@link StorageHousekeepingController} builder.
+	 * It will wrap the given {@link StorageHousekeepingController}.
+	 * 
+	 * @param delegate the wrapped controller delivering the original budget values
+	 * @param foundation foundation to create the builder parts with
+	 * 
+	 * @return a new {@link AdaptiveBuilder} instance
+	 */
+	public static AdaptiveBuilder AdaptiveBuilder(
+		final StorageHousekeepingController delegate  ,
+		final StorageFoundation<?>          foundation
+	)
+	{
+		return new AdaptiveBuilder.Default(
+			notNull(delegate),
+			foundation.getEntityMarkMonitorCreator()::cachedInstance
 		);
 	}
 	
