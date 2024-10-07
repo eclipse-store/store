@@ -240,6 +240,7 @@ public interface EmbeddedStorageFoundationCreatorConfigurationBased extends Embe
 			{
 				controller = StorageHousekeepingController.Adaptive(
 					controller,
+					foundation.getEntityMarkMonitorCreator()::cachedInstance,
 					this.configuration.opt(HOUSEKEEPING_INCREASE_THRESHOLD, Duration.class)
 						.map(Duration::toMillis)
 						.orElse(StorageHousekeepingController.Adaptive.Defaults.defaultAdaptiveHousekeepingIncreaseThresholdMs()),
