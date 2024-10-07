@@ -83,9 +83,11 @@ public interface StorageFile
 	public boolean delete();
 
 	public void moveTo(AWritableFile target);
+		
+	public void truncate(final long newLength);
 	
-		
-		
+	
+
 	public static VarString assembleNameAndSize(final VarString vs, final StorageFile file)
 	{
 		return vs.add(file.file().identifier() + "[" + file.file().size() + "]");
@@ -361,6 +363,7 @@ public interface StorageFile
 			}
 		}
 				
+		@Override
 		public synchronized void truncate(final long newLength)
 		{
 			this.ensureWritable().truncate(newLength);

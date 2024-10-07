@@ -104,7 +104,7 @@ extends StorageChannelThreadProvider, StorageBackupThreadProvider, StorageLockFi
 		}
 		
 		@Override
-		public final Thread provideLockFileManagerThread(final StorageLockFileManager lockFileManager)
+		public final Thread provideLockFileManagerThread(final Runnable lockFileManager)
 		{
 			return this.lockFileManagerThreadProvider.provideLockFileManagerThread(
 				lockFileManager,
@@ -138,7 +138,7 @@ extends StorageChannelThreadProvider, StorageBackupThreadProvider, StorageLockFi
 
 		@Override
 		public final Thread provideLockFileManagerThread(
-			final StorageLockFileManager    lockFileManager   ,
+			final Runnable    lockFileManager   ,
 			final StorageThreadNameProvider threadNameProvider
 		)
 		{
