@@ -91,8 +91,8 @@ public interface StorageLockFileManager extends Runnable
 	 * and expiring time.
 	 * A storage is accessible if:
 	 * - no lock file exists
-	 * - a lock file exists and the process id machtes
-	 * - a lock file exists and the current system time is greater then the expiring time + update intervall
+	 * - a lock file exists and the process id matches
+	 * - a lock file exists and the current system time is greater than the expiring time + update interval
 	 */
 	public final class Default implements StorageLockFileManager
 	{
@@ -249,8 +249,8 @@ public interface StorageLockFileManager extends Runnable
 					// wait one interval and try a second time
 					logger.warn("Non expired storage lock found! Retrying once");
 					
-					ScheduledFuture<Boolean> future = this.executor.schedule(() -> {
-						return this.validateExistingLockFileData(this.readLockFileData());},
+					ScheduledFuture<Boolean> future = this.executor.schedule(() ->
+						this.validateExistingLockFileData(this.readLockFileData()),
 						initialFileData.updateInterval,
 						TimeUnit.MILLISECONDS);
 									
