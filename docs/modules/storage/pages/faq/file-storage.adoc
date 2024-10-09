@@ -23,3 +23,8 @@ the process that currently runs the application.
 Allowing another process to bypass these rules would eventually result in catastrophic consistency errors. +
 The requirement to distribute an application over multiple processes must be solved by a clustering approach (e.g.
 by distributing logic AND persistent data over multiple processes or by having one process to serve as the data master for multiple worker processes).
+
+== Is it possible to change the channel count of an existing storage?
+
+Yes.
+This can be done with the xref:addendum/tools.adoc#_storage_converter[converter tool].
