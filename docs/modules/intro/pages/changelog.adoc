@@ -1,5 +1,21 @@
 = Changelog
 
+== 2.0.0
+
+=== Features
+
+* Additional Type Handlers https://github.com/eclipse-serializer/serializer/issues/72[[72]]
+* Enhanced Reloader https://github.com/eclipse-serializer/serializer/issues/135[[135]] https://github.com/eclipse-serializer/serializer/pull/136[[136]]
+* Various Storer Enhancements https://github.com/eclipse-serializer/serializer/pull/143[[143]]
+
+=== Bugfixes
+
+* Adaptive Housekeeping Idle GC Fix https://github.com/eclipse-store/store/pull/293[[293]]
+* Lock File Manager Fixes https://github.com/eclipse-store/store/issues/281[[281]] https://github.com/eclipse-store/store/pull/282[[282]]
+* LazyHashMap Fix https://github.com/eclipse-serializer/serializer/issues/117[[117]] https://github.com/eclipse-serializer/serializer/pull/139[[139]]
+* Add Missing Constructor Methods for CSV Converter https://github.com/eclipse-store/store/pull/283[[283]]
+
+
 == 1.4.0
 
 === Features
