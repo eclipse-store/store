@@ -17,6 +17,12 @@ package org.eclipse.store.storage.types;
 import static org.eclipse.serializer.util.X.notNull;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AFileSystem;
@@ -24,55 +30,82 @@ import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.collections.ArrayView;
 import org.eclipse.serializer.collections.XArrays;
-import org.eclipse.serializer.concurrency.XThreads;
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.util.X;
+import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.storage.exceptions.StorageException;
-import org.eclipse.store.storage.exceptions.StorageExceptionInitialization;
+import org.slf4j.Logger;
 
-
+/**
+ * The StorageLockFileManager purpose is to provide a mechanism that prevents
+ * other storage instances running in different processes from accessing the
+ * storage data.
+ */
 public interface StorageLockFileManager extends Runnable
 {
-	public default StorageLockFileManager start()
-	{
-		this.setRunning(true);
-		return this;
-	}
+	/**
+	 * Start periodical lock file checks.
+	 * 
+	 * @return this
+	 */
+	public StorageLockFileManager start();
 	
-	public default StorageLockFileManager stop()
-	{
-		this.setRunning(false);
-		return this;
-	}
+	/**
+	 * Stop periodical lock file checks
+	 * 
+	 * @return this
+	 */
+	public StorageLockFileManager stop();
 	
-	public boolean isRunning();
+	/**
+	 * Initialize the lock file manager without starting any periodical actions.
+	 */
+	public void initialize();
 	
-	public StorageLockFileManager setRunning(boolean running);
-	
-	
+	/**
+	 * Check if the StorageLockFileManager has been successfully initialized and is ready to start.
+	 * 
+	 * @return true if {@link #initialize()} was successfully executed.
+	 */
+	public boolean isInitialized();
+		
 	
 	public static StorageLockFileManager New(
-		final StorageLockFileSetup       setup              ,
-		final StorageOperationController operationController
+		final StorageLockFileSetup                 setup              ,
+		final StorageOperationController           operationController,
+		final StorageLockFileManagerThreadProvider threadProvider
 	)
 	{
 		return new StorageLockFileManager.Default(
 			notNull(setup),
-			notNull(operationController)
+			notNull(operationController),
+			notNull(threadProvider)
 		);
 	}
 	
+	/**
+	 * Default implementation of the #StorageLockFileManager.
+	 * This implementation uses a file to indicate if the storage data
+	 * is already in use by a storage instance.
+	 * The file contains a process depended ID and time-stamps of the last modification
+	 * and expiring time.
+	 * A storage is accessible if:
+	 * - no lock file exists
+	 * - a lock file exists and the process id matches
+	 * - a lock file exists and the current system time is greater than the expiring time + update interval
+	 */
 	public final class Default implements StorageLockFileManager
 	{
+		private final static Logger logger = Logging.getLogger(StorageLockFileManager.class);
+		
 		///////////////////////////////////////////////////////////////////////////
 		// instance fields //
 		////////////////////
 		
-		private final StorageLockFileSetup       setup              ;
-		private final StorageOperationController operationController;
-
+		private final StorageLockFileSetup                 setup              ;
+		private final StorageOperationController           operationController;
+		
 		// cached values
-		private transient boolean               isRunning               ;
 		private transient StorageLockFile       lockFile                ;
 		private transient LockFileData          lockFileData            ;
 		private transient ByteBuffer[]          wrappedByteBuffer       ;
@@ -80,9 +113,9 @@ public interface StorageLockFileManager extends Runnable
 		private transient ByteBuffer            directByteBuffer        ;
 		private transient byte[]                stringReadBuffer        ;
 		private transient byte[]                stringWriteBuffer       ;
-		private transient VarString vs                      ;
-		private transient AFileSystem fileSystem              ;
-		
+		private transient VarString vs                                  ;
+		private transient AFileSystem fileSystem                        ;
+		private transient ScheduledExecutorService executor             ;
 		
 		
 		///////////////////////////////////////////////////////////////////////////
@@ -90,8 +123,9 @@ public interface StorageLockFileManager extends Runnable
 		/////////////////
 		
 		Default(
-			final StorageLockFileSetup       setup              ,
-			final StorageOperationController operationController
+			final StorageLockFileSetup                 setup              ,
+			final StorageOperationController           operationController,
+			final StorageLockFileManagerThreadProvider threadProvider
 		)
 		{
 			super();
@@ -99,7 +133,6 @@ public interface StorageLockFileManager extends Runnable
 			this.fileSystem          = setup.lockFileProvider().fileSystem();
 			this.operationController = operationController;
 			this.vs                  = VarString.New()    ;
-			
 			// 2 timestamps with separators and an identifier. Should suffice.
 			this.wrappedByteBuffer = new ByteBuffer[1];
 			this.wrappedWrappedByteBuffer = X.ArrayView(this.wrappedByteBuffer);
@@ -107,6 +140,8 @@ public interface StorageLockFileManager extends Runnable
 			this.stringReadBuffer = new byte[64];
 			this.stringWriteBuffer = this.stringReadBuffer.clone();
 			this.allocateBuffer(this.stringReadBuffer.length);
+			
+			this.executor = Executors.newSingleThreadScheduledExecutor(threadProvider);
 		}
 		
 		
@@ -115,92 +150,169 @@ public interface StorageLockFileManager extends Runnable
 		// methods //
 		////////////
 
+		
 		@Override
-		public final synchronized boolean isRunning()
+		public final synchronized boolean isInitialized()
 		{
-			return this.isRunning;
-		}
-
-		@Override
-		public final synchronized StorageLockFileManager setRunning(final boolean running)
-		{
-			this.isRunning = running;
-			
-			return this;
+			return this.lockFile != null;
 		}
 		
-		private synchronized boolean checkIsRunning()
+		private synchronized boolean isReady()
 		{
-			return this.isRunning && this.operationController.checkProcessingEnabled();
+			boolean result = this.isInitialized() && this.operationController.checkProcessingEnabled();
+			logger.trace("Storage LockFile Manager isReady: {}" , result);
+			return result;
 		}
 		
 		@Override
 		public StorageLockFileManager.Default start()
 		{
-			this.ensureInitialized();
-			StorageLockFileManager.super.start();
+			logger.info("Starting log file manager thread ");
+			this.executor.scheduleWithFixedDelay(this, 0, this.setup.updateInterval(), TimeUnit.MICROSECONDS);
 			return this;
 		}
 
 		@Override
 		public final void run()
 		{
-			final long updateInterval = this.setup.updateInterval();
-			
-			Throwable closingCause = null;
 			try
 			{
-				this.checkInitialized();
-				
-				// wait first after the initial write, then perform the regular update
-				while(this.checkIsRunning())
+				if(this.isReady())
 				{
-					XThreads.sleep(updateInterval);
 					this.updateFile();
+				}
+				else
+				{
+					logger.error("Lock File Manager is not ready!");
 				}
 			}
 			catch(final Exception e)
 			{
-				closingCause = e;
+				this.stop();
 				this.operationController.registerDisruption(e);
 				throw e;
+			}
+		}
+		
+		@Override
+		public StorageLockFileManager stop()
+		{
+			if(this.executor.isShutdown()) return this;
+			
+			this.executor.shutdown();
+			try
+			{
+				if(!this.executor.awaitTermination(100, TimeUnit.MILLISECONDS))
+				{
+					this.executor.shutdownNow();
+					if (!this.executor.awaitTermination(100, TimeUnit.MILLISECONDS))
+					{
+						logger.error("Failed to shutdown StorageLockFileManager Service executor!");
+					}
+				}
+			}
+			catch(InterruptedException e)
+			{
+				this.executor.shutdownNow();
+				Thread.currentThread().interrupt();
 			}
 			finally
 			{
-				// ensure closed file in any case. Regular shutdown or forceful shutdown by exception.
-				this.ensureClosedLockFile(closingCause);
+				this.ensureClosedLockFile(null);
 			}
+			
+			logger.info("Storage Lock File Manager stopped");
+			
+			return this;
 		}
 		
-		private void ensureInitialized()
+		/**
+		 * Initialize the storage lock file manager without starting the periodical
+		 * lock file check.
+		 */
+		@Override
+		public void initialize()
 		{
-			if(this.lockFile != null)
+			logger.info("initializing lock file manager for storage {}", this.setup.processIdentity());
+			
+			final StorageLiveFileProvider fileProvider = this.setup.lockFileProvider();
+			final AFile lockFile     = fileProvider.provideLockFile();
+			this.lockFile = StorageLockFile.New(lockFile);
+			
+			
+			LockFileData initialFileData = null;
+			if(this.lockFileHasContent()) {
+				
+				initialFileData = this.readLockFileData();
+				if(!this.validateExistingLockFileData(initialFileData))
+				{
+					// wait one interval and try a second time
+					logger.warn("Non expired storage lock found! Retrying once");
+					
+					ScheduledFuture<Boolean> future = this.executor.schedule(() ->
+						this.validateExistingLockFileData(this.readLockFileData()),
+						initialFileData.updateInterval,
+						TimeUnit.MILLISECONDS);
+									
+					try {
+						if(!future.get(initialFileData.updateInterval *2, TimeUnit.MILLISECONDS)) {
+							this.executor.shutdownNow();
+							throw new StorageException("Storage already in use by: " + initialFileData.identifier);
+						}
+					} catch(InterruptedException | ExecutionException | TimeoutException e) {
+						this.executor.shutdownNow();
+						throw new StorageException("failed to validate lock file", e);
+					}
+				}
+				
+				
+			}
+			
+			if(this.isReadOnlyMode())
 			{
+				if(initialFileData != null)
+				{
+					// write buffer must be filled with the file's current content so the check will be successful.
+					this.setToWriteBuffer(initialFileData);
+				}
+				
+				// abort, since neither lockFileData nor writing is required/allowed in read-only mode.
 				return;
 			}
 
-			try
-			{
-				this.initialize();
-			}
-			catch(final Exception e)
-			{
-				this.operationController.registerDisruption(e);
-				this.ensureClosedLockFile(e);
-				throw e;
-			}
+			this.lockFileData = new LockFileData(this.setup.processIdentity(), this.setup.updateInterval());
+			
+			this.lockFile.file().ensureExists();
+			this.writeLockFileData();
 		}
 		
-		private void checkInitialized()
+		
+		private boolean validateExistingLockFileData(final LockFileData lockFileData)
 		{
-			if(this.lockFile != null)
+					
+			final String identifier = this.setup.processIdentity();
+			if(identifier.equals(lockFileData.identifier))
 			{
-				return;
+				// database is already owned by "this" process (e.g. crash shorty before), so just continue and reuse.
+				logger.info("Storage already owned by process!");
+				return true;
 			}
 			
-			throw new StorageExceptionInitialization(StorageLockFileManager.class.getSimpleName() + " not initialized.");
+			if(lockFileData.isLongExpired())
+			{
+				/*
+				 * The lock file is no longer updated, meaning the database is not used anymore
+				 * and the lockfile is just a zombie, probably left by a crash.
+				 */
+				logger.info("Storage lock file outdated, aquiring storage!");
+				return true;
+			}
+			
+			logger.debug("Storage lock file not validated! Owner {}, expire time {}", lockFileData.identifier, lockFileData.expirationTime);
+			
+			return false;
 		}
-		
+						
 		private ByteBuffer ensureReadingBuffer(final int fileLength)
 		{
 			this.ensureBufferCapacity(fileLength);
@@ -209,7 +321,7 @@ public interface StorageLockFileManager extends Runnable
 				this.stringReadBuffer = new byte[fileLength];
 			}
 			
-			this.directByteBuffer.limit(fileLength);
+			this.directByteBuffer.clear();
 			
 			return this.directByteBuffer;
 		}
@@ -217,7 +329,7 @@ public interface StorageLockFileManager extends Runnable
 		private ArrayView<ByteBuffer> ensureWritingBuffer(final byte[] bytes)
 		{
 			this.ensureBufferCapacity(bytes.length);
-			this.directByteBuffer.limit(bytes.length);
+			this.directByteBuffer.clear();
 			
 			this.stringWriteBuffer = bytes;
 			
@@ -261,7 +373,7 @@ public interface StorageLockFileManager extends Runnable
 			this.lockFile.readBytes(this.ensureReadingBuffer(fileLength), 0, fileLength);
 			XMemory.copyRangeToArray(XMemory.getDirectByteBufferAddress(this.directByteBuffer), this.stringReadBuffer);
 		}
-						
+		
 		private LockFileData readLockFileData()
 		{
 			final String currentFileData = this.readString();
@@ -348,69 +460,7 @@ public interface StorageLockFileManager extends Runnable
 		{
 			return this.lockFile.exists() && this.lockFile.size() > 0;
 		}
-				
-		private void initialize()
-		{
-			final StorageLiveFileProvider fileProvider = this.setup.lockFileProvider();
-			final AFile lockFile     = fileProvider.provideLockFile();
-			this.lockFile = StorageLockFile.New(lockFile);
-			
-			final LockFileData initialFileData = this.lockFileHasContent()
-				? this.validateExistingLockFileData(true)
-				: null
-			;
-			
-			if(this.isReadOnlyMode())
-			{
-				if(initialFileData != null)
-				{
-					// write buffer must be filled with the file's current content so the check will be successful.
-					this.setToWriteBuffer(initialFileData);
-				}
-				
-				// abort, since neither lockFileData nor writing is required/allowed in read-only mode.
-				return;
-			}
-
-			this.lockFileData = new LockFileData(this.setup.processIdentity(), this.setup.updateInterval());
-			
-			this.writeLockFileData();
-		}
 		
-		private LockFileData validateExistingLockFileData(final boolean firstAttempt)
-		{
-			final LockFileData existingFiledata = this.readLockFileData();
-			
-			final String identifier = this.setup.processIdentity();
-			if(identifier.equals(existingFiledata.identifier))
-			{
-				// database is already owned by "this" process (e.g. crash shorty before), so just continue and reuse.
-				return existingFiledata;
-			}
-			
-			if(existingFiledata.isLongExpired())
-			{
-				/*
-				 * The lock file is no longer updated, meaning the database is not used anymore
-				 * and the lockfile is just a zombie, probably left by a crash.
-				 */
-				return existingFiledata;
-			}
-			
-			// not owned and not expired
-			if(firstAttempt)
-			{
-				// wait one interval and try a second time
-				XThreads.sleep(existingFiledata.updateInterval);
-				return this.validateExistingLockFileData(false);
-				
-				// returning here means no exception (but expiration) on the second attempt, meaning success.
-			}
-			
-			// not owned, not expired and still active, meaning really still in use, so exception
-
-			throw new StorageException("Storage already in use by: " + existingFiledata.identifier);
-		}
 		
 		private void checkForModifiedLockFile()
 		{
@@ -445,12 +495,15 @@ public interface StorageLockFileManager extends Runnable
 			}
 			
 			this.lockFileData.update();
-			
-
+						
 			final ArrayView<ByteBuffer> bb = this.setToWriteBuffer(this.lockFileData);
 			
 			// no need for the writer detour (for now) since it makes no sense to backup lock files.
+			
+			//don't delete file!
+			this.lockFile.truncate(0);
 			this.lockFile.writeBytes(bb);
+			
 		}
 		
 		private ArrayView<ByteBuffer> setToWriteBuffer(final LockFileData lockFileData)
@@ -465,18 +518,14 @@ public interface StorageLockFileManager extends Runnable
 			final ArrayView<ByteBuffer> bb = this.ensureWritingBuffer(bytes);
 			
 			XMemory.copyArrayToAddress(bytes, XMemory.getDirectByteBufferAddress(this.directByteBuffer));
+			this.directByteBuffer.limit(bytes.length);
 			
 			return bb;
 		}
 				
 		private void updateFile()
 		{
-			// check again after the wait time.
-			if(!this.checkIsRunning())
-			{
-				// abort to avoid an unnecessary write.
-				return;
-			}
+			logger.trace("updating lock file");
 			
 			this.checkForModifiedLockFile();
 			this.writeLockFileData();
@@ -488,7 +537,8 @@ public interface StorageLockFileManager extends Runnable
 			{
 				return;
 			}
-			
+		
+			logger.debug("closing lockfile!");
 			StorageClosableFile.close(this.lockFile, cause);
 			this.lockFile = null;
 		}
@@ -504,8 +554,9 @@ public interface StorageLockFileManager extends Runnable
 	public interface Creator
 	{
 		public StorageLockFileManager createLockFileManager(
-			StorageLockFileSetup       setup              ,
-			StorageOperationController operationController
+			StorageLockFileSetup                 setup              ,
+			StorageOperationController           operationController,
+			StorageLockFileManagerThreadProvider threadProvider
 		);
 		
 		public final class Default implements StorageLockFileManager.Creator
@@ -517,13 +568,15 @@ public interface StorageLockFileManager extends Runnable
 
 			@Override
 			public StorageLockFileManager createLockFileManager(
-				final StorageLockFileSetup       setup              ,
-				final StorageOperationController operationController
+				final StorageLockFileSetup                 setup              ,
+				final StorageOperationController           operationController,
+				final StorageLockFileManagerThreadProvider threadProvider
 			)
 			{
 				return StorageLockFileManager.New(
 					setup              ,
-					operationController
+					operationController,
+					threadProvider
 				);
 			}
 			
