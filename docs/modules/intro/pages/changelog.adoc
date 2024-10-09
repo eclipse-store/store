@@ -16,6 +16,8 @@
 * LazyHashMap Fix https://github.com/eclipse-serializer/serializer/issues/117[[117]] https://github.com/eclipse-serializer/serializer/pull/139[[139]]
 * Add Missing Constructor Methods for CSV Converter https://github.com/eclipse-store/store/pull/283[[283]]
 * Fix Intermittent Problem When Opening Database https://github.com/eclipse-store/store/issues/264[[264]]
+* Fix Type Handler Foundation Registration Order Necessity https://github.com/eclipse-serializer/serializer/pull/142[[142]] https://github.com/eclipse-store/store/issues/204[[204]]
+* Fix for Allocation of LazyArgs During Cleanup https://github.com/eclipse-serializer/serializer/issues/132[[132]] https://github.com/eclipse-serializer/serializer/pull/133[[133]]
 
 
 == 1.4.0
