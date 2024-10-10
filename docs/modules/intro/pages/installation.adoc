@@ -6,26 +6,11 @@ You can find the {product-name} libraries in the Maven Central repository.
 
 [source, xml, subs=attributes+, title="Maven [pom.xml]"]
 ----
- <repositories>
-    <repository>
-        <id>ossrh</id>
-        <url>https://oss.sonatype.org/content/repositories/snapshots</url>
-        <releases>
-            <enabled>false</enabled>
-        </releases>
-        <snapshots>
-            <enabled>true</enabled>
-        </snapshots>
-    </repository>
-</repositories>
-
-<dependencies>
-	<dependency>
-		<groupId>org.eclipse.store</groupId>
-		<artifactId>storage-embedded</artifactId>
-		<version>{maven-version}</version>
-	</dependency>
-</dependencies>
+<dependency>
+	<groupId>org.eclipse.store</groupId>
+	<artifactId>storage-embedded</artifactId>
+	<version>{maven-version}</version>
+</dependency>
 ----
 
 [source, groovy, subs=attributes+, title="Gradle (Groovy) [build.gradle]"]
