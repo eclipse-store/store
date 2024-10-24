@@ -131,3 +131,10 @@ foundation.onConnectionFoundation(BinaryHandlersJDK8::registerJDK8TypeHandlers);
 final EmbeddedStorageFoundation<?> foundation = EmbeddedStorage.Foundation();
 foundation.onConnectionFoundation(BinaryHandlersJDK17::registerJDK17TypeHandlers);
 ----
+
+For serializer:
+[source, java]
+----
+final SerializerFoundation<?> foundation = SerializerFoundation.New();
+BinaryHandlersJDK17.registerJDK17TypeHandlers(foundation);
+----
