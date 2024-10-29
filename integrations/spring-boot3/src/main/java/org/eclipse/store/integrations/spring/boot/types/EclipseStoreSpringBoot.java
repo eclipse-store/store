@@ -72,7 +72,7 @@ public class EclipseStoreSpringBoot
             ApplicationContext applicationContext
     )
     {
-        return new EmbeddedStorageFoundationFactory(eclipseStoreConfigConverter, classLoaderProvider, applicationContext);
+        return new EmbeddedStorageFoundationFactory(eclipseStoreConfigConverter, classLoaderProvider);
     }
 
     /**

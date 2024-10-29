@@ -25,8 +25,10 @@ import org.eclipse.store.integrations.spring.boot.types.initializers.CustomStora
 import org.eclipse.store.storage.embedded.configuration.types.EmbeddedStorageConfigurationBuilder;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation;
 import org.slf4j.Logger;
+import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.ApplicationContextAware;
 
 import java.util.Map;
 
@@ -37,20 +39,20 @@ import java.util.Map;
  *
  * @since 1.2.0
  */
-public class EmbeddedStorageFoundationFactory
+public class EmbeddedStorageFoundationFactory implements ApplicationContextAware
 {
     private final EclipseStoreConfigConverter converter;
     private final ClassLoaderProvider classLoaderProvider;
-    private final ApplicationContext applicationContext;
+    private ApplicationContext applicationContext;
 
     private final Logger logger = Logging.getLogger(EmbeddedStorageFoundationFactory.class);
 
-    public EmbeddedStorageFoundationFactory(final EclipseStoreConfigConverter converter, final ClassLoaderProvider classLoaderProvider, final ApplicationContext context)
+    public EmbeddedStorageFoundationFactory(final EclipseStoreConfigConverter converter, final ClassLoaderProvider classLoaderProvider)
     {
         this.converter = converter;
         this.classLoaderProvider = classLoaderProvider;
-        this.applicationContext = context;
     }
+
 
     /**
      * Creates an {@code EmbeddedStorageFoundation} using the provided configuration. This method should be called when the additional configuration for the foundation is required.
@@ -129,4 +131,9 @@ public class EmbeddedStorageFoundationFactory
         }
     }
 
+    @Override
+    public void setApplicationContext(ApplicationContext applicationContext) throws BeansException
+    {
+        this.applicationContext = applicationContext;
+    }
 }
