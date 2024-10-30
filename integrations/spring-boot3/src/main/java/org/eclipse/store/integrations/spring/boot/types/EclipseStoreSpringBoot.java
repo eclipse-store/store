@@ -68,8 +68,7 @@ public class EclipseStoreSpringBoot
     @Bean
     public EmbeddedStorageFoundationFactory embeddedStorageFoundationFactory(
             EclipseStoreConfigConverter eclipseStoreConfigConverter,
-            ClassLoaderProvider classLoaderProvider,
-            ApplicationContext applicationContext
+            ClassLoaderProvider classLoaderProvider
     )
     {
         return new EmbeddedStorageFoundationFactory(eclipseStoreConfigConverter, classLoaderProvider);

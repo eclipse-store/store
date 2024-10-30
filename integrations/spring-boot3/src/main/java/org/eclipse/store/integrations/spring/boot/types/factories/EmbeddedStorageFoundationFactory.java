@@ -68,7 +68,7 @@ public class EmbeddedStorageFoundationFactory implements ApplicationContextAware
             CustomStorageInitializer customInitializer = applicationContext.getBean(CustomStorageInitializer.class);
             customInitializer.initialize();
         } catch (NoSuchBeanDefinitionException e) {
-            this.logger.debug("No custom initializer found.");
+            this.logger.debug("No custom storage initializer found.");
         }
 
         final EmbeddedStorageConfigurationBuilder builder = EmbeddedStorageConfigurationBuilder.New();
