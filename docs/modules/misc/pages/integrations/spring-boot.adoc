@@ -288,3 +288,26 @@ and click connect.
 If you are using Spring Dev Tools, it is recommended to exclude the {product-name} classes from the classpath. Spring Dev Tools use their own restart classloader, which dynamically reloads classes. This can cause issues with the {product-name} classes, as they are not designed to be reloaded on the fly.
 
 Spring documentation: https://docs.spring.io/spring-boot/reference/using/devtools.html
+
+== Code Configuration Before Storage Creation
+
+There are some use cases where it is necessary to configure storage before it is created. For this purpose, you can use the `CustomStorageInitializer` to create a custom storage configuration in your application.
+
+Example for configuring `LazyReferenceManager`:
+
+[source,java]
+----
+@Component
+public class CustomStorageInitializerImpl implements CustomStorageInitializer
+{
+    @Override
+    public void initialize()
+    {
+        LazyReferenceManager.set(LazyReferenceManager.New(
+                Lazy.Checker(
+                        1_000_000, // timeout of lazy access
+                        0.75       // memory quota
+                )));
+    }
+}
+----
