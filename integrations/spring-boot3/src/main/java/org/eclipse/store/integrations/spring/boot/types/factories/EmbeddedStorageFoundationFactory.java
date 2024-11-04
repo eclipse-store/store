@@ -21,9 +21,14 @@ import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.integrations.spring.boot.types.configuration.ConfigurationPair;
 import org.eclipse.store.integrations.spring.boot.types.configuration.EclipseStoreProperties;
 import org.eclipse.store.integrations.spring.boot.types.converter.EclipseStoreConfigConverter;
+import org.eclipse.store.integrations.spring.boot.types.initializers.StorageContextInitializer;
 import org.eclipse.store.storage.embedded.configuration.types.EmbeddedStorageConfigurationBuilder;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation;
 import org.slf4j.Logger;
+import org.springframework.beans.BeansException;
+import org.springframework.beans.factory.NoSuchBeanDefinitionException;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.ApplicationContextAware;
 
 import java.util.Map;
 
@@ -34,10 +39,11 @@ import java.util.Map;
  *
  * @since 1.2.0
  */
-public class EmbeddedStorageFoundationFactory
+public class EmbeddedStorageFoundationFactory implements ApplicationContextAware
 {
     private final EclipseStoreConfigConverter converter;
     private final ClassLoaderProvider classLoaderProvider;
+    private ApplicationContext applicationContext;
 
     private final Logger logger = Logging.getLogger(EmbeddedStorageFoundationFactory.class);
 
@@ -46,6 +52,7 @@ public class EmbeddedStorageFoundationFactory
         this.converter = converter;
         this.classLoaderProvider = classLoaderProvider;
     }
+
 
     /**
      * Creates an {@code EmbeddedStorageFoundation} using the provided configuration. This method should be called when the additional configuration for the foundation is required.
@@ -56,6 +63,14 @@ public class EmbeddedStorageFoundationFactory
      */
     public EmbeddedStorageFoundation<?> createStorageFoundation(final EclipseStoreProperties eclipseStoreProperties, final ConfigurationPair... additionalConfiguration)
     {
+        // Call custom code if available
+        try {
+            StorageContextInitializer storageContextInitializer = applicationContext.getBean(StorageContextInitializer.class);
+            storageContextInitializer.initialize();
+        } catch (NoSuchBeanDefinitionException e) {
+            this.logger.debug("No custom storage initializer found.");
+        }
+
         final EmbeddedStorageConfigurationBuilder builder = EmbeddedStorageConfigurationBuilder.New();
         final Map<String, String> valueMap = this.converter.convertConfigurationToMap(eclipseStoreProperties);
         for (final ConfigurationPair pair : additionalConfiguration)
@@ -116,4 +131,9 @@ public class EmbeddedStorageFoundationFactory
         }
     }
 
+    @Override
+    public void setApplicationContext(ApplicationContext applicationContext) throws BeansException
+    {
+        this.applicationContext = applicationContext;
+    }
 }
