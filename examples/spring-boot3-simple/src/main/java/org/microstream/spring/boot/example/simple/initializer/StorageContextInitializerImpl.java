@@ -16,7 +16,7 @@ package org.microstream.spring.boot.example.simple.initializer;
 
 import org.eclipse.serializer.reference.Lazy;
 import org.eclipse.serializer.reference.LazyReferenceManager;
-import org.eclipse.store.integrations.spring.boot.types.initializers.CustomStorageInitializer;
+import org.eclipse.store.integrations.spring.boot.types.initializers.StorageContextInitializer;
 import org.springframework.stereotype.Component;
 
 /**
@@ -24,7 +24,7 @@ import org.springframework.stereotype.Component;
  * <a href="https://docs.eclipsestore.io/manual/storage/loading-data/lazy-loading/clearing-lazy-references.html">...</a>
  */
 @Component
-public class CustomStorageInitializerImpl implements CustomStorageInitializer
+public class StorageContextInitializerImpl implements StorageContextInitializer
 {
     @Override
     public void initialize()
@@ -32,7 +32,7 @@ public class CustomStorageInitializerImpl implements CustomStorageInitializer
         LazyReferenceManager.set(LazyReferenceManager.New(
                 Lazy.Checker(
                         1_000_000, // timeout of lazy access
-                        0.75                               // memory quota
+                        0.75                       // memory quota
                 )));
     }
 }

@@ -291,7 +291,7 @@ Spring documentation: https://docs.spring.io/spring-boot/reference/using/devtool
 
 == Code Configuration Before Storage Creation
 
-There are some use cases where it is necessary to configure storage before it is created. For this purpose, you can use the `CustomStorageInitializer` to create a custom storage configuration in your application.
+There are some use cases where it is necessary to configure storage before it is created. For this purpose, you can use the `StorageContextInitializer` to create a custom storage configuration in your application.
 
 Example for configuring `LazyReferenceManager`:
 

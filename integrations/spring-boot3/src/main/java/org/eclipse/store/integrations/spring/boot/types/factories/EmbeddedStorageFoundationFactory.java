@@ -21,7 +21,7 @@ import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.integrations.spring.boot.types.configuration.ConfigurationPair;
 import org.eclipse.store.integrations.spring.boot.types.configuration.EclipseStoreProperties;
 import org.eclipse.store.integrations.spring.boot.types.converter.EclipseStoreConfigConverter;
-import org.eclipse.store.integrations.spring.boot.types.initializers.CustomStorageInitializer;
+import org.eclipse.store.integrations.spring.boot.types.initializers.StorageContextInitializer;
 import org.eclipse.store.storage.embedded.configuration.types.EmbeddedStorageConfigurationBuilder;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation;
 import org.slf4j.Logger;
@@ -65,8 +65,8 @@ public class EmbeddedStorageFoundationFactory implements ApplicationContextAware
     {
         // Call custom code if available
         try {
-            CustomStorageInitializer customInitializer = applicationContext.getBean(CustomStorageInitializer.class);
-            customInitializer.initialize();
+            StorageContextInitializer storageContextInitializer = applicationContext.getBean(StorageContextInitializer.class);
+            storageContextInitializer.initialize();
         } catch (NoSuchBeanDefinitionException e) {
             this.logger.debug("No custom storage initializer found.");
         }

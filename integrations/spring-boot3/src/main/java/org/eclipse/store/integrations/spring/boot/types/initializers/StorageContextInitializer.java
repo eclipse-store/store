@@ -15,11 +15,11 @@ package org.eclipse.store.integrations.spring.boot.types.initializers;
  */
 
 /**
- * Interface for custom storage initializers.
+ * Interface for storage context initializers.
  * Implementations of this interface can provide custom initialization logic
  * that will be executed before the creation of the storage foundation.
  */
-public interface CustomStorageInitializer
+public interface StorageContextInitializer
 {
     /**
      * Method to be implemented with custom initialization logic.
