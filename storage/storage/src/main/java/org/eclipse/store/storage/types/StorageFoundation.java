@@ -28,6 +28,7 @@ import org.eclipse.serializer.persistence.types.Unpersistable;
 import org.eclipse.serializer.reference.Reference;
 import org.eclipse.serializer.util.InstanceDispatcher;
 import org.eclipse.serializer.util.ProcessIdentityProvider;
+import org.eclipse.serializer.util.VMInfo;
 
 
 /**
@@ -525,6 +526,8 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	public StorageStructureValidator getStorageStructureValidator();
 	
 	public MonitoringManager getStorageMonitorManager();
+
+	public VMInfo getVmInfo();
 	
 	/**
 	 * Sets the {@link StorageConfiguration} instance to be used for the assembly.
@@ -838,6 +841,8 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	
 	public F setStorageMonitorManager(MonitoringManager storageMonitorManager);
 	
+	public F setVmInfo(VMInfo vmInfo);
+	
 	/**
 	 * Creates and returns a new {@link StorageSystem} instance by using the current state of all registered
 	 * logic part instances and by on-demand creating missing ones via a default logic.
@@ -903,6 +908,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		private Reference<PersistenceLiveStorerRegistry> storerRegistryReference      ;
 		private StorageStructureValidator                storageStructureValidator    ;
 		private MonitoringManager                        storageMonitorManager        ;
+		private VMInfo									 vmInfo                       ;
 
 		
 		
@@ -1154,10 +1160,22 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		
 		protected MonitoringManager ensureStorageMonitorManager()
 		{
-			return MonitoringManager.New();
+			VMInfo vmInfo = this.getVmInfo();
+			
+			if(vmInfo.isAnyAndroid())
+			{
+				return MonitoringManager.Disabled();
+			}
+			
+			return MonitoringManager.JMX();
+		
 		}
 		
-
+		protected VMInfo ensureVmInfo()
+		{
+			return VMInfo.New();
+		}
+		
 		@Override
 		public StorageOperationController.Creator getOperationControllerCreator()
 		{
@@ -1548,6 +1566,16 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 			return this.storageMonitorManager;
 		}
 		
+		@Override
+		public VMInfo getVmInfo()
+		{
+			if(this.vmInfo == null)
+			{
+				this.vmInfo = this.dispatch(this.ensureVmInfo());
+			}
+			return this.vmInfo;
+		}
+		
 		
 		@Override
 		public F setOperationControllerCreator(
@@ -1852,6 +1880,12 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		public F setStorageMonitorManager(final MonitoringManager storageMonitorManager)
 		{
 			this.storageMonitorManager = storageMonitorManager;
+			return this.$();
+		}
+		
+		@Override
+		public F setVmInfo(final VMInfo vmInfo) {
+			this.vmInfo = vmInfo;
 			return this.$();
 		}
 		
