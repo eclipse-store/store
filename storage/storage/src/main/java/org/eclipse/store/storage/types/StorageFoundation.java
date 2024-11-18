@@ -1154,7 +1154,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		
 		protected MonitoringManager ensureStorageMonitorManager()
 		{
-			return MonitoringManager.New();
+			return MonitoringManager.PlatformDependent(null);
 		}
 		
 
