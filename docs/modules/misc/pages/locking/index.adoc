@@ -1,0 +1,81 @@
+= Locking
+
+{product-name} applications are the source of truth and work on a shared object graph, not defensive copies like other frameworks do.
+
+Therefore, the application must handle concurrency if it is multi-threaded.
+
+The easiest way is to synchronize all affected code, but this makes your application effectively single-threaded.
+This is not advisable if performance is important.
+
+The best way is to differentiate between read and write actions and lock accordingly.
+This can be done with ReentrantReadWriteLocks provided by the JDK.
+
+[source, java]
+----
+ReentrantReadWriteLock readWriteLock = new ReentrantReadWriteLock();
+
+...
+
+final ReadLock readLock = reentrantLock.readLock();
+readLock.lock();
+
+try
+{
+	// execute read action
+}
+finally
+{
+	readLock.unlock();
+}
+----
+
+This code is easy to follow, but it pollutes your classes quite a lot.
+
+In order to get a more concise, better readable code, we provide helpers for that: LockedExecutor and StripeLockedExecutor
+
+[source, java]
+----
+public class Customers
+{
+	private final transient LockedExecutor executor = LockedExecutor.New();
+	private final List<Customer> customers = new ArrayList<>();
+	
+	public void addCustomer(Customer c)
+	{
+		this.executor.write(() -> {
+			this.customers.add(c);
+			Application.storageManager().store(this.customers);
+		});
+	}
+	
+	public void traverseCustomers(Consumer<Customer> consumer)
+	{
+		this.executor.read(() -> this.customers.forEach(consumer));
+	}
+}
+----
+
+Or extend from LockScope or StripeLockScope
+
+[source, java]
+----
+public class Customers extends LockScope
+{
+	private final List<Customer> customers = new ArrayList<>();
+	
+	public void addCustomer(Customer c)
+	{
+		write(() -> {
+			this.customers.add(c);
+			Application.storageManager().store(this.customers);
+		});
+	}
+	
+	public void traverseCustomers(Consumer<Customer> consumer)
+	{
+		read(() -> this.customers.forEach(consumer));
+	}
+}
+----
+
+It gets even easier if you use the xref:misc:integrations/spring-boot.adoc#_mutex_locking[Spring Boot integration's Mutex Locking].

@@ -78,6 +78,11 @@ This approach will immediately provide you with several benefits:
 . Avoid Deadlocks
 . In principle, you prevent the object graph from being modified at the same time it is saved.
 
+[TIP]
+====
+If you want to achieve a better performance, you have to use a more xref:misc:locking/index.adoc[advanced locking].
+====
+
 
 == Custom Root Instances
 
