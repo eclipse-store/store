@@ -33,7 +33,7 @@ LazyReferenceManager.set(LazyReferenceManager.New(
 		Duration.ofMinutes(30).toMillis(), // timeout of lazy access
 		0.75                               // memory quota
 	)
-);
+));
 ----
 
 The timeout of lazy references is set to 30 minutes, meaning references which haven't been touched for this time are cleared.
