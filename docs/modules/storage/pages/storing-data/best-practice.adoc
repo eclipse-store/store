@@ -79,7 +79,7 @@ storer.registerObjectCollector(collector);
 storer.store(...);
 storer.commit();
 
-//get and process peristed objects
+//get and process persisted objects
 collector.get().forEach(...);
 
 //clean up
