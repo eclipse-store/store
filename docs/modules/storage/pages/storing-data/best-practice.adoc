@@ -14,8 +14,8 @@ public class ForeignObject
 }
 ----
 
-In the upper code snippet the "hidden" object cannot be accessed by `store(myForeignObject.hidden)` if no getter is available.
-To allow such hidden objects to be stored after they have been modified you have to options:
+In the upper code snippet, the "hidden" object cannot be accessed by `store(myForeignObject.hidden)` if no getter is available.
+To allow such hidden objects to be stored after they have been modified, you have two options:
 
 . Set the global storing strategy of the {product-name} instance to xref:storing-data/lazy-eager-full.adoc[eager storing] or
 . Implement and set a custom xref:../customizing/custom-storing-behavior.adoc[`PersistenceEagerStoringFieldEvaluator`] for this field.
@@ -33,17 +33,17 @@ EmbeddedStorageManager storage = EmbeddedStorage.Foundation()
 
 == Use Immutable data models
 
-To increase performance use immutable sub-graphs as often as possible.
+To increase performance, use immutable sub-graphs as often as possible.
 
-Storing those with the provided xref:storing-data/transactions.adoc[convenience storing methods] or using a thread local xref:storing-data/lazy-eager-full.adoc#eager-storing[storer] to insert those sub-graphs concurrently can give a great performance boost.
+Storing those with the provided xref:storing-data/transactions.adoc[convenience storing methods] or using a thread-local xref:storing-data/lazy-eager-full.adoc#eager-storing[storer] to insert those sub-graphs concurrently can give a great performance boost.
 
 == Get objects that are persisted by a storer
 
-Sometimes it can be usefully to get all objects and/or their assigned storage ID that are persisted by a store operation.
+Sometimes, it can be useful to get all objects and/or their assigned storage ID that are persisted by a store operation.
 
-To do so you can register a custom `PersistenceObjectCollector` implementation to a BinaryStorer to collect all objects that are registered by that storer instance.
+To do so, you can register a custom `PersistenceObjectCollector` implementation to a BinaryStorer to collect all objects registered by that storer instance.
 
-The default storer will call the `collect` method for each object registered to be stored during the store phase. Implementers should be aware that this has an impact on the storer performance.
+The default storer will call the `collect` method for each object registered to be stored during the store phase. Implementers should be aware that this has an impact on the storer's performance.
 
 [source, java, title="PersistenceObjectCollectorImpl:"]
 ----
