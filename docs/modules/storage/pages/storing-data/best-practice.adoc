@@ -43,7 +43,7 @@ Sometimes it can be usefully to get all objects and/or their assigned storage ID
 
 To do so you can register a custom `PersistenceObjectCollector` implementation to a BinaryStorer to collect all objects that are registered by that storer instance.
 
-The default storer will call the `collect` method for each object registered to be stored during the storers store phase. Implementers should be aware that this has an impact on the storer performance.
+The default storer will call the `collect` method for each object registered to be stored during the store phase. Implementers should be aware that this has an impact on the storer performance.
 
 [source, java, title="PersistenceObjectCollectorImpl:"]
 ----
