@@ -36,3 +36,50 @@ EmbeddedStorageManager storage = EmbeddedStorage.Foundation()
 To increase performance use immutable sub-graphs as often as possible.
 
 Storing those with the provided xref:storing-data/transactions.adoc[convenience storing methods] or using a thread local xref:storing-data/lazy-eager-full.adoc#eager-storing[storer] to insert those sub-graphs concurrently can give a great performance boost.
+
+== get objects that are persisted by a storer
+
+Sometimes it can be usefully to get all objects and/or their assigned storage ID that are persisted by a store operation.
+
+To do so you can register a custom `PersistenceObjectCollector` implementation to a BinaryStorer to collect all objects that are registered by that storer instance.
+
+[source, java, title="PersistenceObjectCollectorImpl:"]
+----
+public static class PersistenceObjectCollectorImpl implements PersistenceObjectCollector {
+
+    private Hashtable<Long, Object> persistenceObjects = new Hashtable<Long, Object>();
+
+    @Override
+    public void collect(long objectID, Object object) {
+        this.persistenceObjects.put(objectID, object);
+    }
+
+    public void clear() {
+        this.persistenceObjects.clear();
+    }
+
+    public Hashtable<Long, Object> get() {
+        return this.persistenceObjects;
+    }
+}
+----
+
+[source, java, title="usage:"]
+----
+//create a storer
+BinaryStorer storer = (Default) storage.createStorer();
+
+//register PersistenceObjectCollector implementation
+PersistenceObjectCollectorImpl collector = new PersistenceObjectCollectorImpl();
+storer.registerObjectCollector(collector);
+
+//store some data
+storer.store(...);
+storer.commit();
+
+//get and process peristed objects
+collector.get().forEach(...);
+
+//clean up
+collector.clear();
+----
