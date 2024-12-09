@@ -131,7 +131,7 @@ public class PersistenceStorerWrapper implements PersistenceStorer
 	@Override
 	public void registerRegistrationListener(PersistenceObjectRegistrationListener listener)
 	{
-		this.delegate.registerRegistrationListener(collector);
+		this.delegate.registerRegistrationListener(listener);
 	}
 	
 	
