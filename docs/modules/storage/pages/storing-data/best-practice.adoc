@@ -41,18 +41,18 @@ Storing those with the provided xref:storing-data/transactions.adoc[convenience 
 
 Sometimes, it can be useful to get all objects and/or their assigned storage ID that are persisted by a store operation.
 
-To do so, you can register a custom `PersistenceObjectCollector` implementation to a BinaryStorer to collect all objects registered by that storer instance.
+To do so, you can register a custom `PersistenceObjectRegistrationListener` implementation to a BinaryStorer to collect all objects registered by that storer instance.
 
-The default storer will call the `collect` method for each object registered to be stored during the store phase. Implementers should be aware that this has an impact on the storer's performance.
+The default storer will call the `onObjectRegistration` method for each object registered to be stored during the store phase. Implementers should be aware that this has an impact on the storer's performance.
 
-[source, java, title="PersistenceObjectCollectorImpl:"]
+[source, java, title="PersistenceObjectRegistrationListenerImpl:"]
 ----
-public static class PersistenceObjectCollectorImpl implements PersistenceObjectCollector {
+public static class PersistenceObjectRegistrationListenerImpl implements PersistenceObjectRegistrationListener {
 
     private Hashtable<Long, Object> persistenceObjects = new Hashtable<Long, Object>();
 
     @Override
-    public void collect(long objectID, Object object) {
+    public void onObjectRegistration(long objectID, Object object) {
         this.persistenceObjects.put(objectID, object);
     }
 
@@ -71,17 +71,17 @@ public static class PersistenceObjectCollectorImpl implements PersistenceObjectC
 //create a storer
 BinaryStorer storer = (Default) storage.createStorer();
 
-//register PersistenceObjectCollector implementation
-PersistenceObjectCollectorImpl collector = new PersistenceObjectCollectorImpl();
-storer.registerObjectCollector(collector);
+//register PersistenceObjectRegistrationListenerImpl implementation
+PersistenceObjectRegistrationListenerImpl registrationListener = new PersistenceObjectRegistrationListenerImpl();
+storer.registerRegistrationListener(registrationListener);
 
 //store some data
 storer.store(...);
 storer.commit();
 
 //get and process persisted objects
-collector.get().forEach(...);
+registrationListener.get().forEach(...);
 
 //clean up
-collector.clear();
+registrationListener.clear();
 ----

@@ -15,7 +15,7 @@ package org.eclipse.store.examples.extensionwrapper;
  */
 
 import org.eclipse.serializer.persistence.types.PersistenceCommitListener;
-import org.eclipse.serializer.persistence.types.PersistenceObjectCollector;
+import org.eclipse.serializer.persistence.types.PersistenceObjectRegistrationListener;
 import org.eclipse.serializer.persistence.types.PersistenceStorer;
 
 /**
@@ -129,9 +129,9 @@ public class PersistenceStorerWrapper implements PersistenceStorer
 	}
 
 	@Override
-	public void registerObjectCollector(PersistenceObjectCollector collector)
+	public void registerRegistrationListener(PersistenceObjectRegistrationListener listener)
 	{
-		this.delegate.registerObjectCollector(collector);
+		this.delegate.registerRegistrationListener(listener);
 	}
 	
 	
