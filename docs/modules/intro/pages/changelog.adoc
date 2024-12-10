@@ -1,5 +1,18 @@
 = Changelog
 
+
+== 2.1.0
+
+=== Features
+
+* xref:misc:locking/index.adoc[Concurrency API] https://github.com/eclipse-serializer/serializer/pull/156[[156]]
+* xref:storage:storing-data/best-practice.adoc#_get_objects_that_are_persisted_by_a_storer[Object registration listener for storer] https://github.com/eclipse-store/store/discussions/134[[134]] https://github.com/eclipse-serializer/serializer/pull/160[[160]]
+* Spring custom initializer https://github.com/eclipse-store/store/pull/323[[323]]
+
+=== Bugfixes
+* Fixes for Android regressions https://github.com/eclipse-serializer/serializer/pull/154[[154]] https://github.com/eclipse-serializer/serializer/pull/155[[155]] https://github.com/eclipse-store/store/issues/325[[325]] https://github.com/eclipse-store/store/issues/326[[326]] https://github.com/eclipse-store/store/pull/329[[329]]
+
+
 == 2.0.0
 
 === Features
