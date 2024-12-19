@@ -10,7 +10,7 @@ The Java objects, which reside in memory, are easy to inspect and traverse, e.g.
 
 But for various purposes, like monitoring, the requirement to read the actual stored data has come up.
 
-Since version 3.0 a REST interface for the storage data is included.
+A REST interface for the storage data can easily be used by including a dependency (see xref:storage:rest-interface/setup.adoc[Setup]).
 It enables you to access the data via REST calls or a convenient user interface.
 
 It is made up of the following modules:
