@@ -26,10 +26,12 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
 @AutoConfigureAfter(EclipseStoreSpringBoot.class)
+@ComponentScan("org.eclipse.store.integrations.spring.boot.types.concurrent")
 public class DefaultEclipseStoreConfiguration
 {
 
