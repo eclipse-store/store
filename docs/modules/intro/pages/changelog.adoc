@@ -1,6 +1,15 @@
 = Changelog
 
 
+== 2.1.1
+
+=== Bugfixes
+
+* Logger settings adjustments https://github.com/eclipse-serializer/serializer/pull/164[[164]]
+* Dependency update to resolve vulnerability https://github.com/eclipse-store/store/pull/360[[360]] https://github.com/eclipse-store/store/pull/361[[361]]
+* Register LockAspect as Spring Bean https://github.com/eclipse-store/store/pull/355[[355]] https://github.com/eclipse-store/store/issues/356[[356]]
+
+
 == 2.1.0
 
 === Features
