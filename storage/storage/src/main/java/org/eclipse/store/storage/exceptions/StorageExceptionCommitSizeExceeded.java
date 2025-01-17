@@ -11,7 +11,7 @@ public class StorageExceptionCommitSizeExceeded extends StorageException
 
 	public StorageExceptionCommitSizeExceeded(int channelIndex, long commitSize)
 	{
-		super("Cannel " + channelIndex + " store size " + commitSize  + " bytes exceeds technical limit of 2^31 bytes");
+		super("Channel " + channelIndex + " store size " + commitSize  + " bytes exceeds technical limit of 2^31 bytes");
 	}
 
 }

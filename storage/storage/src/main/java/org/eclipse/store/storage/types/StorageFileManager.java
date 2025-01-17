@@ -598,7 +598,7 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		
 		private void ensureHeadFileLoadableSize(final ByteBuffer[] dataBuffers)
 		{
-			//Must ensure that a filesize never exceeds 2^31 bytes size.
+			//Must ensure that a file size never exceeds 2^31 bytes size.
 			//If that size is exceeded the storage is corrupted and can't be loaded any more because
 			//the current implementation use only one byte buffer to load a file.
 			//This buffer size is limited to an Integer.MAX_VALUE value.
@@ -609,9 +609,9 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 				commitSize += dataBuffers[i].limit();
 				if(commitSize > Integer.MAX_VALUE)
 				{
-					//Should never be reached, this case should be alreay handled by
+					//Should never be reached, this case should be already handled by
 					//org.eclipse.store.storage.types.StorageDataChunkValidator.MaxFileSize.
-					//But keep exception to have secound guard as the validator might be replaced.
+					//But keep exception to have second guard as the validator might be replaced.
 					throw new StorageExceptionCommitSizeExceeded(this.channelIndex(), commitSize);
 				}
 				if(commitSize + this.headFile.totalLength() > Integer.MAX_VALUE)
