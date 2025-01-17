@@ -326,7 +326,7 @@ public interface StorageDataChunkValidator
 	{
 		@Override
 		public Provider provideDataChunkValidatorProvider(
-				StorageFoundation<?> foundation
+				final StorageFoundation<?> foundation
 		)
 		{
 			return this;
@@ -334,7 +334,7 @@ public interface StorageDataChunkValidator
 
 		@Override
 		public StorageDataChunkValidator provideDataChunkValidator(
-				StorageTypeDictionary typeDictionary
+				final StorageTypeDictionary typeDictionary
 		)
 		{
 			return this;
