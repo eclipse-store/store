@@ -21,7 +21,7 @@ import java.nio.ByteBuffer;
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.binary.types.BinaryEntityRawDataIterator;
-import org.eclipse.serializer.persistence.exceptions.PersistenceExceptionCommitSizeExceeded;
+import org.eclipse.store.storage.exceptions.StorageExceptionCommitSizeExceeded;
 import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
 
 
@@ -355,7 +355,7 @@ public interface StorageDataChunkValidator
 								
 				if(commitSize >= Integer.MAX_VALUE)
 				{
-					throw new PersistenceExceptionCommitSizeExceeded(channelIndex, commitSize);
+					throw new StorageExceptionCommitSizeExceeded(channelIndex, commitSize);
 				}
 				
 			}

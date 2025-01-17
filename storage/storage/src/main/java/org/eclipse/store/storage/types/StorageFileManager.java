@@ -32,13 +32,13 @@ import org.eclipse.serializer.collections.XSort;
 import org.eclipse.serializer.collections.types.XGettingSequence;
 import org.eclipse.serializer.exceptions.MultiCauseException;
 import org.eclipse.serializer.memory.XMemory;
-import org.eclipse.serializer.persistence.exceptions.PersistenceExceptionCommitSizeExceeded;
 import org.eclipse.serializer.typing.Disposable;
 import org.eclipse.serializer.typing.XTypes;
 import org.eclipse.serializer.util.BufferSizeProvider;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.storage.exceptions.StorageException;
+import org.eclipse.store.storage.exceptions.StorageExceptionCommitSizeExceeded;
 import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
 import org.eclipse.store.storage.exceptions.StorageExceptionIoReading;
 import org.eclipse.store.storage.exceptions.StorageExceptionIoWriting;
@@ -612,7 +612,7 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 					//Should never be reached, this case should be alreay handled by
 					//org.eclipse.store.storage.types.StorageDataChunkValidator.MaxFileSize.
 					//But keep exception to have secound guard as the validator might be replaced.
-					throw new PersistenceExceptionCommitSizeExceeded(this.channelIndex(), commitSize);
+					throw new StorageExceptionCommitSizeExceeded(this.channelIndex(), commitSize);
 				}
 				if(commitSize + this.headFile.totalLength() > Integer.MAX_VALUE)
 				{
