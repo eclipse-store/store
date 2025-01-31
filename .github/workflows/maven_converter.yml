@@ -22,5 +22,7 @@ jobs:
         java-version: '11'
         distribution: 'adopt'
     - name: Build with Maven
-      run: mvn -B -Pconverter-standalone -pl storage/embedded-tools/storage-converter -am clean package --file pom.xml -U
+      run: mvn -B -Pconverter-standalone -pl storage/embedded-tools/storage-converter -am clean package --file pom.xml -U -Dscan.value.profile=converter-standalone -Dscan.value.project=storage-converter
+      env:
+        DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_API_TOKEN }}
 
