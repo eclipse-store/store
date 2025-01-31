@@ -61,11 +61,11 @@ jobs:
           DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_API_TOKEN }}
       - name: Deploy module build with java 17
         run: |
-          mvn -Pdeploy -pl integrations/spring-boot3 deploy -Dscan.value.profile="deploy" -Dscan.value.project="spring-boot3"
-          mvn -Pdeploy -pl integrations/spring-boot3-console deploy -Dscan.value.profile="deploy" -Dscan.value.project="spring-boot3-console"
-          mvn -Pdeploy -Pproduction -pl storage/rest/client-app deploy -Dscan.value.profile="deploy,production" -Dscan.value.project="client-app"
-          mvn -Pdeploy -Pproduction -pl storage/rest/client-app-standalone-assembly deploy -Dscan.value.profile="deploy,production" -Dscan.value.project="client-app-standalone-assembly"
-          mvn -Pdeploy -Pproduction -pl storage/rest/service-springboot deploy -Dscan.value.profile="deploy,production" -Dscan.value.project="service-springboot"
+          mvn -Pdeploy -pl integrations/spring-boot3 clean deploy -Dscan.value.profile="deploy" -Dscan.value.project="spring-boot3"
+          mvn -Pdeploy -pl integrations/spring-boot3-console clean deploy -Dscan.value.profile="deploy" -Dscan.value.project="spring-boot3-console"
+          mvn -Pdeploy -Pproduction -pl storage/rest/client-app clean deploy -Dscan.value.profile="deploy,production" -Dscan.value.project="client-app"
+          mvn -Pdeploy -Pproduction -pl storage/rest/client-app-standalone-assembly clean deploy -Dscan.value.profile="deploy,production" -Dscan.value.project="client-app-standalone-assembly"
+          mvn -Pdeploy -Pproduction -pl storage/rest/service-springboot clean deploy -Dscan.value.profile="deploy,production" -Dscan.value.project="service-springboot"
         env:
           MAVEN_USERNAME: ${{ secrets.ORG_OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.ORG_OSSRH_PASSWORD }}
