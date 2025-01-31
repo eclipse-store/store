@@ -377,6 +377,30 @@
                         <outputDirectory>${project.build.directory}/sbom</outputDirectory>
                     </configuration>
                 </plugin>
+                <plugin>
+                    <groupId>com.gradle</groupId>
+                    <artifactId>develocity-maven-extension</artifactId>
+                    <configuration>
+                        <develocity>
+                            <normalization>
+                                <runtimeClassPath>
+                                    <metaInf>
+                                        <ignoredAttributes>
+                                            <ignore>Bnd-LastModified</ignore>
+                                            <ignore>Bundle-Version</ignore>
+                                            <ignore>Created-By</ignore>
+                                            <ignore>Tool</ignore>
+                                        </ignoredAttributes>
+                                    </metaInf>
+                                    <ignoredFiles>
+                                        <ignoredFile>META-INF/Eclipse-Store-Sbom.json</ignoredFile>
+                                        <ignoredFile>META-INF/Eclipse-Store-Sbom.xml</ignoredFile>
+                                    </ignoredFiles>
+                                </runtimeClassPath>
+                            </normalization>
+                        </develocity>
+                    </configuration>
+                </plugin>
             </plugins>
         </pluginManagement>
     </build>
