@@ -91,3 +91,6 @@ storage/rest/client-app/src/main/dev-bundle/
 
 node_modules/
 
+#Develocity
+.mvn/.develocity/develocity-workspace-id
+
