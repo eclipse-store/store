@@ -24,4 +24,5 @@ module org.eclipse.store.afs.oraclecloud.objectstorage
 	requires transitive oci.java.sdk.common;
 	requires transitive oci.java.sdk.objectstorage.extensions;
 	requires transitive oci.java.sdk.objectstorage.generated;
+    requires oci.java.sdk.common.httpclient;
 }
