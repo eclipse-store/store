@@ -973,7 +973,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 
 		protected StorageDataChunkValidator.Provider2 ensureDataChunkValidatorProvider2()
 		{
-			return new StorageDataChunkValidator.NoOp();
+			return new StorageDataChunkValidator.MaxFileSize();
 		}
 
 		protected StorageChannelsCreator ensureChannelCreator()

@@ -18,18 +18,18 @@ import static org.eclipse.serializer.util.X.notNull;
 
 import java.nio.ByteBuffer;
 
-import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.binary.types.BinaryEntityRawDataIterator;
+import org.eclipse.store.storage.exceptions.StorageExceptionCommitSizeExceeded;
+import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
 
 
 public interface StorageDataChunkValidator
 {
 	public void validateDataChunk(Binary data);
 
-	
-	
+		
 	public static StorageDataChunkValidator New(
 		final BinaryEntityRawDataIterator entityDataIterator ,
 		final StorageEntityDataValidator  entityDataValidator
@@ -320,6 +320,46 @@ public interface StorageDataChunkValidator
 			return this;
 		}
 
+	}
+	
+	public class MaxFileSize implements StorageDataChunkValidator, Provider, Provider2
+	{
+		@Override
+		public Provider provideDataChunkValidatorProvider(
+				final StorageFoundation<?> foundation
+		)
+		{
+			return this;
+		}
+
+		@Override
+		public StorageDataChunkValidator provideDataChunkValidator(
+				final StorageTypeDictionary typeDictionary
+		)
+		{
+			return this;
+		}
+
+		@Override
+		public final void validateDataChunk(
+			final Binary data
+		)
+		{
+			for(int channelIndex = 0; channelIndex < data.channelCount(); channelIndex++)
+			{
+				long commitSize = 0;
+				for(ByteBuffer bb:data.channelChunk(channelIndex).buffers())
+				{
+					commitSize += bb.limit();
+				}
+								
+				if(commitSize >= Integer.MAX_VALUE)
+				{
+					throw new StorageExceptionCommitSizeExceeded(channelIndex, commitSize);
+				}
+				
+			}
+		}
 	}
 
 }

@@ -38,6 +38,7 @@ import org.eclipse.serializer.util.BufferSizeProvider;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.storage.exceptions.StorageException;
+import org.eclipse.store.storage.exceptions.StorageExceptionCommitSizeExceeded;
 import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
 import org.eclipse.store.storage.exceptions.StorageExceptionIoReading;
 import org.eclipse.store.storage.exceptions.StorageExceptionIoWriting;
@@ -594,6 +595,32 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			
 			return physicalLength;
 		}
+		
+		private void ensureHeadFileLoadableSize(final ByteBuffer[] dataBuffers)
+		{
+			//Must ensure that a file size never exceeds 2^31 bytes size.
+			//If that size is exceeded the storage is corrupted and can't be loaded any more because
+			//the current implementation use only one byte buffer to load a file.
+			//This buffer size is limited to an Integer.MAX_VALUE value.
+			
+			long commitSize = 0;
+			for(int i = 0; i < dataBuffers.length; i++)
+			{
+				commitSize += dataBuffers[i].limit();
+				if(commitSize > Integer.MAX_VALUE)
+				{
+					//Should never be reached, this case should be already handled by
+					//org.eclipse.store.storage.types.StorageDataChunkValidator.MaxFileSize.
+					//But keep exception to have second guard as the validator might be replaced.
+					throw new StorageExceptionCommitSizeExceeded(this.channelIndex(), commitSize);
+				}
+				if(commitSize + this.headFile.totalLength() > Integer.MAX_VALUE)
+				{
+					logger.debug("creating new storage file because appending would exceed the file size limit of 2^31 bytes");
+					this.createNextStorageFile();
+				}
+			}
+		}
 
 		@Override
 		public final long[] storeChunks(final long timestamp, final ByteBuffer[] dataBuffers)
@@ -605,6 +632,8 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			}
 			
 			this.checkForNewFile();
+			this.ensureHeadFileLoadableSize(dataBuffers);
+				
 			final long   oldTotalLength   = this.ensureHeadFileTotalLength();
 			final long[] storagePositions = allChunksStoragePositions(dataBuffers, oldTotalLength);
 			final long   writeCount       = this.writer.writeStore(this.headFile, X.ArrayView(dataBuffers));
