@@ -14,7 +14,6 @@ package org.eclipse.store.storage.exceptions;
  * #L%
  */
 
-@SuppressWarnings("serial")
 public class StorageExceptionCommitSizeExceeded extends StorageException
 {
 
