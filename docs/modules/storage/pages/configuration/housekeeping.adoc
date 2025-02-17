@@ -31,7 +31,7 @@ Available properties are:
 |===
 
 == Enabling Adaptive Housekeeping for Write-Intensive Data Applications
-The Eclipse Store is designed to write data as soon as it is requested. If there is a high volume of consecutive data writes, the housekeeping process does not start, resulting in an increased number of open files and significant disk space consumption. One possible solution is to use the Adaptive Housekeeping Controller, which, based on its configuration, allocates time for cleaning and reorganizing data files on the disk.
+{product-name} is designed to write data as soon as it is requested. If there is a high volume of consecutive data writes, the housekeeping process does not start, resulting in an increased number of open files and significant disk space consumption. One possible solution is to use the Adaptive Housekeeping Controller, which, based on its configuration, allocates time for cleaning and reorganizing data files on the disk.
 [source, java]
 ----
 // New foundation
