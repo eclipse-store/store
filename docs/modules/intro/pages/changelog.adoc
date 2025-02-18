@@ -1,6 +1,16 @@
 = Changelog
 
 
+== 2.1.2
+
+=== Bugfixes
+
+* Fix for potential NPE in lock scopes https://github.com/eclipse-serializer/serializer/pull/172[[172]]
+* Fix possible NPE in LazyReferenceManager https://github.com/eclipse-serializer/serializer/pull/171[[171]]
+* Prevent storage corruption https://github.com/eclipse-store/store/pull/371[[371]] https://github.com/eclipse-store/store/issues/319[[319]] https://github.com/eclipse-store/store/issues/321[[321]]
+* OCI update https://github.com/eclipse-store/store/pull/369[[369]] https://github.com/eclipse-store/store/pull/374[[374]]
+
+
 == 2.1.1
 
 === Bugfixes
