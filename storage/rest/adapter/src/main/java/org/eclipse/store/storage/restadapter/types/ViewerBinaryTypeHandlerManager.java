@@ -27,6 +27,7 @@ import org.eclipse.serializer.persistence.binary.types.BinaryPersistence;
 import org.eclipse.serializer.persistence.exceptions.PersistenceExceptionConsistency;
 import org.eclipse.serializer.persistence.types.PersistenceLegacyTypeHandler;
 import org.eclipse.serializer.persistence.types.PersistenceManager;
+import org.eclipse.serializer.persistence.types.PersistenceRootsView;
 import org.eclipse.serializer.persistence.types.PersistenceStoring;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDefinition;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDictionary;
@@ -330,6 +331,12 @@ public class ViewerBinaryTypeHandlerManager implements PersistenceTypeHandlerMan
 
 	@Override
 	public void iteratePerIds(final BiConsumer<Long, ? super Class<?>> consumer)
+	{
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public PersistenceRootsView viewRoots()
 	{
 		throw new UnsupportedOperationException();
 	}

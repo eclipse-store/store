@@ -28,6 +28,7 @@ import org.eclipse.serializer.persistence.types.PersistenceObjectIdRequestor;
 import org.eclipse.serializer.persistence.types.PersistenceObjectRegistry;
 import org.eclipse.serializer.persistence.types.PersistenceRegisterer;
 import org.eclipse.serializer.persistence.types.PersistenceRetrieving;
+import org.eclipse.serializer.persistence.types.PersistenceRootsView;
 import org.eclipse.serializer.persistence.types.PersistenceSource;
 import org.eclipse.serializer.persistence.types.PersistenceStorer;
 import org.eclipse.serializer.persistence.types.PersistenceTarget;
@@ -331,6 +332,12 @@ public interface ViewerBinaryPersistenceManager extends PersistenceManager<Binar
 			objectDescription.setLength(1);
 
 			return objectDescription;
+		}
+
+		@Override
+		public PersistenceRootsView viewRoots()
+		{
+			return this.persistenceManager.viewRoots();
 		}
 
 	}
