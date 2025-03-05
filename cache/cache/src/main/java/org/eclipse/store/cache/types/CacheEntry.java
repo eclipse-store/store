@@ -45,14 +45,14 @@ public interface CacheEntry<K, V> extends javax.cache.Cache.Entry<K, V>, KeyValu
 
 	public static class Default<K, V> implements CacheEntry<K, V>
 	{
-		private final K key;
+		private final K key  ;
 		private final V value;
 
 		Default(final K key, final V value)
 		{
 			super();
 
-			this.key   = key;
+			this.key   = key  ;
 			this.value = value;
 		}
 

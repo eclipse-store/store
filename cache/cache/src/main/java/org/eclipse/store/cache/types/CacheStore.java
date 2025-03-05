@@ -48,8 +48,8 @@ public interface CacheStore<K, V> extends CacheLoader<K, V>, CacheWriter<K, V>
 	
 	public static class Default<K, V> implements CacheStore<K, V>
 	{
-		private final String                 cacheKey;
-		private final StorageManager storage;
+		private final String         cacheKey;
+		private final StorageManager storage ;
 		
 		Default(final String cacheKey, final StorageManager storage)
 		{

@@ -148,9 +148,10 @@ public interface MutableCacheEntry<K, V> extends MutableEntry<K, V>, Unwrappable
 		public boolean exists()
 		{
 			return this.value != null
-			   || this.operation == Operation.NONE
+			    || this.operation == Operation.NONE
 			       && this.cachedValue != null
-				   && !this.cachedValue.isExpiredAt(this.now);
+				   && !this.cachedValue.isExpiredAt(this.now)
+			;
 		}
 
 		@Override
@@ -158,7 +159,8 @@ public interface MutableCacheEntry<K, V> extends MutableEntry<K, V>, Unwrappable
 		{
 			this.operation = this.operation == Operation.CREATE || this.operation == Operation.LOAD
 				? Operation.NONE
-				: Operation.REMOVE;
+				: Operation.REMOVE
+			;
 			this.value     = null;
 		}
 
@@ -168,7 +170,8 @@ public interface MutableCacheEntry<K, V> extends MutableEntry<K, V>, Unwrappable
 			notNull(value);
 			this.operation = this.cachedValue == null || this.cachedValue.isExpiredAt(this.now)
 				? Operation.CREATE
-				: Operation.UPDATE;
+				: Operation.UPDATE
+			;
 			this.value     = value;
 		}
 
