@@ -2415,7 +2415,6 @@ public interface Cache<K, V> extends javax.cache.Cache<K, V>, Unwrappable
 		}
 		
 
-		@SuppressWarnings("synthetic-access")
 		private final class KeyToValueIterator implements Iterator<KeyValue<Object, CachedValue>>
 		{
 			private final Iterator<K>                keyIterator         ;
@@ -2446,7 +2445,6 @@ public interface Cache<K, V> extends javax.cache.Cache<K, V>, Unwrappable
 		}
 		
 
-		@SuppressWarnings("synthetic-access")
 		private final class EntryIterator implements Iterator<Cache.Entry<K, V>>
 		{
 			private final Iterator<KeyValue<Object, CachedValue>> iterator ;

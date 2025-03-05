@@ -205,7 +205,6 @@ public interface CacheConfigurationBuilderConfigurationBased
 			}
 		}
 
-		@SuppressWarnings("unchecked")
 		private <T> Factory<T> valueAsFactory(
 			final String value
 		)
