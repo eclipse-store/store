@@ -180,3 +180,7 @@ You want to be able to write anything you want and you want full insight and con
 
 All this can be done with the tiny Lazy Interim Reference class.
 No restrictions, no incomprehensible "magic" under the hood (proxy instances and stuff) and also usable for individual instances.
+
+== Lazy Instance Storage Binding
+
+When a lazy instance is stored in a storage, it becomes permanently bound to that storage for the duration of the program's runtime. It is not possible to persist the same lazy instance to a different storage instance while the program is running. Any attempt to do so will result in an error.
