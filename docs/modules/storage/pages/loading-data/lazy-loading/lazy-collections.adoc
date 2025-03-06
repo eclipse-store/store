@@ -41,3 +41,6 @@ Some aspects of the implementations
 The _size_ property is cached, so calling for the amount of data in the collection doesn't need to load the segments.
 
 Accessing the `LazyHashMap` by a key value will load at maximum log2(n) segments when the implementation uses n segments since the search is implemented as btree.
+
+== Lazy Instance Storage Binding
+Collections are bound to specific storage instances upon their first persistence. Once they have been persisted, they can no longer be stored in different storage instances. Attempting to do so will result in an `IllegalStateException`.
