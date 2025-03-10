@@ -46,7 +46,7 @@ import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.configuration.types.Configuration;
 import org.eclipse.serializer.configuration.types.ConfigurationLoader;
 import org.eclipse.serializer.configuration.types.ConfigurationParserIni;
-import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.eclipse.store.storage.types.StorageManager;
 
 
 /**
@@ -794,16 +794,16 @@ public interface CacheConfiguration<K, V> extends CompleteConfiguration<K, V>
 	 * @param <V> the value type
 	 * @param keyType the class for the key type
 	 * @param valueType the class for value type
-	 * @param cacheName the slot name for the data in the {@link EmbeddedStorageManager}'s root,
+	 * @param cacheName the slot name for the data in the {@link StorageManager}'s root,
 	 * 	usually the {@link Cache}'s name
-	 * @param storageManager the {@link EmbeddedStorageManager} to use as a backing store
+	 * @param storageManager the {@link StorageManager} to use as a backing store
 	 * @return the newly created builder
 	 */
 	public static <K, V> Builder<K, V> Builder(
-		final Class<K>               keyType       ,
-		final Class<V>               valueType     ,
-		final String                 cacheName     ,
-		final EmbeddedStorageManager storageManager
+		final Class<K>       keyType       ,
+		final Class<V>       valueType     ,
+		final String         cacheName     ,
+		final StorageManager storageManager
 	)
 	{
 		return Builder(
@@ -823,17 +823,17 @@ public interface CacheConfiguration<K, V> extends CompleteConfiguration<K, V>
 	 * @param <V> the value type
 	 * @param keyType the class for the key type
 	 * @param valueType the class for value type
-	 * @param uri prefix of the slot name for the data in the {@link EmbeddedStorageManager}'s root
-	 * @param cacheName suffix of slot name for the data in the {@link EmbeddedStorageManager}'s root
-	 * @param storageManager the {@link EmbeddedStorageManager} to use as a backing store
+	 * @param uri prefix of the slot name for the data in the {@link StorageManager}'s root
+	 * @param cacheName suffix of slot name for the data in the {@link StorageManager}'s root
+	 * @param storageManager the {@link StorageManager} to use as a backing store
 	 * @return the newly created builder
 	 */
 	public static <K, V> Builder<K, V> Builder(
-		final Class<K> keyType,
-		final Class<V> valueType,
-		final URI uri,
-		final String cacheName,
-		final EmbeddedStorageManager storageManager
+		final Class<K>       keyType       ,
+		final Class<V>       valueType     ,
+		final URI            uri           ,
+		final String         cacheName     ,
+		final StorageManager storageManager
 	)
 	{
 		notNull(uri);
