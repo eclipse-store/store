@@ -51,15 +51,15 @@ jobs:
           gpg-passphrase: PASSPHRASE
       - name: Build with java 17
         run: |
-          mvn -pl integrations/spring-boot3 clean install -am -B
-          mvn -pl integrations/spring-boot3-console clean install -am -B
+          mvn -P production -pl integrations/spring-boot3 clean install -am -B
+          mvn -P production -pl integrations/spring-boot3-console clean install -am -B
           mvn -P production -pl storage/rest/client-app clean install -am -B
           mvn -P production -pl storage/rest/client-app-standalone-assembly clean install -am -B
           mvn -P production -pl storage/rest/service-springboot clean install -am -B
       - name: Deploy module build with java 17
         run: |
-          mvn -Pdeploy -pl integrations/spring-boot3 clean deploy
-          mvn -Pdeploy -pl integrations/spring-boot3-console clean deploy
+          mvn -Pdeploy -Pproduction -pl integrations/spring-boot3 clean deploy
+          mvn -Pdeploy -Pproduction -pl integrations/spring-boot3-console clean deploy
           mvn -Pdeploy -Pproduction -pl storage/rest/client-app clean deploy
           mvn -Pdeploy -Pproduction -pl storage/rest/client-app-standalone-assembly clean deploy
           mvn -Pdeploy -Pproduction -pl storage/rest/service-springboot clean deploy
