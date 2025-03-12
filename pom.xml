@@ -292,6 +292,7 @@
                             <arg>--pinentry-mode</arg>
                             <arg>loopback</arg>
                         </gpgArguments>
+                        <signer>bc</signer>
                     </configuration>
                 </plugin>
                 <plugin>
