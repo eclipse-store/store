@@ -1,3 +1,4 @@
+
 package org.eclipse.store.cache.types;
 
 /*-
@@ -42,12 +43,12 @@ public interface CacheConfigurationPropertyNames
 	/**
 	 * Sub-configuration name for the backing store.
 	 */
-	public static final String STORAGE = "storage";
+	public static final String STORAGE                             = "storage";
 	
 	/**
 	 * Storage key of the backing store
 	 */
-	public static final String STORAGE_KEY = "key";
+	public static final String STORAGE_KEY                         = "key";
 	
 	/**
 	 * @see CompleteConfiguration#getCacheLoaderFactory()

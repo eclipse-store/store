@@ -104,7 +104,7 @@ public interface CacheTable
 			 * Iterator#remove is used by Cache, so we have to implement it
 			 * since EqHashTable's iterators don't.
 			 */
-			return new Iterator<KeyValue<Object, CachedValue>>()
+			return new Iterator<>()
 			{
 				KeyValue<Object, CachedValue> next;
 				

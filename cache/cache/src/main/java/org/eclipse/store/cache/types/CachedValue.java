@@ -50,25 +50,25 @@ public interface CachedValue
 	
 	public static class Default implements CachedValue
 	{
-		private Object     value;
-		private final long creationTime;
-		private long       accessTime;
-		private long       accessCount;
-		private long       modificationTime;
+		private Object     value            ;
+		private final long creationTime     ;
+		private long       accessTime       ;
+		private long       accessCount      ;
+		private long       modificationTime ;
 		private long       modificationCount;
-		private long       expiryTime;
+		private long       expiryTime       ;
 		
 		Default(final Object value, final long creationTime, final long expiryTime)
 		{
 			super();
 			
-			this.value             = value;
+			this.value             = value       ;
 			this.creationTime      = creationTime;
 			this.accessTime        = creationTime;
 			this.modificationTime  = creationTime;
-			this.expiryTime        = expiryTime;
-			this.accessCount       = 0;
-			this.modificationCount = 0;
+			this.expiryTime        = expiryTime  ;
+			this.accessCount       = 0           ;
+			this.modificationCount = 0           ;
 		}
 		
 		@Override
