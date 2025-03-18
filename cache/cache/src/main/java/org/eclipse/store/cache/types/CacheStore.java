@@ -41,26 +41,130 @@ public interface CacheStore<K, V> extends CacheLoader<K, V>, CacheWriter<K, V>
 	public Iterator<K> keys();
 	
 	
+	public static interface TableProvider
+	{
+		public <K, V> XTable<K, Lazy<V>> provideTable(StorageManager storage, boolean create);
+		
+		
+		public static TableProvider Root(final String cacheKey)
+		{
+			return new TableProvider.Root(notEmpty(cacheKey));
+		}
+		
+		public static TableProvider LazyRoot(final String cacheKey)
+		{
+			return new TableProvider.LazyRoot(notEmpty(cacheKey));
+		}
+		
+		
+		public static class Root implements TableProvider
+		{
+			private final String cacheKey;
+			
+			Root(final String cacheKey)
+			{
+				super();
+				this.cacheKey = cacheKey;
+			}
+
+			@SuppressWarnings("unchecked")
+			@Override
+			public <K, V> XTable<K, Lazy<V>> provideTable(final StorageManager storage, final boolean create)
+			{
+				boolean                                  storeRoot = false;
+				XTable<String, Lazy<XTable<K, Lazy<V>>>> rootTable;
+				if((rootTable = (XTable<String, Lazy<XTable<K, Lazy<V>>>>)storage.root()) == null)
+				{
+					storage.setRoot(rootTable = EqHashTable.New());
+					storeRoot = true;
+				}
+				XTable<K, Lazy<V>> cacheTable;
+				if((cacheTable = Lazy.get(rootTable.get(this.cacheKey))) == null && create)
+				{
+					rootTable.put(this.cacheKey, Lazy.Reference(cacheTable = EqHashTable.New()));
+					storeRoot = true;
+				}
+				if(storeRoot)
+				{
+					storage.storeRoot();
+				}
+				return cacheTable;
+			}
+			
+		}
+		
+		
+		public static class LazyRoot implements TableProvider
+		{
+			private final String cacheKey;
+			
+			LazyRoot(final String cacheKey)
+			{
+				super();
+				this.cacheKey = cacheKey;
+			}
+			
+			@SuppressWarnings({"unchecked", "rawtypes"})
+			@Override
+			public <K, V> XTable<K, Lazy<V>> provideTable(final StorageManager storage, final boolean create)
+			{
+				boolean                                  storeRoot = false;
+				XTable<String, Lazy<XTable<K, Lazy<V>>>> rootTable;
+				if((rootTable = (XTable<String, Lazy<XTable<K, Lazy<V>>>>)Lazy.get((Lazy)storage.root())) == null)
+				{
+					storage.setRoot(Lazy.Reference(rootTable = EqHashTable.New()));
+					storeRoot = true;
+				}
+				XTable<K, Lazy<V>> cacheTable;
+				if((cacheTable = Lazy.get(rootTable.get(this.cacheKey))) == null && create)
+				{
+					rootTable.put(this.cacheKey, Lazy.Reference(cacheTable = EqHashTable.New()));
+					storeRoot = true;
+				}
+				if(storeRoot)
+				{
+					storage.storeAll(storage.root(), rootTable);
+				}
+				return cacheTable;
+			}
+			
+		}
+		
+	}
+	
+	
 	public static <K, V> CacheStore<K, V> New(final String cacheKey, final StorageManager storage)
 	{
-		return new Default<>(cacheKey, storage);
+		return new Default<>(
+			TableProvider.Root(cacheKey),
+			notNull(storage)
+		);
 	}
+	
+	
+	public static <K, V> CacheStore<K, V> New(final TableProvider tableProvider, final StorageManager storage)
+	{
+		return new Default<>(
+			notNull(tableProvider),
+			notNull(storage)
+		);
+	}
+	
 	
 	public static class Default<K, V> implements CacheStore<K, V>
 	{
-		private final String         cacheKey;
-		private final StorageManager storage ;
+		private final TableProvider  tableProvider;
+		private final StorageManager storage      ;
 		
-		Default(final String cacheKey, final StorageManager storage)
+		Default(final TableProvider tableProvider, final StorageManager storage)
 		{
 			super();
-			
-			this.cacheKey = notEmpty(cacheKey);
-			this.storage  = notNull(storage);
+
+			this.tableProvider = tableProvider;
+			this.storage       = storage      ;
 		}
 		
-		@SuppressWarnings("unchecked")
-		private XTable<K, Lazy<V>> cacheTable(final boolean create)
+		private XTable<K, Lazy<V>> table(final boolean create)
 		{
 			synchronized(this.storage)
 			{
@@ -69,33 +173,16 @@ public interface CacheStore<K, V> extends CacheLoader<K, V>, CacheWriter<K, V>
 					this.storage.start();
 				}
 				
-				boolean                                  storeRoot = false;
-				XTable<String, Lazy<XTable<K, Lazy<V>>>> root;
-				if((root = (XTable<String, Lazy<XTable<K, Lazy<V>>>>)this.storage.root()) == null)
-				{
-					this.storage.setRoot(root = EqHashTable.New());
-					storeRoot = true;
-				}
-				XTable<K, Lazy<V>> cacheTable;
-				if((cacheTable = Lazy.get(root.get(this.cacheKey))) == null && create)
-				{
-					root.put(this.cacheKey, Lazy.Reference(cacheTable = EqHashTable.New()));
-					storeRoot = true;
-				}
-				if(storeRoot)
-				{
-					this.storage.storeRoot();
-				}
-				return cacheTable;
+				return this.tableProvider.provideTable(this.storage, create);
 			}
 		}
 		
 		@Override
 		public synchronized Iterator<K> keys()
 		{
-			final XTable<K, Lazy<V>> cacheTable = this.cacheTable(false);
-			return cacheTable != null
-				? cacheTable.keys().iterator()
+			final XTable<K, Lazy<V>> table = this.table(false);
+			return table != null
+				? table.keys().iterator()
 				: Collections.emptyIterator()
 			;
 		}
@@ -105,9 +192,9 @@ public interface CacheStore<K, V> extends CacheLoader<K, V>, CacheWriter<K, V>
 		{
 			try
 			{
-				final XTable<K, Lazy<V>> cacheTable;
-				return (cacheTable = this.cacheTable(false)) != null
-					? Lazy.get(cacheTable.get(key))
+				final XTable<K, Lazy<V>> table;
+				return (table = this.table(false)) != null
+					? Lazy.get(table.get(key))
 					: null;
 			}
 			catch(final Exception e)
@@ -122,10 +209,10 @@ public interface CacheStore<K, V> extends CacheLoader<K, V>, CacheWriter<K, V>
 			try
 			{
 				final Map<K, V>          result = new HashMap<>();
-				final XTable<K, Lazy<V>> cacheTable;
-				if((cacheTable = this.cacheTable(false)) != null)
+				final XTable<K, Lazy<V>> table;
+				if((table = this.table(false)) != null)
 				{
-					keys.forEach(key -> result.put(key, Lazy.get(cacheTable.get(key))));
+					keys.forEach(key -> result.put(key, Lazy.get(table.get(key))));
 				}
 				return result;
 			}
@@ -140,9 +227,9 @@ public interface CacheStore<K, V> extends CacheLoader<K, V>, CacheWriter<K, V>
 		{
 			try
 			{
-				final XTable<K, Lazy<V>> cacheTable = this.cacheTable(true);
-				cacheTable.put(entry.getKey(), Lazy.Reference(entry.getValue()));
-				this.storage.store(cacheTable);
+				final XTable<K, Lazy<V>> table = this.table(true);
+				table.put(entry.getKey(), Lazy.Reference(entry.getValue()));
+				this.storage.store(table);
 			}
 			catch(final Exception e)
 			{
@@ -156,9 +243,9 @@ public interface CacheStore<K, V> extends CacheLoader<K, V>, CacheWriter<K, V>
 		{
 			try
 			{
-				final XTable<K, Lazy<V>> cacheTable = this.cacheTable(true);
-				entries.forEach(entry -> cacheTable.put(entry.getKey(), Lazy.Reference(entry.getValue())));
-				this.storage.store(cacheTable);
+				final XTable<K, Lazy<V>> table = this.table(true);
+				entries.forEach(entry -> table.put(entry.getKey(), Lazy.Reference(entry.getValue())));
+				this.storage.store(table);
 			}
 			catch(final Exception e)
 			{
@@ -172,11 +259,11 @@ public interface CacheStore<K, V> extends CacheLoader<K, V>, CacheWriter<K, V>
 		{
 			try
 			{
-				final XTable<K, Lazy<V>> cacheTable;
-				if((cacheTable = this.cacheTable(false)) != null
-					&& cacheTable.removeFor((K)key) != null)
+				final XTable<K, Lazy<V>> table;
+				if((table = this.table(false)) != null
+					&& table.removeFor((K)key) != null)
 				{
-					this.storage.store(cacheTable);
+					this.storage.store(table);
 				}
 			}
 			catch(final Exception e)
@@ -190,8 +277,8 @@ public interface CacheStore<K, V> extends CacheLoader<K, V>, CacheWriter<K, V>
 		{
 			try
 			{
-				final XTable<K, Lazy<V>> cacheTable;
-				if((cacheTable = this.cacheTable(false)) != null)
+				final XTable<K, Lazy<V>> table;
+				if((table = this.table(false)) != null)
 				{
 					boolean           changed  = false;
 					final Iterator<?> iterator = keys.iterator();
@@ -199,7 +286,7 @@ public interface CacheStore<K, V> extends CacheLoader<K, V>, CacheWriter<K, V>
 					{
 						@SuppressWarnings("unchecked")
 						final K key = (K)iterator.next();
-						if(cacheTable.removeFor(key) != null)
+						if(table.removeFor(key) != null)
 						{
 							iterator.remove();
 							changed = true;
@@ -207,7 +294,7 @@ public interface CacheStore<K, V> extends CacheLoader<K, V>, CacheWriter<K, V>
 					}
 					if(changed)
 					{
-						this.storage.store(cacheTable);
+						this.storage.store(table);
 					}
 				}
 			}
