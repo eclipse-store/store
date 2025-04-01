@@ -613,7 +613,7 @@ public interface StorageHousekeepingController
 		// methods //
 		////////////
 		
-		private synchronized void reset()
+		private void reset()
 		{
 			this.lastFinishedGCCycle = this.lastIncrease = System.currentTimeMillis();
 			if(this.currentIncreaseNs != 0)
@@ -623,7 +623,7 @@ public interface StorageHousekeepingController
 			}
 		}
 		
-		private synchronized long increaseNs()
+		private long increaseNs()
 		{
 			if(this.monitorSupplier.get().isComplete())
 			{
