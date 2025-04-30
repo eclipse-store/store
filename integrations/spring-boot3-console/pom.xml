@@ -16,7 +16,7 @@
     <url>https://projects.eclipse.org/projects/technology.store</url>
 
     <properties>
-        <org.springframework.boot.version>3.2.0</org.springframework.boot.version>
+        <org.springframework.boot.version>3.4.5</org.springframework.boot.version>
     </properties>
 
     <dependencies>
