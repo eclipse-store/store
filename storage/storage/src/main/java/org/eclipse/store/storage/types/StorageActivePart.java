@@ -14,6 +14,15 @@ package org.eclipse.store.storage.types;
  * #L%
  */
 
+
+/**
+ * Interface representing an active component of a storage system.
+ * <p>
+ * Implementors of this interface represent parts of a storage system
+ * that can be queried for their active status. The active state typically
+ * indicates whether the part is currently operational or engaged in its
+ * designated tasks.
+ */
 public interface StorageActivePart
 {
 	/**

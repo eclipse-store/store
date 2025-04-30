@@ -33,23 +33,83 @@ import org.eclipse.store.storage.exceptions.StorageExceptionNotAcceptingTasks;
 import org.eclipse.store.storage.exceptions.StorageExceptionNotRunning;
 import org.slf4j.Logger;
 
-// (21.03.2016 TM)TODO: what is the difference between ~Manager and ~Controller here? Merge into Controller or comment.
+
+/**
+ * The StorageSystem class represents the core of a storage system implementation, providing
+ * key functionalities to manage, configure, and interact with a storage setup. It encapsulates
+ * various components that contribute to the operation, monitoring, and configuration of the
+ * storage system.
+ * <p>
+ * Core functionalities include
+ * <ul>
+ * <li>Managing storage requests, operations, and configurations</li>
+ * <li>Monitoring object ID ranges and initialization processes</li>
+ * <li>Providing access to type dictionaries and file systems</li>
+ * <li>Handling startup and shutdown operations of the storage system</li>
+ * </ul>
+ */
 public interface StorageSystem extends StorageController
 {
+	/**
+	 * Creates and returns an instance of {@link StorageRequestAcceptor}, which is responsible for handling
+	 * various storage-related tasks, such as storing data, querying data, managing garbage collection,
+	 * and performing other storage operations.
+	 *
+	 * @return an instance of {@link StorageRequestAcceptor} that facilitates interaction with the storage system.
+	 */
 	public StorageRequestAcceptor createRequestAcceptor();
-
+	
+	/**
+	 * Provides access to the storage type dictionary, which is used to manage and interact
+	 * with definitions and handlers for different storage entity types within the system.
+	 *
+	 * @return an instance of {@link StorageTypeDictionary}, which contains type definitions
+	 * and provides methods to validate, initialize, and look up type handlers and definitions.
+	 */
 	public StorageTypeDictionary typeDictionary();
-
-	// (20.05.2013 TM)TODO: StorageManager#operationController() - not sure this belongs here
+	
+	/**
+	 * Provides an instance of {@link StorageOperationController}, which manages
+	 * the state and operations of the storage system, including channel
+	 * processing and disruption handling.
+	 *
+	 * @return an instance of {@link StorageOperationController} for controlling
+	 *         storage operations.
+	 */
 	public StorageOperationController operationController();
 	
+	/**
+	 * Provides an instance of {@link StorageChannelCountProvider}, which determines
+	 * the number of channels available for storage operations in the system.
+	 * The returned provider can be used to retrieve channel count configurations
+	 * and manage parallel storage operations efficiently.
+	 *
+	 * @return an instance of {@link StorageChannelCountProvider} that supplies
+	 *         channel count information to optimize storage processes.
+	 */
 	public default StorageChannelCountProvider channelCountProvider()
 	{
 		return this.operationController().channelCountProvider();
 	}
-
+	
+	/**
+	 * Provides the configuration details for the storage system. This method returns an instance of
+	 * {@link StorageConfiguration}, which contains various parameters and settings that dictate how
+	 * the storage system should operate, including performance tuning, caching policies, and storage
+	 * allocation strategies.
+	 *
+	 * @return an instance of {@link StorageConfiguration} that encapsulates the configuration parameters
+	 *         and operational settings for the storage system.
+	 */
 	public StorageConfiguration configuration();
 	
+	/**
+	 * Provides access to the underlying {@link AFileSystem} instance associated with the storage system.
+	 * The file system is obtained via the configuration's file provider and enables low-level file
+	 * operations and management within the storage system.
+	 *
+	 * @return an instance of {@link AFileSystem} representing the file system used by the storage system.
+	 */
 	public default AFileSystem fileSystem()
 	{
 		return this.configuration().fileProvider().fileSystem();
@@ -59,11 +119,27 @@ public interface StorageSystem extends StorageController
 	@Override
 	public StorageSystem start();
 	
+	/**
+	 * Initializes and provides an instance of {@link StorageIdAnalysis}, which is responsible
+	 * for analyzing and maintaining information about unique identifiers within the storage
+	 * system, such as the highest IDs per type and the IDs that are currently in use.
+	 *
+	 * @return an instance of {@link StorageIdAnalysis}, which provides methods to retrieve
+	 *         information about identifier usage and analysis in the storage system.
+	 */
 	public StorageIdAnalysis initializationIdAnalysis();
 	
 	@Override
 	public boolean shutdown();
-
+	
+	/**
+	 * Provides an instance of {@link StorageObjectIdRangeEvaluator}, which is responsible
+	 * for evaluating ranges of object IDs within the storage system. This evaluation can be
+	 * useful for validating or processing object ID ranges to manage the storage system's state
+	 * or integrity.
+	 *
+	 * @return an instance of {@link StorageObjectIdRangeEvaluator} used for evaluating object ID ranges.
+	 */
 	public StorageObjectIdRangeEvaluator objectIdRangeEvaluator();
 		
 
