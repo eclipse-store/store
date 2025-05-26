@@ -133,6 +133,12 @@ public class PersistenceStorerWrapper implements PersistenceStorer
 	{
 		this.delegate.registerRegistrationListener(listener);
 	}
+
+	@Override
+	public long store(Object instance, long objectId)
+	{
+		return this.delegate.store(instance, objectId);
+	}
 	
 	
 }
