@@ -31,6 +31,7 @@ import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.storage.exceptions.StorageExceptionInitialization;
 import org.eclipse.store.storage.exceptions.StorageExceptionNotAcceptingTasks;
 import org.eclipse.store.storage.exceptions.StorageExceptionNotRunning;
+import org.eclipse.store.storage.types.StorageEntityCollector.StorageEntityCollectorCreator;
 import org.slf4j.Logger;
 
 
@@ -189,6 +190,7 @@ public interface StorageSystem extends StorageController
 		private final boolean                                    switchByteOrder               ;
 		private final StorageStructureValidator                  storageStructureValidator     ;
 		private final MonitoringManager                          monitorManager                ;
+		private final StorageEntityCollectorCreator              entityCollectorCreator        ;
 		
 		// state flags //
 		private final AtomicBoolean    isStartingUp       = new AtomicBoolean();
@@ -244,7 +246,8 @@ public interface StorageSystem extends StorageController
 			final ObjectIdsSelector                          liveObjectIdChecker           ,
 			final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry             ,
 			final StorageStructureValidator                  storageStructureValidator     ,
-			final MonitoringManager                          monitorManager
+			final MonitoringManager                          monitorManager                ,
+			final StorageEntityCollectorCreator              entityCollectorCreator
 		)
 		{
 			super();
@@ -291,6 +294,7 @@ public interface StorageSystem extends StorageController
 			this.switchByteOrder                =         switchByteOrder                      ;
 			this.storageStructureValidator      = notNull(storageStructureValidator)           ;
 			this.monitorManager                 = notNull(monitorManager)                      ;
+			this.entityCollectorCreator         = notNull(entityCollectorCreator)               ;
 		}
 
 
@@ -550,7 +554,8 @@ public interface StorageSystem extends StorageController
 				this.refStorerRegistry                     ,
 				this.switchByteOrder                       ,
 				this.rootTypeIdProvider.provideRootTypeId(),
-				this.monitorManager
+				this.monitorManager                        ,
+				this.entityCollectorCreator
 			);
 
 			final ChannelKeeper[] keepers = this.channelKeepers;

@@ -25,7 +25,6 @@ import java.util.function.Predicate;
 import org.eclipse.serializer.afs.types.AWritableFile;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.functional.ThrowingProcedure;
-import org.eclipse.serializer.functional._longProcedure;
 import org.eclipse.serializer.monitoring.MonitoringManager;
 import org.eclipse.serializer.persistence.binary.types.Chunk;
 import org.eclipse.serializer.persistence.binary.types.ChunksBuffer;
@@ -38,7 +37,6 @@ import org.eclipse.serializer.typing.KeyValue;
 import org.eclipse.serializer.util.BufferSizeProviderIncremental;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.logging.Logging;
-import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
 import org.eclipse.store.storage.monitoring.StorageChannelHousekeepingMonitor;
 import org.slf4j.Logger;
 
@@ -128,6 +126,7 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		private final boolean                       switchByteOrder          ;
 		private final BufferSizeProviderIncremental loadingBufferSizeProvider;
 		private final StorageEventLogger            eventLogger              ;
+		private final StorageEntityCollectorCreator entityCollectorCreator   ;
 
 		private final HousekeepingTask[] housekeepingTasks;
 		
@@ -166,7 +165,8 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			final BufferSizeProviderIncremental loadingBufferSizeProvider,
 			final StorageFileManager.Default    fileManager              ,
 			final StorageEventLogger            eventLogger              ,
-			final MonitoringManager             monitorManager
+			final MonitoringManager             monitorManager           ,
+			final StorageEntityCollectorCreator entityCollectorCreator
 		)
 		{
 			super();
@@ -181,6 +181,7 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			this.loadingBufferSizeProvider =     notNull(loadingBufferSizeProvider);
 			this.eventLogger               =     notNull(eventLogger)              ;
 			this.switchByteOrder           =             switchByteOrder           ;
+			this.entityCollectorCreator    =     notNull(entityCollectorCreator)   ;
 			
 			// depends on this.fileManager!
 			this.housekeepingTasks = this.defineHouseKeepingTasks();
@@ -632,7 +633,7 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			if(!loadOids.isEmpty())
 			{
 				// progress must have been incremented accordingly at task creation time
-				loadOids.iterate(new EntityCollectorByOid(this.entityCache, chunks));
+				loadOids.iterate(this.entityCollectorCreator.create(this.entityCache, chunks));
 			}
 			
 			return chunks.complete();
@@ -654,7 +655,7 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			if(!loadTids.isEmpty())
 			{
 				// progress must have been incremented accordingly at task creation time
-				loadTids.iterate(new EntityCollectorByTid(this.entityCache, chunks));
+				loadTids.iterate(new StorageEntityCollector.EntityCollectorByTid(this.entityCache, chunks));
 			}
 			return chunks.complete();
 		}
@@ -816,116 +817,6 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			this.fileManager.dispose();
 		}
 	}
-
-
-
-	public final class EntityCollectorByOid implements _longProcedure
-	{
-		// (01.06.2013 TM)TODO: clean up / consolidate all internal implementations
-
-		///////////////////////////////////////////////////////////////////////////
-		// instance fields //
-		////////////////////
-
-		private final StorageEntityCache.Default entityCache  ;
-		private final ChunksBuffer                      dataCollector;
-
-
-
-		///////////////////////////////////////////////////////////////////////////
-		// constructors //
-		/////////////////
-
-		public EntityCollectorByOid(
-			final StorageEntityCache.Default entityCache  ,
-			final ChunksBuffer                      dataCollector
-		)
-		{
-			super();
-			this.entityCache   = entityCache  ;
-			this.dataCollector = dataCollector;
-		}
-
-
-
-		///////////////////////////////////////////////////////////////////////////
-		// methods //
-		////////////
-
-		@Override
-		public final void accept(final long objectId)
-		{
-			final StorageEntity.Default entry;
-			if((entry = this.entityCache.getEntry(objectId)) == null)
-			{
-				/* (14.01.2015 TM)NOTE: this actually is an error, as every oid request comes
-				 * from a referencing entity from inside the same database. So if any load request lookup
-				 * yields null, it is an inconsistency that has to be expressed rather sooner than later.
-				 *
-				 * If some kind of querying request (look if an arbitrary oid yields an entity) is needed,
-				 * is has to be a dedicated kind of request, not this one.
-				 * This one does recursive graph loading (consistency required), not arbitrary querying
-				 * with optional results.
-				 */
-				throw new StorageExceptionConsistency("No entity found for objectId " + objectId);
-			}
-			entry.copyCachedData(this.dataCollector);
-			this.entityCache.checkForCacheClear(entry, System.currentTimeMillis());
-		}
-
-	}
-
-	public final class EntityCollectorByTid implements _longProcedure
-	{
-		///////////////////////////////////////////////////////////////////////////
-		// instance fields //
-		////////////////////
-
-		private final StorageEntityCache.Default entityCache  ;
-		private final ChunksBuffer                      dataCollector;
-
-
-
-		///////////////////////////////////////////////////////////////////////////
-		// constructors //
-		/////////////////
-
-		public EntityCollectorByTid(
-			final StorageEntityCache.Default entityCache  ,
-			final ChunksBuffer                      dataCollector
-		)
-		{
-			super();
-			this.entityCache   = entityCache  ;
-			this.dataCollector = dataCollector;
-		}
-
-
-
-		///////////////////////////////////////////////////////////////////////////
-		// methods //
-		////////////
-
-		@Override
-		public final void accept(final long tid)
-		{
-			final StorageEntityType.Default type;
-			if((type = this.entityCache.getType(tid)) == null)
-			{
-				// it can very well be that a channel does not have a certain type at all. That is no error
-				return;
-			}
-
-			// all the type's entities are iterated and their data is collected
-			for(StorageEntity.Default entity = type.head; (entity = entity.typeNext) != null;)
-			{
-				entity.copyCachedData(this.dataCollector);
-				this.entityCache.checkForCacheClear(entity, System.currentTimeMillis());
-			}
-		}
-
-	}
-
 
 	@FunctionalInterface
 	public interface HousekeepingTask

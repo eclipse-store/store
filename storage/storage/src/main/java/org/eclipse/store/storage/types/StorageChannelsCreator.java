@@ -23,6 +23,7 @@ import org.eclipse.serializer.util.BufferSizeProvider;
 import org.eclipse.serializer.util.BufferSizeProviderIncremental;
 import org.eclipse.store.storage.monitoring.EntityCacheMonitor;
 import org.eclipse.store.storage.monitoring.EntityCacheSummaryMonitor;
+import org.eclipse.store.storage.types.StorageEntityCollector.StorageEntityCollectorCreator;
 
 
 public interface StorageChannelsCreator
@@ -52,7 +53,8 @@ public interface StorageChannelsCreator
 		Referencing<PersistenceLiveStorerRegistry> refStorerRegistry            ,
 		boolean                                    switchByteOrder              ,
 		long                                       rootTypeId                   ,
-		MonitoringManager                          monitorManager
+		MonitoringManager                          monitorManager               ,
+		StorageEntityCollectorCreator              entityCollectorCreator
 	);
 
 
@@ -89,7 +91,8 @@ public interface StorageChannelsCreator
 			final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry            ,
 			final boolean                                    switchByteOrder              ,
 			final long                                       rootTypeId                   ,
-			final MonitoringManager                          monitorManager
+			final MonitoringManager                          monitorManager               ,
+			final StorageEntityCollectorCreator              entityCollectorCreator
 		)
 		{
 			// (14.07.2016 TM)TODO: make configuration dynamic
@@ -168,7 +171,8 @@ public interface StorageChannelsCreator
 					loadingBufferSizeProvider,
 					fileManager              ,
 					eventLogger              ,
-					monitorManager
+					monitorManager           ,
+					entityCollectorCreator
 				);
 
 			}

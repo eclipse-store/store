@@ -28,6 +28,7 @@ import org.eclipse.serializer.persistence.types.Unpersistable;
 import org.eclipse.serializer.reference.Reference;
 import org.eclipse.serializer.util.InstanceDispatcher;
 import org.eclipse.serializer.util.ProcessIdentityProvider;
+import org.eclipse.store.storage.types.StorageEntityCollector.StorageEntityCollectorCreator;
 
 
 /**
@@ -527,6 +528,20 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	public MonitoringManager getStorageMonitorManager();
 	
 	/**
+	 * Returns the currently set {@link StorageEntityCollectorCreator} instance.
+	 * <p>
+	 * If no instance is set and the implementation deems an instance of this type mandatory for the successful
+	 * execution of {@link #createStorageSystem()}, a suitable instance is created via an internal default
+	 * creation logic and then set as the current. If the implementation has not sufficient logic and/or data
+	 * to create a default instance, a {@link MissingFoundationPartException} is thrown.
+	 * 
+	 * @return the currently set instance, potentially created on-demand if required.
+	 * 
+	 * @throws MissingFoundationPartException if a returnable instance is required but cannot be created by default.
+	 */
+	public StorageEntityCollectorCreator getStorageEntityCollectorCreator();
+	
+	/**
 	 * Sets the {@link StorageConfiguration} instance to be used for the assembly.
 	 * 
 	 * @param configuration the instance to be used.
@@ -839,6 +854,15 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	public F setStorageMonitorManager(MonitoringManager storageMonitorManager);
 	
 	/**
+	 * Sets the {@link StorageEntityCollectorCreator} instance to be used for the assembly.
+	 * 
+	 * @param storageEntityCollectorCreator the instance to be used.
+	 * 
+	 * @return {@literal this} to allow method chaining.
+	 */
+	public F setStorageEntityCollectorCreator(StorageEntityCollectorCreator storageEntityCollectorCreator);
+	
+	/**
 	 * Creates and returns a new {@link StorageSystem} instance by using the current state of all registered
 	 * logic part instances and by on-demand creating missing ones via a default logic.
 	 * <p>
@@ -903,6 +927,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		private Reference<PersistenceLiveStorerRegistry> storerRegistryReference      ;
 		private StorageStructureValidator                storageStructureValidator    ;
 		private MonitoringManager                        storageMonitorManager        ;
+		private StorageEntityCollectorCreator            storageEntityCollectorCreator       ;
 
 		
 		
@@ -1155,6 +1180,11 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		protected MonitoringManager ensureStorageMonitorManager()
 		{
 			return MonitoringManager.PlatformDependent(null);
+		}
+		
+		protected StorageEntityCollectorCreator ensureStorageEntityCollectorCreator()
+		{
+			return StorageEntityCollectorCreator.Default();
 		}
 		
 
@@ -1548,6 +1578,16 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 			return this.storageMonitorManager;
 		}
 		
+		@Override
+		public StorageEntityCollectorCreator getStorageEntityCollectorCreator()
+		{
+			if(this.storageEntityCollectorCreator == null)
+			{
+				this.storageEntityCollectorCreator = this.dispatch(this.ensureStorageEntityCollectorCreator());
+			}
+			return this.storageEntityCollectorCreator;
+		}
+		
 		
 		@Override
 		public F setOperationControllerCreator(
@@ -1855,6 +1895,13 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 			return this.$();
 		}
 		
+		@Override
+		public final F setStorageEntityCollectorCreator(final StorageEntityCollectorCreator storageEntityCollectorCreator)
+		{
+			this.storageEntityCollectorCreator = storageEntityCollectorCreator;
+			return this.$();
+		}
+		
 		public final boolean isByteOrderMismatch()
 		{
 			/* (11.02.2019 TM)NOTE: On byte order switching:
@@ -1907,7 +1954,8 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 				this.getLiveObjectIdChecker()          ,
 				this.getLiveStorerRegistryReference()  ,
 				this.getStorageStructureValidator()    ,
-				this.getStorageMonitorManager()
+				this.getStorageMonitorManager()        ,
+				this.getStorageEntityCollectorCreator()
 			);
 		}
 
