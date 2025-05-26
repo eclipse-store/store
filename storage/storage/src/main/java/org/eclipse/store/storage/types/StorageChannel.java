@@ -38,6 +38,7 @@ import org.eclipse.serializer.util.BufferSizeProviderIncremental;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.storage.monitoring.StorageChannelHousekeepingMonitor;
+import org.eclipse.store.storage.types.StorageEntityCollector.StorageEntityCollectorCreator;
 import org.slf4j.Logger;
 
 
