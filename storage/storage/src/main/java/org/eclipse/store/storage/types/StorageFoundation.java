@@ -28,7 +28,6 @@ import org.eclipse.serializer.persistence.types.Unpersistable;
 import org.eclipse.serializer.reference.Reference;
 import org.eclipse.serializer.util.InstanceDispatcher;
 import org.eclipse.serializer.util.ProcessIdentityProvider;
-import org.eclipse.store.storage.types.StorageEntityCollector.Creator;
 
 
 /**
@@ -528,7 +527,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	public MonitoringManager getStorageMonitorManager();
 	
 	/**
-	 * Returns the currently set {@link Creator} instance.
+	 * Returns the currently set {@link StorageEntityCollector.Creator} instance.
 	 * <p>
 	 * If no instance is set and the implementation deems an instance of this type mandatory for the successful
 	 * execution of {@link #createStorageSystem()}, a suitable instance is created via an internal default
@@ -539,7 +538,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	 * 
 	 * @throws MissingFoundationPartException if a returnable instance is required but cannot be created by default.
 	 */
-	public Creator getStorageEntityCollectorCreator();
+	public StorageEntityCollector.Creator getStorageEntityCollectorCreator();
 	
 	/**
 	 * Sets the {@link StorageConfiguration} instance to be used for the assembly.
@@ -854,13 +853,13 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	public F setStorageMonitorManager(MonitoringManager storageMonitorManager);
 	
 	/**
-	 * Sets the {@link Creator} instance to be used for the assembly.
+	 * Sets the {@link StorageEntityCollector.Creator} instance to be used for the assembly.
 	 * 
 	 * @param storageEntityCollectorCreator the instance to be used.
 	 * 
 	 * @return {@literal this} to allow method chaining.
 	 */
-	public F setStorageEntityCollectorCreator(Creator storageEntityCollectorCreator);
+	public F setStorageEntityCollectorCreator(StorageEntityCollector.Creator storageEntityCollectorCreator);
 	
 	/**
 	 * Creates and returns a new {@link StorageSystem} instance by using the current state of all registered
@@ -1182,9 +1181,9 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 			return MonitoringManager.PlatformDependent(null);
 		}
 		
-		protected Creator ensureStorageEntityCollectorCreator()
+		protected StorageEntityCollector.Creator ensureStorageEntityCollectorCreator()
 		{
-			return Creator.Default();
+			return StorageEntityCollector.Creator.Default();
 		}
 		
 
@@ -1579,7 +1578,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		}
 		
 		@Override
-		public Creator getStorageEntityCollectorCreator()
+		public StorageEntityCollector.Creator getStorageEntityCollectorCreator()
 		{
 			if(this.storageEntityCollectorCreator == null)
 			{
@@ -1896,7 +1895,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		}
 		
 		@Override
-		public final F setStorageEntityCollectorCreator(final Creator storageEntityCollectorCreator)
+		public final F setStorageEntityCollectorCreator(final StorageEntityCollector.Creator storageEntityCollectorCreator)
 		{
 			this.storageEntityCollectorCreator = storageEntityCollectorCreator;
 			return this.$();
