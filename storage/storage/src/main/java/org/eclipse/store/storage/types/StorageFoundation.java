@@ -67,7 +67,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	 * Returns the currently set {@link StorageConfiguration} instance.
 	 * <p>
 	 * If no instance is set and the implementation deems an instance of this type mandatory for the successful
-	 * executon of {@link #createStorageSystem()}, a suitable instance is created via an internal default
+	 * execution of {@link #createStorageSystem()}, a suitable instance is created via an internal default
 	 * creation logic and then set as the current. If the implementation has not sufficient logic and/or data
 	 * to create a default instance, a {@link MissingFoundationPartException} is thrown.
 	 * 
@@ -95,7 +95,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	 * Returns the currently set {@link StorageInitialDataFileNumberProvider} instance.
 	 * <p>
 	 * If no instance is set and the implementation deems an instance of this type mandatory for the successful
-	 * executon of {@link #createStorageSystem()}, a suitable instance is created via an internal default
+	 * execution of {@link #createStorageSystem()}, a suitable instance is created via an internal default
 	 * creation logic and then set as the current. If the implementation has not sufficient logic and/or data
 	 * to create a default instance, a {@link MissingFoundationPartException} is thrown.
 	 * 
@@ -1905,7 +1905,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		public final boolean isByteOrderMismatch()
 		{
 			/* (11.02.2019 TM)NOTE: On byte order switching:
-			 * Theoreticaly, the storage engine (OGS) could also use the switchByteOrder mechanism implemented for
+			 * Theoretically, the storage engine (OGS) could also use the switchByteOrder mechanism implemented for
 			 * communication (OGC). However, there are a lot stumbling blocks in the details that are currently not
 			 * worth resolving for a feature that is most probably never required in the foreseeable future.
 			 * See StorageEntityCache$Default#putEntity

@@ -65,7 +65,7 @@ public interface StorageEntityCollector extends _longProcedure
 	/**
 	 * Default StorageEntityCollector implementation that will fail
 	 * with a StorageExceptionConsistency exception if the storage
-	 * does not containes a persisted object with the given id.
+	 * does not contain a persisted object with the given id.
 	 */
 	class EntityCollectorByOid implements StorageEntityCollector
 	{
@@ -111,7 +111,7 @@ public interface StorageEntityCollector extends _longProcedure
 				 * yields null, it is an inconsistency that has to be expressed rather sooner than later.
 				 *
 				 * If some kind of querying request (look if an arbitrary oid yields an entity) is needed,
-				 * is has to be a dedicated kind of request, not this one.
+				 * it has to be a dedicated kind of request, not this one.
 				 * This one does recursive graph loading (consistency required), not arbitrary querying
 				 * with optional results.
 				 */
@@ -127,11 +127,11 @@ public interface StorageEntityCollector extends _longProcedure
 	/**
 	 * Special StorageEntityCollector implementation that will NOT fail
 	 * with a StorageExceptionConsistency exception if the storage
-	 * does not containes a persisted object with the given id.
-	 * Instead the missing objects id will only be logged.
+	 * does not contain a persisted object with the given id.
+	 * Instead, the missing objects id will only be logged.
 	 * <br><br><b>
 	 * Use this StorageEntityCollector with extreme caution as it may
-	 * result in more unrecogniced peristence errors and missig runtime objects
+	 * result in more unrecognized persistence errors and missing runtime objects
 	 * when used wrong!
 	 */
 	class EntityCollectorByOidUnchecked implements StorageEntityCollector
