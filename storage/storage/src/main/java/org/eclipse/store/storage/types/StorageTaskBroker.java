@@ -17,6 +17,7 @@ package org.eclipse.store.storage.types;
 import static org.eclipse.serializer.util.X.notNull;
 
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.util.function.Predicate;
 
 import org.eclipse.serializer.afs.types.AFile;
@@ -95,6 +96,9 @@ public interface StorageTaskBroker
 		throws InterruptedException;
 
 	public StorageRequestTaskTransactionsLogCleanup issueTransactionsLogCleanup()
+		throws InterruptedException;
+	
+	public StorageRequestTaskExportAdjacencyData exportAdjacencyData(Path workingDir)
 		throws InterruptedException;
 	
 	public StorageOperationController operationController();
@@ -282,6 +286,19 @@ public interface StorageTaskBroker
 			final StorageRequestTaskTransactionsLogCleanup task = this.taskCreator.CreateTransactionsLogCleanupTask(
 				this.channelCount,
 				this.operationController
+			);
+			this.enqueueTaskAndNotifyAll(task);
+			return task;
+		}
+
+		@Override
+		public final synchronized StorageRequestTaskExportAdjacencyData exportAdjacencyData(final Path exportDirectory)
+			throws InterruptedException
+		{
+			final StorageRequestTaskExportAdjacencyData task = this.taskCreator.createExportAdjacencyDataTask(
+				this.channelCount,
+				this.operationController,
+				exportDirectory
 			);
 			this.enqueueTaskAndNotifyAll(task);
 			return task;

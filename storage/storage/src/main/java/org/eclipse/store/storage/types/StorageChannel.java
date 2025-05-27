@@ -20,6 +20,7 @@ import static org.eclipse.serializer.util.X.notNull;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.util.function.Predicate;
 
 import org.eclipse.serializer.afs.types.AWritableFile;
@@ -38,6 +39,7 @@ import org.eclipse.serializer.util.BufferSizeProviderIncremental;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.storage.monitoring.StorageChannelHousekeepingMonitor;
+import org.eclipse.store.storage.types.StorageAdjacencyDataExporter.AdjacencyFiles;
 import org.slf4j.Logger;
 
 
@@ -103,6 +105,8 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 //	public void truncateData();
 
 	public void cleanupStore();
+
+	public AdjacencyFiles collectAdjacencyData(Path exportDirectory);
 
 
 	
@@ -815,6 +819,23 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		{
 			this.entityCache.reset();
 			this.fileManager.dispose();
+		}
+		
+		@Override
+		public AdjacencyFiles collectAdjacencyData(final Path exportDirectory) {
+			
+			logger.debug("Channel {} collecting object references.", this.channelIndex);
+												
+			final StorageAdjacencyDataExporter adjacencyDataCollector = new StorageAdjacencyDataExporter.Default(
+				this.typeDictionary(),
+				exportDirectory,
+				this.channelIndex
+			);
+			this.fileManager.iterateStorageFiles(adjacencyDataCollector::exportAdjacencyData);
+			
+			logger.debug("Channel {} collecting object references finished.", this.channelIndex);
+			
+			return adjacencyDataCollector.getExportetFiles();
 		}
 	}
 

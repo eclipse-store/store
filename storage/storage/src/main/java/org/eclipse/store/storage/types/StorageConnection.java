@@ -17,6 +17,8 @@ package org.eclipse.store.storage.types;
 import static org.eclipse.serializer.util.X.notNull;
 
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
+import java.util.List;
 import java.util.function.Predicate;
 
 import org.eclipse.serializer.afs.types.ADirectory;
@@ -24,6 +26,8 @@ import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.collections.types.XGettingEnum;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.types.PersistenceManager;
+import org.eclipse.serializer.persistence.types.PersistenceObjectRegistry;
+import org.eclipse.serializer.persistence.types.PersistenceRootsView;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDictionaryExporter;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDictionaryFileHandler;
 import org.eclipse.serializer.persistence.types.Persister;
@@ -31,6 +35,7 @@ import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.serializer.persistence.types.Unpersistable;
 import org.eclipse.serializer.reference.UsageMarkable;
 import org.eclipse.store.storage.exceptions.StorageExceptionBackupFullBackupTargetNotEmpty;
+import org.eclipse.store.storage.types.StorageAdjacencyDataExporter.AdjacencyFiles;
 
 
 /**
@@ -247,6 +252,15 @@ public interface StorageConnection extends UsageMarkable, Persister
 	 * to deleted files are removed if the storage data file does no more exist.
 	 */
 	public void issueTransactionsLogCleanup();
+
+	/**
+	 * Export storage graph adjacecy data to the specified directory.
+	 * The directory must exist!
+	 * 
+	 * @param workingDir export directory.
+	 * @return StorageAdjacencyDataExporter.AdjacencyFiles holding all exported file paths.
+	 */
+	public List<AdjacencyFiles> exportAdjacencyData(Path workingDir);
 
 	/**
 	 * Creates a {@link StorageRawFileStatistics} instance, (obviously) containing raw file statistics about
@@ -578,6 +592,34 @@ public interface StorageConnection extends UsageMarkable, Persister
 				// thread interrupted, task aborted, return
 				return;
 			}
+		}
+		
+		@Override
+		public List<AdjacencyFiles> exportAdjacencyData(final Path workingDir)
+		{
+			try
+			{
+				final PersistenceObjectRegistry registry = this.persistenceManager().objectRegistry();
+				final PersistenceRootsView roots = this.persistenceManager().viewRoots();
+								
+				roots.iterateEntries((s,o) -> {
+					final long id = registry.lookupObjectId(o);
+					System.out.println(s + " " + o + ",id: " + id);
+				});
+								
+				final Object defaultRoot = roots.rootReference().get();
+				if(defaultRoot != null)
+				{
+					final long rootId = registry.lookupObjectId(defaultRoot);
+					return this.connectionRequestAcceptor.exportAdjacencyData(rootId, workingDir);
+				}
+			}
+			catch(final InterruptedException e)
+			{
+				// thread interrupted, task aborted, return
+			}
+			
+			return null;
 		}
 
 		@Override
