@@ -28,7 +28,7 @@ import org.eclipse.serializer.persistence.types.Unpersistable;
 import org.eclipse.serializer.reference.Reference;
 import org.eclipse.serializer.util.InstanceDispatcher;
 import org.eclipse.serializer.util.ProcessIdentityProvider;
-import org.eclipse.store.storage.types.StorageEntityCollector.StorageEntityCollectorCreator;
+import org.eclipse.store.storage.types.StorageEntityCollector.Creator;
 
 
 /**
@@ -528,7 +528,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	public MonitoringManager getStorageMonitorManager();
 	
 	/**
-	 * Returns the currently set {@link StorageEntityCollectorCreator} instance.
+	 * Returns the currently set {@link Creator} instance.
 	 * <p>
 	 * If no instance is set and the implementation deems an instance of this type mandatory for the successful
 	 * execution of {@link #createStorageSystem()}, a suitable instance is created via an internal default
@@ -539,7 +539,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	 * 
 	 * @throws MissingFoundationPartException if a returnable instance is required but cannot be created by default.
 	 */
-	public StorageEntityCollectorCreator getStorageEntityCollectorCreator();
+	public Creator getStorageEntityCollectorCreator();
 	
 	/**
 	 * Sets the {@link StorageConfiguration} instance to be used for the assembly.
@@ -854,13 +854,13 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	public F setStorageMonitorManager(MonitoringManager storageMonitorManager);
 	
 	/**
-	 * Sets the {@link StorageEntityCollectorCreator} instance to be used for the assembly.
+	 * Sets the {@link Creator} instance to be used for the assembly.
 	 * 
 	 * @param storageEntityCollectorCreator the instance to be used.
 	 * 
 	 * @return {@literal this} to allow method chaining.
 	 */
-	public F setStorageEntityCollectorCreator(StorageEntityCollectorCreator storageEntityCollectorCreator);
+	public F setStorageEntityCollectorCreator(Creator storageEntityCollectorCreator);
 	
 	/**
 	 * Creates and returns a new {@link StorageSystem} instance by using the current state of all registered
@@ -927,7 +927,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		private Reference<PersistenceLiveStorerRegistry> storerRegistryReference      ;
 		private StorageStructureValidator                storageStructureValidator    ;
 		private MonitoringManager                        storageMonitorManager        ;
-		private StorageEntityCollectorCreator            storageEntityCollectorCreator       ;
+		private StorageEntityCollector.Creator           storageEntityCollectorCreator;
 
 		
 		
@@ -1182,9 +1182,9 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 			return MonitoringManager.PlatformDependent(null);
 		}
 		
-		protected StorageEntityCollectorCreator ensureStorageEntityCollectorCreator()
+		protected Creator ensureStorageEntityCollectorCreator()
 		{
-			return StorageEntityCollectorCreator.Default();
+			return Creator.Default();
 		}
 		
 
@@ -1579,7 +1579,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		}
 		
 		@Override
-		public StorageEntityCollectorCreator getStorageEntityCollectorCreator()
+		public Creator getStorageEntityCollectorCreator()
 		{
 			if(this.storageEntityCollectorCreator == null)
 			{
@@ -1896,7 +1896,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		}
 		
 		@Override
-		public final F setStorageEntityCollectorCreator(final StorageEntityCollectorCreator storageEntityCollectorCreator)
+		public final F setStorageEntityCollectorCreator(final Creator storageEntityCollectorCreator)
 		{
 			this.storageEntityCollectorCreator = storageEntityCollectorCreator;
 			return this.$();

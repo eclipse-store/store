@@ -38,7 +38,6 @@ import org.eclipse.serializer.util.BufferSizeProviderIncremental;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.storage.monitoring.StorageChannelHousekeepingMonitor;
-import org.eclipse.store.storage.types.StorageEntityCollector.StorageEntityCollectorCreator;
 import org.slf4j.Logger;
 
 
@@ -116,18 +115,18 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		// instance fields //
 		////////////////////
 
-		private final int                           channelIndex             ;
-		private final StorageExceptionHandler       exceptionHandler         ;
-		private final StorageTaskBroker             taskBroker               ;
-		private final StorageOperationController    operationController      ;
-		private final StorageHousekeepingController housekeepingController   ;
-		private final StorageHousekeepingBroker     housekeepingBroker       ;
-		private final StorageFileManager.Default    fileManager              ;
-		private final StorageEntityCache.Default    entityCache              ;
-		private final boolean                       switchByteOrder          ;
-		private final BufferSizeProviderIncremental loadingBufferSizeProvider;
-		private final StorageEventLogger            eventLogger              ;
-		private final StorageEntityCollectorCreator entityCollectorCreator   ;
+		private final int                            channelIndex             ;
+		private final StorageExceptionHandler        exceptionHandler         ;
+		private final StorageTaskBroker              taskBroker               ;
+		private final StorageOperationController     operationController      ;
+		private final StorageHousekeepingController  housekeepingController   ;
+		private final StorageHousekeepingBroker      housekeepingBroker       ;
+		private final StorageFileManager.Default     fileManager              ;
+		private final StorageEntityCache.Default     entityCache              ;
+		private final boolean                        switchByteOrder          ;
+		private final BufferSizeProviderIncremental  loadingBufferSizeProvider;
+		private final StorageEventLogger             eventLogger              ;
+		private final StorageEntityCollector.Creator entityCollectorCreator   ;
 
 		private final HousekeepingTask[] housekeepingTasks;
 		
@@ -155,19 +154,19 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		/////////////////
 
 		public Default(
-			final int                           hashIndex                ,
-			final StorageExceptionHandler       exceptionHandler         ,
-			final StorageTaskBroker             taskBroker               ,
-			final StorageOperationController    operationController      ,
-			final StorageHousekeepingBroker     housekeepingBroker       ,
-			final StorageHousekeepingController housekeepingController   ,
-			final StorageEntityCache.Default    entityCache              ,
-			final boolean                       switchByteOrder          ,
-			final BufferSizeProviderIncremental loadingBufferSizeProvider,
-			final StorageFileManager.Default    fileManager              ,
-			final StorageEventLogger            eventLogger              ,
-			final MonitoringManager             monitorManager           ,
-			final StorageEntityCollectorCreator entityCollectorCreator
+			final int                            hashIndex                ,
+			final StorageExceptionHandler        exceptionHandler         ,
+			final StorageTaskBroker              taskBroker               ,
+			final StorageOperationController     operationController      ,
+			final StorageHousekeepingBroker      housekeepingBroker       ,
+			final StorageHousekeepingController  housekeepingController   ,
+			final StorageEntityCache.Default     entityCache              ,
+			final boolean                        switchByteOrder          ,
+			final BufferSizeProviderIncremental  loadingBufferSizeProvider,
+			final StorageFileManager.Default     fileManager              ,
+			final StorageEventLogger             eventLogger              ,
+			final MonitoringManager              monitorManager           ,
+			final StorageEntityCollector.Creator entityCollectorCreator
 		)
 		{
 			super();

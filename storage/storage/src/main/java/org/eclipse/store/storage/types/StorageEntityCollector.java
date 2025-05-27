@@ -28,21 +28,21 @@ public interface StorageEntityCollector extends _longProcedure
 	 * Responsible to create the StorageEntityCollector used by the storage
 	 * on standard load operations.
 	 */
-	public interface StorageEntityCollectorCreator
+	public interface Creator
 	{
-		public static StorageEntityCollectorCreator Default()
+		public static Creator Default()
 		{
 			return new EntityCollectorCreatorByOid();
 		}
 		
-		public static StorageEntityCollectorCreator Unchecked()
+		public static Creator Unchecked()
 		{
 			return new EntityCollectorCreatorByOidUnchecked();
 		}
 		
 		StorageEntityCollector create(StorageEntityCache.Default entityCache, ChunksBuffer dataCollector);
 			
-		public class EntityCollectorCreatorByOid implements StorageEntityCollectorCreator
+		public class EntityCollectorCreatorByOid implements Creator
 		{
 			@Override
 			public StorageEntityCollector create(Default entityCache, ChunksBuffer dataCollector)
@@ -51,7 +51,7 @@ public interface StorageEntityCollector extends _longProcedure
 			}
 		}
 		
-		public class EntityCollectorCreatorByOidUnchecked implements StorageEntityCollectorCreator
+		public class EntityCollectorCreatorByOidUnchecked implements Creator
 		{
 			@Override
 			public StorageEntityCollector create(Default entityCache, ChunksBuffer dataCollector)
