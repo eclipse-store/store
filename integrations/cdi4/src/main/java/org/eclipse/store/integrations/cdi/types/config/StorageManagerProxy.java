@@ -16,6 +16,8 @@ package org.eclipse.store.integrations.cdi.types.config;
 
 
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Predicate;
 
@@ -34,6 +36,7 @@ import org.eclipse.store.storage.embedded.configuration.types.EmbeddedStorageCon
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.eclipse.store.storage.types.Database;
+import org.eclipse.store.storage.types.StorageAdjacencyDataExporter.AdjacencyFiles;
 import org.eclipse.store.storage.types.StorageConfiguration;
 import org.eclipse.store.storage.types.StorageConnection;
 import org.eclipse.store.storage.types.StorageEntityCacheEvaluator;
@@ -258,6 +261,12 @@ public class StorageManagerProxy extends UsageMarkable.Default implements Storag
         return this.getStorageManager().createStorageStatistics();
     }
 
+    @Override
+    public List<AdjacencyFiles> exportAdjacencyData(final Path workingDir)
+    {
+    	return this.getStorageManager().exportAdjacencyData(workingDir);
+    }
+    
     @Override
     public void exportChannels(final StorageLiveFileProvider fileProvider, final boolean performGarbageCollection)
     {

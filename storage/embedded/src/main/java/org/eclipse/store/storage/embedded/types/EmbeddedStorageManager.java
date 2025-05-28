@@ -17,7 +17,9 @@ package org.eclipse.store.storage.embedded.types;
 import static org.eclipse.serializer.util.X.notNull;
 
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.List;
 import java.util.function.Predicate;
 
 import org.eclipse.serializer.afs.types.AFile;
@@ -45,6 +47,7 @@ import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
 import org.eclipse.store.storage.monitoring.ObjectRegistryMonitor;
 import org.eclipse.store.storage.monitoring.StorageManagerMonitor;
 import org.eclipse.store.storage.types.Database;
+import org.eclipse.store.storage.types.StorageAdjacencyDataExporter.AdjacencyFiles;
 import org.eclipse.store.storage.types.StorageConfiguration;
 import org.eclipse.store.storage.types.StorageConnection;
 import org.eclipse.store.storage.types.StorageEntityCacheEvaluator;
@@ -538,6 +541,13 @@ public interface EmbeddedStorageManager extends StorageManager
 		public void issueTransactionsLogCleanup()
 		{
 			this.singletonConnection().issueTransactionsLogCleanup();
+		}
+		
+		@Override
+		public List<AdjacencyFiles> exportAdjacencyData(
+			final Path workingDir)
+		{
+			return this.singletonConnection().exportAdjacencyData(workingDir);
 		}
 		
 		@Override

@@ -17,6 +17,8 @@ package org.eclipse.store.storage.types;
 import static org.eclipse.serializer.util.X.notNull;
 
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
+import java.util.List;
 import java.util.function.Predicate;
 
 import org.eclipse.serializer.afs.types.AFile;
@@ -24,6 +26,7 @@ import org.eclipse.serializer.collections.types.XGettingEnum;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.types.PersistenceIdSet;
 import org.eclipse.store.storage.exceptions.StorageExceptionRequest;
+import org.eclipse.store.storage.types.StorageAdjacencyDataExporter.AdjacencyFiles;
 
 
 public interface StorageRequestAcceptor
@@ -76,6 +79,9 @@ public interface StorageRequestAcceptor
 		throws InterruptedException;
 	 
 	// exporting //
+	
+	public List<AdjacencyFiles> exportAdjacencyData(long rootID, Path workingDir)
+		throws InterruptedException;
 
 	public default StorageEntityTypeExportStatistics exportTypes(final StorageEntityTypeExportFileProvider exportFileProvider)
 		throws InterruptedException
@@ -228,6 +234,13 @@ public interface StorageRequestAcceptor
 			throws InterruptedException
 		{
 			waitOnTask(this.taskBroker.issueTransactionsLogCleanup());
+		}
+		
+		@Override
+		public List<AdjacencyFiles> exportAdjacencyData(final long rootId, final Path workingDir)
+			throws InterruptedException
+		{
+			return waitOnTask(this.taskBroker.exportAdjacencyData(workingDir)).result();
 		}
 		
 		@Override

@@ -17,6 +17,7 @@ package org.eclipse.store.storage.types;
 import static org.eclipse.serializer.util.X.notNull;
 
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.util.function.Predicate;
 
 import org.eclipse.serializer.afs.types.AFile;
@@ -97,6 +98,13 @@ public interface StorageRequestTaskCreator
 		StorageOperationController operationController
 	);
 	
+	public StorageRequestTaskExportAdjacencyData createExportAdjacencyDataTask
+	(
+		int channelCount,
+		StorageOperationController operationController,
+		Path workingDir
+	);
+
 	public StorageRequestTaskImportDataFiles createImportFromFilesTask(
 		int                           channelCount          ,
 		StorageDataFileEvaluator      fileEvaluator         ,
@@ -312,6 +320,21 @@ public interface StorageRequestTaskCreator
 				this.timestampProvider.currentNanoTimestamp(),
 				channelCount,
 				operationController
+			);
+		}
+		
+		@Override
+		public StorageRequestTaskExportAdjacencyData createExportAdjacencyDataTask(
+			final int channelCount,
+			final StorageOperationController operationController,
+			final Path exportDirectory
+			)
+		{
+			return new StorageRequestTaskExportAdjacencyData.Default(
+				this.timestampProvider.currentNanoTimestamp(),
+				channelCount,
+				operationController,
+				exportDirectory
 			);
 		}
 		
