@@ -190,8 +190,10 @@ public interface StorageAdjacencyDataExporter
 			final long keyCount,
 			final long refCount)
 		{
-			long estimatedbufferSize = ((8 + 4)*keyCount) + (refCount * 8);
-						
+			long estimatedbufferSize = (
+				(XMemory.byteSize_long() + XMemory.byteSize_int()) * keyCount) +
+				(refCount * XMemory.byteSizeReference());
+												
 			ByteBuffer buffer = ByteBuffer.allocate((int)estimatedbufferSize);
 			
 			for (Map.Entry<Long, long[]> entry : referenceTable.entrySet())
