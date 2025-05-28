@@ -52,7 +52,8 @@ public interface StorageChannelsCreator
 		Referencing<PersistenceLiveStorerRegistry> refStorerRegistry            ,
 		boolean                                    switchByteOrder              ,
 		long                                       rootTypeId                   ,
-		MonitoringManager                          monitorManager
+		MonitoringManager                          monitorManager               ,
+		StorageEntityCollector.Creator             entityCollectorCreator
 	);
 
 
@@ -89,7 +90,8 @@ public interface StorageChannelsCreator
 			final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry            ,
 			final boolean                                    switchByteOrder              ,
 			final long                                       rootTypeId                   ,
-			final MonitoringManager                          monitorManager
+			final MonitoringManager                          monitorManager               ,
+			final StorageEntityCollector.Creator             entityCollectorCreator
 		)
 		{
 			// (14.07.2016 TM)TODO: make configuration dynamic
@@ -168,7 +170,8 @@ public interface StorageChannelsCreator
 					loadingBufferSizeProvider,
 					fileManager              ,
 					eventLogger              ,
-					monitorManager
+					monitorManager           ,
+					entityCollectorCreator
 				);
 
 			}

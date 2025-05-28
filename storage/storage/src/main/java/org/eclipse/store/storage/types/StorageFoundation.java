@@ -66,7 +66,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	 * Returns the currently set {@link StorageConfiguration} instance.
 	 * <p>
 	 * If no instance is set and the implementation deems an instance of this type mandatory for the successful
-	 * executon of {@link #createStorageSystem()}, a suitable instance is created via an internal default
+	 * execution of {@link #createStorageSystem()}, a suitable instance is created via an internal default
 	 * creation logic and then set as the current. If the implementation has not sufficient logic and/or data
 	 * to create a default instance, a {@link MissingFoundationPartException} is thrown.
 	 * 
@@ -94,7 +94,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	 * Returns the currently set {@link StorageInitialDataFileNumberProvider} instance.
 	 * <p>
 	 * If no instance is set and the implementation deems an instance of this type mandatory for the successful
-	 * executon of {@link #createStorageSystem()}, a suitable instance is created via an internal default
+	 * execution of {@link #createStorageSystem()}, a suitable instance is created via an internal default
 	 * creation logic and then set as the current. If the implementation has not sufficient logic and/or data
 	 * to create a default instance, a {@link MissingFoundationPartException} is thrown.
 	 * 
@@ -527,6 +527,20 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	public MonitoringManager getStorageMonitorManager();
 	
 	/**
+	 * Returns the currently set {@link StorageEntityCollector.Creator} instance.
+	 * <p>
+	 * If no instance is set and the implementation deems an instance of this type mandatory for the successful
+	 * execution of {@link #createStorageSystem()}, a suitable instance is created via an internal default
+	 * creation logic and then set as the current. If the implementation has not sufficient logic and/or data
+	 * to create a default instance, a {@link MissingFoundationPartException} is thrown.
+	 * 
+	 * @return the currently set instance, potentially created on-demand if required.
+	 * 
+	 * @throws MissingFoundationPartException if a returnable instance is required but cannot be created by default.
+	 */
+	public StorageEntityCollector.Creator getStorageEntityCollectorCreator();
+	
+	/**
 	 * Sets the {@link StorageConfiguration} instance to be used for the assembly.
 	 * 
 	 * @param configuration the instance to be used.
@@ -839,6 +853,15 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	public F setStorageMonitorManager(MonitoringManager storageMonitorManager);
 	
 	/**
+	 * Sets the {@link StorageEntityCollector.Creator} instance to be used for the assembly.
+	 * 
+	 * @param storageEntityCollectorCreator the instance to be used.
+	 * 
+	 * @return {@literal this} to allow method chaining.
+	 */
+	public F setStorageEntityCollectorCreator(StorageEntityCollector.Creator storageEntityCollectorCreator);
+	
+	/**
 	 * Creates and returns a new {@link StorageSystem} instance by using the current state of all registered
 	 * logic part instances and by on-demand creating missing ones via a default logic.
 	 * <p>
@@ -903,6 +926,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		private Reference<PersistenceLiveStorerRegistry> storerRegistryReference      ;
 		private StorageStructureValidator                storageStructureValidator    ;
 		private MonitoringManager                        storageMonitorManager        ;
+		private StorageEntityCollector.Creator           storageEntityCollectorCreator;
 
 		
 		
@@ -1155,6 +1179,11 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		protected MonitoringManager ensureStorageMonitorManager()
 		{
 			return MonitoringManager.PlatformDependent(null);
+		}
+		
+		protected StorageEntityCollector.Creator ensureStorageEntityCollectorCreator()
+		{
+			return StorageEntityCollector.Creator.Default();
 		}
 		
 
@@ -1548,6 +1577,16 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 			return this.storageMonitorManager;
 		}
 		
+		@Override
+		public StorageEntityCollector.Creator getStorageEntityCollectorCreator()
+		{
+			if(this.storageEntityCollectorCreator == null)
+			{
+				this.storageEntityCollectorCreator = this.dispatch(this.ensureStorageEntityCollectorCreator());
+			}
+			return this.storageEntityCollectorCreator;
+		}
+		
 		
 		@Override
 		public F setOperationControllerCreator(
@@ -1855,10 +1894,17 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 			return this.$();
 		}
 		
+		@Override
+		public final F setStorageEntityCollectorCreator(final StorageEntityCollector.Creator storageEntityCollectorCreator)
+		{
+			this.storageEntityCollectorCreator = storageEntityCollectorCreator;
+			return this.$();
+		}
+		
 		public final boolean isByteOrderMismatch()
 		{
 			/* (11.02.2019 TM)NOTE: On byte order switching:
-			 * Theoreticaly, the storage engine (OGS) could also use the switchByteOrder mechanism implemented for
+			 * Theoretically, the storage engine (OGS) could also use the switchByteOrder mechanism implemented for
 			 * communication (OGC). However, there are a lot stumbling blocks in the details that are currently not
 			 * worth resolving for a feature that is most probably never required in the foreseeable future.
 			 * See StorageEntityCache$Default#putEntity
@@ -1907,7 +1953,8 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 				this.getLiveObjectIdChecker()          ,
 				this.getLiveStorerRegistryReference()  ,
 				this.getStorageStructureValidator()    ,
-				this.getStorageMonitorManager()
+				this.getStorageMonitorManager()        ,
+				this.getStorageEntityCollectorCreator()
 			);
 		}
 
