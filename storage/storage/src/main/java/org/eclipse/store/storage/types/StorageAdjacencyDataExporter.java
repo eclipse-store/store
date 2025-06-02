@@ -190,9 +190,9 @@ public interface StorageAdjacencyDataExporter
 			final long keyCount,
 			final long refCount)
 		{
-			long estimatedbufferSize = (
-				(XMemory.byteSize_long() + XMemory.byteSize_int()) * keyCount) +
-				(refCount * XMemory.byteSizeReference());
+			long estimatedbufferSize =
+				((XMemory.byteSize_long() + XMemory.byteSize_int()) * keyCount) +
+				(refCount * XMemory.byteSize_long());
 												
 			ByteBuffer buffer = ByteBuffer.allocate((int)estimatedbufferSize);
 			
@@ -202,7 +202,14 @@ public interface StorageAdjacencyDataExporter
 				buffer.putInt(entry.getValue().length);
 				for (long l : entry.getValue())
 				{
-					buffer.putLong(l);
+					try
+					{
+						buffer.putLong(l);
+					}
+					catch(Exception e)
+					{
+						throw new RuntimeException(e);
+					}
 				}
 			}
 			buffer.flip();
