@@ -24,15 +24,20 @@ jobs:
           server-password: MAVEN_PASSWORD
       - name: Maven change version
         run: mvn versions:set -DnewVersion=${{ github.event.release.tag_name }} --batch-mode
+        env:
+          DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_API_TOKEN }}
       - name: Maven change serializer version
         run:  mvn versions:set-property -Dproperty=eclipse.serializer.version -DnewVersion=${{ github.event.release.tag_name }}
+        env:
+          DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_API_TOKEN }}
       - name: Make a release
-        run: mvn -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy
+        run: mvn -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy -Dscan.value.profile="deploy,production"
         env:
           MAVEN_USERNAME: ${{ secrets.ORG_OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.ORG_OSSRH_PASSWORD }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.ORG_GPG_PASSPHRASE }}
           MAVEN_GPG_KEY: ${{ secrets.ORG_GPG_PRIVATE_KEY }}
+          DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_API_TOKEN }}
 
       #java 17 build
       - uses: actions/checkout@v3
@@ -47,25 +52,32 @@ jobs:
           server-password: MAVEN_PASSWORD
       - name: Maven change version
         run: mvn versions:set -DnewVersion=${{ github.event.release.tag_name }} --batch-mode
+        env:
+          DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_API_TOKEN }}
       - name: Maven change serializer version
         run:  mvn versions:set-property -Dproperty=eclipse.serializer.version -DnewVersion=${{ github.event.release.tag_name }}
+        env:
+          DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_API_TOKEN }}
       - name: Build with java 17
         run: |
-          mvn -P production -pl integrations/spring-boot3 clean install -am -B
-          mvn -P production -pl integrations/spring-boot3-console clean install -am -B          
-          mvn -P production -pl storage/rest/client-app clean install -am -B
-          mvn -P production -pl storage/rest/client-app-standalone-assembly clean install -am -B
-          mvn -P production -pl storage/rest/service-springboot clean install -am -B
+          mvn -P production -pl integrations/spring-boot3 clean install -am -B -Dscan.value.profile="production" -Dscan.value.project="spring-boot3"
+          mvn -P production -pl integrations/spring-boot3-console clean install -am -B -Dscan.value.profile="production" -Dscan.value.project="spring-boot3-console"    
+          mvn -P production -pl storage/rest/client-app clean install -am -B -Dscan.value.profile="production" -Dscan.value.project="client-app"
+          mvn -P production -pl storage/rest/client-app-standalone-assembly clean install -am -B -Dscan.value.profile="production" -Dscan.value.project="client-app-standalone-assembly"
+          mvn -P production -pl storage/rest/service-springboot clean install -am -B -Dscan.value.profile="production" -Dscan.value.project="service-springboot"
+        env:
+          DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_API_TOKEN }}
       - name: Deploy module build with java 17
         run: |
-          mvn -Pdeploy -Pproduction -pl integrations/spring-boot3 clean deploy
-          mvn -Pdeploy -Pproduction -pl integrations/spring-boot3-console clean deploy
-          mvn -Pdeploy -Pproduction -pl storage/rest/client-app clean deploy
-          mvn -Pdeploy -Pproduction -pl storage/rest/client-app-standalone-assembly clean deploy
-          mvn -Pdeploy -Pproduction -pl storage/rest/service-springboot clean deploy
+          mvn -Pdeploy -Pproduction -pl integrations/spring-boot3 clean deploy -Dscan.value.profile="deploy,production" -Dscan.value.project="spring-boot3"
+          mvn -Pdeploy -Pproduction -pl integrations/spring-boot3-console clean deploy -Dscan.value.profile="deploy,production" -Dscan.value.project="spring-boot3-console"
+          mvn -Pdeploy -Pproduction -pl storage/rest/client-app clean deploy -Dscan.value.profile="deploy,production" -Dscan.value.project="client-app"
+          mvn -Pdeploy -Pproduction -pl storage/rest/client-app-standalone-assembly clean deploy -Dscan.value.profile="deploy,production" -Dscan.value.project="client-app-standalone-assembly"
+          mvn -Pdeploy -Pproduction -pl storage/rest/service-springboot clean deploy -Dscan.value.profile="deploy,production" -Dscan.value.project="service-springboot"
         env:
           MAVEN_USERNAME: ${{ secrets.ORG_OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.ORG_OSSRH_PASSWORD }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.ORG_GPG_PASSPHRASE }}
           MAVEN_GPG_KEY: ${{ secrets.ORG_GPG_PRIVATE_KEY }}
+          DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_API_TOKEN }}
 
