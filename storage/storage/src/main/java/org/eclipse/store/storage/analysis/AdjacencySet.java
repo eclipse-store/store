@@ -68,7 +68,7 @@ final class AdjacencySet
 	{
 		Map<Long, long[]> map = referenceMap.getMap();
 		
-		this.path = AdjacencyDataConverter.Default.deriverPath(referenceMap.getPath(), ".ref");
+		this.path = AdjacencyDataConverter.Default.derivePath(referenceMap.getPath(), ".ref");
 		
 		this.references = new HashSet<>();
 						

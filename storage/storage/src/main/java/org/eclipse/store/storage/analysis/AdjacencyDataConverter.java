@@ -1,19 +1,5 @@
 package org.eclipse.store.storage.analysis;
 
-/*-
- * #%L
- * EclipseStore Storage
- * %%
- * Copyright (C) 2023 - 2025 MicroStream Software
- * %%
- * This program and the accompanying materials are made
- * available under the terms of the Eclipse Public License 2.0
- * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
- * SPDX-License-Identifier: EPL-2.0
- * #L%
- */
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -33,10 +19,25 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+/*-
+ * #%L
+ * EclipseStore Storage
+ * %%
+ * Copyright (C) 2023 - 2025 MicroStream Software
+ * %%
+ * This program and the accompanying materials are made
+ * available under the terms of the Eclipse Public License 2.0
+ * which is available at https://www.eclipse.org/legal/epl-2.0/
+ * 
+ * SPDX-License-Identifier: EPL-2.0
+ * #L%
+ */
+
 import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.storage.types.StorageAdjacencyDataExporter;
 import org.eclipse.store.storage.types.StorageAdjacencyDataExporter.AdjacencyFiles;
 import org.slf4j.Logger;
+
 
 
 /**
@@ -198,28 +199,10 @@ public interface AdjacencyDataConverter
 		
 		public Default(final List<AdjacencyFiles > adjacencyFiles)
 		{
-			this.adjacencyFiles = adjacencyFiles;
-			this.configuration = new DefaultConfiguration();
-		
-			this.threadFactory = new ThreadFactory()
-			{
-				final AtomicInteger counter = new AtomicInteger();
-				
-				@Override
-				public Thread newThread(final Runnable r)
-				{
-					return new Thread(r, "Eclipse-Store-AdjacencyDataConverter-WorkerThread-" + this.counter.getAndIncrement());
-				}};
-			
-			int tempFileCount = 0;
-			for(AdjacencyFiles channel : this.adjacencyFiles)
-			{
-				tempFileCount += channel.get().size();
-			}
-			this.fileCount = tempFileCount;
+			this(adjacencyFiles, new DefaultConfiguration());
 		}
 		
-		public Default(final List<AdjacencyFiles > adjacencyFiles, DefaultConfiguration configuration)
+		public Default(final List<AdjacencyFiles > adjacencyFiles, final DefaultConfiguration configuration)
 		{
 			this.adjacencyFiles = adjacencyFiles;
 			this.configuration = configuration;
@@ -246,11 +229,11 @@ public interface AdjacencyDataConverter
 		// methods //
 		////////////
 	
-		public static Path deriverPath(final Path other, final String newExtension)
+		public static Path derivePath(final Path other, final String newExtension)
 		{
-			String fn = other.toString();
-			int index = fn.lastIndexOf('.');
-			String newName = fn.substring(0, index) + newExtension;
+			final String fn = other.toString();
+			final int index = fn.lastIndexOf('.');
+			final String newName = fn.substring(0, index) + newExtension;
 			return Paths.get(newName);
 		}
 		
@@ -263,10 +246,10 @@ public interface AdjacencyDataConverter
 		{
 			final ExecutorService executor = Executors.newFixedThreadPool(this.configuration.getThreadsTotal() , this.threadFactory);
 			
-			LinkedBlockingQueue<Path> adjacencyMapsPathsQueue     = new LinkedBlockingQueue<>();
-			LinkedBlockingQueue<AdjacencyMap> adjacencyMapsQueue1 = new LinkedBlockingQueue<>(this.configuration.getSetCreators());
-			LinkedBlockingQueue<AdjacencyMap> adjacencyMapsQueue2 = new LinkedBlockingQueue<>(this.configuration.getReverseMapCreators());
-			
+			final LinkedBlockingQueue<Path> adjacencyMapsPathsQueue     = new LinkedBlockingQueue<>();
+			final LinkedBlockingQueue<AdjacencyMap> adjacencyMapsQueue1 = new LinkedBlockingQueue<>(this.configuration.getSetCreators());
+			final LinkedBlockingQueue<AdjacencyMap> adjacencyMapsQueue2 = new LinkedBlockingQueue<>(this.configuration.getReverseMapCreators());
+					
 			for(AdjacencyFiles channel : this.adjacencyFiles)
 			{
 				for(Entry<Long, Path> entry : channel.get().entrySet())
@@ -275,7 +258,7 @@ public interface AdjacencyDataConverter
 				}
 			}
 			
-			List<CompletableFuture<Void>> futures = new ArrayList<>();
+			final List<CompletableFuture<Void>> futures = new ArrayList<>();
 									
 			for(int i = 0; i < this.configuration.getMapLoaders()  ; i++)
 			{
@@ -286,7 +269,7 @@ public interface AdjacencyDataConverter
 				);
 			}
 			
-			List<Path> referenceMaps = Collections.synchronizedList(new ArrayList<>(this.fileCount));
+			final List<Path> referenceMaps = Collections.synchronizedList(new ArrayList<>(this.fileCount));
 			for(int i = 0; i < this.configuration.getReverseMapCreators(); i++)
 			{
 				futures.add(
@@ -296,7 +279,7 @@ public interface AdjacencyDataConverter
 				);
 			}
 			
-			List<Path> referenceSets = Collections.synchronizedList(new ArrayList<>(this.fileCount));
+			final List<Path> referenceSets = Collections.synchronizedList(new ArrayList<>(this.fileCount));
 			for(int i = 0; i < this.configuration.getSetCreators(); i++)
 			{
 				futures.add(
@@ -307,7 +290,7 @@ public interface AdjacencyDataConverter
 			}
 			
 											
-			CompletableFuture<Void> createSetsStage = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+			final CompletableFuture<Void> createSetsStage = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
 				
 			try
 			{
@@ -349,7 +332,7 @@ public interface AdjacencyDataConverter
 		private List<Path> referenceSetCreator(
 			final LinkedBlockingQueue<AdjacencyMap> adjacencyMapsQueue)
 		{
-			List<Path> createdFiles = new ArrayList<>(this.fileCount);
+			final List<Path> createdFiles = new ArrayList<>(this.fileCount);
 			
 			while(this.setsCreated.getAndIncrement() < this.fileCount)
 			{
@@ -378,7 +361,7 @@ public interface AdjacencyDataConverter
 		
 		private List<Path> reverseReferenceMapCreator(final LinkedBlockingQueue<AdjacencyMap> adjacencyMapsQueue)
 		{
-			List<Path> createdFiles = new ArrayList<>(this.fileCount);
+			final List<Path> createdFiles = new ArrayList<>(this.fileCount);
 			
 			while(this.reverseMapsCreated.getAndIncrement() < this.fileCount)
 			{
@@ -388,7 +371,7 @@ public interface AdjacencyDataConverter
 					
 					TreeMap<Long, long[]> map = adjacencyMap.getMap();
 					
-					Path path = deriverPath(adjacencyMap.getPath(), ".brf");
+					Path path = derivePath(adjacencyMap.getPath(), ".brf");
 					
 	
 					HashMap<Long, Set<Long>> backRefs = new HashMap<>();

@@ -257,7 +257,7 @@ public interface ReverseObjectSearch
 			{
 				for(Entry<Long, Path> entry : channel.get().entrySet())
 				{
-					Path path = AdjacencyDataConverter.Default.deriverPath(entry.getValue(), ".brf");
+					Path path = AdjacencyDataConverter.Default.derivePath(entry.getValue(), ".brf");
 					
 					backReferenceMaps.add(new ComparableAdjacencyMap(path));
 				}
