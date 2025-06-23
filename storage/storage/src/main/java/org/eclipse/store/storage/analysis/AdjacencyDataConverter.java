@@ -70,7 +70,7 @@ public interface AdjacencyDataConverter
 
 	}
 	
-	public static AdjacencyDataConverter New(List<AdjacencyFiles > adjacencyFiles)
+	public static AdjacencyDataConverter New(final List<AdjacencyFiles > adjacencyFiles)
 	{
 		return new AdjacencyDataConverter.Default(adjacencyFiles);
 	}
@@ -218,7 +218,7 @@ public interface AdjacencyDataConverter
 				}};
 			
 			int tempFileCount = 0;
-			for(AdjacencyFiles channel : this.adjacencyFiles)
+			for(final AdjacencyFiles channel : this.adjacencyFiles)
 			{
 				tempFileCount += channel.get().size();
 			}
@@ -250,9 +250,9 @@ public interface AdjacencyDataConverter
 			final LinkedBlockingQueue<AdjacencyMap> adjacencyMapsQueue1 = new LinkedBlockingQueue<>(this.configuration.getSetCreators());
 			final LinkedBlockingQueue<AdjacencyMap> adjacencyMapsQueue2 = new LinkedBlockingQueue<>(this.configuration.getReverseMapCreators());
 					
-			for(AdjacencyFiles channel : this.adjacencyFiles)
+			for(final AdjacencyFiles channel : this.adjacencyFiles)
 			{
-				for(Entry<Long, Path> entry : channel.get().entrySet())
+				for(final Entry<Long, Path> entry : channel.get().entrySet())
 				{
 					adjacencyMapsPathsQueue.add(entry.getValue());
 				}
@@ -338,8 +338,8 @@ public interface AdjacencyDataConverter
 			{
 				try
 				{
-					AdjacencyMap map = adjacencyMapsQueue.take();
-					AdjacencySet rf = new AdjacencySet(map);
+					final AdjacencyMap map = adjacencyMapsQueue.take();
+					final AdjacencySet rf = new AdjacencySet(map);
 					
 					rf.store();
 					rf.unload();
@@ -347,7 +347,7 @@ public interface AdjacencyDataConverter
 					createdFiles.add(rf.getPath());
 					logger.debug("created reference set {}", rf.getPath());
 				}
-				catch(InterruptedException e)
+				catch(final InterruptedException e)
 				{
 					//stop processing
 					logger.debug("Reference set creator task stopped after interruption");
@@ -367,24 +367,24 @@ public interface AdjacencyDataConverter
 			{
 				try
 				{
-					AdjacencyMap adjacencyMap = adjacencyMapsQueue.take();
+					final AdjacencyMap adjacencyMap = adjacencyMapsQueue.take();
 					
-					TreeMap<Long, long[]> map = adjacencyMap.getMap();
+					final TreeMap<Long, long[]> map = adjacencyMap.getMap();
 					
-					Path path = derivePath(adjacencyMap.getPath(), ".brf");
+					final Path path = derivePath(adjacencyMap.getPath(), ".brf");
 					
 	
-					HashMap<Long, Set<Long>> backRefs = new HashMap<>();
+					final HashMap<Long, Set<Long>> backRefs = new HashMap<>();
 					
 					map.forEach((k,v) ->
 					{
-						for(long r : v)
+						for(final long r : v)
 						{
 							backRefs.computeIfAbsent(r, x -> new HashSet<>()).add(k);
 						}
 					});
 					
-					AtomicLong backRefsCount = new AtomicLong();
+					final AtomicLong backRefsCount = new AtomicLong();
 					backRefs.values().forEach(v -> backRefsCount.addAndGet(v.size()));
 																	
 					AdjacencyMap.serialize(backRefs, path, backRefs.size(), backRefsCount.get());
@@ -393,7 +393,7 @@ public interface AdjacencyDataConverter
 					
 					logger.debug("created reverse reference map {}", path);
 				}
-				catch(InterruptedException e)
+				catch(final InterruptedException e)
 				{
 					//stop processing
 					logger.debug("Reverse reference map creator task stopped after interruption.");
@@ -413,17 +413,17 @@ public interface AdjacencyDataConverter
 			{
 				try
 				{
-					Path path = adjacencyMapsPathsQueue.take();
-					TreeMap<Long, long[]> refMap = AdjacencyMap.deserializeReferenceMap(path);
+					final Path path = adjacencyMapsPathsQueue.take();
+					final TreeMap<Long, long[]> refMap = AdjacencyMap.deserializeReferenceMap(path);
 	
-					for(LinkedBlockingQueue<AdjacencyMap> queue : outputQueues)
+					for(final LinkedBlockingQueue<AdjacencyMap> queue : outputQueues)
 					{
 						queue.put(new AdjacencyMap(refMap, path));
 					}
 					
 					logger.debug("loaded reference map {}", path);
 				}
-				catch(InterruptedException e)
+				catch(final InterruptedException e)
 				{
 					//stop processing
 					logger.debug("Adjacency map loader task stopped after interruption");

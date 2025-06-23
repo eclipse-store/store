@@ -21,7 +21,7 @@ class ComparableAdjacencyMap extends AdjacencyMap implements Comparable<Comparab
 	private long size = -1;
 	private LongRange objectIdRange;
 	private boolean updated;
-		
+	
 	///////////////////////////////////////////////////////////////////////////
 	// constructors //
 	/////////////////
@@ -45,9 +45,7 @@ class ComparableAdjacencyMap extends AdjacencyMap implements Comparable<Comparab
 	public boolean inRange(final long value)
 	{
 		if(this.objectIdRange != null)
-		{
 			return this.objectIdRange.inRange(value);
-		}
 		return false;
 	}
 
@@ -99,9 +97,7 @@ class ComparableAdjacencyMap extends AdjacencyMap implements Comparable<Comparab
 	public int compareTo(final ComparableAdjacencyMap other)
 	{
 		if(this.objectIdRange != null &&  other.objectIdRange != null)
-		{
 			return this.objectIdRange.compareTo(other.objectIdRange);
-		}
 		return 0;
 	}
 		

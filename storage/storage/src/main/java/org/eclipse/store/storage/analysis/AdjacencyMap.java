@@ -63,19 +63,19 @@ class AdjacencyMap
 	 */
 	public static TreeMap<Long, long[]> deserializeReferenceMap(final Path path)
 	{
-		TreeMap<Long, long[]> result = new TreeMap<>();
+		final TreeMap<Long, long[]> result = new TreeMap<>();
 		
 		try(FileChannel fc = FileChannel.open(path, StandardOpenOption.READ))
 		{
-			ByteBuffer buffer = ByteBuffer.allocate((int) fc.size());
+			final ByteBuffer buffer = ByteBuffer.allocate((int) fc.size());
 			fc.read(buffer);
 			buffer.flip();
 			
 			while(buffer.position() < buffer.limit())
 			{
-				long k = buffer.getLong();
-				int len = buffer.getInt();
-				long[] v = new long[len];
+				final long k = buffer.getLong();
+				final int len = buffer.getInt();
+				final long[] v = new long[len];
 				for (int i = 0; i < len; i++)
 				{
 					v[i] = buffer.getLong();
@@ -84,7 +84,7 @@ class AdjacencyMap
 			}
 			
 		}
-		catch(IOException e)
+		catch(final IOException e)
 		{
 			throw new RuntimeException(e);
 		}
@@ -100,17 +100,17 @@ class AdjacencyMap
 	 */
 	public static void serialize(final Map<Long, long[]> map, final Path path)
 	{
-		long estimatedBufferSize = 1024*1024*4;
+		final long estimatedBufferSize = 1024*1024*4;
 					
-		List<ByteBuffer> buffers = new LinkedList<>();
+		final List<ByteBuffer> buffers = new LinkedList<>();
 		
 		ByteBuffer buffer = ByteBuffer.allocate((int)estimatedBufferSize);
 		buffers.add(buffer);
 			
-		for (Map.Entry<Long, long[]> entry : map.entrySet())
+		for (final Map.Entry<Long, long[]> entry : map.entrySet())
 		{
-			long[] value = entry.getValue();
-			long requiredSize = Long.BYTES + Integer.BYTES + (value.length * Long.BYTES);
+			final long[] value = entry.getValue();
+			final long requiredSize = Long.BYTES + Integer.BYTES + (value.length * Long.BYTES);
 			
 			if(buffer.remaining() < requiredSize)
 			{
@@ -121,7 +121,7 @@ class AdjacencyMap
 				
 			buffer.putLong(entry.getKey());
 			buffer.putInt(value.length);
-			for (long l : value)
+			for (final long l : value)
 			{
 	            buffer.putLong(l);
 	        }
@@ -130,7 +130,7 @@ class AdjacencyMap
 				
 		try(FileChannel fc = FileChannel.open(path, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE, StandardOpenOption.CREATE))
 		{
-			for(ByteBuffer byteBuffer : buffers)
+			for(final ByteBuffer byteBuffer : buffers)
 			{
 				if(fc.write(byteBuffer) < byteBuffer.limit() )
 				{
@@ -138,7 +138,7 @@ class AdjacencyMap
 				}
 			}
 		}
-		catch(IOException e)
+		catch(final IOException e)
 		{
 			throw new RuntimeException(e);
 		}
@@ -155,16 +155,16 @@ class AdjacencyMap
 	 */
 	public static void serialize(final Map<Long,  Set<Long>> map, final Path path, final long keyCount, final long valueCount)
 	{
-		long estimateBufferSize = ((Long.BYTES + Integer.BYTES) * keyCount)
+		final long estimateBufferSize = ((Long.BYTES + Integer.BYTES) * keyCount)
 			+ (valueCount * Long.BYTES);
 					
-		ByteBuffer buffer = ByteBuffer.allocate((int)estimateBufferSize);
+		final ByteBuffer buffer = ByteBuffer.allocate((int)estimateBufferSize);
 		
-		for (Entry<Long, Set<Long>> entry : map.entrySet())
+		for (final Entry<Long, Set<Long>> entry : map.entrySet())
 		{
 			buffer.putLong(entry.getKey());
 			buffer.putInt(entry.getValue().size());
-			for (long l : entry.getValue())
+			for (final long l : entry.getValue())
 			{
                 buffer.putLong(l);
             }
@@ -179,7 +179,7 @@ class AdjacencyMap
 				throw new RuntimeException("Failed writing to " + path + ", not all data written!");
 			}
 		}
-		catch(IOException e)
+		catch(final IOException e)
 		{
 			throw new RuntimeException(e);
 		}

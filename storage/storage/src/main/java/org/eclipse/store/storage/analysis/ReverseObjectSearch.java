@@ -91,13 +91,15 @@ public interface ReverseObjectSearch
 		
 		private boolean hasOverlapping(final LinkedList<ComparableAdjacencyMap> list)
 		{
-			for(ComparableAdjacencyMap mapA : list)
+			for(final ComparableAdjacencyMap mapA : list)
 			{
-				for(ComparableAdjacencyMap mapB : list)
+				for(final ComparableAdjacencyMap mapB : list)
 				{
-					if(mapA.isEmpty() || mapB.isEmpty()) continue;
+					if(mapA.isEmpty() || mapB.isEmpty()) {
+						continue;
+					}
 					
-					boolean overlapping = mapA.intersect(mapB);
+					final boolean overlapping = mapA.intersect(mapB);
 					logger.trace("overlap test {} > {} : {}", mapA.path.getFileName(), mapB.path.getFileName(), overlapping);
 					
 					if(mapA != mapB)
@@ -114,9 +116,9 @@ public interface ReverseObjectSearch
 		
 		private MissingObjects.Default search(final Set<Long> objectIDs)
 		{
-			Map<Long, long[]> foundParents = new TreeMap<>();
+			final Map<Long, long[]> foundParents = new TreeMap<>();
 
-            TreeSet<Long> next = new TreeSet<>(objectIDs);
+            final TreeSet<Long> next = new TreeSet<>(objectIDs);
 			
 			while(!next.isEmpty())
 			{
@@ -124,7 +126,7 @@ public interface ReverseObjectSearch
 						
 				logger.debug("searching processing id: {} ", currentID);
 			
-				ComparableAdjacencyMap map = this.getMapFor(currentID);
+				final ComparableAdjacencyMap map = this.getMapFor(currentID);
 				if(map != null)
 				{
 					if(map.map == null)
@@ -134,7 +136,7 @@ public interface ReverseObjectSearch
 					
 					while(currentID != null)
 					{
-						long[] parents = map.map.get(currentID);
+						final long[] parents = map.map.get(currentID);
 						if(parents == null)
 						{
 							logger.trace("no parents for id {} found in map {} !", currentID, map);
@@ -143,7 +145,7 @@ public interface ReverseObjectSearch
 						{
 							foundParents.put(currentID, parents);
 									
-							for(long parentID : parents)
+							for(final long parentID : parents)
 							{
 								if(foundParents.get(parentID) == null)
 								{
@@ -178,9 +180,11 @@ public interface ReverseObjectSearch
 			
 		private ComparableAdjacencyMap getMapFor(final long id)
 		{
-			for(ComparableAdjacencyMap map : this.reverseAdjacencyMaps)
+			for(final ComparableAdjacencyMap map : this.reverseAdjacencyMaps)
 			{
-				if(map.inRange(id)) return map;
+				if(map.inRange(id)) {
+					return map;
+				}
 			}
 			return null;
 		}
@@ -189,16 +193,22 @@ public interface ReverseObjectSearch
 		{
 			long counter = 0;
 			
-			for(ComparableAdjacencyMap mapA : list)
+			for(final ComparableAdjacencyMap mapA : list)
 			{
-				if(mapA.isEmpty()) continue;
+				if(mapA.isEmpty()) {
+					continue;
+				}
 				mapA.load();
 				
-				for(ComparableAdjacencyMap mapB : list)
+				for(final ComparableAdjacencyMap mapB : list)
 				{
-					if(mapA == mapB) continue;
+					if(mapA == mapB) {
+						continue;
+					}
 																
-					if(mapB.isEmpty()) continue;
+					if(mapB.isEmpty()) {
+						continue;
+					}
 					if(mapA.intersect(mapB))
 					{
 						mapB.load();
@@ -231,15 +241,15 @@ public interface ReverseObjectSearch
 		{
 			logger.trace("merging {} with {}", mapA, mapB);
 			
-			TreeMap<Long, long[]> map1 = mapA.map;
-			TreeMap<Long, long[]> map2 = mapB.map;
+			final TreeMap<Long, long[]> map1 = mapA.map;
+			final TreeMap<Long, long[]> map2 = mapB.map;
 	
 			map1.putAll(map2);
 			map2.clear();
 	
 			for(int i = 0; i < map1.size() / 2; i++)
 			{
-				var e = map1.lastEntry();
+				final var e = map1.lastEntry();
 				map2.put(e.getKey(), e.getValue());
 				map1.remove(e.getKey());
 			}
@@ -251,13 +261,13 @@ public interface ReverseObjectSearch
 			
 		private LinkedList<ComparableAdjacencyMap> buildReverseAdjacencyMaps()
 		{
-			LinkedList<ComparableAdjacencyMap> backReferenceMaps = new LinkedList<>();
+			final LinkedList<ComparableAdjacencyMap> backReferenceMaps = new LinkedList<>();
 	
-			for(AdjacencyFiles channel : this.adjacencyFiles)
+			for(final AdjacencyFiles channel : this.adjacencyFiles)
 			{
-				for(Entry<Long, Path> entry : channel.get().entrySet())
+				for(final Entry<Long, Path> entry : channel.get().entrySet())
 				{
-					Path path = AdjacencyDataConverter.Default.derivePath(entry.getValue(), ".brf");
+					final Path path = AdjacencyDataConverter.Default.derivePath(entry.getValue(), ".brf");
 					
 					backReferenceMaps.add(new ComparableAdjacencyMap(path));
 				}

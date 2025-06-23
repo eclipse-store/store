@@ -66,14 +66,14 @@ final class AdjacencySet
 			
 	private void init(final AdjacencyMap referenceMap)
 	{
-		Map<Long, long[]> map = referenceMap.getMap();
+		final Map<Long, long[]> map = referenceMap.getMap();
 		
 		this.path = AdjacencyDataConverter.Default.derivePath(referenceMap.getPath(), ".ref");
 		
 		this.references = new HashSet<>();
 						
 		map.forEach((k,v) -> {
-			for(long r : v)
+			for(final long r : v)
 			{
 				if(Persistence.IdType.OID.isInRange(r))
 				{
@@ -111,17 +111,17 @@ final class AdjacencySet
 			}
 			this.buffer.clear();
 		}
-		catch(ClosedByInterruptException e)
+		catch(final ClosedByInterruptException e)
 		{
 			//suppress ClosedByInterruptException
 		}
-		catch(IOException e)
+		catch(final IOException e)
 		{
 			try
 			{
 				this.fc.close();
 			}
-			catch(IOException closeException)
+			catch(final IOException closeException)
 			{
 				//suppress failed file channel close exception
 			}
@@ -148,11 +148,11 @@ final class AdjacencySet
 						
 		if(this.buffer == null)
 		{
-			int size = this.getReferences().size() * Long.BYTES;
+			final int size = this.getReferences().size() * Long.BYTES;
 			this.buffer = ByteBuffer.allocate(size);
 		}
 						
-		for(long r : this.getReferences())
+		for(final long r : this.getReferences())
 		{
 			this.buffer.putLong(r);
 		}
@@ -174,13 +174,13 @@ final class AdjacencySet
 			}
 			
 		}
-		catch(IOException e)
+		catch(final IOException e)
 		{
 			try
 			{
 				this.fc.close();
 			}
-			catch(IOException closeException)
+			catch(final IOException closeException)
 			{
 				//suppress failed file channel close exception
 			}
@@ -211,7 +211,7 @@ final class AdjacencySet
 				{
 					this.fc.close();
 				}
-				catch(IOException e)
+				catch(final IOException e)
 				{
 					//suppress failed file channel close exception
 				}

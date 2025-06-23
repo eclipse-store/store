@@ -206,7 +206,7 @@ public interface MissingObjectsSearch {
 				}
 			};
 			
-			for(AdjacencyFiles channel : this.adjacencyFiles)
+			for(final AdjacencyFiles channel : this.adjacencyFiles)
 			{
 				this.fileCount += channel.get().size();
 			}
@@ -236,7 +236,7 @@ public interface MissingObjectsSearch {
 				}
 			};
 			
-			for(AdjacencyFiles channel : this.adjacencyFiles)
+			for(final AdjacencyFiles channel : this.adjacencyFiles)
 			{
 				this.fileCount += channel.get().size();
 			}
@@ -249,14 +249,14 @@ public interface MissingObjectsSearch {
 		@Override
 		public MissingObjects searchMissingEntities()
 		{
-			LinkedBlockingQueue<AdjacencySet> refSetsQueueDone = this.searchMissingObjectIDs(this.referenceSetsPaths);
+			final LinkedBlockingQueue<AdjacencySet> refSetsQueueDone = this.searchMissingObjectIDs(this.referenceSetsPaths);
 			
 			return new MissingObjects.Default(this.gatherMissingObjectIDs(refSetsQueueDone), new HashMap<>());
 		}
 		
 		private Set<Long> gatherMissingObjectIDs(final LinkedBlockingQueue<AdjacencySet> refSetsQueue)
 		{
-			Set<Long> missingObjectIds = new HashSet<>();
+			final Set<Long> missingObjectIds = new HashSet<>();
 			refSetsQueue.forEach((set) ->
 			{
 				set.load(false);
@@ -304,15 +304,15 @@ public interface MissingObjectsSearch {
 			final LinkedBlockingQueue<AdjacencySet> adjacencySetsQueueFinished  = new LinkedBlockingQueue<>();
 			LinkedBlockingQueue<AdjacencySet> reducerInQueue;  //created later on demand
 			
-			for(AdjacencyFiles channel : this.adjacencyFiles)
+			for(final AdjacencyFiles channel : this.adjacencyFiles)
 			{
-				for(Entry<Long, Path> entry : channel.get().entrySet())
+				for(final Entry<Long, Path> entry : channel.get().entrySet())
 				{
 					adjacentMapsPathsQueue.add(entry.getValue());
 				}
 			}
 			
-			List<CompletableFuture<Void>> futures = new ArrayList<>();
+			final List<CompletableFuture<Void>> futures = new ArrayList<>();
 			
 			for(int i = 0; i < this.configuration.getReduceStage_MapLoaders(); i++)
 			{
@@ -335,8 +335,8 @@ public interface MissingObjectsSearch {
 			reducerInQueue = initOutQueue;
 			for(int i = 0; i < this.configuration.getReduceStage_SetReducers(); i++) {
 				
-				LinkedBlockingQueue<AdjacencySet> inQueue = reducerInQueue;
-				LinkedBlockingQueue<AdjacencySet> outQueue = new LinkedBlockingQueue<>(this.configuration.getQUEUE_SIZE());
+				final LinkedBlockingQueue<AdjacencySet> inQueue = reducerInQueue;
+				final LinkedBlockingQueue<AdjacencySet> outQueue = new LinkedBlockingQueue<>(this.configuration.getQUEUE_SIZE());
 				
 				
 				futures.add(
@@ -348,7 +348,7 @@ public interface MissingObjectsSearch {
 				reducerInQueue = outQueue;
 			}
 						
-			LinkedBlockingQueue<AdjacencySet> stageEndInQueue = reducerInQueue;
+			final LinkedBlockingQueue<AdjacencySet> stageEndInQueue = reducerInQueue;
 			futures.add(
 				CompletableFuture
 				.runAsync(() -> this.stageEnd(stageEndInQueue, refSetsQueue, adjacencySetsQueueFinished), executor)
@@ -361,7 +361,7 @@ public interface MissingObjectsSearch {
 				})
 			);
 								
-			CompletableFuture<?> reduceStage = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+			final CompletableFuture<?> reduceStage = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
 			
 			try
 			{
@@ -388,17 +388,17 @@ public interface MissingObjectsSearch {
 			{
 				try
 				{
-					AdjacencySet set = queueIn.take();
+					final AdjacencySet set = queueIn.take();
 					set.load(true);
 					queueOut.put(set);
 				}
-				catch(InterruptedException e)
+				catch(final InterruptedException e)
 				{
 					//stop processing
 					logger.debug("Init stage thread ending stopped of interruption");
 					return;
 				}
-				catch(Exception e)
+				catch(final Exception e)
 				{
 					throw new RuntimeException(e);
 				}
@@ -416,14 +416,14 @@ public interface MissingObjectsSearch {
 				{
 					try
 					{
-						AdjacencyMap map = adjacencyMapsQueue.take();
+						final AdjacencyMap map = adjacencyMapsQueue.take();
 										
 						long counter = 0;
 						
 						while(counter < this.fileCount)
 						{
 
-							AdjacencySet set = queueIn.take();
+							final AdjacencySet set = queueIn.take();
 							if(!set.isEmpty())
 							{
 								set.reduce(map);
@@ -433,13 +433,13 @@ public interface MissingObjectsSearch {
 							counter++;
 						}
 					}
-					catch(InterruptedException e)
+					catch(final InterruptedException e)
 					{
 						//stop processing
 						logger.debug("Reduce stage thread stopped because of interruption");
 						return;
 					}
-					catch(Exception e)
+					catch(final Exception e)
 					{
 						throw new RuntimeException(e);
 					}
@@ -449,16 +449,16 @@ public interface MissingObjectsSearch {
 					//simply forward
 					try
 					{
-						AdjacencySet set = queueIn.take();
+						final AdjacencySet set = queueIn.take();
 						queueOut.put(set);
 					}
-					catch(InterruptedException e)
+					catch(final InterruptedException e)
 					{
 						//stop processing
 						logger.debug("Reduce stage thread stopped because of interruption");
 						return;
 					}
-					catch(Exception e)
+					catch(final Exception e)
 					{
 						throw new RuntimeException(e);
 					}
@@ -471,13 +471,13 @@ public interface MissingObjectsSearch {
 				final LinkedBlockingQueue<AdjacencySet> queueDone)
 		{
 			long processedFiles = 0;
-			List<AdjacencySet> tmp = new ArrayList<>();
+			final List<AdjacencySet> tmp = new ArrayList<>();
 			
 			do
 			{
 				try
 				{
-					AdjacencySet set = queueIn.take();
+					final AdjacencySet set = queueIn.take();
 					
 					set.store();
 					set.unload();
@@ -513,13 +513,13 @@ public interface MissingObjectsSearch {
 					}
 					
 				}
-				catch(InterruptedException e)
+				catch(final InterruptedException e)
 				{
 					//stop processing
 					logger.debug("End stage thread stopped because of interruption");
 					return;
 				}
-				catch(Exception e)
+				catch(final Exception e)
 				{
 					throw new RuntimeException(e);
 				}
