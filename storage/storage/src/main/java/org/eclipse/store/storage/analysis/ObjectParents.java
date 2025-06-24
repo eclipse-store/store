@@ -19,7 +19,7 @@ import java.util.Map;
 /**
  * Interface defining the result of reverse object search.
  */
-public interface ObjectParrents
+public interface ObjectParents
 {
 	/**
 	 * Get the chain of references from root to the object
@@ -35,7 +35,7 @@ public interface ObjectParrents
 	/**
 	 * Provides the result of the reverse object search.
 	 */
-	public class Default implements ObjectParrents
+	public class Default implements ObjectParents
 	{
 		private final Map<Long, long[]> parents;
 
