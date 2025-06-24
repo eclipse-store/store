@@ -1,8 +1,5 @@
 package org.eclipse.store.storage.analysis;
 
-import java.nio.file.Path;
-import java.util.ArrayList;
-
 /*-
  * #%L
  * EclipseStore Storage
@@ -17,7 +14,8 @@ import java.util.ArrayList;
  * #L%
  */
 
-import java.util.HashMap;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map.Entry;
@@ -62,9 +60,7 @@ public interface MissingObjectsSearch {
 		final MissingObjectsSearch.Default.DefaultConfiguration configuration)
 	{
 		if(configuration != null)
-		{
 			return new MissingObjectsSearch.Default(adjacencyFiles, referenceSetsPaths, configuration);
-		}
 		
 		return new MissingObjectsSearch.Default(adjacencyFiles, referenceSetsPaths);
 	}
@@ -251,7 +247,7 @@ public interface MissingObjectsSearch {
 		{
 			final LinkedBlockingQueue<AdjacencySet> refSetsQueueDone = this.searchMissingObjectIDs(this.referenceSetsPaths);
 			
-			return new MissingObjects.Default(this.gatherMissingObjectIDs(refSetsQueueDone), new HashMap<>());
+			return new MissingObjects.Default(this.gatherMissingObjectIDs(refSetsQueueDone));
 		}
 		
 		private Set<Long> gatherMissingObjectIDs(final LinkedBlockingQueue<AdjacencySet> refSetsQueue)
@@ -501,9 +497,7 @@ public interface MissingObjectsSearch {
 								queueDone.addAll(tmp);
 								return;
 							} else
-							{
 								throw new RuntimeException("Something went wrong, there are more items to be processed then expected.");
-							}
 						}
 						else
 						{

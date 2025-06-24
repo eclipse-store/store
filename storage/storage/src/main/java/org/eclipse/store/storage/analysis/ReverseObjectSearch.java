@@ -34,9 +34,9 @@ public interface ReverseObjectSearch
 	 * Search for missing objects by id.
 	 * 
 	 * @param objectIDs a set of id to search
-	 * @return MissingObjects instance providing the search results.
+	 * @return ObjectParrents instance providing the search results.
 	 */
-	public MissingObjects searchMissingObjectIDs(final Set<Long> objectIDs);
+	public ObjectParrents searchObjectIDs(final Set<Long> objectIDs);
 	
 	/**
 	 * Create a new default instance of the ReverseObjectSearch.
@@ -78,7 +78,7 @@ public interface ReverseObjectSearch
 		///////////
 			
 		@Override
-		public MissingObjects searchMissingObjectIDs(final Set<Long> objectIDs)
+		public ObjectParrents searchObjectIDs(final Set<Long> objectIDs)
 		{
 			while(this.hasOverlapping(this.reverseAdjacencyMaps))
 			{
@@ -105,16 +105,14 @@ public interface ReverseObjectSearch
 					if(mapA != mapB)
 					{
 						if(overlapping)
-						{
 							return true;
-						}
 					}
 				}
 			}
 			return false;
 		}
 		
-		private MissingObjects.Default search(final Set<Long> objectIDs)
+		private ObjectParrents.Default search(final Set<Long> objectIDs)
 		{
 			final Map<Long, long[]> foundParents = new TreeMap<>();
 
@@ -175,16 +173,15 @@ public interface ReverseObjectSearch
 				}
 			}
 					
-			return new MissingObjects.Default(objectIDs, foundParents);
+			return new ObjectParrents.Default(foundParents);
 		}
 			
 		private ComparableAdjacencyMap getMapFor(final long id)
 		{
 			for(final ComparableAdjacencyMap map : this.reverseAdjacencyMaps)
 			{
-				if(map.inRange(id)) {
+				if(map.inRange(id))
 					return map;
-				}
 			}
 			return null;
 		}
