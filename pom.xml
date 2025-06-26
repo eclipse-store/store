@@ -36,8 +36,7 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.source>11</maven.compiler.source>
-        <maven.compiler.target>11</maven.compiler.target>
+        <maven.compiler.release>11</maven.compiler.release>
         <maven.compiler.compilerId>javac</maven.compiler.compilerId>
         <maven.version.minimum>3.8.1</maven.version.minimum>
         <maven.java.version.minimum>11</maven.java.version.minimum>
