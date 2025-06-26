@@ -221,11 +221,8 @@ public interface StorageConnection extends UsageMarkable, Persister
 							PersistenceTypeDictionaryFileHandler.New(targetDirectory)
 				)
 			);
-		}
-		else
-		{
+		} else
 			throw new StorageExceptionBackupFullBackupTargetNotEmpty(targetDirectory);
-		}
 	}
 	
 	/**
@@ -601,12 +598,7 @@ public interface StorageConnection extends UsageMarkable, Persister
 			{
 				final PersistenceObjectRegistry registry = this.persistenceManager().objectRegistry();
 				final PersistenceRootsView roots = this.persistenceManager().viewRoots();
-								
-				roots.iterateEntries((s,o) -> {
-					final long id = registry.lookupObjectId(o);
-					System.out.println(s + " " + o + ",id: " + id);
-				});
-								
+																
 				final Object defaultRoot = roots.rootReference().get();
 				if(defaultRoot != null)
 				{
