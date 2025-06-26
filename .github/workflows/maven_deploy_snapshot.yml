@@ -18,7 +18,7 @@ jobs:
       - name: Set up Java for publishing to Maven Central Snapshot Repository
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '11'
           distribution: 'temurin'
           cache: 'maven'
           server-id: ossrh
@@ -32,3 +32,37 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.ORG_GPG_PASSPHRASE }}
           MAVEN_GPG_KEY: ${{ secrets.ORG_GPG_PRIVATE_KEY }}
 
+      #java 17 build
+  publish_java17:
+    if: github.repository == 'eclipse-store/store'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Java 17 for publishing to Maven Central Repository
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+          server-id: ossrh
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+      - name: Build with java 17
+        run: |
+          mvn -P production -pl integrations/spring-boot3 clean install -am -B
+          mvn -P production -pl integrations/spring-boot3-console clean install -am -B
+          mvn -P production -pl storage/rest/client-app clean install -am -B
+          mvn -P production -pl storage/rest/client-app-standalone-assembly clean install -am -B
+          mvn -P production -pl storage/rest/service-springboot clean install -am -B
+      - name: Deploy module build with java 17
+        run: |
+          mvn -Pdeploy -Pproduction -pl integrations/spring-boot3 clean deploy
+          mvn -Pdeploy -Pproduction -pl integrations/spring-boot3-console clean deploy
+          mvn -Pdeploy -Pproduction -pl storage/rest/client-app clean deploy
+          mvn -Pdeploy -Pproduction -pl storage/rest/client-app-standalone-assembly clean deploy
+          mvn -Pdeploy -Pproduction -pl storage/rest/service-springboot clean deploy
+        env:
+          MAVEN_USERNAME: ${{ secrets.CENTRAL_SONATYPE_TOKEN_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.CENTRAL_SONATYPE_TOKEN_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.ORG_GPG_PASSPHRASE }}
+          MAVEN_GPG_KEY: ${{ secrets.ORG_GPG_PRIVATE_KEY }}

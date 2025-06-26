@@ -26,9 +26,39 @@
         <module>client-jersey</module>
         <module>service</module>
         <module>service-sparkjava</module>
-        <module>service-springboot</module>
-        <module>client-app</module>
-        <module>client-app-standalone-assembly</module>
     </modules>
+
+    <profiles>
+        <profile>
+            <id>from_java_17</id>
+            <activation>
+                <jdk>[17,)</jdk>
+            </activation>
+            <properties>
+                <maven.compiler.source>17</maven.compiler.source>
+                <maven.compiler.target>17</maven.compiler.target>
+                <java.version>17</java.version>
+            </properties>
+            <modules>
+                <module>service-springboot</module>
+                <module>client-app</module>
+                <module>client-app-standalone-assembly</module>
+            </modules>
+            <build>
+                <pluginManagement>
+                    <plugins>
+                        <plugin>
+                            <groupId>org.apache.maven.plugins</groupId>
+                            <artifactId>maven-javadoc-plugin</artifactId>
+                            <configuration>
+                                <source>17</source>
+                            </configuration>
+                        </plugin>
+                    </plugins>
+                </pluginManagement>
+            </build>
+
+        </profile>
+    </profiles>
 
 </project>

@@ -18,10 +18,39 @@
 
     <modules>
         <module>cdi4</module>
-        <module>spring-boot3</module>
-        <module>spring-boot3-console</module>
-        <!-- This module exists in order to run real itests with dependencies provided by the application -->
-        <module>itest</module>
     </modules>
+
+    <profiles>
+        <profile>
+            <id>from_java_17</id>
+            <activation>
+                <jdk>[17,)</jdk>
+            </activation>
+            <modules>
+                <module>spring-boot3</module>
+                <module>spring-boot3-console</module>
+                <!-- This module exists in order to run real itests with dependencies provided by the application -->
+                <module>itest</module>
+            </modules>
+            <properties>
+                <maven.compiler.source>17</maven.compiler.source>
+                <maven.compiler.target>17</maven.compiler.target>
+                <java.version>17</java.version>
+            </properties>
+            <build>
+                <pluginManagement>
+                    <plugins>
+                        <plugin>
+                            <groupId>org.apache.maven.plugins</groupId>
+                            <artifactId>maven-javadoc-plugin</artifactId>
+                            <configuration>
+                                <source>17</source>
+                            </configuration>
+                        </plugin>
+                    </plugins>
+                </pluginManagement>
+            </build>
+        </profile>
+    </profiles>
 
 </project>
