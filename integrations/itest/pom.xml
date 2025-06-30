@@ -17,7 +17,6 @@
 
     <properties>
         <org.springframework.boot.version>3.2.2</org.springframework.boot.version>
-        <maven.compiler.release>17</maven.compiler.release>
     </properties>
 
     <dependencies>

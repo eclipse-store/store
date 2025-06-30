@@ -22,7 +22,6 @@
 	<properties>
 		<vaadin.version>24.2.6</vaadin.version>
 		<spring.boot.version>3.2.0</spring.boot.version>
-		<maven.compiler.release>17</maven.compiler.release>
 	</properties>
 
 	<dependencyManagement>
