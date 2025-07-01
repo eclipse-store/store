@@ -409,11 +409,11 @@ public interface AdjacencyDataConverter
 			final LinkedBlockingQueue<Path> adjacencyMapsPathsQueue,
 			final List<LinkedBlockingQueue<AdjacencyMap>> outputQueues)
 		{
-			while(!adjacencyMapsPathsQueue.isEmpty())
+			Path path;
+			while((path = adjacencyMapsPathsQueue.poll()) != null)
 			{
 				try
 				{
-					final Path path = adjacencyMapsPathsQueue.take();
 					final TreeMap<Long, long[]> refMap = AdjacencyMap.deserializeReferenceMap(path);
 	
 					for(final LinkedBlockingQueue<AdjacencyMap> queue : outputQueues)
