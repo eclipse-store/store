@@ -31,7 +31,7 @@ import org.slf4j.Logger;
 public interface ReverseObjectSearch
 {
 	/**
-	 * Search for missing objects by id.
+	 * Search for parent objects by id.
 	 * 
 	 * @param objectIDs a set of id to search
 	 * @return ObjectParents instance providing the search results.
