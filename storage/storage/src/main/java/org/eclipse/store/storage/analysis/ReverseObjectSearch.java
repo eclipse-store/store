@@ -19,19 +19,19 @@ import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
 import org.eclipse.serializer.util.logging.Logging;
+import org.eclipse.store.storage.analysis.AdjacencyDataConverter.ConvertedAdjacencyFiles;
 import org.eclipse.store.storage.types.StorageAdjacencyDataExporter.AdjacencyFiles;
 import org.slf4j.Logger;
 
 public interface ReverseObjectSearch
 {
 	/**
-	 * Search for missing objects by id.
+	 * Search for parent objects by id.
 	 * 
 	 * @param objectIDs a set of id to search
 	 * @return ObjectParents instance providing the search results.
@@ -42,11 +42,12 @@ public interface ReverseObjectSearch
 	 * Create a new default instance of the ReverseObjectSearch.
 	 * 
 	 * @param adjacencyFiles to be processed.
+	 * @param convertedAdjacencyFiles required convertedAdjacencyFiles.
 	 * @return a new ReverseObjectSearch instance.
 	 */
-	public static ReverseObjectSearch New(final List<AdjacencyFiles> adjacencyFiles)
+	public static ReverseObjectSearch New(final List<AdjacencyFiles> adjacencyFiles, ConvertedAdjacencyFiles convertedAdjacencyFiles)
 	{
-		return new Default(adjacencyFiles);
+		return new Default(adjacencyFiles, convertedAdjacencyFiles);
 	}
 	
 	public class Default implements ReverseObjectSearch
@@ -65,12 +66,13 @@ public interface ReverseObjectSearch
 		 * Create a new instance of the ReverseObjectSearch.
 		 * 
 		 * @param adjacencyFiles to be processed.
+		 * @param convertedAdjacencyFiles required convertedAdjacencyFiles.
          */
-		public Default(final List<AdjacencyFiles> adjacencyFiles)
+		public Default(final List<AdjacencyFiles> adjacencyFiles, ConvertedAdjacencyFiles convertedAdjacencyFiles)
 		{
 			super();
 			this.adjacencyFiles = adjacencyFiles;
-			this.reverseAdjacencyMaps = this.buildReverseAdjacencyMaps();
+			this.reverseAdjacencyMaps = this.buildReverseAdjacencyMaps(convertedAdjacencyFiles.getReverseReferenceMaps());
 		}
 	
 		///////////////////////////////////////////////////////////////////////////
@@ -256,19 +258,13 @@ public interface ReverseObjectSearch
 		}
 			
 			
-		private LinkedList<ComparableAdjacencyMap> buildReverseAdjacencyMaps()
+		private LinkedList<ComparableAdjacencyMap> buildReverseAdjacencyMaps(List<Path> reverseReverenceMapPaths)
 		{
 			final LinkedList<ComparableAdjacencyMap> backReferenceMaps = new LinkedList<>();
-	
-			for(final AdjacencyFiles channel : this.adjacencyFiles)
-			{
-				for(final Entry<Long, Path> entry : channel.get().entrySet())
-				{
-					final Path path = AdjacencyDataConverter.Default.derivePath(entry.getValue(), ".brf");
-					
-					backReferenceMaps.add(new ComparableAdjacencyMap(path));
-				}
-			}
+			
+			reverseReverenceMapPaths.forEach(
+				path -> backReferenceMaps.add(new ComparableAdjacencyMap(path))
+			);
 			
 			return backReferenceMaps;
 		}
