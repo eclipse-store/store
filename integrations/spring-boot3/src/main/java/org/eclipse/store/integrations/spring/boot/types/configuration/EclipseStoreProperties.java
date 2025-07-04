@@ -189,12 +189,6 @@ public class EclipseStoreProperties
     private boolean autoStart = true;
 
     /**
-     * A flag defining whether the default handlers for JDK 1.7 classes shall be registered or not.
-     * Default value is true.
-     */
-    private boolean registerJdk17Handlers = true;
-
-    /**
      * Determines whether to register default handlers for JDK 1.8 classes.
      * By default, this is set to false for compatibility reasons with previously created storage.
      * Enabling this requires adding these handlers to your storage configuration later when used in another application with Eclipse Store.
@@ -516,15 +510,6 @@ public class EclipseStoreProperties
         this.autoStart = autoStart;
     }
 
-    public boolean isRegisterJdk17Handlers()
-    {
-        return this.registerJdk17Handlers;
-    }
-
-    public void setRegisterJdk17Handlers(final boolean registerJdk17Handlers)
-    {
-        this.registerJdk17Handlers = registerJdk17Handlers;
-    }
 
     public boolean isRegisterJdk8Handlers()
     {
