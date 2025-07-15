@@ -928,7 +928,7 @@ public interface StorageTransactionsAnalysis
 		// constructors //
 		/////////////////
 
-		Default(
+		public Default(
 			final StorageLiveTransactionsFile                            transactionsFile                    ,
 			final XGettingTable<Long, ? extends StorageTransactionEntry> transactionsFileEntries             ,
 			final long                                                   headFileLastConsistentStoreLength   ,
