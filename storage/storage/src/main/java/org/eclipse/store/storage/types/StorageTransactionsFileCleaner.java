@@ -96,6 +96,9 @@ public interface StorageTransactionsFileCleaner
 			private final LinkedHashMap<Long, FileTransactionInfo> transactions;
 			private FileTransactionInfo currentTransactionInfo;
 						
+			private long currentFileNumber;
+			private long currentCreationTimeStamp;
+			
 			
 			///////////////////////////////////////////////////////////////////////////
 			// constructors //
@@ -200,7 +203,16 @@ public interface StorageTransactionsFileCleaner
 				final long FileLength = Logic.getFileLength(address);
 				final long timestamp  = Logic.getEntryTimestamp(address);
 				
-				this.currentTransactionInfo.setStore(FileLength, timestamp);
+				if(timestamp < this.currentCreationTimeStamp)
+				{
+					logger.debug("Store belongs to other file!");
+					FileTransactionInfo prev = this.transactions.get(this.currentFileNumber);
+					prev.setStore(FileLength, timestamp);
+				}
+				else
+				{
+					this.currentTransactionInfo.setStore(FileLength, timestamp);
+				}
 
 				return true;
 			}
@@ -215,6 +227,9 @@ public interface StorageTransactionsFileCleaner
 				final long fileNumber = Logic.getFileNumber(address);
 				final long fileLength = Logic.getFileLength(address);
 				final long timestamp  = Logic.getEntryTimestamp(address);
+				
+				this.currentFileNumber         = fileNumber;
+				this.currentCreationTimeStamp  = timestamp;
 				
 				this.currentTransactionInfo = new FileTransactionInfo();
 				this.currentTransactionInfo.setCreation(fileLength, timestamp);
