@@ -96,6 +96,9 @@ public interface StorageTransactionsFileCleaner
 			private final LinkedHashMap<Long, FileTransactionInfo> transactions;
 			private FileTransactionInfo currentTransactionInfo;
 						
+			private long currentFileNumber;
+			private long currentCreationTimeStamp;
+			
 			
 			///////////////////////////////////////////////////////////////////////////
 			// constructors //
@@ -169,9 +172,9 @@ public interface StorageTransactionsFileCleaner
 					return false;
 				}
 				
-				final long FileLength = Logic.getFileLength(address);
+				final long fileLength = Logic.getFileLength(address);
 				
-				this.currentTransactionInfo.setStore(FileLength, this.currentTransactionInfo.storeTimeStamp);
+				this.currentTransactionInfo.setStore(fileLength, this.currentTransactionInfo.storeTimeStamp);
 
 				return true;
 			}
@@ -183,9 +186,19 @@ public interface StorageTransactionsFileCleaner
 					return false;
 				}
 				
-				final long FileLength = Logic.getFileLength(address);
+				final long fileLength = Logic.getFileLength(address);
+				final long timestamp  = Logic.getEntryTimestamp(address);
 				
-				this.currentTransactionInfo.setStore(FileLength, this.currentTransactionInfo.storeTimeStamp);
+				if(timestamp < this.currentCreationTimeStamp)
+				{
+					logger.debug("Store belongs to other file!");
+					FileTransactionInfo prev = this.transactions.get(this.currentFileNumber);
+					prev.setStore(fileLength, timestamp);
+				}
+				else
+				{
+					this.currentTransactionInfo.setStore(fileLength, timestamp);
+				}
 				
 				return true;
 			}
@@ -197,10 +210,19 @@ public interface StorageTransactionsFileCleaner
 					return false;
 				}
 				
-				final long FileLength = Logic.getFileLength(address);
+				final long fileLength = Logic.getFileLength(address);
 				final long timestamp  = Logic.getEntryTimestamp(address);
 				
-				this.currentTransactionInfo.setStore(FileLength, timestamp);
+				if(timestamp < this.currentCreationTimeStamp)
+				{
+					logger.debug("Store belongs to other file!");
+					FileTransactionInfo prev = this.transactions.get(this.currentFileNumber);
+					prev.setStore(fileLength, timestamp);
+				}
+				else
+				{
+					this.currentTransactionInfo.setStore(fileLength, timestamp);
+				}
 
 				return true;
 			}
@@ -215,6 +237,9 @@ public interface StorageTransactionsFileCleaner
 				final long fileNumber = Logic.getFileNumber(address);
 				final long fileLength = Logic.getFileLength(address);
 				final long timestamp  = Logic.getEntryTimestamp(address);
+				
+				this.currentFileNumber         = fileNumber;
+				this.currentCreationTimeStamp  = timestamp;
 				
 				this.currentTransactionInfo = new FileTransactionInfo();
 				this.currentTransactionInfo.setCreation(fileLength, timestamp);
@@ -405,6 +430,62 @@ public interface StorageTransactionsFileCleaner
 			XMemory.deallocateDirectByteBuffer(entryBufferFileDeletion);
 		}
 		
+	}
+	
+	/**
+	 * Defines a creator for StorageTransactionsFileCleaner instances.
+	 */
+	public interface Creator
+	{
+		/**
+		 * Create a StorageTransactionsFileCleaner instance.
+		 * 
+		 * @param fileTransactions the transaction File.
+		 * @param channelIndex	the channel index.
+		 * @param transactionFileSizeLimit transaction file size limit.
+		 * @param fileProvider the storage file provider.
+		 * @param storageFileWriter the storage file writer.
+		 * @return a StorageTransactionsFileCleaner instance.
+		 */
+		public StorageTransactionsFileCleaner createStorageTransactionsFileCleaner(
+			StorageLiveTransactionsFile
+			fileTransactions,
+			int channelIndex,
+			long transactionFileSizeLimit,
+			StorageLiveFileProvider fileProvider,
+			StorageFileWriter storageFileWriter);
+	
+		/**
+		 * Creates the default StorageTransactionsFileCleaner.Creator instance.
+		 * 
+		 * @return the default StorageTransactionsFileCleaner.Creator.
+		 */
+		public static Creator Default()
+		{
+			return new Default();
+		}
+		
+		/**
+		 * Default StorageTransactionsFileCleaner.Creator instance
+		 */
+		public class Default implements Creator
+		{
+			@Override
+			public StorageTransactionsFileCleaner createStorageTransactionsFileCleaner(
+				final StorageLiveTransactionsFile fileTransactions,
+				final int channelIndex,
+				final long transactionFileSizeLimit,
+				final StorageLiveFileProvider fileProvider,
+				final StorageFileWriter storageFileWriter)
+			{
+				return new StorageTransactionsFileCleaner.Default(
+					fileTransactions,
+					channelIndex,
+					transactionFileSizeLimit,
+					fileProvider,
+					storageFileWriter);
+			}
+		}
 	}
 	
 }
