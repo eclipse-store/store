@@ -190,6 +190,7 @@ public interface StorageSystem extends StorageController
 		private final StorageStructureValidator                  storageStructureValidator     ;
 		private final MonitoringManager                          monitorManager                ;
 		private final StorageEntityCollector.Creator             entityCollectorCreator        ;
+		private	final StorageTransactionsFileCleaner.Creator     transactionFileCleanerCreator ;
 		
 		// state flags //
 		private final AtomicBoolean    isStartingUp       = new AtomicBoolean();
@@ -208,6 +209,7 @@ public interface StorageSystem extends StorageController
 		private          StorageLockFileManager   lockFileManager;
 		
 		private          StorageIdAnalysis        initializationIdAnalysis;
+	
 
 
 
@@ -246,7 +248,8 @@ public interface StorageSystem extends StorageController
 			final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry             ,
 			final StorageStructureValidator                  storageStructureValidator     ,
 			final MonitoringManager                          monitorManager                ,
-			final StorageEntityCollector.Creator             entityCollectorCreator
+			final StorageEntityCollector.Creator             entityCollectorCreator        ,
+			final StorageTransactionsFileCleaner.Creator     transactionFileCleanerCreator
 		)
 		{
 			super();
@@ -294,6 +297,7 @@ public interface StorageSystem extends StorageController
 			this.storageStructureValidator      = notNull(storageStructureValidator)           ;
 			this.monitorManager                 = notNull(monitorManager)                      ;
 			this.entityCollectorCreator         = notNull(entityCollectorCreator)              ;
+			this.transactionFileCleanerCreator  = notNull(transactionFileCleanerCreator)       ;
 		}
 
 
@@ -554,7 +558,8 @@ public interface StorageSystem extends StorageController
 				this.switchByteOrder                       ,
 				this.rootTypeIdProvider.provideRootTypeId(),
 				this.monitorManager                        ,
-				this.entityCollectorCreator
+				this.entityCollectorCreator                ,
+				this.transactionFileCleanerCreator
 			);
 
 			final ChannelKeeper[] keepers = this.channelKeepers;

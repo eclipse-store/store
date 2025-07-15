@@ -221,8 +221,8 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		// cleared and nulled by clearRegisteredFiles() / reset()
 		private StorageLiveDataFile.Default headFile;
 
-		private StorageTransactionsFileCleaner.Default transactionFileCleaner;
 
+		private StorageTransactionsFileCleaner transactionFileCleaner;
 
 
 		///////////////////////////////////////////////////////////////////////////
@@ -230,16 +230,17 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		/////////////////
 
 		public Default(
-			final int                                  channelIndex                 ,
-			final StorageInitialDataFileNumberProvider initialDataFileNumberProvider,
-			final StorageTimestampProvider             timestampProvider            ,
-			final StorageLiveFileProvider              fileProvider                 ,
-			final StorageDataFileEvaluator             dataFileEvaluator            ,
-			final StorageEntityCache.Default           entityCache                  ,
-			final StorageWriteController               writeController              ,
-			final StorageFileWriter                    writer                       ,
-			final BufferSizeProvider                   standardBufferSizeProvider   ,
-			final StorageBackupHandler                 backupHandler
+			final int                                    channelIndex                 ,
+			final StorageInitialDataFileNumberProvider   initialDataFileNumberProvider,
+			final StorageTimestampProvider               timestampProvider            ,
+			final StorageLiveFileProvider                fileProvider                 ,
+			final StorageDataFileEvaluator               dataFileEvaluator            ,
+			final StorageEntityCache.Default             entityCache                  ,
+			final StorageWriteController                 writeController              ,
+			final StorageFileWriter                      writer                       ,
+			final BufferSizeProvider                     standardBufferSizeProvider   ,
+			final StorageBackupHandler                   backupHandler                ,
+			final StorageTransactionsFileCleaner.Creator transactionFileCleanerCreator
 		)
 		{
 			super();
@@ -256,6 +257,13 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			this.standardByteBuffer = XMemory.allocateDirectNative(
 				standardBufferSizeProvider.provideBufferSize()
 			);
+			
+			this.transactionFileCleaner = transactionFileCleanerCreator.createStorageTransactionsFileCleaner(
+				this.fileTransactions,
+				channelIndex,
+				channelIndex,
+				fileProvider,
+				writer);
 		}
 
 
@@ -922,14 +930,6 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 					// initialization plus synchronization with existing files.
 					this.initializeBackupHandler(effectiveStorageInventory);
 				}
-
-				this.transactionFileCleaner = new StorageTransactionsFileCleaner.Default(
-					this.fileTransactions,
-					this.channelIndex,
-					this.dataFileEvaluator.transactionFileMaximumSize(),
-					this.fileProvider,
-					this.writer
-				);
 			
 				this.restartFileCleanupCursor();
 

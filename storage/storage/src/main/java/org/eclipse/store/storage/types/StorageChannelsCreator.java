@@ -53,7 +53,8 @@ public interface StorageChannelsCreator
 		boolean                                    switchByteOrder              ,
 		long                                       rootTypeId                   ,
 		MonitoringManager                          monitorManager               ,
-		StorageEntityCollector.Creator             entityCollectorCreator
+		StorageEntityCollector.Creator             entityCollectorCreator       ,
+		StorageTransactionsFileCleaner.Creator     transactionFileCleanerCreator
 	);
 
 
@@ -91,7 +92,8 @@ public interface StorageChannelsCreator
 			final boolean                                    switchByteOrder              ,
 			final long                                       rootTypeId                   ,
 			final MonitoringManager                          monitorManager               ,
-			final StorageEntityCollector.Creator             entityCollectorCreator
+			final StorageEntityCollector.Creator             entityCollectorCreator       ,
+			final StorageTransactionsFileCleaner.Creator     transactionFileCleanerCreator
 		)
 		{
 			// (14.07.2016 TM)TODO: make configuration dynamic
@@ -151,7 +153,8 @@ public interface StorageChannelsCreator
 					writeController                 ,
 					writerProvider.provideWriter(i) ,
 					readingDefaultBufferSizeProvider,
-					backupHandler
+					backupHandler                   ,
+					transactionFileCleanerCreator
 				);
 
 				// required to resolve the initializer cyclic dependency

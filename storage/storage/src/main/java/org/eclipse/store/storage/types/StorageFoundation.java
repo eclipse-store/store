@@ -541,6 +541,20 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	public StorageEntityCollector.Creator getStorageEntityCollectorCreator();
 	
 	/**
+	 * Returns the currently set {@link StorageTransactionsFileCleaner.Creator} instance.
+	 * <p>
+	 * If no instance is set and the implementation deems an instance of this type mandatory for the successful
+	 * execution of {@link #createStorageSystem()}, a suitable instance is created via an internal default
+	 * creation logic and then set as the current. If the implementation has not sufficient logic and/or data
+	 * to create a default instance, a {@link MissingFoundationPartException} is thrown.
+	 * 
+	 * @return the currently set instance, potentially created on-demand if required.
+	 * 
+	 * @throws MissingFoundationPartException if a returnable instance is required but cannot be created by default.
+	 */
+	public StorageTransactionsFileCleaner.Creator getStorageTransactionsFileCleanerCreator();
+	
+	/**
 	 * Sets the {@link StorageConfiguration} instance to be used for the assembly.
 	 * 
 	 * @param configuration the instance to be used.
@@ -862,6 +876,14 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	public F setStorageEntityCollectorCreator(StorageEntityCollector.Creator storageEntityCollectorCreator);
 	
 	/**
+	 * Sets the {@link StorageTransactionsFileCleaner.Creator} instance to be used for the assembly.
+	 * 
+	 * @param storageTransactionsFileCleanerCreator
+	 * @return {@literal this} to allow method chaining.
+	 */
+	public F setStorageTransactionsFileCleanerCreator(final StorageTransactionsFileCleaner.Creator storageTransactionsFileCleanerCreator);
+	
+	/**
 	 * Creates and returns a new {@link StorageSystem} instance by using the current state of all registered
 	 * logic part instances and by on-demand creating missing ones via a default logic.
 	 * <p>
@@ -888,45 +910,46 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		 * - StorageThreadNameProvider
 		 */
 
-		private StorageConfiguration                     configuration                ;
-		private StorageOperationController.Creator       operationControllerCreator   ;
-		private StorageInitialDataFileNumberProvider     initialDataFileNumberProvider;
-		private StorageRequestAcceptor.Creator           requestAcceptorCreator       ;
-		private StorageTaskBroker.Creator                taskBrokerCreator            ;
-		private StorageDataChunkValidator.Provider       dataChunkValidatorProvider   ;
-		private StorageDataChunkValidator.Provider2      dataChunkValidatorProvider2  ;
-		private StorageChannelsCreator                   channelCreator               ;
-		private StorageThreadNameProvider                threadNameProvider           ;
-		private StorageChannelThreadProvider             channelThreadProvider        ;
-		private StorageBackupThreadProvider              backupThreadProvider         ;
-		private ProcessIdentityProvider                  processIdentityProvider      ;
-		private StorageLockFileManagerThreadProvider     lockFileManagerThreadProvider;
-		private StorageThreadProvider                    threadProvider               ;
-		private StorageRequestTaskCreator                requestTaskCreator           ;
-		private StorageTypeDictionary                    typeDictionary               ;
-		private StorageRootTypeIdProvider                rootTypeIdProvider           ;
-		private StorageTimestampProvider                 timestampProvider            ;
-		private StorageObjectIdRangeEvaluator            objectIdRangeEvaluator       ;
-		private StorageFileWriter.Provider               writerProvider               ;
-		private StorageGCZombieOidHandler                gCZombieOidHandler           ;
-		private StorageRootOidSelector.Provider          rootOidSelectorProvider      ;
-		private StorageObjectIdMarkQueue.Creator         oidMarkQueueCreator          ;
-		private StorageEntityMarkMonitor.Creator         entityMarkMonitorCreator     ;
-		private StorageDataFileValidator.Creator         dataFileValidatorCreator     ;
-		private BinaryEntityRawDataIterator.Provider     entityDataIteratorProvider   ;
-		private StorageEntityDataValidator.Creator       entityDataValidatorCreator   ;
-		private StorageLockFileSetup                     lockFileSetup                ;
-		private StorageLockFileSetup.Provider            lockFileSetupProvider        ;
-		private StorageLockFileManager.Creator           lockFileManagerCreator       ;
-		private StorageExceptionHandler                  exceptionHandler             ;
-		private StorageEventLogger                       eventLogger                  ;
-		private StorageWriteController                   writeController              ;
-		private StorageHousekeepingBroker                housekeepingBroker           ;
-		private ObjectIdsSelector                        liveObjectIdChecker          ;
-		private Reference<PersistenceLiveStorerRegistry> storerRegistryReference      ;
-		private StorageStructureValidator                storageStructureValidator    ;
-		private MonitoringManager                        storageMonitorManager        ;
-		private StorageEntityCollector.Creator           storageEntityCollectorCreator;
+		private StorageConfiguration                     configuration                        ;
+		private StorageOperationController.Creator       operationControllerCreator           ;
+		private StorageInitialDataFileNumberProvider     initialDataFileNumberProvider        ;
+		private StorageRequestAcceptor.Creator           requestAcceptorCreator               ;
+		private StorageTaskBroker.Creator                taskBrokerCreator                    ;
+		private StorageDataChunkValidator.Provider       dataChunkValidatorProvider           ;
+		private StorageDataChunkValidator.Provider2      dataChunkValidatorProvider2          ;
+		private StorageChannelsCreator                   channelCreator                       ;
+		private StorageThreadNameProvider                threadNameProvider                   ;
+		private StorageChannelThreadProvider             channelThreadProvider                ;
+		private StorageBackupThreadProvider              backupThreadProvider                 ;
+		private ProcessIdentityProvider                  processIdentityProvider              ;
+		private StorageLockFileManagerThreadProvider     lockFileManagerThreadProvider        ;
+		private StorageThreadProvider                    threadProvider                       ;
+		private StorageRequestTaskCreator                requestTaskCreator                   ;
+		private StorageTypeDictionary                    typeDictionary                       ;
+		private StorageRootTypeIdProvider                rootTypeIdProvider                   ;
+		private StorageTimestampProvider                 timestampProvider                    ;
+		private StorageObjectIdRangeEvaluator            objectIdRangeEvaluator               ;
+		private StorageFileWriter.Provider               writerProvider                       ;
+		private StorageGCZombieOidHandler                gCZombieOidHandler                   ;
+		private StorageRootOidSelector.Provider          rootOidSelectorProvider              ;
+		private StorageObjectIdMarkQueue.Creator         oidMarkQueueCreator                  ;
+		private StorageEntityMarkMonitor.Creator         entityMarkMonitorCreator             ;
+		private StorageDataFileValidator.Creator         dataFileValidatorCreator             ;
+		private BinaryEntityRawDataIterator.Provider     entityDataIteratorProvider           ;
+		private StorageEntityDataValidator.Creator       entityDataValidatorCreator           ;
+		private StorageLockFileSetup                     lockFileSetup                        ;
+		private StorageLockFileSetup.Provider            lockFileSetupProvider                ;
+		private StorageLockFileManager.Creator           lockFileManagerCreator               ;
+		private StorageExceptionHandler                  exceptionHandler                     ;
+		private StorageEventLogger                       eventLogger                          ;
+		private StorageWriteController                   writeController                      ;
+		private StorageHousekeepingBroker                housekeepingBroker                   ;
+		private ObjectIdsSelector                        liveObjectIdChecker                  ;
+		private Reference<PersistenceLiveStorerRegistry> storerRegistryReference              ;
+		private StorageStructureValidator                storageStructureValidator            ;
+		private MonitoringManager                        storageMonitorManager                ;
+		private StorageEntityCollector.Creator           storageEntityCollectorCreator        ;
+		private StorageTransactionsFileCleaner.Creator   storageTransactionsFileCleanerCreator;
 
 		
 		
@@ -1184,6 +1207,11 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		protected StorageEntityCollector.Creator ensureStorageEntityCollectorCreator()
 		{
 			return StorageEntityCollector.Creator.Default();
+		}
+		
+		protected StorageTransactionsFileCleaner.Creator ensureStorageTransactionsFileCleanerCreator()
+		{
+			return StorageTransactionsFileCleaner.Creator.Default();
 		}
 		
 
@@ -1587,6 +1615,16 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 			return this.storageEntityCollectorCreator;
 		}
 		
+		@Override
+		public StorageTransactionsFileCleaner.Creator getStorageTransactionsFileCleanerCreator()
+		{
+			if(this.storageTransactionsFileCleanerCreator == null)
+			{
+				this.storageTransactionsFileCleanerCreator = this.dispatch(this.ensureStorageTransactionsFileCleanerCreator());
+			}
+			return this.storageTransactionsFileCleanerCreator;
+		}
+		
 		
 		@Override
 		public F setOperationControllerCreator(
@@ -1901,6 +1939,13 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 			return this.$();
 		}
 		
+		@Override
+		public final F setStorageTransactionsFileCleanerCreator(final StorageTransactionsFileCleaner.Creator storageTransactionsFileCleanerCreator)
+		{
+			this.storageTransactionsFileCleanerCreator = storageTransactionsFileCleanerCreator;
+			return this.$();
+		}
+		
 		public final boolean isByteOrderMismatch()
 		{
 			/* (11.02.2019 TM)NOTE: On byte order switching:
@@ -1924,37 +1969,38 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 			 */
 						
 			return new StorageSystem.Default(
-				this.getConfiguration()                ,
-				this.getOperationControllerCreator()   ,
-				this.getDataFileValidatorCreator()     ,
-				this.getWriteController()              ,
-				this.getHousekeepingBroker()           ,
-				this.getWriterProvider()               ,
-				this.getInitialDataFileNumberProvider(),
-				this.getRequestAcceptorCreator()       ,
-				this.getTaskBrokerCreator()            ,
-				this.getDataChunkValidatorProvider()   ,
-				this.getChannelCreator()               ,
-				this.getThreadProvider()               ,
-				this.getRequestTaskCreator()           ,
-				this.getTypeDictionary()               ,
-				this.getRootTypeIdProvider()           ,
-				this.getTimestampProvider()            ,
-				this.getObjectIdRangeEvaluator()       ,
-				this.getGCZombieOidHandler()           ,
-				this.getRootOidSelectorProvider()      ,
-				this.getOidMarkQueueCreator()          ,
-				this.getEntityMarkMonitorCreator()     ,
-				this.isByteOrderMismatch()             ,
-				this.getLockFileSetup()                ,
-				this.getLockFileManagerCreator()       ,
-				this.getExceptionHandler()             ,
-				this.getEventLogger()                  ,
-				this.getLiveObjectIdChecker()          ,
-				this.getLiveStorerRegistryReference()  ,
-				this.getStorageStructureValidator()    ,
-				this.getStorageMonitorManager()        ,
-				this.getStorageEntityCollectorCreator()
+				this.getConfiguration()                        ,
+				this.getOperationControllerCreator()           ,
+				this.getDataFileValidatorCreator()             ,
+				this.getWriteController()                      ,
+				this.getHousekeepingBroker()                   ,
+				this.getWriterProvider()                       ,
+				this.getInitialDataFileNumberProvider()        ,
+				this.getRequestAcceptorCreator()               ,
+				this.getTaskBrokerCreator()                    ,
+				this.getDataChunkValidatorProvider()           ,
+				this.getChannelCreator()                       ,
+				this.getThreadProvider()                       ,
+				this.getRequestTaskCreator()                   ,
+				this.getTypeDictionary()                       ,
+				this.getRootTypeIdProvider()                   ,
+				this.getTimestampProvider()                    ,
+				this.getObjectIdRangeEvaluator()               ,
+				this.getGCZombieOidHandler()                   ,
+				this.getRootOidSelectorProvider()              ,
+				this.getOidMarkQueueCreator()                  ,
+				this.getEntityMarkMonitorCreator()             ,
+				this.isByteOrderMismatch()                     ,
+				this.getLockFileSetup()                        ,
+				this.getLockFileManagerCreator()               ,
+				this.getExceptionHandler()                     ,
+				this.getEventLogger()                          ,
+				this.getLiveObjectIdChecker()                  ,
+				this.getLiveStorerRegistryReference()          ,
+				this.getStorageStructureValidator()            ,
+				this.getStorageMonitorManager()                ,
+				this.getStorageEntityCollectorCreator()        ,
+				this.getStorageTransactionsFileCleanerCreator()
 			);
 		}
 

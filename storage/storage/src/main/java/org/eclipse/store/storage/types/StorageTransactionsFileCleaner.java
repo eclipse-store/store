@@ -422,4 +422,60 @@ public interface StorageTransactionsFileCleaner
 		
 	}
 	
+	/**
+	 * Defines a creator for StorageTransactionsFileCleaner instances.
+	 */
+	public interface Creator
+	{
+		/**
+		 * Create a StorageTransactionsFileCleaner instance.
+		 * 
+		 * @param fileTransactions
+		 * @param channelIndex
+		 * @param transactionFileSizeLimit
+		 * @param fileProvider
+		 * @param storageFileWriter
+		 * @return a StorageTransactionsFileCleaner instance.
+		 */
+		public StorageTransactionsFileCleaner createStorageTransactionsFileCleaner(
+			StorageLiveTransactionsFile
+			fileTransactions,
+			int channelIndex,
+			long transactionFileSizeLimit,
+			StorageLiveFileProvider fileProvider,
+			StorageFileWriter storageFileWriter);
+	
+		/**
+		 * Creates the default StorageTransactionsFileCleaner.Creator instance.
+		 * 
+		 * @return the default StorageTransactionsFileCleaner.Creator.
+		 */
+		public static Creator Default()
+		{
+			return new Default();
+		}
+		
+		/**
+		 * Default StorageTransactionsFileCleaner.Creator instance
+		 */
+		public class Default implements Creator
+		{
+			@Override
+			public StorageTransactionsFileCleaner createStorageTransactionsFileCleaner(
+				final StorageLiveTransactionsFile fileTransactions,
+				final int channelIndex,
+				final long transactionFileSizeLimit,
+				final StorageLiveFileProvider fileProvider,
+				final StorageFileWriter storageFileWriter)
+			{
+				return new StorageTransactionsFileCleaner.Default(
+					fileTransactions,
+					channelIndex,
+					transactionFileSizeLimit,
+					fileProvider,
+					storageFileWriter);
+			}
+		}
+	}
+	
 }
