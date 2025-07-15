@@ -14,7 +14,6 @@ package org.eclipse.store.integrations.spring.boot.types.factories;
  * #L%
  */
 
-import org.eclipse.serializer.persistence.binary.jdk17.types.BinaryHandlersJDK17;
 import org.eclipse.serializer.persistence.binary.jdk8.types.BinaryHandlersJDK8;
 import org.eclipse.serializer.reflect.ClassLoaderProvider;
 import org.eclipse.serializer.util.logging.Logging;
@@ -104,12 +103,6 @@ public class EmbeddedStorageFoundationFactory implements ApplicationContextAware
         {
             this.logger.debug("Register JDK8 handlers. ");
             storageFoundation.onConnectionFoundation(BinaryHandlersJDK8::registerJDK8TypeHandlers);
-        }
-
-        if (eclipseStoreProperties.isRegisterJdk17Handlers())
-        {
-            this.logger.debug("Register JDK17 handlers. ");
-            storageFoundation.onConnectionFoundation(BinaryHandlersJDK17::registerJDK17TypeHandlers);
         }
 
         return storageFoundation;

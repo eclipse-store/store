@@ -18,7 +18,7 @@ jobs:
       - name: Set up Java for publishing to Maven Central Snapshot Repository
         uses: actions/setup-java@v4
         with:
-          java-version: '11'
+          java-version: '17'
           distribution: 'temurin'
           cache: 'maven'
           server-id: ossrh
@@ -46,62 +46,6 @@ jobs:
           fi
       - name: Make a snapshot
         run: mvn -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy -U
-        env:
-          MAVEN_USERNAME: ${{ secrets.CENTRAL_SONATYPE_TOKEN_USERNAME }}
-          MAVEN_PASSWORD: ${{ secrets.CENTRAL_SONATYPE_TOKEN_PASSWORD }}
-          MAVEN_GPG_PASSPHRASE: ${{ secrets.ORG_GPG_PASSPHRASE }}
-          MAVEN_GPG_KEY: ${{ secrets.ORG_GPG_PRIVATE_KEY }}
-
-
-        #java 17 build
-  publish_java17:
-    if: github.repository == 'eclipse-store/store'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Java for publishing to Maven Central Snapshot Repository
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: 'maven'
-          server-id: ossrh
-          server-username: MAVEN_USERNAME
-          server-password: MAVEN_PASSWORD
-      - name: Prepare suffix
-        run: |
-          suffix=$(echo -n "${GITHUB_REF#refs/heads/}" | tr '/' '_' | cut -c1-10)-$(echo -n "${GITHUB_REF#refs/heads/}" | md5sum | cut -c1-10)
-          echo "Suffix: $suffix"
-          echo "SUFFIX=$suffix" >> $GITHUB_ENV
-      - name: Update project version java 17
-        run: |
-          currentVersion=$(mvn -q -Dexec.executable=echo -Dexec.args='${project.version}' --non-recursive exec:exec)
-          currentVersionWithoutSnapshot=${currentVersion%-SNAPSHOT}
-          newVersion="${currentVersionWithoutSnapshot}-$SUFFIX-SNAPSHOT"
-          mvn versions:set -DnewVersion=$newVersion --batch-mode
-          BRANCH_NAME=${{ github.ref }}
-          REPO_OWNER="eclipse-serializer"
-          REPO_NAME="serializer"
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/branches/$BRANCH_NAME)
-          if [ $RESPONSE -eq 200 ]; then
-            mvn versions:set-property -Dproperty=eclipse.serializer.version -DnewVersion=$newVersion
-          else
-            echo "Branch does not exist in serializer repository, skipping serializer version change"          
-          fi
-      - name: Make a snapshot java 17
-        run: |
-          mvn -P production -pl integrations/spring-boot3 clean install -am -B
-          mvn -P production -pl integrations/spring-boot3-console clean install -am -B          
-          mvn -P production -pl storage/rest/client-app clean install -am -B
-          mvn -P production -pl storage/rest/client-app-standalone-assembly clean install -am -B
-          mvn -P production -pl storage/rest/service-springboot clean install -am -B
-      - name: Deploy module build with java 17
-        run: |
-          mvn -Pdeploy -Pproduction -pl integrations/spring-boot3 clean deploy
-          mvn -Pdeploy -Pproduction -pl integrations/spring-boot3-console clean deploy
-          mvn -Pdeploy -Pproduction -pl storage/rest/client-app clean deploy
-          mvn -Pdeploy -Pproduction -pl storage/rest/client-app-standalone-assembly clean deploy
-          mvn -Pdeploy -Pproduction -pl storage/rest/service-springboot clean deploy
         env:
           MAVEN_USERNAME: ${{ secrets.CENTRAL_SONATYPE_TOKEN_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.CENTRAL_SONATYPE_TOKEN_PASSWORD }}

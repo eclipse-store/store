@@ -70,12 +70,6 @@
 
         <dependency>
             <groupId>org.eclipse.serializer</groupId>
-            <artifactId>persistence-binary-jdk17</artifactId>
-            <version>${eclipse.serializer.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.eclipse.serializer</groupId>
             <artifactId>persistence-binary-jdk8</artifactId>
             <version>${eclipse.serializer.version}</version>
         </dependency>

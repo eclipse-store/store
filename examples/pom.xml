@@ -37,6 +37,8 @@
 		<module>reloader</module>
 		<module>storing</module>
 		<module>wildfly-cdi4</module>
+		<module>spring-boot3-simple</module>
+		<module>spring-boot3-advanced</module>
 	</modules>
 
 	<dependencyManagement>
@@ -78,17 +80,4 @@
         </plugins>
     </build>
 
-
-	<profiles>
-		<profile>
-			<id>from_java_17</id>
-			<activation>
-				<jdk>[17,)</jdk>
-			</activation>
-			<modules>
-				<module>spring-boot3-simple</module>
-				<module>spring-boot3-advanced</module>
-			</modules>
-		</profile>
-	</profiles>
 </project>
