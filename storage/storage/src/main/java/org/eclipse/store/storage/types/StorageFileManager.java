@@ -143,15 +143,16 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		
 		// state 1.0: immutable or stateless (as far as this implementation is concerned)
 
-		private final int                                  channelIndex                 ;
-		private final StorageInitialDataFileNumberProvider initialDataFileNumberProvider;
-		private final StorageTimestampProvider             timestampProvider            ;
-		private final StorageLiveFileProvider              fileProvider                 ;
-		private final StorageDataFileEvaluator             dataFileEvaluator            ;
-		private final StorageEntityCache.Default           entityCache                  ;
-		private final StorageWriteController               writeController              ;
-		private final StorageFileWriter                    writer                       ;
-		private final StorageBackupHandler                 backupHandler                ;
+		private final int                                    channelIndex                 ;
+		private final StorageInitialDataFileNumberProvider   initialDataFileNumberProvider;
+		private final StorageTimestampProvider               timestampProvider            ;
+		private final StorageLiveFileProvider                fileProvider                 ;
+		private final StorageDataFileEvaluator               dataFileEvaluator            ;
+		private final StorageEntityCache.Default             entityCache                  ;
+		private final StorageWriteController                 writeController              ;
+		private final StorageFileWriter                      writer                       ;
+		private final StorageBackupHandler                   backupHandler                ;
+		private final StorageTransactionsFileCleaner.Creator transactionFileCleanerCreator;
 		
 		// to avoid permanent lambda instantiation
 		private final Consumer<? super StorageLiveDataFile.Default> deleter        = this::deleteFile       ;
@@ -253,17 +254,11 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			this.writeController               =     notNull(writeController)              ;
 			this.writer                        =     notNull(writer)                       ;
 			this.backupHandler                 =     mayNull(backupHandler)                ;
+			this.transactionFileCleanerCreator =     notNull(transactionFileCleanerCreator);
 			
 			this.standardByteBuffer = XMemory.allocateDirectNative(
 				standardBufferSizeProvider.provideBufferSize()
 			);
-			
-			this.transactionFileCleaner = transactionFileCleanerCreator.createStorageTransactionsFileCleaner(
-				this.fileTransactions,
-				channelIndex,
-				channelIndex,
-				fileProvider,
-				writer);
 		}
 
 
@@ -930,6 +925,14 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 					// initialization plus synchronization with existing files.
 					this.initializeBackupHandler(effectiveStorageInventory);
 				}
+
+				this.transactionFileCleaner = this.transactionFileCleanerCreator.createStorageTransactionsFileCleaner(
+					this.fileTransactions,
+					this.channelIndex,
+					this.dataFileEvaluator.transactionFileMaximumSize(),
+					this.fileProvider,
+					this.writer
+				);
 			
 				this.restartFileCleanupCursor();
 
