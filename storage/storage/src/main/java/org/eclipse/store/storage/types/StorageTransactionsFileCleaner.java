@@ -172,9 +172,9 @@ public interface StorageTransactionsFileCleaner
 					return false;
 				}
 				
-				final long FileLength = Logic.getFileLength(address);
+				final long fileLength = Logic.getFileLength(address);
 				
-				this.currentTransactionInfo.setStore(FileLength, this.currentTransactionInfo.storeTimeStamp);
+				this.currentTransactionInfo.setStore(fileLength, this.currentTransactionInfo.storeTimeStamp);
 
 				return true;
 			}
@@ -186,9 +186,9 @@ public interface StorageTransactionsFileCleaner
 					return false;
 				}
 				
-				final long FileLength = Logic.getFileLength(address);
+				final long fileLength = Logic.getFileLength(address);
 				
-				this.currentTransactionInfo.setStore(FileLength, this.currentTransactionInfo.storeTimeStamp);
+				this.currentTransactionInfo.setStore(fileLength, this.currentTransactionInfo.storeTimeStamp);
 				
 				return true;
 			}
@@ -200,18 +200,18 @@ public interface StorageTransactionsFileCleaner
 					return false;
 				}
 				
-				final long FileLength = Logic.getFileLength(address);
+				final long fileLength = Logic.getFileLength(address);
 				final long timestamp  = Logic.getEntryTimestamp(address);
 				
 				if(timestamp < this.currentCreationTimeStamp)
 				{
 					logger.debug("Store belongs to other file!");
 					FileTransactionInfo prev = this.transactions.get(this.currentFileNumber);
-					prev.setStore(FileLength, timestamp);
+					prev.setStore(fileLength, timestamp);
 				}
 				else
 				{
-					this.currentTransactionInfo.setStore(FileLength, timestamp);
+					this.currentTransactionInfo.setStore(fileLength, timestamp);
 				}
 
 				return true;
@@ -430,11 +430,11 @@ public interface StorageTransactionsFileCleaner
 		/**
 		 * Create a StorageTransactionsFileCleaner instance.
 		 * 
-		 * @param fileTransactions
-		 * @param channelIndex
-		 * @param transactionFileSizeLimit
-		 * @param fileProvider
-		 * @param storageFileWriter
+		 * @param fileTransactions the transaction File.
+		 * @param channelIndex	the channel index.
+		 * @param transactionFileSizeLimit transaction file size limit.
+		 * @param fileProvider the storage file provider.
+		 * @param storageFileWriter the storage file writer.
 		 * @return a StorageTransactionsFileCleaner instance.
 		 */
 		public StorageTransactionsFileCleaner createStorageTransactionsFileCleaner(

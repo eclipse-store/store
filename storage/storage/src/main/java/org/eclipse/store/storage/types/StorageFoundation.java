@@ -878,7 +878,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	/**
 	 * Sets the {@link StorageTransactionsFileCleaner.Creator} instance to be used for the assembly.
 	 * 
-	 * @param storageTransactionsFileCleanerCreator
+	 * @param storageTransactionsFileCleanerCreator the instance to be used.
 	 * @return {@literal this} to allow method chaining.
 	 */
 	public F setStorageTransactionsFileCleanerCreator(final StorageTransactionsFileCleaner.Creator storageTransactionsFileCleanerCreator);
