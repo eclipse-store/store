@@ -115,6 +115,10 @@ foundation.onConnectionFoundation(BinaryHandlersJDK8::registerJDK8TypeHandlers);
 [#jdk17]
 == Java 17 Immutable Set and List
 
+[IMPORTANT]
+With Version 3.0.0 the type handlers for immutable set and list where moved into the core packages and are automatically registered.
+Older versions still need to register those handlers manually.
+
 [source, xml, title="pom.xml", subs=attributes+]
 ----
 <dependencies>
