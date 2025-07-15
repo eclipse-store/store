@@ -187,8 +187,18 @@ public interface StorageTransactionsFileCleaner
 				}
 				
 				final long fileLength = Logic.getFileLength(address);
+				final long timestamp  = Logic.getEntryTimestamp(address);
 				
-				this.currentTransactionInfo.setStore(fileLength, this.currentTransactionInfo.storeTimeStamp);
+				if(timestamp < this.currentCreationTimeStamp)
+				{
+					logger.debug("Store belongs to other file!");
+					FileTransactionInfo prev = this.transactions.get(this.currentFileNumber);
+					prev.setStore(fileLength, timestamp);
+				}
+				else
+				{
+					this.currentTransactionInfo.setStore(fileLength, timestamp);
+				}
 				
 				return true;
 			}
