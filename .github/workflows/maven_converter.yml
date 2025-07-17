@@ -20,6 +20,6 @@ jobs:
       uses: actions/setup-java@v3
       with:
         java-version: '17'
-        distribution: 'adopt'
+        distribution: 'temurin'
     - name: Build with Maven
       run: mvn -B -Pconverter-standalone -pl storage/embedded-tools/storage-converter -am clean package --file pom.xml -U
