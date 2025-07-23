@@ -507,7 +507,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		{
 			long maxTid = 0, maxOid = 0, maxCid = 0;
 			
-			final EqHashEnum<Long> occuringTypeIds = EqHashEnum.New();
+			final EqHashEnum<Long> occurringTypeIds = EqHashEnum.New();
 
 			// validate all entities via iteration by type. Simplifies debugging and requires less type pointer chasing
 			for(StorageEntityType.Default type : this.tidHashTable)
@@ -516,7 +516,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 				{
 					if(!type.isEmpty())
 					{
-						occuringTypeIds.add(type.typeId);
+						occurringTypeIds.add(type.typeId);
 					}
 					
 					final StorageIdAnalysis idAnalysis = type.validateEntities();
@@ -542,7 +542,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 				}
 			}
 
-			return StorageIdAnalysis.New(maxTid, maxOid, maxCid, occuringTypeIds);
+			return StorageIdAnalysis.New(maxTid, maxOid, maxCid, occurringTypeIds);
 		}
 
 		final StorageEntityType.Default validateEntity(
