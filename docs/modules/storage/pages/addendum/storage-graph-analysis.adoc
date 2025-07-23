@@ -1,19 +1,19 @@
 == Storage Graph Analysis
 
-With version 03.00.00-MS-GA additional functionality to analyse the stored graph has been added. This includes api to export the storage graphs structure without user data and api to search that data for missing objects and object's parents.
+With version 3.0.0 additional functionality to analyse the stored graph has been added. This includes an API to export the storage graphs structure without user data and an API to search that data for missing objects and objects' parents.
 
 === Exporting the storage object graph
 
-The storage adjacency data can be export from a running storage to a local directory using:
+The storage adjacency data can be exported from a running storage to a local directory using:
 [source,java]
 ----
 final List<AdjacencyFiles> exports = storage.exportAdjacencyData(workDir);
 ----
 
-After the data has been exported the storage can be shut down. Further analysis requires the exported data only.
+After the data has been exported, the storage can be shut down. Further analysis requires only the exported data.
 
 === searching for missing objects
-To find the Ids of missing objects the exported data has to be preprocessed using a AdjacencyDataConverter implementation:
+To find the IDs of missing objects, the exported data has to be preprocessed using a AdjacencyDataConverter implementation:
 
 [source,java]
 ----
