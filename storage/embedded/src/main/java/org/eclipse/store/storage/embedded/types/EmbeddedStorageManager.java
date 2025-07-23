@@ -345,9 +345,9 @@ public interface EmbeddedStorageManager extends StorageManager
 		private void ensureRequiredTypeHandlers()
 		{
 			// make sure a functional type handler is present for every occurring type id or throw an exception.
-			final StorageIdAnalysis  idAnalysis      = this.storageSystem.initializationIdAnalysis();
-			final XGettingEnum<Long> occuringTypeIds = idAnalysis.occuringTypeIds();
-			this.connectionFoundation.getTypeHandlerManager().ensureTypeHandlersByTypeIds(occuringTypeIds);
+			final StorageIdAnalysis  idAnalysis       = this.storageSystem.initializationIdAnalysis();
+			final XGettingEnum<Long> occurringTypeIds = idAnalysis.occurringTypeIds();
+			this.connectionFoundation.getTypeHandlerManager().ensureTypeHandlersByTypeIds(occurringTypeIds);
 		}
 		
 		private PersistenceRoots loadExistingRoots(final StorageConnection initConnection)

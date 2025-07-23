@@ -29,7 +29,7 @@ public interface StorageIdAnalysis
 {
 	public XGettingTable<Persistence.IdType, Long> highestIdsPerType();
 	
-	public XGettingEnum<Long> occuringTypeIds();
+	public XGettingEnum<Long> occurringTypeIds();
 
 
 	public static StorageIdAnalysis Empty()
@@ -48,32 +48,32 @@ public interface StorageIdAnalysis
 	}
 	
 	public static StorageIdAnalysis New(
-		final Long               highestTid     ,
-		final Long               highestOid     ,
-		final Long               highestCid     ,
-		final XGettingEnum<Long> occuringTypeIds
+		final Long               highestTid      ,
+		final Long               highestOid      ,
+		final Long               highestCid      ,
+		final XGettingEnum<Long> occurringTypeIds
 	)
 	{
 		return New(
-				ConstHashTable.New(
+			ConstHashTable.New(
 				X.KeyValue(Persistence.IdType.TID, highestTid),
 				X.KeyValue(Persistence.IdType.OID, highestOid),
 				X.KeyValue(Persistence.IdType.CID, highestCid)
 			),
-				occuringTypeIds
+			occurringTypeIds
 		);
 	}
 
 	public static StorageIdAnalysis New(
-		final XGettingSequence<KeyValue<Persistence.IdType, Long>> values         ,
-		final XGettingEnum<Long>                               occuringTypeIds
+		final XGettingSequence<KeyValue<Persistence.IdType, Long>> values          ,
+		final XGettingEnum<Long>                                   occurringTypeIds
 	)
 	{
 		return new StorageIdAnalysis.Default(
 			ConstHashTable.New(notNull(values)),
-			occuringTypeIds == null
+			occurringTypeIds == null
 				? X.empty()
-				: EqHashEnum.New(occuringTypeIds)
+				: EqHashEnum.New(occurringTypeIds)
 		);
 	}
 
@@ -84,7 +84,7 @@ public interface StorageIdAnalysis
 		////////////////////
 		
 		final XGettingTable<Persistence.IdType, Long> highestIdsPerType;
-		final XGettingEnum<Long>                      occuringTypeIds  ;
+		final XGettingEnum<Long>                      occurringTypeIds ;
 		
 		
 		
@@ -94,12 +94,12 @@ public interface StorageIdAnalysis
 
 		Default(
 			final XGettingTable<Persistence.IdType, Long> highestIdsPerType,
-			final XGettingEnum<Long>          occuringTypeIds
+			final XGettingEnum<Long>                      occurringTypeIds
 		)
 		{
 			super();
 			this.highestIdsPerType = highestIdsPerType;
-			this.occuringTypeIds   = occuringTypeIds  ;
+			this.occurringTypeIds  = occurringTypeIds ;
 		}
 
 		@Override
@@ -109,9 +109,9 @@ public interface StorageIdAnalysis
 		}
 		
 		@Override
-		public final XGettingEnum<Long> occuringTypeIds()
+		public final XGettingEnum<Long> occurringTypeIds()
 		{
-			return this.occuringTypeIds;
+			return this.occurringTypeIds;
 		}
 
 	}

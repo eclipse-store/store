@@ -50,7 +50,7 @@ public interface StorageChannelTaskInitialize extends StorageChannelTask
 		private long maxEntityConstantOid;
 		private long maxEntityTypeOid    ; // this is NOT the highest TID, but the highest TID used as an entity ID
 		
-		private final EqHashEnum<Long> occuringTypeIds = EqHashEnum.New();
+		private final EqHashEnum<Long> occurringTypeIds = EqHashEnum.New();
 
 
 
@@ -118,8 +118,8 @@ public interface StorageChannelTaskInitialize extends StorageChannelTask
 				this.maxEntityConstantOid = typeMaxCid;
 			}
 			
-			this.occuringTypeIds.addAll(idAnalysis.occuringTypeIds());
-			this.occuringTypeIds.sort(XSort::compare);
+			this.occurringTypeIds.addAll(idAnalysis.occurringTypeIds());
+			this.occurringTypeIds.sort(XSort::compare);
 		}
 
 
@@ -131,7 +131,7 @@ public interface StorageChannelTaskInitialize extends StorageChannelTask
 			{
 				if(this.result[i].transactionsFileAnalysis() == null != firstIsNull)
 				{
-					throw new StorageExceptionConsistency("Mixed (inconsistent) transactions file existances.");
+					throw new StorageExceptionConsistency("Mixed (inconsistent) transactions file existences.");
 				}
 			}
 			return firstIsNull;
@@ -171,12 +171,12 @@ public interface StorageChannelTaskInitialize extends StorageChannelTask
 		}
 
 		private static boolean isCompatibleTimestamp(
-			final long                            candidatetimestamp,
+			final long                        candidateTimestamp,
 			final StorageTransactionsAnalysis transactionsFile
 		)
 		{
-			return transactionsFile.headFileLatestTimestamp()              == candidatetimestamp
-				|| transactionsFile.headFileLastConsistentStoreTimestamp() == candidatetimestamp
+			return transactionsFile.headFileLatestTimestamp()              == candidateTimestamp
+				|| transactionsFile.headFileLastConsistentStoreTimestamp() == candidateTimestamp
 			;
 		}
 
@@ -207,7 +207,7 @@ public interface StorageChannelTaskInitialize extends StorageChannelTask
 
 			//Some storage targets like SQL will create "files" only if there is some data written.
 			//The transactionsFileAnalysis may be null if a new storage has been created
-			//and the transactions log is empty.
+			//and the transaction log is empty.
 			this.latestTimestamp = Stream.of(result)
 				.filter( r -> Objects.nonNull(r.transactionsFileAnalysis()))
 				.mapToLong( r -> r.transactionsFileAnalysis().maxTimestamp())
@@ -231,7 +231,7 @@ public interface StorageChannelTaskInitialize extends StorageChannelTask
 				this.maxEntityTypeOid    ,
 				this.maxEntityObjectOid  ,
 				this.maxEntityConstantOid,
-				this.occuringTypeIds
+				this.occurringTypeIds
 			);
 		}
 
