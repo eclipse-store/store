@@ -1,0 +1,43 @@
+== Storage Graph Analysis
+
+With version 3.0.0 additional functionality to analyse the stored graph has been added. This includes an API to export the storage graphs structure without user data and an API to search that data for missing objects and objects' parents.
+
+=== Exporting the storage object graph
+
+The storage adjacency data can be exported from a running storage to a local directory using:
+[source,java]
+----
+final List<AdjacencyFiles> exports = storage.exportAdjacencyData(workDir);
+----
+
+After the data has been exported, the storage can be shut down. Further analysis requires only the exported data.
+
+=== searching for missing objects
+To find the IDs of missing objects, the exported data has to be preprocessed using a AdjacencyDataConverter implementation:
+
+[source,java]
+----
+final AdjacencyDataConverter dataPreparator = AdjacencyDataConverter.New(exports);
+final ConvertedAdjacencyFiles data = dataPreparator.convert();
+----
+
+The preprocessed data can be searched for missing objects by utilizing a MissingObjectsSearch implementation. The provided default implementation modifies the prepared data during the search process and does not require the whole storage graph to be loaded in memory.
+
+[source, java]
+----
+final MissingObjectsSearch analyser = MissingObjectsSearch.New(
+        exports,
+        data.getReferenceSets(),
+        null);
+final MissingObjects missingEntities = analyser.searchMissingEntities();
+----
+
+=== searching object parents
+
+The ReverseObjectSearch allows to search for the reference path from any object identified by the ObjectID to the storage's root object, the provided default implementation does not require the whole storage graph to be loaded in memory.
+
+[source, java]
+----
+final ReverseObjectSearch reverseObjectSearch = ReverseObjectSearch.New(exports, data);
+final ObjectParents reverseSearchResult = reverseObjectSearch.searchObjectIDs(missingEntities.getMissingObjectIDs());
+----
