@@ -1,0 +1,215 @@
+= Defining Indices
+
+There are two different ways to define indices for the GigaMap; by implementing or by annotating. Or use both in combination.
+
+The following entities are given:
+
+[source, java]
+----
+public class Person
+{
+    private long           id           ;
+    private String         firstName    ;
+    private String         lastName     ;
+    private LocalDate      dateOfBirth  ;
+    private Address        address      ;
+    private MaritalStatus  maritalStatus;
+    private List<Interest> interests    ;
+
+    // ...
+}
+
+public class Address
+{
+    private String street ;
+    private String city   ;
+    private String country;
+
+    // ...
+}
+
+public enum MaritalStatus
+{
+    MARRIED,
+    WIDOWED,
+    SEPARATED,
+    DIVORCED,
+    SINGLE
+}
+
+public enum Interest
+{
+    SPORTS,
+    LITERATURE,
+    PARTY,
+    CHARITY
+}
+----
+
+== By Implementation
+
+Implementing indices requires a bit more initial work when defining them compared to using annotations; however, it becomes easier later on when you work with them, such as when creating queries.
+
+We define several indices for the properties of `Person`. A good practice is to keep the indexer instances as singletons, allowing for easy access later on.
+
+Either define them directly in the entity class or separately.
+
+The `Indexer` implementations must at least override the method that extracts the key value. By default, the name of the index is derived from its declaration; for example, when written as a constant, the fully qualified name of the constant will be used. If you want to provide a name yourself, simply override the `name()` method.
+
+The predefined indexers are usually sufficient; just extend from their `Abstract` base type.
+
+[source, java]
+----
+public class PersonIndices
+{
+    public final static BinaryIndexerLong<Person> idIndex = new BinaryIndexerLong.Abstract<>()
+    {
+        // good practice to provide a custom name, but not absolutely necessary
+        public String name()
+        {
+            return "id";
+        }
+
+        @Override
+        protected Long getLong(final Person entity)
+        {
+            return entity.getId();
+        }
+    };
+
+	// ...
+}
+----
+
+If you want to index a custom type for which there is no predefined indexer available, simply extend from the 'Indexer.Abstract' base type.
+
+IMPORTANT: Keep in mind that indexers use value equality by default, so when using a custom key type make sure to implement `equals` and `hashCode`. In this case we are using an `enum` which implements it by default.
+
+[source, java]
+----
+public final static Indexer<Person, MaritalStatus> maritalStatus = new Indexer.Abstract<>()
+{
+    @Override
+    public Class<MaritalStatus> keyType()
+    {
+        return MaritalStatus.class;
+    }
+
+    @Override
+    public MaritalStatus indexEntity(Person person)
+    {
+        return person.getMaritalStatus();
+    }
+};
+----
+
+Collections can also be indexed. In fact, everything that implements `Iterable` is supported.
+
+[source, java]
+----
+public final static IndexerMultiValue<Person, Interest> interests = new IndexerMultiValue.Abstract<>()
+{
+    @Override
+    public Class<Interest> keyType()
+    {
+        return Interest.class;
+    }
+
+    @Override
+    public Iterable<? extends Interest> indexEntityMultiValue(Person entity)
+    {
+        return entity.getInterests();
+    }
+};
+----
+
+With custom logic, you can define any indexer you can imagine, not just returning values from the entity. For instance, this one creates a generation index.
+
+[source, java]
+----
+enum Generation {BOOMER, GEN_X, GEN_Y, GEN_Z, GEN_ALPHA, GEN_BETA}
+
+public final static Indexer<Person, Generation> generation = new Indexer.Abstract<>()
+{
+    @Override
+    public Class<Generation> keyType()
+    {
+        return Generation.class;
+    }
+
+    @Override
+    public Generation indexEntity(Person person)
+    {
+        int year = person.getDateOfBirth().getYear();
+        if(year <= 1964) return Generation.BOOMER;
+        if(year <= 1980) return Generation.GEN_X;
+        // and so on
+    }
+};
+
+----
+
+=== Registration
+
+When creating the GigaMap, the previously defined indices must be registered.
+
+[source, java]
+----
+GigaMap<Person> gigaMap = GigaMap.<Person>Builder()
+    .withBitmapIdentityIndex(PersonIndices.id)
+    .withBitmapIndex(PersonIndices.maritalStatus)
+    .withBitmapIndex(PersonIndices.interests)
+    // ...
+    .build();
+----
+
+== With Annotations
+
+Alternatively, indices can be defined by annotating the relevant fields of the entity.
+
+[source, java]
+----
+public class Person
+{
+	@Index @Identity
+    private long           id           ;
+
+    @Index
+    private String         firstName    ;
+
+    @Index
+    private String         lastName     ;
+
+    @Index
+    private LocalDate      dateOfBirth  ;
+
+    private Address        address      ;
+
+    private MaritalStatus  maritalStatus;
+
+    @Index
+    private List<Interest> interests    ;
+
+    // ...
+}
+----
+
+=== Registration
+
+When creating the GigaMap, the indices must also be registered.
+
+[source, java]
+----
+GigaMap<Person> gigaMap = GigaMap.New();
+BitmapIndices<Person> bitmapIndices = gigaMap.index().bitmap();
+IndexerGenerator.AnnotationBased(Person.class).generateIndices(bitmapIndices);
+----
+
+Since there are no constants in your code, you need to reference the generated indexers.
+
+[source, java]
+----
+BitmapIndices<Person> bitmapIndices = gigaMap.index().bitmap();
+IndexerString<Person> firstNameIndex = bitmapIndices.getStringIndex("firstName");
+// ...
+----

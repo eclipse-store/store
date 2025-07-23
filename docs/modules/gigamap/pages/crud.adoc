@@ -1,0 +1,77 @@
+= CRUD
+
+Despite the fact that the GigaMap's API is quite similar to that of a JDK collection, its behavior differs in some respects.
+
+The primary reason is the underlying index. Whenever the contents of the GigaMap change, the index also needs to be updated. When entities are added or removed, the index is automatically updated because the GigaMap itself is modified, allowing it to notify the index. Conversely, when updating entities, we must inform the GigaMap so it can propagate the update to the index.
+
+== Null Entries
+
+The GigaMap does *not* allow `null` entries!
+
+== Equality
+
+By default, _identity equality_ is used for writing CRUD operations.
+If you want to use _value equality_, just use a different `Equalator`.
+
+[source, java]
+----
+GigaMap<Entity> gigaMap = GigaMap.New(
+    XHashing.hashEqualityValue()
+);
+----
+
+== Locking
+
+The GigaMap employs internal read-write locking, making it thread-safe.
+
+However, all reading operations must be closed at the end to determine when the read locks should be released.
+
+Most of the default reading methods, like `get`, are atomic read operations that are closed by default internally. Only when using iterators should you remember to close them, best by using a try-with-resources block.
+
+== Creating and Adding Entities
+
+This is a straightforward operation, just as you are used to. Simply call `add` or `addAll` accordingly.
+
+[source, java]
+----
+gigaMap.add(newEntity);
+gigaMap.addAll(newEntity1, newEntity2);
+gigaMap.addAll(collectionContainingNewEntities);
+----
+
+== Removing and Updating Entities
+
+When performing writing changes, first of all, the entities themselves have to be identified via the index. It is not a default lookup like a java.util.List does internally, by traversing all elements and comparing one by one, but a quick search via the index. The GigaMap is designed to contain vast amounts of data and uses lazy loading internally, so a one-by-one comparison could potentially take ages.
+
+Entities are identified in the following order
+
+1. If an explicit index is given for a certain operation, it is used.
+2. If an xref:indexing/bitmap/types.adoc#_identity_index[identity index] is defined, it is used.
+3. Otherwise a temporary compound index, consisting of all indices, is created.
+This can only be considered a workaround, so it is always recommended to define an identity index!
+
+[source, java]
+----
+// explicit index, person will be defined by first and last name
+gigaMap.remove(person, PersonIndices.firstName, PersonIndices.lastName);
+
+// use defined identity index, or compound index respectively
+gigaMap.remove(person);
+----
+
+The same applies when updating entities.
+
+Additionally, you have to use the `update` method of the GigaMap instead of just modifying the entity itself to make sure that the index is updated as well.
+
+[source, java]
+----
+// don't just update the entity
+person.setLastName("Smith");
+person.setAddress(newAddress);
+
+// use the update method, to automatically propagate the changes to the index
+gigaMap.update(person, p -> {
+    p.setLastName("Smith"),
+    p.setAddress(newAddress)
+});
+----

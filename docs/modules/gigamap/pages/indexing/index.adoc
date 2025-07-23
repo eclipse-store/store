@@ -1,0 +1,8 @@
+= Indexing
+
+Currently, the following index types are supported
+
+- xref:indexing/bitmap/index.adoc[Bitmap]
+- xref:indexing/lucene/index.adoc[Lucene]
+
+If you are dealing with huge amounts of text and want to provide a feature-rich full-text-search capability, the Lucene index is recommended. Otherwise, the built-in Bitmap indices are the way to go.

@@ -1,0 +1,57 @@
+= Lucene Index
+
+A specialized index implementation which connects to a https://lucene.apache.org[Lucene] directory.
+
+Lucene is the de facto industry standard for full-text indexing in the Java ecosystem.
+If you want to learn more about Lucene, refer to the https://lucene.apache.org/core/documentation.html[official documentation].
+
+Lucene uses so-called documents which are basically key-value stores consisting of a name and a textual value. The Java entities are mapped to documents, which then can be searched.
+
+== Installation
+
+[source, xml, subs=attributes+, title="Maven [pom.xml]"]
+----
+<dependency>
+    <groupId>one.microstream</groupId>
+    <artifactId>gigamap-lucene</artifactId>
+    <version>{maven-version}</version>
+</dependency>
+----
+
+== Example
+
+First, we need to implement a `DocumentPopulator`, which maps the Java entities into documents.
+
+The `DocumentPopulator` comes with several `create*Field` methods that allow us to create document entries quickly.
+
+[source, java]
+----
+class PersonDocumentPopulator extends DocumentPopulator<Person>
+{
+    @Override
+    public void populate(Document document, Person person)
+    {
+        document.add(createTextField("firstName", person.getFirstName()));
+        document.add(createTextField("lastName" , person.getLastName ()));
+    }
+}
+----
+
+Then we create a `LuceneContext` and register it at the GigaMap.
+
+[source, java]
+----
+LuceneContext<Person> luceneContext = LuceneContext.New(
+    Paths.get("lucene-store"),    // path to directory
+    new PersonDocumentPopulator() // our document populator
+);
+
+LuceneIndex<Person> luceneIndex = gigaMap.index().register(LuceneIndex.Category(luceneContext));
+----
+
+Afterward we are able to query the index using the Lucene query language.
+
+[source, java]
+----
+List<Person> result = luceneIndex.query("firstName:John");
+----

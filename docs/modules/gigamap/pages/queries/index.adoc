@@ -1,0 +1,200 @@
+= Queries
+
+One of the key features of GigaMap is that you can query data before it is loaded. 
+
+Queries are executed on the index; then, while traversing the results, all relevant segments of GigaMap's data are loaded lazily. 
+
+The xref:indexing/bitmap/index.adoc#_indexers[indexer] instances are utilized to create query conditions.
+
+Each of them comes with specialized query methods.
+
+== Query methods
+
+=== Common
+
+[options="header",cols="1,2"]
+|===
+|Method |Description
+
+|is(K key)
+|equality condition
+
+|not(K key)
+|inequality condition
+
+|isNull()
+|null check condition
+
+|notNull()
+|negated null check condition
+
+|like(E sample)
+|equality condition which compares the key of this index with the same key of given sample, not to confuse with SQL-like
+
+|unlike(E sample)
+|inequality condition, see like
+
+|in(K... keys)
+|equality condition which checks against a collection of keys
+
+|notIn(K... keys)
+|inequality condition which checks against a collection of keys
+
+|is(Predicate<K> predicate)
+|equality condition with a custom predicate
+
+|===
+
+=== String
+
+[options="header",cols="1,2"]
+|===
+|Method |Description
+
+|contains(String search)
+|case-sensitive contains condition
+
+|containsIgnoreCase(String search)
+|case-insensitive contains condition
+
+|startsWith(String prefix)
+|case-sensitive starts with condition
+
+|startsWithIgnoreCase(String prefix)
+|case-insensitive starts with condition
+
+|endsWith(String suffix)
+|case-sensitive ends with condition
+
+|endsWithIgnoreCase(String suffix)
+|case-insensitive ends with condition
+
+|isEmpty()
+|checks for null or empty String
+
+|isBlank()
+|checks for null or blank String
+
+|===
+
+=== Numeric
+
+[options="header",cols="1,2"]
+|===
+|Method |Description
+
+|lessThan(K boundExclusive)
+|numeric condition <
+
+|lessThanEqual(K boundInclusive)
+|numeric condition <=
+
+|greaterThan(K boundExclusive)
+|numeric condition >
+
+|greaterThanEqual(K boundInclusive)
+|numeric condition >=
+
+|between(K startInclusive, K endInclusive)
+|numeric condition, startInclusive <= key <= endInclusive
+
+|===
+
+=== Common Temporal
+
+[options="header",cols="1,2"]
+|===
+|Method |Description
+
+|before(K boundExclusive)
+|temporal condition <
+
+|beforeEqual(K boundInclusive)
+|temporal condition <=
+
+|after(K boundExclusive)
+|temporal condition >
+
+|afterEqual(K boundInclusive)
+|temporal condition >=
+
+|between(K startInclusive, K endInclusive)
+|temporal condition, startInclusive <= key <= endInclusive
+
+|===
+
+=== Date
+
+[options="header",cols="1,2"]
+|===
+|Method |Description
+
+|isDate(int year, int month, int day)
+|date equality check
+
+|isYear(int year)
+|compares only the year
+
+|isMonth(int month)
+|compares only the month
+
+|isDay(int day)
+|compares only the day
+
+|===
+
+=== Time
+
+[options="header",cols="1,2"]
+|===
+|Method |Description
+
+|isTime(int hour, int minute, int second)
+|time equality check
+
+|isHour(int hour)
+|compares only the hour
+
+|isMinute(int minute)
+|compares only the minute
+
+|isSecond(int second)
+|compares only the second
+
+|===
+
+=== DateTime
+
+[options="header",cols="1,2"]
+|===
+|Method |Description
+
+|isDateTime(int year, int month, int day, int hour, int minute, int second)
+|date and time equality check
+
+|===
+
+=== Boolean
+
+[options="header",cols="1,2"]
+|===
+|Method |Description
+
+|isTrue()
+|checks if key is true
+
+|isFalse()
+|checks if key is false
+
+|===
+
+=== Multi-value
+
+[options="header",cols="1,2"]
+|===
+|Method |Description
+
+|all(K... keys)
+|equality condition which checks against a collection of keys
+
+|===

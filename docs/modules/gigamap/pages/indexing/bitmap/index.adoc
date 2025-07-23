@@ -1,0 +1,98 @@
+= Bitmap Index
+
+The GigaMap comes with a built-in bitmap index, an all-purpose index with implementations for the most commonly used types.
+
+The index data is kept off-heap, so the JVM does not have to manage it, garbage collecting and so on. Additionally, the data can become arbitrarily large since this memory region can be swapped to the hard disk by the operating system.
+
+== Indexers
+
+An indexer is a logic that extracts the key value of the entity that is stored in the index.
+
+It is also used to create query conditions, with special methods for different key types.
+
+Here's a list of all predefined indexers used for low cardinality:
+
+[options="header",cols="1,2"]
+|===
+|Indexer |Key Type
+
+|IndexerString
+|java.lang.String
+
+|IndexerCharacter
+|java.lang.Character, char
+
+|IndexerBoolean
+|java.lang.Boolean, boolean
+
+|IndexerByte
+|java.lang.Byte, byte
+
+|IndexerShort
+|java.lang.Short, short
+
+|IndexerInteger
+|java.lang.Integer, int
+
+|IndexerLong
+|java.lang.Long, long
+
+|IndexerFloat
+|java.lang.Float, float
+
+|IndexerDouble
+|java.lang.Double, double
+
+|IndexerLocalDate
+|java.time.LocalDate
+
+|IndexerLocalTime
+|java.time.LocalTime
+
+|IndexerLocalDateTime
+|java.time.LocalDateTime
+
+|IndexerYearMonth
+|java.time.YearMonth
+
+|IndexerMultiValue
+|java.lang.Iterable
+
+|===
+
+If you need indexers for high cardinality, like unique values, the binary indexers are the way to go. They are optimized for a huge number of entries.
+
+[options="header",cols="1,2"]
+|===
+|Indexer |Key Type
+
+|BinaryIndexerString
+|java.lang.String
+
+|BinaryIndexerByte
+|java.lang.Byte, byte
+
+|BinaryIndexerShort
+|java.lang.Short, short
+
+|BinaryIndexerInteger
+|java.lang.Integer, int
+
+|BinaryIndexerLong
+|java.lang.Long, long
+
+|BinaryIndexerFloat
+|java.lang.Float, float
+
+|BinaryIndexerDouble
+|java.lang.Double, double
+
+|BinaryIndexerUUID
+|java.util.UUID
+
+|===
+
+Besides these predefined indexers, custom indexers with arbitrary key types can be implemented.
+
+IMPORTANT: Keep in mind that indexers use value equality by default, so when using a custom key type make sure to implement `equals` and `hashCode`.
+

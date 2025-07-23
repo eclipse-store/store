@@ -1,0 +1,22 @@
+= GigaMap
+
+The GigaMap is a specialized collection aimed at optimizing performance and memory usage in {product-name}. It utilizes off-heap bitmap indexing to facilitate lightning-fast searches and lazy loading of objects, eliminating the need for manual reference management.
+
+- Off-Heap Bitmap Index: GigaMap employs the off-heap bitmap index concept to enable quick object lookups based on specific criteria.
+- Automated Lazy-Loading: When an object is accessed for the first time, GigaMap effectively retrieves and loads it from the underlying storage, reducing memory usage and enhancing startup time.
+- Transparent Integration: GigaMap effortlessly integrates with {product-name}’s data model, ensuring ease of use and maintenance.
+- Scalability: GigaMap can manage massive datasets due to its efficient indexing and lazy-loading mechanisms.
+
+== Indexing
+
+Indexing is a data structure technique that optimizes search performance in {product-name}, similar to the indexing concepts used in database systems. It generates a sorted list of values along with their corresponding objects, enabling {product-name} to quickly locate specific objects without scanning the entire collection. Consider it similar to an index in a book: it directs you to the exact page where a particular topic is discussed, saving you the time of flipping through every page.
+
+=== Off-Heap Bitmap Indexing: A Speed Demon
+
+Bitmap indexes are a specialized data structure that utilizes bitmaps to indicate the presence or absence of a specific value within a collection. Each bit in the bitmap corresponds to an element in that collection. If a value exists in the element, the bit is set to 1; otherwise, it is set to 0. The GigaMap bitmap index operates off-heap.
+
+=== Why Off-Heap Management Makes it Lightning-Fast
+
+- Direct Memory Access: By managing the bitmap index off-heap, the index data is stored directly in system memory, bypassing the Java heap. This eliminates the overhead of garbage collection, which is a major performance bottleneck in traditional Java applications.
+- Reduced GC Pressure: Off-heap storage reduces the memory footprint of the Java heap, resulting in fewer garbage collection cycles and improved overall performance.
+- Optimized Read/Write Operations: Direct memory access enables faster read and write operations on the bitmap index, further speeding up search queries.
