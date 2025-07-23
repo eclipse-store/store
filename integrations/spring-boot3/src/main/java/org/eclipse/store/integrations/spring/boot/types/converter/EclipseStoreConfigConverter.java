@@ -24,6 +24,7 @@ import org.eclipse.store.integrations.spring.boot.types.configuration.aws.Abstra
 import org.eclipse.store.integrations.spring.boot.types.configuration.aws.Aws;
 import org.eclipse.store.integrations.spring.boot.types.configuration.aws.S3;
 import org.eclipse.store.integrations.spring.boot.types.configuration.azure.Azure;
+import org.eclipse.store.integrations.spring.boot.types.configuration.googlecloud.Googlecloud;
 import org.eclipse.store.integrations.spring.boot.types.configuration.oraclecloud.Oraclecloud;
 import org.eclipse.store.integrations.spring.boot.types.configuration.sql.AbstractSqlConfiguration;
 import org.eclipse.store.integrations.spring.boot.types.configuration.sql.Sql;
@@ -169,8 +170,27 @@ public class EclipseStoreConfigConverter
         {
             values.put(ConfigKeys.REDIS_URI.value(), properties.getRedis().getUri());
         }
+        if (properties.getGooglecloud() != null)
+        {
+            values.putAll(this.prepareGoogleCloud(properties.getGooglecloud(), this.composeKey(key, ConfigKeys.GOOGLECLOUD.value())));
+        }
 
 
+        return values;
+    }
+
+    private Map<String, String> prepareGoogleCloud(final Googlecloud googlecloud, final String key)
+    {
+        final Map<String, String> values = new HashMap<>();
+        values.put(this.composeKey(key, ConfigKeys.GOOGLECLOUD_FIRESTORE_DATABASE_ID.value()), googlecloud.getFirestore().getDatabaseId());
+        values.put(this.composeKey(key, ConfigKeys.GOOGLECLOUD_FIRESTORE_EMULATOR_HOST.value()), googlecloud.getFirestore().getEmulatorHost());
+        values.put(this.composeKey(key, ConfigKeys.GOOGLECLOUD_FIRESTORE_HOST.value()), googlecloud.getFirestore().getHost());
+        values.put(this.composeKey(key, ConfigKeys.GOOGLECLOUD_FIRESTORE_PROJECT_ID.value()), googlecloud.getFirestore().getProjectId());
+        values.put(this.composeKey(key, ConfigKeys.GOOGLECLOUD_FIRESTORE_QUOTA_PROJECT_ID.value()), googlecloud.getFirestore().getQuotaProjectId());
+        if (googlecloud.getFirestore().getCredentials() != null)
+        {
+            values.put(this.composeKey(key, ConfigKeys.GOOGLECLOUD_FIRESTORE_CREDENTIALS_TYPE.value()), googlecloud.getFirestore().getCredentials().getType());
+        }
         return values;
     }
 

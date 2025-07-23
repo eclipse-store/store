@@ -23,6 +23,8 @@ import java.util.Map;
 
 import org.eclipse.store.integrations.spring.boot.types.configuration.EclipseStoreProperties;
 import org.eclipse.store.integrations.spring.boot.types.configuration.StorageFilesystem;
+import org.eclipse.store.integrations.spring.boot.types.configuration.googlecloud.Googlecloud;
+import org.eclipse.store.integrations.spring.boot.types.configuration.googlecloud.firestore.Firestore;
 import org.eclipse.store.integrations.spring.boot.types.configuration.sql.Mariadb;
 import org.eclipse.store.integrations.spring.boot.types.configuration.sql.Sql;
 import org.junit.jupiter.api.Test;
@@ -105,5 +107,27 @@ class EclipseStoreConfigConverterTest
     {
         final String result = this.converter.composeKey("prefix", "suffix");
         assertEquals("prefix.suffix", result);
+    }
+
+    @Test
+    void testGoogleCloudConversion()
+    {
+        final EclipseStoreProperties properties = new EclipseStoreProperties();
+        Firestore firestore = new Firestore();
+        Googlecloud googlecloud = new Googlecloud();
+        googlecloud.setFirestore(firestore);
+        StorageFilesystem storageFilesystem = new StorageFilesystem();
+        storageFilesystem.setGooglecloud(googlecloud);
+        properties.setStorageFilesystem(storageFilesystem);
+        properties.getStorageFilesystem().getGooglecloud().getFirestore().setDatabaseId("firestore_es_db");
+
+        final EclipseStoreConfigConverter converter = new EclipseStoreConfigConverter();
+        final Map<String, String> valuesMap = converter.convertConfigurationToMap(properties);
+
+        assertNotNull(valuesMap);
+        assertEquals(1, valuesMap.size());
+        Map.Entry<String, String> next = valuesMap.entrySet().iterator().next();
+        assertEquals("storage-filesystem.googlecloud.firestore.database-id", next.getKey());
+        assertEquals("firestore_es_db", next.getValue());
     }
 }
