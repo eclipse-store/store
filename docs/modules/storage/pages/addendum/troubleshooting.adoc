@@ -1,0 +1,41 @@
+== Troubleshooting
+
+== Starting a storage with missing objects
+If the storage throws a StorageExceptionConsistency exception stating "No entity found for objectId" the storage misses an object in the persisted data.
+In that case it may be usefully to start the storage and ignore that error.
+
+[WARNING]
+====
+Do not start a storge with missing objects unless you really know what you do! Doing so may cause the storage garbage collector to delete further objects! And may cause other error if code tries to use missing objects!
+Consider to enable the xref:storage:configuration/readonly.adoc[read only storage mode]!
+====
+
+To start a storage that misses objects you need to set a different StorageEntityCollector that ignores that exception:
+[source, java]
+----
+final EmbeddedStorageFoundation<?> foundation = EmbeddedStorage.Foundation()
+    .setStorageEntityCollectorCreator(StorageEntityCollector.Creator.Unchecked());
+
+final EmbeddedStorageManager storage = foundation.start();
+----
+
+== Identifying missing objects:
+A missing object can't be identified but it is possible to identify objects that reference the missing object.
+see xref:addendum/storage-graph-analysis.adoc how to search for a missing object.
+
+== Overwriting and existing object by its ObjectId
+
+[WARNING]
+====
+Overwriting an object by its ID does not check the object type!
+====
+
+To overwrite an Object you need to create a Storer instance that provides the
+Storer.store(instance, objectID) API:
+
+[source, java]
+----
+Storer storer = storage.createStorer();
+storer.store(new String("Overwritten object"), 1000000000000100000L);
+storer.commit();
+----
