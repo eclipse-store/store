@@ -1,0 +1,77 @@
+= Index Types
+
+The GigaMap's bitmap index supports various index types.
+
+== "Normal" Index
+
+This is just a standard index that can include duplicate values. In fact, this is the most efficient type, as the bitmap index can compress this dataset and minimize memory overhead.
+
+[source, java]
+----
+// use the builder
+final GigaMap<Person> gigaMap = GigaMap.<Person>Builder()
+    .withBitmapIndex(PersonIndices.firstName)
+    .withBitmapIndex(PersonIndices.lastName)
+    ...
+    .build();
+
+// or register it after creating
+GigaMap<Person> gigaMap = GigaMap.New();
+gigaMap.index().bitmap().ensure(PersonIndices.firstName);
+gigaMap.index().bitmap().ensure(PersonIndices.lastName);
+...
+----
+
+== Unique Index
+
+Index with a unique constraint.
+
+[source, java]
+----
+// use the builder
+final GigaMap<Person> gigaMap = GigaMap.<Person>Builder()
+    .withBitmapUniqueIndex(PersonIndices.id)
+    ...
+    .build();
+
+// or register it after creating
+GigaMap<Person> gigaMap = GigaMap.New();
+gigaMap.index().bitmap().addUniqueConstraint(PersonIndices.id);
+...
+----
+
+== Identity Index
+
+Unique index, which will be used exclusively to identify an entity. It can consist of one or more indexers.
+
+To elaborate on that: When looking up or removing entities, the GigaMap doesn't traverse all data, as that would be too inefficient. Instead, it creates an internal query based on the index definitions to look up entries. If no identifier index is provided, a compound one will be created using all standard indices.
+
+[source, java]
+----
+// use the builder
+final GigaMap<Person> gigaMap = GigaMap.<Person>Builder()
+    .withBitmapIdentityIndex(PersonIndices.id)
+    ...
+    .build();
+
+// or register it after creating
+GigaMap<Person> gigaMap = GigaMap.New();
+final BitmapIndices<E> bitmap = this.gigaMap.index().bitmap();
+bitmap.ensure(PersonIndices.id); // add index first
+bitmap.setIdentityIndices(PersonIndices.id); // set as identity
+...
+----
+
+
+== Binary Index
+
+A special bitmap index designed for high cardinality.
+
+This index exclusively stores long values.
+
+Each long-bit corresponds to an entry, meaning there will be 64 entries max, no matter how high the cardinality becomes.
+
+Currently it only supports equality queries.
+Range queries are not supported yet.
+
+

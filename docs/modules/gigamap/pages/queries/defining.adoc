@@ -1,0 +1,34 @@
+= Defining Queries
+
+Given these xref:indexing/bitmap/defining.adoc[example indexers], it is straightforward to define queries, just use the self-explanatory API.
+
+This query searches for persons called 'John', `firstName` is a static imported field from the class where we defined our indices before.
+
+[source, java]
+----
+gigaMap.query(firstName.is("John"));
+----
+
+Conditions can be linked with `and` and `or`, respectively.
+
+This one searches for all persons called 'John' or 'Jim'.
+
+[source, java]
+----
+gigaMap.query(firstName.is("John").or(firstName.is("Jim")));
+----
+
+Or use the `in` condition instead.
+
+[source, java]
+----
+gigaMap.query(firstName.in("John", "Jim"));
+----
+
+It is possible to compare to fixed values, but we can also use predicates.
+This enables us to use any custom logic inside query definitions if the predefined ones are not sufficient.
+
+[source, java]
+----
+gigaMap.query(firstName.is(name -> name.length() > 3));
+----

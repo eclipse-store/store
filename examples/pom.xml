@@ -28,6 +28,7 @@
 		<module>eager-storing</module>
 		<module>extension-wrapper</module>
 		<module>filesystems</module>
+		<module>gigamap</module>
 		<module>helloworld</module>
 		<module>helloworld-ini</module>
 		<module>items</module>

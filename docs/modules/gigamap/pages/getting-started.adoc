@@ -1,0 +1,129 @@
+= Getting Started
+
+First, we need an entity that we will store in the GigaMap.
+
+[source, java]
+----
+public class Person
+{
+    private UUID      id         ;
+    private String    firstName  ;
+    private String    lastName   ;
+    private LocalDate dateOfBirth;
+    private Address   address    ;
+
+    // ...
+}
+
+public class Address
+{
+    private String street ;
+    private String city   ;
+    private String country;
+
+    // ...
+}
+----
+
+Next, we create the indexers that are used for the GigaMap. Since we will need them later to create queries, we define them as constants in a dedicated type.
+
+For most use cases, the predefined abstract indexers will suffice. They cover the most common types used in indices.
+
+The sole purpose of these indexers is to extract the entity's value, which will be stored in the index.
+
+[source, java]
+----
+public class PersonIndices
+{
+    public final static BinaryIndexerUUID<Person> id = new BinaryIndexerUUID.Abstract<>()
+    {
+        @Override
+        protected UUID getUUID(final Person entity)
+        {
+            return entity.getId();
+        }
+    };
+
+    public final static IndexerString<Person> firstName = new IndexerString.Abstract<>()
+    {
+        @Override
+        public String getString(final Person entity)
+        {
+            return entity.getFirstName();
+        }
+    };
+
+    public final static IndexerString<Person> lastName = new IndexerString.Abstract<>()
+    {
+        @Override
+        public String getString(final Person entity)
+        {
+            return entity.getLastName();
+        }
+    };
+
+    public final static IndexerLocalDate<Person> dateOfBirth = new IndexerLocalDate.Abstract<>()
+    {
+        @Override
+        protected LocalDate getLocalDate(final Person entity)
+        {
+            return entity.getDateOfBirth();
+        }
+    };
+
+    public final static IndexerString<Person> city = new IndexerString.Abstract<>()
+    {
+        @Override
+        public String getString(final Person entity)
+        {
+            return entity.getAddress().getCity();
+        }
+    };
+
+    public final static IndexerString<Person> country = new IndexerString.Abstract<>()
+    {
+        @Override
+        public String getString(final Person entity)
+        {
+            return entity.getAddress().getCountry();
+        }
+    };
+}
+----
+
+Now we can create the GigaMap itself.
+
+[source, java]
+----
+final GigaMap<Person> gigaMap = GigaMap.<Person>Builder()
+    .withBitmapIdentityIndex(PersonIndices.id)
+    .withBitmapIndex(PersonIndices.firstName)
+    .withBitmapIndex(PersonIndices.lastName)
+    .withBitmapIndex(PersonIndices.dateOfBirth)
+    .withBitmapIndex(PersonIndices.city)
+    .withBitmapIndex(PersonIndices.country)
+    .build();
+----
+
+After adding data to the GigaMap
+
+[source, java]
+----
+gigaMap.add(...);
+----
+
+let's try some queries.
+
+[source, java]
+----
+// Get all Johns
+List<Person> result = gigaMap.query(PersonIndices.firstName.is("John")).toList();
+----
+
+[source, java]
+----
+// Geta all born in the year 2000
+List<Person> result = gigaMap.query(PersonIndices.dateOfBirth.isYear(2000)).toList();
+----
+
+Check out the methods of GigaQuery. There is not just toList(), but many more data retrieval methods available. You can iterate, stream, or page through the results.

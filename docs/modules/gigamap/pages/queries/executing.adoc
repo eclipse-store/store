@@ -1,0 +1,115 @@
+= Executing Queries
+
+There are several ways to process the results of a query.
+
+Whenever one of the following methods to process the query's results is called, the query will be executed automatically.
+
+All touched entities will be loaded on demand during the process.
+
+[IMPORTANT]
+====
+The GigaMap employs internal read-write locking, which makes it effectively thread-safe.
+
+However, to determine when the read-locks should be released, all query iteration resources must be closed after use.
+
+The default iterator closes automatically once fully traversed. Everything else must be closed manually.
+
+All resources implement `AutoCloseable`, making them best suited for use in a try-with-resources block.
+====
+
+== Iterators
+
+`GigaQuery` extends `Iterable`, so all the usual options are available.
+
+[source, java]
+----
+GigaQuery<Person> query = gigaMap.query(...);
+
+/*
+ * Not recommended
+ * because if the loop exits before the iterator is finished,
+ * the iterator will stay open.
+ */
+for(Person person : query)
+{
+    // do something
+}
+----
+
+[source, java]
+----
+/*
+ * Always use try-with-resources,
+ * just to make sure that the iterator is closed eventually.
+ */
+try(GigaIterator<Person> iterator = query.iterator())
+{
+    while(iterator.hasNext())
+    {
+        Person person = iterator.next();
+    }
+}
+----
+
+[source, java]
+----
+// Internal iteration works as well.
+try(GigaIterator<Person> iterator = query.iterator())
+{
+	iterator.forEachRemaining(person -> ...);
+}
+----
+
+== Streams
+
+Java's powerful Streams API offers a lot of methods for further filtering, mapping, aggregating, and collecting after the query is executed.
+
+Be aware that the stream does not influence the query but is executed afterward.
+[source, java]
+----
+try(Stream<Person> stream = query.stream())
+{
+    // ...
+}
+----
+
+== Collectors
+
+The most convenient way to get the results of a query is through collectors. There's no need to worry about closing the resource; it is handled internally.
+
+[source, java]
+----
+GigaQuery<Person> query = gigaMap.query(...);
+
+// get the complete result as a list
+List<Person> list = query.toList();
+
+// limit the result to 100 entities
+List<Person> list = query.toList(100);
+
+// get the third page with 100 entities
+List<Person> list = query.toList(
+	200, // offset
+    100  // limit
+);
+
+// Set collectors are also available
+Set<Person> set = query.toSet(...);
+----
+
+=== Optional first entity
+
+[source, java]
+----
+GigaQuery<Person> query = gigaMap.query(...);
+Optional<Person> optFirst = query.findFirst();
+optFirst.ifPresent(person -> ...);
+----
+
+=== Count results
+
+[source, java]
+----
+GigaQuery<Person> query = gigaMap.query(...);
+long count = query.count();
+----
