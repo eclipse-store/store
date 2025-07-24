@@ -8,40 +8,36 @@ Tested and officially supported JDKs:
 | JDK | Supported Versions
 
 | https://www.oracle.com/technetwork/java/javase/downloads/index.html[Oracle JDK]
-|17, 21
+| 17, 21, 24
 
 | http://jdk.java.net/[OpenJDK Build by Oracle]
-|17, 21
+| 17, 21, 24
 
 | https://adoptium.net/[Adoptium Temurin (HotSpot / OpenJ9)]
-|17, 21
+| 17, 21, 24
 
-| https://developers.redhat.com/products/openjdk/download/[Red Hat OpenJDK]
-| 11
 
 | https://aws.amazon.com/corretto/[Amazon Corretto]
-|17, 21
+| 17, 21, 24
 
 | https://www.azul.com/downloads/zulu/[Azul Zulu]
-|17, 21
+|17, 21, 24
 
 | https://bell-sw.com/pages/products[Bellsoft Liberica]
-|17, 21
+|17, 21, 24
 
 | https://sap.github.io/SapMachine/[SapMachine]
-| 17, 21
+| 17, 21, 24
 
-| https://github.com/ojdkbuild/ojdkbuild[ojdkbuild]
-| 11
 
 | https://www.microsoft.com/openjdk/[MicroSoft OpenJDK]
-|17
+|17, 21
 
 | http://dragonwell-jdk.io/[Alibaba Dragonwell]
 |17
 
 | https://developer.ibm.com/languages/java/semeru-runtimes/[IBM Semeru]
-|17
+|17, 21
 
 | https://www.graalvm.org/[GraalVM]
 | 20.0+
