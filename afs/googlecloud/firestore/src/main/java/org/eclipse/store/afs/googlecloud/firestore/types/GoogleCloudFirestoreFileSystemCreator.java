@@ -20,6 +20,7 @@ import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 
+import com.google.cloud.NoCredentials;
 import org.eclipse.serializer.afs.types.AFileSystem;
 import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.configuration.exceptions.ConfigurationException;
@@ -95,7 +96,7 @@ public class GoogleCloudFirestoreFileSystemCreator extends ConfigurationBasedCre
 			{
 				case "none":
 				{
-					optionsBuilder.setCredentialsProvider(NoCredentialsProvider.create());
+					optionsBuilder.setCredentialsProvider(NoCredentials::getInstance);
 				}
 				break;
 

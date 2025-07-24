@@ -69,6 +69,15 @@ public enum ConfigKeys
     ORACLECLOUD_REGION("object-storage.region"),
     ORACLECLOUD_ENDPOINT("object-storage.endpoint"),
 
+    // Google Cloud
+    GOOGLECLOUD("googlecloud"),
+    GOOGLECLOUD_FIRESTORE_DATABASE_ID("firestore.database-id"),
+    GOOGLECLOUD_FIRESTORE_EMULATOR_HOST("firestore.emulator-host"),
+    GOOGLECLOUD_FIRESTORE_HOST("firestore.host"),
+    GOOGLECLOUD_FIRESTORE_PROJECT_ID("firestore.project-id"),
+    GOOGLECLOUD_FIRESTORE_QUOTA_PROJECT_ID("firestore.quota-project-id"),
+    GOOGLECLOUD_FIRESTORE_CREDENTIALS_TYPE("firestore.credentials.type"),
+
     //Coherence
     COHERENCE("coherence"),
     COHERENCE_CACHE_NAME("cache-name"),
