@@ -34,7 +34,7 @@ Tested and officially supported JDKs:
 |17, 21
 
 | http://dragonwell-jdk.io/[Alibaba Dragonwell]
-|17
+|17, 21
 
 | https://developer.ibm.com/languages/java/semeru-runtimes/[IBM Semeru]
 |17, 21
