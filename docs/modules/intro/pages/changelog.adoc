@@ -15,6 +15,7 @@
 * Fix allocation of string concatenation during garbage collection https://github.com/eclipse-serializer/serializer/pull/187[[187]]
 * Fix transaction file entry order https://github.com/eclipse-store/store/issues/423[[423]]
 * Fix synchronization in housekeeping https://github.com/eclipse-store/store/pull/395[[395]]
+* Fix for Google Cloud Firestore config in Spring Boot integration https://github.com/eclipse-store/store/issues/427[[427]] https://github.com/eclipse-store/store/pull/434[[434]]
 
 
 === Migration
