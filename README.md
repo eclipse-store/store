@@ -1,4 +1,4 @@
-<img src="./etc/images/logo.svg" width="500px">
+<img src="./etc/images/logo.svg" width="500px" alt="Logo">
 
 ![GitHub](https://img.shields.io/github/license/eclipse-store/store?style=for-the-badge)
 ![GitHub issues](https://img.shields.io/github/issues/eclipse-store/store?style=for-the-badge)
@@ -24,7 +24,7 @@ EclipseStore is available under [Eclipse Public License - v 2.0](LICENSE).
 
 ## Build
 
-To build EclipseStore you need Java 11 and Maven.
+To build EclipseStore you need Java 17 and Maven.
 
 Just run
 
