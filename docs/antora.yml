@@ -1,13 +1,13 @@
 name: manual
 title: EclipseStore Reference Manual
 version: master
-display_version: 'V2'
+display_version: 'V3'
 start_page: intro:welcome.adoc
 nav:
 - modules/ROOT/nav.adoc
 asciidoc:
   attributes:
     product-name: 'EclipseStore'
-    display-version: '2.1.3'
-    api-version: '2'
-    maven-version: '2.1.3'
+    display-version: '3.0.0'
+    api-version: '3'
+    maven-version: '3.0.0'

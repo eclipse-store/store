@@ -10,11 +10,29 @@ But since you are here we guess you got that covered ;)
 
 See xref:changelog.adoc[Changelog].
 
-////
+
 == API Docs
 
-The API documentation is available at https://docs.eclipsestore.io/api/{api-version}/.
-////
+The API documentation is available at
+
+- https://javadoc.io/doc/org.eclipse.serializer
+- https://javadoc.io/doc/org.eclipse.store
+
+
+== Examples and Demo Projects
+
+=== Examples Collection
+
+A collection of examples with different topics:
+
+https://github.com/eclipse-store/store/tree/master/examples
+
+=== BookStore Demo
+
+The BookStore Demo is a fully fledged sample application. It shows how to design an application with {product-name} from the ground up.
+
+https://github.com/eclipse-store/bookstore-demo
+
 
 == License
 
