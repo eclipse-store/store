@@ -18,8 +18,8 @@ Search the [issue tracker](https://github.com/eclipse-store/store/issues) for a 
 ## Build
 
 To build EclipseStore you need
-- Java 11 or higher
-- Maven 3.8.1 or higher
+- Java 17
+- Maven 3.9 or higher
 
 ```
 mvn install

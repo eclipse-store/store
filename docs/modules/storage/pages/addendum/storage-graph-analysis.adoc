@@ -1,6 +1,6 @@
 == Storage Graph Analysis
 
-With version 3.0.0 additional functionality to analyse the stored graph has been added. This includes an API to export the storage graphs structure without user data and an API to search that data for missing objects and objects' parents.
+With version 3.0.0 additional functionality to analyze the stored graph has been added. This includes an API to export the storage graphs structure without user data and an API to search that data for missing objects and objects' parents.
 
 === Exporting the storage object graph
 

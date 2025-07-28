@@ -1,6 +1,28 @@
 = Changelog
 
 
+== 3.0.0
+
+=== Features
+
+* xref:gigamap:index.adoc[GigaMap] https://github.com/eclipse-store/store/pull/432[[432]]
+* xref:storage:addendum/storage-graph-analysis.adoc[Storage Graph Analysis] https://github.com/eclipse-store/store/issues/429[[426]] https://github.com/eclipse-store/store/pull/408[[408]] https://github.com/eclipse-store/store/pull/413[[413]] https://github.com/eclipse-store/store/pull/407[[407]] https://github.com/eclipse-store/store/pull/406[[406]] https://github.com/eclipse-store/store/pull/433[[433]], see als: xref:storage:addendum/troubleshooting.adoc[Troubleshooting]
+* New specialized TypeHandlers: java.time.Period https://github.com/eclipse-serializer/serializer/pull/193[[193]], java.util.BitSet https://github.com/eclipse-serializer/serializer/pull/194[[194]]
+* Further smaller improvements https://github.com/eclipse-serializer/serializer/pull/188[[188]] https://github.com/eclipse-store/store/pull/402[[402]]
+
+=== Bugfixes
+
+* Fix allocation of string concatenation during garbage collection https://github.com/eclipse-serializer/serializer/pull/187[[187]]
+* Fix transaction file entry order https://github.com/eclipse-store/store/issues/423[[423]]
+* Fix synchronization in housekeeping https://github.com/eclipse-store/store/pull/395[[395]]
+* Fix for Google Cloud Firestore config in Spring Boot integration https://github.com/eclipse-store/store/issues/427[[427]] https://github.com/eclipse-store/store/pull/434[[434]]
+
+
+=== Migration
+
+{product-name} now is built with Java 17 as target version. Ensure to update your configuration accordingly.
+
+
 == 2.1.3
 
 === Changes
@@ -28,7 +50,6 @@
 * Logger settings adjustments https://github.com/eclipse-serializer/serializer/pull/164[[164]]
 * Dependency update to resolve vulnerability https://github.com/eclipse-store/store/pull/360[[360]] https://github.com/eclipse-store/store/pull/361[[361]]
 * Register LockAspect as Spring Bean https://github.com/eclipse-store/store/pull/355[[355]] https://github.com/eclipse-store/store/issues/356[[356]]
-
 
 == 2.1.0
 
