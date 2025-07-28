@@ -8,7 +8,7 @@
 
     <groupId>org.eclipse.store</groupId>
     <artifactId>store-parent</artifactId>
-    <version>3.0.0-SNAPSHOT</version>
+    <version>4.0.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>EclipseStore</name>
@@ -47,7 +47,7 @@
         <license.licenceFile>${basedir}/LICENSE</license.licenceFile>
         <api.version>1</api.version>
         <javadoc.failed.on.error>false</javadoc.failed.on.error>
-        <eclipse.serializer.version>3.0.0-SNAPSHOT</eclipse.serializer.version>
+        <eclipse.serializer.version>4.0.0-SNAPSHOT</eclipse.serializer.version>
         <failsafe.rerunFailingTestsCount>2</failsafe.rerunFailingTestsCount>
         <surefire.rerunFailingTestsCount>2</surefire.rerunFailingTestsCount>
     </properties>
