@@ -1,5 +1,20 @@
 = Getting Started
 
+== Prerequisites
+
+[source, xml, title="pom.xml", subs=attributes+]
+----
+<dependencies>
+	<dependency>
+		<groupId>org.eclipse.store</groupId>
+		<artifactId>gigamap</artifactId>
+		<version>{maven-version}</version>
+	</dependency>
+</dependencies>
+----
+
+== Usage
+
 First, we need an entity that we will store in the GigaMap.
 
 [source, java]
