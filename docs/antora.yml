@@ -1,6 +1,6 @@
 name: manual
 title: EclipseStore Reference Manual
-version: master
+version: '2'
 display_version: 'V2'
 start_page: intro:welcome.adoc
 nav:
