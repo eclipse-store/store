@@ -16,7 +16,7 @@ jobs:
       - name: Set up Java for publishing to Maven Central Repository
         uses: actions/setup-java@v3
         with:
-          java-version: '1'
+          java-version: '17'
           distribution: 'temurin'
           cache: 'maven'
           server-id: central
