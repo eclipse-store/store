@@ -15,7 +15,7 @@ updates.
 | ------- | ---------- | ------------------ | 
 | 2.0.0   | 2024-10-10 | :white_check_mark: | 
 | ------- | ---------- | ------------------ | 
-| 3.0.0   | 2025-07-29 | :white_check_mark: | 
+| 3.0.0   | 2025-07-28 | :white_check_mark: | 
 
 ## Reporting a Vulnerability
 
