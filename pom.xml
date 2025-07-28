@@ -391,6 +391,7 @@
                     <extensions>true</extensions>
                     <configuration>
                         <publishingServerId>central</publishingServerId>
+                        <deploymentName>deployment-store</deploymentName>
                     </configuration>
                 </plugin>
             </plugins>
