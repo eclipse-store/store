@@ -23,6 +23,14 @@ package org.eclipse.store.gigamap.types;
  */
 public interface BinaryIndexerLong<E> extends BinaryIndexerNumber<E, Long>
 {
+	@Override
+	public <S extends E> Condition<S> is(Long key);
+	
+	@Override
+	public <S extends E> Condition<S> in(Long... keys);
+		
+	
+	
 	public abstract class Abstract<E> extends BinaryIndexerNumber.Abstract<E, Long> implements BinaryIndexerLong<E>
 	{
 		protected Abstract()
