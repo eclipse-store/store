@@ -24,6 +24,7 @@ import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.io.BufferProvider;
 import org.eclipse.store.storage.exceptions.StorageException;
 import org.eclipse.store.storage.exceptions.StorageExceptionIoReading;
+import org.eclipse.store.storage.exceptions.StorageExceptionIoWriting;
 
 public interface StorageFile
 {
@@ -235,7 +236,7 @@ public interface StorageFile
 			}
 			catch(final Exception e)
 			{
-				throw new StorageExceptionIoReading(e);
+				throw new StorageExceptionIoWriting(e);
 			}
 		}
 		
