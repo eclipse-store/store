@@ -70,6 +70,34 @@ public class MultipleValueIndexTest
         assertEquals(2, count);
     }
 
+    @Test
+    void multivalueUpdateTest()
+    {
+        GigaMap<Patient>         gigaMap                  = GigaMap.New();
+        PatientIdentifierIndexer patientIdentifierIndexer = new PatientIdentifierIndexer();
+        gigaMap.index().bitmap().add(patientIdentifierIndexer);
+        Patient patient1 = new Patient("John", 25, List.of("123", "456"));
+        Patient patient2 = new Patient("Jane", 30, List.of("123", "789"));
+        gigaMap.addAll(patient1, patient2);
+
+        gigaMap.update(patient1, p -> {
+             p.setName("Maria");
+        });
+    }
+
+    @Test
+    void multivalueRemoveTest()
+    {
+        GigaMap<Patient>         gigaMap                  = GigaMap.New();
+        PatientIdentifierIndexer patientIdentifierIndexer = new PatientIdentifierIndexer();
+        gigaMap.index().bitmap().add(patientIdentifierIndexer);
+        Patient patient1 = new Patient("John", 25, List.of("123", "456"));
+        Patient patient2 = new Patient("Jane", 30, List.of("123", "789"));
+        gigaMap.addAll(patient1, patient2);
+
+        gigaMap.remove(patient1);
+    }
+
     private static class PatientIdentifierIndexer extends IndexerMultiValue.Abstract<Patient, String> {
 
         @Override
@@ -86,7 +114,7 @@ public class MultipleValueIndexTest
     }
 
     private static class Patient{
-        private final String name;
+        private String name;
         private final int age;
         private final List<String> identifiers;
 
@@ -110,6 +138,11 @@ public class MultipleValueIndexTest
         public List<String> getIdentifiers()
         {
             return identifiers;
+        }
+
+        public void setName(String name)
+        {
+            this.name = name;
         }
     }
 }
