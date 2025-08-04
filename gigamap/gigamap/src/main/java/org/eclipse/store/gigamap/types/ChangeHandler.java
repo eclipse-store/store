@@ -14,6 +14,9 @@ package org.eclipse.store.gigamap.types;
  * #L%
  */
 
+import org.eclipse.serializer.collections.types.XGettingList;
+
+
 /**
  * Represents a generic handler for tracking changes within an index. This interface
  * defines methods that manage entity changes, removal, and comparison of change states.
@@ -45,4 +48,60 @@ public interface ChangeHandler
 	 *                           manage transition or comparison during the change process.
 	 */
 	public void changeInIndex(long entityId, ChangeHandler prevEntityHandler);
+	
+	
+	
+	public class Chain implements ChangeHandler
+	{
+		private final XGettingList<ChangeHandler> handlers;
+		
+		Chain(final XGettingList<ChangeHandler> handlers)
+		{
+			super();
+			
+			this.handlers = handlers;
+		}
+		
+		@Override
+		public boolean isEqual(final ChangeHandler other)
+		{
+			if(other instanceof final Chain otherChain)
+			{
+				if(this.handlers.size() == otherChain.handlers.size())
+				{
+					for(int i = 0; i < this.handlers.size(); i++)
+					{
+						if(!this.handlers.at(i).isEqual(otherChain.handlers.at(i)))
+						{
+							return false;
+						}
+					}
+					
+					return true;
+				}
+			}
+			
+			return false;
+		}
+		
+		@Override
+		public void removeFromIndex(final long entityId)
+		{
+			for(final ChangeHandler handler : this.handlers)
+			{
+				handler.removeFromIndex(entityId);
+			}
+		}
+		
+		@Override
+		public void changeInIndex(final long entityId, final ChangeHandler prevEntityHandler)
+		{
+			for(final ChangeHandler handler : this.handlers)
+			{
+				handler.changeInIndex(entityId, prevEntityHandler);
+			}
+		}
+		
+	}
+	
 }

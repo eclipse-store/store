@@ -14,6 +14,7 @@ package org.eclipse.store.gigamap.types;
  * #L%
  */
 
+import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.store.gigamap.annotations.Index;
 
 /**
@@ -78,7 +79,24 @@ public interface IndexerMultiValue<E, K> extends Indexer<E, K>
 		@Override
 		public final K index(final E entity)
 		{
-			throw new UnsupportedOperationException();
+			throw new UnsupportedOperationException("use indexEntityMultiValue() instead");
+		}
+		
+		@Override
+		public <S extends E> Condition<S> like(final E sample)
+		{
+			final BulkList<Condition<S>> conditions = new BulkList<>();
+			for(final K key : this.indexEntityMultiValue(sample))
+			{
+				conditions.add(this.is(key));
+			}
+			return new Condition.And<>(conditions);
+		}
+		
+		@Override
+		public <S extends E> Condition<S> unlike(final E sample)
+		{
+			return new Condition.Not<>(this.like(sample));
 		}
 		
 	}

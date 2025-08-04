@@ -14,6 +14,7 @@ package org.eclipse.store.gigamap.types;
  * #L%
  */
 
+import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.EqHashTable;
 
 import java.util.function.Consumer;
@@ -162,7 +163,27 @@ public abstract class AbstractBitmapIndexHashing<E, I, K> extends BitmapIndex.Ab
 			return NullChangeChandler.SINGLETON;
 		}
 		
+		if(this.indexer instanceof IndexerMultiValue)
+		{
+			final BulkList<ChangeHandler> changeHandlers = BulkList.New();
+			@SuppressWarnings("unchecked")
+			final Iterable<? extends K> keys = ((IndexerMultiValue<I, K>)this.indexer).indexEntityMultiValue(oldEntity);
+			for(final K key : keys)
+			{
+				if(key != null)
+				{
+					changeHandlers.add(this.createChangeHandler(key));
+				}
+			}
+			return new ChangeHandler.Chain(changeHandlers.immure());
+		}
+
 		final K key = this.indexEntity(oldEntity);
+		return this.createChangeHandler(key);
+	}
+	
+	private ChangeHandler createChangeHandler(final K key)
+	{
 		final BitmapEntry<E, I, K> entry = this.entries.get(key);
 		if(entry != null)
 		{
@@ -281,13 +302,32 @@ public abstract class AbstractBitmapIndexHashing<E, I, K> extends BitmapIndex.Ab
 	
 	public void internalRemove(final long entityId, final I indexable)
 	{
-		final BitmapEntry<E, I, K> entry = this.internalLookupEntry(indexable);
-		if(entry == null)
+		if(this.indexer instanceof IndexerMultiValue)
 		{
-			// entity's key is not indexed at all
-			return;
+			@SuppressWarnings("unchecked")
+			final Iterable<? extends K> keys = ((IndexerMultiValue<I, K>)this.indexer).indexEntityMultiValue(indexable);
+			for(final K key : keys)
+			{
+				if(key != null)
+				{
+					final BitmapEntry<E, I, K> entry = this.getEntryForKey(key);
+					if(entry !=  null)
+					{
+						this.internalRemoveFromEntry(entityId, entry);
+					}
+				}
+			}
 		}
-		this.internalRemoveFromEntry(entityId, entry);
+		else
+		{
+			final BitmapEntry<E, I, K> entry = this.internalLookupEntry(indexable);
+			if(entry == null)
+			{
+				// entity's key is not indexed at all
+				return;
+			}
+			this.internalRemoveFromEntry(entityId, entry);
+		}
 	}
 	
 	public void internalRemoveAll()
@@ -298,9 +338,9 @@ public abstract class AbstractBitmapIndexHashing<E, I, K> extends BitmapIndex.Ab
 	
 	public BitmapEntry<E, I, K> internalLookupEntry(final I indexable)
 	{
-		final K key = this.indexEntity(indexable);
-		
-		return this.entries.get(key);
+		return this.getEntryForKey(
+			this.indexEntity(indexable)
+		);
 	}
 	
 	public void internalHandleChanged(final I oldKeys , final long entityId, final I newKeys)
