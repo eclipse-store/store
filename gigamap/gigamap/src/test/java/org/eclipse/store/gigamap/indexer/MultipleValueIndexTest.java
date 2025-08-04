@@ -20,6 +20,8 @@ import org.eclipse.store.gigamap.types.IndexerMultiValue;
 import org.eclipse.store.gigamap.types.IndexerString;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -81,8 +83,10 @@ public class MultipleValueIndexTest
         gigaMap.addAll(patient1, patient2);
 
         gigaMap.update(patient1, p -> {
-             p.setName("Maria");
+             p.setIdentifiers(List.of("123", "abc"));
         });
+        
+        assertEquals(1L, gigaMap.query(patientIdentifierIndexer.is("abc")).count());
     }
 
     @Test
@@ -96,6 +100,8 @@ public class MultipleValueIndexTest
         gigaMap.addAll(patient1, patient2);
 
         gigaMap.remove(patient1);
+        
+        assertEquals(1L, gigaMap.size());
     }
 
     private static class PatientIdentifierIndexer extends IndexerMultiValue.Abstract<Patient, String> {
@@ -116,7 +122,7 @@ public class MultipleValueIndexTest
     private static class Patient{
         private String name;
         private final int age;
-        private final List<String> identifiers;
+        private List<String> identifiers;
 
         public Patient(String name, int age, List<String> identifiers)
         {
@@ -139,7 +145,12 @@ public class MultipleValueIndexTest
         {
             return identifiers;
         }
-
+        
+        public void setIdentifiers(final List<String> identifiers)
+        {
+            this.identifiers = identifiers;
+        }
+        
         public void setName(String name)
         {
             this.name = name;
