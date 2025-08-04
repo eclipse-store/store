@@ -16,11 +16,8 @@ package org.eclipse.store.storage.types;
 
 import java.nio.ByteBuffer;
 
-import org.eclipse.serializer.chars.VarString;
-import org.eclipse.serializer.meta.XDebug;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.typing.KeyValue;
-import org.eclipse.serializer.util.UtilStackTrace;
 
 public interface StorageRequestTaskStoreEntities extends StorageRequestTask
 {
@@ -69,43 +66,7 @@ public interface StorageRequestTaskStoreEntities extends StorageRequestTask
 		@Override
 		protected final KeyValue<ByteBuffer[], long[]> internalProcessBy(final StorageChannel channel)
 		{
-//			this.DEBUG_Print(channel);
 			return channel.storeEntities(this.timestamp(), this.data.channelChunk(channel.channelIndex()));
-		}
-		
-		public final void DEBUG_Print(final StorageChannel channel)
-		{
-			final VarString vs = VarString.New();
-			if(channel != null)
-			{
-				vs
-				.add(channel.channelIndex())
-				.add(" processing")
-				;
-			}
-			else
-			{
-				vs
-				.add("Issued")
-				;
-			}
-			vs
-			.add(" store task ")
-			.add(System.identityHashCode(this))
-			.add(" @")
-			.add(this.timestamp())
-			;
-			
-			if(channel == null)
-			{
-				vs.add(" Stacktrace:");
-				for(final StackTraceElement e : UtilStackTrace.cutStacktraceByN(new Throwable(), 2).getStackTrace())
-				{
-					vs.lf().add(e.toString());
-				}
-			}
-
-			XDebug.println(vs.toString(), 1);
 		}
 
 		@Override

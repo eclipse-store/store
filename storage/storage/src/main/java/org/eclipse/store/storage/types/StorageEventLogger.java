@@ -1,16 +1,10 @@
 package org.eclipse.store.storage.types;
 
-import static org.eclipse.serializer.util.X.notNull;
-
-import java.io.PrintWriter;
-import java.io.StringWriter;
-import java.util.function.Consumer;
-
 /*-
  * #%L
  * EclipseStore Storage
  * %%
- * Copyright (C) 2023 MicroStream Software
+ * Copyright (C) 2023 - 2025 MicroStream Software
  * %%
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -20,7 +14,11 @@ import java.util.function.Consumer;
  * #L%
  */
 
-import org.eclipse.serializer.meta.XDebug;
+import static org.eclipse.serializer.util.X.notNull;
+
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.util.function.Consumer;
 
 public interface StorageEventLogger
 {
@@ -141,7 +139,7 @@ public interface StorageEventLogger
 		
 		public static void printString(final String s)
 		{
-			XDebug.println(s, 4);
+			System.out.println(s);
 		}
 		
 		public static String toChannelIdentifier(final StorageChannel channel)

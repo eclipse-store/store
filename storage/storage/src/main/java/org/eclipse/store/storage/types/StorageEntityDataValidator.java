@@ -16,7 +16,6 @@ package org.eclipse.store.storage.types;
 
 import static org.eclipse.serializer.util.X.notNull;
 
-import org.eclipse.serializer.meta.XDebug;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.binary.types.BinaryEntityRawDataAcceptor;
 import org.eclipse.serializer.util.UtilStackTrace;
@@ -77,45 +76,7 @@ public interface StorageEntityDataValidator extends BinaryEntityRawDataAcceptor
 			objectIdUpperBound
 		);
 	}
-	
-	@Deprecated
-	public static StorageEntityDataValidator DebugLogging(
-		final StorageEntityDataValidator delegate
-	)
-	{
-		return new DebugLogger(
-			notNull(delegate)
-		);
-	}
-	
-	@Deprecated
-	public static StorageEntityDataValidator DebugLogging(
-		final StorageTypeDictionary         typeDictionary
-	)
-	{
-		return DebugLogging(New(typeDictionary));
-	}
-	
-	public final class DebugLogger implements StorageEntityDataValidator
-	{
-		private final StorageEntityDataValidator delegate;
-
-		DebugLogger(final StorageEntityDataValidator delegate)
-		{
-			super();
-			this.delegate = delegate;
-		}
 		
-		@Override
-		public void validateEntity(final long length, final long typeId, final long objectId)
-		{
-			XDebug.println("Validating entity [" + length + "][" + typeId + "][" + objectId + "]");
-			this.delegate.validateEntity(length, typeId, objectId);
-		}
-		
-		
-	}
-	
 	public class SimpleBounds implements StorageEntityDataValidator
 	{
 		///////////////////////////////////////////////////////////////////////////
@@ -241,13 +202,7 @@ public interface StorageEntityDataValidator extends BinaryEntityRawDataAcceptor
 	{
 		return new StorageEntityDataValidator.Creator.Default();
 	}
-	
-	@Deprecated
-	public static StorageEntityDataValidator.Creator CreatorDebugLogging()
-	{
-		return new StorageEntityDataValidator.Creator.DebugLogging();
-	}
-	
+		
 	public interface Creator
 	{
 		public StorageEntityDataValidator createDataFileValidator(StorageTypeDictionary typeDictionary);
@@ -264,22 +219,6 @@ public interface StorageEntityDataValidator extends BinaryEntityRawDataAcceptor
 			public StorageEntityDataValidator createDataFileValidator(final StorageTypeDictionary typeDictionary)
 			{
 				return StorageEntityDataValidator.New(typeDictionary);
-			}
-			
-		}
-		
-		@Deprecated
-		public final class DebugLogging implements StorageEntityDataValidator.Creator
-		{
-			DebugLogging()
-			{
-				super();
-			}
-			
-			@Override
-			public StorageEntityDataValidator createDataFileValidator(final StorageTypeDictionary typeDictionary)
-			{
-				return StorageEntityDataValidator.DebugLogging(typeDictionary);
 			}
 			
 		}
