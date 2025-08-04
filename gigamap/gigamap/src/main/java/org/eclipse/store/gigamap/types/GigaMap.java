@@ -1592,7 +1592,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			
 			for(final IndexIdentifier<E, ?> index : indicesToUse)
 			{
-				query.and(index.like(entity));
+				query.and(index.indexer().like(entity));
 			}
 			
 			final EntityIdResolver resolver = this.equalator.isReferentialEquality()
