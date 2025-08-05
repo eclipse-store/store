@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 public class IterationThreadProviderTest
 {
     @Test
-    @Disabled("https://github.com/microstream-one/gigamap/issues/118")
+    @Disabled("https://github.com/eclipse-store/store/issues/449")
     void iterationThreadProviderTest()
     {
         GigaMap<Person> map = GigaMap.New();

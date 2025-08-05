@@ -55,8 +55,6 @@ public class BinaryUUIDIndexTest
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(map, tempDir)) {
             
-            map.forEach(p -> System.out.println(p));
-            
             assertEquals(uuid1, map.query(uuidPersonIndex.is(uuid1)).findFirst().get().uuid);
             assertEquals(uuid2, map.query(uuidPersonIndex.is(uuid2)).findFirst().get().uuid);
 

@@ -17,6 +17,7 @@ package org.eclipse.store.gigamap.indexer.enumeration;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -32,7 +33,7 @@ public class StoreEnumTest
     Path workDir;
 
     @Test
-    @Disabled("https://github.com/microstream-one/gigamap/issues/71")
+    @Disabled("https://github.com/eclipse-store/store/issues/448")
     void enumTest()
     {
         GigaMap<StoreEnum> gigaMap = GigaMap.New();
@@ -47,7 +48,10 @@ public class StoreEnumTest
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(workDir)) {
             GigaMap<StoreEnum> loadedGigaMap = (GigaMap<StoreEnum>) manager.root();
 
-            loadedGigaMap.forEach(System.out::println);
+            //TODO check after fix
+            List<StoreEnum> expectedList = List.of(StoreEnum.VALUE, StoreEnum.SECOND, StoreEnum.THIRD);
+            List<StoreEnum> loadedEnumList = loadedGigaMap.query().toList();
+            Assertions.assertIterableEquals(expectedList, loadedEnumList);
         }
     }
 
@@ -65,7 +69,8 @@ public class StoreEnumTest
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(workDir)) {
             List<StoreEnum> loadedEnumList = (List<StoreEnum>) manager.root();
 
-            loadedEnumList.forEach(System.out::println);
+            List<StoreEnum> expectedList = List.of(StoreEnum.VALUE, StoreEnum.SECOND, StoreEnum.THIRD);
+            Assertions.assertIterableEquals(expectedList, loadedEnumList);
         }
     }
 

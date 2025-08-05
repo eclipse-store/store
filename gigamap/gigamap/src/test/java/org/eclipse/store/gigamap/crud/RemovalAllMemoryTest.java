@@ -141,7 +141,7 @@ public class RemovalAllMemoryTest
 	@Order(0)
 	void testNoIndexer() throws IOException
 	{
-		System.out.println(this.newDirectory.toAbsolutePath()); // for debugging
+//		System.out.println(this.newDirectory.toAbsolutePath()); // for debugging
 		System.out.println("Memory usage: " + memoryUsage() + " MB");
 		
 		final GigaMap<Customer> gigaMap = GigaMap.New();
@@ -153,7 +153,7 @@ public class RemovalAllMemoryTest
 	@Order(1)
 	void testOneIndexer() throws IOException
 	{
-		System.out.println(this.newDirectory.toAbsolutePath()); // for debugging
+//		System.out.println(this.newDirectory.toAbsolutePath()); // for debugging
 		System.out.println("Memory usage: " + memoryUsage() + " MB");
 		
 		final GigaMap<Customer> gigaMap = GigaMap.New();
@@ -167,7 +167,7 @@ public class RemovalAllMemoryTest
 	@Order(2)
 	void testTwoIndexer() throws IOException
 	{
-		System.out.println(this.newDirectory.toAbsolutePath()); // for debugging
+		//System.out.println(this.newDirectory.toAbsolutePath()); // for debugging
 		System.out.println("Memory usage: " + memoryUsage() + " MB");
 		
 		final GigaMap<Customer> gigaMap = GigaMap.New();
@@ -183,7 +183,7 @@ public class RemovalAllMemoryTest
 	@Order(3)
 	void testThreeIndexer() throws IOException
 	{
-		System.out.println(this.newDirectory.toAbsolutePath()); // for debugging
+//		System.out.println(this.newDirectory.toAbsolutePath()); // for debugging
 		System.out.println("Memory usage: " + memoryUsage() + " MB");
 		
 		final GigaMap<Customer> gigaMap = GigaMap.New();
