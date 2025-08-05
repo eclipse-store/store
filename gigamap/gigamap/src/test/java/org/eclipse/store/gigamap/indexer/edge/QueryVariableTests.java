@@ -43,7 +43,7 @@ public class QueryVariableTests
     Condition<Person> firstSubQuery = nameIndexer.is("Alice").and(ageIndexer.is(30));
 
     @Test
-    @Disabled("https://github.com/microstream-one/gigamap/issues/103")
+    @Disabled("https://github.com/eclipse-store/store/issues/450")
     void queryTest()
     {
         GigaMap<Person> map = GigaMap.New();

@@ -152,9 +152,6 @@ public class AddTest
             gm2.index().bitmap().add(ageIndexer);
             assertTrue(gm2.query(ageIndexer.is(100)).toList().isEmpty());
 
-            gm2.forEach(System.out::println);
-            System.out.println("Size of the map: " + gm2.size());
-
             assertEquals(gm2.size() , gigaMap.size(), "Size of the map should be equal to the size of the giga map");
         }
 

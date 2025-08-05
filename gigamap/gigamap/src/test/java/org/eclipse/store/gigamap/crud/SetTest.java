@@ -65,7 +65,7 @@ public class SetTest
 		try(EmbeddedStorageManager storageManager = EmbeddedStorage.start(this.tempDir))
 		{
 			final GigaMap<Item> loadedGigaMap = (GigaMap<Item>)storageManager.root();
-			loadedGigaMap.forEach(System.out::println); // just for debugging
+			//loadedGigaMap.forEach(System.out::println); // just for debugging
 			assertEquals(item5, loadedGigaMap.get(0)); // <=== is still Item4, Item2, Item3
 			
 		}

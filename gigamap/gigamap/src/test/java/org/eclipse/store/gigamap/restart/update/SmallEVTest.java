@@ -38,10 +38,10 @@ public class SmallEVTest
                 smallEVs = generateData();
                 storageManager.setRoot(smallEVs);
                 storageManager.storeRoot();
-                System.out.println("Stored to storage: " + smallEVs.size());
+                //System.out.println("Stored to storage: " + smallEVs.size());
             } else {
                 smallEVs = (GigaMap<SmallEV>) storageManager.root();
-                System.out.println("Loaded from storage: " + smallEVs.size());
+                //System.out.println("Loaded from storage: " + smallEVs.size());
             }
             SmallEV smallEV = smallEVs.get(0);
             smallEVs.update(smallEV, smallEV1 -> smallEV1.setElectric(false));

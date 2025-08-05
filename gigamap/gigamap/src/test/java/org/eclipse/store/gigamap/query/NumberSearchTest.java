@@ -43,7 +43,7 @@ public class NumberSearchTest
         final long seconds = duration.toSecondsPart();
         final long millis = duration.toMillisPart();
         final long nanos = duration.toNanosPart();
-        System.out.printf("Time taken for %s: %dm %ds %dms %dns%n", actionDescription, minutes, seconds, millis, nanos);
+        System.out.printf("Time taken for: | %-28s | %dm | %ds | %-2dms | %-10dns |%n", actionDescription, minutes, seconds, millis, nanos);
     }
 
     @Test
@@ -57,22 +57,18 @@ public class NumberSearchTest
         final FloatIndexer floatIndexer = new FloatIndexer();
         indices.add(floatIndexer);
 
-        final Instant start, finish;
-
-        final int count = 0;
-
         measureTime(() ->
                 gigaMap.query(valueIndexer.is(integer -> (20 < integer) && (integer < 5000)))
                         .execute((Consumer<? super IntegerObject>) integerObject -> {}), "Between query");
 
         measureTime(() ->
                 gigaMap.query(valueIndexer.is(20))
-                        .execute((Consumer<? super IntegerObject>) System.out::println), "Exact value query");
+                        .execute((Consumer<? super IntegerObject>) integerObject -> {}), "Exact value query");
         measureTime(() ->
             gigaMap.query(valueIndexer.is(20).or(valueIndexer.is(30)).or(valueIndexer.is(40)).or(valueIndexer.is(50)))
-                    .execute((Consumer<? super IntegerObject>) System.out::println), "Exact multiple value query");
+                    .execute((Consumer<? super IntegerObject>) SintegerObject -> {}), "Exact multiple value query");
         measureTime(() ->
-            gigaMap.query(floatIndexer.is(20f)).execute((Consumer<? super IntegerObject>) System.out::println), "Exact float value query");
+            gigaMap.query(floatIndexer.is(20f)).execute((Consumer<? super IntegerObject>) integerObject -> {}), "Exact float value query");
 
     }
 
