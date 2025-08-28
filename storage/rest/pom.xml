@@ -28,7 +28,10 @@
         <module>service-sparkjava</module>
         <module>service-springboot</module>
         <module>client-app</module>
+		<!--
         <module>client-app-standalone-assembly</module>
+		-->
+
     </modules>
 
 </project>
