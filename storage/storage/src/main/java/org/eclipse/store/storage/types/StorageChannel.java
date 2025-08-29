@@ -26,6 +26,7 @@ import java.util.function.Predicate;
 import org.eclipse.serializer.afs.types.AWritableFile;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.functional.ThrowingProcedure;
+import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.monitoring.MonitoringManager;
 import org.eclipse.serializer.persistence.binary.types.Chunk;
 import org.eclipse.serializer.persistence.binary.types.ChunksBuffer;
@@ -603,6 +604,10 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		{
 			// all chunks were written into the same file, so it is viable to pass the current file right here
 			this.entityCache.postStorePutEntities(chunks, chunksStoragePositions, this.fileManager.currentStorageFile());
+			
+			for(int i = 0; i < chunks.length; i++) {
+				XMemory.deallocateDirectByteBuffer(chunks[i]);
+			}
 		}
 
 		@Override
