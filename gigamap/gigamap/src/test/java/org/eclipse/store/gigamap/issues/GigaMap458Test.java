@@ -2,6 +2,7 @@ package org.eclipse.store.gigamap.issues;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.sql.SQLOutput;
 import java.util.UUID;
 
 import org.eclipse.store.gigamap.types.BinaryIndexerString;
@@ -62,6 +63,19 @@ public class GigaMap458Test {
 		public void setLastName(String lastName) {
 			this.lastName = lastName;
 		}
+
+		@Override
+		public String toString()
+		{
+			return "TestObject{" +
+					"index=" + index +
+					", id='" + id + '\'' +
+					", firstName='" + firstName + '\'' +
+					", lastName='" + lastName + '\'' +
+					", email='" + email + '\'' +
+					", age=" + age +
+					"}\n";
+		}
 	}
 
 	public static class TestObjectIndices {
@@ -114,17 +128,24 @@ public class GigaMap458Test {
 				.withBitmapIndex(TestObjectIndices.email)
 				.build();
 
-		for (int i = 0; i < 5; i++) {
-			Faker faker = new Faker();
-			var item = new TestObject(UUID.randomUUID().toString(), faker.name().firstName(), faker.name().lastName(),
-					faker.internet().emailAddress(), faker.number().numberBetween(1, 100));
-			var index = gigaMap.add(item);
-			item.setIndex(index);
-		}
+		TestObject o1 = new TestObject("61794079-8d91-47cf-8059-001094e3a73d", "Michale", "Farrell", "randi.nader@yahoo.com", 11);
+		var o1Index = gigaMap.add(o1);
 
-		var uuid = UUID.randomUUID().toString();
+		TestObject o2 = new TestObject("9cb4b448-9dbc-46ad-9ecb-a14795ce535a", "Dorian", "Rempel", "rochel.rolfson@gmail.com", 42);
+		var o2Index = gigaMap.add(o2);
 
-		var newItem = new TestObject(uuid, "John", "Doe", "john.dow@mail.com", 43);
+		TestObject o3 = new TestObject("5f71a37b-968f-4a9a-9104-e142851fd007", "Heriberto", "Conn", "rosalyn.dietrich@hotmail.com", 62);
+		var o3Index = gigaMap.add(o3);
+
+		TestObject o4 = new TestObject("aad245da-ffb1-45bf-9af6-b575c90b29e9", "Charmaine", "Bailey", "douglas.schowalter@gmail.com", 36);
+		var o4Index = gigaMap.add(o4);
+
+		TestObject o5 = new TestObject("2446c5f4-cb84-48fa-875c-7a724d916042", "Rosendo", "Romaguera", "keenan.lubowitz@hotmail.com", 81);
+		var o5Index = gigaMap.add(o5);
+
+		System.out.println(gigaMap.toString(10));
+
+		var newItem = new TestObject("a012ddf6-2218-4aa1-b432-12cc07d1260b", "John", "Doe", "john.dow@mail.com", 43);
 		var addedItemId = gigaMap.add(newItem);
 		newItem.setIndex(addedItemId);
 
