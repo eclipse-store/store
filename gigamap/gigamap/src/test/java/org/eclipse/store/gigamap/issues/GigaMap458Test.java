@@ -1,0 +1,144 @@
+package org.eclipse.store.gigamap.issues;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import java.util.UUID;
+
+import org.eclipse.store.gigamap.types.BinaryIndexerString;
+import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.IndexerInteger;
+import org.eclipse.store.gigamap.types.IndexerString;
+import org.junit.jupiter.api.Test;
+
+import com.github.javafaker.Faker;
+
+public class GigaMap458Test {
+
+	public static class TestObject {
+		private long index;
+		private final String id;
+		private final String firstName;
+		private String lastName;
+		private final String email;
+		private final int age;
+
+		public TestObject(String id, String firstName, String lastName, String email, int age) {
+
+			this.id = id;
+			this.firstName = firstName;
+			this.lastName = lastName;
+			this.email = email;
+			this.age = age;
+		}
+
+		public void setIndex(long index) {
+			this.index = index;
+		}
+
+		public long getIndex() {
+			return index;
+		}
+
+		public String getId() {
+			return id;
+		}
+
+		public String getFirstName() {
+			return firstName;
+		}
+
+		public String getLastName() {
+			return lastName;
+		}
+
+		public int getAge() {
+			return age;
+		}
+
+		public String getEmail() {
+			return email;
+		}
+
+		public void setLastName(String lastName) {
+			this.lastName = lastName;
+		}
+	}
+
+	public static class TestObjectIndices {
+		public final static BinaryIndexerString<TestObject> id = new BinaryIndexerString.Abstract<TestObject>() {
+			@Override
+			public String getString(TestObject object) {
+				return object.id;
+			}
+		};
+
+		public final static BinaryIndexerString<TestObject> firstName = new BinaryIndexerString.Abstract<TestObject>() {
+			@Override
+			public String getString(TestObject object) {
+				return object.firstName;
+			}
+		};
+
+		public final static BinaryIndexerString<TestObject> lastName = new BinaryIndexerString.Abstract<TestObject>() {
+			@Override
+			public String getString(TestObject object) {
+				return object.lastName;
+			}
+		};
+
+		public final static IndexerString<TestObject> email = new IndexerString.Abstract<TestObject>() {
+			@Override
+			public String getString(TestObject object) {
+				return object.email;
+			}
+		};
+
+		public final static IndexerInteger<TestObject> age = new IndexerInteger.Abstract<TestObject>() {
+			@Override
+			public Integer getInteger(TestObject object) {
+				return object.age;
+			}
+		};
+
+	}
+
+	@Test
+	public void testGigaMapUpdate() throws Exception {
+		var startTest = System.nanoTime();
+
+		final var gigaMap = GigaMap.<TestObject>Builder()
+				.withBitmapIdentityIndex(TestObjectIndices.id)
+				.withBitmapIndex(TestObjectIndices.age)
+				.withBitmapIndex(TestObjectIndices.firstName)
+				.withBitmapIndex(TestObjectIndices.lastName)
+				.withBitmapIndex(TestObjectIndices.email)
+				.build();
+
+		for (int i = 0; i < 5; i++) {
+			Faker faker = new Faker();
+			var item = new TestObject(UUID.randomUUID().toString(), faker.name().firstName(), faker.name().lastName(),
+					faker.internet().emailAddress(), faker.number().numberBetween(1, 100));
+			var index = gigaMap.add(item);
+			item.setIndex(index);
+		}
+
+		var uuid = UUID.randomUUID().toString();
+
+		var newItem = new TestObject(uuid, "John", "Doe", "john.dow@mail.com", 43);
+		var addedItemId = gigaMap.add(newItem);
+		newItem.setIndex(addedItemId);
+
+		var itemToUpdate = gigaMap.get(addedItemId);
+		if (itemToUpdate == null) {
+			throw new Exception("Item not found");
+		}
+		var updatedItemId = gigaMap.update(itemToUpdate, e -> { // throw happens here
+			e.setLastName("Doedoe");
+		});
+
+		System.out.println(
+				"Time taken (update): " + (System.nanoTime() - startTest) / 1_000_000 + " ms, updated: "
+						+ updatedItemId);
+		assertEquals(addedItemId, updatedItemId);
+	}
+}
