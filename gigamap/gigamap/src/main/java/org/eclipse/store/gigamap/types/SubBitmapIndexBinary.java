@@ -132,7 +132,15 @@ implements Sub<E, long[], Long>, BinaryIndexer<long[]>
 	@Override
 	public void internalHandleChanged(final long[] oldKeys, final long entityId, final long[] newKeys)
 	{
-		this.internalHandleChanged(oldKeys[this.position], entityId, newKeys[this.position]);
+		this.internalHandleChanged(this.key(oldKeys), entityId, this.key(newKeys));
 	}
+
+    private long key(final long[] keys)
+    {
+        return keys.length > this.position
+            ? keys[this.position]
+            : 0L
+        ;
+    }
 	
 }
