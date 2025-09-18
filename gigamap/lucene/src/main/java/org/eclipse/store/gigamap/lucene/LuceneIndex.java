@@ -184,6 +184,16 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		this.query(queryText, maxResults, (entityId, entity, score) -> result.add(entity));
 		return result;
 	}
+
+    /**
+     * Commits any pending changes to the Lucene index, ensuring that all modifications
+     * are written and made visible to subsequent search operations. This operation
+     * finalizes recent additions, updates, or deletions of indexed entities.
+     * <p>
+     * Note: If {@link LuceneContext#autoCommit()} returns {@code true}, which is the default,
+     * this method doesn't need to be invoked explicitly.
+     */
+    public void commit();
 	
 	/**
 	 * Closes this index and all resources associated with it.
@@ -263,6 +273,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 					this.context.documentPopulator().populate(document, entity);
 					
 					this.writer.addDocument(document);
+                    this.optCommit();
 				}
 			}
 			catch(final IOException e)
@@ -292,6 +303,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 					}
 					
 					this.writer.addDocuments(documents);
+                    this.optCommit();
 				}
 			}
 			catch(final IOException e)
@@ -316,6 +328,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 					this.lazyInit();
 				
 					this.writer.deleteDocuments(queryFor(entityId));
+                    this.optCommit();
 				}
 			}
 			catch(final IOException e)
@@ -334,6 +347,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 					this.lazyInit();
 				
 					this.writer.deleteAll();
+                    this.optCommit();
 				}
 			}
 			catch(final IOException e)
@@ -372,6 +386,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 					document.add(new LongField(ENTITY_ID_FIELD, entityId, Store.YES));
 					this.context.documentPopulator().populate(document, entity);
 					this.writer.updateDocuments(queryFor(entityId), List.of(document));
+                    this.optCommit();
 				}
 			}
 			catch(final IOException e)
@@ -483,41 +498,27 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		{
 			// no-op
 		}
-		
-		private int defaultMaxResults()
-		{
-			return XMath.cap_int(this.gigaMap.size());
-		}
 
-		private void lazyInit() throws IOException
-		{
-			if(this.directory == null)
-			{
-				this.searcher              = new IndexSearcher(
-					this.reader            = DirectoryReader.open(
-						this.writer        = new IndexWriter(
-							this.directory = this.context.directoryCreator().createDirectory(),
-							new IndexWriterConfig(
-								this.analyzer = this.context.analyzerCreator().createAnalyzer()
-							)
-						)
-					)
-				);
-			}
-			else
-			{
-				final DirectoryReader newReader = DirectoryReader.openIfChanged(this.reader);
-				if(newReader != null && newReader != this.reader)
-				{
-					this.reader.close();
-					this.searcher = new IndexSearcher(
-						this.reader = newReader
-					);
-				}
-			}
-		}
-		
-		@Override
+        @Override
+        public void commit()
+        {
+            synchronized(this.gigaMap)
+            {
+                if(this.writer != null)
+                {
+                    try
+                    {
+                        this.internalCommit();
+                    }
+                    catch(final IOException e)
+                    {
+                        throw new IORuntimeException(e);
+                    }
+                }
+            }
+        }
+
+        @Override
 		public void close()
 		{
 			synchronized(this.gigaMap)
@@ -545,6 +546,53 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 				this.searcher  = null;
 			}
 		}
+
+        private int defaultMaxResults()
+        {
+            return XMath.cap_int(this.gigaMap.size());
+        }
+
+        private void lazyInit() throws IOException
+        {
+            if(this.directory == null)
+            {
+                this.searcher              = new IndexSearcher(
+                    this.reader            = DirectoryReader.open(
+                        this.writer        = new IndexWriter(
+                            this.directory = this.context.directoryCreator().createDirectory(),
+                            new IndexWriterConfig(
+                                this.analyzer = this.context.analyzerCreator().createAnalyzer()
+                            )
+                        )
+                    )
+                );
+            }
+            else
+            {
+                final DirectoryReader newReader = DirectoryReader.openIfChanged(this.reader);
+                if(newReader != null && newReader != this.reader)
+                {
+                    this.reader.close();
+                    this.searcher = new IndexSearcher(
+                        this.reader = newReader
+                    );
+                }
+            }
+        }
+
+        private void optCommit() throws IOException
+        {
+            if(this.context.autoCommit())
+            {
+                this.internalCommit();
+            }
+        }
+
+        private void internalCommit() throws IOException
+        {
+            this.writer.flush();
+            this.writer.commit();
+        }
 		
 	}
 	
