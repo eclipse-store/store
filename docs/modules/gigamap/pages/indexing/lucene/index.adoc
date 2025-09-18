@@ -12,7 +12,7 @@ Lucene uses so-called documents which are basically key-value stores consisting 
 [source, xml, subs=attributes+, title="Maven [pom.xml]"]
 ----
 <dependency>
-    <groupId>one.microstream</groupId>
+    <groupId>org.eclipse.store</groupId>
     <artifactId>gigamap-lucene</artifactId>
     <version>{maven-version}</version>
 </dependency>
