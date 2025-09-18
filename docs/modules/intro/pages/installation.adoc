@@ -114,12 +114,6 @@ These are the different modules that make up {product-name}.
 |afs-blobstore
 |Base for all blob store file system implementations.
 
-|afs-hazelcast
-|File system implementation for Hazelcast.
-
-|afs-hibernate
-|Generic file system implementation for JPA / Hibernate.
-
 |afs-kafka
 |File system implementation for Apache Kafka.
 
@@ -129,14 +123,17 @@ These are the different modules that make up {product-name}.
 |afs-oraclecloud-objectstorage
 |File system implementation for Oracle Cloud Services (Object Storage).
 
-|afs-oracle-coherence
-|File system implementation for Oracle Coherence.
-
 |afs-redis
 |File system implementation for Redis.
 
 |afs-sql
 |File system implementation for SQL databases.
+
+|gigamap
+|The GigaMap is a specialized collection aimed at optimizing performance and memory usage in EclipseStore. It utilizes off-heap bitmap indexing to facilitate lightning-fast searches and lazy loading of objects, eliminating the need for manual reference management.
+
+|gigamap-lucene
+|A specialized index implementation which connects to a Lucene directory.
 
 |persistence-binary
 |Extension of the persistence base framework with a concrete implementation of the persistent form as binary data. This persistent form is superior to all text-based formats in storage and performance needs, making it the preferred method for storage and network serialization.
