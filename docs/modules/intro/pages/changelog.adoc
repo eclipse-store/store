@@ -20,7 +20,8 @@
 
 === Migration
 
-{product-name} now is built with Java 17 as target version. Ensure to update your configuration accordingly.
+* {product-name} now is built with Java 17 as target version. Ensure to update your configuration accordingly.
+* The module `org.eclipse.serializer:persistence-binary-jdk17` was removed; all contained type handlers are used by default now
 
 
 == 2.1.3
