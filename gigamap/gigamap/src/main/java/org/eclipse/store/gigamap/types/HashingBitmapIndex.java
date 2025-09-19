@@ -67,5 +67,21 @@ public final class HashingBitmapIndex<E, K>
 		// hashing each different entity uniquely means creating a hashtable of entities plus useless indexing overhead.
 		return false;
 	}
-	
+
+    /*
+     * XXX Delegate like/unlike to potential IndexerMultiValue
+     */
+
+    @Override
+    public <S extends E> Condition<S> like(final E sample)
+    {
+        return this.indexer().like(sample);
+    }
+
+    @Override
+    public <S extends E> Condition<S> unlike(final E sample)
+    {
+        return this.indexer().unlike(sample);
+    }
+
 }
