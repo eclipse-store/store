@@ -75,6 +75,19 @@ public interface LuceneContext<E>
 	 * @return an instance of {@link DocumentPopulator} that defines how to map entity data to Lucene documents
 	 */
 	public DocumentPopulator<E> documentPopulator();
+
+    /**
+     * Determines whether the operations in this context are automatically committed
+     * to the underlying storage or require explicit commits.
+     *
+     * @return true if the context is set to automatically commit changes;
+     *         false if manual commits are required.
+     */
+    public default boolean autoCommit()
+    {
+        return true;
+    }
+
 	
 	/**
 	 * Creates a new instance of {@link LuceneContext} for a specific type of entity.
