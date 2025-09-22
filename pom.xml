@@ -371,7 +371,7 @@
                     </executions>
                     <configuration>
                         <projectType>library</projectType>
-                        <schemaVersion>1.4</schemaVersion>
+                        <schemaVersion>1.6</schemaVersion>
                         <includeBomSerialNumber>true</includeBomSerialNumber>
                         <includeCompileScope>true</includeCompileScope>
                         <includeProvidedScope>true</includeProvidedScope>

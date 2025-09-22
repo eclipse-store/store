@@ -42,3 +42,11 @@ If you want to contribute to this project, please read our [guidelines](CONTRIBU
 - [Website](https://eclipsestore.io)
 - [Eclipse project page](https://projects.eclipse.org/projects/technology.store)
 - [Dev mailing list](https://accounts.eclipse.org/mailing-list/store-dev)
+
+## SBOM
+
+To enhance supply chain security and offer users clear insight into project
+components, Eclipse Store now generates a Software Bill of Materials (SBOM) for
+every release. These are published to the Eclipse Foundation SBOM registry,
+with access instructions and usage details available in this [documentation]
+(https://eclipse-csi.github.io/security-handbook/sbom/registry.html).

@@ -1,0 +1,79 @@
+name: Generate Maven SBOM
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    # Provide custom 'Version' input, to allow running the workflow for older
+    # git refs, where the workflow file did not exist yet. This is not possible
+    # with the builtin "Use workflow from" input field.
+    inputs:
+      version:
+        description: "Version"
+        default: "main"
+        required: true
+
+env:
+  JAVA_VERSION: '17'
+  JAVA_DISTRO: 'temurin'
+  PLUGIN_VERSION: '2.9.1'
+  SBOM_TYPE: 'makeAggregateBom'
+  PROJECT_VERSION: "${{ github.event_name == 'release' && github.event.release.tag_name || github.event.inputs.version }}"
+
+permissions:
+  contents: read
+
+jobs:
+  generate-sbom:
+    runs-on: ubuntu-latest
+    outputs:
+      # Make env var available in re-usuable workflow (see actions/runner#2372)
+      project-version: ${{ env.PROJECT_VERSION }}
+    steps:
+      - name: Checkout repository at '${{ env.PROJECT_VERSION }}'
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+          ref: ${{ env.PROJECT_VERSION }}
+          persist-credentials: false
+
+      - name: Setup Java SDK
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRO }}
+
+      - name: Generate
+        run: |
+          # Patching version for tags only allows generating correct release
+          # SBOMs, and also to test SBOMs on arbitrary non-tag git refs, which
+          # the maven version plugin would otherwise choke on.
+
+          if git show-ref --tags --quiet --verify "refs/tags/${PROJECT_VERSION}"; then
+            mvn versions:set -DnewVersion=${PROJECT_VERSION} --batch-mode
+            mvn versions:set-property -Dproperty=eclipse.serializer.version \
+                -DnewVersion=${PROJECT_VERSION}
+          fi
+
+          # Generate SBOMs as per config in pom.xml. 'skipNotDeployed' is needed
+          # to generate an SBOM outside of the deployment phase.
+
+          mvn org.cyclonedx:cyclonedx-maven-plugin:${PLUGIN_VERSION}:${SBOM_TYPE} \
+              -Dcyclonedx.skipNotDeployed=false
+
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom
+          path: target/sbom/Eclipse-Store-Sbom.json
+
+  # Store SBOM and metadata in a predefined format for otterdog to pick up
+  store-sbom-data:
+    needs: ['generate-sbom']
+    uses: eclipse-csi/workflows/.github/workflows/store-sbom-data.yml@main
+    with:
+      projectName: 'store'
+      projectVersion: ${{ needs.generate-sbom.outputs.project-version }}
+      bomArtifact: 'sbom'
+      bomFilename: 'Eclipse-Store-Sbom.json'
+      parentProject: '0a48ad69-bb92-4881-b35e-450e4f7264dc'
