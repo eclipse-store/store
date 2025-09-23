@@ -12,7 +12,7 @@ final List<AdjacencyFiles> exports = storage.exportAdjacencyData(workDir);
 
 After the data has been exported, the storage can be shut down. Further analysis requires only the exported data.
 
-=== searching for missing objects
+=== Searching for Missing Objects
 To find the IDs of missing objects, the exported data has to be preprocessed using a AdjacencyDataConverter implementation:
 
 [source,java]
@@ -32,7 +32,7 @@ final MissingObjectsSearch analyser = MissingObjectsSearch.New(
 final MissingObjects missingEntities = analyser.searchMissingEntities();
 ----
 
-=== searching object parents
+=== Searching Object Parents
 
 The ReverseObjectSearch allows to search for the reference path from any object identified by the ObjectID to the storage's root object, the provided default implementation does not require the whole storage graph to be loaded in memory.
 
