@@ -1,6 +1,24 @@
 = Changelog
 
 
+=== 3.0.1
+
+== Bugfixes
+
+* Fixed type handlers to properly restore comparators in collections https://github.com/eclipse-serializer/serializer/issues/202[[202]] https://github.com/eclipse-serializer/serializer/pull/203[[203]] https://github.com/eclipse-store/store/issues/352[[352]] https://github.com/eclipse-store/store/issues/375[[375]]
+* Throw correct exception in storage file write https://github.com/eclipse-store/store/issues/439[[439]] https://github.com/eclipse-store/store/pull/443[[443]]
+* GigaMap fixes
+** Fix update of composite index https://github.com/eclipse-store/store/issues/458[[458]] https://github.com/eclipse-store/store/pull/463[[463]]
+** Fix update of multi value index https://github.com/eclipse-store/store/issues/444[[444]] https://github.com/eclipse-store/store/pull/446[[446]]
+** Fix index method delegation https://github.com/eclipse-store/store/issues/462[[462]] https://github.com/eclipse-store/store/pull/466[[466]]
+** Add lucene index auto commit https://github.com/eclipse-store/store/issues/465[[465]] https://github.com/eclipse-store/store/pull/467[[467]]
+** Inheritance clarification to ensure Eclipse compiler compatibility https://github.com/eclipse-store/store/pull/441[[441]]
+* Delete unused stuff
+** XThreads#defaultHandleUncaughtThrowable https://github.com/eclipse-serializer/serializer/pull/206[[206]]
+** Debug outputs https://github.com/eclipse-store/store/pull/445[[445]]
+
+
+
 == 3.0.0
 
 === Features
