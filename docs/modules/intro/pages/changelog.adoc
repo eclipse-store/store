@@ -1,9 +1,9 @@
 = Changelog
 
 
-=== 3.0.1
+== 3.0.1
 
-== Bugfixes
+=== Bugfixes
 
 * Fixed type handlers to properly restore comparators in collections https://github.com/eclipse-serializer/serializer/issues/202[[202]] https://github.com/eclipse-serializer/serializer/pull/203[[203]] https://github.com/eclipse-store/store/issues/352[[352]] https://github.com/eclipse-store/store/issues/375[[375]]
 * Throw correct exception in storage file write https://github.com/eclipse-store/store/issues/439[[439]] https://github.com/eclipse-store/store/pull/443[[443]]
