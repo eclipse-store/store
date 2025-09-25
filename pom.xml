@@ -358,34 +358,6 @@
                     <version>3.5.0</version>
                 </plugin>
                 <plugin>
-                    <groupId>org.cyclonedx</groupId>
-                    <artifactId>cyclonedx-maven-plugin</artifactId>
-                    <version>2.8.1</version>
-                    <executions>
-                        <execution>
-                            <phase>prepare-package</phase>
-                            <goals>
-                                <goal>makeAggregateBom</goal>
-                            </goals>
-                        </execution>
-                    </executions>
-                    <configuration>
-                        <projectType>library</projectType>
-                        <schemaVersion>1.6</schemaVersion>
-                        <includeBomSerialNumber>true</includeBomSerialNumber>
-                        <includeCompileScope>true</includeCompileScope>
-                        <includeProvidedScope>true</includeProvidedScope>
-                        <includeRuntimeScope>true</includeRuntimeScope>
-                        <includeSystemScope>true</includeSystemScope>
-                        <includeTestScope>false</includeTestScope>
-                        <includeLicenseText>false</includeLicenseText>
-                        <outputReactorProjects>true</outputReactorProjects>
-                        <outputFormat>all</outputFormat>
-                        <outputName>Eclipse-Store-Sbom</outputName>
-                        <outputDirectory>${project.build.directory}/sbom</outputDirectory>
-                    </configuration>
-                </plugin>
-                <plugin>
                     <groupId>org.sonatype.central</groupId>
                     <artifactId>central-publishing-maven-plugin</artifactId>
                     <version>0.8.0</version>
@@ -405,42 +377,6 @@
             <modules>
                 <module>examples</module>
             </modules>
-        </profile>
-        <profile>
-            <id>production</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.cyclonedx</groupId>
-                        <artifactId>cyclonedx-maven-plugin</artifactId>
-                    </plugin>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-resources-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <id>copy-meta-inf-resources</id>
-                                <phase>prepare-package</phase>
-                                <goals>
-                                    <goal>copy-resources</goal>
-                                </goals>
-                                <configuration>
-                                    <outputDirectory>${project.build.outputDirectory}/META-INF</outputDirectory>
-                                    <resources>
-                                        <resource>
-                                            <directory>${project.build.directory}/sbom/</directory>
-                                            <includes>
-                                                <include>*.json</include>
-                                                <include>*.xml</include>
-                                            </includes>
-                                        </resource>
-                                    </resources>
-                                </configuration>
-                            </execution>
-                        </executions>
-                    </plugin>
-                </plugins>
-            </build>
         </profile>
         <profile>
             <id>deploy</id>
