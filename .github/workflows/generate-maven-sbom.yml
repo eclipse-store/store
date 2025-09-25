@@ -60,6 +60,8 @@ jobs:
 
           mvn org.cyclonedx:cyclonedx-maven-plugin:${PLUGIN_VERSION}:${SBOM_TYPE} \
               -Dcyclonedx.skipNotDeployed=false
+              -Dcyclonedx.outputName=Eclipse-Store-Sbom \
+              -Dcyclonedx.outputDirectory=target/sbom
 
       - name: Upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
