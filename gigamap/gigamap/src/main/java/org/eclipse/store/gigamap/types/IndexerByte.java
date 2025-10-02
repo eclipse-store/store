@@ -31,7 +31,7 @@ public interface IndexerByte<E> extends IndexerNumber<E, Byte>
 	 * 
 	 * @param <E> the entity type
 	 */
-	public abstract class Abstract<E> extends Indexer.Abstract<E, Byte> implements IndexerByte<E>
+	public abstract class Abstract<E> extends IndexerComparing.Abstract<E, Byte> implements IndexerByte<E>
 	{
 		protected Abstract()
 		{
@@ -51,72 +51,7 @@ public interface IndexerByte<E> extends IndexerNumber<E, Byte>
 		}
 		
 		protected abstract Byte getByte(E entity);
-		
-		@Override
-		public <S extends E> Condition<S> lessThan(final Byte boundExclusive)
-		{
-			return this.is(key ->
-			{
-				if(key == null || boundExclusive == null)
-				{
-					return false;
-				}
-				return key < boundExclusive;
-			});
-		}
-		
-		@Override
-		public <S extends E> Condition<S> lessThanEqual(final Byte boundInclusive)
-		{
-			return this.is(key ->
-			{
-				if(key == null || boundInclusive == null)
-				{
-					return false;
-				}
-				return key <= boundInclusive;
-			});
-		}
-		
-		@Override
-		public <S extends E> Condition<S> greaterThan(final Byte boundExclusive)
-		{
-			return this.is(key ->
-			{
-				if(key == null || boundExclusive == null)
-				{
-					return false;
-				}
-				return key > boundExclusive;
-			});
-		}
-		
-		@Override
-		public <S extends E> Condition<S> greaterThanEqual(final Byte boundInclusive)
-		{
-			return this.is(key ->
-			{
-				if(key == null || boundInclusive == null)
-				{
-					return false;
-				}
-				return key >= boundInclusive;
-			});
-		}
-		
-		@Override
-		public <S extends E> Condition<S> between(final Byte startInclusive, final Byte endInclusive)
-		{
-			return this.is(key ->
-			{
-				if(key == null || startInclusive == null || endInclusive == null)
-				{
-					return false;
-				}
-				return key >= startInclusive && key <= endInclusive;
-			});
-		}
-		
+
 	}
-	
+
 }

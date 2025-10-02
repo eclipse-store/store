@@ -31,7 +31,7 @@ public interface IndexerInteger<E> extends IndexerNumber<E, Integer>
 	 * 
 	 * @param <E> the entity type
 	 */
-	public abstract class Abstract<E> extends Indexer.Abstract<E, Integer> implements IndexerInteger<E>
+	public abstract class Abstract<E> extends IndexerComparing.Abstract<E, Integer> implements IndexerInteger<E>
 	{
 		protected Abstract()
 		{
@@ -51,72 +51,7 @@ public interface IndexerInteger<E> extends IndexerNumber<E, Integer>
 		}
 		
 		protected abstract Integer getInteger(E entity);
-		
-		@Override
-		public <S extends E> Condition<S> lessThan(final Integer boundExclusive)
-		{
-			return this.is(key ->
-			{
-				if(key == null || boundExclusive == null)
-				{
-					return false;
-				}
-				return key < boundExclusive;
-			});
-		}
-		
-		@Override
-		public <S extends E> Condition<S> lessThanEqual(final Integer boundInclusive)
-		{
-			return this.is(key ->
-			{
-				if(key == null || boundInclusive == null)
-				{
-					return false;
-				}
-				return key <= boundInclusive;
-			});
-		}
-		
-		@Override
-		public <S extends E> Condition<S> greaterThan(final Integer boundExclusive)
-		{
-			return this.is(key ->
-			{
-				if(key == null || boundExclusive == null)
-				{
-					return false;
-				}
-				return key > boundExclusive;
-			});
-		}
-		
-		@Override
-		public <S extends E> Condition<S> greaterThanEqual(final Integer boundInclusive)
-		{
-			return this.is(key ->
-			{
-				if(key == null || boundInclusive == null)
-				{
-					return false;
-				}
-				return key >= boundInclusive;
-			});
-		}
-		
-		@Override
-		public <S extends E> Condition<S> between(final Integer startInclusive, final Integer endInclusive)
-		{
-			return this.is(key ->
-			{
-				if(key == null || startInclusive == null || endInclusive == null)
-				{
-					return false;
-				}
-				return key >= startInclusive && key <= endInclusive;
-			});
-		}
-		
+
 	}
 	
 }
