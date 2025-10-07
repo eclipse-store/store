@@ -71,6 +71,16 @@ public interface IndexerComparing<E, K> extends Indexer<E, K>
     public <S extends E> Condition<S> between(final K startInclusive, final K endInclusive);
 
 
+    /**
+     * A generic abstract class that extends the functionality of {@link Indexer.Abstract} and implements
+     * the {@link IndexerComparing} interface. This class provides methods for creating conditions
+     * based on comparisons of entity keys of type K.
+     * <p>
+     * By default {@link Comparator#naturalOrder()} is used for comparisons, see {@link #comparator()}.
+     *
+     * @param <E> the type of entities indexed by this class
+     * @param <K> the type of the key used for comparison
+     */
     public static abstract class Abstract<E, K> extends Indexer.Abstract<E, K> implements IndexerComparing<E, K>
     {
         protected Abstract()
@@ -78,10 +88,16 @@ public interface IndexerComparing<E, K> extends Indexer<E, K>
             super();
         }
 
+        /**
+         * Provides a comparator for elements of type {@code K}.
+         * By default, the comparator returned is the natural order comparator.
+         *
+         * @return a comparator for elements of type {@code K}
+         */
         @SuppressWarnings("unchecked")
         protected Comparator<K> comparator()
         {
-            return (Comparator<K>)Comparator.naturalOrder();
+            return (Comparator<K>) Comparator.naturalOrder();
         }
 
         /**
@@ -96,7 +112,7 @@ public interface IndexerComparing<E, K> extends Indexer<E, K>
             final Comparator<K> comparator = this.comparator();
             return this.is(key ->
             {
-                if(key == null || boundExclusive == null)
+                if (key == null || boundExclusive == null)
                 {
                     return false; // null is always treated as unknown
                 }
@@ -116,7 +132,7 @@ public interface IndexerComparing<E, K> extends Indexer<E, K>
             final Comparator<K> comparator = this.comparator();
             return this.is(key ->
             {
-                if(key == null || boundInclusive == null)
+                if (key == null || boundInclusive == null)
                 {
                     return false; // null is always treated as unknown
                 }
@@ -136,7 +152,7 @@ public interface IndexerComparing<E, K> extends Indexer<E, K>
             final Comparator<K> comparator = this.comparator();
             return this.is(key ->
             {
-                if(key == null || boundExclusive == null)
+                if (key == null || boundExclusive == null)
                 {
                     return false; // null is always treated as unknown
                 }
@@ -156,7 +172,7 @@ public interface IndexerComparing<E, K> extends Indexer<E, K>
             final Comparator<K> comparator = this.comparator();
             return this.is(key ->
             {
-                if(key == null || boundInclusive == null)
+                if (key == null || boundInclusive == null)
                 {
                     return false; // null is always treated as unknown
                 }
@@ -177,12 +193,12 @@ public interface IndexerComparing<E, K> extends Indexer<E, K>
             final Comparator<K> comparator = this.comparator();
             return this.is(key ->
             {
-                if(key == null || startInclusive == null || endInclusive == null)
+                if (key == null || startInclusive == null || endInclusive == null)
                 {
                     return false; // null is always treated as unknown
                 }
                 return comparator.compare(key, startInclusive) >= 0
-                    && comparator.compare(key, endInclusive  ) <= 0;
+                    && comparator.compare(key, endInclusive) <= 0;
             });
         }
 
