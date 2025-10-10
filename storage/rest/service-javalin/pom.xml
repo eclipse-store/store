@@ -9,7 +9,10 @@
         <version>4.0.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>service-javalin</artifactId>
+    <artifactId>storage-restservice-javalin</artifactId>
+    <name>EclipseStore Storage REST Service Javalin</name>
+    <description>EclipseStore Storage REST Service Implementation</description>
+    <url>https://projects.eclipse.org/projects/technology.store</url>
 
     <dependencies>
         <dependency>
@@ -25,7 +28,7 @@
         <dependency>
             <groupId>io.javalin</groupId>
             <artifactId>javalin</artifactId>
-            <version>6.3.0</version>
+            <version>6.7.0</version>
         </dependency>
     </dependencies>
 

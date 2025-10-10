@@ -11,7 +11,7 @@
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
-module org.eclipse.store.storage.restservice.sparkjava
+module org.eclipse.store.storage.restservice.javalin
 {
 	exports org.eclipse.store.storage.restservice.javalin.exceptions;
 	exports org.eclipse.store.storage.restservice.javalin.types;

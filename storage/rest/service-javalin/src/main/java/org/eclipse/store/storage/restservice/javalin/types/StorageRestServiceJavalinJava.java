@@ -44,7 +44,7 @@ public class StorageRestServiceJavalinJava implements StorageRestService
 	public void start()
 	{
 		if (this.javalin == null) {
-			javalin = Javalin.create().start(8080); //TODO make port configurable
+			javalin = Javalin.create().start(4567); //TODO make port configurable
 		}
 
 	}
@@ -52,6 +52,7 @@ public class StorageRestServiceJavalinJava implements StorageRestService
 
 	private void setupRoutes()
 	{
+		final AllRoutesHandler allRoutesHandler = new AllRoutesHandler(this.javalin, this.storageName);
 		final Handler rootHandler = new RootHandler(storageRestAdapter);
 		final Handler dictionaryHandler = new DictionaryHandler(storageRestAdapter);
 		final Handler getObjectHandler = new GetObjectHandler(storageRestAdapter);
