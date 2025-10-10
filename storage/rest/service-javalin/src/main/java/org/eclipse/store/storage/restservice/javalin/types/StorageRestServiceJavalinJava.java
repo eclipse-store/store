@@ -44,23 +44,27 @@ public class StorageRestServiceJavalinJava implements StorageRestService
 	public void start()
 	{
 		if (this.javalin == null) {
-			javalin = Javalin.create().start(4567); //TODO make port configurable
+			javalin = Javalin.create();
 		}
+		this.setupRoutes();
+		this.javalin.start(4567);
+
 
 	}
 
 
 	private void setupRoutes()
 	{
-		final AllRoutesHandler allRoutesHandler = new AllRoutesHandler(this.javalin, this.storageName);
+		final AllRoutesHandler allRoutesHandler = new AllRoutesHandler(this.storageRestAdapter, this.storageName);
 		final Handler rootHandler = new RootHandler(storageRestAdapter);
 		final Handler dictionaryHandler = new DictionaryHandler(storageRestAdapter);
 		final Handler getObjectHandler = new GetObjectHandler(storageRestAdapter);
 		final Handler storageFilesStatisticsHandler = new StorageFilesStatisticsHandler(storageRestAdapter);
 
+		this.javalin.get("/" + this.storageName + "/", allRoutesHandler);
 		this.javalin.get("/" + this.storageName + "/root", rootHandler);
 		this.javalin.get("/" + this.storageName + "/dictionary", dictionaryHandler);
-		this.javalin.get("/" + this.storageName + "/object/:oid", getObjectHandler);
+		this.javalin.get("/" + this.storageName + "/object/{oid}", getObjectHandler);
 		this.javalin.get("/" + this.storageName + "/maintenance/filesStatistics", storageFilesStatisticsHandler);
 
 //		// Mapování výjimek \-> 404
