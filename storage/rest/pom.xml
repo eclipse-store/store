@@ -29,6 +29,7 @@
         <module>service-springboot</module>
         <module>client-app</module>
         <module>client-app-standalone-assembly</module>
+        <module>service-javalin</module>
     </modules>
 
 </project>
