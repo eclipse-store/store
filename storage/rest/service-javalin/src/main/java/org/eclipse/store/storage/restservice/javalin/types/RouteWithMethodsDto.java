@@ -2,9 +2,9 @@ package org.eclipse.store.storage.restservice.javalin.types;
 
 /*-
  * #%L
- * integrations-spring-boot3-console
+ * EclipseStore Storage REST Service Javalin
  * %%
- * Copyright (C) 2023 - 2024 MicroStream Software
+ * Copyright (C) 2023 - 2025 MicroStream Software
  * %%
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -13,7 +13,6 @@ package org.eclipse.store.storage.restservice.javalin.types;
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
-
 
 /**
  * DTO to expose available routes.

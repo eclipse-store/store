@@ -2,7 +2,7 @@ package org.eclipse.store.storage.restservice.javalin.types;
 
 /*-
  * #%L
- * service-javalin
+ * EclipseStore Storage REST Service Javalin
  * %%
  * Copyright (C) 2023 - 2025 MicroStream Software
  * %%
@@ -13,6 +13,7 @@ package org.eclipse.store.storage.restservice.javalin.types;
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
 
 import java.util.Objects;
 
