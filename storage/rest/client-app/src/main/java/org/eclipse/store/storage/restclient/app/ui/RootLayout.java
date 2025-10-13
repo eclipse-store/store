@@ -33,11 +33,9 @@ import com.vaadin.flow.theme.Theme;
 import com.vaadin.flow.theme.lumo.Lumo;
 
 
-@Push
-@Theme(themeClass = Lumo.class, variant = Lumo.DARK)
-@CssImport("./styles/shared-styles.css")
+
 public class RootLayout extends VerticalLayout
-	implements RouterLayout, BeforeEnterObserver, AppShellConfigurator
+	implements RouterLayout, BeforeEnterObserver
 {
 	public final static String PAGE_TITLE = "Eclipse Store Client";
 	
