@@ -32,7 +32,7 @@ public class StorageRestServiceJavalinJava implements StorageRestService
 
 	private final StorageRestAdapter 	storageRestAdapter;
 	private Javalin 					javalin;
-	private String                   	storageName = "store-data";
+	private final String                storageName = "store-data";
 
 
 	public StorageRestServiceJavalinJava(StorageRestAdapter storageRestAdapter)
@@ -55,7 +55,7 @@ public class StorageRestServiceJavalinJava implements StorageRestService
 
 	private void setupRoutes()
 	{
-		final AllRoutesHandler allRoutesHandler = new AllRoutesHandler(this.storageRestAdapter, this.storageName);
+		final AllRoutesHandler allRoutesHandler = new AllRoutesHandler(this.storageName);
 		final Handler rootHandler = new RootHandler(storageRestAdapter);
 		final Handler dictionaryHandler = new DictionaryHandler(storageRestAdapter);
 		final Handler getObjectHandler = new GetObjectHandler(storageRestAdapter);
@@ -67,7 +67,6 @@ public class StorageRestServiceJavalinJava implements StorageRestService
 		this.javalin.get("/" + this.storageName + "/object/{oid}", getObjectHandler);
 		this.javalin.get("/" + this.storageName + "/maintenance/filesStatistics", storageFilesStatisticsHandler);
 
-//		// Mapování výjimek \-> 404
 		this.javalin.exception(InvalidRouteParametersException.class, (e, ctx) -> {
 			ctx.status(404).result(e.getMessage());
 		});
