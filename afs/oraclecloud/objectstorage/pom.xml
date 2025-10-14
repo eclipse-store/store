@@ -33,6 +33,7 @@
 		<dependency>
 			<groupId>com.oracle.oci.sdk</groupId>
 			<artifactId>oci-java-sdk-objectstorage</artifactId>
+            <version>3.74.2</version>
 			<scope>provided</scope>
 		</dependency>
 	</dependencies>

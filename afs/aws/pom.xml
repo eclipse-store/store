@@ -20,22 +20,14 @@
 	<description>EclipseStore File System Abstraction for AWS</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
+    <properties>
+        <aws.sdk.version>2.35.5</aws.sdk.version>
+    </properties>
+
 	<modules>
 		<module>aws</module>
 		<module>dynamodb</module>
 		<module>s3</module>
 	</modules>
-
-	<dependencyManagement>
-		<dependencies>
-			<dependency>
-				<groupId>software.amazon.awssdk</groupId>
-				<artifactId>bom</artifactId>
-				<version>2.35.2</version>
-				<type>pom</type>
-				<scope>import</scope>
-			</dependency>
-		</dependencies>
-	</dependencyManagement>
 
 </project>
