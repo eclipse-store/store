@@ -24,16 +24,4 @@
 		<module>objectstorage</module>
 	</modules>
 
-	<dependencyManagement>
-		<dependencies>
-			<dependency>
-				<groupId>com.oracle.oci.sdk</groupId>
-				<artifactId>oci-java-sdk-bom</artifactId>
-				<version>3.74.2</version>
-				<type>pom</type>
-				<scope>import</scope>
-			</dependency>
-		</dependencies>
-	</dependencyManagement>
-
 </project>

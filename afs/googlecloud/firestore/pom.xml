@@ -23,6 +23,7 @@
 		<dependency>
 			<groupId>com.google.cloud</groupId>
 			<artifactId>google-cloud-firestore</artifactId>
+            <version>3.33.2</version>
 			<scope>provided</scope>
 		</dependency>
 	</dependencies>
