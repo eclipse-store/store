@@ -19,12 +19,24 @@ import org.eclipse.store.storage.restadapter.exceptions.StorageRestAdapterExcept
 import org.eclipse.store.storage.restadapter.types.StorageRestAdapter;
 import org.eclipse.store.storage.restservice.javalin.exceptions.InvalidRouteParametersException;
 import org.eclipse.store.storage.restservice.types.StorageRestService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import io.javalin.Javalin;
 import io.javalin.http.Handler;
 
 public class StorageRestServiceJavalinJava implements StorageRestService
 {
+
+	// Environment variable names
+	private static final String ENV_PORT = "eclipse_store_rest_port";
+	private static final String ENV_STORAGE_NAME = "eclipse_store_rest_storage_name";
+
+	// Default values
+	private static final int DEFAULT_PORT = 4567;
+	private static final String DEFAULT_STORAGE_NAME = "store-data";
+
+	Logger logger = LoggerFactory.getLogger(StorageRestServiceJavalinJava.class);
 
 	public static StorageRestServiceJavalinJava New(final StorageRestAdapter storageRestAdapter)
 	{
@@ -33,12 +45,15 @@ public class StorageRestServiceJavalinJava implements StorageRestService
 
 	private final StorageRestAdapter 	storageRestAdapter;
 	private Javalin 					javalin;
-	private final String                storageName = "store-data";
+	private final String                storageName;
+	private final int                   port;
 
 
 	public StorageRestServiceJavalinJava(StorageRestAdapter storageRestAdapter)
 	{
 		this.storageRestAdapter = storageRestAdapter;
+		this.port = resolvePort();
+		this.storageName = resolveStorageName();
 	}
 
 	@Override
@@ -48,9 +63,7 @@ public class StorageRestServiceJavalinJava implements StorageRestService
 			javalin = Javalin.create();
 		}
 		this.setupRoutes();
-		this.javalin.start(4567);
-
-
+		this.javalin.start(this.port);
 	}
 
 
@@ -85,4 +98,30 @@ public class StorageRestServiceJavalinJava implements StorageRestService
 			this.javalin.stop();
 		}
 	}
+
+	private int resolvePort()
+	{
+		final String raw = System.getenv(ENV_PORT);
+		if (raw != null) {
+			try {
+				final int p = Integer.parseInt(raw.trim());
+				if (p >= 1 && p <= 65535) {
+					return p;
+				}
+			} catch (NumberFormatException ignored) {
+				logger.error("Invalid port number in environment variable {}: {}, use default {}", ENV_PORT, raw, DEFAULT_PORT);
+			}
+		}
+		return DEFAULT_PORT;
+	}
+
+	private String resolveStorageName()
+	{
+		final String raw = System.getenv(ENV_STORAGE_NAME);
+		if (raw == null || raw.trim().isEmpty()) {
+			return DEFAULT_STORAGE_NAME;
+		}
+		return raw.trim();
+	}
+
 }
