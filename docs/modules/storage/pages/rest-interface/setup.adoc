@@ -5,7 +5,9 @@ An application that will expose the REST endpoints needs one of the provided imp
 Currently, two implementations are available:
 
 - SpringBoot 3.x REST Service
-- Spark Java REST Service
+- Javalin REST Service
+- Spark Java REST Service (Deprecated, will be removed in future versions)
+
 
 == Spring Boot REST Service
 
@@ -58,6 +60,37 @@ application. The corresponding property is `org.eclipse.store.rest.base-url`. Th
 ----
 org.eclipse.store.rest.base-url=/some/other/location
 ----
+
+== Javalin Java REST Service
+In this example, we will use the https://javalin.io/[Javalin] implementation that {product-name} provides.
+
+[source, xml, title="pom.xml", subs=attributes+]
+----
+<dependencies>
+    <dependency>
+        <groupId>org.eclipse.store</groupId>
+        <artifactId>storage-restservice-javalin</artifactId>
+        <version>{maven-version}</version>
+    </dependency>
+</dependencies>
+----
+
+=== Additional Configuration
+If you want to change the default port (4567) or instance name (_store-data_) it can be done by using the program variables:
+
+.Javalin REST Service - environment variables
+[cols="2,1,4",options="header"]
+|===
+| Environment variable | Default value | Description
+
+| `eclipse_store_rest_port`
+| `4567`
+| TCP port of the REST service (valid range 1–65535).
+
+| `eclipse_store_rest_storage_name`
+| `store-data`
+| Instance name used in the base URL (without leading/trailing "/").
+|===
 
 == Spark Java REST Service
 

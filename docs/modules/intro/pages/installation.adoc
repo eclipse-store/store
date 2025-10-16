@@ -162,7 +162,10 @@ These are the different modules that make up {product-name}.
 |storage-restservice
 |Abstract REST service interface, which uses the REST adapter to access low level storage data.
 
-|storage-restservice-sparkjava
-|REST service implementation which utilizes SparkJava and provides REST endpoints.
+|storage-restservice-javalin
+|REST service implementation which utilizes Javalin and provides REST endpoints.
+
+|storage-restservice-sparkjava (deprecated)
+|REST service implementation which utilizes SparkJava and provides REST endpoints. (Deprecated, use storage-restservice-javalin instead.)
 |===
 
