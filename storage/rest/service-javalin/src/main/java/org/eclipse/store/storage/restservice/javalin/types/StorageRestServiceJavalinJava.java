@@ -101,7 +101,7 @@ public class StorageRestServiceJavalinJava implements StorageRestService
 
 	private int resolvePort()
 	{
-		final String raw = System.getenv(ENV_PORT);
+		final String raw = System.getProperty(ENV_PORT);
 		if (raw != null) {
 			try {
 				final int p = Integer.parseInt(raw.trim());
@@ -111,15 +111,19 @@ public class StorageRestServiceJavalinJava implements StorageRestService
 			} catch (NumberFormatException ignored) {
 				logger.error("Invalid port number in environment variable {}: {}, use default {}", ENV_PORT, raw, DEFAULT_PORT);
 			}
+		} else {
+			logger.trace("No environment variable {}, use default {}", ENV_PORT, DEFAULT_PORT);
 		}
 		return DEFAULT_PORT;
 	}
 
 	private String resolveStorageName()
 	{
-		final String raw = System.getenv(ENV_STORAGE_NAME);
+		final String raw = System.getProperty(ENV_STORAGE_NAME);
 		if (raw == null || raw.trim().isEmpty()) {
 			return DEFAULT_STORAGE_NAME;
+		} else {
+			logger.trace("No storage name environment variable {}, use default {}", ENV_STORAGE_NAME, DEFAULT_STORAGE_NAME);
 		}
 		return raw.trim();
 	}
