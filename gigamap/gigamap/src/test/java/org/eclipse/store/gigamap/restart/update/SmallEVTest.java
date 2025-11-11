@@ -18,12 +18,14 @@ import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.RepeatedTest;
+import org.junit.jupiter.api.parallel.Isolated;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
 import static org.eclipse.store.gigamap.restart.update.SmalEVIndices.*;
 
+@Isolated
 public class SmallEVTest
 {
 
