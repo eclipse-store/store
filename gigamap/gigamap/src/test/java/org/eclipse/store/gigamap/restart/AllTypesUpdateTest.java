@@ -18,6 +18,7 @@ import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.RepeatedTest;
+import org.junit.jupiter.api.parallel.Isolated;
 
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -26,6 +27,7 @@ import java.time.YearMonth;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
 
+@Isolated
 public class AllTypesUpdateTest
 {
     private static final int MAX_SIZE = 200;
