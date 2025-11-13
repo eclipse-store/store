@@ -17,6 +17,7 @@ package org.eclipse.store.storage.restadapter.types;
 import java.nio.ByteOrder;
 import java.util.function.Consumer;
 
+import org.eclipse.serializer.collections.Set_long;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.binary.types.BinaryLoader;
 import org.eclipse.serializer.persistence.types.Persistence;
@@ -175,7 +176,13 @@ public interface ViewerBinaryPersistenceManager extends PersistenceManager<Binar
 			return this.persistenceManager.collect(collector, objectIds);
 		}
 
-		@Override
+        @Override
+        public <C extends Consumer<Object>> C collect(final C collector, final Set_long objectIds)
+        {
+            return this.persistenceManager.collect(collector, objectIds);
+        }
+
+        @Override
 		public long store(final Object instance)
 		{
 			return this.persistenceManager.store(instance);

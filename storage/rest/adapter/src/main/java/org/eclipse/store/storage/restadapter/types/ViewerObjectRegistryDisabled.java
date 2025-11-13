@@ -65,7 +65,19 @@ public class ViewerObjectRegistryDisabled implements PersistenceObjectRegistry
 		return false;
 	}
 
-	@Override
+    @Override
+    public boolean containsLiveObject(final long l)
+    {
+        return false;
+    }
+
+    @Override
+    public boolean containsClearedObject(final long l)
+    {
+        return false;
+    }
+
+    @Override
 	public <A extends PersistenceAcceptor> A iterateEntries(final A acceptor)
 	{
 		return null;
