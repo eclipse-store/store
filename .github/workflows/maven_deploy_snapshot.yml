@@ -26,7 +26,7 @@ jobs:
           server-id: ossrh
           server-username: MAVEN_USERNAME
           server-password: MAVEN_PASSWORD
-      - name: Make a snapshot
+      - name: Make a snapshot from Main branch
         run: mvn -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy -U
         env:
           MAVEN_USERNAME: ${{ secrets.CENTRAL_SONATYPE_TOKEN_USERNAME }}
