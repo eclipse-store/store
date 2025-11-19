@@ -21,7 +21,7 @@ final EmbeddedStorageManager storage = foundation.start();
 
 == Identifying missing objects:
 A missing object can't be identified, but it is possible to locate objects that reference the missing object.
-see xref:addendum/storage-graph-analysis.adoc how to search for a missing object.
+see xref:addendum/storage-graph-analysis.adoc[Searching for Missing Objects] how to search for a missing object.
 
 == Overwriting and existing object by its ObjectId
 
