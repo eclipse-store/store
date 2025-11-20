@@ -20,7 +20,7 @@
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<properties>
-		<jersey.version>3.1.4</jersey.version>
+		<jersey.version>3.1.10</jersey.version>
 		<gson.version>2.10.1</gson.version>
 		<jaxb.version>4.0.1</jaxb.version>
 	</properties>
