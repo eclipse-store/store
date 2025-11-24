@@ -17,6 +17,7 @@ package org.eclipse.store.gigamap.restart;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.RepeatedTest;
 
 import java.nio.file.Path;
@@ -161,6 +162,7 @@ public class AllTypesUpdateTest
     }
     
     @RepeatedTest(3)
+	@Disabled("https://github.com/microstream-one/internal/issues/38")
     void updateUUIDField()
     {
         Path dataDirectory = Path.of("target", "updateUUIDField");
