@@ -64,7 +64,7 @@ public class BinaryHandlerBitmapLevel2 extends AbstractBinaryHandlerCustom<Bitma
 		
 		final long level2Address     = XMemory.allocate(fullLength);
 		final long persistentAddress = BitmapLevel2.toPersistentDataAddress(level2Address);
-		data.copyToAddress(0, persistentAddress, contentLength);
+		data.copyToAddress(Binary.toBinaryListElementsOffset(0), persistentAddress, contentLength);
 		BitmapLevel2.initializeFromData(level2Address, fullLength);
 		
 		// required to prevent JVM crashes caused by misinterpreted off-heap data.
@@ -91,8 +91,9 @@ public class BinaryHandlerBitmapLevel2 extends AbstractBinaryHandlerCustom<Bitma
 			this.typeId(), 
 			objectId
 		);
-				
-		data.copyFromAddress(0, persistentAddress, persistentLength);
+
+		data.storeListHeader(0, persistentLength, persistentLength);
+		data.copyFromAddress(Binary.toBinaryListElementsOffset(0), persistentAddress, persistentLength);
 	}
 	
 	@Override
