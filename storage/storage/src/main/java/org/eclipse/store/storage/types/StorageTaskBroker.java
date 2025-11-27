@@ -345,7 +345,7 @@ public interface StorageTaskBroker
 		}
 
 		@Override
-		public StorageRequestTask enqueueImportFromFilesTask(final XGettingEnum<AFile> importFiles)
+		public final synchronized StorageRequestTask enqueueImportFromFilesTask(final XGettingEnum<AFile> importFiles)
 			throws InterruptedException
 		{
 			// always use the internal evaluator to match live operation
@@ -361,7 +361,7 @@ public interface StorageTaskBroker
 		}
 		
 		@Override
-		public StorageRequestTask enqueueImportFromByteBuffersTask(final XGettingEnum<ByteBuffer> importData)
+		public final synchronized StorageRequestTask enqueueImportFromByteBuffersTask(final XGettingEnum<ByteBuffer> importData)
 			throws InterruptedException
 		{
 			// always use the internal evaluator to match live operation
@@ -377,7 +377,7 @@ public interface StorageTaskBroker
 		}
 
 		@Override
-		public StorageRequestTaskCreateStatistics enqueueCreateRawFileStatisticsTask() throws InterruptedException
+		public final synchronized StorageRequestTaskCreateStatistics enqueueCreateRawFileStatisticsTask() throws InterruptedException
 		{
 			final StorageRequestTaskCreateStatistics task = this.taskCreator.createCreateRawFileStatisticsTask(
 				this.channelCount, this.operationController
