@@ -92,6 +92,8 @@ If you need indexers for high cardinality, like unique values, the binary indexe
 
 |===
 
+Another specialized indexer which can be used for all key types in combination with an `Comparator` is the `IndexerComparing`.
+
 Besides these predefined indexers, custom indexers with arbitrary key types can be implemented.
 
 IMPORTANT: Keep in mind that indexers use value equality by default, so when using a custom key type make sure to implement `equals` and `hashCode`.
