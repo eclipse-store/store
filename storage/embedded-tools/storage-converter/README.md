@@ -22,7 +22,7 @@ mvn -Pconverter-standalone clean package
 To configure the input and output storage an [external configuration](https://docs.eclipsestore.io/manual/storage/configuration/index.html#external-configuration) file for each storage is required.
 
 ```console
-java -jar storage-embedded-tools-storage-converter-3.0.1.jar sourceCongig.xml targetConfig.xml
+java -jar storage-embedded-tools-storage-converter-3.1.0.jar sourceCongig.xml targetConfig.xml
 ```
 
 ### StorageConverter.java
