@@ -1,6 +1,28 @@
 = Changelog
 
 
+== 3.1.0
+
+=== Features
+
+* Add new query methods to persistence object registry https://github.com/eclipse-serializer/serializer/pull/210[[210]] https://github.com/eclipse-serializer/serializer/pull/212[[212]]
+* Add new collect method to binary loader https://github.com/eclipse-serializer/serializer/pull/211[[211]]
+* Add Javalin REST service https://github.com/eclipse-store/store/pull/486[[486]] https://github.com/eclipse-store/store/pull/492[[492]]
+* New comparator-based indexer for GigaMap https://github.com/eclipse-store/store/issues/481[[481]] https://github.com/eclipse-store/store/pull/482[[482]]
+
+=== Bugfixes
+
+* Fix incorrect loop condition in persistence iterator https://github.com/eclipse-serializer/serializer/pull/216[[216]]
+* Refactor UsageMarkable.Default for thread-safe lazy initialization https://github.com/eclipse-serializer/serializer/pull/218[[218]]
+* Fix synchronization in storage task broker https://github.com/eclipse-store/store/pull/514[[514]]
+
+=== Other changes
+
+* Collections type consolidation https://github.com/eclipse-serializer/serializer/pull/213[[213]]
+* Dependency updates https://github.com/eclipse-serializer/serializer/pull/209[[209]] https://github.com/eclipse-serializer/serializer/pull/214[[214]] https://github.com/eclipse-store/store/pull/471[[471]] https://github.com/eclipse-store/store/pull/480[[480]] https://github.com/eclipse-store/store/pull/484[[484]] https://github.com/eclipse-store/store/pull/487[[487]]
+
+
+
 == 3.0.1
 
 === Bugfixes
