@@ -35,4 +35,11 @@ org.eclipse.store.storage.embedded.tools.storage.converter.StorageConverter.Stor
 
 which gives you some more control on the storage's configurations.
 
+### converting binary data
+
+To convert the binary representation of peristeted objects BinaryConverter implemenations can be specified:
+
+```console
+java -jar storage-embedded-tools-storage-converter-3.1.0.jar sourceCongig.xml targetConfig.xml -c BinaryConverterAImpl.class BinaryConverterBImpl.class
+```
 

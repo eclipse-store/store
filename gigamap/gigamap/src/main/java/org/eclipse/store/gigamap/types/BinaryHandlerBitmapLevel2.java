@@ -46,6 +46,7 @@ public class BinaryHandlerBitmapLevel2 extends AbstractBinaryHandlerCustom<Bitma
 		super(
 			BitmapLevel2.class,
 			CustomFields(
+				CustomField(int.class, "version"),
 				bytes("data")
 			)
 		);
@@ -59,12 +60,12 @@ public class BinaryHandlerBitmapLevel2 extends AbstractBinaryHandlerCustom<Bitma
 	@Override
 	public BitmapLevel2 create(final Binary data, final PersistenceLoadHandler handler)
 	{
-		final long contentLength = Binary.toBinaryListContentByteLength(data.getLoadItemAvailableContentLength());
+		final long contentLength = Binary.toBinaryListContentByteLength(data.getLoadItemAvailableContentLength()) - 20;
 		final int  fullLength    = BitmapLevel2.getTotalLengthFromPersistentLength(XTypes.to_int(contentLength));
 		
 		final long level2Address     = XMemory.allocate(fullLength);
 		final long persistentAddress = BitmapLevel2.toPersistentDataAddress(level2Address);
-		data.copyToAddress(0, persistentAddress, contentLength);
+		data.copyToAddress(Binary.toBinaryListElementsOffset(4), persistentAddress, contentLength);
 		BitmapLevel2.initializeFromData(level2Address, fullLength);
 		
 		// required to prevent JVM crashes caused by misinterpreted off-heap data.
@@ -82,17 +83,18 @@ public class BinaryHandlerBitmapLevel2 extends AbstractBinaryHandlerCustom<Bitma
 	)
 	{
 		// if the parent level3 segment decided to store a level2 segment, it must be stored in any case.
-			
+		
 		instance.ensureCompressed();
 		final long persistentAddress = BitmapLevel2.toPersistentDataAddress(instance.level2Address);
 		final int  persistentLength  = BitmapLevel2.getPersistentLengthFromTotalLength(instance.totalLength());
 		data.storeEntityHeader(
-			Binary.toBinaryListTotalByteLength(persistentLength), 
-			this.typeId(), 
+			Binary.toBinaryListTotalByteLength(persistentLength) + 20,
+			this.typeId(),
 			objectId
 		);
-				
-		data.copyFromAddress(0, persistentAddress, persistentLength);
+		data.store_int(2);
+		data.storeListHeader(4, persistentLength, persistentLength);
+		data.copyFromAddress(Binary.toBinaryListElementsOffset(4), persistentAddress, persistentLength);
 	}
 	
 	@Override
