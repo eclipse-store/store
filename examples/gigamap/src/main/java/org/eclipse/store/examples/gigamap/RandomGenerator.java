@@ -21,7 +21,6 @@ import org.eclipse.store.gigamap.types.GigaMap;
 
 import net.datafaker.Faker;
 
-
 public class RandomGenerator
 {
 	public static GigaMap<Person> createMap(final int size)

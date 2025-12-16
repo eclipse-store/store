@@ -34,7 +34,6 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import net.datafaker.Faker;
 
-
 public class GigaMapStoreTests
 {
 	@TempDir

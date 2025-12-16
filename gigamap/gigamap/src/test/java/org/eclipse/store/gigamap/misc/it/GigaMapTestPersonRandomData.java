@@ -14,7 +14,6 @@ package org.eclipse.store.gigamap.misc.it;
  * #L%
  */
 
-
 import org.eclipse.store.gigamap.types.BitmapIndices;
 import org.eclipse.store.gigamap.types.IndexerInteger;
 import org.eclipse.store.gigamap.types.IndexerString;

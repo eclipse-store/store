@@ -16,7 +16,6 @@ package org.eclipse.store.examples.gigamap;
 
 import net.datafaker.Faker;
 
-
 public class Address
 {
 	private final String street;

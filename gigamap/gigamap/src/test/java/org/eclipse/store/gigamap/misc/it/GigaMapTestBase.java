@@ -14,7 +14,6 @@ package org.eclipse.store.gigamap.misc.it;
  * #L%
  */
 
-
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;

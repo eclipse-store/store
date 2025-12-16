@@ -20,7 +20,6 @@ import java.util.stream.IntStream;
 
 import net.datafaker.service.RandomService;
 
-
 public enum Interest
 {
 	SPORTS,

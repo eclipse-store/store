@@ -20,7 +20,6 @@ import java.time.Instant;
 
 import net.datafaker.Faker;
 
-
 public class SubEntity
 {
 	public static SubEntity Random(final Faker faker)
