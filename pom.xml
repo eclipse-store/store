@@ -208,7 +208,6 @@
                             <manifestFile>${project.build.outputDirectory}/META-INF/MANIFEST.MF</manifestFile>
                             <manifestEntries>
                                 <built-by>${project.organization.name}</built-by>
-                                <Implementation-Version>${project.version}</Implementation-Version>
                             </manifestEntries>
                         </archive>
                     </configuration>
