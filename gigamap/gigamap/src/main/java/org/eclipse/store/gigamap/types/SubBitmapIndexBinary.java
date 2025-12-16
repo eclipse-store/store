@@ -95,13 +95,13 @@ implements Sub<E, long[], Long>, BinaryIndexer<long[]>
 	@Override
 	public final Long index(final long[] keys)
 	{
-		return keys[this.position];
+		return this.key(keys);
 	}
 	
 	@Override
 	public final long indexBinary(final long[] keys)
 	{
-		return keys[this.position];
+		return this.key(keys);
 	}
 	
 	@Override
@@ -126,7 +126,7 @@ implements Sub<E, long[], Long>, BinaryIndexer<long[]>
 	@Override
 	public BitmapResult internalQueryForKeys(final long[] keys)
 	{
-		return this.internalQuery(keys[this.position]);
+		return this.internalQuery(this.key(keys));
 	}
 	
 	@Override
