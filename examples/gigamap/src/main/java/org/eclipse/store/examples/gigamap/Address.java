@@ -14,7 +14,8 @@ package org.eclipse.store.examples.gigamap;
  * #L%
  */
 
-import com.github.javafaker.Faker;
+import net.datafaker.Faker;
+
 
 public class Address
 {

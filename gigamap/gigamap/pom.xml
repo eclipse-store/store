@@ -36,9 +36,8 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>com.github.javafaker</groupId>
-            <artifactId>javafaker</artifactId>
-            <scope>test</scope>
+            <groupId>net.datafaker</groupId>
+            <artifactId>datafaker</artifactId>
         </dependency>
         <dependency>
             <groupId>ch.qos.logback</groupId>

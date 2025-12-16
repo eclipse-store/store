@@ -121,9 +121,9 @@
                 <scope>test</scope>
             </dependency>
             <dependency>
-                <groupId>com.github.javafaker</groupId>
-                <artifactId>javafaker</artifactId>
-                <version>1.0.2</version>
+                <groupId>net.datafaker</groupId>
+                <artifactId>datafaker</artifactId>
+                <version>2.5.3</version>
                 <scope>test</scope>
             </dependency>
         </dependencies>
@@ -208,6 +208,7 @@
                             <manifestFile>${project.build.outputDirectory}/META-INF/MANIFEST.MF</manifestFile>
                             <manifestEntries>
                                 <built-by>${project.organization.name}</built-by>
+                                <Implementation-Version>${project.version}</Implementation-Version>
                             </manifestEntries>
                         </archive>
                     </configuration>

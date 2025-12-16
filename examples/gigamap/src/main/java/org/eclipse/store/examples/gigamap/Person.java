@@ -18,7 +18,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 
-import com.github.javafaker.Faker;
+import net.datafaker.Faker;
 
 public class Person
 {
@@ -36,7 +36,7 @@ public class Person
 			id,
 			faker.name().firstName(),
 			faker.name().lastName(),
-			LocalDate.ofInstant(faker.date().birthday().toInstant(), ZoneId.systemDefault()),
+			faker.timeAndDate().birthday(),
 			new Address(faker),
 			Interest.random(faker.random())
 		);

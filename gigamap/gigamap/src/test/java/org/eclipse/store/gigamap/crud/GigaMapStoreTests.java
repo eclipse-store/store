@@ -15,7 +15,6 @@ package org.eclipse.store.gigamap.crud;
  * #L%
  */
 
-import com.github.javafaker.Faker;
 import org.eclipse.serializer.util.X;
 import org.eclipse.store.gigamap.data.Entity;
 import org.eclipse.store.gigamap.types.BitmapIndices;
@@ -32,6 +31,8 @@ import java.util.LongSummaryStatistics;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+
+import net.datafaker.Faker;
 
 
 public class GigaMapStoreTests

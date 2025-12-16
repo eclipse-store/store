@@ -14,7 +14,6 @@ package org.eclipse.store.gigamap.indexer;
  * #L%
  */
 
-import com.github.javafaker.Faker;
 import org.eclipse.serializer.util.X;
 import org.eclipse.store.gigamap.types.BitmapIndices;
 import org.eclipse.store.gigamap.types.GigaMap;
@@ -24,6 +23,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
 import java.util.function.Consumer;
+
+import net.datafaker.Faker;
 
 public class IdentityIndexTest
 {

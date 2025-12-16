@@ -15,9 +15,10 @@ package org.eclipse.store.gigamap.data;
  * #L%
  */
 
-import com.github.javafaker.Faker;
 
 import java.time.Instant;
+
+import net.datafaker.Faker;
 
 
 public class SubEntity

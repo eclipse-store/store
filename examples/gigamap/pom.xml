@@ -30,11 +30,11 @@
 			<artifactId>gigamap</artifactId>
 			<version>${project.version}</version>
 		</dependency>
-		<dependency>
-			<groupId>com.github.javafaker</groupId>
-			<artifactId>javafaker</artifactId>
-			<scope>compile</scope>
-		</dependency>
+        <dependency>
+            <groupId>net.datafaker</groupId>
+            <artifactId>datafaker</artifactId>
+            <scope>compile</scope>
+        </dependency>
 	</dependencies>
 
 </project>

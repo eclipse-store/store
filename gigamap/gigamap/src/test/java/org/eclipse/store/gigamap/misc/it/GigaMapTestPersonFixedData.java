@@ -14,7 +14,6 @@ package org.eclipse.store.gigamap.misc.it;
  * #L%
  */
 
-import com.github.javafaker.Faker;
 import org.eclipse.store.gigamap.types.BitmapIndices;
 import org.eclipse.store.gigamap.types.IndexerLocalDate;
 import org.eclipse.store.gigamap.types.IndexerString;
@@ -24,6 +23,8 @@ import java.time.LocalDate;
 import java.time.Year;
 import java.util.HashSet;
 import java.util.Set;
+
+import net.datafaker.Faker;
 
 public class GigaMapTestPersonFixedData extends GigaMapTestBaseBitmapIndex<Person>
 {
@@ -37,8 +38,9 @@ public class GigaMapTestPersonFixedData extends GigaMapTestBaseBitmapIndex<Perso
 	
 	public GigaMapTestPersonFixedData()
 	{
-		super(10_000_000);
-		
+		//super(10_000_000);
+		super(1_000_000); //reduce data for faster tests
+
 		final Faker faker = new Faker();
 		final Set<String> firstNames = new HashSet<>();
 		while(firstNames.size() < 125)
