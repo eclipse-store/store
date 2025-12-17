@@ -17,9 +17,9 @@ package org.eclipse.store.examples.gigamap;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.github.javafaker.Faker;
 import org.eclipse.store.gigamap.types.GigaMap;
 
+import net.datafaker.Faker;
 
 public class RandomGenerator
 {
@@ -36,7 +36,7 @@ public class RandomGenerator
 			.build();
 		
 		final List<Person> data  = new ArrayList<>(size);
-		final Faker        faker = new Faker();
+		final Faker faker = new Faker();
 		for(int i = 1; i <= size; i++)
 		{
 			data.add(new Person(i, faker));

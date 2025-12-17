@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import com.github.javafaker.service.RandomService;
+import net.datafaker.service.RandomService;
 
 public enum Interest
 {

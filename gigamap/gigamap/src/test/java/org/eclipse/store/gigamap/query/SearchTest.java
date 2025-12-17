@@ -14,7 +14,6 @@ package org.eclipse.store.gigamap.query;
  * #L%
  */
 
-import com.github.javafaker.Faker;
 import org.eclipse.store.gigamap.experimental.Address;
 import org.eclipse.store.gigamap.types.BitmapIndices;
 import org.eclipse.store.gigamap.types.GigaMap;
@@ -26,6 +25,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+
+import net.datafaker.Faker;
 
 public class SearchTest
 {

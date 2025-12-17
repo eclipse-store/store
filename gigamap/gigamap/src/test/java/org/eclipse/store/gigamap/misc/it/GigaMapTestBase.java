@@ -14,7 +14,6 @@ package org.eclipse.store.gigamap.misc.it;
  * #L%
  */
 
-import com.github.javafaker.Faker;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
@@ -34,6 +33,8 @@ import java.nio.file.Path;
 import java.text.NumberFormat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import net.datafaker.Faker;
 
 @TestInstance(Lifecycle.PER_CLASS)
 public abstract class GigaMapTestBase<T>

@@ -14,11 +14,12 @@ package org.eclipse.store.gigamap.misc.it;
  * #L%
  */
 
-import com.github.javafaker.Faker;
 import org.eclipse.store.gigamap.types.BitmapIndices;
 import org.eclipse.store.gigamap.types.Condition;
 import org.eclipse.store.gigamap.types.IndexerByte;
 import org.junit.jupiter.api.Test;
+
+import net.datafaker.Faker;
 
 public class GigaMapTestProduct extends GigaMapTestBaseBitmapIndex<Product>
 {

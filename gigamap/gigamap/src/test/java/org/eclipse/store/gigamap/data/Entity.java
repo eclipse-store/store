@@ -15,7 +15,6 @@ package org.eclipse.store.gigamap.data;
  * #L%
  */
 
-import com.github.javafaker.Faker;
 import org.eclipse.store.gigamap.types.*;
 
 import java.time.LocalDateTime;
@@ -25,6 +24,8 @@ import java.util.UUID;
 import java.util.stream.IntStream;
 
 import static java.util.stream.Collectors.toList;
+
+import net.datafaker.Faker;
 
 
 public class Entity

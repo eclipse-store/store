@@ -14,14 +14,15 @@ package org.eclipse.store.gigamap.misc.it;
  * #L%
  */
 
-import com.github.javafaker.Faker;
-import com.github.javafaker.Name;
 import org.eclipse.store.gigamap.types.BitmapIndices;
 import org.eclipse.store.gigamap.types.IndexerInteger;
 import org.eclipse.store.gigamap.types.IndexerString;
 import org.junit.jupiter.api.Test;
 
 import java.time.ZoneId;
+
+import net.datafaker.Faker;
+import net.datafaker.providers.base.Name;
 
 public class GigaMapTestPersonRandomData extends GigaMapTestBaseBitmapIndex<Person>
 {
@@ -31,7 +32,8 @@ public class GigaMapTestPersonRandomData extends GigaMapTestBaseBitmapIndex<Pers
 	
 	public GigaMapTestPersonRandomData()
 	{
-		super(10_000_000);
+		//super(10_000_000);
+		super(1_000_000); //reduce data for faster tests
 	}
 	
 	@Override
@@ -49,7 +51,7 @@ public class GigaMapTestPersonRandomData extends GigaMapTestBaseBitmapIndex<Pers
 		return new Person(
 			name.firstName(),
 			name.lastName(),
-			faker.date().birthday(1, 99).toInstant().atZone(ZoneId.systemDefault()).toLocalDate()
+			faker.timeAndDate().birthday(1, 99)
 		);
 	}
 	

@@ -14,7 +14,6 @@ package org.eclipse.store.examples.gigamap;
  * #L%
  */
 
-import com.github.javafaker.Faker;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.GigaQuery;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
@@ -25,6 +24,8 @@ import java.time.Year;
 import java.util.List;
 
 import static org.eclipse.store.examples.gigamap.PersonIndices.*;
+
+import net.datafaker.Faker;
 
 
 public class BasicExample

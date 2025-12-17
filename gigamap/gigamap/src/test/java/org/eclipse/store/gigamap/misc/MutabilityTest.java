@@ -39,7 +39,7 @@ public class MutabilityTest
 				{
 					for(final String s : map)
 					{
-						XThreads.sleep(1000 / map.size());
+						XThreads.sleep(100 / map.size());
 //						System.out.println("Thread " + Thread.currentThread().getName() + " printing: " + s);
 					}
 //					System.out.println();
