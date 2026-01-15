@@ -614,6 +614,11 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
         }
 
 
+		/**
+		 * {@link Directory} implementation which stores index data inside {@link Default#fileEntries}.
+		 * <p>
+		 * This connects the lucene data with the persistent object graph.
+		 */
 		class GraphDirectory extends BaseDirectory
 		{
 			private final AtomicLong fileNameCounter = new AtomicLong();
