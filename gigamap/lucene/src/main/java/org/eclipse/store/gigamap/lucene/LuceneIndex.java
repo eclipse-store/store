@@ -235,7 +235,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		 * Used by {@link GraphDirectory}, which will be created automatically, if no {@link DirectoryCreator} is provided,
 		 * by the {@link LuceneContext}.
 		 */
-		private ConcurrentHashMap<String, FileEntry> filesEntries;
+		private ConcurrentHashMap<String, FileEntry> fileEntries;
 
 		private transient Analyzer        analyzer;
 		private transient Directory       directory;
@@ -625,11 +625,11 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 
 			ConcurrentHashMap<String, FileEntry> fileEntries()
 			{
-				if(LuceneIndex.Default.this.filesEntries == null)
+				if(LuceneIndex.Default.this.fileEntries == null)
 				{
-					LuceneIndex.Default.this.filesEntries = new ConcurrentHashMap<>();
+					LuceneIndex.Default.this.fileEntries = new ConcurrentHashMap<>();
 				}
-				return LuceneIndex.Default.this.filesEntries;
+				return LuceneIndex.Default.this.fileEntries;
 			}
 
 			@Override
