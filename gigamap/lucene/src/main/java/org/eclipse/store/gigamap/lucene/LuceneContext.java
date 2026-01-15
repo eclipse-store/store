@@ -50,6 +50,8 @@ public interface LuceneContext<E>
 	 * specific types of {@link Directory} instances. The exact implementation
 	 * of the {@link DirectoryCreator} determines the type of {@link Directory}
 	 * that will be created.
+	 * <p>
+	 * If <code>null</code> is returned, the data will be stored inside the index.
 	 *
 	 * @return an instance of {@link DirectoryCreator} that encapsulates the logic
 	 *         for creating a specific type of {@link Directory}.
@@ -87,6 +89,25 @@ public interface LuceneContext<E>
     {
         return true;
     }
+
+
+	/**
+	 * Creates a new instance of {@link LuceneContext} for a specific type of entity.
+	 * The data will be stored inside the index.
+	 *
+	 * @param <E> the type of entity to be indexed and searched using this {@link LuceneContext}
+	 * @param documentPopulator an implementation of {@link DocumentPopulator} responsible for
+	 *                           populating Lucene documents with data from the specified entity type
+	 * @return an instance of {@link LuceneContext} configured with a standard analyzer and document populator
+	 */
+	public static <E> LuceneContext<E> New(final DocumentPopulator<E> documentPopulator)
+	{
+		return New(
+			null,
+			AnalyzerCreator.Standard(),
+			documentPopulator
+		);
+	}
 
 	
 	/**
@@ -146,7 +167,8 @@ public interface LuceneContext<E>
 	 *
 	 * @param <E> the type of entity to be indexed and searched with the resulting {@link LuceneContext}
 	 * @param directoryCreator an implementation of {@link DirectoryCreator} responsible for
-	 *                         creating a directory where the Lucene index will be stored
+	 *                         creating a directory where the Lucene index will be stored,
+	 *                         or <code>null</code> if the data should be stored inside the index
 	 * @param analyzerCreator an implementation of {@link AnalyzerCreator} responsible for
 	 *                        creating analyzers used for text processing in Lucene
 	 * @param documentPopulator an implementation of {@link DocumentPopulator} responsible for
@@ -158,7 +180,7 @@ public interface LuceneContext<E>
 	)
 	{
 		return new Default<>(
-			notNull(directoryCreator ),
+			        directoryCreator  ,
 			notNull(analyzerCreator  ),
 			notNull(documentPopulator)
 		);

@@ -14,31 +14,34 @@ package org.eclipse.store.gigamap.lucene;
  * #L%
  */
 
-import org.eclipse.store.gigamap.types.CustomConstraints;
-import org.eclipse.store.gigamap.types.GigaMap;
-import org.eclipse.store.gigamap.types.IndexCategory;
-import org.eclipse.store.gigamap.types.IndexGroup;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field.Store;
 import org.apache.lucene.document.LongField;
-import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.index.IndexWriterConfig;
-import org.apache.lucene.index.StoredFields;
+import org.apache.lucene.index.*;
 import org.apache.lucene.queryparser.flexible.core.QueryNodeException;
 import org.apache.lucene.queryparser.flexible.standard.StandardQueryParser;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
-import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.*;
 import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.serializer.math.XMath;
+import org.eclipse.store.gigamap.types.CustomConstraints;
+import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.IndexCategory;
+import org.eclipse.store.gigamap.types.IndexGroup;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.NoSuchFileException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.zip.CRC32;
 
 import static org.eclipse.serializer.util.X.notNull;
 
@@ -199,7 +202,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	 * Closes this index and all resources associated with it.
 	 * <p>
 	 * Note that this index can be re-used after it was closed.
-	 * Internally it uses lazy initialization, which will be triggered again after it was closed. 
+	 * Internally, it uses lazy initialization, which will be triggered again after it was closed.
 	 */
 	@Override
 	public void close();
@@ -226,6 +229,13 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		
 		private final GigaMap<E>          gigaMap;
 		private final LuceneContext<E>    context;
+
+		/**
+		 * Optional registry for storage directory files, if the index data should be persisted directly inside the graph.
+		 * Used by {@link GraphDirectory}, which will be created automatically, if no {@link DirectoryCreator} is provided,
+		 * by the {@link LuceneContext}.
+		 */
+		private ConcurrentHashMap<String, FileEntry> filesEntries;
 
 		private transient Analyzer        analyzer;
 		private transient Directory       directory;
@@ -524,7 +534,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			synchronized(this.gigaMap)
 			{
 				final Closeable[] closeables = {this.analyzer, this.writer, this.reader, this.directory};
-				for(@SuppressWarnings("resource") final Closeable closeable : closeables)
+				for(final Closeable closeable : closeables)
 				{
 					if(closeable != null)
 					{
@@ -559,7 +569,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
                 this.searcher              = new IndexSearcher(
                     this.reader            = DirectoryReader.open(
                         this.writer        = new IndexWriter(
-                            this.directory = this.context.directoryCreator().createDirectory(),
+                            this.directory = this.createDirectory(),
                             new IndexWriterConfig(
                                 this.analyzer = this.context.analyzerCreator().createAnalyzer()
                             )
@@ -580,6 +590,15 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
             }
         }
 
+		private Directory createDirectory()
+		{
+			final DirectoryCreator creator = this.context.directoryCreator();
+			return creator != null
+				? creator.createDirectory()
+				: new GraphDirectory()
+			;
+		}
+
         private void optCommit() throws IOException
         {
             if(this.context.autoCommit())
@@ -593,6 +612,261 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
             this.writer.flush();
             this.writer.commit();
         }
+
+
+		class GraphDirectory extends BaseDirectory
+		{
+			private final AtomicLong fileNameCounter = new AtomicLong();
+
+			public GraphDirectory()
+			{
+				super(new TransientSingleInstanceLockFactory());
+			}
+
+			ConcurrentHashMap<String, FileEntry> fileEntries()
+			{
+				if(LuceneIndex.Default.this.filesEntries == null)
+				{
+					LuceneIndex.Default.this.filesEntries = new ConcurrentHashMap<>();
+				}
+				return LuceneIndex.Default.this.filesEntries;
+			}
+
+			@Override
+			public String[] listAll() throws IOException
+			{
+				this.ensureOpen();
+
+				return this.fileEntries().keySet().stream().sorted().toArray(String[]::new);
+			}
+
+			@Override
+			public void deleteFile(final String name) throws IOException
+			{
+				this.ensureOpen();
+
+				final FileEntry removed = this.fileEntries().remove(name);
+				if(removed == null)
+				{
+					throw new NoSuchFileException(name);
+				}
+			}
+
+			@Override
+			public long fileLength(final String name) throws IOException
+			{
+				this.ensureOpen();
+
+				final FileEntry file = this.fileEntries().get(name);
+				if(file == null)
+				{
+					throw new NoSuchFileException(name);
+				}
+				return file.length();
+			}
+
+			@Override
+			public IndexOutput createOutput(final String name, final IOContext context) throws IOException
+			{
+				this.ensureOpen();
+
+				final FileEntry e = new FileEntry(name);
+				if(this.fileEntries().putIfAbsent(name, e) != null)
+				{
+					throw new FileAlreadyExistsException("File already exists: " + name);
+				}
+				return e.createOutput();
+			}
+
+			@Override
+			public IndexOutput createTempOutput(final String prefix, final String suffix, final IOContext context)
+				throws IOException
+			{
+				this.ensureOpen();
+
+				final ConcurrentHashMap<String, FileEntry> fileEntries = this.fileEntries();
+				while(true)
+				{
+					final String tempFileName = suffix + "_" + Long.toString(this.fileNameCounter.getAndIncrement(), Character.MAX_RADIX);
+					final String name = IndexFileNames.segmentFileName(prefix, tempFileName, "tmp");
+					final FileEntry e = new FileEntry(name);
+					if(fileEntries.putIfAbsent(name, e) == null)
+					{
+						return e.createOutput();
+					}
+				}
+			}
+
+			@Override
+			public void rename(final String source, final String dest) throws IOException
+			{
+				this.ensureOpen();
+
+				final ConcurrentHashMap<String, FileEntry> fileEntries = this.fileEntries();
+				final FileEntry file = fileEntries.get(source);
+				if(file == null)
+				{
+					throw new NoSuchFileException(source);
+				}
+				if(fileEntries.putIfAbsent(dest, file) != null)
+				{
+					throw new FileAlreadyExistsException(dest);
+				}
+				if(!fileEntries.remove(source, file))
+				{
+					throw new IllegalStateException("File was unexpectedly replaced: " + source);
+				}
+				fileEntries.remove(source);
+			}
+
+			@Override
+			public void sync(final Collection<String> names) throws IOException
+			{
+				this.ensureOpen();
+			}
+
+			@Override
+			public void syncMetaData() throws IOException
+			{
+				this.ensureOpen();
+			}
+
+			@Override
+			public IndexInput openInput(final String name, final IOContext context) throws IOException
+			{
+				this.ensureOpen();
+				final FileEntry e = this.fileEntries().get(name);
+				if(e == null)
+				{
+					throw new NoSuchFileException(name);
+				}
+				else
+				{
+					return e.openInput();
+				}
+			}
+
+			@Override
+			public void close()
+			{
+				// no-op
+			}
+
+			@Override
+			public Set<String> getPendingDeletions()
+			{
+				return Collections.emptySet();
+			}
+
+		}
+
+
+		static final class FileEntry
+		{
+			private final String        fileName    ;
+
+			private volatile IndexInput content     ;
+			private volatile long       cachedLength;
+
+			FileEntry(final String name)
+			{
+				this.fileName = name;
+			}
+
+			long length()
+			{
+				// We return 0 length until the IndexOutput is closed and flushed.
+				return this.cachedLength;
+			}
+
+			IndexInput openInput() throws IOException
+			{
+				final IndexInput local = this.content;
+				if(local == null)
+				{
+					throw new AccessDeniedException("Can't open a file still open for writing: " + this.fileName);
+				}
+
+				return local.clone();
+			}
+
+			IndexOutput createOutput() throws IOException
+			{
+				if(this.content != null)
+				{
+					throw new IOException("Can only write to a file once: " + this.fileName);
+				}
+
+				final String clazzName = ByteBuffersDirectory.class.getSimpleName();
+				final String outputName = String.format(Locale.ROOT, "%s output (file=%s)", clazzName, this.fileName);
+
+				return new ByteBuffersIndexOutput(
+					new ByteBuffersDataOutput(),
+					outputName,
+					this.fileName,
+					new CRC32(),
+					(output) ->
+					{
+						this.content = this.outputToInput(output);
+						this.cachedLength = output.size();
+					}
+				);
+			}
+
+			IndexInput outputToInput(final ByteBuffersDataOutput output)
+			{
+				final ByteBuffersDataInput dataInput = output.toDataInput();
+				final String inputName =
+					String.format(
+						Locale.ROOT,
+						"%s (file=%s, buffers=%s)",
+						ByteBuffersIndexInput.class.getSimpleName(),
+						this.fileName,
+						dataInput
+					);
+				return new ByteBuffersIndexInput(dataInput, inputName);
+			}
+
+		}
+
+
+		static class TransientSingleInstanceLockFactory extends LockFactory
+		{
+			private transient volatile SingleInstanceLockFactory lockFactory;
+
+			public TransientSingleInstanceLockFactory()
+			{
+				super();
+			}
+
+			private LockFactory lockFactory()
+			{
+				/*
+				 * Double-checked locking to reduce the overhead of acquiring a lock
+				 * by testing the locking criterion.
+				 * The field (this.lockFactory) has to be volatile.
+				 */
+				SingleInstanceLockFactory lockFactory = this.lockFactory;
+				if(lockFactory == null)
+				{
+					synchronized(this)
+					{
+						if((lockFactory = this.lockFactory) == null)
+						{
+							lockFactory = this.lockFactory = new SingleInstanceLockFactory();
+						}
+					}
+				}
+				return lockFactory;
+			}
+
+			@Override
+			public Lock obtainLock(final Directory dir, final String lockName) throws IOException
+			{
+				return this.lockFactory().obtainLock(dir, lockName);
+			}
+
+		}
 		
 	}
 	
