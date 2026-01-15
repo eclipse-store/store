@@ -312,12 +312,23 @@ public class BasicLuceneTest
 
     @Test
 //    @Disabled("https://github.com/microstream-one/gigamap/issues/135")
-    void storeLuceneIndexTest()
+    void storeLuceneIndexTest_MMap()
+    {
+        this.storeLuceneIndexTest(DirectoryCreator.MMap(lucenePath));
+    }
+
+    @Test
+    void storeLuceneIndexTest_InGraph()
+    {
+        this.storeLuceneIndexTest(null);
+    }
+
+    void storeLuceneIndexTest(DirectoryCreator directoryCreator)
     {
         ArticleDocumentPopulator documentPopulator = new ArticleDocumentPopulator();
 
         LuceneContext<Article> luceneContext = LuceneContext.New(
-                DirectoryCreator.MMap(lucenePath),
+                directoryCreator,
                 documentPopulator
         );
 
