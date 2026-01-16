@@ -4,7 +4,7 @@ package org.eclipse.store.gigamap.lucene;
  * #%L
  * EclipseStore GigaMap Lucene
  * %%
- * Copyright (C) 2023 - 2025 MicroStream Software
+ * Copyright (C) 2023 - 2026 MicroStream Software
  * %%
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -28,10 +28,9 @@ import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.*;
 import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.serializer.math.XMath;
-import org.eclipse.store.gigamap.types.CustomConstraints;
-import org.eclipse.store.gigamap.types.GigaMap;
-import org.eclipse.store.gigamap.types.IndexCategory;
-import org.eclipse.store.gigamap.types.IndexGroup;
+import org.eclipse.serializer.persistence.binary.types.BinaryTypeHandler;
+import org.eclipse.serializer.persistence.types.Storer;
+import org.eclipse.store.gigamap.types.*;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -214,8 +213,14 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	}
 	
 	
-	public class Default<E> implements Internal<E>
+	public class Default<E> extends AbstractStateChangeFlagged implements Internal<E>
 	{
+		static BinaryTypeHandler<LuceneIndex.Default<?>> provideTypeHandler()
+		{
+			return BinaryHandlerLuceneIndexDefault.New();
+		}
+
+
 		private final static String ENTITY_ID_FIELD = "_id_";
 		
 		private static Query queryFor(final long entityId)
@@ -227,15 +232,15 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		// instance fields //
 		////////////////////
 		
-		private final GigaMap<E>          gigaMap;
-		private final LuceneContext<E>    context;
+		final GigaMap<E>          gigaMap;
+		final LuceneContext<E>    context;
 
 		/**
 		 * Optional registry for storage directory files, if the index data should be persisted directly inside the graph.
 		 * Used by {@link GraphDirectory}, which will be created automatically, if no {@link DirectoryCreator} is provided,
 		 * by the {@link LuceneContext}.
 		 */
-		private ConcurrentHashMap<String, FileEntry> fileEntries;
+		ConcurrentHashMap<String, FileEntry> fileEntries;
 
 		private transient Analyzer        analyzer;
 		private transient Directory       directory;
@@ -246,13 +251,22 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
 		/////////////////
-		
+
 		protected Default(
 			final GigaMap<E>       gigaMap,
 			final LuceneContext<E> context
 		)
 		{
-			super();
+			this(gigaMap, context, true);
+		}
+
+		protected Default(
+			final GigaMap<E>       gigaMap,
+			final LuceneContext<E> context,
+			final boolean          stateChanged
+		)
+		{
+			super(stateChanged);
 			this.gigaMap = gigaMap;
 			this.context = context;
 		}
@@ -268,7 +282,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		{
 			return this.gigaMap;
 		}
-		
+
 		@Override
 		public void internalAdd(final long entityId, final E entity)
 		{
@@ -528,7 +542,33 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
             }
         }
 
-        @Override
+		@Override
+		protected final void storeChildren(final Storer storer)
+		{
+			// this is just a local, partial lock that does NOT protect the whole giga map storing process. See GigaMap#store.
+			synchronized(this.parentMap())
+			{
+				super.storeChildren(storer);
+			}
+		}
+
+		@Override
+		protected void storeChangedChildren(final Storer storer)
+		{
+			if(this.fileEntries != null)
+			{
+				storer.store(this.fileEntries);
+				storer.storeAll(this.fileEntries.values());
+			}
+		}
+
+		@Override
+		protected void clearChildrenStateChangeMarkers()
+		{
+			// no-op
+		}
+
+		@Override
 		public void close()
 		{
 			synchronized(this.gigaMap)
@@ -605,6 +645,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
             {
                 this.internalCommit();
             }
+
+			this.markStateChangeChildren();
         }
 
         private void internalCommit() throws IOException
