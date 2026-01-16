@@ -65,3 +65,20 @@ Afterward we are able to query the index using the Lucene query language.
 ----
 List<Person> result = luceneIndex.query("firstName:John");
 ----
+
+== Persistence
+
+In the `LuceneContext` a `DirectoryCreator` controls what https://lucene.apache.org/core/9_8_0/core/org/apache/lucene/store/Directory.html[directory] should be used to store the index data in. These are Lucene-specific implementations, which write e.g., to the file system, or to in-memory buffers.
+
+However, if you want to store the data inside the index itself, meaning it will be part of the  persistent object graph of {product-name}, just don't provide any `DirectoryCreator` at all.
+By default, a special internal directory implementation will be used, which stores the data inside the index itself.
+
+[source, java]
+----
+// just create a context without specifying a directory creator
+LuceneContext<Person> luceneContext = LuceneContext.New(
+    new PersonDocumentPopulator() // our document populator
+);
+
+LuceneIndex<Person> luceneIndex = gigaMap.index().register(LuceneIndex.Category(luceneContext));
+----
