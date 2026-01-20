@@ -8,7 +8,7 @@ It is possible to define a different channel count for the target than the sourc
 
 ## Building the storage converter standalone jar
 
-To build the converter standalone jar using Maven you need to active the profile **converter-standalone**.
+To build the converter standalone jar using Maven you need to activate the profile **converter-standalone**.
 
 ```console
 mvn -Pconverter-standalone clean package
@@ -37,7 +37,7 @@ which gives you some more control on the storage's configurations.
 
 ### converting binary data
 
-To convert the binary representation of peristeted objects BinaryConverter implemenations can be specified:
+To convert the binary representation of persisted objects BinaryConverter implementations can be specified:
 
 ```console
 java -jar storage-embedded-tools-storage-converter-3.1.0.jar sourceCongig.xml targetConfig.xml -c BinaryConverterAImpl.class BinaryConverterBImpl.class
