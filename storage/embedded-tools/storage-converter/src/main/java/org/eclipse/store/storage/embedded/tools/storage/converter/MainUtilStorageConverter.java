@@ -82,13 +82,18 @@ public class MainUtilStorageConverter
 		System.out.println("Storage conversion finished!");
 	}
 
-	private static String[] parseBinaryConverters(String[] args, int startIndex) {
-		
+	private static String[] parseBinaryConverters(String[] args, int startIndex)
+	{
 		List<String> binaryConverters = new ArrayList<>();
 		
-		for(int i = startIndex + 1; i < args.length; i++) {
-			if(args[i].startsWith("-")) return binaryConverters.toArray(new String[0]);
-			else {
+		for(int i = startIndex + 1; i < args.length; i++)
+		{
+			if(args[i].startsWith("-"))
+			{
+				return binaryConverters.toArray(new String[0]);
+			}
+			else
+			{
 				binaryConverters.add(args[i]);
 			}
 		}
@@ -123,5 +128,4 @@ public class MainUtilStorageConverter
 		System.out.println(HELP);
 		System.exit(-1);
 	}
-
 }

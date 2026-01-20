@@ -43,7 +43,8 @@ public class ConverterTypeDictionary
 	private long maxTypeId;
 
 	
-	public ConverterTypeDictionary(final String sourceTypeDictionary) {
+	public ConverterTypeDictionary(final String sourceTypeDictionary)
+	{
 		Default parser = PersistenceTypeDictionaryParser.New(
 				PersistenceTypeResolver.New(ClassLoaderProvider.System()),
 				new BinaryFieldLengthResolver.Default(),
@@ -56,11 +57,13 @@ public class ConverterTypeDictionary
 		this.maxTypeId = this.initMaxTypeID();
 	}
 	
-	public BulkList<PersistenceTypeDescription> entries() {
+	public BulkList<PersistenceTypeDescription> entries()
+	{
 		return this.dictionaryEntries;
 	}
 	
-	public long incrementAndGetMaxTypeID() {
+	public long incrementAndGetMaxTypeID()
+	{
 		return ++this.maxTypeId;
 	}
 	
@@ -69,19 +72,20 @@ public class ConverterTypeDictionary
 		final String clazz,
 		final XImmutableSequence<? extends PersistenceTypeDefinitionMember> typeDefinitionMembers)
 	{
-		if(newTypeId == 0) {
+		if(newTypeId == 0)
+		{
 			throw new RuntimeException("TypeID not initialized!");
 		}
 		
 		EqHashEnum<PersistenceTypeDefinitionMember> members = EqHashEnum.New(PersistenceTypeDescriptionMember.identityHashEqualator());
-		for( PersistenceTypeDefinitionMember m : typeDefinitionMembers) {
+		for( PersistenceTypeDefinitionMember m : typeDefinitionMembers)
+		{
 			members.add(m);
 		}
 			
 		PersistenceTypeDefinition typeDefinition = typeDefinitionCreator.createTypeDefinition(
 			newTypeId, clazz, clazz, null, members, members);
-		
-				
+					
 		VarString typeDictionaryString = VarString.New();
 		persistenceTypeDictionaryAssembler.assembleTypeDescription(typeDictionaryString, typeDefinition);
 		
@@ -90,31 +94,32 @@ public class ConverterTypeDictionary
 		return typeDefinition;
 	}
 	
-	private long initMaxTypeID() {
-		
+	private long initMaxTypeID()
+	{
 		long maxId = 0;
 		
-		for(PersistenceTypeDescription entry : this.dictionaryEntries) {
+		for(PersistenceTypeDescription entry : this.dictionaryEntries)
+		{
 			if(entry.typeId() > maxId) maxId = entry.typeId();
 		}
 		
 		return maxId;
 	}
 
-	public void add(final PersistenceTypeDefinition typeDefinition) {
+	public void add(final PersistenceTypeDefinition typeDefinition)
+	{
 		this.entries().add(typeDefinition);
-		
 	}
 
 	@Override
-	public String toString() {
-		
+	public String toString()
+	{
 		VarString typeDictionaryString = VarString.New();
-		for(PersistenceTypeDescription description : this.dictionaryEntries) {
+		for(PersistenceTypeDescription description : this.dictionaryEntries)
+		{
 			persistenceTypeDictionaryAssembler.assembleTypeDescription(typeDictionaryString, description);
 		}
 		
 		return typeDictionaryString.toString();
 	}
-
 }

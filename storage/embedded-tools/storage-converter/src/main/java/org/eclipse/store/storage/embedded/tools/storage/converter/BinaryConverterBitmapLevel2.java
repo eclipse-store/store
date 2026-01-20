@@ -28,6 +28,12 @@ import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMember
 import org.eclipse.serializer.util.logging.Logging;
 import org.slf4j.Logger;
 
+/**
+ * Binary Converter for the initial released version of
+ * the org.eclipse.store.gigamap.types.BitmapLevel2 binary data format.
+ * This converter adds the missing list header and a new integer "version" field
+ * to differ between the original and the converted data.
+ */
 public class BinaryConverterBitmapLevel2 implements BinaryConverter
 {
 	private final static Logger logger = Logging.getLogger(BinaryConverter.class);
@@ -46,7 +52,8 @@ public class BinaryConverterBitmapLevel2 implements BinaryConverter
 	private final long newTypeId;
 	private final PersistenceTypeDefinition newTypeDefinition;
 
-    public BinaryConverterBitmapLevel2(ConverterTypeDictionary converterTypeDictionary) {
+    public BinaryConverterBitmapLevel2(ConverterTypeDictionary converterTypeDictionary)
+    {
         this.newTypeId = converterTypeDictionary.incrementAndGetMaxTypeID();
 		this.newTypeDefinition = converterTypeDictionary.createTypeDictionaryEntry(
 			this.newTypeId,
@@ -55,18 +62,20 @@ public class BinaryConverterBitmapLevel2 implements BinaryConverter
 	}
 	
 	@Override
-	public PersistenceTypeDefinition getTypeDefinition() {
+	public PersistenceTypeDefinition getTypeDefinition()
+	{
 		return this.newTypeDefinition;
 	}
 	
 	@Override
-	public boolean requiresTypeDictionaryUpdate() {
+	public boolean requiresTypeDictionaryUpdate()
+	{
 		return true;
 	}
 	
 	@Override
-	public ByteBuffer convert(final ByteBuffer bufferIn) {
-		
+	public ByteBuffer convert(final ByteBuffer bufferIn)
+	{
 		int pos = bufferIn.position();
 		int size = bufferIn.limit() - bufferIn.position();
 		
@@ -100,17 +109,20 @@ public class BinaryConverterBitmapLevel2 implements BinaryConverter
 	}
 	
 	@Override
-	public boolean matches(final PersistenceTypeDescription e) {
+	public boolean matches(final PersistenceTypeDescription e)
+	{
 		if(clazz.equals(e.typeName()))
 		{
 			//existing type definition != new type definition
-			if(PersistenceTypeDescription.equalDescription(e, this.newTypeDefinition)) {
+			if(PersistenceTypeDescription.equalDescription(e, this.newTypeDefinition))
+			{
 				return false;
 			}
 			
 			//must contain "data" field
 			XGettingSequence<? extends PersistenceTypeDescriptionMember> members = e.allMembers();
-			for(int i = 0; i < e.allMembers().size(); i++) {
+			for(int i = 0; i < e.allMembers().size(); i++)
+			{
 				if(!BinaryConverterBitmapLevel2.fields.contains(members.at(i).identifier())) return false;
 			}
 			

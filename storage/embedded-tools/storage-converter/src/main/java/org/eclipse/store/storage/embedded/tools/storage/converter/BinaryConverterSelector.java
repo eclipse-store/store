@@ -24,40 +24,46 @@ public class BinaryConverterSelector
 	private final HashMap<Long, BinaryConverter> converters;
 	private final ConverterTypeDictionary converterTypeDictionary;
 	
-	public BinaryConverterSelector(final ConverterTypeDictionary typeDictionary) {
+	public BinaryConverterSelector(final ConverterTypeDictionary typeDictionary)
+	{
 		this.converters = new HashMap<>();
 		this.converterTypeDictionary = typeDictionary;
 	}
 
-	public void initConverter(final String binaryConverterClassName) {
-				
+	public void initConverter(final String binaryConverterClassName)
+	{
 		MethodHandles.Lookup publicLookup = MethodHandles.publicLookup();
 		MethodType mt = MethodType.methodType(void.class, ConverterTypeDictionary.class);
 		
-		try {
+		try
+		{
 			Class<?> clazz = Class.forName(binaryConverterClassName);
 			MethodHandle ch = publicLookup.findConstructor(clazz, mt);
 			
 			BinaryConverter converter = (BinaryConverter)ch.invoke(this.converterTypeDictionary);
 			this.match(converter);
-			if(converter.requiresTypeDictionaryUpdate()) {
+			if(converter.requiresTypeDictionaryUpdate())
+			{
 				this.converterTypeDictionary.add(converter.getTypeDefinition());
 			}
 			
-		} catch(Throwable e) {
+		}
+		catch(Throwable e)
+		{
 			throw new RuntimeException("Failed to initialize converter: " + binaryConverterClassName, e);
 		}
 	}
 	
-	private void match(final BinaryConverter converter) {
+	private void match(final BinaryConverter converter)
+	{
 		this.converterTypeDictionary.entries().forEach(
 			e ->  { if(converter.matches(e)) {
 				this.converters.put(e.typeId(), converter);
 			}});
 	}
 
-	public BinaryConverter get(final long tid) {
+	public BinaryConverter get(final long tid)
+	{
 		return this.converters.get(tid);
 	}
-
 }
