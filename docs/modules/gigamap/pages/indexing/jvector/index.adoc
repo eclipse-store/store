@@ -1,0 +1,148 @@
+= JVector Index
+
+A specialized index implementation for vector similarity search using https://github.com/datastax/jvector[JVector], a high-performance HNSW (Hierarchical Navigable Small World) graph implementation.
+
+JVector enables fast approximate k-nearest-neighbor (k-NN) search on vector embeddings, making it ideal for AI/ML applications like semantic search, recommendation systems, and RAG (Retrieval-Augmented Generation).
+
+== Features
+
+* *HNSW Vector Index*: Fast approximate k-nearest-neighbor search using JVector's HNSW graph implementation
+* *Persistent Storage*: Vectors are stored in GigaMap for durability and lazy loading
+* *On-Disk Index*: Memory-mapped graph storage for datasets larger than RAM
+* *PQ Compression*: Product Quantization for reduced memory footprint
+* *Background Persistence*: Automatic asynchronous persistence at configurable intervals
+* *Background Optimization*: Periodic graph cleanup for improved query performance
+* *Lazy Entity Access*: Search results provide direct access to entities without additional lookups
+* *Stream API*: Java Stream support for search results
+
+== Requirements
+
+* Java 21+
+
+== Installation
+
+[source, xml, subs=attributes+, title="Maven [pom.xml]"]
+----
+<dependency>
+    <groupId>org.eclipse.store</groupId>
+    <artifactId>gigamap-jvector</artifactId>
+    <version>{maven-version}</version>
+</dependency>
+----
+
+== Example
+
+First, we need to implement a `Vectorizer`, which extracts the vector embedding from entities.
+
+[source, java]
+----
+public class DocumentVectorizer extends Vectorizer<Document>
+{
+    @Override
+    public float[] vectorize(Document entity)
+    {
+        return entity.embedding();
+    }
+
+    @Override
+    public boolean isEmbedded()
+    {
+        return true; // Vector is stored in entity (no duplicate storage)
+    }
+}
+----
+
+Then we create a `VectorIndex` and register it at the GigaMap.
+
+[source, java]
+----
+// Create GigaMap and register vector indices
+GigaMap<Document> gigaMap = GigaMap.New();
+VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+// Configure the vector index
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .build();
+
+// Add the index with a name, configuration, and vectorizer
+VectorIndex<Document> index = vectorIndices.add("embeddings", config, new DocumentVectorizer());
+----
+
+After adding entities to the GigaMap, we can search for similar vectors.
+
+[source, java]
+----
+// Add entities (automatically indexed)
+gigaMap.add(new Document("Hello world", embedding));
+
+// Search for similar vectors (returns top 10 results)
+VectorSearchResult<Document> result = index.search(queryVector, 10);
+
+for (VectorSearchResult.Entry<Document> entry : result)
+{
+    Document doc = entry.entity();    // Lazy entity access
+    float score = entry.score();      // Similarity score
+    long id = entry.entityId();       // Entity ID
+}
+----
+
+The search results support the Java Stream API for convenient filtering and transformation.
+
+[source, java]
+----
+List<Document> topDocs = result.stream()
+    .filter(e -> e.score() > 0.8f)
+    .map(VectorSearchResult.Entry::entity)
+    .toList();
+----
+
+== Similarity Functions
+
+The following similarity functions are available:
+
+[options="header",cols="1,2"]
+|===
+|Function |Description
+
+|`COSINE`
+|Cosine similarity, normalized for direction. Best for text embeddings.
+
+|`DOT_PRODUCT`
+|Dot product similarity. Use when vectors are already normalized.
+
+|`EUCLIDEAN`
+|Euclidean distance. Best for geometric or spatial data.
+|===
+
+== Persistence with EclipseStore
+
+Binary type handlers are registered automatically when using EclipseStore.
+
+[source, java]
+----
+try (EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+{
+    GigaMap<Document> gigaMap = GigaMap.New();
+    storage.setRoot(gigaMap);
+
+    VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+    VectorIndex<Document> index = vectorIndices.add("embeddings", config, new DocumentVectorizer());
+
+    gigaMap.add(new Document("text", embedding));
+
+    storage.storeRoot();
+}
+----
+
+== Limitations
+
+* *~2.1 billion vectors per index*: JVector uses `int` for graph node ordinals. For larger datasets, implement sharding across multiple indices.
+* *PQ compression requires maxDegree=32*: FusedADC algorithm constraint (auto-enforced).
+
+== Further Reading
+
+* xref:indexing/jvector/configuration.adoc[Configuration Options]
+* xref:indexing/jvector/use-cases.adoc[Use Cases]
+* xref:indexing/jvector/advanced.adoc[Advanced Usage]

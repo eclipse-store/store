@@ -1,0 +1,199 @@
+= JVector Advanced Usage
+
+This section covers advanced usage patterns for production deployments.
+
+== On-Disk Index with Compression
+
+For large datasets that exceed available memory, combine on-disk storage with Product Quantization (PQ) compression.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .maxDegree(32)
+    .beamWidth(200)
+    // On-disk storage
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/vectors"))
+    // PQ compression (reduces memory significantly)
+    .enablePqCompression(true)
+    .pqSubspaces(48)  // Must divide dimension evenly
+    .build();
+----
+
+NOTE: PQ compression automatically enforces `maxDegree=32` due to the FusedADC algorithm constraint.
+
+== Production Configuration
+
+For production systems with continuous updates, enable both background persistence and optimization.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    // On-disk storage
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/vectors"))
+    // Background persistence (async, non-blocking)
+    .backgroundPersistence(true)
+    .persistenceIntervalMs(30_000)        // Check every 30 seconds
+    .minChangesBetweenPersists(100)       // Only persist if >= 100 changes
+    .persistOnShutdown(true)              // Persist on close()
+    // Background optimization (periodic cleanup)
+    .backgroundOptimization(true)
+    .optimizationIntervalMs(60_000)       // Check every 60 seconds
+    .minChangesBetweenOptimizations(1000) // Only optimize if >= 1000 changes
+    .optimizeOnShutdown(false)            // Skip for faster shutdown
+    .build();
+----
+
+== Manual Optimization and Persistence
+
+For fine-grained control, you can manually trigger optimization and persistence.
+
+[source, java]
+----
+// Optimize graph (removes excess neighbors, improves query latency)
+index.optimize();
+
+// Persist to disk (for on-disk indices)
+index.persistToDisk();
+
+// Close index (runs shutdown hooks based on config)
+index.close();
+----
+
+== Multiple Vector Indices
+
+You can create multiple vector indices for different embedding types on the same entity.
+
+[source, java]
+----
+GigaMap<Document> gigaMap = GigaMap.New();
+VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+// Title embeddings (smaller dimension)
+VectorIndexConfiguration titleConfig = VectorIndexConfiguration.builder()
+    .dimension(384)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .build();
+VectorIndex<Document> titleIndex = vectorIndices.add("title", titleConfig, new TitleVectorizer());
+
+// Content embeddings (larger dimension)
+VectorIndexConfiguration contentConfig = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .build();
+VectorIndex<Document> contentIndex = vectorIndices.add("content", contentConfig, new ContentVectorizer());
+----
+
+== Hybrid Search
+
+Combine vector similarity search with traditional bitmap index filtering.
+
+[source, java]
+----
+// First, filter by category using bitmap index
+List<Long> categoryIds = bitmapIndex.query(
+    categoryIndexer.is("technology")
+).toList();
+
+// Then search within filtered results
+VectorSearchResult<Document> result = vectorIndex.search(queryVector, 10);
+
+// Combine results
+List<Document> hybridResults = result.stream()
+    .filter(e -> categoryIds.contains(e.entityId()))
+    .map(VectorSearchResult.Entry::entity)
+    .toList();
+----
+
+== Vectorizer Implementations
+
+=== Embedded Vectors
+
+When the vector is stored directly in the entity, set `isEmbedded()` to `true` to avoid duplicate storage.
+
+[source, java]
+----
+public class DocumentVectorizer extends Vectorizer<Document>
+{
+    @Override
+    public float[] vectorize(Document entity)
+    {
+        return entity.embedding();
+    }
+
+    @Override
+    public boolean isEmbedded()
+    {
+        return true;
+    }
+}
+----
+
+=== Computed Vectors
+
+When vectors are computed on-the-fly or fetched from an external service, set `isEmbedded()` to `false`.
+
+[source, java]
+----
+public class TextVectorizer extends Vectorizer<Document>
+{
+    private final EmbeddingService embeddingService;
+
+    public TextVectorizer(EmbeddingService embeddingService)
+    {
+        this.embeddingService = embeddingService;
+    }
+
+    @Override
+    public float[] vectorize(Document entity)
+    {
+        return embeddingService.embed(entity.text());
+    }
+
+    @Override
+    public boolean isEmbedded()
+    {
+        return false; // Vector will be stored separately
+    }
+}
+----
+
+CAUTION: When using computed vectors with an external service, be aware of potential latency during indexing operations. Consider pre-computing embeddings and storing them in the entity for better performance.
+
+== Benchmarking
+
+The library includes benchmark tests following https://ann-benchmarks.com/[ANN-Benchmarks] methodology.
+
+[source, bash]
+----
+# Run benchmark tests (disabled by default)
+mvn test -Dtest=VectorIndexBenchmarkTest \
+    -Djunit.jupiter.conditions.deactivate=org.junit.*DisabledCondition
+----
+
+=== Benchmark Results (10K vectors, 128 dimensions)
+
+[options="header",cols="1,1"]
+|===
+|Metric |Result
+
+|*Recall@10* (clustered data)
+|94.3%
+
+|*Recall@50* (clustered data)
+|100%
+
+|*QPS* (queries/second)
+|~10,000+
+
+|*Average latency*
+|< 0.1ms
+
+|*p99 latency*
+|< 0.2ms
+|===

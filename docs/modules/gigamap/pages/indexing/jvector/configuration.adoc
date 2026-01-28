@@ -1,0 +1,196 @@
+= JVector Configuration
+
+The `VectorIndexConfiguration` builder provides various options to tune the index for your specific use case.
+
+== Basic HNSW Parameters
+
+[options="header",cols="1,1,3"]
+|===
+|Parameter |Default |Description
+
+|`dimension`
+|(required)
+|Vector dimensionality. Must match the size of your embedding vectors.
+
+|`similarityFunction`
+|`COSINE`
+|Similarity metric (`COSINE`, `DOT_PRODUCT`, `EUCLIDEAN`).
+
+|`maxDegree`
+|16
+|Maximum connections per node in HNSW graph. Higher values improve recall but increase memory usage.
+
+|`beamWidth`
+|100
+|Search beam width during index construction. Higher values improve recall during construction.
+
+|`neighborOverflow`
+|1.2
+|Overflow factor for neighbor lists.
+
+|`alpha`
+|1.2
+|Pruning parameter for the HNSW graph.
+|===
+
+=== Example
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .maxDegree(32)
+    .beamWidth(200)
+    .build();
+----
+
+== On-Disk Storage
+
+For datasets that exceed available memory, enable on-disk storage to use memory-mapped files.
+
+[options="header",cols="1,1,3"]
+|===
+|Parameter |Default |Description
+
+|`onDisk`
+|`false`
+|Enable on-disk graph storage.
+
+|`indexDirectory`
+|`null`
+|Directory for index files. Required if `onDisk=true`.
+
+|`enablePqCompression`
+|`false`
+|Enable Product Quantization compression.
+
+|`pqSubspaces`
+|`0`
+|Number of PQ subspaces (0 = auto: dimension/4).
+|===
+
+=== Example
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/vectors"))
+    .enablePqCompression(true)
+    .pqSubspaces(48)  // Must divide dimension evenly
+    .build();
+----
+
+== Background Persistence
+
+Enable automatic asynchronous persistence to avoid blocking operations during writes.
+
+[options="header",cols="1,1,3"]
+|===
+|Parameter |Default |Description
+
+|`backgroundPersistence`
+|`false`
+|Enable automatic background persistence.
+
+|`persistenceIntervalMs`
+|`30000`
+|Check interval in milliseconds.
+
+|`minChangesBetweenPersists`
+|`100`
+|Minimum changes before persisting.
+
+|`persistOnShutdown`
+|`true`
+|Persist pending changes on `close()`.
+|===
+
+=== Example
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/vectors"))
+    .backgroundPersistence(true)
+    .persistenceIntervalMs(30_000)       // Check every 30 seconds
+    .minChangesBetweenPersists(100)      // Only persist if >= 100 changes
+    .persistOnShutdown(true)             // Persist on close()
+    .build();
+----
+
+== Background Optimization
+
+Enable periodic graph optimization to maintain query performance as the index grows.
+
+[options="header",cols="1,1,3"]
+|===
+|Parameter |Default |Description
+
+|`backgroundOptimization`
+|`false`
+|Enable automatic graph optimization.
+
+|`optimizationIntervalMs`
+|`60000`
+|Check interval in milliseconds.
+
+|`minChangesBetweenOptimizations`
+|`1000`
+|Minimum changes before optimizing.
+
+|`optimizeOnShutdown`
+|`false`
+|Optimize pending changes on `close()`.
+|===
+
+=== Example
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/vectors"))
+    .backgroundOptimization(true)
+    .optimizationIntervalMs(60_000)       // Check every 60 seconds
+    .minChangesBetweenOptimizations(1000) // Only optimize if >= 1000 changes
+    .optimizeOnShutdown(false)            // Skip for faster shutdown
+    .build();
+----
+
+== Parameter Guidelines
+
+The following table provides recommended parameter values based on dataset size.
+
+[options="header",cols="1,1,1,2"]
+|===
+|Use Case |maxDegree |beamWidth |Notes
+
+|Small dataset (<10K)
+|8-16
+|50-100
+|Lower values sufficient
+
+|Medium dataset (10K-1M)
+|16-32
+|100-200
+|Balanced trade-off
+
+|Large dataset (>1M)
+|32-64
+|200-400
+|Higher for better recall
+
+|High precision required
+|48-64
+|400-500
+|Maximum recall
+|===

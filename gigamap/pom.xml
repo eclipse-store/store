@@ -23,6 +23,7 @@
     <modules>
         <module>gigamap</module>
         <module>lucene</module>
+        <module>jvector</module>
     </modules>
 
 </project>
