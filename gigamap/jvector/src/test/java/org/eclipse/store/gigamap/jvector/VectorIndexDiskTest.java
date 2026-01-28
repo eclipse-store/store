@@ -1291,10 +1291,10 @@ class VectorIndexDiskTest
 
         try
         {
-            final VectorIndex.Internal<Document> internalIndex = (VectorIndex.Internal<Document>)index;
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
 
             // Initially, optimization count should be 0
-            assertEquals(0, internalIndex.getBackgroundOptimizationCount(),
+            assertEquals(0, defaultIndex.optimizationManager.getOptimizationCount(),
                 "Optimization count should be 0 initially");
 
             // Add vectors to trigger dirty state above threshold
@@ -1304,18 +1304,18 @@ class VectorIndexDiskTest
             }
 
             // Verify pending changes are tracked
-            assertTrue(internalIndex.getBackgroundOptimizationPendingChanges() > 0,
+            assertTrue(defaultIndex.optimizationManager.getPendingChangeCount() > 0,
                 "Pending changes should be tracked");
 
             // Wait for background optimization to run
             Thread.sleep(800);
 
             // Verify optimization was actually performed
-            assertTrue(internalIndex.getBackgroundOptimizationCount() >= 1,
+            assertTrue(defaultIndex.optimizationManager.getOptimizationCount() >= 1,
                 "Optimization should have been performed at least once");
 
             // Verify pending changes were reset
-            assertEquals(0, internalIndex.getBackgroundOptimizationPendingChanges(),
+            assertEquals(0, defaultIndex.optimizationManager.getPendingChangeCount(),
                 "Pending changes should be reset after optimization");
 
             // Verify search still works
@@ -1360,7 +1360,7 @@ class VectorIndexDiskTest
 
         try
         {
-            final VectorIndex.Internal<Document> internalIndex = (VectorIndex.Internal<Document>)index;
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
 
             // Add fewer vectors than the threshold
             for(int i = 0; i < 50; i++) // 50 < 500 threshold
@@ -1369,18 +1369,18 @@ class VectorIndexDiskTest
             }
 
             // Verify pending changes are tracked
-            assertEquals(50, internalIndex.getBackgroundOptimizationPendingChanges(),
+            assertEquals(50, defaultIndex.optimizationManager.getPendingChangeCount(),
                 "Pending changes should be 50");
 
             // Wait for multiple optimization intervals
             Thread.sleep(600);
 
             // Verify optimization was NOT performed (below threshold)
-            assertEquals(0, internalIndex.getBackgroundOptimizationCount(),
+            assertEquals(0, defaultIndex.optimizationManager.getOptimizationCount(),
                 "Optimization should NOT have been performed (below threshold)");
 
             // Verify pending changes are still tracked (not reset)
-            assertEquals(50, internalIndex.getBackgroundOptimizationPendingChanges(),
+            assertEquals(50, defaultIndex.optimizationManager.getPendingChangeCount(),
                 "Pending changes should still be 50 (not reset)");
 
             // Search should still work
@@ -1424,7 +1424,7 @@ class VectorIndexDiskTest
             new ComputedDocumentVectorizer()
         );
 
-        final VectorIndex.Internal<Document> internalIndex = (VectorIndex.Internal<Document>)index;
+        final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
 
         // Add vectors
         for(int i = 0; i < vectorCount; i++)
@@ -1433,11 +1433,11 @@ class VectorIndexDiskTest
         }
 
         // Verify pending changes are tracked
-        assertEquals(vectorCount, internalIndex.getBackgroundOptimizationPendingChanges(),
+        assertEquals(vectorCount, defaultIndex.optimizationManager.getPendingChangeCount(),
             "Pending changes should equal vector count");
 
         // Verify no optimization has run yet
-        assertEquals(0, internalIndex.getBackgroundOptimizationCount(),
+        assertEquals(0, defaultIndex.optimizationManager.getOptimizationCount(),
             "Optimization count should be 0 before close");
 
         // Verify search works before close
@@ -1483,7 +1483,7 @@ class VectorIndexDiskTest
             new ComputedDocumentVectorizer()
         );
 
-        final VectorIndex.Internal<Document> internalIndex = (VectorIndex.Internal<Document>)index;
+        final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
 
         // Add vectors
         for(int i = 0; i < vectorCount; i++)
@@ -1492,11 +1492,11 @@ class VectorIndexDiskTest
         }
 
         // Verify pending changes are tracked
-        assertEquals(vectorCount, internalIndex.getBackgroundOptimizationPendingChanges(),
+        assertEquals(vectorCount, defaultIndex.optimizationManager.getPendingChangeCount(),
             "Pending changes should equal vector count");
 
         // Verify no optimization has run yet
-        assertEquals(0, internalIndex.getBackgroundOptimizationCount(),
+        assertEquals(0, defaultIndex.optimizationManager.getOptimizationCount(),
             "Optimization count should be 0 before close");
 
         // Close the index (should NOT trigger optimize)
