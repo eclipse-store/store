@@ -581,6 +581,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * Called before persistence to ensure compressed vectors are ready.
          */
         public void trainCompressionIfNeeded();
+
+        /**
+         * Returns the number of times background optimization has been performed.
+         * Useful for testing and monitoring.
+         *
+         * @return the optimization count, or 0 if background optimization is not enabled
+         */
+        public long getBackgroundOptimizationCount();
+
+        /**
+         * Returns the pending change count for background optimization.
+         * Useful for testing and monitoring.
+         *
+         * @return the pending change count, or 0 if background optimization is not enabled
+         */
+        public int getBackgroundOptimizationPendingChanges();
     }
 
 
@@ -1405,6 +1421,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.pqManager.trainIfNeeded();
                 }
             }
+        }
+
+        @Override
+        public long getBackgroundOptimizationCount()
+        {
+            return this.optimizationManager != null
+                ? this.optimizationManager.getOptimizationCount()
+                : 0;
+        }
+
+        @Override
+        public int getBackgroundOptimizationPendingChanges()
+        {
+            return this.optimizationManager != null
+                ? this.optimizationManager.getPendingChangeCount()
+                : 0;
         }
 
         private void validateDimension(final float[] vector)

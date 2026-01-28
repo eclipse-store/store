@@ -19,6 +19,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Manages background optimization for a VectorIndex.
@@ -52,6 +53,22 @@ interface BackgroundOptimizationManager
      */
     public void shutdown(boolean optimizePending);
 
+    /**
+     * Returns the number of times optimization has been performed.
+     * This is useful for testing and monitoring.
+     *
+     * @return the optimization count
+     */
+    public long getOptimizationCount();
+
+    /**
+     * Returns the current pending change count.
+     * This is useful for testing and monitoring.
+     *
+     * @return the pending change count
+     */
+    public int getPendingChangeCount();
+
 
     /**
      * Callback interface for the optimization manager to perform optimization.
@@ -78,7 +95,8 @@ interface BackgroundOptimizationManager
         private final int                      minChanges;
         private final ScheduledExecutorService scheduler ;
 
-        private final AtomicInteger changeCount = new AtomicInteger(0);
+        private final AtomicInteger changeCount       = new AtomicInteger(0);
+        private final AtomicLong   optimizationCount = new AtomicLong(0);
 
         private ScheduledFuture<?> scheduledTask;
         private volatile boolean   shutdown     = false;
@@ -107,6 +125,18 @@ interface BackgroundOptimizationManager
         public void markDirty(final int count)
         {
             this.changeCount.addAndGet(count);
+        }
+
+        @Override
+        public long getOptimizationCount()
+        {
+            return this.optimizationCount.get();
+        }
+
+        @Override
+        public int getPendingChangeCount()
+        {
+            return this.changeCount.get();
         }
 
         @Override
@@ -151,8 +181,9 @@ interface BackgroundOptimizationManager
             {
                 this.callback.optimize();
 
-                // Reset change count after successful optimization
+                // Reset change count and increment optimization counter after success
                 this.changeCount.set(0);
+                this.optimizationCount.incrementAndGet();
 
                 LOG.debug("Background optimization completed for '{}'", this.name);
             }
