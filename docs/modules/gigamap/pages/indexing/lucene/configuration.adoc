@@ -1,0 +1,167 @@
+= Lucene Configuration
+
+The `LuceneContext` provides configuration options for the Lucene index.
+
+== LuceneContext Factory Methods
+
+[source, java]
+----
+// Embedded storage (persisted with GigaMap)
+LuceneContext<E> context = LuceneContext.New(documentPopulator);
+
+// File system storage (MMapDirectory)
+LuceneContext<E> context = LuceneContext.New(directoryPath, documentPopulator);
+
+// Custom directory creator
+LuceneContext<E> context = LuceneContext.New(directoryCreator, documentPopulator);
+
+// Full customization
+LuceneContext<E> context = LuceneContext.New(directoryCreator, analyzerCreator, documentPopulator);
+----
+
+== Directory Creators
+
+The `DirectoryCreator` controls where index data is stored.
+
+[options="header",cols="1,2,2"]
+|===
+|Creator |Description |Use Case
+
+|Embedded (default)
+|Stores data inside the GigaMap object graph
+|When you want the index persisted with your data
+
+|`DirectoryCreator.MMap(path)`
+|Memory-mapped file storage
+|Production environments, large indexes
+
+|`DirectoryCreator.ByteBuffers()`
+|In-memory storage
+|Testing, temporary indexes
+|===
+
+=== Embedded Storage
+
+When no directory creator is specified, the index data is stored inside the GigaMap's object graph. This means the index is automatically persisted when the GigaMap is stored with EclipseStore.
+
+[source, java]
+----
+LuceneContext<Article> context = LuceneContext.New(
+    new ArticleDocumentPopulator()
+);
+----
+
+=== MMap Directory
+
+For large indexes or when you want separate storage, use memory-mapped file storage.
+
+[source, java]
+----
+LuceneContext<Article> context = LuceneContext.New(
+    Paths.get("/data/lucene-index"),
+    new ArticleDocumentPopulator()
+);
+
+// Or explicitly
+LuceneContext<Article> context = LuceneContext.New(
+    DirectoryCreator.MMap(Paths.get("/data/lucene-index")),
+    new ArticleDocumentPopulator()
+);
+----
+
+=== ByteBuffers Directory
+
+For testing or temporary in-memory indexes.
+
+[source, java]
+----
+LuceneContext<Article> context = LuceneContext.New(
+    DirectoryCreator.ByteBuffers(),
+    new ArticleDocumentPopulator()
+);
+----
+
+== Analyzer Creators
+
+The `AnalyzerCreator` controls how text is tokenized and processed.
+
+=== Standard Analyzer (Default)
+
+The default analyzer tokenizes on word boundaries, removes common stopwords, and lowercases text.
+
+[source, java]
+----
+// Uses StandardAnalyzer by default
+LuceneContext<Article> context = LuceneContext.New(
+    new ArticleDocumentPopulator()
+);
+
+// Or explicitly
+LuceneContext<Article> context = LuceneContext.New(
+    DirectoryCreator.ByteBuffers(),
+    AnalyzerCreator.Standard(),
+    new ArticleDocumentPopulator()
+);
+----
+
+=== Custom Analyzer
+
+For language-specific or domain-specific text processing, create a custom `AnalyzerCreator`.
+
+[source, java]
+----
+public class GermanAnalyzerCreator extends AnalyzerCreator
+{
+    @Override
+    public Analyzer create()
+    {
+        return new GermanAnalyzer();
+    }
+}
+
+LuceneContext<Article> context = LuceneContext.New(
+    DirectoryCreator.MMap(indexPath),
+    new GermanAnalyzerCreator(),
+    new ArticleDocumentPopulator()
+);
+----
+
+== Auto-Commit
+
+By default, changes are automatically committed after each operation. For bulk operations, you may want to disable auto-commit for better performance.
+
+[source, java]
+----
+// Manual commit for bulk operations
+LuceneContext<Article> context = LuceneContext.builder()
+    .documentPopulator(new ArticleDocumentPopulator())
+    .autoCommit(false)
+    .build();
+
+GigaMap<Article> articles = GigaMap.New();
+LuceneIndex<Article> luceneIndex = articles.index().register(LuceneIndex.Category(context));
+
+// Add many entities
+for (Article article : bulkArticles)
+{
+    articles.add(article);
+}
+
+// Commit once at the end
+luceneIndex.commit();
+----
+
+== Thread Safety
+
+All Lucene index operations are synchronized on the parent GigaMap, making the index safe for concurrent access from multiple threads.
+
+== Resource Management
+
+The Lucene index implements `Closeable`. Call `close()` to release resources.
+
+[source, java]
+----
+luceneIndex.close();
+----
+
+After closing, the index can be re-initialized on the next query.

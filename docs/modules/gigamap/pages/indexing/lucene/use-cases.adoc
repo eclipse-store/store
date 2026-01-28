@@ -1,0 +1,410 @@
+= Use Cases
+
+This section provides recommended configurations and examples for common use cases.
+
+== Product Catalog Search
+
+Enable customers to search products by name, description, or other attributes.
+
+[source, java]
+----
+public class Product
+{
+    private long id;
+    private String name;
+    private String description;
+    private String category;
+    private String brand;
+    private double price;
+    private int stock;
+    // ...
+}
+
+public class ProductDocumentPopulator extends DocumentPopulator<Product>
+{
+    @Override
+    public void populate(Document document, Product product)
+    {
+        // Full-text searchable fields
+        document.add(createTextField("name", product.getName()));
+        document.add(createTextField("description", product.getDescription()));
+        document.add(createTextField("brand", product.getBrand()));
+
+        // Exact match fields for filtering
+        document.add(createStringField("category", product.getCategory()));
+
+        // Numeric fields for range queries
+        document.add(createDoubleField("price", product.getPrice()));
+        document.add(createIntField("stock", product.getStock()));
+    }
+}
+----
+
+[source, java]
+----
+// Setup
+LuceneContext<Product> context = LuceneContext.New(
+    Paths.get("/data/product-index"),
+    new ProductDocumentPopulator()
+);
+
+GigaMap<Product> products = GigaMap.New();
+LuceneIndex<Product> searchIndex = products.index().register(LuceneIndex.Category(context));
+
+// Search by keyword
+List<Product> results = searchIndex.query("name:wireless");
+
+// Search across multiple fields
+List<Product> results = searchIndex.query("name:bluetooth OR description:bluetooth");
+
+// Filter by category
+List<Product> electronics = searchIndex.query("category:Electronics");
+
+// Price range
+Query priceQuery = DoublePoint.newRangeQuery("price", 50.0, 200.0);
+List<Product> midRange = searchIndex.query(priceQuery);
+
+// In-stock items only
+Query stockQuery = IntPoint.newRangeQuery("stock", 1, Integer.MAX_VALUE);
+List<Product> available = searchIndex.query(stockQuery);
+----
+
+== Article/Blog Search
+
+Full-text search for articles, blog posts, or documentation.
+
+[source, java]
+----
+public class Article
+{
+    private long id;
+    private String title;
+    private String content;
+    private String author;
+    private String[] tags;
+    private LocalDate publishedDate;
+    // ...
+}
+
+public class ArticleDocumentPopulator extends DocumentPopulator<Article>
+{
+    @Override
+    public void populate(Document document, Article article)
+    {
+        document.add(createTextField("title", article.getTitle()));
+        document.add(createTextField("content", article.getContent()));
+        document.add(createStringField("author", article.getAuthor()));
+
+        // Index tags as searchable text
+        if (article.getTags() != null)
+        {
+            for (String tag : article.getTags())
+            {
+                document.add(createStringField("tag", tag));
+            }
+        }
+
+        // Store date as long for range queries
+        if (article.getPublishedDate() != null)
+        {
+            document.add(createLongField("publishedDate",
+                article.getPublishedDate().toEpochDay()));
+        }
+    }
+}
+----
+
+[source, java]
+----
+// Search in title
+List<Article> results = searchIndex.query("title:\"machine learning\"");
+
+// Search in content
+List<Article> results = searchIndex.query("content:tutorial");
+
+// Search by author
+List<Article> byAuthor = searchIndex.query("author:Jane");
+
+// Search by tag
+List<Article> tagged = searchIndex.query("tag:python");
+
+// Recent articles (last 30 days)
+long thirtyDaysAgo = LocalDate.now().minusDays(30).toEpochDay();
+Query recentQuery = LongPoint.newRangeQuery("publishedDate", thirtyDaysAgo, Long.MAX_VALUE);
+List<Article> recent = searchIndex.query(recentQuery);
+----
+
+== Customer Search
+
+Search customers by name, email, or other identifying information.
+
+[source, java]
+----
+public class Customer
+{
+    private long id;
+    private String firstName;
+    private String lastName;
+    private String email;
+    private String phone;
+    private String city;
+    private String country;
+    // ...
+}
+
+public class CustomerDocumentPopulator extends DocumentPopulator<Customer>
+{
+    @Override
+    public void populate(Document document, Customer customer)
+    {
+        // Full-text searchable for partial matching
+        document.add(createTextField("firstName", customer.getFirstName()));
+        document.add(createTextField("lastName", customer.getLastName()));
+        document.add(createTextField("fullName",
+            customer.getFirstName() + " " + customer.getLastName()));
+
+        // Exact match for email lookups
+        document.add(createStringField("email", customer.getEmail().toLowerCase()));
+
+        // Searchable location
+        document.add(createTextField("city", customer.getCity()));
+        document.add(createStringField("country", customer.getCountry()));
+    }
+}
+----
+
+[source, java]
+----
+// Search by name (partial match)
+List<Customer> results = searchIndex.query("fullName:John*");
+
+// Exact email lookup
+List<Customer> byEmail = searchIndex.query("email:john.doe@example.com");
+
+// Search by city
+List<Customer> berliners = searchIndex.query("city:Berlin");
+
+// Filter by country
+List<Customer> german = searchIndex.query("country:DE");
+----
+
+== Support Ticket Search
+
+Search support tickets and knowledge base articles.
+
+[source, java]
+----
+public class SupportTicket
+{
+    private long id;
+    private String subject;
+    private String description;
+    private String status;
+    private String priority;
+    private String assignee;
+    private LocalDateTime createdAt;
+    // ...
+}
+
+public class TicketDocumentPopulator extends DocumentPopulator<SupportTicket>
+{
+    @Override
+    public void populate(Document document, SupportTicket ticket)
+    {
+        document.add(createTextField("subject", ticket.getSubject()));
+        document.add(createTextField("description", ticket.getDescription()));
+        document.add(createStringField("status", ticket.getStatus()));
+        document.add(createStringField("priority", ticket.getPriority()));
+        document.add(createStringField("assignee", ticket.getAssignee()));
+        document.add(createLongField("createdAt",
+            ticket.getCreatedAt().toEpochSecond(ZoneOffset.UTC)));
+    }
+}
+----
+
+[source, java]
+----
+// Search by keyword
+List<SupportTicket> results = searchIndex.query("subject:login OR description:login");
+
+// Find open tickets
+List<SupportTicket> open = searchIndex.query("status:OPEN");
+
+// High priority tickets
+List<SupportTicket> urgent = searchIndex.query("priority:HIGH");
+
+// Tickets assigned to specific agent
+List<SupportTicket> myTickets = searchIndex.query("assignee:agent123");
+
+// Combine filters
+List<SupportTicket> urgentOpen = searchIndex.query("status:OPEN AND priority:HIGH");
+----
+
+== Log Search
+
+Search application logs or audit trails.
+
+[source, java]
+----
+public class LogEntry
+{
+    private long id;
+    private String level;
+    private String message;
+    private String source;
+    private String traceId;
+    private long timestamp;
+    // ...
+}
+
+public class LogDocumentPopulator extends DocumentPopulator<LogEntry>
+{
+    @Override
+    public void populate(Document document, LogEntry entry)
+    {
+        document.add(createStringField("level", entry.getLevel()));
+        document.add(createTextField("message", entry.getMessage()));
+        document.add(createStringField("source", entry.getSource()));
+        document.add(createStringField("traceId", entry.getTraceId()));
+        document.add(createLongField("timestamp", entry.getTimestamp()));
+    }
+}
+----
+
+[source, java]
+----
+// Search for errors
+List<LogEntry> errors = searchIndex.query("level:ERROR");
+
+// Search by message content
+List<LogEntry> nullPointers = searchIndex.query("message:NullPointerException");
+
+// Filter by source
+List<LogEntry> authLogs = searchIndex.query("source:AuthService");
+
+// Trace a specific request
+List<LogEntry> trace = searchIndex.query("traceId:abc123");
+
+// Time range query
+long oneHourAgo = System.currentTimeMillis() - 3600000;
+Query recentQuery = LongPoint.newRangeQuery("timestamp", oneHourAgo, Long.MAX_VALUE);
+List<LogEntry> recentLogs = searchIndex.query(recentQuery);
+----
+
+== Multi-Language Content
+
+For multilingual content, use language-specific analyzers.
+
+[source, java]
+----
+public class GermanAnalyzerCreator extends AnalyzerCreator
+{
+    @Override
+    public Analyzer create()
+    {
+        return new GermanAnalyzer();
+    }
+}
+
+// German content index
+LuceneContext<Article> germanContext = LuceneContext.New(
+    DirectoryCreator.MMap(Paths.get("/data/german-index")),
+    new GermanAnalyzerCreator(),
+    new ArticleDocumentPopulator()
+);
+----
+
+For content in multiple languages, consider:
+
+1. **Separate indexes per language** - Best accuracy, more complex setup
+2. **Language field with standard analyzer** - Simpler, less accurate for non-English
+3. **ICU analyzer** - Good multilingual support
+
+== Combining with Bitmap Index
+
+Use Lucene for full-text search and Bitmap for exact filtering.
+
+[source, java]
+----
+// Setup both indexes
+GigaMap<Product> products = GigaMap.New();
+
+// Lucene for text search
+LuceneIndex<Product> textSearch = products.index().register(
+    LuceneIndex.Category(LuceneContext.New(new ProductDocumentPopulator()))
+);
+
+// Bitmap for exact filtering
+IndexerString<Product> categoryIndexer = new IndexerString<>()
+{
+    @Override
+    protected String getString(Product p) { return p.getCategory(); }
+};
+products.index().bitmap().add(categoryIndexer);
+
+// Query: Full-text search + category filter
+List<Product> textResults = textSearch.query("name:wireless");
+List<Product> filtered = products.query(categoryIndexer.is("Electronics"))
+    .filter(textResults::contains)
+    .toList();
+----
+
+== Search-as-You-Type
+
+For autocomplete or search-as-you-type features, use wildcard queries.
+
+[source, java]
+----
+public List<Product> searchAsYouType(String input, int limit)
+{
+    if (input == null || input.length() < 2)
+    {
+        return Collections.emptyList();
+    }
+
+    // Escape special characters and add wildcard
+    String sanitized = QueryParser.escape(input.toLowerCase());
+    String query = "name:" + sanitized + "*";
+
+    return searchIndex.query(query, limit);
+}
+----
+
+CAUTION: Wildcard queries can be slow on large indexes. Consider using edge n-grams for better performance in production.
+
+== Configuration Summary
+
+[options="header",cols="2,1,1,2"]
+|===
+|Use Case |Storage |Analyzer |Notes
+
+|Product Catalog
+|MMap
+|Standard
+|Persistent, supports numeric ranges
+
+|Article/Blog
+|MMap
+|Standard
+|Date filtering via long field
+
+|Customer Search
+|MMap
+|Standard
+|Case-insensitive email matching
+
+|Support Tickets
+|MMap
+|Standard
+|Status/priority exact match
+
+|Log Search
+|ByteBuffers
+|Standard
+|In-memory for recent logs
+
+|Multi-Language
+|MMap
+|Language-specific
+|Separate indexes recommended
+|===
