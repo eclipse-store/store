@@ -19,7 +19,7 @@
     <url>https://projects.eclipse.org/projects/technology.store</url>
 
     <properties>
-        <jvector.version>4.0.0-rc.6</jvector.version>
+        <jvector.version>4.0.0-rc.7</jvector.version>
     </properties>
 
     <dependencies>
