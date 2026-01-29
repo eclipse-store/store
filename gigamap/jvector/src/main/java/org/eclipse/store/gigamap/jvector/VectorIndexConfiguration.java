@@ -671,9 +671,9 @@ public interface VectorIndexConfiguration
             private static final Logger LOG = LoggerFactory.getLogger(Default.class);
 
             /**
-             * FusedADC compression requires maxDegree to be exactly 32.
+             * FusedPQ compression requires maxDegree to be exactly 32.
              */
-            private static final int FUSED_ADC_REQUIRED_MAX_DEGREE = 32;
+            private static final int FUSED_PQ_REQUIRED_MAX_DEGREE = 32;
 
             private int                      dimension                    ;
             private VectorSimilarityFunction similarityFunction           ;
@@ -885,12 +885,12 @@ public interface VectorIndexConfiguration
                     );
                 }
 
-                // FusedADC requires maxDegree=32 - enforce when compression is enabled
-                if(this.enablePqCompression && this.maxDegree != FUSED_ADC_REQUIRED_MAX_DEGREE)
+                // FusedPQ requires maxDegree=32 - enforce when compression is enabled
+                if(this.enablePqCompression && this.maxDegree != FUSED_PQ_REQUIRED_MAX_DEGREE)
                 {
-                    LOG.warn("FusedADC requires maxDegree={}, overriding configured value {}",
-                        FUSED_ADC_REQUIRED_MAX_DEGREE, this.maxDegree);
-                    this.maxDegree = FUSED_ADC_REQUIRED_MAX_DEGREE;
+                    LOG.warn("FusedPQ requires maxDegree={}, overriding configured value {}",
+                        FUSED_PQ_REQUIRED_MAX_DEGREE, this.maxDegree);
+                    this.maxDegree = FUSED_PQ_REQUIRED_MAX_DEGREE;
                 }
 
                 return new VectorIndexConfiguration.Default(

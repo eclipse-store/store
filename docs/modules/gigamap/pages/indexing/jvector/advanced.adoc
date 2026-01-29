@@ -22,7 +22,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .build();
 ----
 
-NOTE: PQ compression automatically enforces `maxDegree=32` due to the FusedADC algorithm constraint.
+NOTE: PQ compression automatically enforces `maxDegree=32` due to the FusedPQ algorithm constraint.
 
 == Production Configuration
 
