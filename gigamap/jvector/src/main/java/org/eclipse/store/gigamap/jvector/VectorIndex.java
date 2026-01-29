@@ -629,7 +629,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private transient DiskIndexManager              diskManager        ;
         private transient PQCompressionManager          pqManager          ;
         private transient BackgroundPersistenceManager  persistenceManager ;
-        private transient BackgroundOptimizationManager optimizationManager;
+        transient BackgroundOptimizationManager optimizationManager;
 
         // GraphSearcher pool for thread-local reuse
         private transient ExplicitThreadLocal<GraphSearcher> searcherPool;

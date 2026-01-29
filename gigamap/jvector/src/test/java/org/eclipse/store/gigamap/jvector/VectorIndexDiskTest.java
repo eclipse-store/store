@@ -1291,16 +1291,34 @@ class VectorIndexDiskTest
 
         try
         {
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
+
+            // Initially, optimization count should be 0
+            assertEquals(0, defaultIndex.optimizationManager.getOptimizationCount(),
+                "Optimization count should be 0 initially");
+
             // Add vectors to trigger dirty state above threshold
             for(int i = 0; i < 50; i++)
             {
                 gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
             }
 
+            // Verify pending changes are tracked
+            assertTrue(defaultIndex.optimizationManager.getPendingChangeCount() > 0,
+                "Pending changes should be tracked");
+
             // Wait for background optimization to run
             Thread.sleep(800);
 
-            // Verify search still works (optimization should have completed)
+            // Verify optimization was actually performed
+            assertTrue(defaultIndex.optimizationManager.getOptimizationCount() >= 1,
+                "Optimization should have been performed at least once");
+
+            // Verify pending changes were reset
+            assertEquals(0, defaultIndex.optimizationManager.getPendingChangeCount(),
+                "Pending changes should be reset after optimization");
+
+            // Verify search still works
             final VectorSearchResult<Document> result = index.search(randomVector(random, dimension), 10);
             assertEquals(10, result.size());
         }
@@ -1342,16 +1360,30 @@ class VectorIndexDiskTest
 
         try
         {
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
+
             // Add fewer vectors than the threshold
             for(int i = 0; i < 50; i++) // 50 < 500 threshold
             {
                 gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
             }
 
+            // Verify pending changes are tracked
+            assertEquals(50, defaultIndex.optimizationManager.getPendingChangeCount(),
+                "Pending changes should be 50");
+
             // Wait for multiple optimization intervals
             Thread.sleep(600);
 
-            // Search should still work (index should be fine, optimization was just skipped)
+            // Verify optimization was NOT performed (below threshold)
+            assertEquals(0, defaultIndex.optimizationManager.getOptimizationCount(),
+                "Optimization should NOT have been performed (below threshold)");
+
+            // Verify pending changes are still tracked (not reset)
+            assertEquals(50, defaultIndex.optimizationManager.getPendingChangeCount(),
+                "Pending changes should still be 50 (not reset)");
+
+            // Search should still work
             final VectorSearchResult<Document> result = index.search(randomVector(random, dimension), 10);
             assertEquals(10, result.size());
         }
@@ -1392,19 +1424,32 @@ class VectorIndexDiskTest
             new ComputedDocumentVectorizer()
         );
 
+        final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
+
         // Add vectors
         for(int i = 0; i < vectorCount; i++)
         {
             gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
         }
 
+        // Verify pending changes are tracked
+        assertEquals(vectorCount, defaultIndex.optimizationManager.getPendingChangeCount(),
+            "Pending changes should equal vector count");
+
+        // Verify no optimization has run yet
+        assertEquals(0, defaultIndex.optimizationManager.getOptimizationCount(),
+            "Optimization count should be 0 before close");
+
         // Verify search works before close
         final VectorSearchResult<Document> resultBefore = index.search(randomVector(random, dimension), 10);
         assertEquals(10, resultBefore.size());
 
         // Close the index (should trigger optimize due to optimizeOnShutdown=true)
-        // This verifies no exception is thrown during optimization
         index.close();
+
+        // Note: After close(), we can't verify the count changed because the manager is shutdown.
+        // But we verified above that pending changes existed and the interval hadn't triggered.
+        // The fact that close() completed without error indicates optimization was attempted.
     }
 
     /**
@@ -1438,15 +1483,30 @@ class VectorIndexDiskTest
             new ComputedDocumentVectorizer()
         );
 
+        final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
+
         // Add vectors
         for(int i = 0; i < vectorCount; i++)
         {
             gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
         }
 
+        // Verify pending changes are tracked
+        assertEquals(vectorCount, defaultIndex.optimizationManager.getPendingChangeCount(),
+            "Pending changes should equal vector count");
+
+        // Verify no optimization has run yet
+        assertEquals(0, defaultIndex.optimizationManager.getOptimizationCount(),
+            "Optimization count should be 0 before close");
+
         // Close the index (should NOT trigger optimize)
-        // This just verifies shutdown completes without error
         index.close();
+
+        // Note: After close(), we can't access the manager. But we verified:
+        // 1. Pending changes existed
+        // 2. No background optimization had run
+        // 3. optimizeOnShutdown=false was set
+        // So the pending changes should remain unoptimized.
     }
 
     /**
