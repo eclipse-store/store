@@ -100,7 +100,7 @@ class VectorIndexDiskTest
 
     /**
      * Test on-disk configuration with compression.
-     * FusedADC requires maxDegree=32, so it should be auto-set.
+     * FusedPQ requires maxDegree=32, so it should be auto-set.
      */
     @Test
     void testOnDiskConfigurationWithCompression(@TempDir final Path tempDir)
@@ -110,7 +110,7 @@ class VectorIndexDiskTest
         final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
             .dimension(128)
             .similarityFunction(VectorSimilarityFunction.COSINE)
-            .maxDegree(16) // Will be overridden to 32 for FusedADC
+            .maxDegree(16) // Will be overridden to 32 for FusedPQ
             .onDisk(true)
             .indexDirectory(indexDir)
             .enablePqCompression(true)
@@ -120,14 +120,14 @@ class VectorIndexDiskTest
         assertTrue(config.onDisk());
         assertTrue(config.enablePqCompression());
         assertEquals(32, config.pqSubspaces());
-        assertEquals(32, config.maxDegree(), "FusedADC requires maxDegree=32");
+        assertEquals(32, config.maxDegree(), "FusedPQ requires maxDegree=32");
     }
 
     /**
      * Test that maxDegree is auto-set to 32 when compression is enabled.
      */
     @Test
-    void testFusedADCRequiresMaxDegree32(@TempDir final Path tempDir)
+    void testFusedPQRequiresMaxDegree32(@TempDir final Path tempDir)
     {
         final Path indexDir = tempDir.resolve("index");
 
@@ -141,7 +141,7 @@ class VectorIndexDiskTest
             .build();
 
         // Should be overridden to 32
-        assertEquals(32, config.maxDegree(), "FusedADC should enforce maxDegree=32");
+        assertEquals(32, config.maxDegree(), "FusedPQ should enforce maxDegree=32");
     }
 
     /**
@@ -351,11 +351,11 @@ class VectorIndexDiskTest
         // Persist to disk
         index.persistToDisk();
 
-        // Verify graph file was created (FusedADC is embedded in graph, no separate .pq file)
+        // Verify graph file was created (FusedPQ is embedded in graph, no separate .pq file)
         assertTrue(Files.exists(indexDir.resolve("embeddings.graph")));
         assertTrue(Files.exists(indexDir.resolve("embeddings.meta")));
         assertFalse(Files.exists(indexDir.resolve("embeddings.pq")),
-            "FusedADC should be embedded in graph file, not in separate .pq file");
+            "FusedPQ should be embedded in graph file, not in separate .pq file");
     }
 
     /**

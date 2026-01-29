@@ -220,7 +220,7 @@ To benchmark with real SIFT data:
 ## Limitations
 
 - **~2.1 billion vectors per index**: JVector uses `int` for graph node ordinals. For larger datasets, implement sharding across multiple indices.
-- **PQ compression requires maxDegree=32**: FusedADC algorithm constraint (auto-enforced).
+- **PQ compression requires maxDegree=32**: FusedPQ algorithm constraint (auto-enforced).
 
 ## Building
 

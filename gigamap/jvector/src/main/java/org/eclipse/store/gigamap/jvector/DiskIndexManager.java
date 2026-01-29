@@ -22,7 +22,7 @@ import io.github.jbellis.jvector.graph.disk.OnDiskGraphIndex;
 import io.github.jbellis.jvector.graph.disk.OnDiskGraphIndexWriter;
 import io.github.jbellis.jvector.graph.disk.feature.Feature;
 import io.github.jbellis.jvector.graph.disk.feature.FeatureId;
-import io.github.jbellis.jvector.graph.disk.feature.FusedADC;
+import io.github.jbellis.jvector.graph.disk.feature.FusedPQ;
 import io.github.jbellis.jvector.graph.disk.feature.InlineVectors;
 import io.github.jbellis.jvector.quantization.PQVectors;
 import io.github.jbellis.jvector.quantization.ProductQuantization;
@@ -42,7 +42,7 @@ import java.util.function.IntFunction;
  * This manager handles:
  * <ul>
  *   <li>Loading graph indices from disk</li>
- *   <li>Writing graph indices to disk with optional FusedADC compression</li>
+ *   <li>Writing graph indices to disk with optional FusedPQ compression</li>
  *   <li>Metadata file management for version and configuration verification</li>
  *   <li>Resource cleanup (file handles, memory-mapped buffers)</li>
  * </ul>
@@ -190,7 +190,7 @@ interface DiskIndexManager extends Closeable
                 }
 
                 // Load the on-disk graph index
-                // FusedADC and InlineVectors features are embedded in the graph file
+                // FusedPQ and InlineVectors features are embedded in the graph file
                 this.readerSupplier = ReaderSupplierFactory.open(graphPath);
                 this.diskIndex = OnDiskGraphIndex.load(this.readerSupplier);
 
@@ -256,7 +256,7 @@ interface DiskIndexManager extends Closeable
             // pqManager is only non-null when PQ compression is enabled
             if(pqManager != null && pqManager.isTrained() && pqManager.getPQ() != null)
             {
-                this.writeIndexWithFusedADC(index, ravv, pqManager.getPQ(), graphPath);
+                this.writeIndexWithFusedPQ(index, ravv, pqManager.getPQ(), graphPath);
             }
             else
             {
@@ -271,9 +271,9 @@ interface DiskIndexManager extends Closeable
         }
 
         /**
-         * Writes the index using OnDiskGraphIndexWriter with FusedADC for compressed search.
+         * Writes the index using OnDiskGraphIndexWriter with FusedPQ for compressed search.
          */
-        private void writeIndexWithFusedADC(
+        private void writeIndexWithFusedPQ(
             final OnHeapGraphIndex         index    ,
             final RandomAccessVectorValues ravv     ,
             final ProductQuantization      pq       ,
@@ -285,12 +285,12 @@ interface DiskIndexManager extends Closeable
 
             // Create features for the on-disk index
             final InlineVectors inlineVectors = new InlineVectors(this.dimension);
-            final FusedADC fusedADC = new FusedADC(this.maxDegree, pq);
+            final FusedPQ fusedPQ = new FusedPQ(this.maxDegree, pq);
 
             // Build writer with features using sequential renumbering (identity mapping)
             try(final OnDiskGraphIndexWriter writer = new OnDiskGraphIndexWriter.Builder(index, graphPath)
                 .with(inlineVectors)
-                .with(fusedADC)
+                .with(fusedPQ)
                 .build())
             {
                 // Create feature suppliers that provide feature state for each node
@@ -300,10 +300,10 @@ interface DiskIndexManager extends Closeable
                     new InlineVectors.State(ravv.getVector(nodeId))
                 );
 
-                // Get a view for FusedADC state creation
+                // Get a view for FusedPQ state creation
                 final var view = index.getView();
-                suppliers.put(FeatureId.FUSED_ADC, nodeId ->
-                    new FusedADC.State(view, pqVectors, nodeId)
+                suppliers.put(FeatureId.FUSED_PQ, nodeId ->
+                    new FusedPQ.State(view, pqVectors, nodeId)
                 );
 
                 // Write with sequential renumbering (maintains ordinals)
@@ -313,7 +313,7 @@ interface DiskIndexManager extends Closeable
                 view.close();
             }
 
-            LOG.info("Wrote index '{}' with FusedADC compression ({} nodes)", this.name, index.size(0));
+            LOG.info("Wrote index '{}' with FusedPQ compression ({} nodes)", this.name, index.size(0));
         }
 
         /**

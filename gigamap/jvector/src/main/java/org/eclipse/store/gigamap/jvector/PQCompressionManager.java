@@ -98,7 +98,7 @@ interface PQCompressionManager
     );
 
     /**
-     * Marks PQ as trained (used when loading from disk where FusedADC is embedded).
+     * Marks PQ as trained (used when loading from disk where FusedPQ is embedded).
      */
     public void markTrained();
 

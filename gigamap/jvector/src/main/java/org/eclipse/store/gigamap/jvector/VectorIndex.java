@@ -795,11 +795,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 if(this.diskManager.tryLoad())
                 {
                     this.graphLoadedFromFile = true;
-                    // Mark PQ as trained if compression was enabled (FusedADC is embedded)
+                    // Mark PQ as trained if compression was enabled (FusedPQ is embedded)
                     if(this.pqManager != null)
                     {
                         this.pqManager.markTrained();
-                        LOG.debug("FusedADC compression loaded from disk for '{}'", this.name);
+                        LOG.debug("FusedPQ compression loaded from disk for '{}'", this.name);
                     }
                     // Initialize searcher pool for disk index
                     this.initializeSearcherPool();
