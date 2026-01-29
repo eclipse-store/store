@@ -1097,7 +1097,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void addVectorEntries(final List<VectorEntry> entries)
         {
-            // 1. Store vectors in GigaMap (synchronized - GigaMap requirement)
             synchronized(this.parentMap())
             {
                 this.ensureIndexInitialized();
@@ -1106,16 +1105,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     this.vectorStore.addAll(new ProjectingIterable<>(entries, e -> e.vector));
                 }
-            }
 
-            // 2. Build graph sequentially
-            // Note: addGraphNode() does not scale well with concurrent callers
-            // despite being documented as thread-safe (causes deadlock/severe contention)
-            this.addGraphNodesSequential(entries);
+                this.addGraphNodesSequential(entries);
 
-            // 3. Mark state change (synchronized)
-            synchronized(this.parentMap())
-            {
                 this.markStateChangeChildren();
 
                 // Mark dirty for background managers (with count for debouncing)
