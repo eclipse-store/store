@@ -367,6 +367,11 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
                 throw new IllegalArgumentException("Index name may not be empty.");
             }
 
+            if(indexName.contains("/") || indexName.contains("\\"))
+            {
+                throw new IllegalArgumentException("Index name may not contain '/' or '\\' characters.");
+            }
+
             if(indexName.length() > 200)
             {
                 throw new IllegalArgumentException(
