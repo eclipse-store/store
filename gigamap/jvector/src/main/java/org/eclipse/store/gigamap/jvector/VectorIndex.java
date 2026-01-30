@@ -875,7 +875,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void initializeInMemoryBuilder()
         {
-            final RandomAccessVectorValues ravv = this.createVectorValues();
+            final RandomAccessVectorValues ravv = new NullSafeVectorValues(
+                this.createVectorValues(), this.configuration.dimension(), this.vectorTypeSupport
+            );
             final BuildScoreProvider bsp = BuildScoreProvider.randomAccessScoreProvider(
                 ravv,
                 this.jvectorSimilarityFunction()
@@ -1250,7 +1252,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             );
 
             final GraphSearcher searcher = this.searcherPool.get();
-            return searcher.search(ssp, k, Bits.ALL);
+            final Bits acceptBits = this.index != null ? this.index.getView().liveNodes() : Bits.ALL;
+            return searcher.search(ssp, k, acceptBits);
         }
 
         /**
@@ -1281,15 +1284,19 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             );
 
             final GraphSearcher searcher = this.searcherPool.get();
-            return searcher.search(ssp, k, Bits.ALL);
+            final Bits acceptBits = this.index != null ? this.index.getView().liveNodes() : Bits.ALL;
+            return searcher.search(ssp, k, acceptBits);
         }
 
         /**
          * Creates caching vector values for search operations.
+         * Wrapped with {@link NullSafeVectorValues} so that deleted nodes
+         * (whose vectors are {@code null}) return a safe placeholder instead
+         * of causing NPE/NaN during JVector graph traversal.
          */
         private RandomAccessVectorValues createCachingVectorValues()
         {
-            return this.isEmbedded()
+            final RandomAccessVectorValues raw = this.isEmbedded()
                 ? new EntityBackedVectorValues.Caching<>(
                     this.parentMap(),
                     this.vectorizer,
@@ -1301,6 +1308,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.configuration.dimension(),
                     this.vectorTypeSupport
                 );
+            return new NullSafeVectorValues(raw, this.configuration.dimension(), this.vectorTypeSupport);
         }
 
         /**
