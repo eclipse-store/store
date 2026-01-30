@@ -1632,4 +1632,681 @@ class VectorIndexTest
         assertTrue(maxScore.isPresent());
         assertEquals(0.95f, maxScore.get(), "Max score should be 0.95");
     }
+
+    // ==================== Remove Tests ====================
+
+    /**
+     * Test that removing an entity excludes it from search results.
+     * Uses embedded vectorizer.
+     */
+    @Test
+    void testRemoveEntityExcludedFromSearch()
+    {
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(3)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .build();
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings",
+            config,
+            new EmbeddedDocumentVectorizer()
+        );
+
+        final Document doc1 = new Document("Hello world", new float[]{1.0f, 0.0f, 0.0f});
+        final Document doc2 = new Document("Hello there", new float[]{0.9f, 0.1f, 0.0f});
+        final Document doc3 = new Document("Goodbye world", new float[]{0.0f, 1.0f, 0.0f});
+
+        gigaMap.add(doc1);
+        gigaMap.add(doc2);
+        gigaMap.add(doc3);
+
+        // Remove doc1 by ID (first added entity has ID 0)
+        final Document removed = gigaMap.removeById(0L);
+        assertNotNull(removed, "Removed entity should be returned");
+        assertEquals("Hello world", removed.content());
+
+        // Search for vector closest to doc1 - doc1 should NOT appear
+        final VectorSearchResult<Document> result = index.search(new float[]{1.0f, 0.0f, 0.0f}, 2);
+        assertNotNull(result);
+        assertEquals(2, result.size());
+
+        final List<String> contents = result.stream()
+            .map(e -> e.entity().content())
+            .collect(Collectors.toList());
+        assertFalse(contents.contains("Hello world"), "Removed entity should not appear in search results");
+    }
+
+    /**
+     * Test removing an entity with computed (non-embedded) vectorizer.
+     * Vectors are stored separately and must also be removed.
+     */
+    @Test
+    void testRemoveWithComputedVectorizer()
+    {
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(3)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .build();
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings",
+            config,
+            new ComputedDocumentVectorizer()
+        );
+
+        final Document doc1 = new Document("First", new float[]{1.0f, 0.0f, 0.0f});
+        final Document doc2 = new Document("Second", new float[]{0.9f, 0.1f, 0.0f});
+        final Document doc3 = new Document("Third", new float[]{0.0f, 1.0f, 0.0f});
+
+        gigaMap.add(doc1);
+        gigaMap.add(doc2);
+        gigaMap.add(doc3);
+
+        // Remove doc1
+        gigaMap.removeById(0L);
+
+        // Search for vector closest to doc1 - should not find it
+        final VectorSearchResult<Document> result = index.search(new float[]{1.0f, 0.0f, 0.0f}, 2);
+        assertEquals(2, result.size());
+
+        final List<String> contents = result.stream()
+            .map(e -> e.entity().content())
+            .collect(Collectors.toList());
+        assertFalse(contents.contains("First"), "Removed entity should not appear in search results");
+        assertTrue(contents.contains("Second"), "Non-removed similar entity should still appear");
+    }
+
+    /**
+     * Test removing multiple entities one by one.
+     */
+    @Test
+    void testRemoveMultipleEntities()
+    {
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(3)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .build();
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings",
+            config,
+            new EmbeddedDocumentVectorizer()
+        );
+
+        gigaMap.add(new Document("doc0", new float[]{1.0f, 0.0f, 0.0f}));
+        gigaMap.add(new Document("doc1", new float[]{0.0f, 1.0f, 0.0f}));
+        gigaMap.add(new Document("doc2", new float[]{0.0f, 0.0f, 1.0f}));
+        gigaMap.add(new Document("doc3", new float[]{0.7f, 0.7f, 0.0f}));
+
+        assertEquals(4, gigaMap.size());
+
+        // Remove two entities
+        gigaMap.removeById(0L);
+        gigaMap.removeById(2L);
+
+        assertEquals(2, gigaMap.size());
+
+        // Search should only return the remaining entities
+        final VectorSearchResult<Document> result = index.search(new float[]{1.0f, 0.0f, 0.0f}, 10);
+        assertEquals(2, result.size(), "Should only return 2 remaining entities");
+
+        final List<String> contents = result.stream()
+            .map(e -> e.entity().content())
+            .collect(Collectors.toList());
+        assertFalse(contents.contains("doc0"), "Removed doc0 should not appear");
+        assertFalse(contents.contains("doc2"), "Removed doc2 should not appear");
+        assertTrue(contents.contains("doc1"), "Non-removed doc1 should appear");
+        assertTrue(contents.contains("doc3"), "Non-removed doc3 should appear");
+    }
+
+    /**
+     * Test adding new entities after removal.
+     */
+    @Test
+    void testAddAfterRemove()
+    {
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(3)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .build();
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings",
+            config,
+            new ComputedDocumentVectorizer()
+        );
+
+        gigaMap.add(new Document("original1", new float[]{1.0f, 0.0f, 0.0f}));
+        gigaMap.add(new Document("original2", new float[]{0.0f, 1.0f, 0.0f}));
+
+        // Remove first entity
+        gigaMap.removeById(0L);
+        assertEquals(1, gigaMap.size());
+
+        // Add a new entity
+        gigaMap.add(new Document("new_doc", new float[]{0.9f, 0.1f, 0.0f}));
+        assertEquals(2, gigaMap.size());
+
+        // Search for the vector similar to the removed entity
+        final VectorSearchResult<Document> result = index.search(new float[]{1.0f, 0.0f, 0.0f}, 2);
+        assertEquals(2, result.size());
+
+        final List<String> contents = result.stream()
+            .map(e -> e.entity().content())
+            .collect(Collectors.toList());
+        assertFalse(contents.contains("original1"), "Removed entity should not appear");
+        assertTrue(contents.contains("new_doc"), "Newly added entity should appear");
+    }
+
+    /**
+     * Test removeAll clears the entire index.
+     * Uses embedded vectorizer.
+     */
+    @Test
+    void testRemoveAllWithEmbeddedVectorizer()
+    {
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(3)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .build();
+
+        vectorIndices.add(
+            "embeddings",
+            config,
+            new EmbeddedDocumentVectorizer()
+        );
+
+        gigaMap.add(new Document("doc1", new float[]{1.0f, 0.0f, 0.0f}));
+        gigaMap.add(new Document("doc2", new float[]{0.0f, 1.0f, 0.0f}));
+        gigaMap.add(new Document("doc3", new float[]{0.0f, 0.0f, 1.0f}));
+
+        assertEquals(3, gigaMap.size());
+
+        // Remove all entities
+        gigaMap.removeAll();
+
+        assertEquals(0, gigaMap.size(), "GigaMap should be empty after removeAll");
+
+        // Re-register indices after removeAll to get a fresh reference
+        final VectorIndices<Document> vectorIndicesAfter = gigaMap.index().get(VectorIndices.Category());
+        final VectorIndex<Document> indexAfter = vectorIndicesAfter.get("embeddings");
+
+        // Search on empty index should return empty results
+        final VectorSearchResult<Document> result = indexAfter.search(new float[]{1.0f, 0.0f, 0.0f}, 5);
+        assertTrue(result.isEmpty(), "Search result should be empty after removeAll");
+    }
+
+    /**
+     * Test removeAll with computed (non-embedded) vectorizer.
+     * Vectors stored separately must also be cleared.
+     */
+    @Test
+    void testRemoveAllWithComputedVectorizer()
+    {
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(3)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .build();
+
+        vectorIndices.add(
+            "embeddings",
+            config,
+            new ComputedDocumentVectorizer()
+        );
+
+        gigaMap.add(new Document("doc1", new float[]{1.0f, 0.0f, 0.0f}));
+        gigaMap.add(new Document("doc2", new float[]{0.0f, 1.0f, 0.0f}));
+        gigaMap.add(new Document("doc3", new float[]{0.0f, 0.0f, 1.0f}));
+
+        assertEquals(3, gigaMap.size());
+
+        // Remove all
+        gigaMap.removeAll();
+
+        assertEquals(0, gigaMap.size());
+
+        final VectorIndices<Document> vectorIndicesAfter = gigaMap.index().get(VectorIndices.Category());
+        final VectorIndex<Document> indexAfter = vectorIndicesAfter.get("embeddings");
+
+        final VectorSearchResult<Document> result = indexAfter.search(new float[]{1.0f, 0.0f, 0.0f}, 5);
+        assertTrue(result.isEmpty(), "Search result should be empty after removeAll");
+    }
+
+    /**
+     * Test clear() as synonym for removeAll().
+     */
+    @Test
+    void testClearSynonymForRemoveAll()
+    {
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(3)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .build();
+
+        vectorIndices.add(
+            "embeddings",
+            config,
+            new EmbeddedDocumentVectorizer()
+        );
+
+        gigaMap.add(new Document("doc1", new float[]{1.0f, 0.0f, 0.0f}));
+        gigaMap.add(new Document("doc2", new float[]{0.0f, 1.0f, 0.0f}));
+
+        assertEquals(2, gigaMap.size());
+
+        // Use clear() instead of removeAll()
+        gigaMap.clear();
+
+        assertEquals(0, gigaMap.size(), "GigaMap should be empty after clear");
+
+        final VectorIndices<Document> vectorIndicesAfter = gigaMap.index().get(VectorIndices.Category());
+        final VectorIndex<Document> indexAfter = vectorIndicesAfter.get("embeddings");
+
+        final VectorSearchResult<Document> result = indexAfter.search(new float[]{1.0f, 0.0f, 0.0f}, 5);
+        assertTrue(result.isEmpty(), "Search result should be empty after clear");
+    }
+
+    /**
+     * Test adding entities after removeAll reinitializes the index properly.
+     */
+    @Test
+    void testAddAfterRemoveAll()
+    {
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(3)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .build();
+
+        vectorIndices.add(
+            "embeddings",
+            config,
+            new ComputedDocumentVectorizer()
+        );
+
+        // Add initial documents
+        gigaMap.add(new Document("old_doc1", new float[]{1.0f, 0.0f, 0.0f}));
+        gigaMap.add(new Document("old_doc2", new float[]{0.0f, 1.0f, 0.0f}));
+
+        // Clear everything
+        gigaMap.removeAll();
+        assertEquals(0, gigaMap.size());
+
+        // Add new documents
+        gigaMap.add(new Document("new_doc1", new float[]{0.0f, 0.0f, 1.0f}));
+        gigaMap.add(new Document("new_doc2", new float[]{0.5f, 0.5f, 0.0f}));
+        gigaMap.add(new Document("new_doc3", new float[]{1.0f, 0.0f, 0.0f}));
+
+        assertEquals(3, gigaMap.size());
+
+        final VectorIndices<Document> vectorIndicesAfter = gigaMap.index().get(VectorIndices.Category());
+        final VectorIndex<Document> indexAfter = vectorIndicesAfter.get("embeddings");
+
+        // Search should find only new documents
+        final VectorSearchResult<Document> result = indexAfter.search(new float[]{1.0f, 0.0f, 0.0f}, 3);
+        assertEquals(3, result.size());
+
+        final List<String> contents = result.stream()
+            .map(e -> e.entity().content())
+            .collect(Collectors.toList());
+        assertTrue(contents.stream().allMatch(c -> c.startsWith("new_")),
+            "Only new documents should appear after removeAll + add");
+    }
+
+    /**
+     * Test removal with a larger data set to ensure graph integrity.
+     */
+    @Test
+    void testRemoveFromLargeDataSet()
+    {
+        final int vectorCount = 500;
+        final int dimension = 32;
+        final Random random = new Random(42);
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(16)
+            .beamWidth(100)
+            .build();
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings",
+            config,
+            new ComputedDocumentVectorizer()
+        );
+
+        // Add vectors
+        for(int i = 0; i < vectorCount; i++)
+        {
+            gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
+        }
+
+        assertEquals(vectorCount, gigaMap.size());
+
+        // Remove every other entity
+        for(int i = 0; i < vectorCount; i += 2)
+        {
+            gigaMap.removeById(i);
+        }
+
+        assertEquals(vectorCount / 2, gigaMap.size(), "Half the documents should remain");
+
+        // Search should still work and return correct number of results
+        final VectorSearchResult<Document> result = index.search(randomVector(random, dimension), 10);
+        assertEquals(10, result.size(), "Should still find 10 nearest neighbors among remaining entities");
+
+        // Verify all returned entities are non-removed ones (odd IDs)
+        for(final VectorSearchResult.Entry<Document> entry : result)
+        {
+            assertNotNull(entry.entity(), "Entity should be accessible");
+            final String content = entry.entity().content();
+            final int docNum = Integer.parseInt(content.replace("doc_", ""));
+            assertTrue(docNum % 2 != 0, "Only odd-numbered documents should remain, found: " + content);
+        }
+    }
+
+    /**
+     * Test removeAll followed by repopulation with a large data set.
+     */
+    @Test
+    void testRemoveAllAndRepopulateLargeDataSet()
+    {
+        final int dimension = 32;
+        final Random random = new Random(42);
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .build();
+
+        vectorIndices.add(
+            "embeddings",
+            config,
+            new ComputedDocumentVectorizer()
+        );
+
+        // Initial population
+        for(int i = 0; i < 200; i++)
+        {
+            gigaMap.add(new Document("old_" + i, randomVector(random, dimension)));
+        }
+
+        assertEquals(200, gigaMap.size());
+
+        // Clear all
+        gigaMap.removeAll();
+        assertEquals(0, gigaMap.size());
+
+        // Repopulate
+        for(int i = 0; i < 300; i++)
+        {
+            gigaMap.add(new Document("new_" + i, randomVector(random, dimension)));
+        }
+
+        assertEquals(300, gigaMap.size());
+
+        final VectorIndices<Document> vectorIndicesAfter = gigaMap.index().get(VectorIndices.Category());
+        final VectorIndex<Document> indexAfter = vectorIndicesAfter.get("embeddings");
+
+        // Search should return results from new population only
+        final VectorSearchResult<Document> result = indexAfter.search(randomVector(random, dimension), 20);
+        assertEquals(20, result.size());
+
+        for(final VectorSearchResult.Entry<Document> entry : result)
+        {
+            assertTrue(entry.entity().content().startsWith("new_"),
+                "All results should be from new population");
+        }
+    }
+
+    /**
+     * Test removal persistence across storage restarts with embedded vectorizer.
+     */
+    @Test
+    void testRemovePersistenceWithEmbeddedVectorizer(@TempDir final Path tempDir)
+    {
+        final int dimension = 32;
+        final Random random = new Random(42);
+
+        // Generate consistent vectors
+        final List<float[]> vectors = new ArrayList<>();
+        for(int i = 0; i < 100; i++)
+        {
+            vectors.add(randomVector(random, dimension));
+        }
+
+        // Phase 1: Create, populate, and remove some entities
+        {
+            try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
+            {
+                final GigaMap<Document> gigaMap = GigaMap.New();
+                storage.setRoot(gigaMap);
+
+                final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+                final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+                    .dimension(dimension)
+                    .similarityFunction(VectorSimilarityFunction.COSINE)
+                    .build();
+
+                vectorIndices.add("embeddings", config, new EmbeddedDocumentVectorizer());
+
+                for(int i = 0; i < 100; i++)
+                {
+                    gigaMap.add(new Document("doc_" + i, vectors.get(i)));
+                }
+
+                // Remove first 10 entities
+                for(int i = 0; i < 10; i++)
+                {
+                    gigaMap.removeById(i);
+                }
+
+                assertEquals(90, gigaMap.size());
+                storage.storeRoot();
+            }
+        }
+
+        // Phase 2: Restart and verify removed entities stay removed
+        {
+            try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
+            {
+                @SuppressWarnings("unchecked")
+                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                assertNotNull(gigaMap);
+
+                assertEquals(90, gigaMap.size(), "Should still have 90 entities after restart");
+
+                final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
+                final VectorIndex<Document> index = vectorIndices.get("embeddings");
+
+                // Search for a removed vector - it should not be the top result
+                final VectorSearchResult<Document> result = index.search(vectors.get(0), 10);
+                assertEquals(10, result.size());
+
+                for(final VectorSearchResult.Entry<Document> entry : result)
+                {
+                    final String content = entry.entity().content();
+                    final int docNum = Integer.parseInt(content.replace("doc_", ""));
+                    assertTrue(docNum >= 10,
+                        "Removed entity should not appear in search results after restart, found: " + content);
+                }
+            }
+        }
+    }
+
+    /**
+     * Test removal persistence across storage restarts with computed vectorizer.
+     */
+    @Test
+    void testRemovePersistenceWithComputedVectorizer(@TempDir final Path tempDir)
+    {
+        final int dimension = 32;
+        final Random random = new Random(42);
+
+        final List<float[]> vectors = new ArrayList<>();
+        for(int i = 0; i < 100; i++)
+        {
+            vectors.add(randomVector(random, dimension));
+        }
+
+        // Phase 1: Create, populate, and remove
+        {
+            try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
+            {
+                final GigaMap<Document> gigaMap = GigaMap.New();
+                storage.setRoot(gigaMap);
+
+                final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+                final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+                    .dimension(dimension)
+                    .similarityFunction(VectorSimilarityFunction.COSINE)
+                    .build();
+
+                vectorIndices.add("embeddings", config, new ComputedDocumentVectorizer());
+
+                for(int i = 0; i < 100; i++)
+                {
+                    gigaMap.add(new Document("doc_" + i, vectors.get(i)));
+                }
+
+                // Remove entities 50-59
+                for(int i = 50; i < 60; i++)
+                {
+                    gigaMap.removeById(i);
+                }
+
+                assertEquals(90, gigaMap.size());
+                storage.storeRoot();
+            }
+        }
+
+        // Phase 2: Restart and verify
+        {
+            try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
+            {
+                @SuppressWarnings("unchecked")
+                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                assertNotNull(gigaMap);
+
+                assertEquals(90, gigaMap.size(), "Should still have 90 entities after restart");
+
+                final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
+                final VectorIndex<Document> index = vectorIndices.get("embeddings");
+
+                // Search for one of the removed vectors
+                final VectorSearchResult<Document> result = index.search(vectors.get(55), 10);
+                assertEquals(10, result.size());
+
+                for(final VectorSearchResult.Entry<Document> entry : result)
+                {
+                    final String content = entry.entity().content();
+                    final int docNum = Integer.parseInt(content.replace("doc_", ""));
+                    assertFalse(docNum >= 50 && docNum < 60,
+                        "Removed entity should not appear after restart, found: " + content);
+                }
+            }
+        }
+    }
+
+    /**
+     * Test removeAll persistence across storage restarts.
+     */
+    @Test
+    void testRemoveAllPersistenceAcrossRestart(@TempDir final Path tempDir)
+    {
+        final int dimension = 16;
+        final Random random = new Random(42);
+
+        // Phase 1: Create, populate, and removeAll
+        {
+            try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
+            {
+                final GigaMap<Document> gigaMap = GigaMap.New();
+                storage.setRoot(gigaMap);
+
+                final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+                final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+                    .dimension(dimension)
+                    .similarityFunction(VectorSimilarityFunction.COSINE)
+                    .build();
+
+                vectorIndices.add("embeddings", config, new ComputedDocumentVectorizer());
+
+                for(int i = 0; i < 50; i++)
+                {
+                    gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
+                }
+
+                assertEquals(50, gigaMap.size());
+
+                // Remove all
+                gigaMap.removeAll();
+                assertEquals(0, gigaMap.size());
+
+                // Add new documents after removeAll
+                for(int i = 0; i < 30; i++)
+                {
+                    gigaMap.add(new Document("new_" + i, randomVector(random, dimension)));
+                }
+
+                assertEquals(30, gigaMap.size());
+                storage.storeRoot();
+            }
+        }
+
+        // Phase 2: Restart and verify only new documents exist
+        {
+            try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
+            {
+                @SuppressWarnings("unchecked")
+                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                assertNotNull(gigaMap);
+
+                assertEquals(30, gigaMap.size(), "Should have 30 new documents after restart");
+
+                final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
+                final VectorIndex<Document> index = vectorIndices.get("embeddings");
+
+                final VectorSearchResult<Document> result = index.search(randomVector(random, dimension), 10);
+                assertEquals(10, result.size());
+
+                for(final VectorSearchResult.Entry<Document> entry : result)
+                {
+                    assertTrue(entry.entity().content().startsWith("new_"),
+                        "Only new documents should exist after restart");
+                }
+            }
+        }
+    }
 }
