@@ -450,6 +450,270 @@ public interface VectorIndexConfiguration
     }
 
 
+    // ========================================================================
+    // Factory Methods for Common Use Cases
+    // ========================================================================
+
+    /**
+     * Creates a configuration optimized for small datasets (&lt;10K vectors).
+     * <p>
+     * Uses lower parameter values that are sufficient for small datasets while
+     * providing fast index construction and low memory usage.
+     * <p>
+     * <b>Configuration:</b> maxDegree=12, beamWidth=75, onDisk=false
+     *
+     * @param dimension the vector dimension (must be positive)
+     * @return a ready-to-use configuration for small datasets
+     * @see #forSmallDataset(int, VectorSimilarityFunction)
+     * @see #builderForSmallDataset(int)
+     */
+    public static VectorIndexConfiguration forSmallDataset(final int dimension)
+    {
+        return forSmallDataset(dimension, VectorSimilarityFunction.COSINE);
+    }
+
+    /**
+     * Creates a configuration optimized for small datasets (&lt;10K vectors) with a custom similarity function.
+     * <p>
+     * Uses lower parameter values that are sufficient for small datasets while
+     * providing fast index construction and low memory usage.
+     * <p>
+     * <b>Configuration:</b> maxDegree=12, beamWidth=75, onDisk=false
+     *
+     * @param dimension the vector dimension (must be positive)
+     * @param similarityFunction the similarity function to use for comparing vectors
+     * @return a ready-to-use configuration for small datasets
+     * @see #forSmallDataset(int)
+     * @see #builderForSmallDataset(int)
+     */
+    public static VectorIndexConfiguration forSmallDataset(final int dimension, final VectorSimilarityFunction similarityFunction)
+    {
+        return builderForSmallDataset(dimension)
+            .similarityFunction(similarityFunction)
+            .build();
+    }
+
+    /**
+     * Creates a builder pre-configured for small datasets (&lt;10K vectors).
+     * <p>
+     * Use this when you need to customize additional parameters beyond the defaults
+     * for small datasets.
+     * <p>
+     * <b>Pre-configured values:</b> maxDegree=12, beamWidth=75, onDisk=false
+     *
+     * @param dimension the vector dimension (must be positive)
+     * @return a builder pre-configured for small datasets
+     * @see #forSmallDataset(int)
+     */
+    public static Builder builderForSmallDataset(final int dimension)
+    {
+        return builder()
+            .dimension(dimension)
+            .maxDegree(12)
+            .beamWidth(75)
+            .onDisk(false);
+    }
+
+    /**
+     * Creates an in-memory configuration optimized for medium datasets (10K-1M vectors).
+     * <p>
+     * Uses balanced parameter values that provide good recall with reasonable
+     * index construction time.
+     * <p>
+     * <b>Configuration:</b> maxDegree=24, beamWidth=150, onDisk=false
+     *
+     * @param dimension the vector dimension (must be positive)
+     * @return a ready-to-use in-memory configuration for medium datasets
+     * @see #forMediumDataset(int, Path)
+     * @see #builderForMediumDataset(int)
+     */
+    public static VectorIndexConfiguration forMediumDataset(final int dimension)
+    {
+        return builderForMediumDataset(dimension).build();
+    }
+
+    /**
+     * Creates an on-disk configuration optimized for medium datasets (10K-1M vectors).
+     * <p>
+     * Uses balanced parameter values with on-disk storage and background persistence
+     * for durability.
+     * <p>
+     * <b>Configuration:</b> maxDegree=24, beamWidth=150, onDisk=true, backgroundPersistence=true
+     *
+     * @param dimension the vector dimension (must be positive)
+     * @param indexDirectory the directory where index files will be stored
+     * @return a ready-to-use on-disk configuration for medium datasets
+     * @see #forMediumDataset(int)
+     * @see #builderForMediumDataset(int)
+     */
+    public static VectorIndexConfiguration forMediumDataset(final int dimension, final Path indexDirectory)
+    {
+        return builderForMediumDataset(dimension)
+            .onDisk(true)
+            .indexDirectory(indexDirectory)
+            .backgroundPersistence(true)
+            .build();
+    }
+
+    /**
+     * Creates a builder pre-configured for medium datasets (10K-1M vectors).
+     * <p>
+     * Use this when you need to customize additional parameters beyond the defaults
+     * for medium datasets.
+     * <p>
+     * <b>Pre-configured values:</b> maxDegree=24, beamWidth=150
+     *
+     * @param dimension the vector dimension (must be positive)
+     * @return a builder pre-configured for medium datasets
+     * @see #forMediumDataset(int)
+     * @see #forMediumDataset(int, Path)
+     */
+    public static Builder builderForMediumDataset(final int dimension)
+    {
+        return builder()
+            .dimension(dimension)
+            .maxDegree(24)
+            .beamWidth(150);
+    }
+
+    /**
+     * Creates an on-disk configuration optimized for large datasets (&gt;1M vectors) with PQ compression.
+     * <p>
+     * Uses higher parameter values for better recall at scale, with on-disk storage,
+     * PQ compression for memory efficiency, and background persistence/optimization.
+     * <p>
+     * <b>Configuration:</b> maxDegree=32, beamWidth=300, onDisk=true, enablePqCompression=true,
+     * backgroundPersistence=true, backgroundOptimization=true
+     *
+     * @param dimension the vector dimension (must be positive)
+     * @param indexDirectory the directory where index files will be stored
+     * @return a ready-to-use configuration for large datasets
+     * @see #forLargeDataset(int, Path, boolean)
+     * @see #builderForLargeDataset(int, Path)
+     */
+    public static VectorIndexConfiguration forLargeDataset(final int dimension, final Path indexDirectory)
+    {
+        return forLargeDataset(dimension, indexDirectory, true);
+    }
+
+    /**
+     * Creates an on-disk configuration optimized for large datasets (&gt;1M vectors).
+     * <p>
+     * Uses higher parameter values for better recall at scale, with on-disk storage
+     * and background persistence/optimization. PQ compression can be optionally enabled
+     * for memory efficiency.
+     * <p>
+     * <b>Configuration:</b> maxDegree=32, beamWidth=300, onDisk=true,
+     * backgroundPersistence=true, backgroundOptimization=true
+     *
+     * @param dimension the vector dimension (must be positive)
+     * @param indexDirectory the directory where index files will be stored
+     * @param enableCompression true to enable PQ compression (recommended for memory efficiency)
+     * @return a ready-to-use configuration for large datasets
+     * @see #forLargeDataset(int, Path)
+     * @see #builderForLargeDataset(int, Path)
+     */
+    public static VectorIndexConfiguration forLargeDataset(final int dimension, final Path indexDirectory, final boolean enableCompression)
+    {
+        return builderForLargeDataset(dimension, indexDirectory)
+            .enablePqCompression(enableCompression)
+            .build();
+    }
+
+    /**
+     * Creates a builder pre-configured for large datasets (&gt;1M vectors).
+     * <p>
+     * Use this when you need to customize additional parameters beyond the defaults
+     * for large datasets. The builder is pre-configured with on-disk storage and
+     * background persistence/optimization enabled.
+     * <p>
+     * <b>Pre-configured values:</b> maxDegree=32, beamWidth=300, onDisk=true,
+     * backgroundPersistence=true, backgroundOptimization=true
+     *
+     * @param dimension the vector dimension (must be positive)
+     * @param indexDirectory the directory where index files will be stored
+     * @return a builder pre-configured for large datasets
+     * @see #forLargeDataset(int, Path)
+     * @see #forLargeDataset(int, Path, boolean)
+     */
+    public static Builder builderForLargeDataset(final int dimension, final Path indexDirectory)
+    {
+        return builder()
+            .dimension(dimension)
+            .maxDegree(32)
+            .beamWidth(300)
+            .onDisk(true)
+            .indexDirectory(indexDirectory)
+            .backgroundPersistence(true)
+            .backgroundOptimization(true);
+    }
+
+    /**
+     * Creates an in-memory configuration optimized for high precision requirements.
+     * <p>
+     * Uses maximum parameter values to achieve the highest possible recall,
+     * with PQ compression disabled to avoid any precision loss.
+     * <p>
+     * <b>Configuration:</b> maxDegree=56, beamWidth=450, onDisk=false
+     *
+     * @param dimension the vector dimension (must be positive)
+     * @return a ready-to-use high-precision configuration
+     * @see #forHighPrecision(int, Path)
+     * @see #builderForHighPrecision(int)
+     */
+    public static VectorIndexConfiguration forHighPrecision(final int dimension)
+    {
+        return builderForHighPrecision(dimension).build();
+    }
+
+    /**
+     * Creates an on-disk configuration optimized for high precision requirements.
+     * <p>
+     * Uses maximum parameter values to achieve the highest possible recall,
+     * with PQ compression disabled to avoid any precision loss.
+     * <p>
+     * <b>Configuration:</b> maxDegree=56, beamWidth=450, onDisk=true,
+     * enablePqCompression=false, backgroundPersistence=true
+     *
+     * @param dimension the vector dimension (must be positive)
+     * @param indexDirectory the directory where index files will be stored
+     * @return a ready-to-use high-precision on-disk configuration
+     * @see #forHighPrecision(int)
+     * @see #builderForHighPrecision(int)
+     */
+    public static VectorIndexConfiguration forHighPrecision(final int dimension, final Path indexDirectory)
+    {
+        return builderForHighPrecision(dimension)
+            .onDisk(true)
+            .indexDirectory(indexDirectory)
+            .backgroundPersistence(true)
+            .build();
+    }
+
+    /**
+     * Creates a builder pre-configured for high precision requirements.
+     * <p>
+     * Use this when you need to customize additional parameters beyond the defaults
+     * for high precision use cases. PQ compression is explicitly disabled as it
+     * reduces precision.
+     * <p>
+     * <b>Pre-configured values:</b> maxDegree=56, beamWidth=450, enablePqCompression=false
+     *
+     * @param dimension the vector dimension (must be positive)
+     * @return a builder pre-configured for high precision
+     * @see #forHighPrecision(int)
+     * @see #forHighPrecision(int, Path)
+     */
+    public static Builder builderForHighPrecision(final int dimension)
+    {
+        return builder()
+            .dimension(dimension)
+            .maxDegree(56)
+            .beamWidth(450)
+            .enablePqCompression(false);
+    }
+
+
     /**
      * Builder for constructing {@link VectorIndexConfiguration} instances.
      * <p>
