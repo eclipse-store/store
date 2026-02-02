@@ -174,10 +174,10 @@ class VectorValuesTest
         @Test
         void testSize()
         {
-            final GigaMap<float[]> vectorStore = GigaMap.New();
-            vectorStore.add(new float[]{1.0f, 2.0f, 3.0f});
-            vectorStore.add(new float[]{4.0f, 5.0f, 6.0f});
-            vectorStore.add(new float[]{7.0f, 8.0f, 9.0f});
+            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
+            vectorStore.add(new VectorEntry(1L, new float[]{4.0f, 5.0f, 6.0f}));
+            vectorStore.add(new VectorEntry(2L, new float[]{7.0f, 8.0f, 9.0f}));
 
             final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
                 vectorStore, 3, vectorTypeSupport
@@ -189,7 +189,7 @@ class VectorValuesTest
         @Test
         void testSizeEmptyStore()
         {
-            final GigaMap<float[]> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
 
             final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
                 vectorStore, 3, vectorTypeSupport
@@ -201,7 +201,7 @@ class VectorValuesTest
         @Test
         void testDimension()
         {
-            final GigaMap<float[]> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
 
             final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
                 vectorStore, 128, vectorTypeSupport
@@ -213,9 +213,9 @@ class VectorValuesTest
         @Test
         void testGetVectorValidOrdinal()
         {
-            final GigaMap<float[]> vectorStore = GigaMap.New();
-            vectorStore.add(new float[]{1.0f, 2.0f, 3.0f});
-            vectorStore.add(new float[]{4.0f, 5.0f, 6.0f});
+            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
+            vectorStore.add(new VectorEntry(1L, new float[]{4.0f, 5.0f, 6.0f}));
 
             final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
                 vectorStore, 3, vectorTypeSupport
@@ -234,8 +234,8 @@ class VectorValuesTest
         @Test
         void testGetVectorNonExistentOrdinalReturnsNull()
         {
-            final GigaMap<float[]> vectorStore = GigaMap.New();
-            vectorStore.add(new float[]{1.0f, 2.0f, 3.0f});
+            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
 
             final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
                 vectorStore, 3, vectorTypeSupport
@@ -248,8 +248,8 @@ class VectorValuesTest
         @Test
         void testGetVectorConvertsToVectorFloat()
         {
-            final float[] originalVector = {1.5f, 2.5f, 3.5f};
-            final GigaMap<float[]> vectorStore = GigaMap.New();
+            final VectorEntry originalVector = new VectorEntry(0L, new float[]{1.5f, 2.5f, 3.5f});
+            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
             vectorStore.add(originalVector);
 
             final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
@@ -268,7 +268,7 @@ class VectorValuesTest
         @Test
         void testIsValueSharedReturnsFalse()
         {
-            final GigaMap<float[]> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
 
             final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
                 vectorStore, 3, vectorTypeSupport
@@ -280,8 +280,8 @@ class VectorValuesTest
         @Test
         void testCopyReturnsNewInstance()
         {
-            final GigaMap<float[]> vectorStore = GigaMap.New();
-            vectorStore.add(new float[]{1.0f, 2.0f, 3.0f});
+            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
 
             final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
                 vectorStore, 3, vectorTypeSupport
@@ -297,8 +297,8 @@ class VectorValuesTest
         @Test
         void testCopySharesUnderlyingStore()
         {
-            final GigaMap<float[]> vectorStore = GigaMap.New();
-            vectorStore.add(new float[]{1.0f, 2.0f, 3.0f});
+            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
 
             final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
                 vectorStore, 3, vectorTypeSupport
@@ -318,9 +318,9 @@ class VectorValuesTest
         @Test
         void testCachingInheritsBaseProperties()
         {
-            final GigaMap<float[]> vectorStore = GigaMap.New();
-            vectorStore.add(new float[]{1.0f, 2.0f, 3.0f});
-            vectorStore.add(new float[]{4.0f, 5.0f, 6.0f});
+            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
+            vectorStore.add(new VectorEntry(1L, new float[]{4.0f, 5.0f, 6.0f}));
 
             final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
                 vectorStore, 3, vectorTypeSupport
@@ -334,8 +334,8 @@ class VectorValuesTest
         @Test
         void testGetVectorCachesResult()
         {
-            final GigaMap<float[]> vectorStore = GigaMap.New();
-            vectorStore.add(new float[]{1.0f, 2.0f, 3.0f});
+            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
 
             final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
                 vectorStore, 3, vectorTypeSupport
@@ -352,10 +352,10 @@ class VectorValuesTest
         @Test
         void testGetVectorCachesMultipleOrdinals()
         {
-            final GigaMap<float[]> vectorStore = GigaMap.New();
-            vectorStore.add(new float[]{1.0f, 2.0f, 3.0f});
-            vectorStore.add(new float[]{4.0f, 5.0f, 6.0f});
-            vectorStore.add(new float[]{7.0f, 8.0f, 9.0f});
+            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
+            vectorStore.add(new VectorEntry(1L, new float[]{4.0f, 5.0f, 6.0f}));
+            vectorStore.add(new VectorEntry(2L, new float[]{7.0f, 8.0f, 9.0f}));
 
             final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
                 vectorStore, 3, vectorTypeSupport
@@ -379,8 +379,8 @@ class VectorValuesTest
         @Test
         void testGetVectorNonExistentReturnsNull()
         {
-            final GigaMap<float[]> vectorStore = GigaMap.New();
-            vectorStore.add(new float[]{1.0f, 2.0f, 3.0f});
+            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
 
             final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
                 vectorStore, 3, vectorTypeSupport
@@ -392,8 +392,8 @@ class VectorValuesTest
         @Test
         void testCopyReturnsNewCachingInstance()
         {
-            final GigaMap<float[]> vectorStore = GigaMap.New();
-            vectorStore.add(new float[]{1.0f, 2.0f, 3.0f});
+            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
 
             final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
                 vectorStore, 3, vectorTypeSupport
@@ -409,8 +409,8 @@ class VectorValuesTest
         @Test
         void testCopyHasIndependentCache()
         {
-            final GigaMap<float[]> vectorStore = GigaMap.New();
-            vectorStore.add(new float[]{1.0f, 2.0f, 3.0f});
+            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
 
             final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
                 vectorStore, 3, vectorTypeSupport
@@ -435,8 +435,8 @@ class VectorValuesTest
         @Test
         void testCachingSharesUnderlyingStore()
         {
-            final GigaMap<float[]> vectorStore = GigaMap.New();
-            vectorStore.add(new float[]{1.0f, 2.0f, 3.0f});
+            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
 
             final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
                 vectorStore, 3, vectorTypeSupport
@@ -451,8 +451,8 @@ class VectorValuesTest
         @Test
         void testCachingExtendsGigaMapBackedVectorValues()
         {
-            final GigaMap<float[]> vectorStore = GigaMap.New();
-            vectorStore.add(new float[]{1.0f, 2.0f, 3.0f});
+            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
 
             final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
                 vectorStore, 3, vectorTypeSupport

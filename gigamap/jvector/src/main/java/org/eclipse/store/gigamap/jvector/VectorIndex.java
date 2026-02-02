@@ -620,7 +620,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         // Vector storage - null if vectorizer.isEmbedded()
         // Key: entity ID (used as ordinal), Value: vector
-        final GigaMap<float[]> vectorStore;
+        final GigaMap<VectorEntry> vectorStore;
 
         // HNSW graph components (transient - rebuilt on load)
         private transient VectorTypeSupport vectorTypeSupport;
@@ -669,7 +669,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             this.vectorStore = vectorizer.isEmbedded()
                 ? null
-                : GigaMap.New()
+                : GigaMap.<VectorEntry>Builder()
+                    .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
+                    .build()
             ;
 
             // Initialize persistence lock early (before ensureIndexInitialized)
@@ -730,9 +732,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.addGraphNodesSequential(entries);
         }
 
-        /**
-         * Collects all vectors from storage for rebuilding the graph.
-         */
         private List<VectorEntry> collectStoredVectors()
         {
             final List<VectorEntry> entries = new ArrayList<>();
@@ -750,10 +749,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // Computed mode: rebuild from vector store
                 if(this.vectorStore != null && !this.vectorStore.isEmpty())
                 {
-                    this.vectorStore.iterateIndexed((entityId, vector) ->
-                    {
-                        entries.add(new VectorEntry(entityId, vector));
-                    });
+                    this.vectorStore.iterate(entries::add);
                 }
             }
 
@@ -1058,7 +1054,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // Store based on vectorizer type
                 if(!this.isEmbedded())
                 {
-                    this.vectorStore.add(vector);
+                    this.vectorStore.add(new VectorEntry(entityId, vector));
                 }
 
                 // Add to HNSW graph using entity ID as ordinal
@@ -1106,7 +1102,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // Update based on vectorizer type
                 if(!this.isEmbedded())
                 {
-                    this.vectorStore.set(entityId, vector);
+                    this.vectorStore.set(entityId, new VectorEntry(entityId, vector));
                 }
 
                 // Add to HNSW graph using entity ID as ordinal
@@ -1148,7 +1144,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                 if(!this.isEmbedded())
                 {
-                    this.vectorStore.addAll(new ProjectingIterable<>(entries, e -> e.vector));
+                    this.vectorStore.addAll(entries);
                 }
 
                 this.addGraphNodesSequential(entries);
@@ -1182,19 +1178,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             entries.forEach(entry ->
             {
-                final int ordinal = toOrdinal(entry.entityId);
+                final int ordinal = toOrdinal(entry.sourceEntityId);
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
                 this.builder.addGraphNode(ordinal, vf);
             });
         }
-
-        /**
-         * Helper class to hold entity ID and vector during bulk operations.
-         */
-        private record VectorEntry(long entityId, float[] vector)
-        {
-        }
-
 
         @Override
         public void internalRemove(final long entityId, final E entity)
@@ -1602,18 +1590,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             if(this.isEmbedded())
             {
-                this.parentMap().iterateIndexed((entityId, entity) ->
-                {
-                    final float[] vector = this.vectorize(entity);
-                    vectors.add(this.vectorTypeSupport.createFloatVector(vector));
-                });
+                this.parentMap().iterate(entity ->
+                    vectors.add(this.vectorTypeSupport.createFloatVector(this.vectorize(entity)))
+                );
             }
             else if(this.vectorStore != null)
             {
-                this.vectorStore.iterateIndexed((entityId, vector) ->
-                {
-                    vectors.add(this.vectorTypeSupport.createFloatVector(vector));
-                });
+                this.vectorStore.iterate(entry ->
+                    vectors.add(this.vectorTypeSupport.createFloatVector(entry.vector))
+                );
             }
 
             return vectors;

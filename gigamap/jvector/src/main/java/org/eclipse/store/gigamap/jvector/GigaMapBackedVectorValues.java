@@ -28,14 +28,14 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 class GigaMapBackedVectorValues implements RandomAccessVectorValues
 {
-    protected final GigaMap<float[]>  vectorStore      ;
-    protected final int               dimension        ;
-    protected final VectorTypeSupport vectorTypeSupport;
+    protected final GigaMap<VectorEntry> vectorStore      ;
+    protected final int                  dimension        ;
+    protected final VectorTypeSupport    vectorTypeSupport;
 
     GigaMapBackedVectorValues(
-        final GigaMap<float[]>  vectorStore      ,
-        final int               dimension        ,
-        final VectorTypeSupport vectorTypeSupport
+        final GigaMap<VectorEntry> vectorStore      ,
+        final int                  dimension        ,
+        final VectorTypeSupport    vectorTypeSupport
     )
     {
         this.vectorStore       = vectorStore      ;
@@ -59,12 +59,12 @@ class GigaMapBackedVectorValues implements RandomAccessVectorValues
     public VectorFloat<?> getVector(final int ordinal)
     {
         // Ordinal IS the entity ID
-        final float[] vector = this.vectorStore.get(ordinal);
-        if(vector == null)
+        final VectorEntry entry = this.vectorStore.get(ordinal);
+        if(entry == null)
         {
             return null;
         }
-        return this.vectorTypeSupport.createFloatVector(vector);
+        return this.vectorTypeSupport.createFloatVector(entry.vector);
     }
 
     @Override
@@ -93,9 +93,9 @@ class GigaMapBackedVectorValues implements RandomAccessVectorValues
         private final Map<Integer, VectorFloat<?>> cache = new ConcurrentHashMap<>();
 
         Caching(
-            final GigaMap<float[]>  vectorStore      ,
-            final int               dimension        ,
-            final VectorTypeSupport vectorTypeSupport
+            final GigaMap<VectorEntry> vectorStore      ,
+            final int                  dimension        ,
+            final VectorTypeSupport    vectorTypeSupport
         )
         {
             super(vectorStore, dimension, vectorTypeSupport);
