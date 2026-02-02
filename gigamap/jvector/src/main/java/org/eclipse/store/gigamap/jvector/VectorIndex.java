@@ -570,6 +570,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         public void internalAddAll(long firstEntityId, E[] entities);
 
+        public void internalUpdate(long entityId, E replacedEntity, E entity);
+
         public void internalRemove(long entityId, E entity);
 
         public void internalRemoveAll();
@@ -739,11 +741,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 this.parentMap().iterateIndexed((entityId, entity) ->
                 {
-                    final float[] vector = this.vectorizer.vectorize(entity);
-                    if(vector != null)
-                    {
-                        entries.add(new VectorEntry(entityId, vector));
-                    }
+                    final float[] vector = this.vectorize(entity);
+                    entries.add(new VectorEntry(entityId, vector));
                 });
             }
             else
@@ -975,6 +974,30 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             return (int)entityId;
         }
 
+        private float[] vectorize(final E entity)
+        {
+            final float[] vector = this.vectorizer.vectorize(entity);
+            if(vector == null)
+            {
+                throw new IllegalArgumentException("Null vector returned from vectorizer: " + entity);
+            }
+
+            this.validateDimension(vector);
+
+            return vector;
+        }
+
+        private void validateDimension(final float[] vector)
+        {
+            final int expectedDim = this.configuration.dimension();
+            if(vector.length != expectedDim)
+            {
+                throw new IllegalArgumentException(
+                    "Vector must have dimension " + expectedDim + ", got " + vector.length
+                );
+            }
+        }
+
         private boolean isEmbedded()
         {
             return this.vectorizer.isEmbedded();
@@ -1024,18 +1047,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void internalAdd(final long entityId, final E entity)
         {
-            final float[] vector = this.vectorizer.vectorize(entity);
-            if(vector == null)
-            {
-                return; // Skip entities without vectors
-            }
-
-            this.validateDimension(vector);
             final int ordinal = toOrdinal(entityId);
 
             synchronized(this.parentMap())
             {
                 this.ensureIndexInitialized();
+
+                final float[] vector = this.vectorize(entity);
 
                 // Store based on vectorizer type
                 if(!this.isEmbedded())
@@ -1072,6 +1090,36 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
         }
 
+        @Override
+        public void internalUpdate(final long entityId, final E replacedEntity, final E entity)
+        {
+            synchronized(this.parentMap())
+            {
+                this.ensureIndexInitialized();
+
+                final float[] vector = this.vectorize(entity);
+
+                final int ordinal = toOrdinal(entityId);
+                this.builder.markNodeDeleted(ordinal);
+                this.builder.removeDeletedNodes();
+
+                // Update based on vectorizer type
+                if(!this.isEmbedded())
+                {
+                    this.vectorStore.set(entityId, vector);
+                }
+
+                // Add to HNSW graph using entity ID as ordinal
+                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+                this.builder.addGraphNode(ordinal, vf);
+
+                this.markStateChangeChildren();
+
+                // Mark dirty for background managers
+                this.markDirtyForBackgroundManagers(1);
+            }
+        }
+
         /**
          * Collects and validates vectors from entities.
          */
@@ -1082,13 +1130,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             for(final E entity : entities)
             {
-                final float[] vector = this.vectorizer.vectorize(entity);
-                if(vector != null)
-                {
-                    this.validateDimension(vector);
-                    entries.add(new VectorEntry(currentEntityId, vector));
-                }
-                currentEntityId++;
+                final float[] vector = this.vectorize(entity);
+                entries.add(new VectorEntry(currentEntityId++, vector));
             }
 
             return entries;
@@ -1407,18 +1450,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
         }
 
-        private void validateDimension(final float[] vector)
-        {
-            final int expectedDim = this.configuration.dimension();
-            if(vector == null || vector.length != expectedDim)
-            {
-                throw new IllegalArgumentException(
-                    "Vector must have dimension " + expectedDim + ", got " +
-                    (vector == null ? "null" : vector.length)
-                );
-            }
-        }
-
         @Override
         public void clearStateChangeMarkers()
         {
@@ -1573,11 +1604,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 this.parentMap().iterateIndexed((entityId, entity) ->
                 {
-                    final float[] vector = this.vectorizer.vectorize(entity);
-                    if(vector != null)
-                    {
-                        vectors.add(this.vectorTypeSupport.createFloatVector(vector));
-                    }
+                    final float[] vector = this.vectorize(entity);
+                    vectors.add(this.vectorTypeSupport.createFloatVector(vector));
                 });
             }
             else if(this.vectorStore != null)
