@@ -746,17 +746,10 @@ class VectorIndexTest
             gigaMap.add(new Document("random_" + i, randomVector(random, dimension)));
         }
 
-        // Add a specific "needle" vector
+        // Add a one-hot "needle" vector that randomVector() cannot produce,
+        // since randomVector() populates all dimensions with non-zero values.
         final float[] needleVector = new float[dimension];
-        for(int i = 0; i < dimension; i++)
-        {
-            needleVector[i] = (i % 2 == 0) ? 0.1f : -0.1f;
-        }
-        // Normalize
-        float norm = 0;
-        for(float v : needleVector) norm += v * v;
-        norm = (float)Math.sqrt(norm);
-        for(int i = 0; i < dimension; i++) needleVector[i] /= norm;
+        needleVector[0] = 1.0f;
 
         gigaMap.add(new Document("needle", needleVector));
 
