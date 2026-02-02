@@ -219,7 +219,7 @@ To benchmark with real SIFT data:
 
 ## Limitations
 
-- **Null vectors are not accepted**: The `Vectorizer.vectorize()` method must never return `null`. If it does, an `IllegalArgumentException` is thrown. Ensure that every entity added to the GigaMap can produce a valid vector.
+- **Null vectors are not accepted**: The `Vectorizer.vectorize()` method must never return `null`. If it does, an `IllegalStateException` is thrown. Ensure that every entity added to the GigaMap can produce a valid vector.
 - **~2.1 billion vectors per index**: JVector uses `int` for graph node ordinals. For larger datasets, implement sharding across multiple indices.
 - **PQ compression requires maxDegree=32**: FusedPQ algorithm constraint (auto-enforced).
 

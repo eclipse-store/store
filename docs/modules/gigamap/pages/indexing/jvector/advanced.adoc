@@ -165,7 +165,7 @@ public class TextVectorizer extends Vectorizer<Document>
 
 CAUTION: When using computed vectors with an external service, be aware of potential latency during indexing operations. Consider pre-computing embeddings and storing them in the entity for better performance.
 
-IMPORTANT: The `vectorize()` method must never return `null`. If it does, an `IllegalArgumentException` is thrown when the entity is added, updated, or re-indexed. If some entities cannot produce a vector, they should be excluded before adding them to the GigaMap, or the vectorizer must provide a fallback vector.
+IMPORTANT: The `vectorize()` method must never return `null`. If it does, an `IllegalStateException` is thrown when the entity is added, updated, or re-indexed. If some entities cannot produce a vector, they should be excluded before adding them to the GigaMap, or the vectorizer must provide a fallback vector.
 
 == Benchmarking
 

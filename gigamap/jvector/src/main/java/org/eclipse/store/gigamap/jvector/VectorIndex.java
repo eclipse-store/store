@@ -979,7 +979,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final float[] vector = this.vectorizer.vectorize(entity);
             if(vector == null)
             {
-                throw new IllegalArgumentException("Null vector returned from vectorizer: " + entity);
+                throw new IllegalStateException("Null vector returned from vectorizer: " + entity);
             }
 
             this.validateDimension(vector);
@@ -992,7 +992,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final int expectedDim = this.configuration.dimension();
             if(vector.length != expectedDim)
             {
-                throw new IllegalArgumentException(
+                throw new IllegalStateException(
                     "Vector must have dimension " + expectedDim + ", got " + vector.length
                 );
             }
