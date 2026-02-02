@@ -226,11 +226,9 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
             final CustomConstraints<? super E> customConstraints
         )
         {
-            // For vector indices, update = remove old + add new
             for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
             {
-                index.internalRemove(entityId, replacedEntity);
-                index.internalAdd(entityId, entity);
+                index.internalUpdate(entityId, replacedEntity, entity);
             }
             this.markStateChangeChildren();
         }
