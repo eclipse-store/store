@@ -1,0 +1,383 @@
+= Advanced Usage
+
+This section covers advanced Lucene index features and patterns.
+
+== Native Lucene Queries
+
+For complex queries beyond the query parser syntax, use native Lucene `Query` objects.
+
+=== Term Queries
+
+[source, java]
+----
+import org.apache.lucene.index.Term;
+import org.apache.lucene.search.TermQuery;
+
+Query query = new TermQuery(new Term("category", "electronics"));
+List<Product> results = luceneIndex.query(query);
+----
+
+=== Boolean Queries
+
+[source, java]
+----
+import org.apache.lucene.search.BooleanQuery;
+import org.apache.lucene.search.BooleanClause;
+
+BooleanQuery.Builder builder = new BooleanQuery.Builder();
+builder.add(new TermQuery(new Term("category", "electronics")), BooleanClause.Occur.MUST);
+builder.add(new TermQuery(new Term("brand", "premium")), BooleanClause.Occur.SHOULD);
+builder.add(new TermQuery(new Term("status", "discontinued")), BooleanClause.Occur.MUST_NOT);
+
+Query query = builder.build();
+List<Product> results = luceneIndex.query(query);
+----
+
+=== Numeric Range Queries
+
+[source, java]
+----
+import org.apache.lucene.document.IntPoint;
+import org.apache.lucene.document.LongPoint;
+import org.apache.lucene.document.FloatPoint;
+import org.apache.lucene.document.DoublePoint;
+
+// Integer range
+Query ageQuery = IntPoint.newRangeQuery("age", 18, 65);
+
+// Long range
+Query idQuery = LongPoint.newRangeQuery("id", 1000L, 2000L);
+
+// Float range
+Query scoreQuery = FloatPoint.newRangeQuery("score", 0.5f, 1.0f);
+
+// Double range
+Query priceQuery = DoublePoint.newRangeQuery("price", 10.0, 100.0);
+
+// Exact match
+Query exactPrice = DoublePoint.newExactQuery("price", 29.99);
+----
+
+=== Prefix Queries
+
+[source, java]
+----
+import org.apache.lucene.search.PrefixQuery;
+
+Query prefixQuery = new PrefixQuery(new Term("name", "wire"));
+List<Product> results = luceneIndex.query(prefixQuery);
+----
+
+=== Wildcard Queries
+
+[source, java]
+----
+import org.apache.lucene.search.WildcardQuery;
+
+// * matches any sequence of characters
+Query wildcardQuery = new WildcardQuery(new Term("name", "wire*"));
+
+// ? matches any single character
+Query singleCharQuery = new WildcardQuery(new Term("sku", "ABC-???-XYZ"));
+----
+
+=== Fuzzy Queries
+
+[source, java]
+----
+import org.apache.lucene.search.FuzzyQuery;
+
+// Find terms similar to "bluetooth" (handles typos)
+Query fuzzyQuery = new FuzzyQuery(new Term("name", "bluetoth"));
+List<Product> results = luceneIndex.query(fuzzyQuery);
+----
+
+=== Phrase Queries
+
+[source, java]
+----
+import org.apache.lucene.search.PhraseQuery;
+
+// Exact phrase match
+PhraseQuery.Builder builder = new PhraseQuery.Builder();
+builder.add(new Term("content", "machine"));
+builder.add(new Term("content", "learning"));
+Query phraseQuery = builder.build();
+
+// With slop (allows words in between)
+builder.setSlop(2);  // Allow up to 2 words between terms
+----
+
+== Relevance Scoring
+
+Access relevance scores to rank or filter results.
+
+[source, java]
+----
+// Collect results with scores
+List<ScoredResult<Product>> scoredResults = new ArrayList<>();
+
+luceneIndex.query("name:wireless", (entityId, product, score) -> {
+    scoredResults.add(new ScoredResult<>(product, score));
+});
+
+// Sort by score descending
+scoredResults.sort((a, b) -> Float.compare(b.score(), a.score()));
+
+// Filter by minimum score
+List<Product> highConfidence = scoredResults.stream()
+    .filter(r -> r.score() > 1.0f)
+    .map(ScoredResult::product)
+    .toList();
+----
+
+[source, java]
+----
+public record ScoredResult<E>(E product, float score) {}
+----
+
+== Boosting
+
+Boost certain fields to increase their importance in scoring.
+
+[source, java]
+----
+import org.apache.lucene.search.BoostQuery;
+
+// Title matches are more important than content matches
+Query titleQuery = new TermQuery(new Term("title", "python"));
+Query contentQuery = new TermQuery(new Term("content", "python"));
+
+BooleanQuery.Builder builder = new BooleanQuery.Builder();
+builder.add(new BoostQuery(titleQuery, 2.0f), BooleanClause.Occur.SHOULD);  // 2x boost
+builder.add(contentQuery, BooleanClause.Occur.SHOULD);
+
+List<Article> results = luceneIndex.query(builder.build());
+----
+
+== Pagination
+
+Implement pagination for large result sets.
+
+[source, java]
+----
+public class SearchResult<E>
+{
+    private final List<E> items;
+    private final int totalHits;
+    private final int page;
+    private final int pageSize;
+
+    // ...
+}
+
+public SearchResult<Product> search(String queryText, int page, int pageSize)
+{
+    int offset = page * pageSize;
+    List<Product> allResults = luceneIndex.query(queryText, offset + pageSize);
+
+    // Skip to the correct page
+    List<Product> pageResults = allResults.stream()
+        .skip(offset)
+        .limit(pageSize)
+        .toList();
+
+    return new SearchResult<>(pageResults, allResults.size(), page, pageSize);
+}
+----
+
+NOTE: For very large result sets, consider using Lucene's `SearchAfter` for deep pagination.
+
+== Bulk Operations
+
+For importing large amounts of data, disable auto-commit for better performance.
+
+[source, java]
+----
+// Create context with auto-commit disabled
+LuceneContext<Product> context = LuceneContext.builder()
+    .directoryCreator(DirectoryCreator.MMap(indexPath))
+    .documentPopulator(new ProductDocumentPopulator())
+    .autoCommit(false)
+    .build();
+
+GigaMap<Product> products = GigaMap.New();
+LuceneIndex<Product> luceneIndex = products.index().register(LuceneIndex.Category(context));
+
+// Bulk import
+int batchSize = 1000;
+int count = 0;
+
+for (Product product : productImport)
+{
+    products.add(product);
+    count++;
+
+    // Commit periodically
+    if (count % batchSize == 0)
+    {
+        luceneIndex.commit();
+    }
+}
+
+// Final commit
+luceneIndex.commit();
+----
+
+== Custom Analyzers
+
+Create custom analyzers for specialized text processing.
+
+=== Keyword Analyzer
+
+For fields that should not be tokenized.
+
+[source, java]
+----
+import org.apache.lucene.analysis.core.KeywordAnalyzer;
+
+public class KeywordAnalyzerCreator extends AnalyzerCreator
+{
+    @Override
+    public Analyzer create()
+    {
+        return new KeywordAnalyzer();
+    }
+}
+----
+
+=== Whitespace Analyzer
+
+Tokenizes only on whitespace, preserving case and punctuation.
+
+[source, java]
+----
+import org.apache.lucene.analysis.core.WhitespaceAnalyzer;
+
+public class WhitespaceAnalyzerCreator extends AnalyzerCreator
+{
+    @Override
+    public Analyzer create()
+    {
+        return new WhitespaceAnalyzer();
+    }
+}
+----
+
+=== Per-Field Analyzer
+
+Use different analyzers for different fields.
+
+[source, java]
+----
+import org.apache.lucene.analysis.miscellaneous.PerFieldAnalyzerWrapper;
+
+public class CustomAnalyzerCreator extends AnalyzerCreator
+{
+    @Override
+    public Analyzer create()
+    {
+        Map<String, Analyzer> fieldAnalyzers = new HashMap<>();
+        fieldAnalyzers.put("sku", new KeywordAnalyzer());
+        fieldAnalyzers.put("email", new KeywordAnalyzer());
+
+        return new PerFieldAnalyzerWrapper(new StandardAnalyzer(), fieldAnalyzers);
+    }
+}
+----
+
+== Highlighting
+
+Extract matching snippets from search results.
+
+[source, java]
+----
+import org.apache.lucene.search.highlight.*;
+
+public String highlight(String text, String queryText) throws Exception
+{
+    QueryParser parser = new QueryParser("content", new StandardAnalyzer());
+    Query query = parser.parse(queryText);
+
+    Highlighter highlighter = new Highlighter(
+        new SimpleHTMLFormatter("<b>", "</b>"),
+        new QueryScorer(query)
+    );
+
+    TokenStream tokenStream = new StandardAnalyzer()
+        .tokenStream("content", new StringReader(text));
+
+    return highlighter.getBestFragment(tokenStream, text);
+}
+
+// Usage
+String snippet = highlight(article.getContent(), "machine learning");
+// Returns: "Introduction to <b>machine</b> <b>learning</b> algorithms..."
+----
+
+NOTE: Highlighting requires the `lucene-highlighter` dependency.
+
+== Faceted Search
+
+Count results by category using Lucene's faceting.
+
+[source, java]
+----
+// Requires lucene-facet dependency and additional setup
+// See Apache Lucene faceting documentation for details
+----
+
+For simpler faceting, combine with GigaMap's bitmap indices:
+
+[source, java]
+----
+// Get Lucene search results
+List<Product> searchResults = luceneIndex.query("name:wireless");
+Set<Long> resultIds = searchResults.stream()
+    .map(Product::getId)
+    .collect(Collectors.toSet());
+
+// Count by category using bitmap
+Map<String, Long> categoryCounts = products.query(Query.all())
+    .filter(p -> resultIds.contains(p.getId()))
+    .collect(Collectors.groupingBy(Product::getCategory, Collectors.counting()));
+----
+
+== Index Lifecycle
+
+=== Closing and Re-opening
+
+[source, java]
+----
+// Close to release resources
+luceneIndex.close();
+
+// Index is re-initialized on next query
+List<Product> results = luceneIndex.query("name:test");
+----
+
+=== Commit Strategy
+
+[source, java]
+----
+// Auto-commit (default): Changes visible immediately
+products.add(newProduct);
+// Automatically committed
+
+// Manual commit: Better for batch operations
+luceneIndex.commit();
+----
+
+== Performance Tips
+
+1. **Use StringField for exact matches** - Faster than TextField for IDs, categories, status values.
+
+2. **Disable auto-commit for bulk imports** - Commit periodically instead of after each operation.
+
+3. **Use MMapDirectory for large indexes** - Better performance than embedded storage.
+
+4. **Limit result sets** - Always specify a reasonable limit to avoid loading too many results.
+
+5. **Avoid leading wildcards** - Queries like `*phone` are slow. Use edge n-grams instead.
+
+6. **Pre-compute commonly filtered fields** - Store as StringField for fast filtering.
