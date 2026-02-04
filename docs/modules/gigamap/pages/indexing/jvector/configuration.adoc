@@ -87,18 +87,15 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 == Background Persistence
 
 Enable automatic asynchronous persistence to avoid blocking operations during writes.
+Setting `persistenceIntervalMs` to a value greater than 0 enables background persistence.
 
 [options="header",cols="1,1,3"]
 |===
 |Parameter |Default |Description
 
-|`backgroundPersistence`
-|`false`
-|Enable automatic background persistence.
-
 |`persistenceIntervalMs`
-|`30000`
-|Check interval in milliseconds.
+|`0`
+|Check interval in milliseconds. A value > 0 enables background persistence, 0 disables it.
 
 |`minChangesBetweenPersists`
 |`100`
@@ -118,8 +115,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .similarityFunction(VectorSimilarityFunction.COSINE)
     .onDisk(true)
     .indexDirectory(Path.of("/data/vectors"))
-    .backgroundPersistence(true)
-    .persistenceIntervalMs(30_000)       // Check every 30 seconds
+    .persistenceIntervalMs(30_000)       // Enable, check every 30 seconds
     .minChangesBetweenPersists(100)      // Only persist if >= 100 changes
     .persistOnShutdown(true)             // Persist on close()
     .build();
@@ -128,18 +124,15 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 == Background Optimization
 
 Enable periodic graph optimization to maintain query performance as the index grows.
+Setting `optimizationIntervalMs` to a value greater than 0 enables background optimization.
 
 [options="header",cols="1,1,3"]
 |===
 |Parameter |Default |Description
 
-|`backgroundOptimization`
-|`false`
-|Enable automatic graph optimization.
-
 |`optimizationIntervalMs`
-|`60000`
-|Check interval in milliseconds.
+|`0`
+|Check interval in milliseconds. A value > 0 enables background optimization, 0 disables it.
 
 |`minChangesBetweenOptimizations`
 |`1000`
@@ -159,8 +152,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .similarityFunction(VectorSimilarityFunction.COSINE)
     .onDisk(true)
     .indexDirectory(Path.of("/data/vectors"))
-    .backgroundOptimization(true)
-    .optimizationIntervalMs(60_000)       // Check every 60 seconds
+    .optimizationIntervalMs(60_000)       // Enable, check every 60 seconds
     .minChangesBetweenOptimizations(1000) // Only optimize if >= 1000 changes
     .optimizeOnShutdown(false)            // Skip for faster shutdown
     .build();

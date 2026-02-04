@@ -36,14 +36,12 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     // On-disk storage
     .onDisk(true)
     .indexDirectory(Path.of("/data/vectors"))
-    // Background persistence (async, non-blocking)
-    .backgroundPersistence(true)
-    .persistenceIntervalMs(30_000)        // Check every 30 seconds
+    // Background persistence (enabled by setting interval > 0)
+    .persistenceIntervalMs(30_000)        // Enable, check every 30 seconds
     .minChangesBetweenPersists(100)       // Only persist if >= 100 changes
     .persistOnShutdown(true)              // Persist on close()
-    // Background optimization (periodic cleanup)
-    .backgroundOptimization(true)
-    .optimizationIntervalMs(60_000)       // Check every 60 seconds
+    // Background optimization (enabled by setting interval > 0)
+    .optimizationIntervalMs(60_000)       // Enable, check every 60 seconds
     .minChangesBetweenOptimizations(1000) // Only optimize if >= 1000 changes
     .optimizeOnShutdown(false)            // Skip for faster shutdown
     .build();

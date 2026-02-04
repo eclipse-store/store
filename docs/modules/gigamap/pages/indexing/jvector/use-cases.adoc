@@ -146,7 +146,6 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .beamWidth(200)
     .onDisk(true)
     .indexDirectory(Path.of("/data/product-embeddings"))
-    .backgroundPersistence(true)
     .persistenceIntervalMs(60_000)
     .build();
 
@@ -220,7 +219,6 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .indexDirectory(Path.of("/data/customer-embeddings"))
     .enablePqCompression(true)            // Large customer bases benefit from compression
     .pqSubspaces(32)
-    .backgroundPersistence(true)
     .persistenceIntervalMs(30_000)
     .build();
 
@@ -293,7 +291,6 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .beamWidth(300)
     .onDisk(true)
     .indexDirectory(Path.of("/data/ticket-embeddings"))
-    .backgroundPersistence(true)
     .persistenceIntervalMs(10_000)
     .minChangesBetweenPersists(5)
     .build();
@@ -354,7 +351,6 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .beamWidth(200)
     .onDisk(true)
     .indexDirectory(Path.of("/data/content-embeddings"))
-    .backgroundOptimization(true)
     .optimizationIntervalMs(300_000)
     .build();
 
@@ -414,7 +410,6 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .beamWidth(200)
     .onDisk(true)
     .indexDirectory(Path.of("/data/semantic-index"))
-    .backgroundPersistence(true)
     .persistenceIntervalMs(60_000)
     .minChangesBetweenPersists(50)
     .build();
@@ -452,10 +447,8 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .indexDirectory(Path.of("/data/rag-index"))
     .enablePqCompression(true)
     .pqSubspaces(64)                      // 768 / 64 = 12 dims per subspace
-    .backgroundPersistence(true)
     .persistenceIntervalMs(30_000)
     .minChangesBetweenPersists(100)
-    .backgroundOptimization(true)
     .optimizationIntervalMs(300_000)      // Every 5 minutes
     .minChangesBetweenOptimizations(500)
     .build();
@@ -491,7 +484,6 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .beamWidth(100)
     .onDisk(true)
     .indexDirectory(Path.of("/data/recommendations"))
-    .backgroundPersistence(true)
     .persistenceIntervalMs(10_000)        // Frequent persistence
     .minChangesBetweenPersists(20)
     .persistOnShutdown(true)
@@ -530,10 +522,8 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .indexDirectory(Path.of("/data/large-scale"))
     .enablePqCompression(true)
     .pqSubspaces(48)                      // 768 / 48 = 16 dims per subspace
-    .backgroundPersistence(true)
     .persistenceIntervalMs(60_000)
     .minChangesBetweenPersists(1000)
-    .backgroundOptimization(true)
     .optimizationIntervalMs(600_000)      // Every 10 minutes
     .minChangesBetweenOptimizations(5000)
     .optimizeOnShutdown(false)            // Faster shutdown
@@ -571,7 +561,6 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .neighborOverflow(1.5f)
     .onDisk(true)
     .indexDirectory(Path.of("/data/precision-index"))
-    .backgroundOptimization(true)
     .optimizationIntervalMs(120_000)
     .minChangesBetweenOptimizations(200)
     .build();
@@ -612,7 +601,6 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .indexDirectory(Path.of("/data/image-index"))
     .enablePqCompression(true)
     .pqSubspaces(32)                      // 512 / 32 = 16 dims per subspace
-    .backgroundPersistence(true)
     .persistenceIntervalMs(30_000)
     .minChangesBetweenPersists(100)
     .build();
@@ -705,7 +693,6 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .beamWidth(150)
     .onDisk(true)
     .indexDirectory(Path.of("/data/sensor-data"))
-    .backgroundPersistence(true)
     .persistenceIntervalMs(5_000)         // Frequent for streaming data
     .minChangesBetweenPersists(10)
     .build();
@@ -738,7 +725,6 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .beamWidth(150)
     .onDisk(true)
     .indexDirectory(Path.of("/data/mips-index"))
-    .backgroundPersistence(true)
     .persistenceIntervalMs(30_000)
     .build();
 ----
