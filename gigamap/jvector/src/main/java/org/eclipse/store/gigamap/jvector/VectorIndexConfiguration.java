@@ -62,14 +62,14 @@ import static org.eclipse.serializer.util.X.notNull;
  * }</pre>
  *
  * <h2>Background Persistence</h2>
- * For on-disk indices, background persistence automatically saves the graph at regular intervals:
+ * For on-disk indices, background persistence automatically saves the graph at regular intervals.
+ * Setting {@code persistenceIntervalMs} to a value greater than 0 enables background persistence:
  * <pre>{@code
  * VectorIndexConfiguration config = VectorIndexConfiguration.builder()
  *     .dimension(768)
  *     .onDisk(true)
  *     .indexDirectory(Path.of("/data/vectors"))
- *     .backgroundPersistence(true)                       // Enable background persistence
- *     .persistenceIntervalMs(30_000)                     // Check every 30 seconds
+ *     .persistenceIntervalMs(30_000)                     // Enable, check every 30 seconds
  *     .minChangesBetweenPersists(100)                    // Only persist if >= 100 changes
  *     .persistOnShutdown(true)                           // Persist pending changes on close()
  *     .build();
@@ -77,12 +77,12 @@ import static org.eclipse.serializer.util.X.notNull;
  *
  * <h2>Background Optimization</h2>
  * Background optimization runs {@code builder.cleanup()} periodically to remove excess neighbors
- * accumulated during construction, reducing memory and improving query latency:
+ * accumulated during construction, reducing memory and improving query latency.
+ * Setting {@code optimizationIntervalMs} to a value greater than 0 enables background optimization:
  * <pre>{@code
  * VectorIndexConfiguration config = VectorIndexConfiguration.builder()
  *     .dimension(768)
- *     .backgroundOptimization(true)                      // Enable background optimization
- *     .optimizationIntervalMs(60_000)                    // Check every 60 seconds
+ *     .optimizationIntervalMs(60_000)                    // Enable, check every 60 seconds
  *     .minChangesBetweenOptimizations(1000)              // Only optimize if >= 1000 changes
  *     .optimizeOnShutdown(false)                         // Skip optimization on close() (faster shutdown)
  *     .build();
@@ -102,13 +102,11 @@ import static org.eclipse.serializer.util.X.notNull;
  *     // On-disk storage
  *     .onDisk(true)
  *     .indexDirectory(Path.of("/data/vectors"))
- *     // Background persistence
- *     .backgroundPersistence(true)
+ *     // Background persistence (enabled by setting interval > 0)
  *     .persistenceIntervalMs(30_000)
  *     .minChangesBetweenPersists(100)
  *     .persistOnShutdown(true)
- *     // Background optimization
- *     .backgroundOptimization(true)
+ *     // Background optimization (enabled by setting interval > 0)
  *     .optimizationIntervalMs(60_000)
  *     .minChangesBetweenOptimizations(1000)
  *     .optimizeOnShutdown(false)
@@ -316,6 +314,7 @@ public interface VectorIndexConfiguration
     /**
      * Returns whether background persistence is enabled.
      * <p>
+     * Background persistence is enabled when {@link #persistenceIntervalMs()} is greater than 0.
      * When enabled, the index will persist changes to disk in a background thread
      * at regular intervals, rather than blocking the main thread. This allows
      * add/remove operations to complete immediately while persistence happens
@@ -323,14 +322,19 @@ public interface VectorIndexConfiguration
      * <p>
      * Requires {@link #onDisk()} to be true.
      *
-     * @return true if background persistence is enabled (default: false)
+     * @return true if background persistence is enabled ({@code persistenceIntervalMs > 0})
      * @see #persistenceIntervalMs()
      * @see #minChangesBetweenPersists()
      */
-    public boolean backgroundPersistence();
+    public default boolean backgroundPersistence()
+    {
+        return this.persistenceIntervalMs() > 0;
+    }
 
     /**
      * Returns the interval in milliseconds between background persistence attempts.
+     * <p>
+     * A value greater than 0 enables background persistence. A value of 0 disables it.
      * <p>
      * The background persistence thread will check for dirty changes at this interval
      * and persist them if the dirty threshold ({@link #minChangesBetweenPersists()})
@@ -340,7 +344,7 @@ public interface VectorIndexConfiguration
      * impact performance. Higher values reduce I/O but increase potential data loss
      * on crash.
      *
-     * @return the persistence interval in milliseconds (default: 30000 = 30 seconds)
+     * @return the persistence interval in milliseconds (default: 0 = disabled)
      * @see #backgroundPersistence()
      */
     public long persistenceIntervalMs();
@@ -375,6 +379,7 @@ public interface VectorIndexConfiguration
     /**
      * Returns whether background optimization is enabled.
      * <p>
+     * Background optimization is enabled when {@link #optimizationIntervalMs()} is greater than 0.
      * When enabled, the index will run {@code builder.cleanup()} in a background thread
      * at regular intervals, which removes excess neighbors accumulated during construction.
      * This reduces memory usage and improves query latency.
@@ -385,14 +390,19 @@ public interface VectorIndexConfiguration
      * <b>Note:</b> Graph modification is NOT thread-safe, so optimization
      * will briefly block add/remove/search operations while running.
      *
-     * @return true if background optimization is enabled (default: false)
+     * @return true if background optimization is enabled ({@code optimizationIntervalMs > 0})
      * @see #optimizationIntervalMs()
      * @see #minChangesBetweenOptimizations()
      */
-    public boolean backgroundOptimization();
+    public default boolean backgroundOptimization()
+    {
+        return this.optimizationIntervalMs() > 0;
+    }
 
     /**
      * Returns the interval in milliseconds between background optimization attempts.
+     * <p>
+     * A value greater than 0 enables background optimization. A value of 0 disables it.
      * <p>
      * The background optimization thread will check for dirty changes at this interval
      * and optimize if the dirty threshold ({@link #minChangesBetweenOptimizations()})
@@ -401,7 +411,7 @@ public interface VectorIndexConfiguration
      * This should typically be longer than {@link #persistenceIntervalMs()} since
      * optimization (cleanup) is more expensive than persistence.
      *
-     * @return the optimization interval in milliseconds (default: 60000 = 1 minute)
+     * @return the optimization interval in milliseconds (default: 0 = disabled)
      * @see #backgroundOptimization()
      */
     public long optimizationIntervalMs();
@@ -538,7 +548,7 @@ public interface VectorIndexConfiguration
      * Uses balanced parameter values with on-disk storage and background persistence
      * for durability.
      * <p>
-     * <b>Configuration:</b> maxDegree=24, beamWidth=150, onDisk=true, backgroundPersistence=true
+     * <b>Configuration:</b> maxDegree=24, beamWidth=150, onDisk=true, persistenceIntervalMs=30000
      *
      * @param dimension the vector dimension (must be positive)
      * @param indexDirectory the directory where index files will be stored
@@ -551,7 +561,7 @@ public interface VectorIndexConfiguration
         return builderForMediumDataset(dimension)
             .onDisk(true)
             .indexDirectory(indexDirectory)
-            .backgroundPersistence(true)
+            .persistenceIntervalMs(30_000L)
             .build();
     }
 
@@ -583,7 +593,7 @@ public interface VectorIndexConfiguration
      * PQ compression for memory efficiency, and background persistence/optimization.
      * <p>
      * <b>Configuration:</b> maxDegree=32, beamWidth=300, onDisk=true, enablePqCompression=true,
-     * backgroundPersistence=true, backgroundOptimization=true
+     * persistenceIntervalMs=30000, optimizationIntervalMs=60000
      *
      * @param dimension the vector dimension (must be positive)
      * @param indexDirectory the directory where index files will be stored
@@ -604,7 +614,7 @@ public interface VectorIndexConfiguration
      * for memory efficiency.
      * <p>
      * <b>Configuration:</b> maxDegree=32, beamWidth=300, onDisk=true,
-     * backgroundPersistence=true, backgroundOptimization=true
+     * persistenceIntervalMs=30000, optimizationIntervalMs=60000
      *
      * @param dimension the vector dimension (must be positive)
      * @param indexDirectory the directory where index files will be stored
@@ -628,7 +638,7 @@ public interface VectorIndexConfiguration
      * background persistence/optimization enabled.
      * <p>
      * <b>Pre-configured values:</b> maxDegree=32, beamWidth=300, onDisk=true,
-     * backgroundPersistence=true, backgroundOptimization=true
+     * persistenceIntervalMs=30000, optimizationIntervalMs=60000
      *
      * @param dimension the vector dimension (must be positive)
      * @param indexDirectory the directory where index files will be stored
@@ -644,8 +654,8 @@ public interface VectorIndexConfiguration
             .beamWidth(300)
             .onDisk(true)
             .indexDirectory(indexDirectory)
-            .backgroundPersistence(true)
-            .backgroundOptimization(true);
+            .persistenceIntervalMs(30_000L)
+            .optimizationIntervalMs(60_000L);
     }
 
     /**
@@ -673,7 +683,7 @@ public interface VectorIndexConfiguration
      * with PQ compression disabled to avoid any precision loss.
      * <p>
      * <b>Configuration:</b> maxDegree=56, beamWidth=450, onDisk=true,
-     * enablePqCompression=false, backgroundPersistence=true
+     * enablePqCompression=false, persistenceIntervalMs=30000
      *
      * @param dimension the vector dimension (must be positive)
      * @param indexDirectory the directory where index files will be stored
@@ -686,7 +696,7 @@ public interface VectorIndexConfiguration
         return builderForHighPrecision(dimension)
             .onDisk(true)
             .indexDirectory(indexDirectory)
-            .backgroundPersistence(true)
+            .persistenceIntervalMs(30_000L)
             .build();
     }
 
@@ -839,21 +849,10 @@ public interface VectorIndexConfiguration
         public Builder pqSubspaces(int pqSubspaces);
 
         /**
-         * Enables or disables background persistence.
-         * <p>
-         * When enabled, changes are persisted to disk in a background thread.
-         * Requires {@link #onDisk(boolean)} to be true.
-         *
-         * @param backgroundPersistence true to enable background persistence
-         * @return this builder for method chaining
-         * @see VectorIndexConfiguration#backgroundPersistence()
-         */
-        public Builder backgroundPersistence(boolean backgroundPersistence);
-
-        /**
          * Sets the interval between background persistence attempts.
+         * A value greater than 0 enables background persistence. A value of 0 disables it.
          *
-         * @param persistenceIntervalMs the interval in milliseconds (must be positive)
+         * @param persistenceIntervalMs the interval in milliseconds (must be non-negative)
          * @return this builder for method chaining
          * @see VectorIndexConfiguration#persistenceIntervalMs()
          */
@@ -878,21 +877,10 @@ public interface VectorIndexConfiguration
         public Builder minChangesBetweenPersists(int minChangesBetweenPersists);
 
         /**
-         * Enables or disables background optimization.
-         * <p>
-         * When enabled, the graph is periodically optimized via {@code builder.cleanup()}
-         * in a background thread.
-         *
-         * @param backgroundOptimization true to enable background optimization
-         * @return this builder for method chaining
-         * @see VectorIndexConfiguration#backgroundOptimization()
-         */
-        public Builder backgroundOptimization(boolean backgroundOptimization);
-
-        /**
          * Sets the interval between background optimization attempts.
+         * A value greater than 0 enables background optimization. A value of 0 disables it.
          *
-         * @param optimizationIntervalMs the interval in milliseconds (must be positive)
+         * @param optimizationIntervalMs the interval in milliseconds (must be non-negative)
          * @return this builder for method chaining
          * @see VectorIndexConfiguration#optimizationIntervalMs()
          */
@@ -949,11 +937,9 @@ public interface VectorIndexConfiguration
             private Path                     indexDirectory               ;
             private boolean                  enablePqCompression          ;
             private int                      pqSubspaces                  ;
-            private boolean                  backgroundPersistence        ;
             private long                     persistenceIntervalMs        ;
             private boolean                  persistOnShutdown            ;
             private int                      minChangesBetweenPersists    ;
-            private boolean                  backgroundOptimization       ;
             private long                     optimizationIntervalMs       ;
             private int                      minChangesBetweenOptimizations;
             private boolean                  optimizeOnShutdown           ;
@@ -970,12 +956,10 @@ public interface VectorIndexConfiguration
                 this.indexDirectory                = null;
                 this.enablePqCompression           = false;
                 this.pqSubspaces                   = 0;
-                this.backgroundPersistence         = false;
-                this.persistenceIntervalMs         = 30_000L;  // 30 seconds
+                this.persistenceIntervalMs         = 0;  // 0 = disabled
                 this.persistOnShutdown             = true;
                 this.minChangesBetweenPersists     = 100;
-                this.backgroundOptimization        = false;
-                this.optimizationIntervalMs        = 60_000L;  // 1 minute
+                this.optimizationIntervalMs        = 0;  // 0 = disabled
                 this.minChangesBetweenOptimizations = 1000;
                 this.optimizeOnShutdown            = false;
             }
@@ -1055,18 +1039,11 @@ public interface VectorIndexConfiguration
             }
 
             @Override
-            public Builder backgroundPersistence(final boolean backgroundPersistence)
-            {
-                this.backgroundPersistence = backgroundPersistence;
-                return this;
-            }
-
-            @Override
             public Builder persistenceIntervalMs(final long persistenceIntervalMs)
             {
-                if(persistenceIntervalMs <= 0)
+                if(persistenceIntervalMs < 0)
                 {
-                    throw new IllegalArgumentException("persistenceIntervalMs must be positive, got: " + persistenceIntervalMs);
+                    throw new IllegalArgumentException("persistenceIntervalMs must be non-negative, got: " + persistenceIntervalMs);
                 }
                 this.persistenceIntervalMs = persistenceIntervalMs;
                 return this;
@@ -1091,18 +1068,11 @@ public interface VectorIndexConfiguration
             }
 
             @Override
-            public Builder backgroundOptimization(final boolean backgroundOptimization)
-            {
-                this.backgroundOptimization = backgroundOptimization;
-                return this;
-            }
-
-            @Override
             public Builder optimizationIntervalMs(final long optimizationIntervalMs)
             {
-                if(optimizationIntervalMs <= 0)
+                if(optimizationIntervalMs < 0)
                 {
-                    throw new IllegalArgumentException("optimizationIntervalMs must be positive, got: " + optimizationIntervalMs);
+                    throw new IllegalArgumentException("optimizationIntervalMs must be non-negative, got: " + optimizationIntervalMs);
                 }
                 this.optimizationIntervalMs = optimizationIntervalMs;
                 return this;
@@ -1138,7 +1108,7 @@ public interface VectorIndexConfiguration
                 {
                     throw new IllegalStateException("Compression requires onDisk mode to be enabled");
                 }
-                if(this.backgroundPersistence && !this.onDisk)
+                if(this.persistenceIntervalMs > 0 && !this.onDisk)
                 {
                     throw new IllegalStateException("Background persistence requires onDisk mode to be enabled");
                 }
@@ -1168,11 +1138,9 @@ public interface VectorIndexConfiguration
                     this.indexDirectory,
                     this.enablePqCompression,
                     this.pqSubspaces,
-                    this.backgroundPersistence,
                     this.persistenceIntervalMs,
                     this.persistOnShutdown,
                     this.minChangesBetweenPersists,
-                    this.backgroundOptimization,
                     this.optimizationIntervalMs,
                     this.minChangesBetweenOptimizations,
                     this.optimizeOnShutdown
@@ -1199,11 +1167,9 @@ public interface VectorIndexConfiguration
         private final String                   indexDirectory                ; // Stored as String for serialization
         private final boolean                  enablePqCompression           ;
         private final int                      pqSubspaces                   ;
-        private final boolean                  backgroundPersistence         ;
         private final long                     persistenceIntervalMs         ;
         private final boolean                  persistOnShutdown             ;
         private final int                      minChangesBetweenPersists     ;
-        private final boolean                  backgroundOptimization        ;
         private final long                     optimizationIntervalMs        ;
         private final int                      minChangesBetweenOptimizations;
         private final boolean                  optimizeOnShutdown            ;
@@ -1219,11 +1185,9 @@ public interface VectorIndexConfiguration
             final Path                     indexDirectory                 ,
             final boolean                  enablePqCompression            ,
             final int                      pqSubspaces                    ,
-            final boolean                  backgroundPersistence          ,
             final long                     persistenceIntervalMs          ,
             final boolean                  persistOnShutdown              ,
             final int                      minChangesBetweenPersists      ,
-            final boolean                  backgroundOptimization         ,
             final long                     optimizationIntervalMs         ,
             final int                      minChangesBetweenOptimizations ,
             final boolean                  optimizeOnShutdown
@@ -1239,11 +1203,9 @@ public interface VectorIndexConfiguration
             this.indexDirectory                 = indexDirectory != null ? indexDirectory.toString() : null;
             this.enablePqCompression            = enablePqCompression                                      ;
             this.pqSubspaces                    = pqSubspaces                                              ;
-            this.backgroundPersistence          = backgroundPersistence                                    ;
             this.persistenceIntervalMs          = persistenceIntervalMs                                    ;
             this.persistOnShutdown              = persistOnShutdown                                        ;
             this.minChangesBetweenPersists      = minChangesBetweenPersists                                ;
-            this.backgroundOptimization         = backgroundOptimization                                   ;
             this.optimizationIntervalMs         = optimizationIntervalMs                                   ;
             this.minChangesBetweenOptimizations = minChangesBetweenOptimizations                           ;
             this.optimizeOnShutdown             = optimizeOnShutdown                                       ;
@@ -1310,12 +1272,6 @@ public interface VectorIndexConfiguration
         }
 
         @Override
-        public boolean backgroundPersistence()
-        {
-            return this.backgroundPersistence;
-        }
-
-        @Override
         public long persistenceIntervalMs()
         {
             return this.persistenceIntervalMs;
@@ -1331,12 +1287,6 @@ public interface VectorIndexConfiguration
         public int minChangesBetweenPersists()
         {
             return this.minChangesBetweenPersists;
-        }
-
-        @Override
-        public boolean backgroundOptimization()
-        {
-            return this.backgroundOptimization;
         }
 
         @Override

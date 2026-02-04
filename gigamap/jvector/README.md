@@ -90,8 +90,7 @@ List<Document> topDocs = result.stream()
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `backgroundPersistence` | `false` | Enable automatic background persistence |
-| `persistenceIntervalMs` | `30000` | Check interval in milliseconds |
+| `persistenceIntervalMs` | `0` | Check interval in milliseconds. A value > 0 enables background persistence, 0 disables it |
 | `minChangesBetweenPersists` | `100` | Minimum changes before persisting |
 | `persistOnShutdown` | `true` | Persist pending changes on close() |
 
@@ -99,8 +98,7 @@ List<Document> topDocs = result.stream()
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `backgroundOptimization` | `false` | Enable automatic graph optimization |
-| `optimizationIntervalMs` | `60000` | Check interval in milliseconds |
+| `optimizationIntervalMs` | `0` | Check interval in milliseconds. A value > 0 enables background optimization, 0 disables it |
 | `minChangesBetweenOptimizations` | `1000` | Minimum changes before optimizing |
 | `optimizeOnShutdown` | `false` | Optimize pending changes on close() |
 
@@ -136,14 +134,12 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     // On-disk storage
     .onDisk(true)
     .indexDirectory(Path.of("/data/vectors"))
-    // Background persistence (async, non-blocking)
-    .backgroundPersistence(true)
-    .persistenceIntervalMs(30_000)       // Check every 30 seconds
+    // Background persistence (enabled by setting interval > 0)
+    .persistenceIntervalMs(30_000)       // Enable, check every 30 seconds
     .minChangesBetweenPersists(100)      // Only persist if >= 100 changes
     .persistOnShutdown(true)             // Persist on close()
-    // Background optimization (periodic cleanup)
-    .backgroundOptimization(true)
-    .optimizationIntervalMs(60_000)      // Check every 60 seconds
+    // Background optimization (enabled by setting interval > 0)
+    .optimizationIntervalMs(60_000)      // Enable, check every 60 seconds
     .minChangesBetweenOptimizations(1000) // Only optimize if >= 1000 changes
     .optimizeOnShutdown(false)           // Skip for faster shutdown
     .build();

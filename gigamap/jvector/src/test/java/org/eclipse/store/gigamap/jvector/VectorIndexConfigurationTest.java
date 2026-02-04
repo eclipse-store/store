@@ -47,11 +47,11 @@ class VectorIndexConfigurationTest
         assertFalse(config.enablePqCompression());
         assertEquals(0, config.pqSubspaces());
         assertFalse(config.backgroundPersistence());
-        assertEquals(30_000L, config.persistenceIntervalMs());
+        assertEquals(0L, config.persistenceIntervalMs());
         assertTrue(config.persistOnShutdown());
         assertEquals(100, config.minChangesBetweenPersists());
         assertFalse(config.backgroundOptimization());
-        assertEquals(60_000L, config.optimizationIntervalMs());
+        assertEquals(0L, config.optimizationIntervalMs());
         assertEquals(1000, config.minChangesBetweenOptimizations());
         assertFalse(config.optimizeOnShutdown());
     }
@@ -122,11 +122,16 @@ class VectorIndexConfigurationTest
     }
 
     @Test
-    void testBuilderRequiresPositivePersistenceIntervalMs()
+    void testBuilderRequiresNonNegativePersistenceIntervalMs()
     {
-        assertThrows(IllegalArgumentException.class, () ->
-            VectorIndexConfiguration.builder().dimension(64).persistenceIntervalMs(0).build()
-        );
+        // 0 is valid (means disabled)
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .persistenceIntervalMs(0)
+            .build();
+        assertEquals(0L, config.persistenceIntervalMs());
+        assertFalse(config.backgroundPersistence());
+
         assertThrows(IllegalArgumentException.class, () ->
             VectorIndexConfiguration.builder().dimension(64).persistenceIntervalMs(-1).build()
         );
@@ -141,11 +146,16 @@ class VectorIndexConfigurationTest
     }
 
     @Test
-    void testBuilderRequiresPositiveOptimizationIntervalMs()
+    void testBuilderRequiresNonNegativeOptimizationIntervalMs()
     {
-        assertThrows(IllegalArgumentException.class, () ->
-            VectorIndexConfiguration.builder().dimension(64).optimizationIntervalMs(0).build()
-        );
+        // 0 is valid (means disabled)
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .optimizationIntervalMs(0)
+            .build();
+        assertEquals(0L, config.optimizationIntervalMs());
+        assertFalse(config.backgroundOptimization());
+
         assertThrows(IllegalArgumentException.class, () ->
             VectorIndexConfiguration.builder().dimension(64).optimizationIntervalMs(-1).build()
         );
@@ -210,7 +220,7 @@ class VectorIndexConfigurationTest
         assertThrows(IllegalStateException.class, () ->
             VectorIndexConfiguration.builder()
                 .dimension(64)
-                .backgroundPersistence(true)
+                .persistenceIntervalMs(30_000)
                 .build()
         );
     }
@@ -497,8 +507,8 @@ class VectorIndexConfigurationTest
     {
         final Path indexDir = tempDir.resolve("vectors");
         final VectorIndexConfiguration config = VectorIndexConfiguration.builderForLargeDataset(1536, indexDir)
-            .backgroundPersistence(false)
-            .backgroundOptimization(false)
+            .persistenceIntervalMs(0)
+            .optimizationIntervalMs(0)
             .build();
 
         assertFalse(config.backgroundPersistence());
@@ -576,11 +586,9 @@ class VectorIndexConfigurationTest
             .indexDirectory(tempDir)
             .enablePqCompression(true)
             .pqSubspaces(48)
-            .backgroundPersistence(true)
             .persistenceIntervalMs(15_000)
             .persistOnShutdown(true)
             .minChangesBetweenPersists(50)
-            .backgroundOptimization(true)
             .optimizationIntervalMs(120_000)
             .minChangesBetweenOptimizations(500)
             .optimizeOnShutdown(true)
@@ -760,11 +768,9 @@ class VectorIndexConfigurationTest
         assertSame(builder, builder.indexDirectory(null));
         assertSame(builder, builder.enablePqCompression(false));
         assertSame(builder, builder.pqSubspaces(0));
-        assertSame(builder, builder.backgroundPersistence(false));
         assertSame(builder, builder.persistenceIntervalMs(30_000));
         assertSame(builder, builder.persistOnShutdown(true));
         assertSame(builder, builder.minChangesBetweenPersists(100));
-        assertSame(builder, builder.backgroundOptimization(false));
         assertSame(builder, builder.optimizationIntervalMs(60_000));
         assertSame(builder, builder.minChangesBetweenOptimizations(1000));
         assertSame(builder, builder.optimizeOnShutdown(false));

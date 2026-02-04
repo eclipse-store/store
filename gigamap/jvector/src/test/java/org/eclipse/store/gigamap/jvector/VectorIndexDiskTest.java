@@ -1255,7 +1255,6 @@ class VectorIndexDiskTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .backgroundPersistence(true)
             .persistenceIntervalMs(60_000)
             .persistOnShutdown(true)
             .minChangesBetweenPersists(50)
@@ -1284,7 +1283,7 @@ class VectorIndexDiskTest
 
         // Background persistence should be disabled by default
         assertFalse(config.backgroundPersistence());
-        assertEquals(30_000, config.persistenceIntervalMs());
+        assertEquals(0, config.persistenceIntervalMs());
         assertTrue(config.persistOnShutdown());
         assertEquals(100, config.minChangesBetweenPersists());
     }
@@ -1298,26 +1297,27 @@ class VectorIndexDiskTest
         assertThrows(IllegalStateException.class, () ->
             VectorIndexConfiguration.builder()
                 .dimension(128)
-                .backgroundPersistence(true)
+                .persistenceIntervalMs(30_000)
                 // onDisk not set
                 .build()
         );
     }
 
     /**
-     * Test validation: persistenceIntervalMs must be positive.
+     * Test validation: persistenceIntervalMs must be non-negative.
      */
     @Test
-    void testPersistenceIntervalMsMustBePositive(@TempDir final Path tempDir)
+    void testPersistenceIntervalMsMustBeNonNegative(@TempDir final Path tempDir)
     {
-        assertThrows(IllegalArgumentException.class, () ->
-            VectorIndexConfiguration.builder()
-                .dimension(128)
-                .onDisk(true)
-                .indexDirectory(tempDir)
-                .persistenceIntervalMs(0)
-                .build()
-        );
+        // 0 is valid (means disabled)
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(128)
+            .onDisk(true)
+            .indexDirectory(tempDir)
+            .persistenceIntervalMs(0)
+            .build();
+        assertEquals(0, config.persistenceIntervalMs());
+        assertFalse(config.backgroundPersistence());
 
         assertThrows(IllegalArgumentException.class, () ->
             VectorIndexConfiguration.builder()
@@ -1373,7 +1373,6 @@ class VectorIndexDiskTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .backgroundPersistence(true)
             .persistenceIntervalMs(500) // 500ms for fast test
             .minChangesBetweenPersists(1) // Persist on any change
             .build();
@@ -1430,7 +1429,6 @@ class VectorIndexDiskTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .backgroundPersistence(true)
             .persistenceIntervalMs(200) // Short interval to trigger during test
             .minChangesBetweenPersists(1)
             .build();
@@ -1518,7 +1516,6 @@ class VectorIndexDiskTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .backgroundPersistence(true)
             .persistenceIntervalMs(60_000) // Long interval - won't trigger during test
             .minChangesBetweenPersists(1)
             .persistOnShutdown(true) // Should persist on close
@@ -1569,7 +1566,6 @@ class VectorIndexDiskTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .backgroundPersistence(true)
             .persistenceIntervalMs(60_000) // Long interval - won't trigger during test
             .minChangesBetweenPersists(1)
             .persistOnShutdown(false) // Should NOT persist on close
@@ -1614,7 +1610,6 @@ class VectorIndexDiskTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .backgroundPersistence(true)
             .persistenceIntervalMs(200) // Short interval
             .minChangesBetweenPersists(500) // High threshold
             .build();
@@ -1677,7 +1672,6 @@ class VectorIndexDiskTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .backgroundPersistence(true)
             .persistenceIntervalMs(300)
             .minChangesBetweenPersists(100)
             .build();
@@ -1739,7 +1733,6 @@ class VectorIndexDiskTest
                     .similarityFunction(VectorSimilarityFunction.COSINE)
                     .onDisk(true)
                     .indexDirectory(indexDir)
-                    .backgroundPersistence(true)
                     .persistenceIntervalMs(100)
                     .minChangesBetweenPersists(1)
                     .persistOnShutdown(true)
@@ -1818,7 +1811,6 @@ class VectorIndexDiskTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .backgroundPersistence(true)
             .persistenceIntervalMs(60_000) // Long interval - won't trigger
             .minChangesBetweenPersists(1000) // High threshold - won't trigger
             .build();
@@ -1873,7 +1865,6 @@ class VectorIndexDiskTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .backgroundOptimization(true)
             .optimizationIntervalMs(120_000)
             .minChangesBetweenOptimizations(500)
             .optimizeOnShutdown(true)
@@ -1902,25 +1893,26 @@ class VectorIndexDiskTest
 
         // Background optimization should be disabled by default
         assertFalse(config.backgroundOptimization());
-        assertEquals(60_000, config.optimizationIntervalMs());
+        assertEquals(0, config.optimizationIntervalMs());
         assertEquals(1000, config.minChangesBetweenOptimizations());
         assertFalse(config.optimizeOnShutdown());
     }
 
     /**
-     * Test validation: optimizationIntervalMs must be positive.
+     * Test validation: optimizationIntervalMs must be non-negative.
      */
     @Test
-    void testOptimizationIntervalMsMustBePositive(@TempDir final Path tempDir)
+    void testOptimizationIntervalMsMustBeNonNegative(@TempDir final Path tempDir)
     {
-        assertThrows(IllegalArgumentException.class, () ->
-            VectorIndexConfiguration.builder()
-                .dimension(128)
-                .onDisk(true)
-                .indexDirectory(tempDir)
-                .optimizationIntervalMs(0)
-                .build()
-        );
+        // 0 is valid (means disabled)
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(128)
+            .onDisk(true)
+            .indexDirectory(tempDir)
+            .optimizationIntervalMs(0)
+            .build();
+        assertEquals(0, config.optimizationIntervalMs());
+        assertFalse(config.backgroundOptimization());
 
         assertThrows(IllegalArgumentException.class, () ->
             VectorIndexConfiguration.builder()
@@ -1976,7 +1968,6 @@ class VectorIndexDiskTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .backgroundOptimization(true)
             .optimizationIntervalMs(300) // 300ms for fast test
             .minChangesBetweenOptimizations(10) // Low threshold
             .build();
@@ -2045,7 +2036,6 @@ class VectorIndexDiskTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .backgroundOptimization(true)
             .optimizationIntervalMs(200) // Short interval
             .minChangesBetweenOptimizations(500) // High threshold
             .build();
@@ -2110,7 +2100,6 @@ class VectorIndexDiskTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .backgroundOptimization(true)
             .optimizationIntervalMs(60_000) // Long interval - won't trigger during test
             .minChangesBetweenOptimizations(1)
             .optimizeOnShutdown(true) // Should optimize on close
@@ -2169,7 +2158,6 @@ class VectorIndexDiskTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .backgroundOptimization(true)
             .optimizationIntervalMs(60_000) // Long interval - won't trigger during test
             .minChangesBetweenOptimizations(1)
             .optimizeOnShutdown(false) // Should NOT optimize on close
@@ -2226,7 +2214,6 @@ class VectorIndexDiskTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .backgroundOptimization(true)
             .optimizationIntervalMs(150) // Short interval to trigger during test
             .minChangesBetweenOptimizations(1)
             .build();
@@ -2313,7 +2300,6 @@ class VectorIndexDiskTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .backgroundOptimization(true)
             .optimizationIntervalMs(300)
             .minChangesBetweenOptimizations(100)
             .build();
@@ -2366,7 +2352,6 @@ class VectorIndexDiskTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .backgroundOptimization(true)
             .optimizationIntervalMs(60_000) // Long interval - won't trigger
             .minChangesBetweenOptimizations(1000) // High threshold - won't trigger
             .build();
@@ -2418,11 +2403,9 @@ class VectorIndexDiskTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .backgroundPersistence(true)
             .persistenceIntervalMs(300)
             .minChangesBetweenPersists(10)
             .persistOnShutdown(true)
-            .backgroundOptimization(true)
             .optimizationIntervalMs(400)
             .minChangesBetweenOptimizations(10)
             .optimizeOnShutdown(true)
@@ -2476,7 +2459,6 @@ class VectorIndexDiskTest
         final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
             .dimension(dimension)
             .similarityFunction(VectorSimilarityFunction.COSINE)
-            .backgroundOptimization(true)
             .optimizationIntervalMs(200)
             .minChangesBetweenOptimizations(10)
             .optimizeOnShutdown(true)

@@ -136,26 +136,25 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * }</pre>
  *
  * <h2>Background Persistence</h2>
- * Automatically persist the index at regular intervals:
+ * Automatically persist the index at regular intervals (enabled by setting interval &gt; 0):
  * <pre>{@code
  * VectorIndexConfiguration config = VectorIndexConfiguration.builder()
  *     .dimension(768)
  *     .onDisk(true)
  *     .indexDirectory(Path.of("/data/vectors"))
- *     .backgroundPersistence(true)
- *     .persistenceIntervalMs(30_000)      // Check every 30 seconds
+ *     .persistenceIntervalMs(30_000)      // Enable, check every 30 seconds
  *     .minChangesBetweenPersists(100)     // Only persist if >= 100 changes
  *     .persistOnShutdown(true)            // Persist on close()
  *     .build();
  * }</pre>
  *
  * <h2>Background Optimization</h2>
- * Periodically clean up the graph to reduce memory and improve query latency:
+ * Periodically clean up the graph to reduce memory and improve query latency
+ * (enabled by setting interval &gt; 0):
  * <pre>{@code
  * VectorIndexConfiguration config = VectorIndexConfiguration.builder()
  *     .dimension(768)
- *     .backgroundOptimization(true)
- *     .optimizationIntervalMs(60_000)          // Check every 60 seconds
+ *     .optimizationIntervalMs(60_000)          // Enable, check every 60 seconds
  *     .minChangesBetweenOptimizations(1000)    // Only optimize if >= 1000 changes
  *     .optimizeOnShutdown(false)               // Skip on close() for faster shutdown
  *     .build();
@@ -386,11 +385,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      *
      * <h4>Background Optimization</h4>
      * Instead of calling this method manually, you can enable automatic background
-     * optimization via {@link VectorIndexConfiguration.Builder#backgroundOptimization(boolean)}:
+     * optimization by setting {@code optimizationIntervalMs} to a value greater than 0:
      * <pre>{@code
      * VectorIndexConfiguration config = VectorIndexConfiguration.builder()
      *     .dimension(768)
-     *     .backgroundOptimization(true)
      *     .optimizationIntervalMs(60_000)
      *     .minChangesBetweenOptimizations(1000)
      *     .build();
@@ -453,13 +451,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      *
      * <h4>Background Persistence</h4>
      * Instead of calling this method manually, you can enable automatic background
-     * persistence via {@link VectorIndexConfiguration.Builder#backgroundPersistence(boolean)}:
+     * persistence by setting {@code persistenceIntervalMs} to a value greater than 0:
      * <pre>{@code
      * VectorIndexConfiguration config = VectorIndexConfiguration.builder()
      *     .dimension(768)
      *     .onDisk(true)
      *     .indexDirectory(Path.of("/data/vectors"))
-     *     .backgroundPersistence(true)
      *     .persistenceIntervalMs(30_000)
      *     .minChangesBetweenPersists(100)
      *     .persistOnShutdown(true)
