@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.eclipse.store</groupId>
+        <artifactId>gigamap-parent</artifactId>
+        <version>4.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>gigamap-jvector</artifactId>
+
+    <name>EclipseStore GigaMap JVector</name>
+    <description>EclipseStore GigaMap JVector Implementation</description>
+    <url>https://projects.eclipse.org/projects/technology.store</url>
+
+    <properties>
+        <jvector.version>4.0.0-rc.7</jvector.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.eclipse.store</groupId>
+            <artifactId>gigamap</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.store</groupId>
+            <artifactId>storage-embedded</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.github.jbellis</groupId>
+            <artifactId>jvector</artifactId>
+            <version>${jvector.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <argLine>--add-modules jdk.incubator.vector --add-exports java.base/jdk.internal.misc=ALL-UNNAMED,org.eclipse.serializer.base --add-opens java.base/java.lang=ALL-UNNAMED,org.eclipse.serializer.base --add-opens java.base/java.nio=ALL-UNNAMED,org.eclipse.serializer.base --add-opens java.base/sun.nio.ch=ALL-UNNAMED,org.eclipse.serializer.base --add-reads org.eclipse.serializer.base=ALL-UNNAMED</argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
