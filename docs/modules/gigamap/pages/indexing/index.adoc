@@ -1,9 +1,28 @@
 = Indexing
 
-Currently, the following index types are supported
+GigaMap supports multiple index types, each optimized for different query patterns.
 
-- xref:indexing/bitmap/index.adoc[Bitmap]
-- xref:indexing/lucene/index.adoc[Lucene]
-- xref:indexing/jvector/index.adoc[JVector]
+[options="header",cols="1,2,2"]
+|===
+|Index Type |Best For |Example Query
 
-If you are dealing with huge amounts of text and want to provide a feature-rich full-text-search capability, the Lucene index is recommended. For vector similarity search (k-NN) on embeddings, use the JVector index. Otherwise, the built-in Bitmap indices are the way to go.
+|xref:indexing/bitmap/index.adoc[Bitmap]
+|Exact matches, filtering, low/high cardinality
+|`category = "Electronics"`
+
+|xref:indexing/lucene/index.adoc[Lucene]
+|Full-text search, keyword matching, relevance ranking
+|`description contains "wireless bluetooth"`
+
+|xref:indexing/jvector/index.adoc[JVector]
+|Vector similarity, semantic search, recommendations
+|"Find products similar to this one"
+|===
+
+== Choosing an Index Type
+
+*xref:indexing/bitmap/index.adoc[Bitmap Index]* - Use for exact value matching and filtering. Ideal for fields like status, category, boolean flags, or any field where you query for specific values. Supports both low cardinality (few unique values) and high cardinality (many unique values) fields.
+
+*xref:indexing/lucene/index.adoc[Lucene Index]* - Use for full-text search within text content. Ideal for searching product descriptions, article content, user comments, or any text where users search by keywords. Supports relevance ranking, phrase search, wildcards, and boolean queries.
+
+*xref:indexing/jvector/index.adoc[JVector Index]* - Use for vector similarity search with AI embeddings. Ideal for finding similar items, semantic search, recommendation systems, or RAG applications. Requires vector embeddings from an AI/ML model.
