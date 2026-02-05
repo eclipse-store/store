@@ -16,8 +16,86 @@ A Java library that integrates [JVector](https://github.com/datastax/jvector) (h
 
 ## Requirements
 
-- Java 17+
+- Java 17+ (minimum)
+- Java 20+ (recommended for SIMD acceleration)
 - Maven 3.6+
+
+## SIMD Acceleration (Panama Vector API)
+
+JVector leverages the [Panama Vector API](https://openjdk.org/jeps/338) (`jdk.incubator.vector`) for hardware-accelerated vector operations. This provides significant performance improvements for ANN indexing and search through SIMD (Single Instruction, Multiple Data) instructions.
+
+### Benefits
+
+- **Faster distance calculations**: SIMD parallelizes vector arithmetic across CPU vector registers
+- **Accelerated indexing**: Graph construction benefits from parallel similarity computations
+- **Faster queries**: Nearest neighbor searches execute more quickly
+- **Optimized PQ encoding**: Product Quantization compression uses SIMD for distance computations
+
+### Java Version Requirements
+
+| Java Version | SIMD Support |
+|--------------|--------------|
+| Java 17-19 | Functional, but **not optimized** (scalar fallback) |
+| Java 20+ | **Full SIMD acceleration** via Panama Vector API |
+
+JVector uses a multi-release JAR structure:
+- Base code targets Java 11 compatibility
+- Optimized vector code in `jvector-twenty` activates automatically on Java 20+ JVMs
+- Earlier Java versions receive functional but non-SIMD implementations
+
+### JVM Parameters
+
+To enable the Panama Vector API, add the incubator module to your JVM arguments:
+
+```bash
+java --add-modules jdk.incubator.vector -jar your-app.jar
+```
+
+**Full example with all recommended flags:**
+```bash
+java --add-modules jdk.incubator.vector \
+     -Djvector.physical_core_count=8 \
+     -jar your-app.jar
+```
+
+**Maven Surefire/Failsafe configuration:**
+```xml
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-surefire-plugin</artifactId>
+    <configuration>
+        <argLine>--add-modules jdk.incubator.vector</argLine>
+    </configuration>
+</plugin>
+```
+
+**Gradle configuration:**
+```kotlin
+tasks.withType<JavaExec> {
+    jvmArgs("--add-modules", "jdk.incubator.vector")
+}
+```
+
+> **Note**: The `jdk.incubator.vector` module is an incubator feature in Java 17-21. Starting with Java 22, the Vector API moved to preview status. JVector's multi-release JAR handles the API differences automatically, but the module must still be explicitly enabled.
+
+### Performance Considerations
+
+Intensive SIMD operations can saturate memory bandwidth during indexing and PQ computation. JVector mitigates this by using a `PhysicalCoreExecutor` that limits concurrency to physical cores rather than logical cores (hyperthreads).
+
+**Default behavior**: Physical core count defaults to half the processor count visible to the JVM.
+
+**Custom configuration**: Override using the system property:
+```bash
+java --add-modules jdk.incubator.vector \
+     -Djvector.physical_core_count=8 \
+     -jar your-app.jar
+```
+
+Or provide a custom `ForkJoinPool` when building indices.
+
+### Recommendation
+
+For optimal performance, run on **Java 21 LTS or later** to benefit from full SIMD acceleration. The performance difference can be substantial for large-scale vector operations.
 
 ## Installation
 
