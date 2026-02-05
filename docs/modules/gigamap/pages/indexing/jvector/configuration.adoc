@@ -2,6 +2,79 @@
 
 The `VectorIndexConfiguration` builder provides various options to tune the index for your specific use case.
 
+[#jvm-configuration]
+== JVM Configuration
+
+To enable SIMD acceleration via the Panama Vector API, configure your JVM with the following parameters.
+
+=== Required JVM Arguments
+
+[source, bash]
+----
+java --add-modules jdk.incubator.vector -jar your-app.jar
+----
+
+=== Full Example with Performance Tuning
+
+[source, bash]
+----
+java --add-modules jdk.incubator.vector \
+     -Djvector.physical_core_count=8 \
+     -jar your-app.jar
+----
+
+=== Maven Configuration
+
+For Maven projects, configure the Surefire and Failsafe plugins:
+
+[source, xml]
+----
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-surefire-plugin</artifactId>
+    <configuration>
+        <argLine>--add-modules jdk.incubator.vector</argLine>
+    </configuration>
+</plugin>
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-failsafe-plugin</artifactId>
+    <configuration>
+        <argLine>--add-modules jdk.incubator.vector</argLine>
+    </configuration>
+</plugin>
+----
+
+=== Gradle Configuration
+
+For Gradle projects:
+
+[source, kotlin]
+----
+tasks.withType<JavaExec> {
+    jvmArgs("--add-modules", "jdk.incubator.vector")
+}
+
+tasks.withType<Test> {
+    jvmArgs("--add-modules", "jdk.incubator.vector")
+}
+----
+
+=== Physical Core Configuration
+
+Intensive SIMD operations can saturate memory bandwidth during indexing and PQ computation. JVector mitigates this by using a `PhysicalCoreExecutor` that limits concurrency to physical cores rather than logical cores (hyperthreads).
+
+[options="header",cols="1,1,3"]
+|===
+|Property |Default |Description
+
+|`jvector.physical_core_count`
+|Half of available processors
+|Override the detected physical core count for parallel operations
+|===
+
+NOTE: The `jdk.incubator.vector` module is an incubator feature in Java 17-21. Starting with Java 22, the Vector API moved to preview status. JVector's multi-release JAR handles the API differences automatically, but the module must still be explicitly enabled.
+
 == Basic HNSW Parameters
 
 [options="header",cols="1,1,3"]

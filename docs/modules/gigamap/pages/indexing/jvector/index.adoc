@@ -62,7 +62,51 @@ You can combine vector search with bitmap indices for hybrid queries - for examp
 
 == Requirements
 
-* Java 21+
+* Java 17+ (minimum)
+* Java 20+ (recommended for SIMD acceleration)
+
+== SIMD Acceleration (Panama Vector API)
+
+JVector leverages the https://openjdk.org/jeps/338[Panama Vector API] (`jdk.incubator.vector`) for hardware-accelerated vector operations. This provides significant performance improvements for ANN indexing and search through SIMD (Single Instruction, Multiple Data) instructions.
+
+=== Benefits
+
+* *Faster distance calculations*: SIMD parallelizes vector arithmetic across CPU vector registers
+* *Accelerated indexing*: Graph construction benefits from parallel similarity computations
+* *Faster queries*: Nearest neighbor searches execute more quickly
+* *Optimized PQ encoding*: Product Quantization compression uses SIMD for distance computations
+
+=== Java Version Requirements
+
+[options="header",cols="1,2"]
+|===
+|Java Version |SIMD Support
+
+|Java 17-19
+|Functional, but *not optimized* (scalar fallback)
+
+|Java 20+
+|*Full SIMD acceleration* via Panama Vector API
+|===
+
+JVector uses a multi-release JAR structure:
+
+* Base code targets Java 11 compatibility
+* Optimized vector code in `jvector-twenty` activates automatically on Java 20+ JVMs
+* Earlier Java versions receive functional but non-SIMD implementations
+
+=== JVM Parameters
+
+To enable the Panama Vector API, add the incubator module to your JVM arguments:
+
+[source, bash]
+----
+java --add-modules jdk.incubator.vector -jar your-app.jar
+----
+
+See xref:indexing/jvector/configuration.adoc#jvm-configuration[JVM Configuration] for detailed setup instructions including Maven and Gradle configuration.
+
+TIP: For optimal performance, run on *Java 21 LTS or later* to benefit from full SIMD acceleration. The performance difference can be substantial for large-scale vector operations.
 
 == Installation
 
