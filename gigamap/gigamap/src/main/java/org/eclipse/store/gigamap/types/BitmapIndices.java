@@ -701,6 +701,12 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		@Override
 		public void internalPrepareIndicesUpdate(final E replacedEntity)
 		{
+			if(this.bitmapIndices.isEmpty())
+			{
+				// no-op
+				return;
+			}
+
 			// Derive state handlers for the state of the replaced entity.
 			this.createChangeHandlers(this.cachedPrevChangeHandlers, replacedEntity);
 		}
@@ -708,6 +714,12 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		@Override
 		public void internalFinishIndicesUpdate()
 		{
+			if(this.bitmapIndices.isEmpty())
+			{
+				// no-op
+				return;
+			}
+
 			this.clearCachedChangeHandlers();
 		}
 		
@@ -719,6 +731,12 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			final CustomConstraints<? super E> customConstraints
 		)
 		{
+			if(this.bitmapIndices.isEmpty())
+			{
+				// no-op
+				return;
+			}
+
 			try
 			{
 				// Derive state handlers for the new, potentially changed state
