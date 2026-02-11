@@ -1,5 +1,23 @@
 = Changelog
 
+== 4.0.0 (Beta 1)
+
+=== Features
+
+* xref:gigamap:indexing/jvector/index.adoc[Vector index for GigaMap] https://github.com/eclipse-store/store/pull/548[[548]]
+* Lucene index update https://github.com/eclipse-store/store/pull/546[[546]]
+* Native memory accessors to ensure future compatibility with upcoming Java versions https://github.com/eclipse-serializer/serializer/issues/130[[130]] https://github.com/eclipse-serializer/serializer/pull/225[[225]]
+
+=== Bugfixes
+
+* Fix for ArrayIndexOutOfBoundsException in GigaMap https://github.com/eclipse-store/store/issues/500[[500]] https://github.com/eclipse-store/store/pull/524[[524]]
+* Fix for NullPointerException in GigaMap https://github.com/eclipse-store/store/pull/549[[549]]
+* Fixes for Lazy references, which could cause storage inconsistencies https://github.com/eclipse-serializer/serializer/issues/221[[221]] https://github.com/eclipse-serializer/serializer/pull/222[[222]] https://github.com/eclipse-serializer/serializer/pull/227[[227]]
+
+=== Other changes
+
+* Type handling updates and adjustments to changes in the JDK https://github.com/eclipse-serializer/serializer/issues/223[[223]] https://github.com/eclipse-serializer/serializer/pull/224[[224]] https://github.com/eclipse-serializer/serializer/issues/226[[226]] https://github.com/eclipse-serializer/serializer/pull/228[[228]]
+
 
 == 3.1.0
 
