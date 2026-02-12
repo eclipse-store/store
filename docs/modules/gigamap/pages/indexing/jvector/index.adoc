@@ -231,6 +231,10 @@ try (EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
 * *~2.1 billion vectors per index*: JVector uses `int` for graph node ordinals. For larger datasets, implement sharding across multiple indices.
 * *PQ compression requires maxDegree=32*: FusedPQ algorithm constraint (auto-enforced).
 
+== Examples
+
+https://github.com/eclipse-store/store/tree/main/examples/gigamap/src/main/java/org/eclipse/store/examples/gigamap/vector[GigaMap vector examples]
+
 == Further Reading
 
 * xref:indexing/jvector/configuration.adoc[Configuration Options]
