@@ -1,4 +1,5 @@
 * xref:intro:welcome.adoc[Welcome]
+* xref:intro:architecture.adoc[Architecture Overview]
 * xref:intro:system-requirements.adoc[System Requirements]
 * xref:intro:changelog.adoc[Changelog]
 * xref:intro:installation.adoc[Installation]
@@ -73,6 +74,12 @@
 *** xref:storage:addendum/tools.adoc[Tools]
 *** xref:storage:addendum/troubleshooting.adoc[Troubleshooting]
 * xref:serializer:index.adoc[Serializer]
+** xref:serializer:getting-started.adoc[Getting Started]
+** xref:serializer:type-handling.adoc[Type Handling]
+** xref:serializer:typed-serializer.adoc[TypedSerializer]
+** xref:serializer:custom-type-handlers.adoc[Custom Type Handlers]
+** xref:serializer:configuration.adoc[Configuration]
+** xref:serializer:performance.adoc[Performance and Thread Safety]
 * xref:gigamap:index.adoc[GigaMap]
 ** xref:gigamap:getting-started.adoc[Getting Started]
 ** xref:gigamap:indexing/index.adoc[Indexing]
@@ -101,6 +108,10 @@
 *** xref:cache:use-cases/hibernate-second-level-cache.adoc[Hibernate Second Level Cache]
 *** xref:cache:use-cases/spring-cache.adoc[Spring Cache]
 * xref:communication:index.adoc[Communication]
+** xref:communication:getting-started.adoc[Getting Started]
+** xref:communication:configuration.adoc[Configuration]
+** xref:communication:tls.adoc[TLS]
+** xref:communication:error-handling.adoc[Error Handling and Reconnection]
 * Miscellaneous
 ** xref:misc:logging/index.adoc[Logging]
 ** xref:misc:locking/index.adoc[Locking]
@@ -120,6 +131,3 @@
 ** xref:misc:wrapping/index.adoc[Wrapping]
 *** xref:misc:wrapping/configuration.adoc[Configuration]
 *** xref:misc:wrapping/usage.adoc[Usage]
-
-  
-  
