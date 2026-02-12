@@ -1,12 +1,53 @@
 = Data Management
 
-== Where is the data of my database located
+== Where is the data of my database located?
 
 {product-name} connects your application's entity graph residing in memory to a physical form of data (i.e.
 persistent data) to/from which entity data is stored/loaded as required.
+By default, data is stored on the local file system in the directory configured via `setStorageDirectory()` or the `storage-directory` configuration property.
+See xref:configuration/storage-files-and-directories.adoc[Storage Files and Directories] for details on the directory structure and file layout.
 
 == What if my database is really big?
 
 {product-name} uses the common concept of xref:loading-data/lazy-loading/index.adoc[Lazy Loading], allowing you to define which parts of your data (entity sub-graphs) are loaded only when required instead of eagerly at startup.
 A few well-placed lazy references in your entity model make your application load only a tiny bit of "head" entities at startup time and load everything else later on demand.
 This allows the handling of arbitrarily big databases with relatively small memory requirements.
+
+== How does storage size grow over time?
+
+When objects are updated or deleted, the old data is not immediately removed from the storage files.
+Instead, new data is appended and the old data becomes "garbage."
+The xref:housekeeping.adoc[housekeeping] process runs in the background to reclaim space from deleted or updated objects.
+
+You can monitor storage growth through the xref:../misc:monitoring/index.adoc[monitoring] JMX beans, which report the amount of persisted data.
+
+== How can I reduce storage size?
+
+* Ensure xref:configuration/housekeeping.adoc[housekeeping] is configured with sufficient time budget to keep up with updates
+* Store only the data you need — avoid storing derived or cached data
+* Use xref:loading-data/lazy-loading/index.adoc[Lazy references] to manage what is kept in memory
+* Consider using the xref:addendum/tools.adoc#_storage_converter[Storage Converter] to compact storage if needed
+
+== How do I handle concurrent access?
+
+{product-name} is designed for single-process access.
+Within a single process, the storage manager handles concurrent read and write access from multiple threads safely.
+
+[IMPORTANT]
+====
+* Do not open the same storage from multiple processes simultaneously — this will lead to data corruption.
+* The xref:configuration/lock-file.adoc[lock file] mechanism helps prevent accidental concurrent access.
+* For multi-process or distributed access, consider using {product-name} behind a service API layer.
+====
+
+== Can I recover from data corruption?
+
+If storage files become corrupted (e.g., due to disk failure or a crash during write):
+
+1. Check if a xref:configuration/backup/continuous-backup.adoc[continuous backup] or xref:configuration/backup/full-backup.adoc[full backup] is available and restore from it
+2. If no backup is available, try starting the storage with the `StorageEntityCollector.Creator.Unchecked()` option (see xref:addendum/troubleshooting.adoc[Troubleshooting])
+3. Contact the {product-name} community for assistance with complex recovery scenarios
+
+== Can I export my data?
+
+Yes. {product-name} provides xref:import-export.adoc[Import / Export] capabilities to export data in various formats and import it back.
