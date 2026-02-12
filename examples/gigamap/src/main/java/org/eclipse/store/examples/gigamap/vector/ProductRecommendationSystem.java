@@ -25,7 +25,7 @@ public class ProductRecommendationSystem
         final VectorIndex<Product> vectorIndex = gigaMap.index().register(VectorIndices.Category()).add(
             "vectors",  // Name of the vector index
             VectorIndexConfiguration.builder()
-                .dimension(384)  // Vector dimension (must match embedding model output, e.g., sentence-transformers)
+                .dimension(384)  // Vector dimension, matches the used embedding model (all-minilm)
                 .similarityFunction(VectorSimilarityFunction.COSINE)  // Use cosine similarity - ideal for text/semantic embeddings
                 .maxDegree(16)  // Max connections per node in the HNSW graph (higher = better recall, more memory)
                 .beamWidth(200)  // Search beam width during index construction (higher = better quality, slower build)
