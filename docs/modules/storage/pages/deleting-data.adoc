@@ -4,12 +4,132 @@ Deleting data does not require performing explicit deleting actions like `DELETE
 If a stored object is not reachable anymore its data will be deleted from the storage later.
 This behavior is comparable to Java's garbage collector.
 
+== Basic Deletion
+
+Remove the reference to the object and store the parent:
+
 [source, java]
 ----
-root.MyArrayList.remove(0);
-storage.store(root.MyArrayList);
+root.getMyArrayList().remove(0);
+storage.store(root.getMyArrayList());
 ----
+
+== Deleting from Different Collection Types
+
+=== Removing from a List
+
+[source, java]
+----
+// Remove by index
+root.getOrders().remove(0);
+storage.store(root.getOrders());
+
+// Remove by reference
+root.getOrders().remove(order);
+storage.store(root.getOrders());
+
+// Remove with condition
+root.getOrders().removeIf(o -> o.isCancelled());
+storage.store(root.getOrders());
+----
+
+=== Removing from a Map
+
+[source, java]
+----
+// Remove by key
+root.getCustomerMap().remove(customerId);
+storage.store(root.getCustomerMap());
+
+// Remove entries matching a condition
+root.getCustomerMap().entrySet().removeIf(
+	e -> e.getValue().isInactive()
+);
+storage.store(root.getCustomerMap());
+----
+
+=== Removing from a Set
+
+[source, java]
+----
+root.getTags().remove(tag);
+storage.store(root.getTags());
+----
+
+=== Clearing an Entire Collection
+
+[source, java]
+----
+root.getOrders().clear();
+storage.store(root.getOrders());
+----
+
+=== Setting a Field to Null
+
+If the object to delete is referenced by a single field rather than a collection:
+
+[source, java]
+----
+root.setCurrentSession(null);
+storage.store(root);
+----
+
+== Bulk Deletion
+
+When removing many objects, batch the removals and store once:
+
+[source, java]
+----
+// Remove all inactive customers
+List<Customer> inactive = root.getCustomers().stream()
+	.filter(Customer::isInactive)
+	.toList();
+
+root.getCustomers().removeAll(inactive);
+storage.store(root.getCustomers());
+----
+
+== Important: Always Store the Parent
+
+[CAUTION]
+====
+You must store the *parent object* that contains the reference, not the deleted object itself.
+
+Incorrect (does nothing for deletion):
+[source, java]
+----
+root.getOrders().remove(order);
+storage.store(order); // Wrong! This stores the removed object, not the parent
+----
+
+Correct:
+[source, java]
+----
+root.getOrders().remove(order);
+storage.store(root.getOrders()); // Store the collection that changed
+----
+====
+
+== When Is Data Actually Erased?
 
 CAUTION: Deleted data is not erased immediately from the storage files.
 
 The erasing from the storage files is done by the xref:housekeeping.adoc[housekeeping] process.
+Housekeeping runs in the background and reclaims space from deleted (unreachable) objects during its garbage collection phase.
+
+The timing depends on your xref:configuration/housekeeping.adoc[housekeeping configuration]:
+
+* *Housekeeping interval* — how often housekeeping runs
+* *Time budget* — how much time each housekeeping cycle is allowed to spend
+
+Until housekeeping reclaims the space, the data remains in the storage files but is no longer accessible through the object graph.
+
+== Deleting with Lazy References
+
+If the object to delete is behind a xref:loading-data/lazy-loading/index.adoc[Lazy] reference, you need to clear the lazy reference:
+
+[source, java]
+----
+root.setArchive(null); // Clear the lazy reference
+storage.store(root);   // Store the parent
+----
