@@ -1,0 +1,88 @@
+= Performance and Thread Safety
+
+== Performance Characteristics
+
+The Eclipse Serializer is designed for high-throughput serialization.
+Its binary format is compact and avoids the overhead of text-based formats like JSON or XML.
+
+=== Performance Tips
+
+* *Register types upfront* — pre-registering types with `SerializerFoundation.registerEntityTypes()` avoids runtime type analysis overhead
+* *Reuse serializer instances* — creating a `Serializer` involves initializing the type handling system. Create it once and reuse it
+* *Use `Serializer.Bytes()`* — the byte array medium is the most efficient for in-memory operations and network transfer
+* *Prefer `IncrementalDiff` for streaming* — when serializing many messages, `IncrementalDiff` with `includeTypeInfoOnce=true` minimizes per-message overhead
+* *Keep object graphs shallow when possible* — deeply nested object graphs require more traversal. Use xref:storage:loading-data/lazy-loading/index.adoc[lazy references] for large sub-graphs in storage contexts
+
+=== Binary Format
+
+The serializer uses a proprietary binary format optimized for Java types.
+Key properties of the format:
+
+* Fixed-size headers per object with type ID and object ID
+* Primitive values stored in their native binary representation
+* Object references stored as 8-byte reference IDs
+* Collections stored as length-prefixed sequences
+* Strings stored as UTF-8 encoded byte sequences
+
+The binary format is not intended for cross-language compatibility.
+Use the xref:communication:index.adoc[Communication module] or external formats (JSON, Protocol Buffers) if interoperability with non-Java systems is required.
+
+== Thread Safety
+
+=== Serializer Instances
+
+A single `Serializer` instance is *not thread-safe*.
+Each thread should use its own serializer instance, or access must be synchronized externally.
+
+[source, java]
+----
+// Thread-safe pattern: create per-thread serializers from a shared foundation
+final SerializerFoundation<?> foundation = SerializerFoundation.New()
+	.registerEntityTypes(Customer.class, Order.class);
+
+// In each thread:
+final Serializer<byte[]> serializer = Serializer.Bytes(foundation);
+byte[] data = serializer.serialize(myObject);
+----
+
+=== SerializerFoundation
+
+The `SerializerFoundation` can be safely shared between threads for creating serializer instances, as long as it is not modified after being shared.
+
+=== Type Dictionary
+
+The internal type dictionary is built up during serialization and is tied to a specific serializer instance.
+Different serializer instances maintain independent type dictionaries unless synchronized via type dictionary import/export.
+
+== Comparison with Java Serialization
+
+[options="header",cols="1,1,1"]
+|===
+|Aspect
+|Eclipse Serializer
+|java.io.Serializable
+
+|Speed
+|Significantly faster
+|Slower due to reflection and metadata overhead
+
+|Output size
+|Compact binary format
+|Larger due to extensive class metadata
+
+|Type evolution
+|Built-in legacy type mapping
+|Requires `serialVersionUID` management
+
+|Annotations
+|None required
+|Requires `Serializable` interface
+
+|Circular references
+|Handled automatically
+|Handled automatically
+
+|Custom serialization
+|Custom type handlers
+|`writeObject` / `readObject` methods
+|===
