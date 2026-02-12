@@ -2,12 +2,110 @@
 
 == Storage Migrator
 
-With this utility you can easily migrate MicroStream projects to EclipseStore.
+The Storage Migrator is a utility for migrating MicroStream projects to EclipseStore.
+It handles the conversion of the internal type registry from MicroStream's package names (`one.microstream`) to EclipseStore's package names (`org.eclipse.store` / `org.eclipse.serializer`).
+
+=== Prerequisites
+
+Add the storage migrator dependency:
+
+[source, xml, title="pom.xml", subs=attributes+]
+----
+<dependencies>
+	<dependency>
+		<groupId>org.eclipse.store</groupId>
+		<artifactId>storage-embedded-tools-storage-migrator</artifactId>
+		<version>{maven-version}</version>
+	</dependency>
+</dependencies>
+----
+
+=== Usage
+
+[source, java]
+----
+StorageMigrator.New(storageDirectory).migrate();
+----
+
+The migrator performs the following steps:
+
+1. Reads the existing type dictionary from the MicroStream storage
+2. Remaps all MicroStream type names to their EclipseStore equivalents
+3. Writes the updated type dictionary back to the storage
+
+After migration, the storage can be opened with {product-name}.
+
+[IMPORTANT]
+====
+* Always create a backup of your storage before running the migrator
+* The migration is a one-way operation and cannot be undone
+* The migrator only updates the type dictionary metadata — your actual data remains unchanged
+====
 
 For more information see the https://github.com/eclipse-store/store/tree/main/storage/embedded-tools/storage-migrator[readme file].
 
 == Storage Converter
 
-The storage converter provides an option to copy a storage to another storage target, for example to change the channel count or move the storage from the local disk to the cloud.
+The Storage Converter copies a storage from one storage target to another.
+This is useful for:
+
+* Changing the number of storage channels
+* Moving storage from local disk to a cloud storage target
+* Migrating between different storage backends (e.g., file system to S3)
+
+=== Prerequisites
+
+Add the storage converter dependency:
+
+[source, xml, title="pom.xml", subs=attributes+]
+----
+<dependencies>
+	<dependency>
+		<groupId>org.eclipse.store</groupId>
+		<artifactId>storage-embedded-tools-storage-converter</artifactId>
+		<version>{maven-version}</version>
+	</dependency>
+</dependencies>
+----
+
+=== Usage
+
+[source, java]
+----
+// Define source and target storage configurations
+final EmbeddedStorageFoundation<?> sourceFoundation = EmbeddedStorage.Foundation()
+	.setStorageDirectory("path/to/source/storage");
+
+final EmbeddedStorageFoundation<?> targetFoundation = EmbeddedStorage.Foundation()
+	.setStorageDirectory("path/to/target/storage")
+	.setChannelCountProvider(StorageChannelCountProvider.New(4));
+
+// Run the conversion
+StorageConverter.New(sourceFoundation, targetFoundation).convert();
+----
+
+=== Common Scenarios
+
+==== Changing Channel Count
+
+To increase or decrease the number of storage channels:
+
+[source, java]
+----
+final EmbeddedStorageFoundation<?> target = EmbeddedStorage.Foundation()
+	.setStorageDirectory("path/to/new/storage")
+	.setChannelCountProvider(StorageChannelCountProvider.New(4)); // New channel count
+----
+
+==== Moving to a Different Storage Target
+
+To move from local file system to a cloud storage target, configure the target foundation with the desired storage target. See xref:storage-targets/index.adoc[Storage Targets] for the available options.
+
+[IMPORTANT]
+====
+* The source storage must not be in use (not started) during the conversion
+* Always verify the target storage after conversion by starting it and validating your data
+* The converter creates a new independent copy — the source storage is not modified
+====
 
 For more information see the https://github.com/eclipse-store/store/tree/main/storage/embedded-tools/storage-converter[readme file].
