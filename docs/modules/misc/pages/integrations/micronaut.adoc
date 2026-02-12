@@ -1,6 +1,71 @@
 = Micronaut Integration
 
-The Micronaut integration for {product-name} ships with the official Micronaut releases and is hosted at their https://github.com/micronaut-projects/micronaut-eclipsestore[Github repository].
+The Micronaut integration for {product-name} ships with the official Micronaut releases and is hosted at their https://github.com/micronaut-projects/micronaut-eclipsestore[GitHub repository].
+
+== Getting Started
+
+Add the Micronaut EclipseStore dependency to your project:
+
+[source, groovy, title="build.gradle"]
+----
+implementation("io.micronaut.eclipsestore:micronaut-eclipsestore")
+annotationProcessor("io.micronaut.eclipsestore:micronaut-eclipsestore-processor")
+----
+
+Or for Maven:
+
+[source, xml, title="pom.xml"]
+----
+<dependency>
+    <groupId>io.micronaut.eclipsestore</groupId>
+    <artifactId>micronaut-eclipsestore</artifactId>
+</dependency>
+----
+
+== Configuration
+
+Configure the storage in your `application.yml`:
+
+[source, yaml, title="application.yml"]
+----
+eclipsestore:
+  storage:
+    main:
+      storage-directory: "data/main"
+      channel-count: 2
+----
+
+Multiple named storage managers can be configured by adding additional keys under `eclipsestore.storage`.
+
+== Injecting the Storage Manager
+
+[source, java]
+----
+import io.micronaut.eclipsestore.annotation.Store;
+import jakarta.inject.Singleton;
+import org.eclipse.store.storage.types.StorageManager;
+
+@Singleton
+public class CustomerRepository
+{
+    private final StorageManager storageManager;
+
+    public CustomerRepository(StorageManager storageManager)
+    {
+        this.storageManager = storageManager;
+    }
+
+    @Store
+    public void addCustomer(Customer customer)
+    {
+        root().getCustomers().add(customer);
+    }
+}
+----
+
+The `@Store` annotation provides declarative storing — Micronaut automatically calls `store()` on the modified objects after the method completes.
+
+== Resources
 
 For more information see the https://guides.micronaut.io/latest/micronaut-eclipsestore-persitence-gradle-java.html[official guide].
 
