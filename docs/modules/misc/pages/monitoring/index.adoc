@@ -1,11 +1,25 @@
 = Monitoring
 
-{product-name} supports monitoring using the https://docs.oracle.com/en/java/javase/11/management/monitoring-and-management-using-jmx-technology.html#GUID-805517EC-2D33-4D61-81D8-4D0FA770D1B8[Java Management Extensions (JMX) framework].
+{product-name} supports monitoring using the https://docs.oracle.com/en/java/javase/17/management/monitoring-and-management-using-jmx-technology.html[Java Management Extensions (JMX) framework].
 
 == Enable JMX
-Please see https://docs.oracle.com/en/java/javase/11/management/monitoring-and-management-using-jmx-technology.html#GUID-E17343B0-FED2-4050-88D7-E4793E704ED5[how to enable JMX].
 
-== Provided JMX beans
+Please see https://docs.oracle.com/en/java/javase/17/management/monitoring-and-management-using-jmx-technology.html[how to enable JMX].
+
+To enable JMX monitoring for your application, add the following JVM arguments:
+
+[source, bash]
+----
+-Dcom.sun.management.jmxremote
+-Dcom.sun.management.jmxremote.port=9090
+-Dcom.sun.management.jmxremote.authenticate=false
+-Dcom.sun.management.jmxremote.ssl=false
+----
+
+For production environments, always enable authentication and SSL.
+
+== Provided JMX Beans
+
 By default, all provided beans use the domain `org.eclipse.store`.
 
 Storage-specific beans have the key `storage`. The value comprises the string `storage` and an increasing counter.
@@ -14,28 +28,82 @@ Channel-specific beans have the key `channel`. The value is composed of the stri
 
 The provided beans are:
 
-[options="header",cols="1,1"]
+[options="header",cols="1,2"]
 |===
-|name
-|description
+|Name
+|Description
 
 |org.eclipse.store:name=LazyReferenceManager
-|Provides information of the storage LazyReferenceManager. There is only one instance of this bean.
+|Provides information about the storage LazyReferenceManager. There is only one instance of this bean. Useful for monitoring lazy reference loading and clearing behavior.
 
 |org.eclipse.store:storage=storageX,name=EmbeddedStorage
-|Provides information about the amount of persisted data.
+|Provides information about the amount of persisted data. Monitor this to track storage growth over time.
 
 |org.eclipse.store:storage=storageX,name=EntityCacheSummary
-|Provides information of the storage entity cache
+|Provides information about the storage entity cache. Shows how many entities are cached in memory and can help identify memory pressure.
 
 |org.eclipse.store:storage=storageX,name=ObjectRegistry
-|Provides information of the storage object registry
+|Provides information about the storage object registry. Tracks the total number of known objects.
 
 |org.eclipse.store:storage=storageX,channel=channel-X,group=Entity cache
-|Provides information of each channel's entity cache
+|Provides per-channel entity cache information. Use this to monitor the cache distribution across channels.
 
 |org.eclipse.store:storage=storageX,channel=channel-X,group=housekeeping
-|Provides information about the storage's channel housekeeping
+|Provides per-channel housekeeping information. Monitor this to ensure housekeeping keeps up with data changes.
 
 |===
 
+== Key Metrics to Watch
+
+=== Storage Growth
+The `EmbeddedStorage` bean reports the total amount of persisted data.
+Monitor this metric over time to:
+
+* Detect unexpected data growth
+* Verify that housekeeping is reclaiming space from deleted objects
+* Plan storage capacity
+
+=== Entity Cache
+The `EntityCacheSummary` and per-channel `Entity cache` beans report cache usage.
+Watch these to:
+
+* Ensure the cache is not growing beyond available memory
+* Identify if lazy references are being loaded but not cleared
+* Tune the LazyReferenceManager's clearing behavior
+
+=== Housekeeping
+The per-channel `housekeeping` beans report on garbage collection and file compaction activity.
+Monitor these to:
+
+* Ensure housekeeping completes within its configured time budget
+* Verify that storage space is being reclaimed
+* Adjust xref:storage:configuration/housekeeping.adoc[housekeeping configuration] if needed
+
+== Accessing JMX Beans Programmatically
+
+You can access the JMX beans programmatically using the standard JMX API:
+
+[source, java]
+----
+MBeanServer mBeanServer = ManagementFactory.getPlatformMBeanServer();
+ObjectName name = new ObjectName("org.eclipse.store:storage=storage0,name=EmbeddedStorage");
+MBeanInfo info = mBeanServer.getMBeanInfo(name);
+----
+
+== Integration with Monitoring Tools
+
+=== JConsole / VisualVM
+Connect to your application using JConsole or VisualVM and navigate to the `org.eclipse.store` domain in the MBean tree.
+
+=== Prometheus / Micrometer
+To expose {product-name} metrics to Prometheus, use a JMX-to-Prometheus exporter or Micrometer's JMX integration:
+
+[source, xml, title="pom.xml"]
+----
+<dependency>
+	<groupId>io.micrometer</groupId>
+	<artifactId>micrometer-registry-prometheus</artifactId>
+</dependency>
+----
+
+Configure the JMX metrics you want to export in your Micrometer configuration to scrape the `org.eclipse.store` domain.
