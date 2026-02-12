@@ -1,0 +1,129 @@
+= Architecture Overview
+
+This page provides a high-level overview of how {product-name} and the Eclipse Serializer work together, the data flow from Java objects to persistent storage, and the main components of the system.
+
+== EclipseStore and Eclipse Serializer
+
+{product-name} consists of two main projects:
+
+* *Eclipse Serializer* (`org.eclipse.serializer`) — the serialization engine that converts Java objects to a compact binary format and back. It can be used standalone or as the foundation for storage.
+* *EclipseStore* (`org.eclipse.store`) — the object-graph storage layer built on top of the serializer. It provides persistence, transactions, lazy loading, and storage target management.
+
+=== Relationship
+
+----
+┌─────────────────────────────────────────────────┐
+│                 Your Application                 │
+├─────────────────────────────────────────────────┤
+│              EclipseStore Storage                │
+│   (StorageManager, Lazy Loading, Housekeeping)   │
+├─────────────────────────────────────────────────┤
+│             Eclipse Serializer                   │
+│  (Binary Persistence, Type Handling, Type Dict)  │
+├─────────────────────────────────────────────────┤
+│          Storage Targets / AFS                   │
+│  (File System, S3, Azure, SQL, Redis, Kafka...) │
+└─────────────────────────────────────────────────┘
+----
+
+The Eclipse Serializer can be used independently of EclipseStore for pure serialization tasks (e.g., network communication, caching, data transfer).
+EclipseStore depends on the serializer for all persistence operations.
+
+== Data Flow
+
+When you store an object, the following steps occur:
+
+----
+Java Object ──> Serializer ──> Binary Data ──> Storage Channel ──> Storage Target
+                                                                   (File System,
+                                                                    S3, SQL, etc.)
+----
+
+1. *Object graph traversal* — the storage manager traverses the object graph starting from the stored object, identifying all referenced objects that need to be persisted
+2. *Serialization* — the Eclipse Serializer converts each object to its binary representation using type handlers
+3. *Channel distribution* — the binary data is distributed across storage channels for parallel I/O
+4. *Storage target write* — each channel writes its data to the configured storage target through the Abstract File System (AFS) layer
+
+When loading data, the process runs in reverse.
+
+== Key Components
+
+=== Storage Manager
+
+The `EmbeddedStorageManager` is the main entry point for application code.
+It provides methods for:
+
+* Starting and shutting down the storage
+* Storing objects and object graphs
+* Issuing backups
+* Managing the storage lifecycle
+
+See xref:storage:index.adoc[Storage] for details.
+
+=== Serializer
+
+The `Serializer` converts Java objects to binary format.
+It manages type registration, type dictionaries, and type evolution.
+
+See xref:serializer:index.adoc[Serializer] for details.
+
+=== Storage Channels
+
+Storage channels are parallel I/O workers that distribute the load of reading and writing data.
+Each channel manages its own set of storage files and entity cache.
+Increasing the channel count can improve throughput on systems with fast storage.
+
+See xref:storage:configuration/using-channels.adoc[Using Channels] for details.
+
+=== Abstract File System (AFS)
+
+The AFS is an abstraction layer that decouples the storage engine from the physical storage medium.
+All storage targets (file system, S3, SQL, etc.) implement the AFS interface, making the storage engine agnostic to where data is physically stored.
+
+See xref:storage:storage-targets/index.adoc[Storage Targets] for the available implementations.
+
+=== Housekeeping
+
+The housekeeping process runs in the background to:
+
+* Garbage-collect unreachable objects (data that was deleted from the object graph)
+* Compact storage files by removing dead data
+
+See xref:storage:housekeeping.adoc[Housekeeping] for details.
+
+=== Type Handling
+
+The type handling system manages how Java types are mapped to binary representations.
+It supports:
+
+* Automatic type registration
+* Type evolution (legacy type mapping) when classes change
+* Custom type handlers for types requiring special treatment
+
+See xref:storage:legacy-type-mapping/index.adoc[Legacy Type Mapping] and xref:serializer:type-handling.adoc[Type Handling] for details.
+
+== Module Overview
+
+[options="header",cols="1,2"]
+|===
+|Module
+|Purpose
+
+|xref:storage:index.adoc[Storage]
+|Object-graph persistence with transactions, lazy loading, and housekeeping
+
+|xref:serializer:index.adoc[Serializer]
+|Standalone binary serialization engine
+
+|xref:gigamap:index.adoc[GigaMap]
+|Indexed data structure with bitmap, Lucene, and JVector indexes
+
+|xref:cache:index.adoc[Cache]
+|JCache (JSR-107) implementation backed by {product-name}
+
+|xref:communication:index.adoc[Communication]
+|Object-based TCP communication using the serializer
+
+|xref:misc:integrations/index.adoc[Integrations]
+|Spring Boot, Micronaut, and CDI integrations
+|===
