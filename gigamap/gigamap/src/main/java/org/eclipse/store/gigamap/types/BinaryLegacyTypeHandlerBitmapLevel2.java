@@ -46,7 +46,6 @@ public class BinaryLegacyTypeHandlerBitmapLevel2 extends BinaryLegacyTypeHandler
 		super(
 			BitmapLevel2.class,
 			CustomFields(
-				CustomField(int.class, "version"),
 				bytes("data")
 			)
 		);
