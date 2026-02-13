@@ -1,0 +1,871 @@
+= Use Cases
+
+This section provides recommended configurations for common use cases.
+
+== Choosing a Similarity Function
+
+The similarity function determines how distance between vectors is computed. Choosing the right function is critical for search quality.
+
+=== Decision Guide
+
+[options="header",cols="2,1,2"]
+|===
+|Use Case |Function |Reason
+
+|Text/semantic search
+|COSINE
+|Meaning is in direction, not magnitude
+
+|OpenAI/Cohere embeddings
+|COSINE
+|Models optimized for cosine similarity
+
+|Pre-normalized vectors
+|DOT_PRODUCT
+|Faster, same results as cosine
+
+|Recommendation (MIPS)
+|DOT_PRODUCT
+|Maximize relevance scores
+
+|Geographic/spatial data
+|EUCLIDEAN
+|Physical distance matters
+
+|Image pixels/raw data
+|EUCLIDEAN
+|Absolute values are meaningful
+
+|Face embeddings (FaceNet)
+|EUCLIDEAN
+|Model trained with L2 distance
+
+|Unknown/unsure
+|COSINE
+|Most robust default choice
+|===
+
+=== COSINE Similarity
+
+Measures the cosine of the angle between vectors, ignoring magnitude. Range: [-1, 1] where 1 = identical direction.
+
+*Best for:*
+
+* *Text embeddings* - Semantic similarity search, document retrieval, FAQ matching. Text embeddings capture meaning in direction, not magnitude.
+* *Recommendation systems* - Finding similar items based on feature vectors where the "strength" of features shouldn't dominate.
+* *Image embeddings* - When using models like CLIP that produce direction-based embeddings.
+* *Varying magnitude vectors* - Cosine normalizes automatically, so two documents about "machine learning" match even if one is longer.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(1536)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .build();
+----
+
+=== DOT_PRODUCT Similarity
+
+Computes the sum of element-wise products. Magnitude affects the result. Range: (-∞, +∞) for general vectors; [0, 1] for unit vectors.
+
+*Best for:*
+
+* *Pre-normalized vectors* - When you've already normalized vectors to unit length, dot product is faster than cosine (no normalization step) and gives identical rankings.
+* *Maximum Inner Product Search (MIPS)* - Recommendation systems where you want to find items that maximize relevance scores (e.g., user-item matrix factorization).
+* *Neural network outputs* - When the model was trained with dot product similarity.
+* *Attention mechanisms* - Query-key matching in transformer-style architectures.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.DOT_PRODUCT)
+    .build();
+----
+
+=== EUCLIDEAN Similarity
+
+Measures the straight-line distance between vector endpoints. Range: [0, +∞) where 0 = identical vectors.
+
+*Best for:*
+
+* *Spatial/geographic data* - Finding nearest physical locations, GPS coordinates, 3D object positions in games or simulations.
+* *Image pixel similarity* - When comparing raw image data or simple features where absolute color/intensity values matter.
+* *Scientific measurements* - Sensor data, spectral analysis, time series where absolute values are meaningful.
+* *Clustering algorithms* - K-means and similar algorithms often assume Euclidean space.
+* *Face recognition* - Some face embedding models (e.g., FaceNet) are trained with Euclidean distance.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(128)
+    .similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
+    .build();
+----
+
+== Application Use Cases
+
+=== Similar Products
+
+Find products similar to a given product for "Customers also viewed" or "You might also like" features.
+
+[source, java]
+----
+public class Product
+{
+    private long id;
+    private String name;
+    private String description;
+    private float[] embedding;  // Generated from name + description
+    // ...
+}
+
+public class ProductVectorizer extends Vectorizer<Product>
+{
+    @Override
+    public float[] vectorize(Product product)
+    {
+        return product.getEmbedding();
+    }
+
+    @Override
+    public boolean isEmbedded()
+    {
+        return true;
+    }
+}
+----
+
+[source, java]
+----
+// Configure index for product catalog
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)                       // Common for text embedding models
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .maxDegree(32)
+    .beamWidth(200)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/product-embeddings"))
+    .persistenceIntervalMs(60_000)
+    .build();
+
+// Register and create index
+GigaMap<Product> products = GigaMap.New();
+VectorIndices<Product> vectorIndices = products.index().register(VectorIndices.Category());
+VectorIndex<Product> similarityIndex = vectorIndices.add("similarity", config, new ProductVectorizer());
+
+// Find similar products
+Product currentProduct = products.get(productId);
+List<Product> similar = similarityIndex.search(currentProduct.getEmbedding(), 10)
+    .stream()
+    .filter(e -> e.entityId() != productId)  // Exclude current product
+    .map(VectorSearchResult.Entry::entity)
+    .toList();
+----
+
+[options="header",cols="1,3"]
+|===
+|Setting |Rationale
+
+|COSINE similarity
+|Product descriptions are text-based, direction matters more than magnitude
+
+|maxDegree=32
+|Good recall for finding related products across categories
+
+|Background persistence
+|Product catalog updates without blocking
+|===
+
+=== Customer Similarity
+
+Find customers with similar behavior or preferences for targeted marketing, lookalike audiences, or churn prediction.
+
+[source, java]
+----
+public class Customer
+{
+    private long id;
+    private String name;
+    private float[] behaviorEmbedding;  // Generated from purchase history, browsing, etc.
+    // ...
+}
+
+public class CustomerVectorizer extends Vectorizer<Customer>
+{
+    @Override
+    public float[] vectorize(Customer customer)
+    {
+        return customer.getBehaviorEmbedding();
+    }
+
+    @Override
+    public boolean isEmbedded()
+    {
+        return true;
+    }
+}
+----
+
+[source, java]
+----
+// Configure index for customer embeddings
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(128)                       // Behavioral embeddings are often compact
+    .similarityFunction(VectorSimilarityFunction.DOT_PRODUCT)
+    .maxDegree(24)
+    .beamWidth(150)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/customer-embeddings"))
+    .enablePqCompression(true)            // Large customer bases benefit from compression
+    .pqSubspaces(32)
+    .persistenceIntervalMs(30_000)
+    .build();
+
+// Find lookalike customers
+GigaMap<Customer> customers = GigaMap.New();
+VectorIndices<Customer> vectorIndices = customers.index().register(VectorIndices.Category());
+VectorIndex<Customer> behaviorIndex = vectorIndices.add("behavior", config, new CustomerVectorizer());
+
+// Find customers similar to high-value customer segment
+Customer targetCustomer = customers.get(customerId);
+List<Customer> lookalikes = behaviorIndex.search(targetCustomer.getBehaviorEmbedding(), 100)
+    .stream()
+    .map(VectorSearchResult.Entry::entity)
+    .toList();
+----
+
+[options="header",cols="1,3"]
+|===
+|Setting |Rationale
+
+|DOT_PRODUCT similarity
+|Behavioral embeddings from matrix factorization work well with dot product
+
+|PQ compression
+|Customer databases can be very large
+
+|Compact dimension (128)
+|Behavioral features don't need high dimensionality
+|===
+
+=== FAQ and Support Ticket Matching
+
+Match incoming support tickets or questions to existing FAQs or resolved tickets.
+
+[source, java]
+----
+public class SupportTicket
+{
+    private long id;
+    private String subject;
+    private String description;
+    private String resolution;
+    private float[] embedding;  // Generated from subject + description
+    // ...
+}
+
+public class TicketVectorizer extends Vectorizer<SupportTicket>
+{
+    @Override
+    public float[] vectorize(SupportTicket ticket)
+    {
+        return ticket.getEmbedding();
+    }
+
+    @Override
+    public boolean isEmbedded()
+    {
+        return true;
+    }
+}
+----
+
+[source, java]
+----
+// Configure index for support tickets
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(1536)                      // OpenAI embeddings
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .maxDegree(48)                        // Higher recall for accurate matching
+    .beamWidth(300)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/ticket-embeddings"))
+    .persistenceIntervalMs(10_000)
+    .minChangesBetweenPersists(5)
+    .build();
+
+// Find similar resolved tickets
+GigaMap<SupportTicket> tickets = GigaMap.New();
+VectorIndices<SupportTicket> vectorIndices = tickets.index().register(VectorIndices.Category());
+VectorIndex<SupportTicket> ticketIndex = vectorIndices.add("content", config, new TicketVectorizer());
+
+// Match new ticket to existing solutions
+float[] newTicketEmbedding = embeddingService.embed(newTicket.getSubject() + " " + newTicket.getDescription());
+List<SupportTicket> matches = ticketIndex.search(newTicketEmbedding, 5)
+    .stream()
+    .filter(e -> e.score() > 0.85f)       // High confidence matches only
+    .filter(e -> e.entity().getResolution() != null)
+    .map(VectorSearchResult.Entry::entity)
+    .toList();
+----
+
+[options="header",cols="1,3"]
+|===
+|Setting |Rationale
+
+|COSINE similarity
+|Text-based semantic matching
+
+|High maxDegree (48)
+|Accurate matching is critical for support quality
+
+|Frequent persistence
+|New tickets are created continuously
+|===
+
+=== Content Recommendations
+
+Recommend articles, blog posts, or media content based on user interests or content similarity.
+
+[source, java]
+----
+public class Article
+{
+    private long id;
+    private String title;
+    private String content;
+    private String[] tags;
+    private float[] embedding;
+    // ...
+}
+----
+
+[source, java]
+----
+// Configure index for content
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .maxDegree(32)
+    .beamWidth(200)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/content-embeddings"))
+    .optimizationIntervalMs(300_000)
+    .build();
+
+// Find related articles
+GigaMap<Article> articles = GigaMap.New();
+VectorIndices<Article> vectorIndices = articles.index().register(VectorIndices.Category());
+VectorIndex<Article> contentIndex = vectorIndices.add("content", config, new ArticleVectorizer());
+
+// Get recommendations based on current article
+Article current = articles.get(articleId);
+List<Article> related = contentIndex.search(current.getEmbedding(), 6)
+    .stream()
+    .filter(e -> e.entityId() != articleId)
+    .limit(5)
+    .map(VectorSearchResult.Entry::entity)
+    .toList();
+----
+
+== Technical Use Cases
+
+== Development and Prototyping
+
+For local development with small datasets where simplicity is more important than performance.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .build();
+----
+
+[options="header",cols="1,3"]
+|===
+|Setting |Rationale
+
+|In-memory (default)
+|Fast iteration, no disk I/O overhead
+
+|Default maxDegree (16)
+|Sufficient for small datasets
+
+|No background processes
+|Simpler debugging, predictable behavior
+|===
+
+== Semantic Search Application
+
+For text-based search applications using embeddings from models like OpenAI, Cohere, or open-source alternatives.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(1536)                      // OpenAI ada-002 dimension
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .maxDegree(32)
+    .beamWidth(200)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/semantic-index"))
+    .persistenceIntervalMs(60_000)
+    .minChangesBetweenPersists(50)
+    .build();
+----
+
+[options="header",cols="1,3"]
+|===
+|Setting |Rationale
+
+|COSINE similarity
+|Standard for text embeddings, direction-based matching
+
+|maxDegree=32
+|Good recall for semantic similarity
+
+|On-disk storage
+|Handles growing document collections
+
+|Background persistence
+|Non-blocking writes during document ingestion
+|===
+
+== RAG (Retrieval-Augmented Generation)
+
+For AI applications that retrieve context before generating responses. Prioritizes low latency and high recall.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)                       // Common for BERT-based models
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .maxDegree(48)
+    .beamWidth(300)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/rag-index"))
+    .enablePqCompression(true)
+    .pqSubspaces(64)                      // 768 / 64 = 12 dims per subspace
+    .persistenceIntervalMs(30_000)
+    .minChangesBetweenPersists(100)
+    .optimizationIntervalMs(300_000)      // Every 5 minutes
+    .minChangesBetweenOptimizations(500)
+    .build();
+----
+
+[options="header",cols="1,3"]
+|===
+|Setting |Rationale
+
+|High maxDegree (48)
+|Maximizes recall for accurate context retrieval
+
+|High beamWidth (300)
+|Better index quality for precise matching
+
+|PQ compression
+|Reduces memory for large knowledge bases
+
+|Background optimization
+|Maintains query performance as knowledge base grows
+|===
+
+== Real-Time Recommendations
+
+For recommendation systems that need fast responses with continuous updates (e.g., e-commerce, content platforms).
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(128)                       // Smaller embeddings for speed
+    .similarityFunction(VectorSimilarityFunction.DOT_PRODUCT)
+    .maxDegree(16)
+    .beamWidth(100)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/recommendations"))
+    .persistenceIntervalMs(10_000)        // Frequent persistence
+    .minChangesBetweenPersists(20)
+    .persistOnShutdown(true)
+    .build();
+----
+
+[options="header",cols="1,3"]
+|===
+|Setting |Rationale
+
+|Lower dimension (128)
+|Faster search, lower memory usage
+
+|DOT_PRODUCT similarity
+|Efficient when embeddings are pre-normalized
+
+|Lower maxDegree (16)
+|Balanced for speed over maximum recall
+
+|Frequent persistence
+|Minimizes data loss on unexpected shutdown
+|===
+
+== Large-Scale Vector Database
+
+For datasets with millions of vectors where memory efficiency is critical.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .maxDegree(32)                        // Required for PQ
+    .beamWidth(200)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/large-scale"))
+    .enablePqCompression(true)
+    .pqSubspaces(48)                      // 768 / 48 = 16 dims per subspace
+    .persistenceIntervalMs(60_000)
+    .minChangesBetweenPersists(1000)
+    .optimizationIntervalMs(600_000)      // Every 10 minutes
+    .minChangesBetweenOptimizations(5000)
+    .optimizeOnShutdown(false)            // Faster shutdown
+    .build();
+----
+
+[options="header",cols="1,3"]
+|===
+|Setting |Rationale
+
+|PQ compression enabled
+|Significantly reduces memory footprint
+
+|High change thresholds
+|Reduces I/O overhead for bulk operations
+
+|Infrequent optimization
+|Avoids CPU spikes during high-load periods
+
+|No optimization on shutdown
+|Faster application restarts
+|===
+
+== High-Precision Matching
+
+For applications requiring maximum accuracy, such as duplicate detection or plagiarism checking.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
+    .maxDegree(64)
+    .beamWidth(500)
+    .neighborOverflow(1.5f)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/precision-index"))
+    .optimizationIntervalMs(120_000)
+    .minChangesBetweenOptimizations(200)
+    .build();
+----
+
+[options="header",cols="1,3"]
+|===
+|Setting |Rationale
+
+|EUCLIDEAN similarity
+|Better for measuring exact distances
+
+|High maxDegree (64)
+|Maximum graph connectivity for recall
+
+|High beamWidth (500)
+|Thorough index construction
+
+|Higher neighborOverflow
+|Retains more candidates during search
+
+|Frequent optimization
+|Keeps graph structure optimal for precision
+|===
+
+== Image Similarity Search
+
+For visual search applications using image embeddings (e.g., CLIP, ResNet features).
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(512)                       // CLIP ViT-B/32 dimension
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .maxDegree(32)
+    .beamWidth(150)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/image-index"))
+    .enablePqCompression(true)
+    .pqSubspaces(32)                      // 512 / 32 = 16 dims per subspace
+    .persistenceIntervalMs(30_000)
+    .minChangesBetweenPersists(100)
+    .build();
+----
+
+[options="header",cols="1,3"]
+|===
+|Setting |Rationale
+
+|COSINE similarity
+|Standard for normalized image embeddings
+
+|PQ compression
+|Handles large image collections efficiently
+
+|Moderate maxDegree (32)
+|Good balance for visual similarity
+|===
+
+== Face Recognition
+
+For face embedding models like FaceNet that are trained with Euclidean (L2) distance.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(128)                       // FaceNet dimension
+    .similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
+    .maxDegree(32)
+    .beamWidth(200)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/face-embeddings"))
+    .build();
+----
+
+[options="header",cols="1,3"]
+|===
+|Setting |Rationale
+
+|EUCLIDEAN similarity
+|FaceNet and similar models are trained with L2 distance
+
+|Dimension 128
+|Standard FaceNet embedding size
+
+|Moderate maxDegree
+|Balance between accuracy and speed for identity matching
+|===
+
+== Geographic/Spatial Search
+
+For finding nearest physical locations based on coordinates or 3D positions.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(2)                         // Lat/long coordinates
+    .similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
+    .maxDegree(16)
+    .beamWidth(100)
+    .build();
+----
+
+[options="header",cols="1,3"]
+|===
+|Setting |Rationale
+
+|EUCLIDEAN similarity
+|Physical distance calculation
+
+|Low dimension
+|Geographic coordinates are 2D or 3D
+
+|Lower maxDegree
+|Sufficient for spatial proximity search
+|===
+
+NOTE: For high-precision geographic search, consider using specialized geospatial libraries. Vector search is suitable for approximate nearest-neighbor queries on location data.
+
+== Scientific/Sensor Data
+
+For time series, spectral analysis, or sensor measurements where absolute values are meaningful.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(256)                       // Sensor feature dimension
+    .similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
+    .maxDegree(24)
+    .beamWidth(150)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/sensor-data"))
+    .persistenceIntervalMs(5_000)         // Frequent for streaming data
+    .minChangesBetweenPersists(10)
+    .build();
+----
+
+[options="header",cols="1,3"]
+|===
+|Setting |Rationale
+
+|EUCLIDEAN similarity
+|Absolute measurement values matter
+
+|Frequent persistence
+|Continuous data ingestion from sensors
+
+|Low change threshold
+|Minimize data loss for streaming scenarios
+|===
+
+== Maximum Inner Product Search (MIPS)
+
+For recommendation systems using matrix factorization where you want to maximize relevance scores.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(64)                        // User/item embedding dimension
+    .similarityFunction(VectorSimilarityFunction.DOT_PRODUCT)
+    .maxDegree(24)
+    .beamWidth(150)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/mips-index"))
+    .persistenceIntervalMs(30_000)
+    .build();
+----
+
+[options="header",cols="1,3"]
+|===
+|Setting |Rationale
+
+|DOT_PRODUCT similarity
+|Maximizes inner product for relevance ranking
+
+|Lower dimension
+|Matrix factorization typically uses compact embeddings
+
+|Moderate settings
+|Balanced for real-time recommendation serving
+|===
+
+== Configuration Summary
+
+[options="header",cols="2,1,1,1,1,1,1"]
+|===
+|Use Case |Similarity |maxDegree |beamWidth |On-Disk |PQ |Background
+
+|Development
+|COSINE
+|16
+|100
+|No
+|No
+|No
+
+|Semantic Search
+|COSINE
+|32
+|200
+|Yes
+|No
+|Persistence
+
+|RAG
+|COSINE
+|48
+|300
+|Yes
+|Yes
+|Both
+
+|Recommendations
+|DOT_PRODUCT
+|16
+|100
+|Yes
+|No
+|Persistence
+
+|Large-Scale
+|COSINE
+|32
+|200
+|Yes
+|Yes
+|Both
+
+|High-Precision
+|EUCLIDEAN
+|64
+|500
+|Yes
+|No
+|Optimization
+
+|Image Search
+|COSINE
+|32
+|150
+|Yes
+|Yes
+|Persistence
+
+|Face Recognition
+|EUCLIDEAN
+|32
+|200
+|Yes
+|No
+|No
+
+|Geographic
+|EUCLIDEAN
+|16
+|100
+|No
+|No
+|No
+
+|Sensor Data
+|EUCLIDEAN
+|24
+|150
+|Yes
+|No
+|Persistence
+
+|MIPS
+|DOT_PRODUCT
+|24
+|150
+|Yes
+|No
+|Persistence
+
+|Similar Products
+|COSINE
+|32
+|200
+|Yes
+|No
+|Persistence
+
+|Customer Similarity
+|DOT_PRODUCT
+|24
+|150
+|Yes
+|Yes
+|Persistence
+
+|FAQ/Tickets
+|COSINE
+|48
+|300
+|Yes
+|No
+|Persistence
+
+|Content Recommendations
+|COSINE
+|32
+|200
+|Yes
+|No
+|Optimization
+|===

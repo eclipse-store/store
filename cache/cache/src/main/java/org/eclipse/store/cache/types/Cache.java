@@ -91,6 +91,13 @@ public interface Cache<K, V> extends javax.cache.Cache<K, V>, Unwrappable
 	 */
 	public long size();
 
+    /**
+     * Associates the specified value with the specified key in the cache without triggering any listeners.
+     * <p>
+     * See {@link javax.cache.Cache#put(Object, Object)} for details.
+     */
+    public void putSilent(final K key, final V value);
+
 	/**
 	 * Adds all entries to this cache.
 	 * <p>
@@ -666,7 +673,94 @@ public interface Cache<K, V> extends javax.cache.Cache<K, V>, Unwrappable
 			}
 		}
 
-		@Override
+        @Override
+        public void putSilent(final K key, final V value)
+        {
+            this.ensureOpen();
+
+            this.keyValidator.validate(key);
+            this.valueValidator.validate(value);
+
+            final AtomicBoolean isStatisticsEnabled = this.isStatisticsEnabled;
+            final long start = isStatisticsEnabled.get()
+                               ? System.nanoTime()
+                               : 0;
+
+            int putCount = 0;
+            final long now = System.currentTimeMillis();
+            final ObjectConverter objectConverter = this.objectConverter;
+            final Object internalKey = objectConverter.internalize(key);
+            final Object internalValue = objectConverter.internalize(value);
+
+            synchronized (this.cacheTable)
+            {
+                CachedValue cachedValue = this.cacheTable.get(internalKey);
+                final boolean isExpired = cachedValue != null && cachedValue.isExpiredAt(now);
+
+                if (isExpired)
+                {
+                    this.processExpiries(
+                        key,
+                        internalKey,
+                        null,
+                        objectConverter.externalize(cachedValue.value())
+                    );
+                }
+
+                final CacheEntry<K, V> entry = CacheEntry.New(key, value);
+
+                if (cachedValue == null || isExpired)
+                {
+                    cachedValue = CachedValue.New(
+                        internalValue,
+                        now,
+                        this.expiryForCreation().getAdjustedTime(now)
+                    );
+
+                    if (cachedValue.isExpiredAt(now))
+                    {
+                        this.processExpiries(
+                            key,
+                            internalKey,
+                            null,
+                            objectConverter.externalize(cachedValue.value())
+                        );
+                    }
+                    else
+                    {
+                        // write before put, because if write fails, put mustn't happen
+                        this.writeCacheEntry(entry);
+                        this.putValue(
+                            key,
+                            value,
+                            internalKey,
+                            cachedValue,
+                            null
+                        );
+                        putCount++;
+                    }
+                }
+                else
+                {
+                    final V oldValue = objectConverter.externalize(cachedValue.value(now));
+
+                    this.updateExpiryForUpdate(cachedValue, now);
+
+                    cachedValue.value(internalValue, now);
+                    this.writeCacheEntry(entry);
+                    putCount++;
+                }
+            }
+
+            if (isStatisticsEnabled.get() && putCount > 0)
+            {
+                final CacheStatisticsMXBean cacheStatisticsMXBean = this.cacheStatisticsMXBean;
+                cacheStatisticsMXBean.increaseCachePuts(putCount);
+                cacheStatisticsMXBean.addPutTimeNano(System.nanoTime() - start);
+            }
+        }
+
+        @Override
 		public V getAndPut(final K key, final V value)
 		{
 			this.ensureOpen();

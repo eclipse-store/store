@@ -30,11 +30,22 @@
 			<artifactId>gigamap</artifactId>
 			<version>${project.version}</version>
 		</dependency>
+		<dependency>
+			<groupId>org.eclipse.store</groupId>
+			<artifactId>gigamap-jvector</artifactId>
+			<version>${project.version}</version>
+		</dependency>
         <dependency>
             <groupId>net.datafaker</groupId>
             <artifactId>datafaker</artifactId>
             <scope>compile</scope>
         </dependency>
-	</dependencies>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.20.2</version>
+            <scope>compile</scope>
+        </dependency>
+    </dependencies>
 
 </project>

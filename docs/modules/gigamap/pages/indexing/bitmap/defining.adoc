@@ -96,7 +96,7 @@ public final static Indexer<Person, MaritalStatus> maritalStatus = new Indexer.A
     }
 
     @Override
-    public MaritalStatus indexEntity(Person person)
+    public MaritalStatus index(Person person)
     {
         return person.getMaritalStatus();
     }

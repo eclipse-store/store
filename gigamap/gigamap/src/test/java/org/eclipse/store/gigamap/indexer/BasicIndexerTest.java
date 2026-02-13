@@ -288,6 +288,14 @@ public class BasicIndexerTest
 	}
 
 	@Test
+	void setWithNoIndex()
+	{
+		final GigaMap<String> map = GigaMap.New();
+		final long id = map.add("foo");
+		assertEquals("foo", map.set(id, "bar"));
+	}
+
+	@Test
 	void bulk()
 	{
 		final LongIndexer indexer = new LongIndexer();
