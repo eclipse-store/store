@@ -63,8 +63,7 @@ The Storage Converter copies a storage from one storage target to another.
 This is useful for:
 
 * Changing the number of storage channels
-* Moving storage from local disk to a cloud storage target
-* Migrating between different storage backends (e.g., file system to S3)
+* Moving storage from local disk to a cloud storage target or vice-versa
 
 === Prerequisites
 
