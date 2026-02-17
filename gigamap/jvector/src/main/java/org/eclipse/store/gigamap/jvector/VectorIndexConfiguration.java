@@ -448,6 +448,23 @@ public interface VectorIndexConfiguration
      */
     public boolean optimizeOnShutdown();
 
+    /**
+     * Returns whether parallel writing is used for on-disk index persistence.
+     * <p>
+     * When enabled, the on-disk graph writer uses parallel direct buffers and
+     * multiple worker threads (one per available processor) to write the index
+     * concurrently. This significantly speeds up persistence for large indices.
+     * <p>
+     * When disabled, a sequential single-threaded writer is used, which may be
+     * preferable in resource-constrained environments or when writing smaller indices.
+     * <p>
+     * Only applies when {@link #onDisk()} is true.
+     *
+     * @return true if parallel on-disk writing is enabled (default: true)
+     * @see #onDisk()
+     */
+    public boolean parallelOnDiskWrite();
+
 
     /**
      * Creates a new builder for constructing a {@link VectorIndexConfiguration}.
@@ -905,6 +922,18 @@ public interface VectorIndexConfiguration
         public Builder optimizeOnShutdown(boolean optimizeOnShutdown);
 
         /**
+         * Enables or disables parallel writing for on-disk index persistence.
+         * <p>
+         * When enabled, uses multiple worker threads and parallel direct buffers
+         * for faster disk writes. Only applies when {@link #onDisk(boolean)} is true.
+         *
+         * @param parallelOnDiskWrite true to enable parallel on-disk writing
+         * @return this builder for method chaining
+         * @see VectorIndexConfiguration#parallelOnDiskWrite()
+         */
+        public Builder parallelOnDiskWrite(boolean parallelOnDiskWrite);
+
+        /**
          * Builds the configuration with the specified parameters.
          *
          * @return a new immutable {@link VectorIndexConfiguration}
@@ -943,6 +972,7 @@ public interface VectorIndexConfiguration
             private long                     optimizationIntervalMs       ;
             private int                      minChangesBetweenOptimizations;
             private boolean                  optimizeOnShutdown           ;
+            private boolean                  parallelOnDiskWrite          ;
 
             Default()
             {
@@ -962,6 +992,7 @@ public interface VectorIndexConfiguration
                 this.optimizationIntervalMs        = 0;  // 0 = disabled
                 this.minChangesBetweenOptimizations = 1000;
                 this.optimizeOnShutdown            = false;
+                this.parallelOnDiskWrite           = true;
             }
 
             @Override
@@ -1097,6 +1128,13 @@ public interface VectorIndexConfiguration
             }
 
             @Override
+            public Builder parallelOnDiskWrite(final boolean parallelOnDiskWrite)
+            {
+                this.parallelOnDiskWrite = parallelOnDiskWrite;
+                return this;
+            }
+
+            @Override
             public VectorIndexConfiguration build()
             {
                 // Validation
@@ -1143,7 +1181,8 @@ public interface VectorIndexConfiguration
                     this.minChangesBetweenPersists,
                     this.optimizationIntervalMs,
                     this.minChangesBetweenOptimizations,
-                    this.optimizeOnShutdown
+                    this.optimizeOnShutdown,
+                    this.parallelOnDiskWrite
                 );
             }
 
@@ -1173,6 +1212,7 @@ public interface VectorIndexConfiguration
         private final long                     optimizationIntervalMs        ;
         private final int                      minChangesBetweenOptimizations;
         private final boolean                  optimizeOnShutdown            ;
+        private final boolean                  parallelOnDiskWrite           ;
 
         Default(
             final int                      dimension                      ,
@@ -1190,7 +1230,8 @@ public interface VectorIndexConfiguration
             final int                      minChangesBetweenPersists      ,
             final long                     optimizationIntervalMs         ,
             final int                      minChangesBetweenOptimizations ,
-            final boolean                  optimizeOnShutdown
+            final boolean                  optimizeOnShutdown             ,
+            final boolean                  parallelOnDiskWrite
         )
         {
             this.dimension                      = dimension                                                ;
@@ -1209,6 +1250,7 @@ public interface VectorIndexConfiguration
             this.optimizationIntervalMs         = optimizationIntervalMs                                   ;
             this.minChangesBetweenOptimizations = minChangesBetweenOptimizations                           ;
             this.optimizeOnShutdown             = optimizeOnShutdown                                       ;
+            this.parallelOnDiskWrite            = parallelOnDiskWrite                                      ;
         }
 
         @Override
@@ -1305,6 +1347,12 @@ public interface VectorIndexConfiguration
         public boolean optimizeOnShutdown()
         {
             return this.optimizeOnShutdown;
+        }
+
+        @Override
+        public boolean parallelOnDiskWrite()
+        {
+            return this.parallelOnDiskWrite;
         }
 
     }

@@ -18,6 +18,7 @@ import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
@@ -54,6 +55,24 @@ class VectorIndexDiskTest
         public float[] vectorize(final Document entity)
         {
             return entity.embedding();
+        }
+    }
+
+    /**
+     * Embedded vectorizer - vectors are part of the entity, not stored separately.
+     */
+    static class EmbeddedDocumentVectorizer extends Vectorizer<Document>
+    {
+        @Override
+        public float[] vectorize(final Document entity)
+        {
+            return entity.embedding();
+        }
+
+        @Override
+        public boolean isEmbedded()
+        {
+            return true;
         }
     }
 
@@ -2492,5 +2511,524 @@ class VectorIndexDiskTest
         {
             index.close();
         }
+    }
+
+
+    // ========================================================================
+    // Parallel vs Non-Parallel On-Disk Write Tests
+    // ========================================================================
+
+    /**
+     * Test that parallel and non-parallel on-disk writes produce equivalent search results
+     * for a large index without PQ compression.
+     * Both modes should produce identical graph files that yield the same search quality.
+     */
+    @Test
+    void testParallelVsNonParallelOnDiskWrite(@TempDir final Path tempDir) throws IOException
+    {
+        final int vectorCount = 2000;
+        final int dimension = 64;
+        final int k = 20;
+        final Random random = new Random(42);
+
+        // Generate shared vectors and query
+        final List<float[]> vectors = new ArrayList<>();
+        for(int i = 0; i < vectorCount; i++)
+        {
+            vectors.add(randomVector(random, dimension));
+        }
+        final float[] queryVector = randomVector(new Random(999), dimension);
+
+        final Path parallelIndexDir    = tempDir.resolve("parallel");
+        final Path sequentialIndexDir  = tempDir.resolve("sequential");
+
+        // --- Parallel mode ---
+        final List<Long> parallelIds;
+        final List<Float> parallelScores;
+        {
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+            final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .maxDegree(16)
+                .beamWidth(100)
+                .onDisk(true)
+                .indexDirectory(parallelIndexDir)
+                .parallelOnDiskWrite(true)
+                .build();
+
+            final VectorIndex<Document> index = vectorIndices.add(
+                "embeddings", config, new ComputedDocumentVectorizer()
+            );
+
+            for(int i = 0; i < vectorCount; i++)
+            {
+                gigaMap.add(new Document("doc_" + i, vectors.get(i)));
+            }
+
+            index.persistToDisk();
+
+            final VectorSearchResult<Document> result = index.search(queryVector, k);
+            parallelIds = new ArrayList<>();
+            parallelScores = new ArrayList<>();
+            for(final VectorSearchResult.Entry<Document> entry : result)
+            {
+                parallelIds.add(entry.entityId());
+                parallelScores.add(entry.score());
+            }
+
+            assertTrue(Files.exists(parallelIndexDir.resolve("embeddings.graph")));
+            assertTrue(Files.exists(parallelIndexDir.resolve("embeddings.meta")));
+        }
+
+        // --- Sequential mode ---
+        final List<Long> sequentialIds;
+        final List<Float> sequentialScores;
+        {
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+            final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .maxDegree(16)
+                .beamWidth(100)
+                .onDisk(true)
+                .indexDirectory(sequentialIndexDir)
+                .parallelOnDiskWrite(false)
+                .build();
+
+            final VectorIndex<Document> index = vectorIndices.add(
+                "embeddings", config, new ComputedDocumentVectorizer()
+            );
+
+            for(int i = 0; i < vectorCount; i++)
+            {
+                gigaMap.add(new Document("doc_" + i, vectors.get(i)));
+            }
+
+            index.persistToDisk();
+
+            final VectorSearchResult<Document> result = index.search(queryVector, k);
+            sequentialIds = new ArrayList<>();
+            sequentialScores = new ArrayList<>();
+            for(final VectorSearchResult.Entry<Document> entry : result)
+            {
+                sequentialIds.add(entry.entityId());
+                sequentialScores.add(entry.score());
+            }
+
+            assertTrue(Files.exists(sequentialIndexDir.resolve("embeddings.graph")));
+            assertTrue(Files.exists(sequentialIndexDir.resolve("embeddings.meta")));
+        }
+
+        // --- Compare results ---
+        assertEquals(k, parallelIds.size());
+        assertEquals(k, sequentialIds.size());
+
+        // Both indices were built from the same data with the same HNSW parameters,
+        // so search results must be identical.
+        assertEquals(parallelIds, sequentialIds,
+            "Parallel and sequential on-disk writes should produce identical search results");
+        assertEquals(parallelScores, sequentialScores,
+            "Parallel and sequential on-disk writes should produce identical search scores");
+    }
+
+    /**
+     * Test that parallel and non-parallel on-disk writes produce equivalent search results
+     * for a large index with PQ compression enabled.
+     * This exercises the FusedPQ write path which is the primary target of the parallel mode setting.
+     */
+    @Test
+    void testParallelVsNonParallelOnDiskWriteWithCompression(@TempDir final Path tempDir) throws IOException
+    {
+        final int vectorCount = 2000;
+        final int dimension = 64;
+        final int pqSubspaces = 16;
+        final int k = 20;
+        final Random random = new Random(42);
+
+        // Generate shared vectors and query
+        final List<float[]> vectors = new ArrayList<>();
+        for(int i = 0; i < vectorCount; i++)
+        {
+            vectors.add(randomVector(random, dimension));
+        }
+        final float[] queryVector = randomVector(new Random(999), dimension);
+
+        final Path parallelIndexDir    = tempDir.resolve("parallel");
+        final Path sequentialIndexDir  = tempDir.resolve("sequential");
+
+        // --- Parallel mode with PQ ---
+        final List<Long> parallelIds;
+        final List<Float> parallelScores;
+        {
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+            final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .maxDegree(32)
+                .beamWidth(100)
+                .onDisk(true)
+                .indexDirectory(parallelIndexDir)
+                .enablePqCompression(true)
+                .pqSubspaces(pqSubspaces)
+                .parallelOnDiskWrite(true)
+                .build();
+
+            final VectorIndex<Document> index = vectorIndices.add(
+                "embeddings", config, new ComputedDocumentVectorizer()
+            );
+
+            for(int i = 0; i < vectorCount; i++)
+            {
+                gigaMap.add(new Document("doc_" + i, vectors.get(i)));
+            }
+
+            ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
+            index.persistToDisk();
+
+            final VectorSearchResult<Document> result = index.search(queryVector, k);
+            parallelIds = new ArrayList<>();
+            parallelScores = new ArrayList<>();
+            for(final VectorSearchResult.Entry<Document> entry : result)
+            {
+                parallelIds.add(entry.entityId());
+                parallelScores.add(entry.score());
+            }
+
+            assertTrue(Files.exists(parallelIndexDir.resolve("embeddings.graph")));
+            assertTrue(Files.exists(parallelIndexDir.resolve("embeddings.meta")));
+        }
+
+        // --- Sequential mode with PQ ---
+        final List<Long> sequentialIds;
+        final List<Float> sequentialScores;
+        {
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+            final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .maxDegree(32)
+                .beamWidth(100)
+                .onDisk(true)
+                .indexDirectory(sequentialIndexDir)
+                .enablePqCompression(true)
+                .pqSubspaces(pqSubspaces)
+                .parallelOnDiskWrite(false)
+                .build();
+
+            final VectorIndex<Document> index = vectorIndices.add(
+                "embeddings", config, new ComputedDocumentVectorizer()
+            );
+
+            for(int i = 0; i < vectorCount; i++)
+            {
+                gigaMap.add(new Document("doc_" + i, vectors.get(i)));
+            }
+
+            ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
+            index.persistToDisk();
+
+            final VectorSearchResult<Document> result = index.search(queryVector, k);
+            sequentialIds = new ArrayList<>();
+            sequentialScores = new ArrayList<>();
+            for(final VectorSearchResult.Entry<Document> entry : result)
+            {
+                sequentialIds.add(entry.entityId());
+                sequentialScores.add(entry.score());
+            }
+
+            assertTrue(Files.exists(sequentialIndexDir.resolve("embeddings.graph")));
+            assertTrue(Files.exists(sequentialIndexDir.resolve("embeddings.meta")));
+        }
+
+        // --- Compare results ---
+        assertEquals(k, parallelIds.size());
+        assertEquals(k, sequentialIds.size());
+
+        // Both indices were built from the same data with identical HNSW parameters and PQ training,
+        // so search results must be identical.
+        assertEquals(parallelIds, sequentialIds,
+            "Parallel and sequential PQ-compressed on-disk writes should produce identical search results");
+        assertEquals(parallelScores, sequentialScores,
+            "Parallel and sequential PQ-compressed on-disk writes should produce identical search scores");
+    }
+
+    /**
+     * Test that parallel and non-parallel on-disk writes both support persist-and-reload
+     * for a large PQ-compressed index.
+     * Verifies that the graph files produced by both modes can be loaded correctly
+     * and yield equivalent search results after restart.
+     */
+    @Test
+    void testParallelVsNonParallelPersistAndReload(@TempDir final Path tempDir) throws IOException
+    {
+        final int vectorCount = 2000;
+        final int dimension = 64;
+        final int pqSubspaces = 16;
+        final int k = 20;
+        final Random random = new Random(42);
+
+        // Generate shared vectors and query
+        final List<float[]> vectors = new ArrayList<>();
+        for(int i = 0; i < vectorCount; i++)
+        {
+            vectors.add(randomVector(random, dimension));
+        }
+        final float[] queryVector = randomVector(new Random(999), dimension);
+
+        final Path parallelIndexDir    = tempDir.resolve("parallel-index");
+        final Path parallelStorageDir  = tempDir.resolve("parallel-storage");
+        final Path sequentialIndexDir  = tempDir.resolve("sequential-index");
+        final Path sequentialStorageDir = tempDir.resolve("sequential-storage");
+
+        // --- Build and persist both modes ---
+        buildAndPersistIndex(vectors, queryVector, dimension, pqSubspaces, parallelIndexDir, parallelStorageDir, true);
+        buildAndPersistIndex(vectors, queryVector, dimension, pqSubspaces, sequentialIndexDir, sequentialStorageDir, false);
+
+        // --- Reload both and compare search results ---
+        final List<Long> parallelIds = new ArrayList<>();
+        final List<Float> parallelScores = new ArrayList<>();
+        {
+            try(final EmbeddedStorageManager storage = EmbeddedStorage.start(parallelStorageDir))
+            {
+                @SuppressWarnings("unchecked")
+                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
+
+                assertEquals(vectorCount, gigaMap.size());
+
+                final VectorIndex<Document> index = vectorIndices.get("embeddings");
+                assertNotNull(index);
+                assertTrue(index.isOnDisk());
+
+                final VectorSearchResult<Document> result = index.search(queryVector, k);
+                assertEquals(k, result.size());
+                for(final VectorSearchResult.Entry<Document> entry : result)
+                {
+                    parallelIds.add(entry.entityId());
+                    parallelScores.add(entry.score());
+                    assertNotNull(entry.entity());
+                }
+            }
+        }
+
+        final List<Long> sequentialIds = new ArrayList<>();
+        final List<Float> sequentialScores = new ArrayList<>();
+        {
+            try(final EmbeddedStorageManager storage = EmbeddedStorage.start(sequentialStorageDir))
+            {
+                @SuppressWarnings("unchecked")
+                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
+
+                assertEquals(vectorCount, gigaMap.size());
+
+                final VectorIndex<Document> index = vectorIndices.get("embeddings");
+                assertNotNull(index);
+                assertTrue(index.isOnDisk());
+
+                final VectorSearchResult<Document> result = index.search(queryVector, k);
+                assertEquals(k, result.size());
+                for(final VectorSearchResult.Entry<Document> entry : result)
+                {
+                    sequentialIds.add(entry.entityId());
+                    sequentialScores.add(entry.score());
+                    assertNotNull(entry.entity());
+                }
+            }
+        }
+
+        // Both modes should produce equivalent results after reload
+        assertEquals(parallelIds, sequentialIds,
+            "Parallel and sequential modes should produce identical search results after reload");
+        assertEquals(parallelScores, sequentialScores,
+            "Parallel and sequential modes should produce identical search scores after reload");
+    }
+
+    /**
+     * Helper to build, populate, train PQ, persist, and store a PQ-compressed index.
+     */
+    private void buildAndPersistIndex(
+        final List<float[]> vectors         ,
+        final float[]       queryVector     ,
+        final int           dimension       ,
+        final int           pqSubspaces     ,
+        final Path          indexDir        ,
+        final Path          storageDir      ,
+        final boolean       parallel
+    ) throws IOException
+    {
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            storage.setRoot(gigaMap);
+
+            final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+            final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .maxDegree(32)
+                .beamWidth(100)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .enablePqCompression(true)
+                .pqSubspaces(pqSubspaces)
+                .parallelOnDiskWrite(parallel)
+                .build();
+
+            final VectorIndex<Document> index = vectorIndices.add(
+                "embeddings", config, new ComputedDocumentVectorizer()
+            );
+
+            for(int i = 0; i < vectors.size(); i++)
+            {
+                gigaMap.add(new Document("doc_" + i, vectors.get(i)));
+            }
+
+            ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
+            index.persistToDisk();
+
+            assertTrue(Files.exists(indexDir.resolve("embeddings.graph")));
+            assertTrue(Files.exists(indexDir.resolve("embeddings.meta")));
+
+            storage.storeRoot();
+        }
+    }
+
+
+    // ========================================================================
+    // Embedded Vectorizer + On-Disk Tests
+    // ========================================================================
+
+    /**
+     * Test that an embedded vectorizer with parallel on-disk write completes without deadlock.
+     * <p>
+     * This is a regression test for a deadlock where {@code persistToDisk()} held
+     * {@code synchronized(parentMap)} for the entire disk write. The disk writer uses
+     * internal worker threads (ForkJoinPool for PQ encoding, parallel graph writer)
+     * that call {@code parentMap.get()} — which also synchronizes on the same monitor.
+     * <p>
+     * The fix restructures locking: Phase 1 (prep) runs inside {@code synchronized(parentMap)},
+     * Phase 2 (disk write) runs outside it but still holds {@code persistenceLock.writeLock()}.
+     * <p>
+     * Uses {@code @Timeout} to fail fast if a deadlock occurs instead of hanging indefinitely.
+     */
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    void testEmbeddedVectorizerWithParallelOnDiskWrite(@TempDir final Path tempDir)
+    {
+        final int vectorCount = 500;
+        final int dimension = 64;
+        final Random random = new Random(42);
+
+        final Path indexDir = tempDir.resolve("index");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .parallelOnDiskWrite(true)
+            .build();
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings",
+            config,
+            new EmbeddedDocumentVectorizer()
+        );
+
+        // Add vectors
+        for(int i = 0; i < vectorCount; i++)
+        {
+            gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
+        }
+
+        // This would deadlock before the fix
+        index.persistToDisk();
+
+        // Verify files were created
+        assertTrue(Files.exists(indexDir.resolve("embeddings.graph")));
+        assertTrue(Files.exists(indexDir.resolve("embeddings.meta")));
+
+        // Verify search still works after persist
+        final float[] queryVector = randomVector(random, dimension);
+        final VectorSearchResult<Document> result = index.search(queryVector, 10);
+        assertEquals(10, result.size());
+
+        for(final VectorSearchResult.Entry<Document> entry : result)
+        {
+            assertNotNull(entry.entity());
+        }
+    }
+
+    /**
+     * Test that an embedded vectorizer with PQ compression and parallel on-disk write
+     * completes without deadlock.
+     * <p>
+     * This is the most deadlock-prone scenario: FusedPQ encoding uses a ForkJoinPool
+     * that calls {@code getVector()} on worker threads, plus the parallel graph writer
+     * also calls {@code getVector()} from its own thread pool.
+     */
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    void testEmbeddedVectorizerWithPqAndParallelOnDiskWrite(@TempDir final Path tempDir)
+    {
+        final int vectorCount = 500;
+        final int dimension = 64;
+        final int pqSubspaces = 16;
+        final Random random = new Random(42);
+
+        final Path indexDir = tempDir.resolve("index");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .enablePqCompression(true)
+            .pqSubspaces(pqSubspaces)
+            .parallelOnDiskWrite(true)
+            .build();
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings",
+            config,
+            new EmbeddedDocumentVectorizer()
+        );
+
+        // Add vectors
+        for(int i = 0; i < vectorCount; i++)
+        {
+            gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
+        }
+
+        // Train PQ compression
+        ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
+
+        // This would deadlock before the fix
+        index.persistToDisk();
+
+        // Verify files were created
+        assertTrue(Files.exists(indexDir.resolve("embeddings.graph")));
+        assertTrue(Files.exists(indexDir.resolve("embeddings.meta")));
+
+        // Verify search still works
+        final float[] queryVector = randomVector(random, dimension);
+        final VectorSearchResult<Document> result = index.search(queryVector, 10);
+        assertEquals(10, result.size());
     }
 }

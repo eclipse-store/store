@@ -782,7 +782,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.name,
                     this.configuration.indexDirectory(),
                     this.configuration.dimension(),
-                    this.configuration.maxDegree()
+                    this.configuration.maxDegree(),
+                    this.configuration.parallelOnDiskWrite()
                 );
                 if(this.diskManager.tryLoad())
                 {
@@ -1205,29 +1206,40 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void internalRemoveAll()
         {
-            synchronized(this.parentMap())
+            // Acquire write lock to ensure no concurrent persistToDisk() Phase 2 is running.
+            // closeInternalResources() destroys the graph and disk manager, which would
+            // corrupt a write in progress.
+            this.persistenceLock.writeLock().lock();
+            try
             {
-                this.ensureIndexInitialized();
-
-                if(!this.isEmbedded())
+                synchronized(this.parentMap())
                 {
-                    this.vectorStore.removeAll();
+                    this.ensureIndexInitialized();
+
+                    if(!this.isEmbedded())
+                    {
+                        this.vectorStore.removeAll();
+                    }
+
+                    // Shutdown optimization manager before closing
+                    this.shutdownOptimizationManager(false);
+
+                    // Shutdown persistence manager before closing
+                    this.shutdownPersistenceManager(false);
+
+                    this.closeInternalResources();
+
+                    // Reinitialize the index (this will also restart background managers if configured)
+                    this.initializeIndex();
+                    this.markStateChangeChildren();
+
+                    // Mark dirty for background managers
+                    this.markDirtyForBackgroundManagers(1);
                 }
-
-                // Shutdown optimization manager before closing
-                this.shutdownOptimizationManager(false);
-
-                // Shutdown persistence manager before closing
-                this.shutdownPersistenceManager(false);
-
-                this.closeInternalResources();
-
-                // Reinitialize the index (this will also restart background managers if configured)
-                this.initializeIndex();
-                this.markStateChangeChildren();
-
-                // Mark dirty for background managers
-                this.markDirtyForBackgroundManagers(1);
+            }
+            finally
+            {
+                this.persistenceLock.writeLock().unlock();
             }
         }
 
@@ -1359,13 +1371,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void optimize()
         {
+            final GraphIndexBuilder capturedBuilder;
             synchronized(this.parentMap())
             {
                 this.ensureIndexInitialized();
-                if(this.builder != null)
-                {
-                    this.builder.cleanup();
-                }
+                capturedBuilder = this.builder;
+            }
+            // cleanup() uses ForkJoinPool internally — must be outside
+            // synchronized(parentMap) to avoid deadlock with embedded vectorizers
+            // whose worker threads call parentMap.get().
+            if(capturedBuilder != null)
+            {
+                capturedBuilder.cleanup();
+            }
+            synchronized(this.parentMap())
+            {
                 this.markStateChangeChildren();
             }
         }
@@ -1378,39 +1398,64 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return; // No-op for in-memory indices
             }
 
-            // Acquire write lock for exclusive access during persistence
+            // Acquire write lock for exclusive access during persistence.
+            // This blocks searches and other persist/removeAll/close calls.
             this.persistenceLock.writeLock().lock();
             try
             {
+                // Captured references for Phase 2 (disk write outside synchronized block)
+                final OnHeapGraphIndex              capturedIndex  ;
+                final RandomAccessVectorValues      capturedRavv   ;
+                final PQCompressionManager          capturedPqMgr  ;
+                final DiskIndexManager              capturedDiskMgr;
+
+                final GraphIndexBuilder             capturedBuilder;
+
+                // Phase 1: Exclusive prep inside synchronized(parentMap).
+                // Disk manager init and reference capture.
                 synchronized(this.parentMap())
                 {
                     this.ensureIndexInitialized();
 
-                    // If we have an in-memory builder, write it to disk
-                    if(this.builder != null && this.index != null)
+                    // If we have an in-memory builder, prepare for disk write
+                    if(this.builder == null || this.index == null)
                     {
-                        // Cleanup the graph before writing (removes excess neighbors)
-                        this.builder.cleanup();
-
-                        // Initialize disk manager if needed
-                        if(this.diskManager == null)
-                        {
-                            this.diskManager = new DiskIndexManager.Default(
-                                this,
-                                this.name,
-                                this.configuration.indexDirectory(),
-                                this.configuration.dimension(),
-                                this.configuration.maxDegree()
-                            );
-                        }
-
-                        // Create vector values for writing
-                        final RandomAccessVectorValues ravv = this.createVectorValues();
-
-                        // Write using disk manager
-                        this.diskManager.writeIndex(this.index, ravv, this.pqManager);
+                        return;
                     }
+
+                    // Initialize disk manager if needed
+                    if(this.diskManager == null)
+                    {
+                        this.diskManager = new DiskIndexManager.Default(
+                            this,
+                            this.name,
+                            this.configuration.indexDirectory(),
+                            this.configuration.dimension(),
+                            this.configuration.maxDegree(),
+                            this.configuration.parallelOnDiskWrite()
+                        );
+                    }
+
+                    // Capture references for use outside the synchronized block.
+                    // The parentMap monitor is released before cleanup and disk write
+                    // so that worker threads (ForkJoinPool in cleanup and disk writer)
+                    // can freely call parentMap.get() without deadlocking.
+                    capturedBuilder = this.builder;
+                    capturedIndex   = this.index;
+                    capturedRavv    = new NullSafeVectorValues(
+                        this.createVectorValues(), this.configuration.dimension(), this.vectorTypeSupport
+                    );
+                    capturedPqMgr   = this.pqManager;
+                    capturedDiskMgr = this.diskManager;
                 }
+
+                // Phase 2: Cleanup and disk write outside synchronized(parentMap).
+                // persistenceLock.writeLock() is still held, blocking searches,
+                // removeAll, and close. But parentMap monitor is released, so
+                // worker threads (ForkJoinPool in cleanup, disk writer threads)
+                // can call parentMap.get() for embedded vectors.
+                capturedBuilder.cleanup();
+                capturedDiskMgr.writeIndex(capturedIndex, capturedRavv, capturedPqMgr);
             }
             catch(final IOException ioe)
             {
@@ -1465,9 +1510,19 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // Shutdown persistence manager second (may persist pending changes)
             this.shutdownPersistenceManager(this.configuration.persistOnShutdown());
 
-            synchronized(this.parentMap())
+            // Acquire write lock to ensure no concurrent persistToDisk() Phase 2 is running.
+            // closeInternalResources() destroys the graph and disk manager.
+            this.persistenceLock.writeLock().lock();
+            try
             {
-                this.closeInternalResources();
+                synchronized(this.parentMap())
+                {
+                    this.closeInternalResources();
+                }
+            }
+            finally
+            {
+                this.persistenceLock.writeLock().unlock();
             }
         }
 
@@ -1615,6 +1670,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return this.vectorStore != null ? this.vectorStore.size() : 0;
             }
         }
+
 
     }
 
