@@ -26,7 +26,6 @@ You can monitor storage growth through the xref:../misc:monitoring/index.adoc[mo
 * Ensure xref:configuration/housekeeping.adoc[housekeeping] is configured with sufficient time budget to keep up with updates
 * Store only the data you need — avoid storing derived or cached data
 * Use xref:loading-data/lazy-loading/index.adoc[Lazy references] to manage what is kept in memory
-* Consider using the xref:addendum/tools.adoc#_storage_converter[Storage Converter] to compact storage if needed
 
 == How do I handle concurrent access?
 
