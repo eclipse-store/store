@@ -16,7 +16,7 @@ This allows the handling of arbitrarily big databases with relatively small memo
 == How does storage size grow over time?
 
 When objects are updated or deleted, the old data is not immediately removed from the storage files.
-Instead, new data is appended and the old data becomes "garbage."
+Instead, new data is appended and the deleted data becomes "garbage."
 The xref:housekeeping.adoc[housekeeping] process runs in the background to reclaim space from deleted or updated objects.
 
 You can monitor storage growth through the xref:../misc:monitoring/index.adoc[monitoring] JMX beans, which report the amount of persisted data.
