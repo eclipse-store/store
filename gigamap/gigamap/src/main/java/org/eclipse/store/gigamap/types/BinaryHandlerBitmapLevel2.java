@@ -17,7 +17,7 @@ package org.eclipse.store.gigamap.types;
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.persistence.binary.types.AbstractBinaryHandlerCustom;
 import org.eclipse.serializer.persistence.binary.types.Binary;
-import org.eclipse.serializer.persistence.binary.types.BinaryTypeHandlerSupplier;
+import org.eclipse.serializer.persistence.binary.types.BinaryLegacyTypeHandlerSupplier;
 import org.eclipse.serializer.persistence.types.PersistenceLegacyTypeHandler;
 import org.eclipse.serializer.persistence.types.PersistenceLoadHandler;
 import org.eclipse.serializer.persistence.types.PersistenceReferenceLoader;
@@ -31,7 +31,7 @@ import org.eclipse.serializer.typing.XTypes;
  * It extends {@link AbstractBinaryHandlerCustom} to support binary-based I/O operations
  * specific to {@link BitmapLevel2}.
  */
-public class BinaryHandlerBitmapLevel2 extends AbstractBinaryHandlerCustom<BitmapLevel2> implements BinaryTypeHandlerSupplier<BitmapLevel2> 
+public class BinaryHandlerBitmapLevel2 extends AbstractBinaryHandlerCustom<BitmapLevel2> implements BinaryLegacyTypeHandlerSupplier<BitmapLevel2> 
 {
 	public static BinaryHandlerBitmapLevel2 New()
 	{
