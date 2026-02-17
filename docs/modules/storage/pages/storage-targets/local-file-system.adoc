@@ -72,6 +72,17 @@ Relative paths are resolved against the application's working directory:
 EmbeddedStorage.start(Paths.get("data", "storage"));
 ----
 
+=== Without Path (Default Directory)
+
+If you only pass the root object and omit the path, the storage is created in a `storage` subfolder of the current working directory:
+
+[source, java]
+----
+DataRoot root = new DataRoot();
+EmbeddedStorage.start(root);
+// Creates storage in ./storage/
+----
+
 === Custom NIO FileSystem
 
 You can use any NIO `FileSystem` implementation, including in-memory file systems for testing:
