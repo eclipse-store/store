@@ -595,6 +595,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     implements VectorIndex.Internal<E>,
                BackgroundPersistenceManager.Callback,
                BackgroundOptimizationManager.Callback,
+               BackgroundIndexingManager.Callback,
                PQCompressionManager.VectorProvider,
                DiskIndexManager.IndexStateProvider
     {
@@ -629,6 +630,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private transient PQCompressionManager          pqManager          ;
         private transient BackgroundPersistenceManager  persistenceManager ;
         transient BackgroundOptimizationManager optimizationManager;
+        transient BackgroundIndexingManager     indexingManager    ;
 
         // GraphSearcher pool for thread-local reuse
         private transient ExplicitThreadLocal<GraphSearcher> searcherPool;
@@ -815,8 +817,24 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void startBackgroundManagersIfEnabled()
         {
+            this.startBackgroundIndexingIfEnabled();
             this.startBackgroundPersistenceIfEnabled();
             this.startBackgroundOptimizationIfEnabled();
+        }
+
+        /**
+         * Starts the background indexing manager if eventual indexing is configured.
+         */
+        private void startBackgroundIndexingIfEnabled()
+        {
+            if(this.configuration.eventualIndexing())
+            {
+                if(this.indexingManager == null)
+                {
+                    this.indexingManager = new BackgroundIndexingManager.Default(this, this.name);
+                    LOG.info("Eventual indexing enabled for index '{}'", this.name);
+                }
+            }
         }
 
         /**
@@ -1055,14 +1073,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.vectorStore.add(new VectorEntry(entityId, vector));
                 }
 
-                // Add to HNSW graph using entity ID as ordinal
-                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                this.builder.addGraphNode(ordinal, vf);
-
                 this.markStateChangeChildren();
 
-                // Mark dirty for background managers
-                this.markDirtyForBackgroundManagers(1);
+                if(this.indexingManager != null)
+                {
+                    // Defer graph update to background thread
+                    this.indexingManager.enqueue(new BackgroundIndexingManager.IndexingOperation.Add(ordinal, vector));
+                }
+                else
+                {
+                    // Add to HNSW graph using entity ID as ordinal
+                    final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+                    this.builder.addGraphNode(ordinal, vf);
+
+                    // Mark dirty for background managers
+                    this.markDirtyForBackgroundManagers(1);
+                }
             }
         }
 
@@ -1094,8 +1120,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 final float[] vector = this.vectorize(entity);
 
                 final int ordinal = toOrdinal(entityId);
-                this.builder.markNodeDeleted(ordinal);
-                this.builder.removeDeletedNodes();
 
                 // Update based on vectorizer type
                 if(!this.isEmbedded())
@@ -1103,14 +1127,25 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.vectorStore.set(entityId, new VectorEntry(entityId, vector));
                 }
 
-                // Add to HNSW graph using entity ID as ordinal
-                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                this.builder.addGraphNode(ordinal, vf);
-
                 this.markStateChangeChildren();
 
-                // Mark dirty for background managers
-                this.markDirtyForBackgroundManagers(1);
+                if(this.indexingManager != null)
+                {
+                    // Defer graph update to background thread
+                    this.indexingManager.enqueue(new BackgroundIndexingManager.IndexingOperation.Update(ordinal, vector));
+                }
+                else
+                {
+                    this.builder.markNodeDeleted(ordinal);
+                    this.builder.removeDeletedNodes();
+
+                    // Add to HNSW graph using entity ID as ordinal
+                    final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+                    this.builder.addGraphNode(ordinal, vf);
+
+                    // Mark dirty for background managers
+                    this.markDirtyForBackgroundManagers(1);
+                }
             }
         }
 
@@ -1145,19 +1180,32 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.vectorStore.addAll(entries);
                 }
 
-                this.addGraphNodesSequential(entries);
-
                 this.markStateChangeChildren();
 
-                // Mark dirty for background managers (with count for debouncing)
-                this.markDirtyForBackgroundManagers(entries.size());
+                if(this.indexingManager != null)
+                {
+                    // Defer graph updates to background thread
+                    entries.forEach(entry ->
+                        this.indexingManager.enqueue(new BackgroundIndexingManager.IndexingOperation.Add(
+                            toOrdinal(entry.sourceEntityId), entry.vector
+                        ))
+                    );
+                }
+                else
+                {
+                    this.addGraphNodesSequential(entries);
+
+                    // Mark dirty for background managers (with count for debouncing)
+                    this.markDirtyForBackgroundManagers(entries.size());
+                }
             }
         }
 
         /**
          * Marks dirty for background managers with the specified change count.
          */
-        private void markDirtyForBackgroundManagers(final int count)
+        @Override
+        public void markDirtyForBackgroundManagers(final int count)
         {
             if(this.persistenceManager != null)
             {
@@ -1194,12 +1242,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     this.vectorStore.removeById(entityId);
                 }
-                this.builder.markNodeDeleted(ordinal);
 
                 this.markStateChangeChildren();
 
-                // Mark dirty for background managers
-                this.markDirtyForBackgroundManagers(1);
+                if(this.indexingManager != null)
+                {
+                    // Defer graph update to background thread
+                    this.indexingManager.enqueue(new BackgroundIndexingManager.IndexingOperation.Remove(ordinal));
+                }
+                else
+                {
+                    this.builder.markNodeDeleted(ordinal);
+
+                    // Mark dirty for background managers
+                    this.markDirtyForBackgroundManagers(1);
+                }
             }
         }
 
@@ -1220,6 +1277,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     {
                         this.vectorStore.removeAll();
                     }
+
+                    // Discard and shutdown indexing manager (pending ops are stale)
+                    this.shutdownIndexingManager(false);
 
                     // Shutdown optimization manager before closing
                     this.shutdownOptimizationManager(false);
@@ -1371,6 +1431,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void optimize()
         {
+            // Drain pending indexing operations to ensure graph is complete
+            if(this.indexingManager != null)
+            {
+                this.indexingManager.drainQueue();
+            }
+
             final GraphIndexBuilder capturedBuilder;
             synchronized(this.parentMap())
             {
@@ -1396,6 +1462,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(!this.configuration.onDisk())
             {
                 return; // No-op for in-memory indices
+            }
+
+            // Drain pending indexing operations to ensure graph is complete
+            if(this.indexingManager != null)
+            {
+                this.indexingManager.drainQueue();
             }
 
             // Acquire write lock for exclusive access during persistence.
@@ -1504,10 +1576,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void close()
         {
-            // Shutdown optimization manager first (may optimize pending changes)
+            // Shutdown indexing manager first — drain all pending graph operations
+            this.shutdownIndexingManager(true);
+
+            // Shutdown optimization manager (may optimize pending changes)
             this.shutdownOptimizationManager(this.configuration.optimizeOnShutdown());
 
-            // Shutdown persistence manager second (may persist pending changes)
+            // Shutdown persistence manager (may persist pending changes)
             this.shutdownPersistenceManager(this.configuration.persistOnShutdown());
 
             // Acquire write lock to ensure no concurrent persistToDisk() Phase 2 is running.
@@ -1551,6 +1626,24 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 this.persistenceManager.shutdown(persistPending);
                 this.persistenceManager = null;
+            }
+        }
+
+        /**
+         * Shuts down the background indexing manager.
+         *
+         * @param drainPending if true, drain all pending operations before shutdown
+         */
+        private void shutdownIndexingManager(final boolean drainPending)
+        {
+            if(this.indexingManager != null)
+            {
+                if(!drainPending)
+                {
+                    this.indexingManager.discardQueue();
+                }
+                this.indexingManager.shutdown(drainPending);
+                this.indexingManager = null;
             }
         }
 
@@ -1671,6 +1764,31 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
         }
 
+        // ================================================================
+        // BackgroundIndexingManager.Callback implementation
+        // ================================================================
+
+        @Override
+        public void applyGraphAdd(final int ordinal, final float[] vector)
+        {
+            final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+            this.builder.addGraphNode(ordinal, vf);
+        }
+
+        @Override
+        public void applyGraphUpdate(final int ordinal, final float[] vector)
+        {
+            this.builder.markNodeDeleted(ordinal);
+            this.builder.removeDeletedNodes();
+            final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+            this.builder.addGraphNode(ordinal, vf);
+        }
+
+        @Override
+        public void applyGraphRemove(final int ordinal)
+        {
+            this.builder.markNodeDeleted(ordinal);
+        }
 
     }
 

@@ -449,6 +449,24 @@ public interface VectorIndexConfiguration
     public boolean optimizeOnShutdown();
 
     /**
+     * Returns whether eventual indexing mode is enabled.
+     * <p>
+     * When enabled, expensive HNSW graph mutations (add, update, remove) are
+     * deferred to a background thread. The vector store is still updated
+     * synchronously, but graph construction happens asynchronously.
+     * <p>
+     * This reduces the latency of mutation operations at the cost of
+     * eventual consistency — search results may not immediately reflect the
+     * most recent mutations.
+     * <p>
+     * The graph is automatically drained (all pending operations applied)
+     * before {@code optimize()}, {@code persistToDisk()}, and {@code close()}.
+     *
+     * @return true if eventual indexing is enabled (default: false)
+     */
+    public boolean eventualIndexing();
+
+    /**
      * Returns whether parallel writing is used for on-disk index persistence.
      * <p>
      * When enabled, the on-disk graph writer uses parallel direct buffers and
@@ -934,6 +952,18 @@ public interface VectorIndexConfiguration
         public Builder parallelOnDiskWrite(boolean parallelOnDiskWrite);
 
         /**
+         * Enables or disables eventual indexing mode.
+         * <p>
+         * When enabled, HNSW graph mutations are deferred to a background thread,
+         * reducing mutation latency at the cost of eventual consistency for searches.
+         *
+         * @param eventualIndexing true to enable eventual indexing
+         * @return this builder for method chaining
+         * @see VectorIndexConfiguration#eventualIndexing()
+         */
+        public Builder eventualIndexing(boolean eventualIndexing);
+
+        /**
          * Builds the configuration with the specified parameters.
          *
          * @return a new immutable {@link VectorIndexConfiguration}
@@ -973,6 +1003,7 @@ public interface VectorIndexConfiguration
             private int                      minChangesBetweenOptimizations;
             private boolean                  optimizeOnShutdown           ;
             private boolean                  parallelOnDiskWrite          ;
+            private boolean                  eventualIndexing             ;
 
             Default()
             {
@@ -993,6 +1024,7 @@ public interface VectorIndexConfiguration
                 this.minChangesBetweenOptimizations = 1000;
                 this.optimizeOnShutdown            = false;
                 this.parallelOnDiskWrite           = true;
+                this.eventualIndexing              = false;
             }
 
             @Override
@@ -1135,6 +1167,13 @@ public interface VectorIndexConfiguration
             }
 
             @Override
+            public Builder eventualIndexing(final boolean eventualIndexing)
+            {
+                this.eventualIndexing = eventualIndexing;
+                return this;
+            }
+
+            @Override
             public VectorIndexConfiguration build()
             {
                 // Validation
@@ -1182,7 +1221,8 @@ public interface VectorIndexConfiguration
                     this.optimizationIntervalMs,
                     this.minChangesBetweenOptimizations,
                     this.optimizeOnShutdown,
-                    this.parallelOnDiskWrite
+                    this.parallelOnDiskWrite,
+                    this.eventualIndexing
                 );
             }
 
@@ -1213,6 +1253,7 @@ public interface VectorIndexConfiguration
         private final int                      minChangesBetweenOptimizations;
         private final boolean                  optimizeOnShutdown            ;
         private final boolean                  parallelOnDiskWrite           ;
+        private final boolean                  eventualIndexing              ;
 
         Default(
             final int                      dimension                      ,
@@ -1231,7 +1272,8 @@ public interface VectorIndexConfiguration
             final long                     optimizationIntervalMs         ,
             final int                      minChangesBetweenOptimizations ,
             final boolean                  optimizeOnShutdown             ,
-            final boolean                  parallelOnDiskWrite
+            final boolean                  parallelOnDiskWrite            ,
+            final boolean                  eventualIndexing
         )
         {
             this.dimension                      = dimension                                                ;
@@ -1251,6 +1293,7 @@ public interface VectorIndexConfiguration
             this.minChangesBetweenOptimizations = minChangesBetweenOptimizations                           ;
             this.optimizeOnShutdown             = optimizeOnShutdown                                       ;
             this.parallelOnDiskWrite            = parallelOnDiskWrite                                      ;
+            this.eventualIndexing               = eventualIndexing                                         ;
         }
 
         @Override
@@ -1353,6 +1396,12 @@ public interface VectorIndexConfiguration
         public boolean parallelOnDiskWrite()
         {
             return this.parallelOnDiskWrite;
+        }
+
+        @Override
+        public boolean eventualIndexing()
+        {
+            return this.eventualIndexing;
         }
 
     }

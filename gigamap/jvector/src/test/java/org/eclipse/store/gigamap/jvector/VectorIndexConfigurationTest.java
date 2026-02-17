@@ -55,6 +55,7 @@ class VectorIndexConfigurationTest
         assertEquals(1000, config.minChangesBetweenOptimizations());
         assertFalse(config.optimizeOnShutdown());
         assertTrue(config.parallelOnDiskWrite());
+        assertFalse(config.eventualIndexing());
     }
 
     // ==================== Builder Validation Tests ====================
@@ -955,5 +956,62 @@ class VectorIndexConfigurationTest
         final VectorIndexConfiguration config = VectorIndexConfiguration.forLargeDataset(768, tempDir);
         assertTrue(config.enablePqCompression(),
             "Large dataset should have compression enabled by default");
+    }
+
+    // ==================== Eventual Indexing Tests ====================
+
+    @Test
+    void testEventualIndexingDefaultFalse()
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .build();
+
+        assertFalse(config.eventualIndexing());
+    }
+
+    @Test
+    void testEventualIndexingCanBeEnabled()
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .eventualIndexing(true)
+            .build();
+
+        assertTrue(config.eventualIndexing());
+    }
+
+    @Test
+    void testEventualIndexingCanBeDisabledExplicitly()
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .eventualIndexing(false)
+            .build();
+
+        assertFalse(config.eventualIndexing());
+    }
+
+    @Test
+    void testEventualIndexingWithOnDiskConfig(@TempDir final Path tempDir)
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .onDisk(true)
+            .indexDirectory(tempDir)
+            .eventualIndexing(true)
+            .build();
+
+        assertTrue(config.eventualIndexing());
+        assertTrue(config.onDisk());
+    }
+
+    @Test
+    void testFactoryMethodsDefaultEventualIndexingFalse(@TempDir final Path tempDir)
+    {
+        assertFalse(VectorIndexConfiguration.forSmallDataset(64).eventualIndexing());
+        assertFalse(VectorIndexConfiguration.forMediumDataset(64).eventualIndexing());
+        assertFalse(VectorIndexConfiguration.forLargeDataset(64, tempDir).eventualIndexing());
+        assertFalse(VectorIndexConfiguration.forHighPrecision(64).eventualIndexing());
     }
 }
