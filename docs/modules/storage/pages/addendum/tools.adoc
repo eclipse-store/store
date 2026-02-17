@@ -80,38 +80,49 @@ Add the storage converter dependency:
 </dependencies>
 ----
 
-=== Usage
+=== Standalone JAR
+
+Build the standalone JAR by activating the `converter-standalone` Maven profile:
+
+[source, bash]
+----
+mvn -Pconverter-standalone clean package
+----
+
+Then run it with an xref:configuration/index.adoc#external-configuration[external configuration] file for each storage:
+
+[source, bash, subs=attributes+]
+----
+java -jar storage-embedded-tools-storage-converter-{maven-version}.jar sourceConfig.xml targetConfig.xml
+----
+
+=== Java API
+
+For more control, use the `StorageConverter` class directly with two `StorageConfiguration` instances:
 
 [source, java]
 ----
-// Define source and target storage configurations
-final EmbeddedStorageFoundation<?> sourceFoundation = EmbeddedStorage.Foundation()
-	.setStorageDirectory("path/to/source/storage");
+StorageConfiguration source = StorageConfiguration.Builder()
+	.setStorageFileProvider(
+		StorageLiveFileProvider.New(
+			NioFileSystem.New().ensureDirectoryPath("path", "to", "source", "storage")
+		)
+	)
+	.createConfiguration();
 
-final EmbeddedStorageFoundation<?> targetFoundation = EmbeddedStorage.Foundation()
-	.setStorageDirectory("path/to/target/storage")
-	.setChannelCountProvider(StorageChannelCountProvider.New(4));
+StorageConfiguration target = StorageConfiguration.Builder()
+	.setStorageFileProvider(
+		StorageLiveFileProvider.New(
+			NioFileSystem.New().ensureDirectoryPath("path", "to", "target", "storage")
+		)
+	)
+	.setChannelCountProvider(StorageChannelCountProvider.New(4))
+	.createConfiguration();
 
-// Run the conversion
-StorageConverter.New(sourceFoundation, targetFoundation).convert();
+new StorageConverter(source, target).start();
 ----
 
-=== Common Scenarios
-
-==== Changing Channel Count
-
-To increase or decrease the number of storage channels:
-
-[source, java]
-----
-final EmbeddedStorageFoundation<?> target = EmbeddedStorage.Foundation()
-	.setStorageDirectory("path/to/new/storage")
-	.setChannelCountProvider(StorageChannelCountProvider.New(4)); // New channel count
-----
-
-==== Moving to a Different Storage Target
-
-To move from local file system to a cloud storage target, configure the target foundation with the desired storage target. See xref:storage-targets/index.adoc[Storage Targets] for the available options.
+To move from local file system to a cloud storage target, configure the target `StorageConfiguration` with the desired storage target. See xref:storage-targets/index.adoc[Storage Targets] for the available options.
 
 [IMPORTANT]
 ====
