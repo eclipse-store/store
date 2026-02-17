@@ -34,12 +34,20 @@ EclipseStore depends on the serializer for all persistence operations.
 When you store an object, the following steps occur:
 
 ----
-Java Object ──> Serializer ──> Binary Data ──> Storage Channel ──> Storage Target
-                                                                   (File System,
-                                                                    S3, SQL, etc.)
+Object Graph Marking
+        │
+        ▼
+    Serialization
+        │
+        ▼
+  Storage Channel
+        │
+        ▼
+   Storage Target
+(File System, S3, SQL, etc.)
 ----
 
-1. *Object graph traversal* — the storage manager traverses the object graph starting from the stored object, identifying all referenced objects that need to be persisted
+1. *Object graph marking* — the storage manager marks all objects reachable from the stored root object that need to be persisted
 2. *Serialization* — the Eclipse Serializer converts each object to its binary representation using type handlers
 3. *Channel distribution* — the binary data is distributed across storage channels for parallel I/O
 4. *Storage target write* — each channel writes its data to the configured storage target through the Abstract File System (AFS) layer
