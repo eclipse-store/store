@@ -1,7 +1,7 @@
 = Local File System
 
 The NIO connector can access the local or mounted file systems, as well as different in-memory file systems.
-This is the default storage target and the easiest way to start, especially for prototyping and testing purposes.
+This is the default storage target and the recommended option for most use cases, and it is also well-suited for prototyping and testing.
 
 == Basic Setup
 
