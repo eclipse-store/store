@@ -3,43 +3,56 @@
 == Storage Migrator
 
 The Storage Migrator is a utility for migrating MicroStream projects to EclipseStore.
-It handles the conversion of the internal type registry from MicroStream's package names (`one.microstream`) to EclipseStore's package names (`org.eclipse.store` / `org.eclipse.serializer`).
+It is based on https://docs.openrewrite.org/[OpenRewrite] and can migrate source code (package names from `one.microstream` to `org.eclipse.store` / `org.eclipse.serializer`) and type dictionary files of existing storages.
 
-=== Prerequisites
+The migrator is executed via Maven on the command line in your MicroStream project folder.
+The parameters `eclipseStoreVersion` and `typeDictionaryRelativePath` control what is migrated:
 
-Add the storage migrator dependency:
+* Source code migration is only done when `eclipseStoreVersion` is set.
+* Type dictionary migration is only done when `typeDictionaryRelativePath` is set.
 
-[source, xml, title="pom.xml", subs=attributes+]
+=== Migrate Source Code and Type Dictionary
+
+[source, bash, subs=attributes+]
 ----
-<dependencies>
-	<dependency>
-		<groupId>org.eclipse.store</groupId>
-		<artifactId>storage-embedded-tools-storage-migrator</artifactId>
-		<version>{maven-version}</version>
-	</dependency>
-</dependencies>
-----
-
-=== Usage
-
-[source, java]
-----
-StorageMigrator.New(storageDirectory).migrate();
+mvn org.openrewrite.maven:rewrite-maven-plugin:run \
+  -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject \
+  -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:{maven-version} \
+  -DeclipseStoreVersion={maven-version} \
+  -Drewrite.plainTextMasks=**/*.ptd \
+  -DtypeDictionaryRelativeFilePath=src/main/resources/PersistenceTypeDictionary.ptd
 ----
 
-The migrator performs the following steps:
+=== Migrate Source Code Only
 
-1. Reads the existing type dictionary from the MicroStream storage
-2. Remaps all MicroStream type names to their EclipseStore equivalents
-3. Writes the updated type dictionary back to the storage
+[source, bash, subs=attributes+]
+----
+mvn org.openrewrite.maven:rewrite-maven-plugin:run \
+  -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject \
+  -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:{maven-version} \
+  -DeclipseStoreVersion={maven-version}
+----
+
+=== Migrate Type Dictionary Only
+
+Copy the type dictionary file (`PersistenceTypeDictionary.ptd` from the root of your storage folder) into your project, then run:
+
+[source, bash, subs=attributes+]
+----
+mvn org.openrewrite.maven:rewrite-maven-plugin:run \
+  -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject \
+  -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:{maven-version} \
+  -Drewrite.plainTextMasks=**/*.ptd \
+  -DtypeDictionaryRelativeFilePath=src/main/resources/PersistenceTypeDictionary.ptd
+----
 
 After migration, the storage can be opened with {product-name}.
 
 [IMPORTANT]
 ====
-* Always create a backup of your storage before running the migrator
+* Always create a backup of your code and storage before running the migrator
 * The migration is a one-way operation and cannot be undone
-* The migrator only updates the type dictionary metadata — your actual data remains unchanged
+* The type dictionary migration only updates metadata — your actual data remains unchanged
 ====
 
 For more information see the https://github.com/eclipse-store/store/tree/main/storage/embedded-tools/storage-migrator[readme file].
