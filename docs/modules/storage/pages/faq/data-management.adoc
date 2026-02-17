@@ -30,7 +30,13 @@ You can monitor storage growth through the xref:../misc:monitoring/index.adoc[mo
 == How do I handle concurrent access?
 
 {product-name} is designed for single-process access.
-Within a single process, the storage manager handles concurrent read and write access from multiple threads safely.
+The storage manager itself handles the internal persistence operations (reading and writing storage files) in a thread-safe manner.
+
+However, *your application code is responsible for synchronizing access to the shared object graph*.
+Since {product-name} stores plain Java objects that live in memory, the same concurrency rules apply as for any shared mutable data in Java.
+Without proper synchronization, concurrent reads and writes to the same objects can cause race conditions and inconsistent state — just like with any in-memory data structure.
+
+Use xref:misc:locking/index.adoc[locking] or other synchronization strategies to protect your data during concurrent access.
 
 [IMPORTANT]
 ====
