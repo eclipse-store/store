@@ -94,25 +94,59 @@ interface BackgroundIndexingManager
                 IndexingOperation.Remove,
                 IndexingOperation.DrainBarrier
     {
+        public void execute(Callback callback);
+
+
         /**
          * Add a node to the HNSW graph.
          */
-        record Add(int ordinal, float[] vector) implements IndexingOperation {}
+        record Add(int ordinal, float[] vector) implements IndexingOperation
+        {
+            @Override
+            public void execute(final Callback callback)
+            {
+                callback.applyGraphAdd(this.ordinal, this.vector);
+                callback.markDirtyForBackgroundManagers(1);
+            }
+        }
 
         /**
          * Update a node in the HNSW graph (delete + re-add).
          */
-        record Update(int ordinal, float[] vector) implements IndexingOperation {}
+        record Update(int ordinal, float[] vector) implements IndexingOperation
+        {
+            @Override
+            public void execute(final Callback callback)
+            {
+                callback.applyGraphUpdate(this.ordinal, this.vector);
+                callback.markDirtyForBackgroundManagers(1);
+            }
+        }
 
         /**
          * Remove a node from the HNSW graph.
          */
-        record Remove(int ordinal) implements IndexingOperation {}
+        record Remove(int ordinal) implements IndexingOperation
+        {
+            @Override
+            public void execute(final Callback callback)
+            {
+                callback.applyGraphRemove(this.ordinal);
+                callback.markDirtyForBackgroundManagers(1);
+            }
+        }
 
         /**
          * Sentinel operation for drainQueue() — signals the worker to release the latch.
          */
-        record DrainBarrier(CountDownLatch latch) implements IndexingOperation {}
+        record DrainBarrier(CountDownLatch latch) implements IndexingOperation
+        {
+            @Override
+            public void execute(final Callback callback)
+            {
+                this.latch().countDown();
+            }
+        }
     }
 
 
@@ -276,7 +310,7 @@ interface BackgroundIndexingManager
                 try
                 {
                     final IndexingOperation op = this.queue.take();
-                    this.applyOperation(op);
+                    op.execute(this.callback);
                 }
                 catch(final InterruptedException e)
                 {
@@ -293,31 +327,6 @@ interface BackgroundIndexingManager
             }
         }
 
-        /**
-         * Applies a single indexing operation via the callback.
-         */
-        private void applyOperation(final IndexingOperation op)
-        {
-            if(op instanceof IndexingOperation.Add add)
-            {
-                this.callback.applyGraphAdd(add.ordinal(), add.vector());
-                this.callback.markDirtyForBackgroundManagers(1);
-            }
-            else if(op instanceof IndexingOperation.Update update)
-            {
-                this.callback.applyGraphUpdate(update.ordinal(), update.vector());
-                this.callback.markDirtyForBackgroundManagers(1);
-            }
-            else if(op instanceof IndexingOperation.Remove remove)
-            {
-                this.callback.applyGraphRemove(remove.ordinal());
-                this.callback.markDirtyForBackgroundManagers(1);
-            }
-            else if(op instanceof IndexingOperation.DrainBarrier barrier)
-            {
-                barrier.latch().countDown();
-            }
-        }
     }
 
 }
