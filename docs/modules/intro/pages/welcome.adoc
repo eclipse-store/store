@@ -16,7 +16,7 @@ Instead of mapping your objects to tables (like an ORM) or documents (like a doc
 * *Flexible storage targets* — store on local file system, cloud storage (S3, Azure, GCS), SQL databases, Redis, Kafka, and more
 * *Lazy loading* — load only the data you need, when you need it
 * *ACID transactions* — full transactional guarantees for data consistency
-* *Zero dependencies* — lightweight with no external runtime dependencies
+* *Minimal dependencies* — lightweight with only SLF4J as an external runtime dependency
 
 === How Does It Compare?
 
