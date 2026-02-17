@@ -12,7 +12,7 @@ Instead of mapping your objects to tables (like an ORM) or documents (like a doc
 
 * *No mapping required* — store plain Java objects without annotations, schemas, or mapping files
 * *Ultra-fast* — binary serialization is significantly faster than traditional database approaches
-* *Any Java type* — persist any Java object, including collections, records, and custom types
+* *Almost any Java type* — persist almost any Java object, including collections, records, and custom types, see xref:storage:addendum/supported-java-features.adoc[]
 * *Flexible storage targets* — store on local file system, cloud storage (S3, Azure, GCS), SQL databases, Redis, Kafka, and more
 * *Lazy loading* — load only the data you need, when you need it
 * *ACID transactions* — full transactional guarantees for data consistency
