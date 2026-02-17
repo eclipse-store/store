@@ -126,10 +126,47 @@ Until housekeeping reclaims the space, the data remains in the storage files but
 
 == Deleting with Lazy References
 
-If the object to delete is behind a xref:loading-data/lazy-loading/index.adoc[Lazy] reference, you need to clear the lazy reference:
+If the object to delete is behind a xref:loading-data/lazy-loading/index.adoc[Lazy] reference, you need to clear the lazy reference and store the parent.
+
+=== Clearing a Lazy Field
 
 [source, java]
 ----
-root.setArchive(null); // Clear the lazy reference
-storage.store(root);   // Store the parent
+public class DataRoot
+{
+	private Lazy<List<Order>> archive = Lazy.Reference(new ArrayList<>());
+
+	public Lazy<List<Order>> getArchive()
+	{
+		return this.archive;
+	}
+
+	public void setArchive(Lazy<List<Order>> archive)
+	{
+		this.archive = archive;
+	}
+}
+
+// Delete the archived data
+Lazy.clear(root.getArchive()); // <1>
+root.setArchive(null);         // <2>
+storage.store(root);           // <3>
+----
+<1> Clear the lazy reference to free the loaded data from memory. The static `Lazy.clear()` is null-safe — unlike calling `.clear()` on the instance directly, it does not throw a `NullPointerException` if the reference is `null`.
+<2> Set the field to `null` to remove the reference from the object graph
+<3> Store the parent so the change is persisted
+
+=== Removing from a Collection of Lazy References
+
+[source, java]
+----
+public class DataRoot
+{
+	private final Map<String, Lazy<Customer>> customers = new HashMap<>();
+}
+
+// Remove a single customer
+Lazy<Customer> removed = root.getCustomers().remove(customerId);
+Lazy.clear(removed);
+storage.store(root.getCustomers());
 ----
