@@ -666,4 +666,373 @@ class VectorIndexPerformanceTest
         }
         return result;
     }
+
+
+    // ==================== Eventual Indexing Performance ====================
+
+    /**
+     * Performance test comparing mass insertion with and without eventual indexing.
+     * <p>
+     * Eventual indexing defers HNSW graph construction to a background thread,
+     * so the caller-visible insertion time should be significantly lower since
+     * it only pays for vectorStore update + queue enqueue instead of the
+     * expensive {@code addGraphNode()} call.
+     * <p>
+     * Both modes are measured with:
+     * <ul>
+     *   <li>Single-entity adds via {@code gigaMap.add()}</li>
+     *   <li>Batch adds via {@code gigaMap.addAll()}</li>
+     * </ul>
+     * <p>
+     * After insertion, eventual mode is drained and both indices are verified
+     * for search quality (recall) to confirm the deferred graph is correct.
+     */
+    @Test
+    void testEventualVsSynchronousInsertionPerformance()
+    {
+        final int vectorCount = 10_000;
+        final int dimension = 128;
+        final int searchIterations = 200;
+        final int k = 10;
+        final int batchSize = 1_000;
+        final int iterations = 3;
+
+        System.err.println("=== Eventual vs. Synchronous Indexing Performance ===");
+        System.err.println("Vector count: " + vectorCount);
+        System.err.println("Dimension: " + dimension);
+        System.err.println("Batch size: " + batchSize);
+        System.err.println("Iterations: " + iterations);
+        System.err.println();
+
+        // Pre-generate all vectors for fair comparison
+        System.err.print("Generating vectors... ");
+        final Random random = new Random(42);
+        final List<Document> documents = new ArrayList<>(vectorCount);
+        for(int i = 0; i < vectorCount; i++)
+        {
+            documents.add(new Document("doc_" + i, randomVector(random, dimension)));
+        }
+        System.err.println("done.");
+
+        // Pre-generate query vectors
+        final float[][] queryVectors = new float[searchIterations][];
+        final Random queryRandom = new Random(999);
+        for(int i = 0; i < searchIterations; i++)
+        {
+            queryVectors[i] = randomVector(queryRandom, dimension);
+        }
+
+        // ========== SINGLE ADD: synchronous vs. eventual ==========
+        System.err.println();
+        System.err.println("--- Single Add (gigaMap.add) ---");
+
+        final long[] syncSingleTimes = new long[iterations];
+        final long[] eventualSingleTimes = new long[iterations];
+        final long[] eventualSingleDrainTimes = new long[iterations];
+
+        for(int iter = 0; iter < iterations; iter++)
+        {
+            // Synchronous
+            syncSingleTimes[iter] = this.measureSingleAdd(documents, dimension, false);
+            // Eventual
+            final long[] eventualResult = this.measureSingleAddEventual(documents, dimension);
+            eventualSingleTimes[iter] = eventualResult[0];
+            eventualSingleDrainTimes[iter] = eventualResult[1];
+        }
+
+        System.err.println();
+        System.err.println("  Single Add Results:");
+        System.err.printf("    Synchronous:   avg=%,d ms  min=%,d ms  max=%,d ms%n",
+            average(syncSingleTimes), min(syncSingleTimes), max(syncSingleTimes));
+        System.err.printf("    Eventual (add): avg=%,d ms  min=%,d ms  max=%,d ms%n",
+            average(eventualSingleTimes), min(eventualSingleTimes), max(eventualSingleTimes));
+        System.err.printf("    Eventual (drain): avg=%,d ms  min=%,d ms  max=%,d ms%n",
+            average(eventualSingleDrainTimes), min(eventualSingleDrainTimes), max(eventualSingleDrainTimes));
+
+        if(average(syncSingleTimes) > 0 && average(eventualSingleTimes) > 0)
+        {
+            System.err.printf("    Caller-visible speedup: %.2fx%n",
+                (double)average(syncSingleTimes) / average(eventualSingleTimes));
+            System.err.printf("    Total (add+drain) vs sync: %.2fx%n",
+                (double)average(syncSingleTimes) /
+                    (average(eventualSingleTimes) + average(eventualSingleDrainTimes)));
+        }
+
+        // ========== BATCH ADD: synchronous vs. eventual ==========
+        System.err.println();
+        System.err.println("--- Batch Add (gigaMap.addAll, batch=" + batchSize + ") ---");
+
+        final long[] syncBatchTimes = new long[iterations];
+        final long[] eventualBatchTimes = new long[iterations];
+        final long[] eventualBatchDrainTimes = new long[iterations];
+
+        for(int iter = 0; iter < iterations; iter++)
+        {
+            // Synchronous
+            syncBatchTimes[iter] = this.measureBatchAdd(documents, dimension, batchSize, false);
+            // Eventual
+            final long[] eventualResult = this.measureBatchAddEventual(documents, dimension, batchSize);
+            eventualBatchTimes[iter] = eventualResult[0];
+            eventualBatchDrainTimes[iter] = eventualResult[1];
+        }
+
+        System.err.println();
+        System.err.println("  Batch Add Results:");
+        System.err.printf("    Synchronous:     avg=%,d ms  min=%,d ms  max=%,d ms%n",
+            average(syncBatchTimes), min(syncBatchTimes), max(syncBatchTimes));
+        System.err.printf("    Eventual (add):  avg=%,d ms  min=%,d ms  max=%,d ms%n",
+            average(eventualBatchTimes), min(eventualBatchTimes), max(eventualBatchTimes));
+        System.err.printf("    Eventual (drain): avg=%,d ms  min=%,d ms  max=%,d ms%n",
+            average(eventualBatchDrainTimes), min(eventualBatchDrainTimes), max(eventualBatchDrainTimes));
+
+        if(average(syncBatchTimes) > 0 && average(eventualBatchTimes) > 0)
+        {
+            System.err.printf("    Caller-visible speedup: %.2fx%n",
+                (double)average(syncBatchTimes) / average(eventualBatchTimes));
+            System.err.printf("    Total (add+drain) vs sync: %.2fx%n",
+                (double)average(syncBatchTimes) /
+                    (average(eventualBatchTimes) + average(eventualBatchDrainTimes)));
+        }
+
+        // ========== SEARCH QUALITY VERIFICATION ==========
+        System.err.println();
+        System.err.println("--- Search Quality Verification ---");
+
+        this.verifySearchQuality(documents, dimension, queryVectors, k, false, "Synchronous");
+        this.verifySearchQuality(documents, dimension, queryVectors, k, true, "Eventual");
+
+        System.err.println();
+        System.err.println("=== Eventual Indexing Performance Complete ===");
+    }
+
+    /**
+     * Measures single-entity add time (synchronous).
+     */
+    private long measureSingleAdd(
+        final List<Document> documents,
+        final int            dimension,
+        final boolean        eventual
+    )
+    {
+        final String mode = eventual ? "eventual" : "sync";
+        System.err.printf("  [single/%s] ", mode);
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(16)
+            .beamWidth(100)
+            .eventualIndexing(eventual)
+            .build();
+
+        try(final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings", config, new DocumentVectorizer()
+        ))
+        {
+            final long start = System.nanoTime();
+            for(final Document doc : documents)
+            {
+                gigaMap.add(doc);
+            }
+            final long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+            System.err.printf("%,d ms (%,.0f vec/sec)%n",
+                elapsedMs, documents.size() / (elapsedMs / 1000.0));
+
+            return elapsedMs;
+        }
+    }
+
+    /**
+     * Measures single-entity add time (eventual). Returns [addTime, drainTime].
+     */
+    private long[] measureSingleAddEventual(
+        final List<Document> documents,
+        final int            dimension
+    )
+    {
+        System.err.print("  [single/eventual] ");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(16)
+            .beamWidth(100)
+            .eventualIndexing(true)
+            .build();
+
+        try(final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings", config, new DocumentVectorizer()
+        ))
+        {
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
+
+            final long addStart = System.nanoTime();
+            for(final Document doc : documents)
+            {
+                gigaMap.add(doc);
+            }
+            final long addMs = (System.nanoTime() - addStart) / 1_000_000;
+
+            final long drainStart = System.nanoTime();
+            defaultIndex.indexingManager.drainQueue();
+            final long drainMs = (System.nanoTime() - drainStart) / 1_000_000;
+
+            System.err.printf("add=%,d ms drain=%,d ms total=%,d ms (%,.0f vec/sec add-visible)%n",
+                addMs, drainMs, addMs + drainMs,
+                documents.size() / (addMs / 1000.0));
+
+            return new long[]{addMs, drainMs};
+        }
+    }
+
+    /**
+     * Measures batch add time (synchronous or eventual).
+     */
+    private long measureBatchAdd(
+        final List<Document> documents,
+        final int            dimension,
+        final int            batchSize,
+        final boolean        eventual
+    )
+    {
+        final String mode = eventual ? "eventual" : "sync";
+        System.err.printf("  [batch/%s] ", mode);
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(16)
+            .beamWidth(100)
+            .eventualIndexing(eventual)
+            .build();
+
+        try(final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings", config, new DocumentVectorizer()
+        ))
+        {
+            final long start = System.nanoTime();
+            for(int i = 0; i < documents.size(); i += batchSize)
+            {
+                final int end = Math.min(i + batchSize, documents.size());
+                gigaMap.addAll(documents.subList(i, end));
+            }
+            final long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+            System.err.printf("%,d ms (%,.0f vec/sec)%n",
+                elapsedMs, documents.size() / (elapsedMs / 1000.0));
+
+            return elapsedMs;
+        }
+    }
+
+    /**
+     * Measures batch add time (eventual). Returns [addTime, drainTime].
+     */
+    private long[] measureBatchAddEventual(
+        final List<Document> documents,
+        final int            dimension,
+        final int            batchSize
+    )
+    {
+        System.err.print("  [batch/eventual] ");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(16)
+            .beamWidth(100)
+            .eventualIndexing(true)
+            .build();
+
+        try(final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings", config, new DocumentVectorizer()
+        ))
+        {
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
+
+            final long addStart = System.nanoTime();
+            for(int i = 0; i < documents.size(); i += batchSize)
+            {
+                final int end = Math.min(i + batchSize, documents.size());
+                gigaMap.addAll(documents.subList(i, end));
+            }
+            final long addMs = (System.nanoTime() - addStart) / 1_000_000;
+
+            final long drainStart = System.nanoTime();
+            defaultIndex.indexingManager.drainQueue();
+            final long drainMs = (System.nanoTime() - drainStart) / 1_000_000;
+
+            System.err.printf("add=%,d ms drain=%,d ms total=%,d ms (%,.0f vec/sec add-visible)%n",
+                addMs, drainMs, addMs + drainMs,
+                documents.size() / (addMs / 1000.0));
+
+            return new long[]{addMs, drainMs};
+        }
+    }
+
+    /**
+     * Verifies search quality (recall) for a given mode, to confirm eventual
+     * indexing produces the same graph quality as synchronous indexing.
+     */
+    private void verifySearchQuality(
+        final List<Document> documents,
+        final int            dimension,
+        final float[][]      queryVectors,
+        final int            k,
+        final boolean        eventual,
+        final String         label
+    )
+    {
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(16)
+            .beamWidth(100)
+            .eventualIndexing(eventual)
+            .build();
+
+        try(final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings", config, new DocumentVectorizer()
+        ))
+        {
+            gigaMap.addAll(documents);
+
+            if(eventual)
+            {
+                ((VectorIndex.Default<Document>)index).indexingManager.drainQueue();
+            }
+
+            int totalResults = 0;
+            int fullResults = 0;
+            for(final float[] query : queryVectors)
+            {
+                final VectorSearchResult<Document> result = index.search(query, k);
+                totalResults++;
+                if(result.size() == k)
+                {
+                    fullResults++;
+                }
+            }
+
+            System.err.printf("  %s: %d/%d queries returned full %d results (%.1f%%)%n",
+                label, fullResults, totalResults, k,
+                100.0 * fullResults / totalResults);
+        }
+    }
 }
