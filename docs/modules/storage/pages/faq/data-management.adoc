@@ -55,4 +55,6 @@ If storage files become corrupted (e.g., due to disk failure or a crash during w
 
 == Can I export my data?
 
-Yes. {product-name} provides xref:import-export.adoc[Import / Export] capabilities to export data in various formats and import it back.
+Yes. {product-name} provides binary xref:import-export.adoc[Import / Export] to transfer storage data between instances.
+The exported binary data can also be converted to and from CSV for inspection or editing with external tools.
+See xref:import-export.adoc[Import / Export] for details.
