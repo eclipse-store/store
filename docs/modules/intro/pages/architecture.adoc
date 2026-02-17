@@ -70,7 +70,7 @@ See xref:storage:index.adoc[Storage] for details.
 
 === Serializer
 
-The `Serializer` converts Java objects to binary format.
+The `Serializer` converts Java objects to and from binary format.
 It manages type registration, type dictionaries, and type evolution.
 
 See xref:serializer:index.adoc[Serializer] for details.
