@@ -1,4 +1,4 @@
-= Local File System
+= File System
 
 The NIO connector can access the local or mounted file systems, as well as different in-memory file systems.
 This is the default storage target and the recommended option for most use cases, and it is also well-suited for prototyping and testing.
@@ -105,12 +105,6 @@ Ensure the application has read and write permissions on the storage directory.
 * Create and delete the lock file
 * Read all existing data files during startup
 
-== When to Use Other Storage Targets
+== Summary
 
-The local file system is suitable for:
-
-* Development and testing
-* Single-server deployments
-* Applications where data does not need to be shared across multiple hosts
-
-For production deployments requiring high availability, shared storage, or cloud deployments, consider the xref:storage-targets/index.adoc[other storage targets] such as S3 or Azure Storage.
+The file system connector is suitable for almost any use case. It is by far the most performant and straightforward to use.

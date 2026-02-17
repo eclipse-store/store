@@ -17,7 +17,7 @@
 **** xref:storage:configuration/backup/full-backup.adoc[Full Backup]
 *** xref:storage:configuration/lock-file.adoc[Lock File]
 ** xref:storage:storage-targets/index.adoc[Storage Targets]
-*** xref:storage:storage-targets/local-file-system.adoc[Local File System]
+*** xref:storage:storage-targets/file-system.adoc[File System]
 *** SQL Databases
 **** xref:storage:storage-targets/sql-databases/mariadb.adoc[MariaDB]
 **** xref:storage:storage-targets/sql-databases/oracle.adoc[Oracle]
