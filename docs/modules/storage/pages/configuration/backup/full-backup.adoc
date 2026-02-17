@@ -76,12 +76,8 @@ storage.issueFullBackup(
 
 [CAUTION]
 ====
-Full backup can be a long-running operation depending on the storage size.
-During the backup:
-
-* The storage remains fully operational — reads and writes continue normally
-* The backup captures a consistent snapshot as of the point in time when it was issued
-* I/O load increases while the backup is in progress
+Full backup is a *blocking operation* — the calling thread is blocked until the backup completes, and store operations are paused for the duration.
+For large storages this can take a significant amount of time.
 ====
 
-For large storages, consider scheduling full backups during periods of low activity.
+For large storages, consider triggering full backups during periods of low activity, for example via a scheduled cron job during off-peak hours or at night.
