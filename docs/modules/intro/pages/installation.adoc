@@ -174,9 +174,6 @@ These are the different modules that make up {product-name}.
 |cache-hibernate
 |Hibernate cache region factory for {product-name}.
 
-|eclipse-store-integrations-cdi4
-|CDI 4 (Jakarta) extension for {product-name}.
-
 |gigamap
 |The GigaMap is a specialized collection aimed at optimizing performance and memory usage in {product-name}. It utilizes off-heap bitmap indexing to facilitate lightning-fast searches and lazy loading of objects, eliminating the need for manual reference management.
 
@@ -191,6 +188,9 @@ These are the different modules that make up {product-name}.
 
 |integrations-spring-boot3-console
 |Spring Boot 3 console with embedded REST UI for {product-name}.
+
+|integrations-cdi4
+|CDI 4 (Jakarta) extension for {product-name}.
 
 |storage
 |Basic framework to manage a graph of Java data persisted as binary data as a database. Can be used both to implement an embedded database solution (in the same process as the Java application) and a standalone or server-mode database solution (in a separate process). Other forms of persistence than binary data are deliberately not supported because they would not bring any noteworthy advantages but many disadvantages for the task.

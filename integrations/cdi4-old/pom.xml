@@ -1,0 +1,28 @@
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+        Relocation POM for the old artifact ID "eclipse-store-integrations-cdi4".
+        This artifact was renamed to "integrations-cdi4". Publishing this POM to
+        Maven Central ensures that consumers of the old artifact ID are automatically
+        redirected to the new one with a deprecation warning.
+    -->
+
+    <parent>
+        <groupId>org.eclipse.store</groupId>
+        <artifactId>integrations</artifactId>
+        <version>4.0.0-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>eclipse-store-integrations-cdi4</artifactId>
+    <packaging>pom</packaging>
+
+    <distributionManagement>
+        <relocation>
+            <artifactId>integrations-cdi4</artifactId>
+        </relocation>
+    </distributionManagement>
+
+</project>
