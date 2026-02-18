@@ -141,6 +141,10 @@ For datasets that exceed available memory, enable on-disk storage to use memory-
 |`pqSubspaces`
 |`0`
 |Number of PQ subspaces (0 = auto: dimension/4).
+
+|`parallelOnDiskWrite`
+|`false`
+|Use parallel direct buffers and multiple worker threads for on-disk index writing. Speeds up persistence for large indices but uses more resources. Only applies when `onDisk=true`.
 |===
 
 === Example
@@ -154,6 +158,55 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .indexDirectory(Path.of("/data/vectors"))
     .enablePqCompression(true)
     .pqSubspaces(48)  // Must divide dimension evenly
+    .build();
+----
+
+== Eventual Indexing
+
+Enable eventual indexing to defer expensive HNSW graph mutations to a background thread, reducing mutation latency at the cost of eventual search consistency.
+
+[options="header",cols="1,1,3"]
+|===
+|Parameter |Default |Description
+
+|`eventualIndexing`
+|`false`
+|Defer HNSW graph mutations (add, update, remove) to a background thread. The vector store is updated synchronously, but graph construction happens asynchronously. Search results may not immediately reflect the most recent mutations.
+|===
+
+When enabled:
+
+* The vector store is always updated synchronously (no data loss).
+* HNSW graph mutations are queued and applied by a single background worker thread.
+* The queue is automatically drained before `optimize()`, `persistToDisk()`, and `close()`.
+
+=== Example
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .eventualIndexing(true)
+    .build();
+----
+
+== Parallel On-Disk Writes
+
+When on-disk storage is enabled, persistence can optionally use parallel direct buffers and multiple worker threads (one per available processor) to write the index concurrently. This can significantly speed up persistence for large indices.
+
+This is disabled by default, as sequential single-threaded writing is preferred in resource-constrained environments or for smaller indices.
+
+=== Example
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/vectors"))
+    .parallelOnDiskWrite(true)
     .build();
 ----
 
