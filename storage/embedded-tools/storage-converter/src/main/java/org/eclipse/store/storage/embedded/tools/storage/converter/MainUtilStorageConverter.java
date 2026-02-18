@@ -39,12 +39,13 @@ public class MainUtilStorageConverter
 		"Convert a storage into a new one. The source and the new target storage \n"
 		+ "must be specified in storage config files provided as program arguments: \n"
 		+ "\n"
-		+ "MainUtilStorageConverter sourceConfig.xml targetConfig.xml"
+		+ "MainUtilStorageConverter sourceConfig.ini targetConfig.ini"
 		+ "\n"
 		+ "Optional: provide a list of BinaryConverter implementations as ONE sting include the -c:"
 		+ " \n"
 		+ "\"-c binaryConverter1, binaryConverter2\""
-		+ "It is import to have the \"-c\" inside the quotation marks!"
+		+ "It is import to have the \"-c\" inside the quotation marks, "
+		+ "the converters must be specified using the full class name"
 		;
 					
 	public static void main(final String[] args)

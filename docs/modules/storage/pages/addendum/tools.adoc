@@ -142,7 +142,7 @@ To convert the binary representation of persisted objects BinaryConverter implem
 .To use the supplied the BinaryConverterBitmapLevel2 converter:
 [source, bash]
 ----
-java -jar storage-embedded-tools-storage-converter-4.0.0-SNAPSHOT.jar src.ini dst.ini -c org.eclipse.store.storage.embedded.tools.storage.converter.BinaryConverterBitmapLevel2
+java -jar storage-embedded-tools-storage-converter-{maven-version}.jar src.ini dst.ini -c org.eclipse.store.storage.embedded.tools.storage.converter.BinaryConverterBitmapLevel2
 ----
 
 If more than one BinaryConverter shall be applied the -c option, including the converters must be applied in quotation marks:
