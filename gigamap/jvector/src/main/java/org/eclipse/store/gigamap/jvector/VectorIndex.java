@@ -1096,12 +1096,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         private io.github.jbellis.jvector.vector.VectorSimilarityFunction jvectorSimilarityFunction()
         {
+            // use switch not valueOf(name) to ensure compiler assistance when jvector enum changes
             return switch(this.configuration.similarityFunction())
             {
                 case EUCLIDEAN   -> io.github.jbellis.jvector.vector.VectorSimilarityFunction.EUCLIDEAN;
                 case DOT_PRODUCT -> io.github.jbellis.jvector.vector.VectorSimilarityFunction.DOT_PRODUCT;
                 case COSINE      -> io.github.jbellis.jvector.vector.VectorSimilarityFunction.COSINE;
-                default -> throw new IllegalArgumentException("Unsupported similarity function: " + this.configuration.similarityFunction());
             };
         }
 
