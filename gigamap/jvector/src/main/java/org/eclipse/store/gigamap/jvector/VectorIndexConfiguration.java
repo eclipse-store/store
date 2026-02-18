@@ -478,7 +478,7 @@ public interface VectorIndexConfiguration
      * <p>
      * Only applies when {@link #onDisk()} is true.
      *
-     * @return true if parallel on-disk writing is enabled (default: true)
+     * @return true if parallel on-disk writing is enabled (default: false)
      * @see #onDisk()
      */
     public boolean parallelOnDiskWrite();
@@ -1023,7 +1023,7 @@ public interface VectorIndexConfiguration
                 this.optimizationIntervalMs        = 0;  // 0 = disabled
                 this.minChangesBetweenOptimizations = 1000;
                 this.optimizeOnShutdown            = false;
-                this.parallelOnDiskWrite           = true;
+                this.parallelOnDiskWrite           = false;
                 this.eventualIndexing              = false;
             }
 
