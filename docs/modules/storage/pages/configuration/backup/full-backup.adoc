@@ -49,7 +49,10 @@ Full backup is most appropriate for:
 
 == Restoring from a Full Backup
 
-To restore from a full backup, point the storage configuration to the backup directory:
+A full backup is a complete, self-contained copy of the storage.
+It can be used directly as a storage or copied to replace the original storage directory.
+
+To restore, simply copy the backup directory to the original storage location, or point the storage configuration to the backup directory:
 
 [source, java]
 ----
@@ -58,17 +61,18 @@ EmbeddedStorageManager storage = EmbeddedStorage.start(
 );
 ----
 
-The backup directory contains a complete, self-contained storage that can be opened directly.
-
 == Backup to Different Storage Targets
 
 The full backup accepts any `AWritableDirectory`, allowing you to write backups to different storage targets:
 
 [source, java]
 ----
-// Backup to a different local directory
+// Backup to an AWS S3 bucket
+BlobStoreFileSystem fileSystem = BlobStoreFileSystem.New(
+	S3Connector.Caching(s3Client)
+);
 storage.issueFullBackup(
-	NioFileSystem.New().ensureDirectoryPath("backup", "location")
+	fileSystem.ensureDirectoryPath("my-backup-bucket", "backup", "dir")
 );
 ----
 
