@@ -1,0 +1,69 @@
+= Type Handling
+
+The serializer uses {product-name}'s type handling system.
+This includes automatic registration of new types during serialization and xref:storage:legacy-type-mapping/index.adoc[legacy type mapping] when deserializing data written by a previous version of your classes.
+
+== Type Registration
+
+Types can be registered explicitly using the `SerializerFoundation`:
+
+[source, java]
+----
+final SerializerFoundation<?> foundation = SerializerFoundation.New()
+	.registerEntityTypes(Customer.class, Order.class, Product.class);
+----
+
+When a type is encountered during serialization that has not been registered, the serializer registers it automatically.
+However, explicitly registering types is recommended because:
+
+* It ensures consistent type IDs across serializer instances
+* It avoids issues when deserializing with a different instance
+* It provides a clear documentation of which types are involved in serialization
+
+== TypeDictionary
+
+The serializer internally generates a dictionary that describes all serialized types.
+This dictionary maps type IDs to their structure (field names and types) and can be exported and imported to exchange type information between different serializer instances.
+
+=== Exporting the Type Dictionary
+
+The current type information can be obtained as a String using the serializer's `exportTypeDictionary()` method:
+
+[source, java]
+----
+final String typeDictionaryString = serializer.exportTypeDictionary();
+----
+
+The exported string contains a human-readable representation of all registered types and their structures.
+This can be stored to a file or transferred to another system.
+
+=== Importing the Type Dictionary
+
+To import an initial type dictionary, supply it as a String to the `SerializerFoundation` before creating the serializer instance:
+
+.Using the static `New(String typeDictionaryString)` method:
+[source, java]
+----
+final SerializerFoundation<?> foundation = SerializerFoundation.New(typeDictionaryString);
+----
+
+.Using the `setInitialTypeDictionary(String typeDictionaryString)` method:
+[source, java]
+----
+final SerializerFoundation<?> foundation = SerializerFoundation.New();
+foundation.setInitialTypeDictionary(typeDictionaryString);
+----
+
+=== Use Cases for Type Dictionary Exchange
+
+Type dictionary exchange is useful when:
+
+* Serializing on one system and deserializing on another (e.g., in a distributed system)
+* Persisting serialized data and reading it back later after type changes
+* Migrating data between versions of your application
+
+== Type Evolution
+
+When a class changes between serialization and deserialization (fields added, removed, renamed, or retyped), the serializer's legacy type mapping system handles the conversion automatically in many cases.
+
+For more details, see xref:storage:legacy-type-mapping/index.adoc[Legacy Type Mapping].

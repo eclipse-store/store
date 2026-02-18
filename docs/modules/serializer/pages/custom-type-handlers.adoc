@@ -1,0 +1,135 @@
+= Custom Type Handlers
+
+While the serializer supports most standard Java types out of the box, you may need custom type handlers for:
+
+* Third-party library types that cannot be serialized by default
+* Types where you want to control the exact binary representation
+* Types that require special initialization logic during deserialization
+* Performance-critical types where a custom handler is more efficient
+
+== How Type Handlers Work
+
+A type handler is responsible for converting a specific Java type to and from binary format.
+Each handler implements two core operations:
+
+* *Store* — convert a Java object instance into binary data
+* *Create / Update* — reconstruct a Java object from binary data
+
+The serializer maintains a registry of type handlers, mapping each Java class to its handler.
+When a type is serialized, the matching handler is looked up and invoked.
+
+== Registering Custom Type Handlers
+
+Custom type handlers are registered through the `SerializerFoundation` (or the `EmbeddedStorageFoundation` when using the storage):
+
+[source, java]
+----
+final SerializerFoundation<?> foundation = SerializerFoundation.New()
+	.registerCustomTypeHandler(new MyCustomTypeHandler());
+
+final Serializer<byte[]> serializer = Serializer.Bytes(foundation);
+----
+
+== Creating a Custom Type Handler
+
+A custom type handler extends `CustomBinaryHandler` and provides the logic for storing and recreating instances.
+
+Here is an example for a simple `Money` class:
+
+[source, java]
+----
+public class Money
+{
+	private final BigDecimal amount;
+	private final Currency currency;
+
+	public Money(final BigDecimal amount, final Currency currency)
+	{
+		this.amount   = amount;
+		this.currency = currency;
+	}
+
+	public BigDecimal amount()   { return this.amount; }
+	public Currency   currency() { return this.currency; }
+}
+----
+
+[source, java]
+----
+public class MoneyHandler extends CustomBinaryHandler<Money>
+{
+	private static final long BINARY_OFFSET_AMOUNT   = 0;
+	private static final long BINARY_OFFSET_CURRENCY = Binary.referenceBinaryLength(1);
+
+	public MoneyHandler()
+	{
+		super(
+			Money.class,
+			CustomFields(
+				CustomField(BigDecimal.class, "amount"),
+				CustomField(Currency.class, "currency")
+			)
+		);
+	}
+
+	@Override
+	public void store(
+		final Binary data,
+		final Money instance,
+		final long objectId,
+		final PersistenceStoreHandler<Binary> handler
+	)
+	{
+		data.storeReferences(
+			this.typeId(),
+			objectId,
+			0,
+			handler,
+			instance.amount(),
+			instance.currency()
+		);
+	}
+
+	@Override
+	public Money create(
+		final Binary data,
+		final PersistenceLoadHandler handler
+	)
+	{
+		return new Money(null, null); // placeholder, updated below
+	}
+
+	@Override
+	public void updateState(
+		final Binary data,
+		final Money instance,
+		final PersistenceLoadHandler handler
+	)
+	{
+		final BigDecimal amount = (BigDecimal) handler.lookupObject(
+			data.read_long(BINARY_OFFSET_AMOUNT));
+		final Currency currency = (Currency) handler.lookupObject(
+			data.read_long(BINARY_OFFSET_CURRENCY));
+
+		XMemory.setObject(instance,
+			XMemory.objectFieldOffset(Money.class, "amount"), amount);
+		XMemory.setObject(instance,
+			XMemory.objectFieldOffset(Money.class, "currency"), currency);
+	}
+}
+----
+
+TIP: For simpler cases where you only need to convert to and from an already-supported type (like `String`), consider implementing a simpler approach by storing a string representation and parsing it back.
+
+== Custom Handlers in Storage Context
+
+Custom type handlers registered on the `EmbeddedStorageFoundation` work the same way.
+See xref:storage:customizing/custom-type-handler.adoc[Custom Type Handler] in the storage documentation for storage-specific examples and additional considerations.
+
+== Best Practices
+
+* *Keep handlers stateless* — type handlers should not hold mutable state, as they may be invoked concurrently
+* *Handle null values* — ensure your handler correctly deals with null fields
+* *Use consistent binary layout* — document the binary layout (field offsets) to ease debugging
+* *Test round-trips* — always test that `serialize` followed by `deserialize` produces an equal object
+* *Register early* — register custom handlers before creating the serializer instance

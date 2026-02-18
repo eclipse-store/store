@@ -1,0 +1,110 @@
+= File System
+
+The NIO connector can access the local or mounted file systems, as well as different in-memory file systems.
+This is the default storage target and the recommended option for most use cases, and it is also well-suited for prototyping and testing.
+
+== Basic Setup
+
+[source, java]
+----
+NioFileSystem fileSystem = NioFileSystem.New();
+EmbeddedStorage.start(fileSystem.ensureDirectoryPath("path", "to", "storage"));
+----
+
+Or simply specify a path string:
+
+[source, java]
+----
+EmbeddedStorageManager storage = EmbeddedStorage.start(
+	Paths.get("path", "to", "storage")
+);
+----
+
+== Configuration
+
+The local file system is the default setting.
+If you want to use xref:configuration/index.adoc#external-configuration[external configuration], no further action is required.
+
+[source, properties, title="eclipsestore.properties"]
+----
+storage-directory=path/to/storage
+----
+
+== Directory Structure
+
+When the storage is started, it creates the following structure in the configured directory:
+
+----
+storage/
+├── channel_0/
+│   ├── channel_0_1.dat
+│   ├── channel_0_2.dat
+│   └── ...
+├── channel_1/         (if multiple channels configured)
+│   └── ...
+├── TypeDictionary.ptd
+└── lock.lck          (while storage is running)
+----
+
+* `channel_X/` — data files for each storage channel, containing the serialized objects
+* `TypeDictionary.ptd` — the type dictionary describing all stored types
+* `lock.lck` — a xref:configuration/lock-file.adoc[lock file] preventing concurrent access from multiple processes
+
+The number of `channel_X` directories corresponds to the configured xref:configuration/using-channels.adoc[channel count].
+
+== Path Configuration Options
+
+=== Absolute Paths
+
+[source, java]
+----
+// Absolute path
+EmbeddedStorage.start(Paths.get("/var/data/myapp/storage"));
+----
+
+=== Relative Paths
+
+Relative paths are resolved against the application's working directory:
+
+[source, java]
+----
+// Relative to working directory
+EmbeddedStorage.start(Paths.get("data", "storage"));
+----
+
+=== Without Path (Default Directory)
+
+If you only pass the root object and omit the path, the storage is created in a `storage` subfolder of the current working directory:
+
+[source, java]
+----
+DataRoot root = new DataRoot();
+EmbeddedStorage.start(root);
+// Creates storage in ./storage/
+----
+
+=== Custom NIO FileSystem
+
+You can use any NIO `FileSystem` implementation, including in-memory file systems for testing:
+
+[source, java]
+----
+// Use a custom NIO FileSystem
+FileSystem fs = ...;
+NioFileSystem nioFs = NioFileSystem.New(fs);
+EmbeddedStorage.start(nioFs.ensureDirectoryPath("storage"));
+----
+
+== File Permissions
+
+Ensure the application has read and write permissions on the storage directory.
+{product-name} needs to:
+
+* Create the storage directory and subdirectories
+* Create and write data files
+* Create and delete the lock file
+* Read all existing data files during startup
+
+== Summary
+
+The file system connector is suitable for almost any use case. It is by far the most performant and straightforward to use.

@@ -1,106 +1,36 @@
 = Serializer
 
-{product-name}'s serialization engine, which is used by the storage, can also be used standalone.
-It is usable as a replacement for the default Java serialization to convert objects to a binary format and vice versa. This API is part of the persistence-binary module:
+The Eclipse Serializer is {product-name}'s serialization engine.
+While it powers the storage layer internally, it can also be used as a standalone, high-performance replacement for standard Java serialization.
+It converts Java objects to a compact binary format and back, handling complex object graphs including circular references, polymorphism, and collections.
 
-== Prerequisites
+== Key Features
 
-[source, xml, title="pom.xml", subs=attributes+]
-----
-<dependencies>
-	<dependency>
-		<groupId>org.eclipse.serializer</groupId>
-		<artifactId>serializer</artifactId>
-		<version>{maven-version}</version>
-	</dependency>
-</dependencies>
-----
+* *High performance* — optimized binary format with minimal overhead
+* *Full object graph support* — handles circular references, shared references, and deep object hierarchies
+* *Automatic type handling* — new types are registered on demand during serialization
+* *Type evolution* — built-in support for xref:storage:legacy-type-mapping/index.adoc[legacy type mapping] when class structures change
+* *No annotations required* — works with plain Java objects without any modifications
+* *Pluggable architecture* — customize type handlers, configuration, and serialization behavior
 
-== Usage
+== Overview
 
-You can use any medium type, but for most purposes, the byte array version should be sufficient to transfer the serialized form over the transport layer of your choice.
-Simply create a serializer instance, optionally based on a foundation, and call the serialize and deserialize methods.
+The serializer is structured into several layers:
 
-[source, java]
-----
-final SerializerFoundation<?> foundation = SerializerFoundation.New()
-	.registerEntityTypes(Customer.class);
-final Serializer<byte[]> serializer = Serializer.Bytes(foundation);
-byte[] data = serializer.serialize(customer);
-Customer restored = serializer.deserialize(data);
-----
+* *Serializer API* — the main entry point (`Serializer`, `TypedSerializer`) for converting objects to and from binary format
+* *Type Handling* — manages type registration, type dictionaries, and type evolution
+* *Persistence Engine* — the binary persistence layer that handles the actual data conversion
+* *Custom Type Handlers* — extension points for controlling how specific types are serialized
 
-== Type handling
-The serializer uses the {product-name}'s type handling system. This includes registration of new types on demand during serialization and xref:storage:legacy-type-mapping/index.adoc[legacy type mapping] when deserializing.
-The `SerializerFoundation` provides an API like the MicroStream storage to configure the type handling behavior.
+== Getting Started
 
-[IMPORTANT]
-The default Serializer implementation does not include type information in the serialized output!
-If you want to deserialize that with another serializer instance, you must register all classes using the `SerializerFoundation` before you create the serializer or use a `TypedSerializer`!
+See xref:serializer:getting-started.adoc[Getting Started] for setup instructions and basic usage examples.
 
-== TypeDictionary
-The serializer internally generates a dictionary that describes all serialized types. This dictionary can be exported and imported to exchange those type informations between different serializer instances.
+== Topics
 
-=== Exporting the type dictionary
-The current type information can be obtained as Sting using the serializers exportTypeDictionay() method:
-[source, java]
-----
-final String typeDictionaryString = serializer.exportTypeDictionay();
-----
-
-=== Importing the type dictionary
-To import an initial type dictionary, it must be supplied as a String. The SerializerFoundation offers methods to import that type dictionary string before the serializer instance is generated:
-
-.Using the static New(String typeDictionaryString) Method:
-[source, java]
-----
-final SerializerFoundation<?> foundation = SerializerFoundation.New(typeDictionaryString);
-----
-
-.Using the setInitialTypeDictionary(String typeDictionaryString) method:
-[source, java]
-----
-final SerializerFoundation<?> foundation = SerializerFoundation.New();
-foundation.setInitialTypeDictionary(typeDictionaryString);
-----
-
-== TypedSerializer
-The `TypedSerializer` implementation includes type information into the serialized output.
-By default, the complete set of type information is included in all serialized output.
-
-[source, java]
-----
-final Serializer<byte[]> serializer = TypedSerializer.Bytes(foundation);
-byte[] data = serializer.serialize(customer);
-Customer restored = serializer.deserialize(data);
-----
-
-=== Configuring the included type information
-To reduce the serialized data, it is possible to configure the included type information by supplying a `SerializerTypeInfoStrategyCreator` to the `SerializerFoundation`.
-[source, java]
-----
-final SerializerFoundation<?> foundation = SerializerFoundation.New()
-	.setSerializerTypeInfoStrategyCreator(
-		new SerializerTypeInfoStrategyCreator.IncrementalDiff(false));
-return TypedSerializer.Bytes(foundation);
-----
-
-==== Available options are:
-
-[options="header",cols="1,2"]
-|===
-|Property   
-|Description
-//-------------  
-|TypeDictionary
-|Includes type information for all types currently known to the serializer, including those registered during the setup.
-|Diff
-|Includes type information for all types currently known to the serializer, including those registered during the setup.
-|IncrementalDiff
-|Includes only type information for types added to the serializers type registry in the current serialization. Types that are registered during the serializer's setup are never included.
-|===
-
-==== The `includeTypeInfoOnce` parameter:
-All three serializer type handling strategies allow specifying that the type information gets included only once if it has not changed by setting the parameter `includeTypeInfoOnce = true`.
-If so, the type information is only included if new types are registered during the current serialization.
-
+* xref:serializer:getting-started.adoc[Getting Started] — prerequisites, basic serialization and deserialization
+* xref:serializer:type-handling.adoc[Type Handling] — type dictionaries, import/export, and type registration
+* xref:serializer:typed-serializer.adoc[TypedSerializer] — self-describing serialized output with type information strategies
+* xref:serializer:custom-type-handlers.adoc[Custom Type Handlers] — developing serialization handlers for your domain types
+* xref:serializer:configuration.adoc[Configuration] — configuring the serializer via `SerializerFoundation`
+* xref:serializer:performance.adoc[Performance and Thread Safety] — optimization strategies, buffer sizes, and concurrency guarantees

@@ -1,16 +1,18 @@
 == Troubleshooting
 
-== Starting a storage with missing objects
-If the storage throws a StorageExceptionConsistency exception stating "No entity found for objectId", the storage misses an object in the persisted data.
+== Starting a Storage with Missing Objects
+
+If the storage throws a `StorageExceptionConsistency` exception stating "No entity found for objectId", the storage is missing an object in the persisted data.
 In that case, it may be useful to start the storage and ignore that error.
 
 [WARNING]
 ====
 Do not start a storage with missing objects unless you are absolutely certain what you are doing. Doing so may cause the storage garbage collector to delete further objects! And may cause other errors if code tries to use missing objects!
-Consider to enable the xref:storage:configuration/readonly.adoc[read only storage mode]!
+Consider enabling the xref:storage:configuration/readonly.adoc[read only storage mode]!
 ====
 
-To start a storage that misses objects, you need to set a different StorageEntityCollector that ignores that exception:
+To start a storage that misses objects, you need to set a different `StorageEntityCollector` that ignores that exception:
+
 [source, java]
 ----
 final EmbeddedStorageFoundation<?> foundation = EmbeddedStorage.Foundation()
@@ -19,19 +21,20 @@ final EmbeddedStorageFoundation<?> foundation = EmbeddedStorage.Foundation()
 final EmbeddedStorageManager storage = foundation.start();
 ----
 
-== Identifying missing objects:
-A missing object can't be identified, but it is possible to locate objects that reference the missing object.
-see xref:addendum/storage-graph-analysis.adoc[Searching for Missing Objects] how to search for a missing object.
+== Identifying Missing Objects
 
-== Overwriting and existing object by its ObjectId
+A missing object cannot be identified directly, but it is possible to locate objects that reference the missing object.
+See xref:addendum/storage-graph-analysis.adoc[Searching for Missing Objects] for how to search for a missing object.
+
+== Overwriting an Existing Object by Its ObjectId
 
 [WARNING]
 ====
 Overwriting an object by its ID does not check the object type!
 ====
 
-To overwrite an object, you need to create a Storer instance that provides the
-Storer.store(instance, objectID) API:
+To overwrite an object, you need to create a `Storer` instance that provides the
+`Storer.store(instance, objectID)` API:
 
 [source, java]
 ----
@@ -39,3 +42,59 @@ Storer storer = storage.createStorer();
 storer.store(new String("Overwritten object"), 1000000000000100000L);
 storer.commit();
 ----
+
+== Common Error Messages
+
+=== "Storage is already running"
+
+This error occurs when trying to start a storage that is already started. Ensure you only call `start()` once, or call `shutdown()` before restarting.
+
+[source, java]
+----
+// Check if storage is running before starting
+if (!storage.isRunning())
+{
+    storage.start();
+}
+----
+
+=== "StorageExceptionIo" or File Access Errors
+
+File access errors typically indicate:
+
+* *Permission issues* — the application does not have read/write access to the storage directory
+* *Disk full* — the storage target has run out of space
+* *Locked storage* — another process has a xref:configuration/lock-file.adoc[lock file] on the storage directory
+
+To resolve lock file issues:
+
+1. Verify no other process is using the same storage directory
+2. If the previous process crashed without cleaning up, the lock file may be stale
+3. After verifying no other process is active, you can safely delete the lock file
+
+=== "Class not found" or ClassLoader Errors
+
+If the storage references types that are not on the classpath:
+
+* Ensure all types that were previously stored are available on the classpath
+* If classes were renamed or moved, configure xref:legacy-type-mapping/index.adoc[legacy type mapping]
+* If using a custom ClassLoader, see xref:customizing/custom-class-loader.adoc[Custom Class Loader]
+
+=== OutOfMemoryError
+
+If the application runs out of memory:
+
+* Use xref:loading-data/lazy-loading/index.adoc[Lazy references] to avoid loading the entire object graph into memory
+* Configure the xref:loading-data/lazy-loading/clearing-lazy-references.adoc[LazyReferenceManager] to clear unused lazy references
+* Increase the JVM heap size (`-Xmx`)
+* Monitor memory usage via xref:../misc:monitoring/index.adoc[JMX monitoring]
+
+== Storage Recovery Steps
+
+If your storage becomes corrupted or is in an inconsistent state:
+
+1. *Stop the application* — do not attempt writes to a corrupted storage
+2. *Create a backup* — copy the entire storage directory before any recovery attempt
+3. *Try starting in read-only mode* — use the xref:configuration/readonly.adoc[read-only storage mode] to inspect the data
+4. *Start with unchecked entity collector* — if specific objects are missing, use `StorageEntityCollector.Creator.Unchecked()` as shown above
+5. *Restore from backup* — if the storage cannot be recovered, restore from a xref:configuration/backup/continuous-backup.adoc[continuous backup] or xref:configuration/backup/full-backup.adoc[full backup]

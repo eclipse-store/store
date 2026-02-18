@@ -1,0 +1,104 @@
+= Error Handling and Reconnection
+
+== Connection Errors
+
+When a connection fails, the communication module throws exceptions that should be handled by the application code.
+Common failure scenarios include:
+
+* Host is not reachable (wrong address, host not started)
+* Network interruption during communication
+* TLS handshake failure (certificate issues, protocol mismatch)
+* Timeout during send or receive
+
+== Handling Client Connection Failures
+
+Wrap the client connection in a try-catch block to handle connection errors:
+
+[source, java]
+----
+final ComClient<?> client = ComBinaryDynamic.Foundation()
+	.createClient();
+
+try(final ComChannel channel = client.connect())
+{
+	channel.send(request);
+	Object response = channel.receive();
+}
+catch(final ComException e)
+{
+	// Handle communication error
+	System.err.println("Communication failed: " + e.getMessage());
+}
+----
+
+== Reconnection Pattern
+
+The communication module does not provide built-in automatic reconnection.
+Implement reconnection logic in your application:
+
+[source, java]
+----
+final ComClient<?> client = ComBinaryDynamic.Foundation()
+	.createClient();
+
+int maxRetries = 3;
+int retryDelay = 1000; // ms
+
+for (int attempt = 1; attempt <= maxRetries; attempt++)
+{
+	try(final ComChannel channel = client.connect())
+	{
+		channel.send(request);
+		Object response = channel.receive();
+		break; // Success
+	}
+	catch(final ComException e)
+	{
+		if (attempt == maxRetries)
+		{
+			throw e; // Give up after max retries
+		}
+		Thread.sleep(retryDelay * attempt); // Exponential backoff
+	}
+}
+----
+
+== Host-Side Error Handling
+
+On the host side, errors in the channel acceptor should be caught to prevent the host from stopping:
+
+[source, java]
+----
+final ComHost<?> host = ComBinaryDynamic.Foundation()
+	.setHostChannelAcceptor(channel ->
+	{
+		try
+		{
+			final Object received = channel.receive();
+			channel.send(processRequest(received));
+		}
+		catch(final Exception e)
+		{
+			System.err.println("Error handling client: " + e.getMessage());
+			// Channel will be closed, host continues listening
+		}
+	})
+	.createHost();
+
+host.run();
+----
+
+== Resource Cleanup
+
+The `ComChannel` implements `AutoCloseable`.
+Always use try-with-resources to ensure channels are properly closed:
+
+[source, java]
+----
+try(final ComChannel channel = client.connect())
+{
+	// communicate...
+} // channel is automatically closed here
+----
+
+On the host side, the channel is automatically closed when the channel acceptor's callback returns.

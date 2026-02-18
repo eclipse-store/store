@@ -1,198 +1,229 @@
 = User Interaction
 
-Here is an overview of how to enable and configure different levels of user interaction for the Legacy Type Mapping.
+This page provides detailed examples for configuring the user interaction level during Legacy Type Mapping.
 
-Somewhere you have a `foundation` instance, a foundation in where everything is configured, from which the `StorageManager` is created.
+== Accessing the Configuration
 
-[source, java]
-----
-EmbeddedStorageFoundation<?> foundation =
-    EmbeddedStorage.Foundation(); // or from somewhere else
-----
-
-It itself contains a foundation for connections.
-To access the inner thing needs a little detour.
-
-Incidentally, that's not a JDBC connection, but this is just one thing that creates helper instances like `Storer` and `Loader`.
-Because Legacy Type Mapping affects loading, it has to go in there.
-
-Either you access it directly, like this:
+The Legacy Type Mapping resultor is configured through the connection foundation inside the storage foundation:
 
 [source, java]
 ----
-EmbeddedStorageConnectionFoundation f = foundation.getConnectionFoundation();
+EmbeddedStorageFoundation<?> foundation = EmbeddedStorage.Foundation();
 ----
 
-Or like this, that's better for method chaining.
+Access the connection foundation directly:
+
+[source, java]
+----
+EmbeddedStorageConnectionFoundation<?> cf = foundation.getConnectionFoundation();
+cf.setLegacyTypeMappingResultor(...);
+----
+
+Or use the callback style for method chaining:
 
 [source, java]
 ----
 foundation.onConnectionFoundation(f ->
 {
-    ...
+    f.setLegacyTypeMappingResultor(...);
 });
 ----
 
-If you have that, the configuration for the Legacy Type Mapping callback logic is just a one liner:
+== Resultor Options
+
+=== Silent (Default)
+
+Accepts all heuristic mappings without any output or interaction.
+This is the default when no resultor is configured.
 
 [source, java]
 ----
-f.setLegacyTypeMappingResultor(...);
+f.setLegacyTypeMappingResultor(
+    PersistenceLegacyTypeMappingResultor.New()
+);
 ----
 
-*Default*
+Best for: production environments, CI/CD pipelines, automated deployments.
+
+=== Console Printing
+
+Prints all detected mappings to the console but accepts them automatically.
 
 [source, java]
 ----
-PersistenceLegacyTypeMappingResultor.New()
+f.setLegacyTypeMappingResultor(
+    PrintingLegacyTypeMappingResultor.New(
+        PersistenceLegacyTypeMappingResultor.New()
+    )
+);
 ----
 
-That's just the necessary logic, without anything further.
-If you do not change anything, this is done by default.
+Best for: development, debugging, verifying that mappings are correct during testing.
 
-*With Console Output*
+=== Interactive Inquiry
+
+Prints the mapping and asks the user to type `y` to accept before proceeding.
 
 [source, java]
 ----
-PrintingLegacyTypeMappingResultor.New(PersistenceLegacyTypeMappingResultor.New())
+f.setLegacyTypeMappingResultor(
+    InquiringLegacyTypeMappingResultor.New(
+        PersistenceLegacyTypeMappingResultor.New()
+    )
+);
 ----
 
-That wraps a printer around the necessary logic.
-All these storage and persistence classes are nothing sacred or super-duper intertwined or anything.
-These are just interfaces and if you plug in another implementation then it will be used.
+Best for: local development when making class changes, first-time migration verification.
 
-*Inquiry*
+=== Interactive with Similarity Threshold
+
+Only asks for confirmation when a field match has a similarity score below the threshold.
 
 [source, java]
 ----
-InquiringLegacyTypeMappingResultor.New(PersistenceLegacyTypeMappingResultor.New())
+f.setLegacyTypeMappingResultor(
+    InquiringLegacyTypeMappingResultor.New(
+        PersistenceLegacyTypeMappingResultor.New(),
+        0.8 // threshold: 0.0 to 1.0
+    )
+);
 ----
 
-Resultor which asks the user to apply.
-More customization is possible, see below.
+Best for: situations where most mappings are trivial but you want to catch ambiguous ones.
 
-*And so on*
+== Understanding the Threshold
 
-With the implementation of just one single interface method, you can build anything else you can imagine.
-For example, logging to a file instead of the console.
-Or in the personally preferred logging framework.
-Or write confirmed mappings into the refactorings file.
-Everything is possible.
+A field mapping is considered "clear" (no inquiry needed) if:
 
-For the inquiring implementation (`InquiringLegacyTypeMappingResultor`) there are a few settings: When should he ask?
-Always or only if something is unclear.
-_Never_ does not make any sense of course, then you shouldn't use it, or alternatively the printing resultor.
+1. The old and new fields are identical (similarity = 1.0), or
+2. The mapping is explicitly defined in a refactoring CSV file
 
-When is a mapping unclear? +
-If at least one field mapping is not completely clear. +
-A field mapping is clear if:
+A field mapping is considered "unclear" if the similarity score is below the threshold.
 
-. If two fields are exactly the same (similarity 1.0 or 100%)
-. Or if two fields are specified by the explicit mapping.
+Special case: if a field is *implicitly discarded* (the heuristic could not find a match, and it was not explicitly marked for deletion), an inquiry is *always* triggered regardless of the threshold.
 
-So if all fields are clear according to the above rule, then there is no need to ask.
+=== Threshold Values
 
-And there is another special case: If a field is discarded that is not explicitly marked as discardable, then as a precaution an inquiry is always done.
-Although no data is lost, but the data would not be available in the application, so better ask.
+[options="header",cols="1,3"]
+|===
+|Value
+|Behavior
 
-There are options to control this a bit finer.
-You can optionally specify a double as a threshold (from 0.0 to 1.0, otherwise Exception): +
-The value determines how similar two matching fields automatically have to be so that they are not inquired. +
-Example: The value is 0.9 (90%), but a match found is only 0.8 (80%) similar.
-This is according to the specification too little, there must be an inquiry as a precaution.
-If you specify 1.0, that means: always ask, everything is really perfectly clear.
-If you enter 0.0, this means: never ask or only for implicitly dropping fields.
+|`1.0` (default)
+|Always ask — only exact matches and explicit mappings are considered clear
 
-Looks like this:
+|`0.9`
+|Ask if any match is below 90% similar
 
-[source, java]
+|`0.7`
+|Ask if any match is below 70% similar
+
+|`0.0`
+|Never ask (except for implicitly discarded fields)
+|===
+
+== Worked Example: Threshold in Practice
+
+Given this refactoring:
+
+[source, java, title="Person.java (old)"]
 ----
-InquiringLegacyTypeMappingResultor.New(
-    PersistenceLegacyTypeMappingResultor.New()) // implicitely 1.0
-InquiringLegacyTypeMappingResultor.New(
-    PersistenceLegacyTypeMappingResultor.New(), 0.7) // 0.7 threshold
-----
-
-Here a small example with a `Person` class.
-
-[source, java]
-----
-int    customerid  ; // -> pin
-String firstname   ; // -> firstName
-String surname     ; // -> lastName
-String comment     ; // discarded, NOT new commerceId
+public class Person
+{
+    int    customerid;  // → pin (renamed, type change)
+    String firstname;   // → firstName (case change)
+    String surname;     // → lastName (renamed)
+    String comment;     // removed (NOT related to commerceId)
+}
 ----
 
-It should be changed to:
-
-[source, java]
+[source, java, title="Person.java (new)"]
 ----
-Integer pin       ; // <- customerid
-String  firstName ; // <- firstname
-String  lastName  ; // <- surname
-String  commerceId; // new, NOT old comment
-Address address   ; // new
+public class Person
+{
+    Integer pin;        // from customerid
+    String  firstName;  // from firstname
+    String  lastName;   // from surname
+    String  commerceId; // new field
+    Address address;    // new field
+}
 ----
 
-Without explicitly predefined mappings, the inquiry would look like this:
+=== Without Explicit Mapping
 
-[source,text]
+The heuristic produces:
+
+[source, text]
 ----
              [***new***] pin
-firstname    -0,944----> firstName
-surname      -0,688----> lastName
-comment      -0,750----> commerceId
+firstname    -0.944 ----> firstName
+surname      -0.688 ----> lastName
+comment      -0.750 ----> commerceId     <-- WRONG
              [***new***] address
-customerid   [discarded]
+customerid   [discarded]                 <-- WRONG
 ----
 
-`customerid` and `pin` are too different to be automatically assigned to each other.
-Therefore, it is wrongly assumed that `customerid` is omitted and `pin` is new.
-`comment` and `commerceId` are surprisingly similar (75%) and are therefore assigned. +
-But that's not what we want.
+Problems:
 
-Incidentally, it would not matter here what is defined as a threshold: `customerid` would be eliminated by the implicit decision.
-This is too delicate not to inquire, so it is always necessary to ask.
+* `customerid` → `pin` is too dissimilar for the heuristic (different names, different types)
+* `comment` → `commerceId` scores 0.75 similarity but is semantically wrong
 
-To get the mapping right, you have to specify two entries:
+=== With Explicit Mapping
 
-* `customerid` is now called `pin`
-* and `comment` should be omitted
+Add two entries to `refactorings.csv`:
 
-Then the inquiry looks like this:
-
-[source,text]
+[source, text, title="refactorings.csv"]
 ----
-customerid   -[mapped]-> pin
-firstname    -0,944----> firstName
-surname      -0,688----> lastName
+old                              current
+com.myapp.Person#customerid      com.myapp.Person#pin
+com.myapp.Person#comment
+----
+
+Now the mapping is correct:
+
+[source, text]
+----
+customerid   -[mapped] -> pin
+firstname    -0.944 ----> firstName
+surname      -0.688 ----> lastName
              [***new***] commerceId
              [***new***] address
 comment      [discarded]
 ----
 
-Due to the explicit mapping from `customerid` to `pin`, the similarity does not matter, it is the mapping that matters.
-To indicate this, it says "[mapped]" instead of the similarity.
-The rest is as usual.
-Only comment is now "[discarded]", according to the mapping.
-The difference to the above is namely: This is an explicitly predetermined absence.
-That does not force inquiry.
+=== Threshold Behavior with This Mapping
 
-This clears the way for the threshold:
+With the explicit mapping above:
 
-* If you enter 0.7 or more then you will be asked.
-As far as everything would be clear, but the mapping of `surname` to `lastName` is below the required "minimum similarity", so rather ask.
-* If you enter 0.6 or less, you will no longer be asked.
-Because all assignments are either explicitly specified or they are according to "minimum similarity" similar enough to rely on it.
+* *Threshold 0.7 or higher* → inquiry triggered, because `surname` → `lastName` scores 0.688 (below 0.7)
+* *Threshold 0.6 or lower* → no inquiry, all matches are above threshold or explicitly mapped
+* *Threshold 1.0* → inquiry triggered, because `firstname` → `firstName` is 0.944 (below 1.0)
+* *Threshold 0.0* → no inquiry (no implicitly discarded fields remain)
 
-A recommendation for a good value for the "minimum similarity" is difficult.
-As soon as one softens rules, there is always the danger of a mistake.
-See `comment` example above: is 75% similar to `commerceId`.
-Still wrong.
-Then prefer 80%?
-Or 90%?
-Of course it is better, but the danger is still there.
+== Custom Resultor Implementation
 
-If you want to be sure, just make 1.0 or omit the parameter, then by default 1.0 is taken.
+You can implement a completely custom resultor by implementing `PersistenceLegacyTypeMappingResultor`:
 
-The most important is the explicit mapping anyway : if "enough" is given by the user, there is no need to ask.
+[source, java]
+----
+f.setLegacyTypeMappingResultor(
+    (legacyTypeMapping) ->
+    {
+        // Log to your preferred logging framework
+        logger.info("Legacy type mapping: {}", legacyTypeMapping);
+
+        // Optionally write confirmed mappings to a file
+        writeMappingToFile(legacyTypeMapping);
+
+        // Return the mapping result (accept all)
+        return PersistenceLegacyTypeMappingResult.New(legacyTypeMapping);
+    }
+);
+----
+
+Use cases for custom resultors:
+
+* Logging to a file or logging framework instead of the console
+* Writing confirmed mappings to the refactoring CSV for future determinism
+* Integrating with external approval workflows
+* Sending notifications when schema changes are detected
