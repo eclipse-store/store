@@ -54,6 +54,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  *   <li><b>On-Disk Storage</b> - Optional memory-mapped indices for large datasets</li>
  *   <li><b>PQ Compression</b> - Product Quantization for reduced memory footprint</li>
  *   <li><b>Background Optimization</b> - Automatic graph cleanup for improved performance</li>
+ *   <li><b>Eventual Indexing</b> - Deferred graph mutations via background thread for reduced write latency</li>
+ *   <li><b>Parallel On-Disk Writes</b> - Multi-threaded index persistence for large on-disk indices</li>
  * </ul>
  *
  * <h2>Basic Usage</h2>
@@ -161,6 +163,37 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  *     .build();
  * }</pre>
  *
+ * <h2>Eventual Indexing</h2>
+ * When enabled, expensive HNSW graph mutations (add, update, remove) are deferred to a background
+ * thread. The vector store is still updated synchronously, so no data is lost, but graph construction
+ * happens asynchronously. This reduces the latency of mutation operations at the cost of eventual
+ * consistency — search results may not immediately reflect the most recent mutations.
+ * <p>
+ * The graph is automatically drained (all pending operations applied) before
+ * {@code optimize()}, {@code persistToDisk()}, and {@code close()}.
+ * <pre>{@code
+ * VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+ *     .dimension(768)
+ *     .similarityFunction(VectorSimilarityFunction.COSINE)
+ *     .eventualIndexing(true)
+ *     .build();
+ * }</pre>
+ *
+ * <h2>Parallel On-Disk Writes</h2>
+ * When on-disk storage is enabled, persistence can optionally use parallel direct buffers and
+ * multiple worker threads (one per available processor) to write the index concurrently. This can
+ * significantly speed up persistence for large indices. Disabled by default, as sequential
+ * single-threaded writing is preferred in resource-constrained environments or for smaller indices.
+ * <pre>{@code
+ * VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+ *     .dimension(768)
+ *     .similarityFunction(VectorSimilarityFunction.COSINE)
+ *     .onDisk(true)
+ *     .indexDirectory(Path.of("/data/vectors"))
+ *     .parallelOnDiskWrite(true)
+ *     .build();
+ * }</pre>
+ *
  * <h2>Search Methods</h2>
  * <pre>{@code
  * // Search by vector
@@ -227,6 +260,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  *   <li><b>Search</b> - Thread-safe, multiple concurrent searches allowed</li>
  *   <li><b>Add/Remove</b> - Thread-safe via GigaMap synchronization</li>
  *   <li><b>Optimization</b> - Briefly blocks add/remove/search during cleanup</li>
+ *   <li><b>Eventual Indexing</b> - Graph mutations are applied sequentially by a single
+ *       background worker thread; vector store updates remain synchronous</li>
  * </ul>
  *
  * <h2>Limitations</h2>
