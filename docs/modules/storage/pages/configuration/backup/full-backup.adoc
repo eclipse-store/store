@@ -1,8 +1,9 @@
 = Full Backup
 
-To issue a full backup of the whole storage to be executed, the `EmbeddedStorageManager` provides two methods named `issueFullBackup`.
-Keep in mind that this could result in a very long running operation, depending on the storage size.
-Although the full backup may be a valid solution in some circumstances, the xref:configuration/backup/continuous-backup.adoc[continuous backup] should be preferred, since it is by far more efficient.
+A full backup copies the entire storage to a specified target directory or storage target.
+The `EmbeddedStorageManager` provides the `issueFullBackup` method for this purpose.
+
+== Basic Usage
 
 [source, java]
 ----
@@ -13,3 +14,74 @@ storage.issueFullBackup(
 ----
 
 TIP: The backup can be written to any available xref:storage-targets/index.adoc[storage target], not just the local file system.
+
+== When to Use Full Backup
+
+Full backup creates a complete snapshot of the storage at the time of execution.
+Consider the following when choosing between full and continuous backup:
+
+[options="header",cols="1,1"]
+|===
+|Full Backup
+|Continuous Backup
+
+|One-time snapshot of the entire storage
+|Continuously mirrors all changes
+
+|Can be long-running for large storages
+|Minimal ongoing overhead
+
+|Good for periodic backup schedules
+|Good for real-time disaster recovery
+
+|Simple to set up
+|Requires configuration at startup
+|===
+
+For most production use cases, the xref:configuration/backup/continuous-backup.adoc[continuous backup] is preferred because it is far more efficient and provides continuous protection.
+
+Full backup is most appropriate for:
+
+* One-time backup before a major migration or upgrade
+* Periodic scheduled backups (e.g., nightly) as an additional safety net
+* Creating a storage copy for testing or development environments
+* Situations where continuous backup is not feasible
+
+== Restoring from a Full Backup
+
+A full backup is a complete, self-contained copy of the storage.
+It can be used directly as a storage or copied to replace the original storage directory.
+
+To restore, simply copy the backup directory to the original storage location, or point the storage configuration to the backup directory:
+
+[source, java]
+----
+EmbeddedStorageManager storage = EmbeddedStorage.start(
+	Paths.get("full", "backup", "dir")
+);
+----
+
+== Backup to Different Storage Targets
+
+The full backup accepts any `AWritableDirectory`, allowing you to write backups to different storage targets:
+
+[source, java]
+----
+// Backup to an AWS S3 bucket
+BlobStoreFileSystem fileSystem = BlobStoreFileSystem.New(
+	S3Connector.Caching(s3Client)
+);
+storage.issueFullBackup(
+	fileSystem.ensureDirectoryPath("my-backup-bucket", "backup", "dir")
+);
+----
+
+== Performance Considerations
+
+[CAUTION]
+====
+Full backup is a *blocking operation* — the calling thread is blocked until the backup completes, and store operations are paused for the duration.
+For large storages this can take a significant amount of time.
+====
+
+For large storages, consider triggering full backups during periods of low activity, for example via a scheduled cron job during off-peak hours or at night.

@@ -1,0 +1,143 @@
+= TLS
+
+To use TLS-encrypted communication, set up a `ComTLSConnectionHandler` and supply it using `ComFoundation.setConnectionHandler(ComConnectionHandler<C>)`.
+
+The default implementation of the `ComTLSConnectionHandler` uses the Java https://docs.oracle.com/en/java/javase/17/docs/api/java.base/javax/net/ssl/SSLEngine.html[SSLEngine].
+
+== TLS Setup Example
+
+[source, java]
+----
+public class EchoServerTLS
+{
+	public static void main(final String[] args)
+	{
+		Path serverKeyStore = Paths.get(args[0]);
+		Path serverTrustStore = Paths.get(args[1]);
+		char[] serverKeyStorePassword = args[2].toCharArray();
+		char[] serverTrustStorePassword = args[2].toCharArray();
+
+		final ComHost<?> host = ComBinaryDynamic.Foundation()
+			.setConnectionHandler(ComTLSConnectionHandler.New(
+					new TLSKeyManagerProvider.PKCS12(
+						serverKeyStore,
+						serverKeyStorePassword),
+					new TLSTrustManagerProvider.PKCS12(
+						serverTrustStore,
+						serverTrustStorePassword),
+					new TLSParametersProvider.Default(),
+					new SecureRandomProvider.Default()
+				))
+			.setHostChannelAcceptor(channel ->
+			{
+				final Object received = channel.receive();
+				System.out.println("received: " + received);
+				channel.send(received);
+			})
+			.createHost();
+
+		// run the host, making it constantly listen for new connections and relaying them to the logic
+		host.run();
+	}
+}
+----
+
+== TLS Provider Implementations
+
+The communication module provides default implementations for the TLS configuration interfaces.
+You can use them directly or implement the interfaces to customize the TLS behavior.
+
+=== TLSKeyManagerProvider
+
+[options="header",cols="1,2"]
+|===
+|Implementation
+|Description
+
+|`TLSKeyManagerProvider.Default`
+|Provides no https://docs.oracle.com/en/java/javase/17/docs/api/java.base/javax/net/ssl/KeyManager.html[javax.net.ssl.KeyManagers], so the SSLEngine uses the system's default KeyManager.
+
+|`TLSKeyManagerProvider.PKCS12`
+|Creates a SunX509 https://docs.oracle.com/en/java/javase/17/docs/api/java.base/javax/net/ssl/KeyManager.html[javax.net.ssl.KeyManagers] by loading a PKCS12 key store from the file system.
+|===
+
+=== TLSTrustManagerProvider
+
+[options="header",cols="1,2"]
+|===
+|Implementation
+|Description
+
+|`TLSTrustManagerProvider.Default`
+|Provides no https://docs.oracle.com/en/java/javase/17/docs/api/java.base/javax/net/ssl/TrustManager.html[javax.net.ssl.TrustManager], so the SSLEngine uses the system's default TrustManager.
+
+|`TLSTrustManagerProvider.PKCS12`
+|Creates a SunX509 https://docs.oracle.com/en/java/javase/17/docs/api/java.base/javax/net/ssl/TrustManager.html[javax.net.ssl.TrustManager] by loading a PKCS12 key store from the file system.
+|===
+
+=== TLSParametersProvider
+
+[options="header",cols="1,2"]
+|===
+|Implementation
+|Description
+
+|`TLSParametersProvider.Default`
+|Provides https://docs.oracle.com/en/java/javase/17/docs/api/java.base/javax/net/ssl/SSLParameters.html[javax.net.ssl.SSLParameters] with client authentication enabled, TLSv1.2 protocol, and a 1000ms timeout for the TLS handshake.
+|===
+
+=== SecureRandomProvider
+
+[options="header",cols="1,2"]
+|===
+|Implementation
+|Description
+
+|`SecureRandomProvider.Default`
+|Provides a null https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/security/SecureRandom.html[java.security.SecureRandom] to let the SSLEngine use the system default SecureRandom.
+|===
+
+== Custom TLS Configuration
+
+To customize the TLS behavior beyond the provided implementations, implement the respective interfaces:
+
+[source, java]
+----
+public class CustomTLSParameters implements TLSParametersProvider
+{
+	@Override
+	public SSLParameters getSSLParameters()
+	{
+		final SSLParameters params = new SSLParameters();
+		params.setNeedClientAuth(true);
+		params.setProtocols(new String[]{"TLSv1.3"});
+		params.setCipherSuites(new String[]{
+			"TLS_AES_256_GCM_SHA384",
+			"TLS_AES_128_GCM_SHA256"
+		});
+		return params;
+	}
+
+	@Override
+	public int getHandshakeTimeout()
+	{
+		return 5000; // 5 seconds
+	}
+}
+----
+
+== TLS on the Client Side
+
+The client must also be configured with TLS to connect to a TLS-enabled host:
+
+[source, java]
+----
+final ComClient<?> client = ComBinaryDynamic.Foundation()
+	.setConnectionHandler(ComTLSConnectionHandler.New(
+		new TLSKeyManagerProvider.PKCS12(clientKeyStore, clientKeyStorePassword),
+		new TLSTrustManagerProvider.PKCS12(clientTrustStore, clientTrustStorePassword),
+		new TLSParametersProvider.Default(),
+		new SecureRandomProvider.Default()
+	))
+	.createClient();
+----

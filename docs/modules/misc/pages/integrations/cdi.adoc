@@ -15,7 +15,7 @@ It is available within this artifact:
 </dependencies>
 ----
 
-The integration requires the _javax_ namespace and requires a https://jakarta.ee/specifications/cdi/[CDI] 4.0 implementation
+The integration requires the _jakarta_ namespace and requires a https://jakarta.ee/specifications/cdi/[CDI] 4.0 implementation
 and an https://github.com/eclipse/microprofile-config[Eclipse MicroProfile Config] 2.0 implementation.
 
 

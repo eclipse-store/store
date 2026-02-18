@@ -1,0 +1,101 @@
+= Configuration
+
+Configuration of host and client is done using the `ComFoundation.Default` implementation of the `ComFoundation` interface.
+To get a preconfigured foundation instance, the classes `ComBinaryDynamic` and `ComBinary` provide the convenient method `Foundation()`.
+
+== Dynamic vs Non-Dynamic
+
+The communication module is available in two flavors: *dynamic* and *non-dynamic*.
+
+=== ComBinaryDynamic
+
+The dynamic implementation automatically registers all classes that are part of the communication at runtime.
+It will also do a type-mapping if classes with the same name have different implementations on the client and host.
+
+[source, java]
+----
+final ComHost<?> host = ComBinaryDynamic.Foundation()
+	.setHostChannelAcceptor(channel -> { /* ... */ })
+	.createHost();
+----
+
+Use `ComBinaryDynamic` when:
+
+* You want convenience and minimal setup
+* The set of transferred types is not known at compile time
+* Client and host may have different versions of the same classes
+
+=== ComBinary
+
+The non-dynamic version requires all classes that should be transferred to be registered at initialization time.
+This can be done with the `registerEntityType` methods of the `ComFoundation`.
+If a transferred object graph references any unregistered class, an exception will occur.
+
+[source, java]
+----
+final ComHost<?> host = ComBinary.Foundation()
+	.registerEntityTypes(ChatMessage.class, StatusUpdate.class)
+	.setHostChannelAcceptor(channel -> { /* ... */ })
+	.createHost();
+----
+
+Use `ComBinary` when:
+
+* You want strict control over which types can be communicated
+* You need predictable behavior and no runtime surprises
+* Security is a concern (prevents arbitrary class deserialization)
+
+== Common Configuration Options
+
+[options="header",cols="1,2"]
+|===
+|Option
+|Description
+
+|`setHostBindingAddress(InetSocketAddress)`
+|The IP address and port the host binds to.
+
+|`setClientTargetAddress(InetSocketAddress)`
+|The address and port the client connects to.
+
+|`setPort(int)`
+|If no host or client target address is configured, sets the port used together with the default IP addresses for both host and client.
+
+|`registerEntityTypes(Class<?>...)`
+|Registers types that can be transferred. Required for `ComBinary`, optional for `ComBinaryDynamic`.
+
+|`setHostChannelAcceptor(ComHostChannelAcceptor)`
+|Sets the callback that handles incoming client connections on the host side.
+|===
+
+== Custom Addresses and Ports
+
+=== Host with Custom Address
+
+[source, java]
+----
+final ComHost<?> host = ComBinaryDynamic.Foundation()
+	.setHostBindingAddress(new InetSocketAddress("192.168.1.100", 8080))
+	.setHostChannelAcceptor(channel -> { /* ... */ })
+	.createHost();
+----
+
+=== Client Connecting to Custom Address
+
+[source, java]
+----
+final ComClient<?> client = ComBinaryDynamic.Foundation()
+	.setClientTargetAddress(new InetSocketAddress("192.168.1.100", 8080))
+	.createClient();
+----
+
+=== Port Only (Shorthand)
+
+[source, java]
+----
+// Uses default addresses with custom port
+final ComHost<?> host = ComBinaryDynamic.Foundation()
+	.setPort(8080)
+	.setHostChannelAcceptor(channel -> { /* ... */ })
+	.createHost();
+----

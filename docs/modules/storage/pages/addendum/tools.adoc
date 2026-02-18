@@ -2,12 +2,133 @@
 
 == Storage Migrator
 
-With this utility you can easily migrate MicroStream projects to EclipseStore.
+The Storage Migrator is a utility for migrating MicroStream projects to EclipseStore.
+It is based on https://docs.openrewrite.org/[OpenRewrite] and can migrate source code (package names from `one.microstream` to `org.eclipse.store` / `org.eclipse.serializer`) and type dictionary files of existing storages.
+
+The migrator is executed via Maven on the command line in your MicroStream project folder.
+The parameters `eclipseStoreVersion` and `typeDictionaryRelativePath` control what is migrated:
+
+* Source code migration is only done when `eclipseStoreVersion` is set.
+* Type dictionary migration is only done when `typeDictionaryRelativePath` is set.
+
+=== Migrate Source Code and Type Dictionary
+
+[source, bash, subs=attributes+]
+----
+mvn org.openrewrite.maven:rewrite-maven-plugin:run \
+  -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject \
+  -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:{maven-version} \
+  -DeclipseStoreVersion={maven-version} \
+  -Drewrite.plainTextMasks=**/*.ptd \
+  -DtypeDictionaryRelativeFilePath=src/main/resources/PersistenceTypeDictionary.ptd
+----
+
+=== Migrate Source Code Only
+
+[source, bash, subs=attributes+]
+----
+mvn org.openrewrite.maven:rewrite-maven-plugin:run \
+  -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject \
+  -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:{maven-version} \
+  -DeclipseStoreVersion={maven-version}
+----
+
+=== Migrate Type Dictionary Only
+
+Copy the type dictionary file (`PersistenceTypeDictionary.ptd` from the root of your storage folder) into your project, then run:
+
+[source, bash, subs=attributes+]
+----
+mvn org.openrewrite.maven:rewrite-maven-plugin:run \
+  -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject \
+  -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:{maven-version} \
+  -Drewrite.plainTextMasks=**/*.ptd \
+  -DtypeDictionaryRelativeFilePath=src/main/resources/PersistenceTypeDictionary.ptd
+----
+
+After migration, the storage can be opened with {product-name}.
+
+[IMPORTANT]
+====
+* Always create a backup of your code and storage before running the migrator
+* The migration is a one-way operation and cannot be undone
+* The type dictionary migration only updates metadata — your actual data remains unchanged
+====
 
 For more information see the https://github.com/eclipse-store/store/tree/main/storage/embedded-tools/storage-migrator[readme file].
 
 == Storage Converter
 
-The storage converter provides an option to copy a storage to another storage target, for example to change the channel count or move the storage from the local disk to the cloud.
+The Storage Converter copies a storage from one storage target to another.
+This is useful for:
+
+* Changing the number of storage channels
+* Moving storage from local disk to a cloud storage target or vice-versa
+
+=== Prerequisites
+
+Add the storage converter dependency:
+
+[source, xml, title="pom.xml", subs=attributes+]
+----
+<dependencies>
+	<dependency>
+		<groupId>org.eclipse.store</groupId>
+		<artifactId>storage-embedded-tools-storage-converter</artifactId>
+		<version>{maven-version}</version>
+	</dependency>
+</dependencies>
+----
+
+=== Standalone JAR
+
+Build the standalone JAR by activating the `converter-standalone` Maven profile:
+
+[source, bash]
+----
+mvn -Pconverter-standalone clean package
+----
+
+Then run it with an xref:configuration/index.adoc#external-configuration[external configuration] file for each storage:
+
+[source, bash, subs=attributes+]
+----
+java -jar storage-embedded-tools-storage-converter-{maven-version}.jar sourceConfig.xml targetConfig.xml
+----
+
+=== Java API
+
+For more control, use the `StorageConverter` class directly with two `StorageConfiguration` instances:
+
+[source, java]
+----
+StorageConfiguration source = StorageConfiguration.Builder()
+	.setStorageFileProvider(
+		StorageLiveFileProvider.New(
+			NioFileSystem.New().ensureDirectoryPath("path", "to", "source", "storage")
+		)
+	)
+	.createConfiguration();
+
+StorageConfiguration target = StorageConfiguration.Builder()
+	.setStorageFileProvider(
+		StorageLiveFileProvider.New(
+			NioFileSystem.New().ensureDirectoryPath("path", "to", "target", "storage")
+		)
+	)
+	.setChannelCountProvider(StorageChannelCountProvider.New(4))
+	.createConfiguration();
+
+new StorageConverter(source, target).start();
+----
+
+To move from local file system to a cloud storage target, configure the target `StorageConfiguration` with the desired storage target. See xref:storage-targets/index.adoc[Storage Targets] for the available options.
+
+[IMPORTANT]
+====
+* The source storage must not be in use (not started) during the conversion
+* Always verify the target storage after conversion by starting it and validating your data
+* The converter creates a new independent copy — the source storage is not modified
+====
 
 For more information see the https://github.com/eclipse-store/store/tree/main/storage/embedded-tools/storage-converter[readme file].

@@ -1,0 +1,87 @@
+= Configuration
+
+The `SerializerFoundation` is the central configuration point for the serializer.
+It provides a fluent API to customize all aspects of serialization behavior.
+
+== Creating a Foundation
+
+[source, java]
+----
+final SerializerFoundation<?> foundation = SerializerFoundation.New();
+----
+
+Or with an initial type dictionary:
+
+[source, java]
+----
+final SerializerFoundation<?> foundation = SerializerFoundation.New(typeDictionaryString);
+----
+
+== Configuration Options
+
+=== Registering Entity Types
+
+Register types that will be serialized to ensure consistent type IDs:
+
+[source, java]
+----
+foundation.registerEntityTypes(
+	Customer.class,
+	Order.class,
+	Product.class
+);
+----
+
+=== Custom Type Handlers
+
+Register custom handlers for types that need special serialization logic:
+
+[source, java]
+----
+foundation.registerCustomTypeHandler(new MoneyHandler());
+----
+
+See xref:serializer:custom-type-handlers.adoc[Custom Type Handlers] for details.
+
+=== Type Info Strategy
+
+Configure how type information is included in `TypedSerializer` output:
+
+[source, java]
+----
+foundation.setSerializerTypeInfoStrategyCreator(
+	new SerializerTypeInfoStrategyCreator.IncrementalDiff(true)
+);
+----
+
+See xref:serializer:typed-serializer.adoc[TypedSerializer] for the available strategies.
+
+=== Initial Type Dictionary
+
+Import a type dictionary from another serializer instance:
+
+[source, java]
+----
+foundation.setInitialTypeDictionary(typeDictionaryString);
+----
+
+See xref:serializer:type-handling.adoc[Type Handling] for details on type dictionary import and export.
+
+== Creating the Serializer
+
+Once configured, use the foundation to create a serializer instance:
+
+[source, java]
+----
+// Standard serializer (no type info in output)
+final Serializer<byte[]> serializer = Serializer.Bytes(foundation);
+
+// TypedSerializer (includes type info in output)
+final Serializer<byte[]> typedSerializer = TypedSerializer.Bytes(foundation);
+----
+
+== Relationship to Storage Configuration
+
+When using {product-name}'s storage, the `EmbeddedStorageFoundation` internally creates and configures a serializer.
+Many serializer configuration options are also available through the storage foundation.
+The serializer foundation is most useful when using the serializer standalone, without the storage layer.

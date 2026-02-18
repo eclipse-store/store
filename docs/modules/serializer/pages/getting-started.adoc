@@ -1,0 +1,128 @@
+= Getting Started
+
+== Prerequisites
+
+Add the serializer module to your project:
+
+[source, xml, title="pom.xml", subs=attributes+]
+----
+<dependencies>
+	<dependency>
+		<groupId>org.eclipse.serializer</groupId>
+		<artifactId>serializer</artifactId>
+		<version>{maven-version}</version>
+	</dependency>
+</dependencies>
+----
+
+For Gradle:
+
+[source, groovy, title="build.gradle", subs=attributes+]
+----
+dependencies {
+    implementation 'org.eclipse.serializer:serializer:{maven-version}'
+}
+----
+
+== Basic Usage
+
+The serializer converts Java objects to a binary format (byte arrays) and back.
+Create a serializer instance, optionally configure it with a foundation, and use the `serialize` and `deserialize` methods.
+
+[source, java]
+----
+// Create a serializer with default settings
+final Serializer<byte[]> serializer = Serializer.Bytes();
+
+// Serialize an object to bytes
+byte[] data = serializer.serialize("Hello World");
+
+// Deserialize back to an object
+String restored = serializer.deserialize(data);
+----
+
+== Registering Types
+
+For domain types, register them with the `SerializerFoundation` to ensure consistent type handling:
+
+[source, java]
+----
+final SerializerFoundation<?> foundation = SerializerFoundation.New()
+	.registerEntityTypes(Customer.class, Order.class, Product.class);
+
+final Serializer<byte[]> serializer = Serializer.Bytes(foundation);
+
+// Now serialize your domain objects
+byte[] data = serializer.serialize(customer);
+Customer restored = serializer.deserialize(data);
+----
+
+[IMPORTANT]
+====
+The default `Serializer` implementation does not include type information in the serialized output.
+If you want to deserialize with a different serializer instance, you must either:
+
+* Register all classes using the `SerializerFoundation` before creating the serializer, or
+* Use a xref:serializer:typed-serializer.adoc[TypedSerializer] which includes type information in the output
+====
+
+== Serializing Complex Object Graphs
+
+The serializer handles complex object graphs, including collections, nested objects, and circular references:
+
+[source, java]
+----
+public class Customer
+{
+	private String name;
+	private List<Order> orders;
+	// getters and setters
+}
+
+public class Order
+{
+	private Customer customer; // back-reference
+	private List<Product> products;
+	private LocalDateTime orderDate;
+	// getters and setters
+}
+----
+
+[source, java]
+----
+final SerializerFoundation<?> foundation = SerializerFoundation.New()
+	.registerEntityTypes(Customer.class, Order.class, Product.class);
+final Serializer<byte[]> serializer = Serializer.Bytes(foundation);
+
+// Circular references are handled automatically
+Customer customer = new Customer();
+Order order = new Order();
+order.setCustomer(customer);
+customer.setOrders(List.of(order));
+
+byte[] data = serializer.serialize(customer);
+Customer restored = serializer.deserialize(data);
+// restored.getOrders().get(0).getCustomer() == restored (same reference)
+----
+
+== Supported Types
+
+The serializer supports a wide range of Java types out of the box:
+
+* All Java primitives and their wrapper types
+* `String`, `BigInteger`, `BigDecimal`
+* `java.time` types (`LocalDate`, `LocalDateTime`, `Instant`, etc.)
+* Arrays (primitive and object arrays, including multi-dimensional)
+* Standard collections (`ArrayList`, `HashMap`, `HashSet`, `LinkedList`, etc.)
+* `java.util.Optional`
+* Enums
+* Records (Java 16+)
+* Custom classes with any combination of the above
+
+For types not supported by default, you can create xref:serializer:custom-type-handlers.adoc[custom type handlers].
+
+== Next Steps
+
+* xref:serializer:type-handling.adoc[Type Handling] — learn about type dictionaries and type registration
+* xref:serializer:typed-serializer.adoc[TypedSerializer] — include type information in serialized output
+* xref:serializer:configuration.adoc[Configuration] — customize the serializer behavior
