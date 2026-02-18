@@ -54,7 +54,7 @@ class VectorIndexConfigurationTest
         assertEquals(0L, config.optimizationIntervalMs());
         assertEquals(1000, config.minChangesBetweenOptimizations());
         assertFalse(config.optimizeOnShutdown());
-        assertTrue(config.parallelOnDiskWrite());
+        assertFalse(config.parallelOnDiskWrite());
         assertFalse(config.eventualIndexing());
     }
 
@@ -274,13 +274,13 @@ class VectorIndexConfigurationTest
     // ==================== Parallel On-Disk Write Tests ====================
 
     @Test
-    void testParallelOnDiskWriteDefaultTrue()
+    void testParallelOnDiskWriteDefaultFalse()
     {
         final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
             .dimension(64)
             .build();
 
-        assertTrue(config.parallelOnDiskWrite());
+        assertFalse(config.parallelOnDiskWrite());
     }
 
     @Test
@@ -366,18 +366,18 @@ class VectorIndexConfigurationTest
     }
 
     @Test
-    void testFactoryMethodsDefaultToParallel(@TempDir final Path tempDir)
+    void testFactoryMethodsDefaultToSequential(@TempDir final Path tempDir)
     {
         final Path indexDir = tempDir.resolve("vectors");
 
         final VectorIndexConfiguration medium = VectorIndexConfiguration.forMediumDataset(768, indexDir);
-        assertTrue(medium.parallelOnDiskWrite());
+        assertFalse(medium.parallelOnDiskWrite());
 
         final VectorIndexConfiguration large = VectorIndexConfiguration.forLargeDataset(768, indexDir);
-        assertTrue(large.parallelOnDiskWrite());
+        assertFalse(large.parallelOnDiskWrite());
 
         final VectorIndexConfiguration highPrecision = VectorIndexConfiguration.forHighPrecision(768, indexDir);
-        assertTrue(highPrecision.parallelOnDiskWrite());
+        assertFalse(highPrecision.parallelOnDiskWrite());
     }
 
     @Test
