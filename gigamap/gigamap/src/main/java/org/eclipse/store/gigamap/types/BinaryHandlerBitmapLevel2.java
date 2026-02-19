@@ -32,7 +32,11 @@ import org.eclipse.serializer.typing.XTypes;
  * specific to {@link BitmapLevel2}.
  */
 public class BinaryHandlerBitmapLevel2 extends AbstractBinaryHandlerCustom<BitmapLevel2> implements BinaryLegacyTypeHandlerSupplier<BitmapLevel2> 
-{
+{	
+	private static final int  BITMAP_LEVEL2_VERSION_SIZE = Integer.BYTES;
+	private static final long BITMAP_LIST_OFFSET = BITMAP_LEVEL2_VERSION_SIZE;
+	private static final int  BITMAP_LEVEL2_BINARY_VERSION = 2;
+
 	public static BinaryHandlerBitmapLevel2 New()
 	{
 		return new BinaryHandlerBitmapLevel2();
@@ -62,12 +66,12 @@ public class BinaryHandlerBitmapLevel2 extends AbstractBinaryHandlerCustom<Bitma
 	@Override
 	public BitmapLevel2 create(final Binary data, final PersistenceLoadHandler handler)
 	{
-		final long contentLength = Binary.toBinaryListContentByteLength(data.getLoadItemAvailableContentLength()) - 20;
+		final long contentLength = Binary.toBinaryListContentByteLength(data.getBinaryListTotalByteLength(BITMAP_LEVEL2_VERSION_SIZE));
 		final int  fullLength    = BitmapLevel2.getTotalLengthFromPersistentLength(XTypes.to_int(contentLength));
 		
 		final long level2Address     = XMemory.allocate(fullLength);
 		final long persistentAddress = BitmapLevel2.toPersistentDataAddress(level2Address);
-		data.copyToAddress(Binary.toBinaryListElementsOffset(4), persistentAddress, contentLength);
+		data.copyToAddress(Binary.toBinaryListElementsOffset(BITMAP_LIST_OFFSET), persistentAddress, contentLength);
 		BitmapLevel2.initializeFromData(level2Address, fullLength);
 		
 		// required to prevent JVM crashes caused by misinterpreted off-heap data.
@@ -90,13 +94,13 @@ public class BinaryHandlerBitmapLevel2 extends AbstractBinaryHandlerCustom<Bitma
 		final long persistentAddress = BitmapLevel2.toPersistentDataAddress(instance.level2Address);
 		final int  persistentLength  = BitmapLevel2.getPersistentLengthFromTotalLength(instance.totalLength());
 		data.storeEntityHeader(
-			Binary.toBinaryListTotalByteLength(persistentLength) + 20,
+				Binary.toBinaryListTotalByteLength(persistentLength) + BITMAP_LEVEL2_VERSION_SIZE,
 			this.typeId(),
 			objectId
 		);
-		data.store_int(2);
-		data.storeListHeader(4, persistentLength, persistentLength);
-		data.copyFromAddress(Binary.toBinaryListElementsOffset(4), persistentAddress, persistentLength);
+		data.store_int(BITMAP_LEVEL2_BINARY_VERSION);
+		data.storeListHeader(BITMAP_LIST_OFFSET, persistentLength, persistentLength);
+		data.copyFromAddress(Binary.toBinaryListElementsOffset(BITMAP_LIST_OFFSET), persistentAddress, persistentLength);
 	}
 	
 	@Override

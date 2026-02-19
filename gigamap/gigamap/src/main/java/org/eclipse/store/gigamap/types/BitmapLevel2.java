@@ -130,12 +130,7 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 	{
 		return BinaryHandlerBitmapLevel2.New();
 	}
-	
-	static BinaryTypeHandler<BitmapLevel2> provideLegacyTypeHandler()
-	{
-		return BinaryLegacyTypeHandlerBitmapLevel2.New();
-	}
-	
+		
 	private static void setEntryHeader(final long level1EntryAddress, final byte entryType)
 	{
 		XMemory.set_byte(level1EntryAddress + ENTRY_OFFSET_HEADER, entryType);
