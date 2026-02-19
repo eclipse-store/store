@@ -237,30 +237,28 @@ class VectorIndexConcurrentStressTest
 
         final VectorIndexConfiguration config = buildConfig(combo, dimension, indexDir);
 
-        final VectorIndex<Document> index = vectorIndices.add(
+        try (final VectorIndex<Document> index = vectorIndices.add(
             "embeddings", config, new ComputedDocumentVectorizer()
-        );
-
-        try
+        ))
         {
             // Seed the index with initial entities so updates/removes have targets
             final Random seedRandom = new Random(42);
-            for(int i = 0; i < seedCount; i++)
+            for (int i = 0; i < seedCount; i++)
             {
                 gigaMap.add(new Document("seed_" + i, randomVector(seedRandom, dimension)));
             }
 
             // For eventual indexing, drain the seed operations
-            if(combo.eventual())
+            if (combo.eventual())
             {
-                final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
-                defaultIndex.indexingManager.drainQueue();
+                final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>) index;
+                defaultIndex.backgroundTaskManager.drainQueue();
             }
 
             // If PQ compression, train before concurrent access
-            if(combo.pqCompression())
+            if (combo.pqCompression())
             {
-                ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
+                ((VectorIndex.Internal<Document>) index).trainCompressionIfNeeded();
             }
 
             // Shared state for coordinating threads
@@ -273,7 +271,7 @@ class VectorIndexConcurrentStressTest
 
             final ExecutorService executor = Executors.newFixedThreadPool(threadCount);
 
-            for(int t = 0; t < threadCount; t++)
+            for (int t = 0; t < threadCount; t++)
             {
                 final int threadId = t;
                 executor.submit(() ->
@@ -285,59 +283,54 @@ class VectorIndexConcurrentStressTest
 
                         final Random random = new Random(1000 + threadId);
 
-                        for(int op = 0; op < opsPerThread && !hasError.get(); op++)
+                        for (int op = 0; op < opsPerThread && !hasError.get(); op++)
                         {
                             try
                             {
                                 final int action = random.nextInt(100);
 
-                                if(action < 30)
+                                if (action < 30)
                                 {
                                     // 30%: ADD
                                     final float[] vector = randomVector(random, dimension);
-                                    synchronized(gigaMap)
+                                    synchronized (gigaMap)
                                     {
                                         gigaMap.add(new Document(
                                             "t" + threadId + "_" + op, vector
                                         ));
                                     }
-                                }
-                                else if(action < 45)
+                                } else if (action < 45)
                                 {
                                     // 15%: UPDATE (set) — target a seed entity
                                     final long targetId = random.nextInt(seedCount);
                                     final float[] vector = randomVector(random, dimension);
-                                    synchronized(gigaMap)
+                                    synchronized (gigaMap)
                                     {
                                         try
                                         {
                                             gigaMap.set(targetId, new Document(
                                                 "updated_" + targetId, vector
                                             ));
-                                        }
-                                        catch(final Exception e)
+                                        } catch (final Exception e)
                                         {
                                             // Entity may have been removed by another thread — acceptable
                                         }
                                     }
-                                }
-                                else if(action < 55)
+                                } else if (action < 55)
                                 {
                                     // 10%: REMOVE — target a seed entity
                                     final long targetId = random.nextInt(seedCount);
-                                    synchronized(gigaMap)
+                                    synchronized (gigaMap)
                                     {
                                         try
                                         {
                                             gigaMap.removeById(targetId);
-                                        }
-                                        catch(final Exception e)
+                                        } catch (final Exception e)
                                         {
                                             // Entity may already be removed — acceptable
                                         }
                                     }
-                                }
-                                else
+                                } else
                                 {
                                     // 45%: SEARCH
                                     final float[] queryVector = randomVector(random, dimension);
@@ -347,19 +340,16 @@ class VectorIndexConcurrentStressTest
                                 }
 
                                 completedOps.incrementAndGet();
-                            }
-                            catch(final Exception e)
+                            } catch (final Exception e)
                             {
                                 errors.add(e);
                                 hasError.set(true);
                             }
                         }
-                    }
-                    catch(final InterruptedException e)
+                    } catch (final InterruptedException e)
                     {
                         Thread.currentThread().interrupt();
-                    }
-                    finally
+                    } finally
                     {
                         doneLatch.countDown();
                     }
@@ -377,26 +367,26 @@ class VectorIndexConcurrentStressTest
             assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
 
             // Report errors
-            if(!errors.isEmpty())
+            if (!errors.isEmpty())
             {
                 final StringBuilder sb = new StringBuilder();
                 sb.append("Concurrent stress test failed for: ").append(combo.label());
                 sb.append("\n").append(errors.size()).append(" error(s):");
-                for(final Throwable err : errors)
+                for (final Throwable err : errors)
                 {
                     sb.append("\n  - ").append(err.getClass().getSimpleName())
-                      .append(": ").append(err.getMessage());
+                        .append(": ").append(err.getMessage());
                 }
                 fail(sb.toString());
             }
 
             // Verify the index is still consistent — drain and search
-            if(combo.eventual())
+            if (combo.eventual())
             {
-                final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
-                if(defaultIndex.indexingManager != null)
+                final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>) index;
+                if (defaultIndex.backgroundTaskManager != null)
                 {
-                    defaultIndex.indexingManager.drainQueue();
+                    defaultIndex.backgroundTaskManager.drainQueue();
                 }
             }
 
@@ -404,10 +394,6 @@ class VectorIndexConcurrentStressTest
                 randomVector(new Random(999), dimension), 5
             );
             assertNotNull(finalResult);
-        }
-        finally
-        {
-            index.close();
         }
     }
 
@@ -543,21 +529,19 @@ class VectorIndexConcurrentStressTest
             .minChangesBetweenPersists(5)
             .build();
 
-        final VectorIndex<Document> index = vectorIndices.add(
+        try (final VectorIndex<Document> index = vectorIndices.add(
             "embeddings", config, new ComputedDocumentVectorizer()
-        );
-
-        try
+        ))
         {
             // Seed
             final Random seedRandom = new Random(42);
-            for(int i = 0; i < seedCount; i++)
+            for (int i = 0; i < seedCount; i++)
             {
                 gigaMap.add(new Document("seed_" + i, randomVector(seedRandom, dimension)));
             }
 
-            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
-            defaultIndex.indexingManager.drainQueue();
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>) index;
+            defaultIndex.backgroundTaskManager.drainQueue();
 
             final AtomicBoolean hasError = new AtomicBoolean(false);
             final List<Throwable> errors = java.util.Collections.synchronizedList(new ArrayList<>());
@@ -566,7 +550,7 @@ class VectorIndexConcurrentStressTest
 
             final ExecutorService executor = Executors.newFixedThreadPool(threadCount);
 
-            for(int t = 0; t < threadCount; t++)
+            for (int t = 0; t < threadCount; t++)
             {
                 final int threadId = t;
                 executor.submit(() ->
@@ -576,16 +560,16 @@ class VectorIndexConcurrentStressTest
                         startLatch.await();
                         final Random random = new Random(2000 + threadId);
 
-                        for(int op = 0; op < opsPerThread && !hasError.get(); op++)
+                        for (int op = 0; op < opsPerThread && !hasError.get(); op++)
                         {
                             try
                             {
                                 final int action = random.nextInt(100);
 
-                                if(action < 25)
+                                if (action < 25)
                                 {
                                     // ADD
-                                    synchronized(gigaMap)
+                                    synchronized (gigaMap)
                                     {
                                         gigaMap.add(new Document(
                                             "t" + threadId + "_" + op,
@@ -593,11 +577,11 @@ class VectorIndexConcurrentStressTest
                                         ));
                                     }
                                 }
-                                else if(action < 40)
+                                else if (action < 40)
                                 {
                                     // UPDATE
                                     final long targetId = random.nextInt(seedCount);
-                                    synchronized(gigaMap)
+                                    synchronized (gigaMap)
                                     {
                                         try
                                         {
@@ -606,23 +590,25 @@ class VectorIndexConcurrentStressTest
                                                 randomVector(random, dimension)
                                             ));
                                         }
-                                        catch(final Exception ignored) {}
+                                        catch(final Exception ignored)
+                                        {
+                                        }
                                     }
-                                }
-                                else if(action < 50)
+                                } else if (action < 50)
                                 {
                                     // REMOVE
                                     final long targetId = random.nextInt(seedCount);
-                                    synchronized(gigaMap)
+                                    synchronized (gigaMap)
                                     {
                                         try
                                         {
                                             gigaMap.removeById(targetId);
                                         }
-                                        catch(final Exception ignored) {}
+                                        catch(final Exception ignored)
+                                        {
+                                        }
                                     }
-                                }
-                                else
+                                } else
                                 {
                                     // SEARCH
                                     final VectorSearchResult<Document> result = index.search(
@@ -657,28 +643,24 @@ class VectorIndexConcurrentStressTest
             executor.shutdown();
             assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
 
-            if(!errors.isEmpty())
+            if (!errors.isEmpty())
             {
                 final StringBuilder sb = new StringBuilder("Heavy eventual indexing stress test failed:");
-                for(final Throwable err : errors)
+                for (final Throwable err : errors)
                 {
                     sb.append("\n  - ").append(err.getClass().getSimpleName())
-                      .append(": ").append(err.getMessage());
+                        .append(": ").append(err.getMessage());
                 }
                 fail(sb.toString());
             }
 
             // Drain and verify final state
-            defaultIndex.indexingManager.drainQueue();
+            defaultIndex.backgroundTaskManager.drainQueue();
 
             final VectorSearchResult<Document> finalResult = index.search(
                 randomVector(new Random(999), dimension), 5
             );
             assertNotNull(finalResult);
-        }
-        finally
-        {
-            index.close();
         }
     }
 }

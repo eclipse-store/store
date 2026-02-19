@@ -881,7 +881,7 @@ class VectorIndexPerformanceTest
             final long addMs = (System.nanoTime() - addStart) / 1_000_000;
 
             final long drainStart = System.nanoTime();
-            defaultIndex.indexingManager.drainQueue();
+            defaultIndex.backgroundTaskManager.drainQueue();
             final long drainMs = (System.nanoTime() - drainStart) / 1_000_000;
 
             System.err.printf("add=%,d ms drain=%,d ms total=%,d ms (%,.0f vec/sec add-visible)%n",
@@ -972,7 +972,7 @@ class VectorIndexPerformanceTest
             final long addMs = (System.nanoTime() - addStart) / 1_000_000;
 
             final long drainStart = System.nanoTime();
-            defaultIndex.indexingManager.drainQueue();
+            defaultIndex.backgroundTaskManager.drainQueue();
             final long drainMs = (System.nanoTime() - drainStart) / 1_000_000;
 
             System.err.printf("add=%,d ms drain=%,d ms total=%,d ms (%,.0f vec/sec add-visible)%n",
@@ -1015,7 +1015,7 @@ class VectorIndexPerformanceTest
 
             if(eventual)
             {
-                ((VectorIndex.Default<Document>)index).indexingManager.drainQueue();
+                ((VectorIndex.Default<Document>)index).backgroundTaskManager.drainQueue();
             }
 
             int totalResults = 0;

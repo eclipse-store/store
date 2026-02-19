@@ -629,9 +629,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     public static class Default<E>
     extends    AbstractStateChangeFlagged
     implements VectorIndex.Internal<E>,
-               BackgroundPersistenceManager.Callback,
-               BackgroundOptimizationManager.Callback,
-               BackgroundIndexingManager.Callback,
+               BackgroundTaskManager.Callback,
                PQCompressionManager.VectorProvider,
                DiskIndexManager.IndexStateProvider
     {
@@ -662,11 +660,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private transient OnHeapGraphIndex  index            ;
 
         // Managers (transient - recreated on load)
-        private transient DiskIndexManager              diskManager        ;
-        private transient PQCompressionManager          pqManager          ;
-        private transient BackgroundPersistenceManager  persistenceManager ;
-        transient BackgroundOptimizationManager optimizationManager;
-        transient BackgroundIndexingManager     indexingManager    ;
+        private transient DiskIndexManager     diskManager        ;
+        private transient PQCompressionManager pqManager          ;
+        transient BackgroundTaskManager        backgroundTaskManager;
 
         // GraphSearcher pool for thread-local reuse
         private transient ExplicitThreadLocal<GraphSearcher> searcherPool;
@@ -862,72 +858,41 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Starts background persistence and optimization managers if configured.
+         * Starts the unified background task manager if any background feature is enabled.
          */
         private void startBackgroundManagersIfEnabled()
         {
-            this.startBackgroundIndexingIfEnabled();
-            this.startBackgroundPersistenceIfEnabled();
-            this.startBackgroundOptimizationIfEnabled();
-        }
+            final boolean eventualIndexing       = this.configuration.eventualIndexing();
+            final boolean backgroundOptimization = this.configuration.backgroundOptimization();
+            final boolean backgroundPersistence  = this.configuration.onDisk() && this.configuration.backgroundPersistence();
 
-        /**
-         * Starts the background indexing manager if eventual indexing is configured.
-         */
-        private void startBackgroundIndexingIfEnabled()
-        {
-            if(this.configuration.eventualIndexing())
+            if(eventualIndexing || backgroundOptimization || backgroundPersistence)
             {
-                if(this.indexingManager == null)
+                if(this.backgroundTaskManager == null)
                 {
-                    this.indexingManager = new BackgroundIndexingManager.Default(this, this.name);
-                    LOG.info("Eventual indexing enabled for index '{}'", this.name);
-                }
-            }
-        }
-
-        /**
-         * Starts the background persistence manager if configured.
-         */
-        private void startBackgroundPersistenceIfEnabled()
-        {
-            if(this.configuration.onDisk() && this.configuration.backgroundPersistence())
-            {
-                if(this.persistenceManager == null)
-                {
-                    this.persistenceManager = new BackgroundPersistenceManager.Default(
+                    this.backgroundTaskManager = new BackgroundTaskManager(
                         this,
                         this.name,
+                        eventualIndexing,
+                        backgroundOptimization,
+                        this.configuration.optimizationIntervalMs(),
+                        this.configuration.minChangesBetweenOptimizations(),
+                        backgroundPersistence,
                         this.configuration.persistenceIntervalMs(),
                         this.configuration.minChangesBetweenPersists()
                     );
-                    this.persistenceManager.startScheduledPersistence();
-                    LOG.info("Background persistence started for index '{}' with interval {}ms",
-                        this.name, this.configuration.persistenceIntervalMs());
                 }
             }
         }
 
         /**
-         * Starts the background optimization manager if configured.
+         * Returns whether eventual indexing is active (background task manager exists
+         * AND eventualIndexing is configured). The manager may exist for optimization
+         * or persistence alone.
          */
-        private void startBackgroundOptimizationIfEnabled()
+        private boolean isEventualIndexing()
         {
-            if(this.configuration.backgroundOptimization())
-            {
-                if(this.optimizationManager == null)
-                {
-                    this.optimizationManager = new BackgroundOptimizationManager.Default(
-                        this,
-                        this.name,
-                        this.configuration.optimizationIntervalMs(),
-                        this.configuration.minChangesBetweenOptimizations()
-                    );
-                    this.optimizationManager.startScheduledOptimization();
-                    LOG.info("Background optimization started for index '{}' with interval {}ms",
-                        this.name, this.configuration.optimizationIntervalMs());
-                }
-            }
+            return this.backgroundTaskManager != null && this.configuration.eventualIndexing();
         }
 
         /**
@@ -1123,10 +1088,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             this.markStateChangeChildren();
 
-            if(this.indexingManager != null)
+            if(this.isEventualIndexing())
             {
                 // Defer graph update to background thread
-                this.indexingManager.enqueue(new BackgroundIndexingManager.IndexingOperation.Add(ordinal, vector));
+                this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Add(ordinal, vector));
             }
             else
             {
@@ -1175,10 +1140,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             this.markStateChangeChildren();
 
-            if(this.indexingManager != null)
+            if(this.isEventualIndexing())
             {
                 // Defer graph update to background thread
-                this.indexingManager.enqueue(new BackgroundIndexingManager.IndexingOperation.Update(ordinal, vector));
+                this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Update(ordinal, vector));
             }
             else
             {
@@ -1227,11 +1192,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             this.markStateChangeChildren();
 
-            if(this.indexingManager != null)
+            if(this.isEventualIndexing())
             {
                 // Defer graph updates to background thread
                 entries.forEach(entry ->
-                    this.indexingManager.enqueue(new BackgroundIndexingManager.IndexingOperation.Add(
+                    this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Add(
                         toOrdinal(entry.sourceEntityId), entry.vector
                     ))
                 );
@@ -1251,13 +1216,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void markDirtyForBackgroundManagers(final int count)
         {
-            if(this.persistenceManager != null)
+            if(this.backgroundTaskManager != null)
             {
-                this.persistenceManager.markDirty(count);
-            }
-            if(this.optimizationManager != null)
-            {
-                this.optimizationManager.markDirty(count);
+                this.backgroundTaskManager.markDirty(count);
             }
         }
 
@@ -1288,10 +1249,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             this.markStateChangeChildren();
 
-            if(this.indexingManager != null)
+            if(this.isEventualIndexing())
             {
                 // Defer graph update to background thread
-                this.indexingManager.enqueue(new BackgroundIndexingManager.IndexingOperation.Remove(ordinal));
+                this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Remove(ordinal));
             }
             else
             {
@@ -1320,14 +1281,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.vectorStore.removeAll();
                 }
 
-                // Discard and shutdown indexing manager (pending ops are stale)
-                this.shutdownIndexingManager(false);
-
-                // Shutdown optimization manager before closing
-                this.shutdownOptimizationManager(false);
-
-                // Shutdown persistence manager before closing
-                this.shutdownPersistenceManager(false);
+                // Shutdown background task manager (discard pending ops — they're stale)
+                this.shutdownBackgroundTaskManager(false, false, false);
 
                 this.closeInternalResources();
 
@@ -1473,11 +1428,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         public void optimize()
         {
             // Drain pending indexing operations to ensure graph is complete
-            if(this.indexingManager != null)
+            if(this.isEventualIndexing())
             {
-                this.indexingManager.drainQueue();
+                this.backgroundTaskManager.drainQueue();
             }
 
+            this.doOptimize();
+        }
+
+        /**
+         * Core optimization logic without queue drain.
+         * Called directly from the background task manager's executor thread
+         * (where inline drain is already done) and from the public optimize() method.
+         */
+        @Override
+        public void doOptimize()
+        {
             final GraphIndexBuilder capturedBuilder;
 
             // Signal sync-mode mutations to defer builder ops during cleanup.
@@ -1529,9 +1495,25 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
 
             // Drain pending indexing operations to ensure graph is complete
-            if(this.indexingManager != null)
+            if(this.isEventualIndexing())
             {
-                this.indexingManager.drainQueue();
+                this.backgroundTaskManager.drainQueue();
+            }
+
+            this.doPersistToDisk();
+        }
+
+        /**
+         * Core persistence logic without queue drain.
+         * Called directly from the background task manager's executor thread
+         * (where inline drain is already done) and from the public persistToDisk() method.
+         */
+        @Override
+        public void doPersistToDisk()
+        {
+            if(!this.configuration.onDisk())
+            {
+                return; // No-op for in-memory indices
             }
 
             // Signal sync-mode mutations to defer builder ops during cleanup + disk write.
@@ -1653,14 +1635,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void close()
         {
-            // Shutdown indexing manager first — drain all pending graph operations
-            this.shutdownIndexingManager(true);
-
-            // Shutdown optimization manager (may optimize pending changes)
-            this.shutdownOptimizationManager(this.configuration.optimizeOnShutdown());
-
-            // Shutdown persistence manager (may persist pending changes)
-            this.shutdownPersistenceManager(this.configuration.persistOnShutdown());
+            // Shutdown background task manager — drain indexing, optionally optimize and persist
+            this.shutdownBackgroundTaskManager(
+                true,
+                this.configuration.optimizeOnShutdown(),
+                this.configuration.persistOnShutdown()
+            );
 
             // Acquire write lock to ensure no concurrent search or persistToDisk() is running.
             // closeInternalResources() destroys the graph and disk manager.
@@ -1676,48 +1656,26 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Shuts down the background optimization manager.
+         * Shuts down the background task manager.
          *
-         * @param optimizePending if true, optimize pending changes before shutdown
+         * @param drainPending    if true, drain all pending indexing operations
+         * @param optimizePending if true and there are pending changes, optimize before shutdown
+         * @param persistPending  if true and there are pending changes, persist before shutdown
          */
-        private void shutdownOptimizationManager(final boolean optimizePending)
+        private void shutdownBackgroundTaskManager(
+            final boolean drainPending,
+            final boolean optimizePending,
+            final boolean persistPending
+        )
         {
-            if(this.optimizationManager != null)
-            {
-                this.optimizationManager.shutdown(optimizePending);
-                this.optimizationManager = null;
-            }
-        }
-
-        /**
-         * Shuts down the background persistence manager.
-         *
-         * @param persistPending if true, persist pending changes before shutdown
-         */
-        private void shutdownPersistenceManager(final boolean persistPending)
-        {
-            if(this.persistenceManager != null)
-            {
-                this.persistenceManager.shutdown(persistPending);
-                this.persistenceManager = null;
-            }
-        }
-
-        /**
-         * Shuts down the background indexing manager.
-         *
-         * @param drainPending if true, drain all pending operations before shutdown
-         */
-        private void shutdownIndexingManager(final boolean drainPending)
-        {
-            if(this.indexingManager != null)
+            if(this.backgroundTaskManager != null)
             {
                 if(!drainPending)
                 {
-                    this.indexingManager.discardQueue();
+                    this.backgroundTaskManager.discardQueue();
                 }
-                this.indexingManager.shutdown(drainPending);
-                this.indexingManager = null;
+                this.backgroundTaskManager.shutdown(drainPending, optimizePending, persistPending);
+                this.backgroundTaskManager = null;
             }
         }
 
@@ -1788,12 +1746,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // callback interface implementations //
         ////////////////////////////////////////
 
-        // Note: BackgroundPersistenceManager.Callback.persistToDisk() is implemented
-        // by the public persistToDisk() method above.
-
-        // Note: BackgroundOptimizationManager.Callback.optimize() is implemented
-        // by the public optimize() method above.
-
         // PQCompressionManager.VectorProvider
 
         @Override
@@ -1839,7 +1791,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         // ================================================================
-        // BackgroundIndexingManager.Callback implementation
+        // BackgroundTaskManager.Callback implementation
         // ================================================================
 
         @Override

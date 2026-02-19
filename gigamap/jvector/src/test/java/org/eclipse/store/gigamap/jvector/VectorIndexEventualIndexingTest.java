@@ -93,19 +93,17 @@ class VectorIndexEventualIndexingTest
             .eventualIndexing(true)
             .build();
 
-        final VectorIndex<Document> index = vectorIndices.add(
+        try (final VectorIndex<Document> index = vectorIndices.add(
             "embeddings", config, new EmbeddedDocumentVectorizer()
-        );
-
-        try
+        ))
         {
             gigaMap.add(new Document("doc1", new float[]{1.0f, 0.0f, 0.0f}));
             gigaMap.add(new Document("doc2", new float[]{0.0f, 1.0f, 0.0f}));
             gigaMap.add(new Document("doc3", new float[]{0.0f, 0.0f, 1.0f}));
 
             // Drain queue to ensure all graph operations are applied
-            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
-            defaultIndex.indexingManager.drainQueue();
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>) index;
+            defaultIndex.backgroundTaskManager.drainQueue();
 
             // Search should find all 3 documents
             final VectorSearchResult<Document> result = index.search(new float[]{1.0f, 0.0f, 0.0f}, 3);
@@ -113,10 +111,6 @@ class VectorIndexEventualIndexingTest
 
             // The closest match should be doc1
             assertEquals("doc1", result.toList().get(0).entity().content());
-        }
-        finally
-        {
-            index.close();
         }
     }
 
@@ -133,26 +127,20 @@ class VectorIndexEventualIndexingTest
             .eventualIndexing(true)
             .build();
 
-        final VectorIndex<Document> index = vectorIndices.add(
+        try (final VectorIndex<Document> index = vectorIndices.add(
             "embeddings", config, new ComputedDocumentVectorizer()
-        );
-
-        try
+        ))
         {
             gigaMap.add(new Document("doc1", new float[]{1.0f, 0.0f, 0.0f}));
             gigaMap.add(new Document("doc2", new float[]{0.0f, 1.0f, 0.0f}));
             gigaMap.add(new Document("doc3", new float[]{0.0f, 0.0f, 1.0f}));
 
-            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
-            defaultIndex.indexingManager.drainQueue();
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>) index;
+            defaultIndex.backgroundTaskManager.drainQueue();
 
             final VectorSearchResult<Document> result = index.search(new float[]{1.0f, 0.0f, 0.0f}, 3);
             assertEquals(3, result.size());
             assertEquals("doc1", result.toList().get(0).entity().content());
-        }
-        finally
-        {
-            index.close();
         }
     }
 
@@ -175,28 +163,22 @@ class VectorIndexEventualIndexingTest
             .eventualIndexing(true)
             .build();
 
-        final VectorIndex<Document> index = vectorIndices.add(
+        try (final VectorIndex<Document> index = vectorIndices.add(
             "embeddings", config, new ComputedDocumentVectorizer()
-        );
-
-        try
+        ))
         {
-            for(int i = 0; i < vectorCount; i++)
+            for (int i = 0; i < vectorCount; i++)
             {
                 gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
             }
 
-            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
-            defaultIndex.indexingManager.drainQueue();
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>) index;
+            defaultIndex.backgroundTaskManager.drainQueue();
 
             final VectorSearchResult<Document> result = index.search(
                 randomVector(new Random(99), dimension), 10
             );
             assertEquals(10, result.size());
-        }
-        finally
-        {
-            index.close();
         }
     }
 
@@ -215,33 +197,27 @@ class VectorIndexEventualIndexingTest
             .eventualIndexing(true)
             .build();
 
-        final VectorIndex<Document> index = vectorIndices.add(
+        try (final VectorIndex<Document> index = vectorIndices.add(
             "embeddings", config, new EmbeddedDocumentVectorizer()
-        );
-
-        try
+        ))
         {
             final Document doc1 = new Document("doc1", new float[]{1.0f, 0.0f, 0.0f});
             final Document doc2 = new Document("doc2", new float[]{0.0f, 1.0f, 0.0f});
             gigaMap.add(doc1);
             gigaMap.add(doc2);
 
-            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
-            defaultIndex.indexingManager.drainQueue();
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>) index;
+            defaultIndex.backgroundTaskManager.drainQueue();
 
             // Update doc1's vector to be close to doc2
             final Document updatedDoc1 = new Document("doc1_updated", new float[]{0.1f, 0.9f, 0.0f});
             gigaMap.set(0L, updatedDoc1);
 
-            defaultIndex.indexingManager.drainQueue();
+            defaultIndex.backgroundTaskManager.drainQueue();
 
             // Search for doc2-like vector: updated doc1 should now be close
             final VectorSearchResult<Document> result = index.search(new float[]{0.0f, 1.0f, 0.0f}, 2);
             assertEquals(2, result.size());
-        }
-        finally
-        {
-            index.close();
         }
     }
 
@@ -260,31 +236,25 @@ class VectorIndexEventualIndexingTest
             .eventualIndexing(true)
             .build();
 
-        final VectorIndex<Document> index = vectorIndices.add(
+        try (final VectorIndex<Document> index = vectorIndices.add(
             "embeddings", config, new EmbeddedDocumentVectorizer()
-        );
-
-        try
+        ))
         {
             gigaMap.add(new Document("doc1", new float[]{1.0f, 0.0f, 0.0f}));
             gigaMap.add(new Document("doc2", new float[]{0.0f, 1.0f, 0.0f}));
             gigaMap.add(new Document("doc3", new float[]{0.0f, 0.0f, 1.0f}));
 
-            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
-            defaultIndex.indexingManager.drainQueue();
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>) index;
+            defaultIndex.backgroundTaskManager.drainQueue();
 
             // Remove doc1
             gigaMap.removeById(0L);
 
-            defaultIndex.indexingManager.drainQueue();
+            defaultIndex.backgroundTaskManager.drainQueue();
 
             // Search should only return 2 documents
             final VectorSearchResult<Document> result = index.search(new float[]{1.0f, 0.0f, 0.0f}, 3);
             assertEquals(2, result.size());
-        }
-        finally
-        {
-            index.close();
         }
     }
 
@@ -305,37 +275,31 @@ class VectorIndexEventualIndexingTest
             .eventualIndexing(true)
             .build();
 
-        final VectorIndex<Document> index = vectorIndices.add(
+        try (final VectorIndex<Document> index = vectorIndices.add(
             "embeddings", config, new ComputedDocumentVectorizer()
-        );
-
-        try
+        ))
         {
-            for(int i = 0; i < vectorCount; i++)
+            for (int i = 0; i < vectorCount; i++)
             {
                 gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
             }
 
-            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
-            defaultIndex.indexingManager.drainQueue();
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>) index;
+            defaultIndex.backgroundTaskManager.drainQueue();
 
             // Remove first 10 entities
-            for(int i = 0; i < 10; i++)
+            for (int i = 0; i < 10; i++)
             {
                 gigaMap.removeById(i);
             }
 
-            defaultIndex.indexingManager.drainQueue();
+            defaultIndex.backgroundTaskManager.drainQueue();
 
             // Should have 40 remaining
             final VectorSearchResult<Document> result = index.search(
                 randomVector(new Random(99), dimension), 50
             );
             assertEquals(40, result.size());
-        }
-        finally
-        {
-            index.close();
         }
     }
 
@@ -354,17 +318,15 @@ class VectorIndexEventualIndexingTest
             .eventualIndexing(true)
             .build();
 
-        final VectorIndex<Document> index = vectorIndices.add(
+        try (final VectorIndex<Document> index = vectorIndices.add(
             "embeddings", config, new EmbeddedDocumentVectorizer()
-        );
-
-        try
+        ))
         {
             gigaMap.add(new Document("doc1", new float[]{1.0f, 0.0f, 0.0f}));
             gigaMap.add(new Document("doc2", new float[]{0.0f, 1.0f, 0.0f}));
 
-            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
-            defaultIndex.indexingManager.drainQueue();
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>) index;
+            defaultIndex.backgroundTaskManager.drainQueue();
 
             // RemoveAll — this discards pending operations and shuts down manager
             gigaMap.removeAll();
@@ -377,14 +339,10 @@ class VectorIndexEventualIndexingTest
             gigaMap.add(new Document("new_doc", new float[]{1.0f, 0.0f, 0.0f}));
 
             // Drain the new indexing manager
-            defaultIndex.indexingManager.drainQueue();
+            defaultIndex.backgroundTaskManager.drainQueue();
 
             final VectorSearchResult<Document> result2 = index.search(new float[]{1.0f, 0.0f, 0.0f}, 10);
             assertEquals(1, result2.size());
-        }
-        finally
-        {
-            index.close();
         }
     }
 
@@ -406,13 +364,11 @@ class VectorIndexEventualIndexingTest
             .eventualIndexing(true)
             .build();
 
-        final VectorIndex<Document> index = vectorIndices.add(
+        try (final VectorIndex<Document> index = vectorIndices.add(
             "embeddings", config, new ComputedDocumentVectorizer()
-        );
-
-        try
+        ))
         {
-            for(int i = 0; i < 50; i++)
+            for (int i = 0; i < 50; i++)
             {
                 gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
             }
@@ -425,10 +381,6 @@ class VectorIndexEventualIndexingTest
                 randomVector(new Random(99), dimension), 10
             );
             assertEquals(10, result.size());
-        }
-        finally
-        {
-            index.close();
         }
     }
 
@@ -453,13 +405,11 @@ class VectorIndexEventualIndexingTest
             .eventualIndexing(true)
             .build();
 
-        final VectorIndex<Document> index = vectorIndices.add(
+        try (final VectorIndex<Document> index = vectorIndices.add(
             "embeddings", config, new ComputedDocumentVectorizer()
-        );
-
-        try
+        ))
         {
-            for(int i = 0; i < 50; i++)
+            for (int i = 0; i < 50; i++)
             {
                 gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
             }
@@ -476,10 +426,6 @@ class VectorIndexEventualIndexingTest
                 randomVector(new Random(99), dimension), 10
             );
             assertEquals(10, result.size());
-        }
-        finally
-        {
-            index.close();
         }
     }
 
@@ -526,28 +472,22 @@ class VectorIndexEventualIndexingTest
             .eventualIndexing(true)
             .build();
 
-        final VectorIndex<Document> index = vectorIndices.add(
+        try (final VectorIndex<Document> index = vectorIndices.add(
             "embeddings", config, new EmbeddedDocumentVectorizer()
-        );
-
-        try
+        ))
         {
-            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>) index;
 
             // Initially empty
-            assertEquals(0, defaultIndex.indexingManager.getPendingCount());
+            assertEquals(0, defaultIndex.backgroundTaskManager.getPendingIndexingCount());
 
             // After drain, count should be 0
             gigaMap.add(new Document("doc1", new float[]{1.0f, 0.0f, 0.0f}));
             gigaMap.add(new Document("doc2", new float[]{0.0f, 1.0f, 0.0f}));
 
-            defaultIndex.indexingManager.drainQueue();
+            defaultIndex.backgroundTaskManager.drainQueue();
 
-            assertEquals(0, defaultIndex.indexingManager.getPendingCount());
-        }
-        finally
-        {
-            index.close();
+            assertEquals(0, defaultIndex.backgroundTaskManager.getPendingIndexingCount());
         }
     }
 
@@ -572,20 +512,18 @@ class VectorIndexEventualIndexingTest
             .eventualIndexing(true)
             .build();
 
-        final VectorIndex<Document> index = vectorIndices.add(
+        try (final VectorIndex<Document> index = vectorIndices.add(
             "embeddings", config, new ComputedDocumentVectorizer()
-        );
-
-        try
+        ))
         {
             // Add random vectors
-            for(int i = 0; i < vectorCount; i++)
+            for (int i = 0; i < vectorCount; i++)
             {
                 gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
             }
 
-            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
-            defaultIndex.indexingManager.drainQueue();
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>) index;
+            defaultIndex.backgroundTaskManager.drainQueue();
 
             // Search should return correct number of results
             final VectorSearchResult<Document> result = index.search(
@@ -594,15 +532,11 @@ class VectorIndexEventualIndexingTest
             assertEquals(10, result.size());
 
             // All results should have valid scores
-            for(final VectorSearchResult.Entry<Document> entry : result)
+            for (final VectorSearchResult.Entry<Document> entry : result)
             {
                 assertTrue(entry.score() > 0, "Score should be positive");
                 assertNotNull(entry.entity());
             }
-        }
-        finally
-        {
-            index.close();
         }
     }
 
@@ -628,13 +562,11 @@ class VectorIndexEventualIndexingTest
             .eventualIndexing(true)
             .build();
 
-        final VectorIndex<Document> index = vectorIndices.add(
+        try (final VectorIndex<Document> index = vectorIndices.add(
             "embeddings", config, new ComputedDocumentVectorizer()
-        );
-
-        try
+        ))
         {
-            for(int i = 0; i < vectorCount; i++)
+            for (int i = 0; i < vectorCount; i++)
             {
                 gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
             }
@@ -648,10 +580,6 @@ class VectorIndexEventualIndexingTest
                 randomVector(new Random(99), dimension), 10
             );
             assertEquals(10, result.size());
-        }
-        finally
-        {
-            index.close();
         }
     }
 
@@ -678,13 +606,11 @@ class VectorIndexEventualIndexingTest
             .eventualIndexing(true)
             .build();
 
-        final VectorIndex<Document> index = vectorIndices.add(
+        try (final VectorIndex<Document> index = vectorIndices.add(
             "embeddings", config, new ComputedDocumentVectorizer()
-        );
-
-        try
+        ))
         {
-            for(int i = 0; i < 20; i++)
+            for (int i = 0; i < 20; i++)
             {
                 gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
             }
@@ -693,10 +619,6 @@ class VectorIndexEventualIndexingTest
             Thread.sleep(1500);
 
             assertTrue(Files.exists(indexDir.resolve("embeddings.graph")));
-        }
-        finally
-        {
-            index.close();
         }
     }
 
@@ -713,20 +635,21 @@ class VectorIndexEventualIndexingTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .build();
 
-        final VectorIndex<Document> index = vectorIndices.add(
+        try(final VectorIndex<Document> index = vectorIndices.add(
             "embeddings", config, new EmbeddedDocumentVectorizer()
-        );
+        ))
+        {
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>) index;
 
-        final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
+            // Background task manager should be null when no background features are enabled
+            assertNull(defaultIndex.backgroundTaskManager);
 
-        // Indexing manager should be null when eventualIndexing is false
-        assertNull(defaultIndex.indexingManager);
+            // Synchronous indexing should still work
+            gigaMap.add(new Document("doc1", new float[]{1.0f, 0.0f, 0.0f}));
 
-        // Synchronous indexing should still work
-        gigaMap.add(new Document("doc1", new float[]{1.0f, 0.0f, 0.0f}));
-
-        final VectorSearchResult<Document> result = index.search(new float[]{1.0f, 0.0f, 0.0f}, 1);
-        assertEquals(1, result.size());
+            final VectorSearchResult<Document> result = index.search(new float[]{1.0f, 0.0f, 0.0f}, 1);
+            assertEquals(1, result.size());
+        }
     }
 
     // ==================== Combined Operations Tests ====================
@@ -744,30 +667,28 @@ class VectorIndexEventualIndexingTest
             .eventualIndexing(true)
             .build();
 
-        final VectorIndex<Document> index = vectorIndices.add(
+        try (final VectorIndex<Document> index = vectorIndices.add(
             "embeddings", config, new EmbeddedDocumentVectorizer()
-        );
-
-        try
+        ))
         {
-            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>) index;
 
             // Add 3 documents
             gigaMap.add(new Document("doc1", new float[]{1.0f, 0.0f, 0.0f}));
             gigaMap.add(new Document("doc2", new float[]{0.0f, 1.0f, 0.0f}));
             gigaMap.add(new Document("doc3", new float[]{0.0f, 0.0f, 1.0f}));
 
-            defaultIndex.indexingManager.drainQueue();
+            defaultIndex.backgroundTaskManager.drainQueue();
 
             // Update doc2
             gigaMap.set(1L, new Document("doc2_updated", new float[]{0.9f, 0.1f, 0.0f}));
 
-            defaultIndex.indexingManager.drainQueue();
+            defaultIndex.backgroundTaskManager.drainQueue();
 
             // Remove doc3
             gigaMap.removeById(2L);
 
-            defaultIndex.indexingManager.drainQueue();
+            defaultIndex.backgroundTaskManager.drainQueue();
 
             // Search: should find 2 documents
             final VectorSearchResult<Document> result = index.search(new float[]{1.0f, 0.0f, 0.0f}, 3);
@@ -776,10 +697,6 @@ class VectorIndexEventualIndexingTest
             // doc1 should be closest to [1,0,0], followed by updated doc2 [0.9,0.1,0]
             assertEquals("doc1", result.toList().get(0).entity().content());
             assertEquals("doc2_updated", result.toList().get(1).entity().content());
-        }
-        finally
-        {
-            index.close();
         }
     }
 
@@ -803,35 +720,29 @@ class VectorIndexEventualIndexingTest
             .eventualIndexing(true)
             .build();
 
-        final VectorIndex<Document> index = vectorIndices.add(
+        try (final VectorIndex<Document> index = vectorIndices.add(
             "embeddings", config, new ComputedDocumentVectorizer()
-        );
-
-        try
+        ))
         {
-            for(int i = 0; i < 50; i++)
+            for (int i = 0; i < 50; i++)
             {
                 gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
             }
 
-            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
-            defaultIndex.indexingManager.drainQueue();
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>) index;
+            defaultIndex.backgroundTaskManager.drainQueue();
 
             // Wait for background optimization to run
             Thread.sleep(800);
 
             // Optimization should have run at least once
-            assertTrue(defaultIndex.optimizationManager.getOptimizationCount() >= 1);
+            assertTrue(defaultIndex.backgroundTaskManager.getOptimizationCount() >= 1);
 
             // Search should still work
             final VectorSearchResult<Document> result = index.search(
                 randomVector(new Random(99), dimension), 10
             );
             assertEquals(10, result.size());
-        }
-        finally
-        {
-            index.close();
         }
     }
 }
