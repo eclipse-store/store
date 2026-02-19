@@ -55,6 +55,9 @@ public class StorageConverter
 
 	private       ByteBuffer                bufferIn;
 	private final StorageConverterTarget    target;
+	
+	private final BinaryConverterSelector   binaryConverterSelector;
+	private final ConverterTypeDictionary   converterTypeDictionary;
 
 	/**
 	 * Helper class describing a single entity in the current processed file
@@ -88,14 +91,48 @@ public class StorageConverter
 		final StorageConfiguration targetStorageConfiguration
 	)
 	{
-		this.srcFileProvider     = sourceStorageConfiguration.fileProvider();
-		this.srcChannelCount     = sourceStorageConfiguration.channelCountProvider().getChannelCount();
+		this.srcFileProvider         = sourceStorageConfiguration.fileProvider();
+		this.srcChannelCount         = sourceStorageConfiguration.channelCountProvider().getChannelCount();
 
-		this.srcInventories      = this.createChannelInventories();
-		this.processedIds        = new HashSet<>();
-		this.currentFileEntities = new HashMap<>();
+		this.converterTypeDictionary = new ConverterTypeDictionary(this.srcFileProvider.provideTypeDictionaryIoHandler().loadTypeDictionary());
+		this.binaryConverterSelector = new BinaryConverterSelector(this.converterTypeDictionary);
+		
+		this.srcInventories          = this.createChannelInventories();
+		this.processedIds            = new HashSet<>();
+		this.currentFileEntities     = new HashMap<>();
 
-		this.target = new StorageConverterTarget(targetStorageConfiguration);
+		this.target                  = new StorageConverterTarget(targetStorageConfiguration);
+	}
+
+	/**
+	 * Converts a EmbeddedStorage into another one.
+	 * 
+	 * @param sourceStorageConfiguration configuration for storage to be converted.
+	 * @param targetStorageConfiguration configuration of the target storage.
+	 * @param binaryConverters list of BinaryConvert class names that should be applied.
+	 */
+	public StorageConverter	(
+		final StorageConfiguration sourceStorageConfiguration,
+		final StorageConfiguration targetStorageConfiguration,
+		final String[] binaryConverters
+	)
+	{
+		this.srcFileProvider         = sourceStorageConfiguration.fileProvider();
+		this.srcChannelCount         = sourceStorageConfiguration.channelCountProvider().getChannelCount();
+
+		this.converterTypeDictionary = new ConverterTypeDictionary(this.srcFileProvider.provideTypeDictionaryIoHandler().loadTypeDictionary());
+		this.binaryConverterSelector = new BinaryConverterSelector(this.converterTypeDictionary);
+		
+		for(String converter : binaryConverters) {
+			this.binaryConverterSelector.initConverter(converter);
+		}
+		
+		
+		this.srcInventories          = this.createChannelInventories();
+		this.processedIds            = new HashSet<>();
+		this.currentFileEntities     = new HashMap<>();
+
+		this.target                  = new StorageConverterTarget(targetStorageConfiguration);
 	}
 	
 
@@ -115,8 +152,7 @@ public class StorageConverter
 
 	private void copyTypeDictionary()
 	{
-		this.target
-			.storeTypeDictionary(this.srcFileProvider.provideTypeDictionaryIoHandler().loadTypeDictionary());
+		this.target.storeTypeDictionary(this.converterTypeDictionary.toString());
 	}
 
 	private void close()
@@ -131,7 +167,18 @@ public class StorageConverter
 		this.bufferIn.limit((int) (entity.offset + entity.length));
 		this.bufferIn.position((int) entity.offset);
 
-		this.target.transferBytes(this.bufferIn, oid);
+		long tid = XMemory.get_long(XMemory.getDirectByteBufferAddress(this.bufferIn) + entity.offset + 8);
+					
+		BinaryConverter converter = this.binaryConverterSelector.get(tid);
+		if(converter!=null)
+		{
+			ByteBuffer converted = converter.convert(this.bufferIn);
+			this.target.transferBytes(converted, oid);
+		}
+		else
+		{
+			this.target.transferBytes(this.bufferIn, oid);
+		}
 		this.processedIds.add(oid);
 	}
 

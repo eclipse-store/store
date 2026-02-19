@@ -64,6 +64,7 @@ This is useful for:
 
 * Changing the number of storage channels
 * Moving storage from local disk to a cloud storage target or vice-versa
+* Converting 
 
 === Prerequisites
 
@@ -132,3 +133,21 @@ To move from local file system to a cloud storage target, configure the target `
 ====
 
 For more information see the https://github.com/eclipse-store/store/tree/main/storage/embedded-tools/storage-converter[readme file].
+
+
+=== Converting binary data
+
+To convert the binary representation of persisted objects BinaryConverter implementations can be specified by the implementations full class name.
+
+.To use the supplied the BinaryConverterBitmapLevel2 converter:
+[source, bash]
+----
+java -jar storage-embedded-tools-storage-converter-{maven-version}.jar src.ini dst.ini -c org.eclipse.store.storage.embedded.tools.storage.converter.BinaryConverterBitmapLevel2
+----
+
+If more than one BinaryConverter shall be applied the -c option, including the converters must be applied in quotation marks:
+[source, bash]
+----
+... "-c binaryConverter1, binaryConverter2"
+----
+

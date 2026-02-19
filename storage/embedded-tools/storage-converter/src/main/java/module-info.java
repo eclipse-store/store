@@ -16,4 +16,5 @@ module org.eclipse.store.storage.embedded.tools.storage.converter
 	exports org.eclipse.store.storage.embedded.tools.storage.converter;
 
 	requires transitive org.eclipse.store.storage.embedded.configuration;
+	requires org.eclipse.serializer.base;
 }
