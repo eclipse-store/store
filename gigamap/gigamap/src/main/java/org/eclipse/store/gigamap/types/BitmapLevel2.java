@@ -1,15 +1,5 @@
 package org.eclipse.store.gigamap.types;
 
-import java.util.function.Consumer;
-
-import org.eclipse.serializer.chars.VarString;
-import org.eclipse.serializer.math.XMath;
-import org.eclipse.serializer.memory.XMemory;
-import org.eclipse.serializer.persistence.binary.types.BinaryTypeHandler;
-import org.eclipse.serializer.persistence.types.Storer;
-import org.eclipse.serializer.persistence.types.Unpersistable;
-import org.eclipse.serializer.typing.XTypes;
-
 /*-
  * #%L
  * EclipseStore GigaMap
@@ -25,6 +15,15 @@ import org.eclipse.serializer.typing.XTypes;
  */
 
 import org.eclipse.store.gigamap.exceptions.BitmapLevel2Exception;
+import org.eclipse.serializer.chars.VarString;
+import org.eclipse.serializer.math.XMath;
+import org.eclipse.serializer.memory.XMemory;
+import org.eclipse.serializer.persistence.binary.types.BinaryTypeHandler;
+import org.eclipse.serializer.persistence.types.Storer;
+import org.eclipse.serializer.persistence.types.Unpersistable;
+import org.eclipse.serializer.typing.XTypes;
+
+import java.util.function.Consumer;
 
 
 /**
@@ -130,7 +129,7 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 	{
 		return BinaryHandlerBitmapLevel2.New();
 	}
-		
+	
 	private static void setEntryHeader(final long level1EntryAddress, final byte entryType)
 	{
 		XMemory.set_byte(level1EntryAddress + ENTRY_OFFSET_HEADER, entryType);
