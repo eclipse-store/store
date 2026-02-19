@@ -26,9 +26,7 @@ The GigaMap monitors changes internally, ensuring that only the modified parts a
 
 This applies to all internal changes of the GigaMap as well as to added and removed entities.
 
-But when entities have been modified, not only the GigaMap has to be stored, but the entities itself as well. This is the same behavior as with normal collections.
-
-Let's say we update an entity where the update affects the indices, then we have to store both, the GigaMap and the entity.
+Entities modified through the `update` or `apply` methods are automatically included in the store operation. There is no need to store them separately.
 
 [source, java]
 ----
@@ -36,5 +34,7 @@ gigaMap.update(person, p -> {
     p.setLastName("Smith"),
     p.setAddress(newAddress)
 });
-storageManager.storeAll(gigaMap, person);
+gigaMap.store();
 ----
+
+NOTE: Changes made to entities directly (outside of `update` or `apply`) are not tracked by the GigaMap and must be stored manually.

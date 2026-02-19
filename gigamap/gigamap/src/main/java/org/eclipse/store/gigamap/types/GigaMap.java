@@ -34,6 +34,7 @@ import org.eclipse.serializer.persistence.types.*;
 import org.eclipse.serializer.reference.Lazy;
 import org.eclipse.serializer.util.X;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -274,12 +275,15 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	/**
 	 * Updates the specified entity and the indices accordingly.
 	 * <p>
+	 * The entity is mutated in-place by the given logic. Both the index changes and the entity itself
+	 * are automatically persisted when {@link #store()} is called.
+	 * <p>
 	 * In order for this method to work, at least one bitmap index is needed. If no index is present an
 	 * {@link IllegalStateException} will be thrown.
 	 * <p>
 	 * To get the best performance for this operation is the use of an identity index.
 	 * See {@link BitmapIndices#setIdentityIndices(IndexIdentifier...)}.
-	 * 
+	 *
 	 * @param current the entity to be updated
 	 * @param logic the update logic to be executed
 	 * @return the updated entity
@@ -299,12 +303,15 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	/**
 	 * Applies the specified logic for the given entity and updates the indices accordingly.
 	 * <p>
+	 * The entity is mutated in-place by the given logic. Both the index changes and the entity itself
+	 * are automatically persisted when {@link #store()} is called.
+	 * <p>
 	 * In order for this method to work, at least one bitmap index is needed. If no index is present an
 	 * {@link IllegalStateException} will be thrown.
 	 * <p>
 	 * To get the best performance for this operation is the use of an identity index.
 	 * See {@link BitmapIndices#setIdentityIndices(IndexIdentifier...)}.
-	 * 
+	 *
 	 * @param current the entity to be updated
 	 * @param logic the logic to be executed
 	 * @return the result of the given logic
@@ -556,10 +563,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	}
 	
 	/**
-	 * Stores this {@link GigaMap} instance and implicitely all changes to its component instances like indizes, etc.
+	 * Stores this {@link GigaMap} instance and implicitly all changes to its component instances like indices, etc.
 	 * <p>
-	 * Note that changes to entities do NOT get stored implicitely since it is not possible to automatically
-	 * track changes made to objects outside the framework.
+	 * Entities mutated through the {@link #update} or {@link #apply} methods are automatically included in the
+	 * store operation. However, changes made to entities directly (outside of these methods) are NOT stored
+	 * implicitly since it is not possible to automatically track changes made to objects outside the framework.
 	 * <p>
 	 * <b>Note on concurrency:</b><br>
 	 * Using this method guarantees concurrency safety since it locks the {@link GigaMap} instance internally.<br>
@@ -1146,6 +1154,10 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		private transient int addingLevel3Index;
 				
 		private transient Persister storeContext;
+
+		// Entities mutated in-place via apply()/update() that need explicit re-storing.
+		// Uses WeakReferences so removed entities can be garbage-collected.
+		private transient BulkList<WeakReference<E>> pendingEntityStores;
 		
 		private transient int readOnlyCount;
 		private transient int activeIteratorCount;
@@ -1751,12 +1763,23 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			
 			try
 			{
-				return this.indices.internalUpdateIndices(entityId, current, logic, this.constraints.custom());
+				final R result = this.indices.internalUpdateIndices(entityId, current, logic, this.constraints.custom());
+
+				// The entity was mutated in-place. Track it so that store() can explicitly
+				// re-persist the entity object (the storer won't re-persist it automatically
+				// since the object reference/identity hasn't changed).
+				if(this.pendingEntityStores == null)
+				{
+					this.pendingEntityStores = BulkList.New();
+				}
+				this.pendingEntityStores.add(new WeakReference<>(current));
+
+				return result;
 			}
 			catch(final ConstraintViolationException e)
 			{
 				this.ensureClearedAddingState();
-				
+
 				/*
 				 * Since a state change done by a custom logic cannot be rolled back, there is no other choice
 				 * but to remove the entity from the map and report the entity and entityId to the calling
@@ -1993,6 +2016,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			this.level3.clearStateChangeMarkers();
 			this.indices.clearStateChangeMarkers();
 			this.constraints.clearStateChangeMarkers();
+
+			if(this.pendingEntityStores != null)
+			{
+				this.pendingEntityStores.clear();
+			}
 		}
 		
 		public final void internalRegisterChangeStores(final Storer storer)
@@ -2006,13 +2034,28 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			{
 				storer.store(this.level3);
 			}
-			
+
 			// new or unchanged instances get handled by the default lazy storing logic. Changed and not new must be handled here.
 			if(this.constraints.isChangedAndNotNew())
 			{
 				storer.store(this.constraints);
 			}
-						
+
+			// Entities mutated in-place via apply()/update() need to be explicitly re-stored
+			// since the storer won't pick them up automatically (same object reference/identity).
+			if(this.pendingEntityStores != null && !this.pendingEntityStores.isEmpty())
+			{
+				for(final WeakReference<E> ref : this.pendingEntityStores)
+				{
+					final E entity = ref.get();
+					if(entity != null)
+					{
+						storer.store(entity);
+					}
+				}
+				this.pendingEntityStores.clear();
+			}
+
 			// must clear state change markers as soon as there is at least one either "changed" or "new" marker. So almost always.
 			storer.registerCommitListener(this);
 		}
