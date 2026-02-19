@@ -25,6 +25,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class BinaryIndexerLongTest
 {
@@ -42,12 +43,19 @@ public class BinaryIndexerLongTest
             .build();
 
         map.add(new LongBinaryIndexerPojo(1L));
-        map.add(new LongBinaryIndexerPojo(2L));
+        map.add(new LongBinaryIndexerPojo(-3L));
         map.add(new LongBinaryIndexerPojo(3L));
+        map.add(new LongBinaryIndexerPojo(0L));
 
-        List<LongBinaryIndexerPojo> list = map.query(indexer.is(1L)).toList();
-        assertEquals(1, list.size());
-        assertEquals(1L, list.get(0).getLongValue());
+        for(long value : new long[]{1L, -3L, 3L, 0L})
+        {
+            List<LongBinaryIndexerPojo> list = map.query(indexer.is(value)).toList();
+            assertEquals(1, list.size());
+            assertEquals(value, list.get(0).getLongValue());
+        }
+
+        assertThrows(IllegalArgumentException.class, () ->
+            map.add(new LongBinaryIndexerPojo(Long.MAX_VALUE)));
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(map, tempDir)) {
 
@@ -55,25 +63,28 @@ public class BinaryIndexerLongTest
 
         GigaMap<LongBinaryIndexerPojo> newMap = GigaMap.New();
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newMap, tempDir)) {
-            assertEquals(3, newMap.size());
+            assertEquals(4, newMap.size());
 
-            List<LongBinaryIndexerPojo> newList = newMap.query(indexer.is(1L)).toList();
-            assertEquals(1, newList.size());
-            assertEquals(1L, newList.get(0).getLongValue());
+            for(long value : new long[]{1L, -3L, 3L, 0L})
+            {
+                List<LongBinaryIndexerPojo> newList = newMap.query(indexer.is(value)).toList();
+                assertEquals(1, newList.size());
+                assertEquals(value, newList.get(0).getLongValue());
+            }
 
-            newMap.add(new LongBinaryIndexerPojo(Long.MAX_VALUE));
+            newMap.add(new LongBinaryIndexerPojo(100L));
             newMap.store();
         }
 
         GigaMap<LongBinaryIndexerPojo> newMap2 = GigaMap.New();
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newMap2, tempDir)) {
-            assertEquals(4, newMap2.size());
-            List<LongBinaryIndexerPojo> newList = newMap2.query(indexer.is(Long.MAX_VALUE)).toList();
+            assertEquals(5, newMap2.size());
+            List<LongBinaryIndexerPojo> newList = newMap2.query(indexer.is(100L)).toList();
             assertEquals(1, newList.size());
-            assertEquals(Long.MAX_VALUE, newList.get(0).getLongValue());
+            assertEquals(100L, newList.get(0).getLongValue());
 
-            List<LongBinaryIndexerPojo> list1 = newMap2.query(indexer.not(Long.MAX_VALUE)).toList();
-            assertEquals(3, list1.size());
+            List<LongBinaryIndexerPojo> list1 = newMap2.query(indexer.not(100L)).toList();
+            assertEquals(4, list1.size());
         }
     }
 

@@ -74,4 +74,15 @@ Each long-bit corresponds to an entry, meaning there will be 64 entries max, no 
 Currently it only supports equality queries.
 Range queries are not supported yet.
 
+=== Zero and Negative Values
+
+All binary indexers support zero and negative values.
+Internally, each indexer maps the key to a non-zero long representation because the bitmap index uses bit positions as array indices, and a value of `0L` would have no bits set.
+
+For sub-64-bit types (`Byte`, `Short`, `Integer`, `Float`), this mapping is collision-free — no two distinct keys ever map to the same internal representation.
+
+`BinaryIndexerLong` uses `Long.MAX_VALUE` as the internal representation for zero.
+As a consequence, `Long.MAX_VALUE` is not supported as an index key and will throw an `IllegalArgumentException`.
+All other long values are fully supported.
+
 
