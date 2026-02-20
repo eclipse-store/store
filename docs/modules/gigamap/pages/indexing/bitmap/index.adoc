@@ -56,7 +56,7 @@ Here's a list of all predefined indexers used for low cardinality:
 |java.time.YearMonth
 
 |IndexerMultiValue
-|java.lang.Iterable
+|java.lang.Iterable (lists, sets, or any collection)
 
 |===
 
