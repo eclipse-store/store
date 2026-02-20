@@ -60,7 +60,7 @@ Here's a list of all predefined indexers used for low cardinality:
 
 |===
 
-If you need indexers for high cardinality, like unique values, the binary indexers are the way to go. They are optimized for a huge number of entries.
+If you need indexers for high cardinality, like unique values, the binary indexers are the way to go. They are optimized for a huge number of entries. Note that binary indexers only support equality queries (`is`, `in`), not predicates or range queries. See xref:indexing/bitmap/types.adoc#_choosing_between_regular_and_binary_indexers[Choosing Between Regular and Binary Indexers] for detailed guidance.
 
 [options="header",cols="1,2"]
 |===
