@@ -51,7 +51,7 @@ public class UpdateTest
 				{
 					Entity entity = map.query().findFirst().get();
 					map.update(entity, e -> e.id++);
-					storage.storeAll(map, entity);
+					map.store();
 				}
 				
 			}
