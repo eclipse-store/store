@@ -56,7 +56,7 @@ public class UpdateTest
             if (first.isPresent()) {
                 Customer customer = first.get();
                 root.update(customer, c -> c.name = "John Doe");
-                manager.storeAll(root, customer); //Temporary fix
+                root.store();
             }
         }
 

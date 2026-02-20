@@ -60,7 +60,6 @@ public class ApplyTest
                 Customer customer = first.get();
                 root.apply(customer, customer1 -> customer1.name = UPDATED_NAME);
                 root.store();
-                manager.store(customer);
             }
 
             long count = root.query(nameIndexer.startsWith("Updated")).count();
