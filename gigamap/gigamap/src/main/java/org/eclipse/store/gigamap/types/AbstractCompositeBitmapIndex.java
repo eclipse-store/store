@@ -528,11 +528,12 @@ implements BitmapIndex.TopLevel<E, KS>
 	final void internalHandleChanged(final KS oldKeys, final long entityId, final KS newKeys)
 	{
 		this.ensureSubIndices(newKeys);
-		
+
 		for(final Sub<E, KS, K> subIndex : this.subIndices)
 		{
 			subIndex.internalHandleChanged(oldKeys, entityId, newKeys);
 		}
+		this.markStateChangeChildren();
 	}
 	
 	public static <E, KS, K> Sub<E,KS, K>[] createSubIndicesArray(final int arrayLength)

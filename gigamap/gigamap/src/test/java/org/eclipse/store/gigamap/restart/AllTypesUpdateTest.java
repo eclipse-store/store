@@ -195,7 +195,7 @@ public class AllTypesUpdateTest
 
                 AllTypesPojo pojo = getRandomPojo(map);
                 map.update(pojo, operation);
-                storageManager.storeAll(map, pojo);
+                map.store();
             }
         }
     }
