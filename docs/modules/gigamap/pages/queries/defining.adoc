@@ -32,3 +32,22 @@ This enables us to use any custom logic inside query definitions if the predefin
 ----
 gigaMap.query(firstName.is(name -> name.length() > 3));
 ----
+
+=== Range Queries
+
+Byte indexers and temporal indexers support range queries.
+
+[source, java]
+----
+// assuming price is a ByteIndexerInteger
+gigaMap.query(price.greaterThan(100));
+gigaMap.query(price.lessThanEqual(50));
+gigaMap.query(price.between(10, 100));
+----
+
+Range conditions can be combined with other conditions.
+
+[source, java]
+----
+gigaMap.query(price.between(10, 100).and(category.is("Electronics")));
+----

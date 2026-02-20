@@ -75,3 +75,26 @@ Currently it only supports equality queries.
 Range queries are not supported yet.
 
 
+== Byte Index
+
+A composite bitmap index designed for high cardinality numeric types with range query support.
+
+It decomposes numbers into individual bytes (base 256) and stores each byte position as a separate sub-index with at most 256 entries. This uses the same composite index infrastructure as `IndexerLocalDate` (which decomposes into year/month/day).
+
+Byte indexers support both equality and range queries: `is`, `not`, `in`, `notIn`, `lessThan`, `lessThanEqual`, `greaterThan`, `greaterThanEqual`, and `between`.
+
+[source, java]
+----
+// use the builder
+final GigaMap<Product> gigaMap = GigaMap.<Product>Builder()
+    .withBitmapIdentityIndex(ProductIndices.price)
+    .build();
+
+// query with range conditions
+gigaMap.query(ProductIndices.price.between(10, 100));
+gigaMap.query(ProductIndices.price.greaterThan(50));
+----
+
+Use byte indexers when you need range queries on numeric types with high cardinality. Use binary indexers when you only need equality queries.
+
+
