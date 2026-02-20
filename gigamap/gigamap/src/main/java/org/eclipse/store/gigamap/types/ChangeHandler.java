@@ -96,9 +96,15 @@ public interface ChangeHandler
 		@Override
 		public void changeInIndex(final long entityId, final ChangeHandler prevEntityHandler)
 		{
+			// Remove from all old entries once, then add to all new entries.
+			// Each individual handler.changeInIndex calls prevEntityHandler.removeFromIndex,
+			// so calling it for every handler would remove the entity from shared keys
+			// that were just re-added by a previous handler in this chain.
+			prevEntityHandler.removeFromIndex(entityId);
+
 			for(final ChangeHandler handler : this.handlers)
 			{
-				handler.changeInIndex(entityId, prevEntityHandler);
+				handler.changeInIndex(entityId, NullChangeChandler.SINGLETON);
 			}
 		}
 		

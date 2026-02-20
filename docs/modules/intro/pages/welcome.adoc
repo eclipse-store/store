@@ -3,13 +3,81 @@
 Welcome to the {product-name} Reference Manual.
 This manual includes concepts, instructions and examples to guide you on how to use {product-name}, version {display-version}.
 
+== What is {product-name}?
+
+{product-name} is a Java-native object graph persistence engine.
+Instead of mapping your objects to tables (like an ORM) or documents (like a document database), {product-name} stores your Java object graph directly in its native structure.
+
+=== Key Benefits
+
+* *No mapping required* — store plain Java objects without annotations, schemas, or mapping files
+* *Ultra-fast* — binary serialization is significantly faster than traditional database approaches
+* *Almost any Java type* — persist almost any Java object, including collections, records, and custom types, see xref:storage:addendum/supported-java-features.adoc[]
+* *Flexible storage targets* — store on local file system, cloud storage (S3, Azure, GCS), SQL databases, Redis, Kafka, and more
+* *Lazy loading* — load only the data you need, when you need it
+* *ACID transactions* — full transactional guarantees for data consistency
+* *Minimal dependencies* — lightweight with only SLF4J as an external runtime dependency
+
+=== How Does It Compare?
+
+[options="header",cols="1,1,1"]
+|===
+|
+|{product-name}
+|Traditional Database + ORM
+
+|Data model
+|Plain Java objects
+|Tables/Documents + mapping layer
+
+|Query language
+|Java streams and methods
+|SQL / JPQL / proprietary
+
+|Schema management
+|Automatic type evolution
+|Migration scripts
+
+|Setup complexity
+|Minimal (1 dependency)
+|Database server + driver + ORM framework
+|===
+
 You should be familiar with the Java programming language and you should have installed your preferred Integrated Development Environment (IDE).
-But since you are here we guess you got that covered ;)
+
+== Quick Start
+
+[source, java]
+----
+// Define your data model as plain Java classes
+public class DataRoot
+{
+    private final List<String> messages = new ArrayList<>();
+
+    public List<String> getMessages() { return messages; }
+}
+
+// Start the storage
+DataRoot root = new DataRoot();
+EmbeddedStorageManager storage = EmbeddedStorage.start(root, Paths.get("data"));
+
+// Store data
+root.getMessages().add("Hello EclipseStore!");
+storage.store(root.getMessages());
+
+// Shutdown
+storage.shutdown();
+----
+
+For a complete guide, see xref:storage:getting-started.adoc[Getting Started].
 
 == What's new in {display-version}
 
 See xref:changelog.adoc[Changelog].
 
+== Architecture
+
+For a high-level overview of how {product-name} and the Eclipse Serializer relate, see xref:intro:architecture.adoc[Architecture Overview].
 
 == API Docs
 

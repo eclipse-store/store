@@ -142,3 +142,8 @@ Disadvantage of that is, it has to be redone every time your interfaces change.
 A code generator, which does it automatically would be nice.
 And that's what the base module brings along.
 Like the xref:layered-entities/configuration.adoc[layered entity code generator], it is an annotation processor.
+
+To get started with the wrapper code generator:
+
+* xref:wrapping/configuration.adoc[Configuration] — how to set up the annotation processor and specify the types to generate wrappers for
+* xref:wrapping/usage.adoc[Usage] — how to use the generated wrapper types in your application

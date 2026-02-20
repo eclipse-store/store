@@ -35,7 +35,7 @@
 		</dependency>
 		<dependency>
 			<groupId>org.eclipse.store</groupId>
-			<artifactId>eclipse-store-integrations-cdi4</artifactId>
+			<artifactId>integrations-cdi4</artifactId>
 			<version>${project.version}</version>
 		</dependency>
 		<dependency>

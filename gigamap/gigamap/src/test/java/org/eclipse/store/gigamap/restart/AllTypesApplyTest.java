@@ -275,7 +275,7 @@ public class AllTypesApplyTest
                 AllTypesPojo toReplacePojo = new AllTypesPojo();
                 toReplacePojo.generateRandomData();
                 map.apply(pojo, operation);
-                storageManager.storeAll(map, pojo);
+                map.store();
             }
         }
     }

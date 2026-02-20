@@ -1,0 +1,107 @@
+= TypedSerializer
+
+The `TypedSerializer` is a serializer implementation that includes type information in the serialized output.
+This makes the output self-describing, meaning it can be deserialized without pre-registering the types on the receiving side.
+
+== Basic Usage
+
+[source, java]
+----
+final SerializerFoundation<?> foundation = SerializerFoundation.New()
+	.registerEntityTypes(Customer.class);
+
+final Serializer<byte[]> serializer = TypedSerializer.Bytes(foundation);
+
+byte[] data = serializer.serialize(customer);
+
+// Can be deserialized without pre-registering Customer.class
+Customer restored = serializer.deserialize(data);
+----
+
+== When to Use TypedSerializer
+
+Use `TypedSerializer` when:
+
+* The serialized data needs to be consumed by a different serializer instance that may not have the same type registrations
+* You are transmitting objects over a network where the receiving end does not know the types in advance
+* You want self-describing, portable serialized data
+
+Use the standard `Serializer` when:
+
+* Both serializer instances share the same type registrations
+* You want minimal serialized data size
+* Performance is critical and the type dictionary overhead must be avoided
+
+== Configuring Type Information Strategies
+
+By default, the `TypedSerializer` includes the complete set of type information in all serialized output.
+To reduce the size of the serialized data, you can configure how much type information is included by supplying a `SerializerTypeInfoStrategyCreator` to the `SerializerFoundation`.
+
+[source, java]
+----
+final SerializerFoundation<?> foundation = SerializerFoundation.New()
+	.setSerializerTypeInfoStrategyCreator(
+		new SerializerTypeInfoStrategyCreator.IncrementalDiff(false));
+final Serializer<byte[]> serializer = TypedSerializer.Bytes(foundation);
+----
+
+=== Available Strategies
+
+[options="header",cols="1,2"]
+|===
+|Strategy
+|Description
+
+|TypeDictionary
+|Includes type information for all types currently known to the serializer, including those registered during the setup. This is the default and produces the largest output, but is the safest option.
+
+|Diff
+|Includes only the differences in type information compared to the initial type dictionary. Types that were registered during the serializer's setup are included only if they have changed. This reduces output size when the type dictionary is stable.
+
+|IncrementalDiff
+|Includes only type information for types added to the serializer's type registry in the current serialization. Types that are registered during the serializer's setup are never included. This produces the smallest output, but requires the receiving end to have the initial types pre-registered.
+|===
+
+=== The `includeTypeInfoOnce` Parameter
+
+All three strategies accept a boolean `includeTypeInfoOnce` parameter.
+When set to `true`, the type information is only included if new types were registered during the current serialization.
+
+[source, java]
+----
+// Only include type info when new types appear
+new SerializerTypeInfoStrategyCreator.TypeDictionary(true)
+new SerializerTypeInfoStrategyCreator.Diff(true)
+new SerializerTypeInfoStrategyCreator.IncrementalDiff(true)
+----
+
+This is useful in scenarios where:
+
+* Multiple objects are serialized sequentially over the same channel
+* After the initial exchange, the type information is stable
+* You want to minimize per-message overhead
+
+=== Choosing a Strategy
+
+[options="header",cols="1,1,1"]
+|===
+|Scenario
+|Recommended Strategy
+|includeTypeInfoOnce
+
+|Single message exchange
+|TypeDictionary
+|false
+
+|Streaming / multiple messages, unknown types
+|Diff
+|true
+
+|Streaming / multiple messages, known base types
+|IncrementalDiff
+|true
+
+|Maximum portability
+|TypeDictionary
+|false
+|===

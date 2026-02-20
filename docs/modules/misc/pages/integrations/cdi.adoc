@@ -9,7 +9,7 @@ It is available within this artifact:
 <dependencies>
    <dependency>
       <groupId>org.eclipse.store</groupId>
-      <artifactId>eclipse-store-integrations-cdi4</artifactId>
+      <artifactId>integrations-cdi4</artifactId>
       <version>{maven-version}</version>
    </dependency>
 </dependencies>

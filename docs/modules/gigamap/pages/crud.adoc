@@ -75,3 +75,5 @@ gigaMap.update(person, p -> {
     p.setAddress(newAddress)
 });
 ----
+
+Entities modified through `update` (or `apply`) are automatically persisted when calling `store()`. See xref:persistence.adoc[] for details.

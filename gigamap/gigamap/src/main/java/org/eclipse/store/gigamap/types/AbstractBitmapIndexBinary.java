@@ -462,13 +462,16 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 	{
 		final long dispensableEntries = oldKeys & ~newKeys;
 		final long additionalEntries  = newKeys & ~oldKeys;
-		
+
+		boolean changed = false;
+
 		final BitmapEntry<E, I, Long>[] entries = this.getEntries(newKeys);
 		for(int i = 0; i < entries.length; i++)
 		{
 			if((dispensableEntries >>> i & 1) == 1)
 			{
 				this.internalRemoveFromEntry(entityId, entries[i]);
+				changed = true;
 			}
 			else if((additionalEntries >>> i & 1) == 1)
 			{
@@ -478,11 +481,17 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 					this.internalAddEntry(i);
 				}
 				entries[i].add(entityId);
+				changed = true;
 			}
 			// else: no change, so nothing to do.
 		}
+
+		if(changed)
+		{
+			this.markStateChangeChildren();
+		}
 	}
-	
+
 	@Override
 	protected Long indexEntity(final I entity)
 	{

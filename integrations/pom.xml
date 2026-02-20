@@ -18,6 +18,7 @@
 
     <modules>
         <module>cdi4</module>
+        <module>cdi4-old</module>
         <module>spring-boot3</module>
         <module>spring-boot3-console</module>
         <!-- This module exists in order to run real itests with dependencies provided by the application -->

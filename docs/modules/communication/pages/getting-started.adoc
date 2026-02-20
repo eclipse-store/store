@@ -1,0 +1,123 @@
+= Getting Started
+
+== Prerequisites
+
+If using Maven, add the *communication-binary* module to your dependencies:
+
+[source, xml, subs=attributes+, title="pom.xml"]
+----
+<dependencies>
+	<dependency>
+		<groupId>org.eclipse.serializer</groupId>
+		<artifactId>communication-binary</artifactId>
+		<version>{maven-version}</version>
+	</dependency>
+</dependencies>
+----
+
+For Gradle:
+
+[source, groovy, title="build.gradle", subs=attributes+]
+----
+dependencies {
+    implementation 'org.eclipse.serializer:communication-binary:{maven-version}'
+}
+----
+
+== Hello World
+
+The Hello World example consists of two applications: a Host and a Client.
+The host opens a network port and listens for incoming connections from the client.
+If a client connects successfully, it awaits data from the client that will be sent back to the client.
+The basic example uses no configuration, so the connection is not secured, and the client and host use the local system address at port 1099.
+
+=== Host
+
+[source, java]
+----
+public class EchoServer
+{
+	public static void main(final String[] args)
+	{
+		final ComHost<?> host = ComBinaryDynamic.Foundation()
+			.setHostChannelAcceptor(channel ->
+			{
+				final Object received = channel.receive();
+				System.out.println("received: " + received);
+				channel.send(received);
+			})
+			.createHost();
+
+		// run the host, making it constantly listen for new connections and relaying them to the logic
+		host.run();
+	}
+}
+----
+
+=== Client
+
+[source, java]
+----
+public class EchoClient
+{
+	public static void main(final String[] args)
+	{
+		// create the client
+		final ComClient<?> client = ComBinaryDynamic.Foundation()
+			.createClient();
+
+		// connect to the host and communicate
+		try(final ComChannel channel = client.connect())
+		{
+			channel.send("Hello Host");
+			final Object received = channel.receive();
+			System.out.println("received: " + received);
+		}
+	}
+}
+----
+
+== How It Works
+
+1. The host starts and listens on a TCP port (default: 1099)
+2. The client connects to the host
+3. A `ComChannel` is established for bidirectional communication
+4. Objects are serialized using the Eclipse Serializer before transmission
+5. Objects are deserialized on the receiving end and returned as Java objects
+6. The channel is closed when communication is done (or the `try-with-resources` block ends)
+
+== Sending Custom Objects
+
+You can send any Java object, not just strings:
+
+[source, java]
+----
+// Define a message type
+public class ChatMessage
+{
+	private final String user;
+	private final String text;
+	private final LocalDateTime timestamp;
+
+	// constructor, getters...
+}
+----
+
+[source, java]
+----
+// Client sends a custom object
+try(final ComChannel channel = client.connect())
+{
+	channel.send(new ChatMessage("Alice", "Hello!", LocalDateTime.now()));
+	final ChatMessage response = (ChatMessage) channel.receive();
+}
+----
+
+When using `ComBinaryDynamic`, custom types are automatically registered.
+When using `ComBinary` (non-dynamic), types must be registered explicitly — see xref:communication:configuration.adoc[Configuration].
+
+== Next Steps
+
+* xref:communication:configuration.adoc[Configuration] — customize host/client addresses, ports, and type registration
+* xref:communication:tls.adoc[TLS] — secure the communication with TLS encryption
+* xref:communication:error-handling.adoc[Error Handling and Reconnection] — handle connection failures gracefully

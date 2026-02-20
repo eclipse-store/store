@@ -83,12 +83,23 @@ maven_jar(
 
 These are the different modules that make up {product-name}.
 
+=== Eclipse Serializer Modules
+
 [options="header",cols="1,2"]
 |===
 |ArtifactId |Description
 //-------------
+|afs
+|Abstract file system (AFS) layer.
+
 |base
 |Collection of common utilities. Math, IO, Exceptions, Threads, String operations, and so on.
+
+|codegen
+|Code generation framework for entity types and other generated artifacts.
+
+|communication
+|Communication layer for network-based data transfer and messaging.
 
 |configuration
 |General-purpose configuration layer.
@@ -99,20 +110,48 @@ These are the different modules that make up {product-name}.
 |configuration-yaml
 |Yaml extension for the configuration layer.
 
-|afs
-|Abstract file system (AFS) layer.
+|nativememory
+|Native (off-heap) memory management utilities.
+
+|persistence
+|Base persistence framework providing the foundation for object graph serialization and deserialization.
+
+|persistence-binary
+|Extension of the persistence base framework with a concrete implementation of the persistent form as binary data. This persistent form is superior to all text-based formats in storage and performance needs, making it the preferred method for storage and network serialization.
+
+|persistence-binary-android
+|Android-specific extension of the binary persistence layer.
+
+|persistence-binary-jdk8
+|JDK 8+ specific extension of the binary persistence layer with type handlers for modern JDK types.
+
+|serializer
+|High-level serializer API providing a convenient entry point for object serialization.
+|===
+
+=== {product-name} Modules
+
+[options="header",cols="1,2"]
+|===
+|ArtifactId |Description
+//-------------
+|afs-aws
+|Common AWS file system abstraction base module.
 
 |afs-aws-dynamodb
-|File system implementations for AWS DynamoDB.
+|File system implementation for AWS DynamoDB.
 
 |afs-aws-s3
-|File system implementations for AWS S3.
+|File system implementation for AWS S3.
 
 |afs-azure-storage
-|File system implementations for Azure Cloud (Azure Storage).
+|File system implementation for Azure Cloud (Azure Storage).
 
 |afs-blobstore
 |Base for all blob store file system implementations.
+
+|afs-googlecloud-firestore
+|File system implementation for Google Cloud Firestore.
 
 |afs-kafka
 |File system implementation for Apache Kafka.
@@ -129,14 +168,29 @@ These are the different modules that make up {product-name}.
 |afs-sql
 |File system implementation for SQL databases.
 
+|cache
+|JSR-107 (JCache) implementation for {product-name}.
+
+|cache-hibernate
+|Hibernate cache region factory for {product-name}.
+
 |gigamap
-|The GigaMap is a specialized collection aimed at optimizing performance and memory usage in EclipseStore. It utilizes off-heap bitmap indexing to facilitate lightning-fast searches and lazy loading of objects, eliminating the need for manual reference management.
+|The GigaMap is a specialized collection aimed at optimizing performance and memory usage in {product-name}. It utilizes off-heap bitmap indexing to facilitate lightning-fast searches and lazy loading of objects, eliminating the need for manual reference management.
+
+|gigamap-jvector
+|GigaMap JVector integration for vector search capabilities.
 
 |gigamap-lucene
 |A specialized index implementation which connects to a Lucene directory.
 
-|persistence-binary
-|Extension of the persistence base framework with a concrete implementation of the persistent form as binary data. This persistent form is superior to all text-based formats in storage and performance needs, making it the preferred method for storage and network serialization.
+|integrations-spring-boot3
+|Spring Boot 3 integration for {product-name}.
+
+|integrations-spring-boot3-console
+|Spring Boot 3 console with embedded REST UI for {product-name}.
+
+|integrations-cdi4
+|CDI 4 (Jakarta) extension for {product-name}.
 
 |storage
 |Basic framework to manage a graph of Java data persisted as binary data as a database. Can be used both to implement an embedded database solution (in the same process as the Java application) and a standalone or server-mode database solution (in a separate process). Other forms of persistence than binary data are deliberately not supported because they would not bring any noteworthy advantages but many disadvantages for the task.
@@ -146,6 +200,12 @@ These are the different modules that make up {product-name}.
 
 |storage-embedded-configuration
 |Layer with support for external configuration files (XML, INI) and convenience functionality to create foundations for the embedded storage.
+
+|storage-embedded-tools-storage-converter
+|Tool for converting storage data between different formats.
+
+|storage-embedded-tools-storage-migrator
+|Tool for migrating storage data using OpenRewrite recipes.
 
 |storage-restadapter
 |Adapter for low-level storage data externalization. Used by the xref:storage:rest-interface/index.adoc[REST service] to adapt to a {product-name} Storage.
@@ -157,7 +217,7 @@ These are the different modules that make up {product-name}.
 |Executable xref:storage:rest-interface/client-gui.adoc[client app] with web user interface, which connects to a REST service.
 
 |storage-restclient-jersey
-|REST client implementation which utilizes Jersey as a webservice framework. 
+|REST client implementation which utilizes Jersey as a webservice framework.
 
 |storage-restservice
 |Abstract REST service interface, which uses the REST adapter to access low level storage data.
@@ -167,5 +227,8 @@ These are the different modules that make up {product-name}.
 
 |storage-restservice-sparkjava (deprecated)
 |REST service implementation which utilizes SparkJava and provides REST endpoints. (Deprecated, use storage-restservice-javalin instead.)
+
+|storage-restservice-springboot
+|REST service implementation for Spring Boot which provides REST endpoints.
 |===
 
