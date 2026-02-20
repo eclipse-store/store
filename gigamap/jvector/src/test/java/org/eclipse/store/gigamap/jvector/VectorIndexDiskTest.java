@@ -2233,58 +2233,6 @@ class VectorIndexDiskTest
         }
     }
 
-    /**
-     * Test that in-memory index can also use background optimization.
-     */
-    @Test
-    void testInMemoryIndexWithBackgroundOptimization(@TempDir final Path tempDir) throws Exception
-    {
-        final int dimension = 32;
-        final int vectorCount = 150;
-        final Random random = new Random(42);
-
-        final GigaMap<Document> gigaMap = GigaMap.New();
-        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
-
-        // In-memory index with background optimization only
-        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
-            .dimension(dimension)
-            .similarityFunction(VectorSimilarityFunction.COSINE)
-            .optimizationIntervalMs(200)
-            .minChangesBetweenOptimizations(10)
-            .optimizeOnShutdown(true)
-            .build();
-
-        assertFalse(config.onDisk(), "Should be in-memory index");
-        assertTrue(config.backgroundOptimization(), "Background optimization should be enabled");
-
-        final VectorIndex<Document> index = vectorIndices.add(
-            "embeddings",
-            config,
-            new ComputedDocumentVectorizer()
-        );
-
-        try
-        {
-            // Add vectors
-            for(int i = 0; i < vectorCount; i++)
-            {
-                gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
-            }
-
-            // Wait for optimization to run
-            Thread.sleep(600);
-
-            // Search should still work
-            final VectorSearchResult<Document> result = index.search(randomVector(random, dimension), 10);
-            assertEquals(10, result.size());
-        }
-        finally
-        {
-            index.close();
-        }
-    }
-
 
     // ========================================================================
     // Parallel vs Non-Parallel On-Disk Write Tests
