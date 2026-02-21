@@ -283,38 +283,44 @@ public interface Condition<E> extends Predicate<E>
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
 		/////////////////
-		
+
 		protected And(final Condition<E> leftCondition, final Condition<E> rightCondition)
 		{
 			super();
 			this.conditions.add(leftCondition);
 			this.conditions.add(rightCondition);
 		}
-		
+
 		protected And(final BulkList<Condition<E>> conditions)
 		{
 			super(conditions);
 		}
-		
-		
-		
+
+
+
 		///////////////////////////////////////////////////////////////////////////
 		// methods //
 		////////////
-		
+
 		@Override
 		public Condition<E> linkCondition(
 			final Condition<E>     condition,
 			final Linker linker
 		)
 		{
+			// Prevent self-reference which would cause infinite recursion during evaluation.
+			if(condition == this)
+			{
+				return linker.linkCondition(condition, this);
+			}
+
 			// AND condition can just be added to this chainAnd's conditions (flattening).
 			if(linker == CREATOR_AND)
 			{
 				this.conditions.add(condition);
 				return this;
 			}
-			
+
 			// otherwise (i.e., OR), the last condition is bound with priority to the new condition
 			return linker.linkCondition(condition, this);
 		}
@@ -390,13 +396,19 @@ public interface Condition<E> extends Predicate<E>
 			final Linker linker
 		)
 		{
+			// Prevent self-reference which would cause infinite recursion during evaluation.
+			if(condition == this)
+			{
+				return linker.linkCondition(condition, this);
+			}
+
 			if(linker == CREATOR_OR)
 			{
 				// OR condition can just be added to this chainOr's conditions (flattening).
 				this.conditions.add(condition);
 				return this;
 			}
-			
+
 			// otherwise (i.e. AND), the last condition is bound with priority to the new condition
 			final Condition<E> linkingCondition = linker.linkCondition(condition, this.conditions.last());
 			this.conditions.setLast(linkingCondition);
