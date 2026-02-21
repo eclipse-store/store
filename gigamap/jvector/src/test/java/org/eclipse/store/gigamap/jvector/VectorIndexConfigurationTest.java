@@ -124,30 +124,6 @@ class VectorIndexConfigurationTest
     }
 
     @Test
-    void testBuilderRequiresNonNegativePersistenceIntervalMs()
-    {
-        // 0 is valid (means disabled)
-        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
-            .dimension(64)
-            .persistenceIntervalMs(0)
-            .build();
-        assertEquals(0L, config.persistenceIntervalMs());
-        assertFalse(config.backgroundPersistence());
-
-        assertThrows(IllegalArgumentException.class, () ->
-            VectorIndexConfiguration.builder().dimension(64).persistenceIntervalMs(-1).build()
-        );
-    }
-
-    @Test
-    void testBuilderRequiresNonNegativeMinChangesBetweenPersists()
-    {
-        assertThrows(IllegalArgumentException.class, () ->
-            VectorIndexConfiguration.builder().dimension(64).minChangesBetweenPersists(-1).build()
-        );
-    }
-
-    @Test
     void testBuilderRequiresNonNegativeOptimizationIntervalMs()
     {
         // 0 is valid (means disabled)
@@ -190,19 +166,6 @@ class VectorIndexConfigurationTest
                 .onDisk(true)
                 .build()
         );
-    }
-
-    @Test
-    void testOnDiskWithIndexDirectorySucceeds(@TempDir final Path tempDir)
-    {
-        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
-            .dimension(64)
-            .onDisk(true)
-            .indexDirectory(tempDir)
-            .build();
-
-        assertTrue(config.onDisk());
-        assertEquals(tempDir, config.indexDirectory());
     }
 
     @Test
@@ -1104,27 +1067,6 @@ class VectorIndexConfigurationTest
     }
 
     /**
-     * Test background persistence configuration defaults.
-     */
-    @Test
-    void testBackgroundPersistenceConfigurationDefaults(@TempDir final Path tempDir)
-    {
-        final Path indexDir = tempDir.resolve("index");
-
-        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
-                .dimension(128)
-                .onDisk(true)
-                .indexDirectory(indexDir)
-                .build();
-
-        // Background persistence should be disabled by default
-        assertFalse(config.backgroundPersistence());
-        assertEquals(0, config.persistenceIntervalMs());
-        assertTrue(config.persistOnShutdown());
-        assertEquals(100, config.minChangesBetweenPersists());
-    }
-
-    /**
      * Test validation: persistenceIntervalMs must be non-negative.
      */
     @Test
@@ -1173,78 +1115,6 @@ class VectorIndexConfigurationTest
                 .minChangesBetweenPersists(0)
                 .build();
         assertEquals(0, config.minChangesBetweenPersists());
-    }
-
-    /**
-     * Test validation: optimizationIntervalMs must be non-negative.
-     */
-    @Test
-    void testOptimizationIntervalMsMustBeNonNegative(@TempDir final Path tempDir)
-    {
-        // 0 is valid (means disabled)
-        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
-                .dimension(128)
-                .onDisk(true)
-                .indexDirectory(tempDir)
-                .optimizationIntervalMs(0)
-                .build();
-        assertEquals(0, config.optimizationIntervalMs());
-        assertFalse(config.backgroundOptimization());
-
-        assertThrows(IllegalArgumentException.class, () ->
-                VectorIndexConfiguration.builder()
-                        .dimension(128)
-                        .onDisk(true)
-                        .indexDirectory(tempDir)
-                        .optimizationIntervalMs(-1000)
-                        .build()
-        );
-    }
-
-    /**
-     * Test background optimization configuration defaults.
-     */
-    @Test
-    void testBackgroundOptimizationConfigurationDefaults(@TempDir final Path tempDir)
-    {
-        final Path indexDir = tempDir.resolve("index");
-
-        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
-                .dimension(128)
-                .onDisk(true)
-                .indexDirectory(indexDir)
-                .build();
-
-        // Background optimization should be disabled by default
-        assertFalse(config.backgroundOptimization());
-        assertEquals(0, config.optimizationIntervalMs());
-        assertEquals(1000, config.minChangesBetweenOptimizations());
-        assertFalse(config.optimizeOnShutdown());
-    }
-
-    /**
-     * Test validation: minChangesBetweenOptimizations must be non-negative.
-     */
-    @Test
-    void testMinChangesBetweenOptimizationsMustBeNonNegative(@TempDir final Path tempDir)
-    {
-        assertThrows(IllegalArgumentException.class, () ->
-                VectorIndexConfiguration.builder()
-                        .dimension(128)
-                        .onDisk(true)
-                        .indexDirectory(tempDir)
-                        .minChangesBetweenOptimizations(-1)
-                        .build()
-        );
-
-        // Zero should be allowed (optimize on every interval)
-        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
-                .dimension(128)
-                .onDisk(true)
-                .indexDirectory(tempDir)
-                .minChangesBetweenOptimizations(0)
-                .build();
-        assertEquals(0, config.minChangesBetweenOptimizations());
     }
 
     /**
