@@ -41,27 +41,32 @@ public class BinaryIndexerByteTest
             .withBitmapIdentityIndex(indexer)
             .build();
 
-        map.add(new BinaryIndexerBytePojo((Byte.valueOf("1"))));
-        map.add(new BinaryIndexerBytePojo((Byte.valueOf("2"))));
-        map.add(new BinaryIndexerBytePojo((Byte.valueOf("3"))));
+        map.add(new BinaryIndexerBytePojo((byte) 1));
+        map.add(new BinaryIndexerBytePojo((byte) -1));
+        map.add(new BinaryIndexerBytePojo((byte) 3));
+        map.add(new BinaryIndexerBytePojo((byte) 0));
 
-
-        List<BinaryIndexerBytePojo> list = map.query(indexer.is(Byte.valueOf("1"))).toList();
-        assertEquals(1, list.size());
-        assertEquals(list.get(0).getByteValue(), Byte.valueOf("1"));
+        for(byte value : new byte[]{1, -1, 3, 0})
+        {
+            List<BinaryIndexerBytePojo> list = map.query(indexer.is(value)).toList();
+            assertEquals(1, list.size());
+            assertEquals(value, list.get(0).getByteValue());
+        }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(map, tempDir)) {
 
         }
 
-
         GigaMap<BinaryIndexerBytePojo> newMap = GigaMap.New();
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newMap, tempDir)) {
-            assertEquals(3, newMap.size());
+            assertEquals(4, newMap.size());
 
-            List<BinaryIndexerBytePojo> newList = newMap.query(indexer.is(Byte.valueOf("1"))).toList();
-            assertEquals(1, newList.size());
-            assertEquals(Byte.valueOf("1"), newList.get(0).getByteValue() );
+            for(byte value : new byte[]{1, -1, 3, 0})
+            {
+                List<BinaryIndexerBytePojo> newList = newMap.query(indexer.is(value)).toList();
+                assertEquals(1, newList.size());
+                assertEquals(value, newList.get(0).getByteValue());
+            }
 
             newMap.add(new BinaryIndexerBytePojo(Byte.MAX_VALUE));
             newMap.store();
@@ -69,7 +74,7 @@ public class BinaryIndexerByteTest
 
         GigaMap<BinaryIndexerBytePojo> newMap2 = GigaMap.New();
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newMap2, tempDir)) {
-            assertEquals(4, newMap2.size());
+            assertEquals(5, newMap2.size());
 
             List<BinaryIndexerBytePojo> newList = newMap2.query(indexer.is(Byte.MAX_VALUE)).toList();
             assertEquals(1, newList.size());

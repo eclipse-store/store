@@ -36,10 +36,31 @@ public interface BinaryIndexerDouble<E> extends BinaryIndexerNumber<E, Double>
 			return this.getDouble(entity);
 		}
 		
+		/**
+		 * Converts a Double value to a non-zero long suitable for the binary bitmap index.
+		 * <p>
+		 * The bitmap index uses bit positions in a long as array indices. A value of {@code 0L}
+		 * has no bits set and would cause the entity to be silently skipped during indexing.
+		 * <p>
+		 * The IEEE 754 bit representation ({@code doubleToLongBits}) is used as the bitmap key.
+		 * For non-zero bit patterns, the value is used as-is (backwards compatible with existing storages).
+		 * Only {@code 0.0} produces a zero bit pattern ({@code -0.0} has bit 63 set and is non-zero).
+		 * <p>
+		 * For zero, the sentinel {@code 0x7FF0000000000001L} is used. This is a non-canonical
+		 * IEEE 754 NaN encoding (exponent all-ones, non-zero mantissa) that {@code doubleToLongBits}
+		 * can never return for any double value, because it normalizes all NaN representations
+		 * to the canonical {@code 0x7FF8000000000000L}. This makes the sentinel completely
+		 * collision-free, unlike the Long indexer which must sacrifice an actual value.
+		 */
 		@Override
 		protected long toLong(final Double number)
 		{
-			return Double.doubleToLongBits(number);
+			final long bits = Double.doubleToLongBits(number);
+			if(bits == 0L)
+			{
+				return 0x7FF0000000000001L;
+			}
+			return bits;
 		}
 		
 		protected abstract Double getDouble(final E entity);

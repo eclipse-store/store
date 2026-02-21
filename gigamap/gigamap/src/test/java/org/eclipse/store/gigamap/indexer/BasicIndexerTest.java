@@ -109,16 +109,6 @@ public class BasicIndexerTest
 	}
 
 	@Test
-	void error()
-	{
-		final LongIndexer indexer = new LongIndexer();
-		final GigaMap<Long> map = GigaMap.New();
-		map.index().bitmap().add(indexer);
-		assertThrows(IllegalArgumentException.class, () -> map.add(-1L));
-		assertThrows(IllegalArgumentException.class, () -> map.add(0L));
-	}
-
-	@Test
 	void in()
 	{
 		final LongIndexer indexer = new LongIndexer();
@@ -205,10 +195,6 @@ public class BasicIndexerTest
 		// Test in() method with wrapped indexer
 		assertEquals(2, map.query(wrappedIndexer).in(1L, 5L).count());
 		assertEquals(3, map.query(wrappedIndexer).in(1L, 5L, 10L).count());
-
-		// Verify error handling still works
-		assertThrows(IllegalArgumentException.class, () -> map.add(-1L));
-		assertThrows(IllegalArgumentException.class, () -> map.add(0L));
 	}
 
 	@Test

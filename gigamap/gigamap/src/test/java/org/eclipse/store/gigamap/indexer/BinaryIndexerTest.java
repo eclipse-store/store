@@ -141,12 +141,9 @@ public class BinaryIndexerTest
         }
 
         // Add some edge case values
-        LongEntity max = new LongEntity(Long.MAX_VALUE);
+        LongEntity max = new LongEntity(Long.MAX_VALUE - 1);
 
         gigaMap.add(max);
-
-        // This one should throw because it's negative
-        assertThrows(IllegalArgumentException.class, () -> gigaMap.add(new LongEntity(-1L)));
 
         // Add and then remove an entity
         LongEntity toRemove = new LongEntity(12345L);
@@ -158,7 +155,7 @@ public class BinaryIndexerTest
 
         // Verify counts
         assertEquals(10, gigaMap.query(indexer.is(42L)).count());
-        assertEquals(1, gigaMap.query(indexer.is(Long.MAX_VALUE)).count());
+        assertEquals(1, gigaMap.query(indexer.is(Long.MAX_VALUE - 1)).count());
 
         // Persist
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(gigaMap, storagePath)) {
@@ -170,28 +167,12 @@ public class BinaryIndexerTest
             BitmapIndex<LongEntity, Long> index = reloadedMap.index().bitmap().get(Long.class, "org.eclipse.store.gigamap.indexer.BinaryIndexerTest.LongIndexer");
 
             assertEquals(10, reloadedMap.query(index.is(42L)).count());
-            assertEquals(1, reloadedMap.query(index.is(Long.MAX_VALUE)).count());
+            assertEquals(1, reloadedMap.query(index.is(Long.MAX_VALUE - 1)).count());
             assertEquals(0, reloadedMap.query(index.is(12345L)).count());
 
             // Query for something never inserted
             assertEquals(0, reloadedMap.query(index.is(999999L)).count());
         }
-    }
-
-    @Test
-    void testExtremeValues()
-    {
-        LongIndexer indexer = new LongIndexer();
-        GigaMap<LongEntity> gigaMap = GigaMap.New();
-        gigaMap.index().bitmap().add(indexer);
-
-        gigaMap.add(new LongEntity(Long.MAX_VALUE));
-        assertThrows(IllegalArgumentException.class, () -> gigaMap.add(new LongEntity(0L)));
-
-        assertEquals(1, gigaMap.query(indexer.is(Long.MAX_VALUE)).count());
-        assertThrows(IllegalArgumentException.class, () -> gigaMap.query(indexer.is(0L)).count());
-
-        assertThrows(IllegalArgumentException.class, () -> gigaMap.add(new LongEntity(-1L)));
     }
 
     @Test
@@ -592,25 +573,6 @@ public class BinaryIndexerTest
 
         }
 
-    }
-
-    @Test
-    void invalidValuesTest()
-    {
-        LongIndexer indexer = new LongIndexer();
-        GigaMap<LongEntity> gigaMap = GigaMap.New();
-        gigaMap.index().bitmap().add(indexer);
-
-        LongEntity entity1 = new LongEntity(-1);
-        assertThrows(IllegalArgumentException.class, () -> gigaMap.add(entity1));
-        assertThrows(IllegalArgumentException.class, () -> gigaMap.query(indexer.is(-1L)).findFirst().get());
-
-        assertEquals(0, gigaMap.query(indexer.is(Long.MAX_VALUE)).count());
-
-        Long l1 = null;
-        assertThrows(IllegalArgumentException.class, () -> gigaMap.query(indexer.is(l1)).count());
-
-        assertThrows(UnsupportedOperationException.class, () -> gigaMap.query(indexer.is(aLong -> false)).count());
     }
 
     private static class LongNormalIndexer extends IndexerLong.Abstract<LongEntity>

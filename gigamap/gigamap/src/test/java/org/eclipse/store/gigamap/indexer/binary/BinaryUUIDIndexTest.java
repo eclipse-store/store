@@ -43,20 +43,32 @@ public class BinaryUUIDIndexTest
         
         UUID uuid1 = UUID.randomUUID();
         UUID uuid2 = UUID.randomUUID();
-        
+        UUID zeroMsb = new UUID(0L, 42L);
+        UUID zeroLsb = new UUID(42L, 0L);
+        UUID zeroBoth = new UUID(0L, 0L);
+
         //generate some data
         UUIDPerson person1 = new UUIDPerson("Alice", uuid1);
         UUIDPerson person2 = new UUIDPerson("Bob", uuid2);
         UUIDPerson person3 = new UUIDPerson("Charlie", UUID.randomUUID());
-        map.addAll(person1, person2, person3);
-        
+        UUIDPerson person4 = new UUIDPerson("Dave", zeroMsb);
+        UUIDPerson person5 = new UUIDPerson("Eve", zeroLsb);
+        UUIDPerson person6 = new UUIDPerson("Frank", zeroBoth);
+        map.addAll(person1, person2, person3, person4, person5, person6);
+
         assertEquals(uuid1, map.query(uuidPersonIndex.is(uuid1)).findFirst().get().uuid);
         assertEquals(uuid2, map.query(uuidPersonIndex.is(uuid2)).findFirst().get().uuid);
+        assertEquals(zeroMsb, map.query(uuidPersonIndex.is(zeroMsb)).findFirst().get().uuid);
+        assertEquals(zeroLsb, map.query(uuidPersonIndex.is(zeroLsb)).findFirst().get().uuid);
+        assertEquals(zeroBoth, map.query(uuidPersonIndex.is(zeroBoth)).findFirst().get().uuid);
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(map, tempDir)) {
-            
+
             assertEquals(uuid1, map.query(uuidPersonIndex.is(uuid1)).findFirst().get().uuid);
             assertEquals(uuid2, map.query(uuidPersonIndex.is(uuid2)).findFirst().get().uuid);
+            assertEquals(zeroMsb, map.query(uuidPersonIndex.is(zeroMsb)).findFirst().get().uuid);
+            assertEquals(zeroLsb, map.query(uuidPersonIndex.is(zeroLsb)).findFirst().get().uuid);
+            assertEquals(zeroBoth, map.query(uuidPersonIndex.is(zeroBoth)).findFirst().get().uuid);
 
             map.query(uuidPersonIndex.is(uuid1)).and(uuidPersonIndex.is(uuid2))
                     .forEach(uuidPerson -> fail("Should not be reached"));
@@ -70,6 +82,9 @@ public class BinaryUUIDIndexTest
             GigaMap<UUIDPerson> newMap = (GigaMap<UUIDPerson>) manager.root();
             newMap.query(uuidPersonIndex.is(uuid1)).forEach(uuidPerson -> assertEquals(uuid1, uuidPerson.getUuid()));
             newMap.query(uuidPersonIndex.is(uuid2)).forEach(uuidPerson -> assertEquals(uuid2, uuidPerson.getUuid()));
+            newMap.query(uuidPersonIndex.is(zeroMsb)).forEach(uuidPerson -> assertEquals(zeroMsb, uuidPerson.getUuid()));
+            newMap.query(uuidPersonIndex.is(zeroLsb)).forEach(uuidPerson -> assertEquals(zeroLsb, uuidPerson.getUuid()));
+            newMap.query(uuidPersonIndex.is(zeroBoth)).forEach(uuidPerson -> assertEquals(zeroBoth, uuidPerson.getUuid()));
 
             newMap.query(uuidPersonIndex.is(uuid1)).and(uuidPersonIndex.is(uuid2))
                     .forEach(uuidPerson -> fail("Should not be reached"));

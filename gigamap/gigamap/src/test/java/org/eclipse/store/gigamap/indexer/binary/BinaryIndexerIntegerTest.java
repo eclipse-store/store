@@ -42,12 +42,16 @@ public class BinaryIndexerIntegerTest
             .build();
 
         map.add(new IntegerBinaryIndexerPojo(1));
-        map.add(new IntegerBinaryIndexerPojo(2));
+        map.add(new IntegerBinaryIndexerPojo(-2));
         map.add(new IntegerBinaryIndexerPojo(3));
+        map.add(new IntegerBinaryIndexerPojo(0));
 
-        List<IntegerBinaryIndexerPojo> list = map.query(indexer.is(1)).toList();
-        assertEquals(1, list.size());
-        assertEquals(1, list.get(0).getIntValue());
+        for(int value : new int[]{1, -2, 3, 0})
+        {
+            List<IntegerBinaryIndexerPojo> list = map.query(indexer.is(value)).toList();
+            assertEquals(1, list.size());
+            assertEquals(value, list.get(0).getIntValue());
+        }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(map, tempDir)) {
 
@@ -55,11 +59,14 @@ public class BinaryIndexerIntegerTest
 
         GigaMap<IntegerBinaryIndexerPojo> newMap = GigaMap.New();
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newMap, tempDir)) {
-            assertEquals(3, newMap.size());
+            assertEquals(4, newMap.size());
 
-            List<IntegerBinaryIndexerPojo> newList = newMap.query(indexer.is(1)).toList();
-            assertEquals(1, newList.size());
-            assertEquals(1, newList.get(0).getIntValue());
+            for(int value : new int[]{1, -2, 3, 0})
+            {
+                List<IntegerBinaryIndexerPojo> newList = newMap.query(indexer.is(value)).toList();
+                assertEquals(1, newList.size());
+                assertEquals(value, newList.get(0).getIntValue());
+            }
 
             newMap.add(new IntegerBinaryIndexerPojo(Integer.MAX_VALUE));
             newMap.store();
@@ -67,14 +74,14 @@ public class BinaryIndexerIntegerTest
 
         GigaMap<IntegerBinaryIndexerPojo> newMap2 = GigaMap.New();
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newMap2, tempDir)) {
-            assertEquals(4, newMap2.size());
+            assertEquals(5, newMap2.size());
 
             List<IntegerBinaryIndexerPojo> newList = newMap2.query(indexer.is(Integer.MAX_VALUE)).toList();
             assertEquals(1, newList.size());
             assertEquals(Integer.MAX_VALUE, newList.get(0).getIntValue());
 
             List<IntegerBinaryIndexerPojo> list1 = newMap2.query(indexer.not(Integer.MAX_VALUE)).toList();
-            assertEquals(3, list1.size());
+            assertEquals(4, list1.size());
         }
     }
 

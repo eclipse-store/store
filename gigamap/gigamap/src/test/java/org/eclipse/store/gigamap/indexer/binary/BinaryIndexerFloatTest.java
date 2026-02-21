@@ -42,12 +42,16 @@ public class BinaryIndexerFloatTest
             .build();
 
         map.add(new FloatBinaryIndexerPojo(1.0f));
-        map.add(new FloatBinaryIndexerPojo(2.0f));
+        map.add(new FloatBinaryIndexerPojo(-1.5f));
         map.add(new FloatBinaryIndexerPojo(3.0f));
+        map.add(new FloatBinaryIndexerPojo(0.0f));
 
-        List<FloatBinaryIndexerPojo> list = map.query(indexer.is(1.0f)).toList();
-        assertEquals(1, list.size());
-        assertEquals(1.0f, list.get(0).getFloatValue());
+        for(float value : new float[]{1.0f, -1.5f, 3.0f, 0.0f})
+        {
+            List<FloatBinaryIndexerPojo> list = map.query(indexer.is(value)).toList();
+            assertEquals(1, list.size());
+            assertEquals(value, list.get(0).getFloatValue());
+        }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(map, tempDir)) {
 
@@ -55,11 +59,14 @@ public class BinaryIndexerFloatTest
 
         GigaMap<FloatBinaryIndexerPojo> newMap = GigaMap.New();
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newMap, tempDir)) {
-            assertEquals(3, newMap.size());
+            assertEquals(4, newMap.size());
 
-            List<FloatBinaryIndexerPojo> newList = newMap.query(indexer.is(1.0f)).toList();
-            assertEquals(1, newList.size());
-            assertEquals(1.0f, newList.get(0).getFloatValue());
+            for(float value : new float[]{1.0f, -1.5f, 3.0f, 0.0f})
+            {
+                List<FloatBinaryIndexerPojo> newList = newMap.query(indexer.is(value)).toList();
+                assertEquals(1, newList.size());
+                assertEquals(value, newList.get(0).getFloatValue());
+            }
 
             newMap.add(new FloatBinaryIndexerPojo(Float.MAX_VALUE));
             newMap.store();
@@ -67,14 +74,14 @@ public class BinaryIndexerFloatTest
 
         GigaMap<FloatBinaryIndexerPojo> newMap2 = GigaMap.New();
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newMap2, tempDir)) {
-            assertEquals(4, newMap2.size());
+            assertEquals(5, newMap2.size());
 
             List<FloatBinaryIndexerPojo> newList = newMap2.query(indexer.is(Float.MAX_VALUE)).toList();
             assertEquals(1, newList.size());
             assertEquals(Float.MAX_VALUE, newList.get(0).getFloatValue());
 
             List<FloatBinaryIndexerPojo> list1 = newMap2.query(indexer.not(Float.MAX_VALUE)).toList();
-            assertEquals(3, list1.size());
+            assertEquals(4, list1.size());
         }
     }
 
