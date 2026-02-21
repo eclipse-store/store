@@ -55,9 +55,13 @@ final class VectorEntry
     public boolean equals(final Object obj)
     {
         if (obj == this)
+        {
             return true;
+        }
         if (obj == null || obj.getClass() != this.getClass())
+        {
             return false;
+        }
         final VectorEntry that = (VectorEntry)obj;
         return this.sourceEntityId == that.sourceEntityId
             && Arrays.equals(this.vector, that.vector)

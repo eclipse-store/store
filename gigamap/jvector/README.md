@@ -10,6 +10,8 @@ A Java library that integrates [JVector](https://github.com/datastax/jvector) (h
 - **PQ Compression**: Product Quantization for reduced memory footprint
 - **Background Persistence**: Automatic asynchronous persistence at configurable intervals
 - **Background Optimization**: Periodic graph cleanup for improved query performance
+- **Eventual Indexing**: Deferred graph mutations via background thread for reduced write latency
+- **Parallel On-Disk Writes**: Multi-threaded index persistence for large on-disk indices
 - **Lazy Entity Access**: Search results provide direct access to entities without additional lookups
 - **Stream API**: Java Stream support for search results
 - **GigaMap Integration**: Seamlessly integrates with GigaMap's index system
@@ -163,6 +165,13 @@ List<Document> topDocs = result.stream()
 | `indexDirectory` | `null` | Directory for index files (required if `onDisk=true`) |
 | `enablePqCompression` | `false` | Enable Product Quantization compression |
 | `pqSubspaces` | `0` | Number of PQ subspaces (0 = auto: dimension/4) |
+| `parallelOnDiskWrite` | `false` | Use parallel direct buffers and multiple worker threads for on-disk index writing. Speeds up persistence for large indices but uses more resources. Only applies when `onDisk=true` |
+
+### Eventual Indexing
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `eventualIndexing` | `false` | Defer HNSW graph mutations to a background thread. The vector store is updated synchronously, but graph construction happens asynchronously. Reduces mutation latency at the cost of eventual search consistency |
 
 ### Background Persistence
 
@@ -222,6 +231,38 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .optimizeOnShutdown(false)           // Skip for faster shutdown
     .build();
 ```
+
+### Eventual Indexing
+
+For high-throughput systems where mutation latency matters more than immediate search consistency:
+
+```java
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    // Eventual indexing (graph mutations deferred to background thread)
+    .eventualIndexing(true)
+    .build();
+```
+
+When enabled, the vector store is always updated synchronously (no data loss), but expensive HNSW graph mutations are queued and applied by a background worker thread. Search results may not immediately reflect the most recent mutations. The queue is automatically drained before `optimize()`, `persistToDisk()`, and `close()`.
+
+### Parallel On-Disk Writes
+
+For large on-disk indices where persistence speed is critical:
+
+```java
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/vectors"))
+    // Parallel on-disk writing (multiple worker threads)
+    .parallelOnDiskWrite(true)
+    .build();
+```
+
+When enabled, the on-disk graph writer uses parallel direct buffers and multiple worker threads (one per available processor) to write the index concurrently. This is disabled by default as sequential writing is preferred in resource-constrained environments or for smaller indices.
 
 ### Manual Optimization and Persistence
 
