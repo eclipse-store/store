@@ -14,16 +14,16 @@ package org.eclipse.store.gigamap.indexer;
  * #L%
  */
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.gigamap.types.IterationThreadProvider;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 public class IterationThreadProviderTest
 {
     @Test
-    @Disabled("https://github.com/eclipse-store/store/issues/449")
     void iterationThreadProviderTest()
     {
         GigaMap<Person> map = GigaMap.New();
@@ -34,9 +34,8 @@ public class IterationThreadProviderTest
         IterationThreadProvider threadProvider = IterationThreadProvider.Creating(
                 (parent, results) -> 4);
 
-        long count = map.query(threadProvider).and(personIndexer.not("Person1")).count(); //<-----
-        System.out.println(count);
-
+        long count = map.query(threadProvider).and(personIndexer.not("Person1")).count();
+        assertEquals(999, count);
     }
 
     private GigaMap<Person> prepageGigaMap(GigaMap<Person> map)
