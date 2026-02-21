@@ -52,6 +52,12 @@ Here's a list of all predefined indexers used for low cardinality:
 |IndexerLocalDateTime
 |java.time.LocalDateTime
 
+|IndexerInstant
+|java.time.Instant
+
+|IndexerZonedDateTime
+|java.time.ZonedDateTime
+
 |IndexerYearMonth
 |java.time.YearMonth
 
