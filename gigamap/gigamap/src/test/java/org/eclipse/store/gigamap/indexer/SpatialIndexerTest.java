@@ -24,7 +24,6 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.util.List;
-import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -38,24 +37,24 @@ public class SpatialIndexerTest
 	@Test
 	void at_exactMatch()
 	{
-		final GigaMap<Location> map = prepareGigaMap();
+		final GigaMap<Location> map = this.prepareGigaMap();
 
-		assertEquals(1, map.query(locationIndex.at(40.7128, -74.0060)).count());
-		assertEquals(1, map.query(locationIndex.at(51.5074, -0.1278)).count());
-		assertEquals(1, map.query(locationIndex.at(35.6762, 139.6503)).count());
-		assertEquals(1, map.query(locationIndex.at(-33.8688, 151.2093)).count());
-		assertEquals(1, map.query(locationIndex.at(-33.9249, 18.4241)).count());
-		assertEquals(1, map.query(locationIndex.at(-17.7134, 178.065)).count());
-		assertEquals(0, map.query(locationIndex.at(0.0, 0.0)).count());
+		assertEquals(1, map.query(this.locationIndex.at(40.7128, -74.0060)).count());
+		assertEquals(1, map.query(this.locationIndex.at(51.5074, -0.1278)).count());
+		assertEquals(1, map.query(this.locationIndex.at(35.6762, 139.6503)).count());
+		assertEquals(1, map.query(this.locationIndex.at(-33.8688, 151.2093)).count());
+		assertEquals(1, map.query(this.locationIndex.at(-33.9249, 18.4241)).count());
+		assertEquals(1, map.query(this.locationIndex.at(-17.7134, 178.065)).count());
+		assertEquals(0, map.query(this.locationIndex.at(0.0, 0.0)).count());
 	}
 
 	@Test
 	void isNull()
 	{
-		final GigaMap<Location> map = prepareGigaMap();
+		final GigaMap<Location> map = this.prepareGigaMap();
 
-		assertEquals(1, map.query(locationIndex.isNull()).count());
-		map.query(locationIndex.isNull()).forEach(
+		assertEquals(1, map.query(this.locationIndex.isNull()).count());
+		map.query(this.locationIndex.isNull()).forEach(
 			location -> assertEquals("Nowhere", location.name)
 		);
 	}
@@ -63,80 +62,80 @@ public class SpatialIndexerTest
 	@Test
 	void latitudeBetween()
 	{
-		final GigaMap<Location> map = prepareGigaMap();
+		final GigaMap<Location> map = this.prepareGigaMap();
 
 		// Northern hemisphere: New York, London, Tokyo
-		final long northern = map.query(locationIndex.latitudeBetween(0.0, 90.0)).count();
+		final long northern = map.query(this.locationIndex.latitudeBetween(0.0, 90.0)).count();
 		assertEquals(3, northern);
 
 		// Southern hemisphere: Sydney, Cape Town, Fiji
-		final long southern = map.query(locationIndex.latitudeBetween(-90.0, 0.0)).count();
+		final long southern = map.query(this.locationIndex.latitudeBetween(-90.0, 0.0)).count();
 		assertEquals(3, southern);
 	}
 
 	@Test
 	void longitudeBetween()
 	{
-		final GigaMap<Location> map = prepareGigaMap();
+		final GigaMap<Location> map = this.prepareGigaMap();
 
 		// Eastern hemisphere (positive longitude): Tokyo, Sydney, Cape Town, Fiji
-		final long eastern = map.query(locationIndex.longitudeBetween(0.0, 180.0)).count();
+		final long eastern = map.query(this.locationIndex.longitudeBetween(0.0, 180.0)).count();
 		assertEquals(4, eastern);
 
 		// Western hemisphere (negative longitude): New York, London (barely west)
-		final long western = map.query(locationIndex.longitudeBetween(-180.0, 0.0)).count();
+		final long western = map.query(this.locationIndex.longitudeBetween(-180.0, 0.0)).count();
 		assertEquals(2, western);
 	}
 
 	@Test
 	void latitudeAbove()
 	{
-		final GigaMap<Location> map = prepareGigaMap();
+		final GigaMap<Location> map = this.prepareGigaMap();
 
 		// Above 40 degrees: New York (40.7128), London (51.5074)
-		final long count = map.query(locationIndex.latitudeAbove(40.0)).count();
+		final long count = map.query(this.locationIndex.latitudeAbove(40.0)).count();
 		assertEquals(2, count);
 	}
 
 	@Test
 	void latitudeBelow()
 	{
-		final GigaMap<Location> map = prepareGigaMap();
+		final GigaMap<Location> map = this.prepareGigaMap();
 
 		// Below -30 degrees: Sydney (-33.8688), Cape Town (-33.9249)
-		final long count = map.query(locationIndex.latitudeBelow(-30.0)).count();
+		final long count = map.query(this.locationIndex.latitudeBelow(-30.0)).count();
 		assertEquals(2, count);
 	}
 
 	@Test
 	void longitudeAbove()
 	{
-		final GigaMap<Location> map = prepareGigaMap();
+		final GigaMap<Location> map = this.prepareGigaMap();
 
 		// Above 100 degrees: Tokyo (139.6503), Sydney (151.2093), Fiji (178.065)
-		final long count = map.query(locationIndex.longitudeAbove(100.0)).count();
+		final long count = map.query(this.locationIndex.longitudeAbove(100.0)).count();
 		assertEquals(3, count);
 	}
 
 	@Test
 	void longitudeBelow()
 	{
-		final GigaMap<Location> map = prepareGigaMap();
+		final GigaMap<Location> map = this.prepareGigaMap();
 
 		// Below -50 degrees: New York (-74.006)
-		final long count = map.query(locationIndex.longitudeBelow(-50.0)).count();
+		final long count = map.query(this.locationIndex.longitudeBelow(-50.0)).count();
 		assertEquals(1, count);
 	}
 
 	@Test
 	void withinBox()
 	{
-		final GigaMap<Location> map = prepareGigaMap();
+		final GigaMap<Location> map = this.prepareGigaMap();
 
 		// Bounding box around Europe (roughly): only London
-		final long count = map.query(locationIndex.withinBox(35.0, 60.0, -10.0, 30.0)).count();
+		final long count = map.query(this.locationIndex.withinBox(35.0, 60.0, -10.0, 30.0)).count();
 		assertEquals(1, count);
-		map.query(locationIndex.withinBox(35.0, 60.0, -10.0, 30.0)).forEach(
+		map.query(this.locationIndex.withinBox(35.0, 60.0, -10.0, 30.0)).forEach(
 			location -> assertEquals("London", location.name)
 		);
 	}
@@ -144,28 +143,28 @@ public class SpatialIndexerTest
 	@Test
 	void near()
 	{
-		final GigaMap<Location> map = prepareGigaMap();
+		final GigaMap<Location> map = this.prepareGigaMap();
 
 		// 100km around New York: only NYC
-		final long count = map.query(locationIndex.near(40.7128, -74.0060, 100.0)).count();
+		final long count = map.query(this.locationIndex.near(40.7128, -74.0060, 100.0)).count();
 		assertEquals(1, count);
 
 		// Very large radius (20000 km) should catch everything except null
-		final long all = map.query(locationIndex.near(0.0, 0.0, 20000.0)).count();
+		final long all = map.query(this.locationIndex.near(0.0, 0.0, 20000.0)).count();
 		assertTrue(all >= 5);
 	}
 
 	@Test
 	void negativeCoordinates()
 	{
-		final GigaMap<Location> map = prepareGigaMap();
+		final GigaMap<Location> map = this.prepareGigaMap();
 
 		// Both Sydney and Cape Town have negative latitudes in a similar range
-		final long count = map.query(locationIndex.latitudeBetween(-34.0, -33.5)).count();
+		final long count = map.query(this.locationIndex.latitudeBetween(-34.0, -33.5)).count();
 		assertEquals(2, count);
 
 		// Only Cape Town has longitude around 18
-		final long capeTown = map.query(locationIndex.withinBox(-35.0, -33.0, 17.0, 20.0)).count();
+		final long capeTown = map.query(this.locationIndex.withinBox(-35.0, -33.0, 17.0, 20.0)).count();
 		assertEquals(1, capeTown);
 	}
 
@@ -174,7 +173,7 @@ public class SpatialIndexerTest
 	{
 		final GigaMap<Location> map = GigaMap.New();
 		final BitmapIndices<Location> bitmap = map.index().bitmap();
-		bitmap.add(locationIndex);
+		bitmap.add(this.locationIndex);
 
 		map.addAll(
 			new Location("NorthPole", 90.0, 0.0),
@@ -183,14 +182,14 @@ public class SpatialIndexerTest
 			new Location("DatelineWest", 0.0, -180.0)
 		);
 
-		assertEquals(1, map.query(locationIndex.at(90.0, 0.0)).count());
-		assertEquals(1, map.query(locationIndex.at(-90.0, 0.0)).count());
-		assertEquals(1, map.query(locationIndex.at(0.0, 180.0)).count());
-		assertEquals(1, map.query(locationIndex.at(0.0, -180.0)).count());
+		assertEquals(1, map.query(this.locationIndex.at(90.0, 0.0)).count());
+		assertEquals(1, map.query(this.locationIndex.at(-90.0, 0.0)).count());
+		assertEquals(1, map.query(this.locationIndex.at(0.0, 180.0)).count());
+		assertEquals(1, map.query(this.locationIndex.at(0.0, -180.0)).count());
 
 		// Full range should include all
-		assertEquals(4, map.query(locationIndex.latitudeBetween(-90.0, 90.0)).count());
-		assertEquals(4, map.query(locationIndex.longitudeBetween(-180.0, 180.0)).count());
+		assertEquals(4, map.query(this.locationIndex.latitudeBetween(-90.0, 90.0)).count());
+		assertEquals(4, map.query(this.locationIndex.longitudeBetween(-180.0, 180.0)).count());
 	}
 
 	@Test
@@ -198,7 +197,7 @@ public class SpatialIndexerTest
 	{
 		final GigaMap<Location> map = GigaMap.New();
 		final BitmapIndices<Location> bitmap = map.index().bitmap();
-		bitmap.add(locationIndex);
+		bitmap.add(this.locationIndex);
 
 		// Center: 40.0, -74.0, radius: 150km
 		// Close: 40.5, -74.0 (~55km north, inside circle)
@@ -209,14 +208,14 @@ public class SpatialIndexerTest
 		);
 
 		// Bounding box for 150km should include both
-		final long nearCount = map.query(locationIndex.near(40.0, -74.0, 150.0)).count();
+		final long nearCount = map.query(this.locationIndex.near(40.0, -74.0, 150.0)).count();
 		assertEquals(2, nearCount);
 
 		// Post-filter with withinRadius should exclude "Corner" (outside the circle)
-		final List<Location> filtered = map.query(locationIndex.near(40.0, -74.0, 150.0))
+		final List<Location> filtered = map.query(this.locationIndex.near(40.0, -74.0, 150.0))
 			.stream()
-			.filter(locationIndex.withinRadius(40.0, -74.0, 150.0))
-			.collect(Collectors.toList());
+			.filter(this.locationIndex.withinRadius(40.0, -74.0, 150.0))
+			.toList();
 		assertEquals(1, filtered.size());
 		assertEquals("Close", filtered.get(0).name);
 	}
@@ -240,13 +239,13 @@ public class SpatialIndexerTest
 	@Test
 	void antimeridian_withinBox()
 	{
-		final GigaMap<Location> map = prepareGigaMap();
+		final GigaMap<Location> map = this.prepareGigaMap();
 
 		// Wrapping box: from 170 to -170 longitude (20-degree strip crossing dateline)
 		// Fiji (178.065) should be in this box
-		final long count = map.query(locationIndex.withinBox(-20.0, -15.0, 170.0, -170.0)).count();
+		final long count = map.query(this.locationIndex.withinBox(-20.0, -15.0, 170.0, -170.0)).count();
 		assertEquals(1, count);
-		map.query(locationIndex.withinBox(-20.0, -15.0, 170.0, -170.0)).forEach(
+		map.query(this.locationIndex.withinBox(-20.0, -15.0, 170.0, -170.0)).forEach(
 			location -> assertEquals("Fiji", location.name)
 		);
 	}
@@ -254,51 +253,51 @@ public class SpatialIndexerTest
 	@Test
 	void antimeridian_near()
 	{
-		final GigaMap<Location> map = prepareGigaMap();
+		final GigaMap<Location> map = this.prepareGigaMap();
 
 		// Near query centered at 179 degrees longitude, should cross antimeridian
 		// Fiji is at 178.065, should be within ~200km
-		final long count = map.query(locationIndex.near(-17.7134, 179.0, 200.0)).count();
+		final long count = map.query(this.locationIndex.near(-17.7134, 179.0, 200.0)).count();
 		assertTrue(count >= 1, "Fiji should be found near 179° longitude");
 	}
 
 	@Test
 	void persistence_roundTrip_rangeQueries()
 	{
-		final GigaMap<Location> map = prepareGigaMap();
+		final GigaMap<Location> map = this.prepareGigaMap();
 
-		try(EmbeddedStorageManager manager = EmbeddedStorage.start(map, tempDir))
+		try(final EmbeddedStorageManager manager = EmbeddedStorage.start(map, this.tempDir))
 		{
-			assertEquals(3, map.query(locationIndex.latitudeBetween(0.0, 90.0)).count());
-			assertEquals(1, map.query(locationIndex.withinBox(35.0, 60.0, -10.0, 30.0)).count());
+			assertEquals(3, map.query(this.locationIndex.latitudeBetween(0.0, 90.0)).count());
+			assertEquals(1, map.query(this.locationIndex.withinBox(35.0, 60.0, -10.0, 30.0)).count());
 		}
 
-		try(EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir))
+		try(final EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir))
 		{
 			@SuppressWarnings("unchecked")
 			final GigaMap<Location> loaded = (GigaMap<Location>)manager.root();
 
-			assertEquals(3, loaded.query(locationIndex.latitudeBetween(0.0, 90.0)).count());
-			assertEquals(1, loaded.query(locationIndex.withinBox(35.0, 60.0, -10.0, 30.0)).count());
+			assertEquals(3, loaded.query(this.locationIndex.latitudeBetween(0.0, 90.0)).count());
+			assertEquals(1, loaded.query(this.locationIndex.withinBox(35.0, 60.0, -10.0, 30.0)).count());
 		}
 	}
 
 	@Test
 	void persistence_roundTrip_exactMatch()
 	{
-		final GigaMap<Location> map = prepareGigaMap();
+		final GigaMap<Location> map = this.prepareGigaMap();
 
-		try(EmbeddedStorageManager manager = EmbeddedStorage.start(map, tempDir))
+		try(final EmbeddedStorageManager manager = EmbeddedStorage.start(map, this.tempDir))
 		{
-			assertEquals(1, map.query(locationIndex.at(40.7128, -74.0060)).count());
+			assertEquals(1, map.query(this.locationIndex.at(40.7128, -74.0060)).count());
 		}
 
-		try(EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir))
+		try(final EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir))
 		{
 			@SuppressWarnings("unchecked")
 			final GigaMap<Location> loaded = (GigaMap<Location>)manager.root();
 
-			assertEquals(1, loaded.query(locationIndex.at(40.7128, -74.0060)).count());
+			assertEquals(1, loaded.query(this.locationIndex.at(40.7128, -74.0060)).count());
 		}
 	}
 
@@ -307,7 +306,7 @@ public class SpatialIndexerTest
 	{
 		final GigaMap<Location> map = GigaMap.New();
 		final BitmapIndices<Location> bitmap = map.index().bitmap();
-		bitmap.add(locationIndex);
+		bitmap.add(this.locationIndex);
 
 		// Partially null coordinates should throw
 		assertThrows(IllegalArgumentException.class, () ->
@@ -325,7 +324,7 @@ public class SpatialIndexerTest
 	{
 		final GigaMap<Location> map = GigaMap.New();
 		final BitmapIndices<Location> bitmap = map.index().bitmap();
-		bitmap.add(locationIndex);
+		bitmap.add(this.locationIndex);
 
 		map.addAll(
 			new Location("New York",  40.7128,  -74.0060),
