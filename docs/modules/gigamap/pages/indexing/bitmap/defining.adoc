@@ -103,7 +103,9 @@ public final static Indexer<Person, MaritalStatus> maritalStatus = new Indexer.A
 };
 ----
 
-Collections can also be indexed. In fact, everything that implements `Iterable` is supported.
+Collections can also be indexed using `IndexerMultiValue`. Everything that implements `Iterable` is supported, making it suitable for lists, sets, or any other collection type.
+
+This is useful for modeling many-to-many relationships, tags, categories, or any field where an entity can have multiple associated values. Each value in the collection is indexed individually, so an entity with three interests will appear in the index under all three keys.
 
 [source, java]
 ----
@@ -122,6 +124,8 @@ public final static IndexerMultiValue<Person, Interest> interests = new IndexerM
     }
 };
 ----
+
+In addition to the standard query methods (`is`, `in`, `not`, `notIn`), multi-value indexers provide the `all` method, which finds entities whose collection contains *all* of the specified keys. See xref:../../queries/defining.adoc#_multi_value_queries[Multi-Value Queries] for details.
 
 With custom logic, you can define any indexer you can imagine, not just returning values from the entity. For instance, this one creates a generation index.
 
