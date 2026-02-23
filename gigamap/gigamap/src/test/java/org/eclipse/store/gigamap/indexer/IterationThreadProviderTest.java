@@ -14,16 +14,21 @@ package org.eclipse.store.gigamap.indexer;
  * #L%
  */
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import org.eclipse.serializer.exceptions.NumberRangeException;
+import org.eclipse.store.gigamap.types.BitmapResult;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.gigamap.types.IterationThreadProvider;
-import org.junit.jupiter.api.Disabled;
+import org.eclipse.store.gigamap.types.ThreadCountProvider;
 import org.junit.jupiter.api.Test;
 
 public class IterationThreadProviderTest
 {
     @Test
-    @Disabled("https://github.com/eclipse-store/store/issues/449")
     void iterationThreadProviderTest()
     {
         GigaMap<Person> map = GigaMap.New();
@@ -34,9 +39,64 @@ public class IterationThreadProviderTest
         IterationThreadProvider threadProvider = IterationThreadProvider.Creating(
                 (parent, results) -> 4);
 
-        long count = map.query(threadProvider).and(personIndexer.not("Person1")).count(); //<-----
-        System.out.println(count);
+        long count = map.query(threadProvider).and(personIndexer.not("Person1")).count();
+        assertEquals(999, count);
+    }
 
+    @Test
+    void testFixedThreadCountProvider_validation()
+    {
+        assertThrows(NumberRangeException.class, () -> ThreadCountProvider.Fixed(-1));
+        assertThrows(NumberRangeException.class, () -> ThreadCountProvider.Fixed(0));
+    }
+
+    @Test
+    void testAdaptiveThreadCountProvider_validation()
+    {
+        assertThrows(NumberRangeException.class, () -> ThreadCountProvider.Adaptive(-5));
+        assertThrows(NumberRangeException.class, () -> ThreadCountProvider.Adaptive(0));
+    }
+
+    @Test
+    void testAdaptiveThreadCountProvider()
+    {
+        final ThreadCountProvider provider = ThreadCountProvider.Adaptive();
+        final GigaMap<Person> map = GigaMap.New();
+        final int availableProcessors = Runtime.getRuntime().availableProcessors();
+
+        final int threadCount = provider.provideThreadCount(map, new BitmapResult[availableProcessors + 10]);
+        assertTrue(threadCount <= availableProcessors);
+    }
+
+
+    @Test
+    void testIterationThreadProviderWithFixedThreadCount()
+    {
+        GigaMap<Person> map = GigaMap.New();
+        PersonIndexer personIndexer = new PersonIndexer();
+        map.index().bitmap().add(personIndexer);
+        prepageGigaMap(map);
+
+        IterationThreadProvider threadProvider = IterationThreadProvider.Creating(
+                ThreadCountProvider.Fixed(2));
+
+        long count = map.query(threadProvider).and(personIndexer.not("Person1")).count();
+        assertEquals(999, count);
+    }
+
+    @Test
+    void testIterationThreadProviderWithAdaptiveThreadCount()
+    {
+        GigaMap<Person> map = GigaMap.New();
+        PersonIndexer personIndexer = new PersonIndexer();
+        map.index().bitmap().add(personIndexer);
+        prepageGigaMap(map);
+
+        IterationThreadProvider threadProvider = IterationThreadProvider.Creating(
+                ThreadCountProvider.Adaptive(4));
+
+        long count = map.query(threadProvider).and(personIndexer.not("Person1")).count();
+        assertEquals(999, count);
     }
 
     private GigaMap<Person> prepageGigaMap(GigaMap<Person> map)

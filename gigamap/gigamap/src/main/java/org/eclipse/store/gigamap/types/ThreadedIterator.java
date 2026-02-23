@@ -205,30 +205,33 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 	{
 		/*
 		 * Note:
-		 * When currentBitPosition is Long.SIZE, the 1L is shifted out to the left, yielding 0L.
-		 * This means this case will ALWAYS call the scrolling method (required for initialization).
-		 * 
-		 * Respectively:
-		 * When currentBitmapValue is -1L (meaning all bits are 1) and currentBitPosition is NOT overflown,
-		 * the calculation will NEVER yield 0L and thus NEVER call the scrolling method (required for being closed).
-		 * 
-		 * All other ("normal") cases mean the current long value is checked bit by bit, while skipping
-		 * 0 bits and advancing to the next long value after checking the highest bit.
+		 * The bitPosition bounds check is required because Java's shift operator uses only
+		 * the 6 lowest-order bits of the right operand for long shifts (JLS 15.19).
+		 * This means 1L << 64 == 1L << 0 == 1L (NOT 0L), so without the bounds check,
+		 * bitPosition >= Long.SIZE would wrap around and re-test already-processed bits,
+		 * causing an infinite loop for bitmap values with bit 0 set (e.g. -1L from NOT conditions).
+		 *
+		 * When currentBitPosition is within [0, Long.SIZE), the current bit is tested directly.
+		 * If the bit is set, return true immediately (fast path).
+		 *
+		 * When currentBitPosition >= Long.SIZE (after processing the last bit via nextId's post-increment),
+		 * the scrolling method is called to advance to the next bitmap value.
 		 */
 		// must ensure a marked bit position
-		if((this.currentBitmapValue & 1L<<this.currentBitPosition) != 0L)
+		if(this.currentBitPosition < Long.SIZE && (this.currentBitmapValue & 1L<<this.currentBitPosition) != 0L)
 		{
 			return true;
 		}
 		this.scrollToNextMarkedBitPosition();
-		
+
 		return this.hasMoreData();
 	}
 
 	@Override
 	public long nextId()
 	{
-		if((this.currentBitmapValue & 1L<<this.currentBitPosition) == 0L)
+		// bounds check required: see hasNextId() comment on JLS 15.19 shift wrapping
+		if(this.currentBitPosition >= Long.SIZE || (this.currentBitmapValue & 1L<<this.currentBitPosition) == 0L)
 		{
 			this.scrollToNextMarkedBitPosition();
 			if(!this.hasMoreData())
