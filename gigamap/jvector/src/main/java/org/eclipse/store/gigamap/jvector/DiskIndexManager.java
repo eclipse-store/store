@@ -20,6 +20,7 @@ import io.github.jbellis.jvector.graph.OnHeapGraphIndex;
 import io.github.jbellis.jvector.graph.RandomAccessVectorValues;
 import io.github.jbellis.jvector.graph.disk.OnDiskGraphIndex;
 import io.github.jbellis.jvector.graph.disk.OnDiskGraphIndexWriter;
+import io.github.jbellis.jvector.graph.disk.OnDiskParallelGraphIndexWriter;
 import io.github.jbellis.jvector.graph.disk.feature.Feature;
 import io.github.jbellis.jvector.graph.disk.feature.FeatureId;
 import io.github.jbellis.jvector.graph.disk.feature.FusedPQ;
@@ -126,29 +127,32 @@ interface DiskIndexManager extends Closeable
     {
         private static final Logger LOG = LoggerFactory.getLogger(DiskIndexManager.class);
 
-        private final IndexStateProvider provider      ;
-        private final String             name          ;
-        private final Path               indexDirectory;
-        private final int                dimension     ;
-        private final int                maxDegree     ;
+        private final IndexStateProvider provider            ;
+        private final String             name                ;
+        private final Path               indexDirectory      ;
+        private final int                dimension           ;
+        private final int                maxDegree           ;
+        private final boolean            parallelOnDiskWrite ;
 
         private OnDiskGraphIndex diskIndex     ;
         private ReaderSupplier   readerSupplier;
         private boolean          loaded        ;
 
         Default(
-            final IndexStateProvider provider      ,
-            final String             name          ,
-            final Path               indexDirectory,
-            final int                dimension     ,
-            final int                maxDegree
+            final IndexStateProvider provider            ,
+            final String             name                ,
+            final Path               indexDirectory      ,
+            final int                dimension           ,
+            final int                maxDegree           ,
+            final boolean            parallelOnDiskWrite
         )
         {
-            this.provider       = provider      ;
-            this.name           = name          ;
-            this.indexDirectory = indexDirectory;
-            this.dimension      = dimension     ;
-            this.maxDegree      = maxDegree     ;
+            this.provider            = provider            ;
+            this.name                = name                ;
+            this.indexDirectory      = indexDirectory      ;
+            this.dimension           = dimension           ;
+            this.maxDegree           = maxDegree           ;
+            this.parallelOnDiskWrite = parallelOnDiskWrite ;
         }
 
         @Override
@@ -287,33 +291,46 @@ interface DiskIndexManager extends Closeable
             final InlineVectors inlineVectors = new InlineVectors(this.dimension);
             final FusedPQ fusedPQ = new FusedPQ(this.maxDegree, pq);
 
-            // Build writer with features using sequential renumbering (identity mapping)
-            try(final OnDiskGraphIndexWriter writer = new OnDiskGraphIndexWriter.Builder(index, graphPath)
-                .with(inlineVectors)
-                .with(fusedPQ)
-                .build())
+            // Create feature suppliers that provide feature state for each node
+            final Map<FeatureId, IntFunction<Feature.State>> suppliers = new EnumMap<>(FeatureId.class);
+
+            suppliers.put(FeatureId.INLINE_VECTORS, nodeId ->
+                new InlineVectors.State(ravv.getVector(nodeId))
+            );
+
+            // Get a view for FusedPQ state creation
+            final var view = index.getView();
+            suppliers.put(FeatureId.FUSED_PQ, nodeId ->
+                new FusedPQ.State(view, pqVectors, nodeId)
+            );
+
+            if(this.parallelOnDiskWrite)
             {
-                // Create feature suppliers that provide feature state for each node
-                final Map<FeatureId, IntFunction<Feature.State>> suppliers = new EnumMap<>(FeatureId.class);
-
-                suppliers.put(FeatureId.INLINE_VECTORS, nodeId ->
-                    new InlineVectors.State(ravv.getVector(nodeId))
-                );
-
-                // Get a view for FusedPQ state creation
-                final var view = index.getView();
-                suppliers.put(FeatureId.FUSED_PQ, nodeId ->
-                    new FusedPQ.State(view, pqVectors, nodeId)
-                );
-
-                // Write with sequential renumbering (maintains ordinals)
-                writer.write(suppliers);
-
-                // Close the view after writing
-                view.close();
+                try(final OnDiskParallelGraphIndexWriter writer = new OnDiskParallelGraphIndexWriter.Builder(index, graphPath)
+                    .withParallelDirectBuffers(true)
+                    .with(inlineVectors)
+                    .with(fusedPQ)
+                    .build())
+                {
+                    writer.write(suppliers);
+                }
+            }
+            else
+            {
+                try(final OnDiskGraphIndexWriter writer = new OnDiskGraphIndexWriter.Builder(index, graphPath)
+                    .with(inlineVectors)
+                    .with(fusedPQ)
+                    .build())
+                {
+                    writer.write(suppliers);
+                }
             }
 
-            LOG.info("Wrote index '{}' with FusedPQ compression ({} nodes)", this.name, index.size(0));
+            // Close the view after writing
+            view.close();
+
+            LOG.info("Wrote index '{}' with FusedPQ compression ({} nodes, parallel={})",
+                this.name, index.size(0), this.parallelOnDiskWrite);
         }
 
         /**

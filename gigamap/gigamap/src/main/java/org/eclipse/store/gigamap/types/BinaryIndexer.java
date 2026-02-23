@@ -115,15 +115,6 @@ public interface BinaryIndexer<E> extends Indexer<E, Long>
 			{
 				throw new IllegalArgumentException("Null keys are not allowed in index " + indexer.name());
 			}
-			validate(key.longValue(), indexer);
-		}
-		
-		static void validate(final long key, final BinaryIndexer<?> indexer)
-		{
-			if(key <= 0)
-			{
-				throw new IllegalArgumentException("Only positive values are allowed: " + key + " in index " + indexer.name());
-			}
 		}
 		
 	}

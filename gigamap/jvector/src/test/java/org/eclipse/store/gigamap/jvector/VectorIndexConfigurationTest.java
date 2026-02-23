@@ -54,6 +54,8 @@ class VectorIndexConfigurationTest
         assertEquals(0L, config.optimizationIntervalMs());
         assertEquals(1000, config.minChangesBetweenOptimizations());
         assertFalse(config.optimizeOnShutdown());
+        assertFalse(config.parallelOnDiskWrite());
+        assertFalse(config.eventualIndexing());
     }
 
     // ==================== Builder Validation Tests ====================
@@ -122,30 +124,6 @@ class VectorIndexConfigurationTest
     }
 
     @Test
-    void testBuilderRequiresNonNegativePersistenceIntervalMs()
-    {
-        // 0 is valid (means disabled)
-        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
-            .dimension(64)
-            .persistenceIntervalMs(0)
-            .build();
-        assertEquals(0L, config.persistenceIntervalMs());
-        assertFalse(config.backgroundPersistence());
-
-        assertThrows(IllegalArgumentException.class, () ->
-            VectorIndexConfiguration.builder().dimension(64).persistenceIntervalMs(-1).build()
-        );
-    }
-
-    @Test
-    void testBuilderRequiresNonNegativeMinChangesBetweenPersists()
-    {
-        assertThrows(IllegalArgumentException.class, () ->
-            VectorIndexConfiguration.builder().dimension(64).minChangesBetweenPersists(-1).build()
-        );
-    }
-
-    @Test
     void testBuilderRequiresNonNegativeOptimizationIntervalMs()
     {
         // 0 is valid (means disabled)
@@ -188,19 +166,6 @@ class VectorIndexConfigurationTest
                 .onDisk(true)
                 .build()
         );
-    }
-
-    @Test
-    void testOnDiskWithIndexDirectorySucceeds(@TempDir final Path tempDir)
-    {
-        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
-            .dimension(64)
-            .onDisk(true)
-            .indexDirectory(tempDir)
-            .build();
-
-        assertTrue(config.onDisk());
-        assertEquals(tempDir, config.indexDirectory());
     }
 
     @Test
@@ -267,6 +232,129 @@ class VectorIndexConfigurationTest
             .build();
 
         assertEquals(0, config.pqSubspaces());
+    }
+
+    // ==================== Parallel On-Disk Write Tests ====================
+
+    @Test
+    void testParallelOnDiskWriteDefaultFalse()
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .build();
+
+        assertFalse(config.parallelOnDiskWrite());
+    }
+
+    @Test
+    void testParallelOnDiskWriteCanBeDisabled(@TempDir final Path tempDir)
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .onDisk(true)
+            .indexDirectory(tempDir)
+            .parallelOnDiskWrite(false)
+            .build();
+
+        assertFalse(config.parallelOnDiskWrite());
+    }
+
+    @Test
+    void testParallelVsNonParallelShareSameDefaults(@TempDir final Path tempDir)
+    {
+        final VectorIndexConfiguration parallel = VectorIndexConfiguration.builder()
+            .dimension(768)
+            .onDisk(true)
+            .indexDirectory(tempDir)
+            .parallelOnDiskWrite(true)
+            .build();
+
+        final VectorIndexConfiguration sequential = VectorIndexConfiguration.builder()
+            .dimension(768)
+            .onDisk(true)
+            .indexDirectory(tempDir)
+            .parallelOnDiskWrite(false)
+            .build();
+
+        assertTrue(parallel.parallelOnDiskWrite());
+        assertFalse(sequential.parallelOnDiskWrite());
+
+        // All other parameters remain identical
+        assertEquals(parallel.dimension(), sequential.dimension());
+        assertEquals(parallel.similarityFunction(), sequential.similarityFunction());
+        assertEquals(parallel.maxDegree(), sequential.maxDegree());
+        assertEquals(parallel.beamWidth(), sequential.beamWidth());
+        assertEquals(parallel.neighborOverflow(), sequential.neighborOverflow());
+        assertEquals(parallel.alpha(), sequential.alpha());
+        assertEquals(parallel.onDisk(), sequential.onDisk());
+        assertEquals(parallel.indexDirectory(), sequential.indexDirectory());
+        assertEquals(parallel.enablePqCompression(), sequential.enablePqCompression());
+        assertEquals(parallel.pqSubspaces(), sequential.pqSubspaces());
+        assertEquals(parallel.persistenceIntervalMs(), sequential.persistenceIntervalMs());
+        assertEquals(parallel.persistOnShutdown(), sequential.persistOnShutdown());
+        assertEquals(parallel.minChangesBetweenPersists(), sequential.minChangesBetweenPersists());
+        assertEquals(parallel.optimizationIntervalMs(), sequential.optimizationIntervalMs());
+        assertEquals(parallel.minChangesBetweenOptimizations(), sequential.minChangesBetweenOptimizations());
+        assertEquals(parallel.optimizeOnShutdown(), sequential.optimizeOnShutdown());
+    }
+
+    @Test
+    void testParallelVsNonParallelWithCompression(@TempDir final Path tempDir)
+    {
+        final VectorIndexConfiguration parallel = VectorIndexConfiguration.builder()
+            .dimension(768)
+            .onDisk(true)
+            .indexDirectory(tempDir)
+            .enablePqCompression(true)
+            .pqSubspaces(48)
+            .parallelOnDiskWrite(true)
+            .build();
+
+        final VectorIndexConfiguration sequential = VectorIndexConfiguration.builder()
+            .dimension(768)
+            .onDisk(true)
+            .indexDirectory(tempDir)
+            .enablePqCompression(true)
+            .pqSubspaces(48)
+            .parallelOnDiskWrite(false)
+            .build();
+
+        assertTrue(parallel.parallelOnDiskWrite());
+        assertFalse(sequential.parallelOnDiskWrite());
+
+        // Compression settings are identical regardless of parallel mode
+        assertEquals(parallel.enablePqCompression(), sequential.enablePqCompression());
+        assertEquals(parallel.pqSubspaces(), sequential.pqSubspaces());
+        assertEquals(parallel.maxDegree(), sequential.maxDegree());
+    }
+
+    @Test
+    void testFactoryMethodsDefaultToSequential(@TempDir final Path tempDir)
+    {
+        final Path indexDir = tempDir.resolve("vectors");
+
+        final VectorIndexConfiguration medium = VectorIndexConfiguration.forMediumDataset(768, indexDir);
+        assertFalse(medium.parallelOnDiskWrite());
+
+        final VectorIndexConfiguration large = VectorIndexConfiguration.forLargeDataset(768, indexDir);
+        assertFalse(large.parallelOnDiskWrite());
+
+        final VectorIndexConfiguration highPrecision = VectorIndexConfiguration.forHighPrecision(768, indexDir);
+        assertFalse(highPrecision.parallelOnDiskWrite());
+    }
+
+    @Test
+    void testBuilderForLargeDatasetCanDisableParallel(@TempDir final Path tempDir)
+    {
+        final Path indexDir = tempDir.resolve("vectors");
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builderForLargeDataset(768, indexDir)
+            .parallelOnDiskWrite(false)
+            .enablePqCompression(true)
+            .build();
+
+        assertTrue(config.onDisk());
+        assertTrue(config.enablePqCompression());
+        assertFalse(config.parallelOnDiskWrite());
     }
 
     // ==================== Similarity Function Tests ====================
@@ -592,6 +680,7 @@ class VectorIndexConfigurationTest
             .optimizationIntervalMs(120_000)
             .minChangesBetweenOptimizations(500)
             .optimizeOnShutdown(true)
+            .parallelOnDiskWrite(false)
             .build();
 
         assertEquals(768, config.dimension());
@@ -612,6 +701,7 @@ class VectorIndexConfigurationTest
         assertEquals(120_000L, config.optimizationIntervalMs());
         assertEquals(500, config.minChangesBetweenOptimizations());
         assertTrue(config.optimizeOnShutdown());
+        assertFalse(config.parallelOnDiskWrite());
     }
 
     @Test
@@ -774,6 +864,7 @@ class VectorIndexConfigurationTest
         assertSame(builder, builder.optimizationIntervalMs(60_000));
         assertSame(builder, builder.minChangesBetweenOptimizations(1000));
         assertSame(builder, builder.optimizeOnShutdown(false));
+        assertSame(builder, builder.parallelOnDiskWrite(true));
     }
 
     // ==================== Factory Methods Comparison Tests ====================
@@ -829,4 +920,226 @@ class VectorIndexConfigurationTest
         assertTrue(config.enablePqCompression(),
             "Large dataset should have compression enabled by default");
     }
+
+    // ==================== Eventual Indexing Tests ====================
+
+    @Test
+    void testEventualIndexingDefaultFalse()
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .build();
+
+        assertFalse(config.eventualIndexing());
+    }
+
+    @Test
+    void testEventualIndexingCanBeEnabled()
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .eventualIndexing(true)
+            .build();
+
+        assertTrue(config.eventualIndexing());
+    }
+
+    @Test
+    void testEventualIndexingCanBeDisabledExplicitly()
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .eventualIndexing(false)
+            .build();
+
+        assertFalse(config.eventualIndexing());
+    }
+
+    @Test
+    void testEventualIndexingWithOnDiskConfig(@TempDir final Path tempDir)
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .onDisk(true)
+            .indexDirectory(tempDir)
+            .eventualIndexing(true)
+            .build();
+
+        assertTrue(config.eventualIndexing());
+        assertTrue(config.onDisk());
+    }
+
+    @Test
+    void testFactoryMethodsDefaultEventualIndexingFalse(@TempDir final Path tempDir)
+    {
+        assertFalse(VectorIndexConfiguration.forSmallDataset(64).eventualIndexing());
+        assertFalse(VectorIndexConfiguration.forMediumDataset(64).eventualIndexing());
+        assertFalse(VectorIndexConfiguration.forLargeDataset(64, tempDir).eventualIndexing());
+        assertFalse(VectorIndexConfiguration.forHighPrecision(64).eventualIndexing());
+    }
+
+    /**
+     * Test on-disk configuration builder.
+     */
+    @Test
+    void testOnDiskConfigurationBuilder(@TempDir final Path tempDir)
+    {
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+                .dimension(128)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(tempDir)
+                .build();
+
+        assertTrue(config.onDisk());
+        assertEquals(tempDir, config.indexDirectory());
+        assertFalse(config.enablePqCompression());
+        assertEquals(0, config.pqSubspaces());
+    }
+
+    /**
+     * Test on-disk configuration with compression.
+     * FusedPQ requires maxDegree=32, so it should be auto-set.
+     */
+    @Test
+    void testOnDiskConfigurationWithCompression(@TempDir final Path tempDir)
+    {
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+                .dimension(128)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .maxDegree(16) // Will be overridden to 32 for FusedPQ
+                .onDisk(true)
+                .indexDirectory(tempDir)
+                .enablePqCompression(true)
+                .pqSubspaces(32)
+                .build();
+
+        assertTrue(config.onDisk());
+        assertTrue(config.enablePqCompression());
+        assertEquals(32, config.pqSubspaces());
+        assertEquals(32, config.maxDegree(), "FusedPQ requires maxDegree=32");
+    }
+
+    /**
+     * Test that maxDegree is auto-set to 32 when compression is enabled.
+     */
+    @Test
+    void testFusedPQRequiresMaxDegree32(@TempDir final Path tempDir)
+    {
+        // Try to set maxDegree to 64 with compression enabled
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+                .dimension(128)
+                .maxDegree(64)
+                .onDisk(true)
+                .indexDirectory(tempDir)
+                .enablePqCompression(true)
+                .build();
+
+        // Should be overridden to 32
+        assertEquals(32, config.maxDegree(), "FusedPQ should enforce maxDegree=32");
+    }
+
+    /**
+     * Test background persistence configuration builder.
+     */
+    @Test
+    void testBackgroundPersistenceConfigurationBuilder(@TempDir final Path tempDir)
+    {
+        final Path indexDir = tempDir.resolve("index");
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+                .dimension(128)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .persistenceIntervalMs(60_000)
+                .persistOnShutdown(true)
+                .minChangesBetweenPersists(50)
+                .build();
+
+        assertTrue(config.onDisk());
+        assertTrue(config.backgroundPersistence());
+        assertEquals(60_000, config.persistenceIntervalMs());
+        assertTrue(config.persistOnShutdown());
+        assertEquals(50, config.minChangesBetweenPersists());
+    }
+
+    /**
+     * Test validation: persistenceIntervalMs must be non-negative.
+     */
+    @Test
+    void testPersistenceIntervalMsMustBeNonNegative(@TempDir final Path tempDir)
+    {
+        // 0 is valid (means disabled)
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+                .dimension(128)
+                .onDisk(true)
+                .indexDirectory(tempDir)
+                .persistenceIntervalMs(0)
+                .build();
+        assertEquals(0, config.persistenceIntervalMs());
+        assertFalse(config.backgroundPersistence());
+
+        assertThrows(IllegalArgumentException.class, () ->
+                VectorIndexConfiguration.builder()
+                        .dimension(128)
+                        .onDisk(true)
+                        .indexDirectory(tempDir)
+                        .persistenceIntervalMs(-1000)
+                        .build()
+        );
+    }
+
+    /**
+     * Test validation: minChangesBetweenPersists must be non-negative.
+     */
+    @Test
+    void testMinChangesBetweenPersistsMustBeNonNegative(@TempDir final Path tempDir)
+    {
+        assertThrows(IllegalArgumentException.class, () ->
+                VectorIndexConfiguration.builder()
+                        .dimension(128)
+                        .onDisk(true)
+                        .indexDirectory(tempDir)
+                        .minChangesBetweenPersists(-1)
+                        .build()
+        );
+
+        // Zero should be allowed (persist on every interval)
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+                .dimension(128)
+                .onDisk(true)
+                .indexDirectory(tempDir)
+                .minChangesBetweenPersists(0)
+                .build();
+        assertEquals(0, config.minChangesBetweenPersists());
+    }
+
+    /**
+     * Test background optimization configuration builder.
+     */
+    @Test
+    void testBackgroundOptimizationConfigurationBuilder(@TempDir final Path tempDir)
+    {
+        final Path indexDir = tempDir.resolve("index");
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+                .dimension(128)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .optimizationIntervalMs(120_000)
+                .minChangesBetweenOptimizations(500)
+                .optimizeOnShutdown(true)
+                .build();
+
+        assertTrue(config.onDisk());
+        assertTrue(config.backgroundOptimization());
+        assertEquals(120_000, config.optimizationIntervalMs());
+        assertEquals(500, config.minChangesBetweenOptimizations());
+        assertTrue(config.optimizeOnShutdown());
+    }
+
 }

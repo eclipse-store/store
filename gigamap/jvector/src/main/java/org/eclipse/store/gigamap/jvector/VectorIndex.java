@@ -35,6 +35,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -53,6 +54,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  *   <li><b>On-Disk Storage</b> - Optional memory-mapped indices for large datasets</li>
  *   <li><b>PQ Compression</b> - Product Quantization for reduced memory footprint</li>
  *   <li><b>Background Optimization</b> - Automatic graph cleanup for improved performance</li>
+ *   <li><b>Eventual Indexing</b> - Deferred graph mutations via background thread for reduced write latency</li>
+ *   <li><b>Parallel On-Disk Writes</b> - Multi-threaded index persistence for large on-disk indices</li>
  * </ul>
  *
  * <h2>Basic Usage</h2>
@@ -160,6 +163,37 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  *     .build();
  * }</pre>
  *
+ * <h2>Eventual Indexing</h2>
+ * When enabled, expensive HNSW graph mutations (add, update, remove) are deferred to a background
+ * thread. The vector store is still updated synchronously, so no data is lost, but graph construction
+ * happens asynchronously. This reduces the latency of mutation operations at the cost of eventual
+ * consistency — search results may not immediately reflect the most recent mutations.
+ * <p>
+ * The graph is automatically drained (all pending operations applied) before
+ * {@code optimize()}, {@code persistToDisk()}, and {@code close()}.
+ * <pre>{@code
+ * VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+ *     .dimension(768)
+ *     .similarityFunction(VectorSimilarityFunction.COSINE)
+ *     .eventualIndexing(true)
+ *     .build();
+ * }</pre>
+ *
+ * <h2>Parallel On-Disk Writes</h2>
+ * When on-disk storage is enabled, persistence can optionally use parallel direct buffers and
+ * multiple worker threads (one per available processor) to write the index concurrently. This can
+ * significantly speed up persistence for large indices. Disabled by default, as sequential
+ * single-threaded writing is preferred in resource-constrained environments or for smaller indices.
+ * <pre>{@code
+ * VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+ *     .dimension(768)
+ *     .similarityFunction(VectorSimilarityFunction.COSINE)
+ *     .onDisk(true)
+ *     .indexDirectory(Path.of("/data/vectors"))
+ *     .parallelOnDiskWrite(true)
+ *     .build();
+ * }</pre>
+ *
  * <h2>Search Methods</h2>
  * <pre>{@code
  * // Search by vector
@@ -226,6 +260,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  *   <li><b>Search</b> - Thread-safe, multiple concurrent searches allowed</li>
  *   <li><b>Add/Remove</b> - Thread-safe via GigaMap synchronization</li>
  *   <li><b>Optimization</b> - Briefly blocks add/remove/search during cleanup</li>
+ *   <li><b>Eventual Indexing</b> - Graph mutations are applied sequentially by a single
+ *       background worker thread; vector store updates remain synchronous</li>
  * </ul>
  *
  * <h2>Limitations</h2>
@@ -593,8 +629,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     public static class Default<E>
     extends    AbstractStateChangeFlagged
     implements VectorIndex.Internal<E>,
-               BackgroundPersistenceManager.Callback,
-               BackgroundOptimizationManager.Callback,
+               BackgroundTaskManager.Callback,
                PQCompressionManager.VectorProvider,
                DiskIndexManager.IndexStateProvider
     {
@@ -625,10 +660,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private transient OnHeapGraphIndex  index            ;
 
         // Managers (transient - recreated on load)
-        private transient DiskIndexManager              diskManager        ;
-        private transient PQCompressionManager          pqManager          ;
-        private transient BackgroundPersistenceManager  persistenceManager ;
-        transient BackgroundOptimizationManager optimizationManager;
+        private transient DiskIndexManager     diskManager        ;
+        private transient PQCompressionManager pqManager          ;
+        transient BackgroundTaskManager        backgroundTaskManager;
 
         // GraphSearcher pool for thread-local reuse
         private transient ExplicitThreadLocal<GraphSearcher> searcherPool;
@@ -636,10 +670,18 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // Flag indicating graph was loaded from file (skip rebuild)
         private transient boolean graphLoadedFromFile;
 
-        // Read/write lock for concurrent search during persistence
-        // Read lock: allows concurrent searches
-        // Write lock: exclusive access during persistence
-        private transient ReentrantReadWriteLock persistenceLock;
+        // Read/write lock for builder operations.
+        // Read lock: concurrent searches and background-worker mutations
+        // Write lock: exclusive access for cleanup, persistence, removeAll, close
+        private transient ReentrantReadWriteLock builderLock;
+
+        // When true, sync-mode mutations defer builder ops to avoid racing with cleanup().
+        // cleanup()'s ForkJoinPool workers need the GigaMap monitor (for embedded vectorizers),
+        // so sync-mode mutations (which hold that monitor) cannot use builderLock — they use
+        // this flag instead. The synchronized(parentMap) barrier in optimize()/persistToDisk()
+        // ensures any in-flight mutation completes before cleanup begins.
+        private transient volatile boolean cleanupInProgress;
+        private transient ConcurrentLinkedQueue<Runnable> deferredBuilderOps;
 
 
         ///////////////////////////////////////////////////////////////////////////
@@ -671,8 +713,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     .build()
             ;
 
-            // Initialize persistence lock early (before ensureIndexInitialized)
-            this.persistenceLock = new ReentrantReadWriteLock();
+            // Initialize builder lock early (before ensureIndexInitialized)
+            this.builderLock         = new ReentrantReadWriteLock();
+            this.deferredBuilderOps  = new ConcurrentLinkedQueue<>();
 
             this.ensureIndexInitialized();
         }
@@ -757,10 +800,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             this.vectorTypeSupport = VectorizationProvider.getInstance().getVectorTypeSupport();
 
-            // Initialize persistence lock (always, for consistent locking semantics)
-            if(this.persistenceLock == null)
+            // Initialize builder lock (always, for consistent locking semantics)
+            if(this.builderLock == null)
             {
-                this.persistenceLock = new ReentrantReadWriteLock();
+                this.builderLock = new ReentrantReadWriteLock();
+            }
+            if(this.deferredBuilderOps == null)
+            {
+                this.deferredBuilderOps = new ConcurrentLinkedQueue<>();
             }
 
             // Initialize PQ manager if compression enabled
@@ -782,7 +829,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.name,
                     this.configuration.indexDirectory(),
                     this.configuration.dimension(),
-                    this.configuration.maxDegree()
+                    this.configuration.maxDegree(),
+                    this.configuration.parallelOnDiskWrite()
                 );
                 if(this.diskManager.tryLoad())
                 {
@@ -810,56 +858,41 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Starts background persistence and optimization managers if configured.
+         * Starts the unified background task manager if any background feature is enabled.
          */
         private void startBackgroundManagersIfEnabled()
         {
-            this.startBackgroundPersistenceIfEnabled();
-            this.startBackgroundOptimizationIfEnabled();
-        }
+            final boolean eventualIndexing       = this.configuration.eventualIndexing();
+            final boolean backgroundOptimization = this.configuration.backgroundOptimization();
+            final boolean backgroundPersistence  = this.configuration.onDisk() && this.configuration.backgroundPersistence();
 
-        /**
-         * Starts the background persistence manager if configured.
-         */
-        private void startBackgroundPersistenceIfEnabled()
-        {
-            if(this.configuration.onDisk() && this.configuration.backgroundPersistence())
+            if(eventualIndexing || backgroundOptimization || backgroundPersistence)
             {
-                if(this.persistenceManager == null)
+                if(this.backgroundTaskManager == null)
                 {
-                    this.persistenceManager = new BackgroundPersistenceManager.Default(
+                    this.backgroundTaskManager = new BackgroundTaskManager(
                         this,
                         this.name,
+                        eventualIndexing,
+                        backgroundOptimization,
+                        this.configuration.optimizationIntervalMs(),
+                        this.configuration.minChangesBetweenOptimizations(),
+                        backgroundPersistence,
                         this.configuration.persistenceIntervalMs(),
                         this.configuration.minChangesBetweenPersists()
                     );
-                    this.persistenceManager.startScheduledPersistence();
-                    LOG.info("Background persistence started for index '{}' with interval {}ms",
-                        this.name, this.configuration.persistenceIntervalMs());
                 }
             }
         }
 
         /**
-         * Starts the background optimization manager if configured.
+         * Returns whether eventual indexing is active (background task manager exists
+         * AND eventualIndexing is configured). The manager may exist for optimization
+         * or persistence alone.
          */
-        private void startBackgroundOptimizationIfEnabled()
+        private boolean isEventualIndexing()
         {
-            if(this.configuration.backgroundOptimization())
-            {
-                if(this.optimizationManager == null)
-                {
-                    this.optimizationManager = new BackgroundOptimizationManager.Default(
-                        this,
-                        this.name,
-                        this.configuration.optimizationIntervalMs(),
-                        this.configuration.minChangesBetweenOptimizations()
-                    );
-                    this.optimizationManager.startScheduledOptimization();
-                    LOG.info("Background optimization started for index '{}' with interval {}ms",
-                        this.name, this.configuration.optimizationIntervalMs());
-                }
-            }
+            return this.backgroundTaskManager != null && this.configuration.eventualIndexing();
         }
 
         /**
@@ -1028,37 +1061,43 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         private io.github.jbellis.jvector.vector.VectorSimilarityFunction jvectorSimilarityFunction()
         {
+            // use switch not valueOf(name) to ensure compiler assistance when jvector enum changes
             return switch(this.configuration.similarityFunction())
             {
                 case EUCLIDEAN   -> io.github.jbellis.jvector.vector.VectorSimilarityFunction.EUCLIDEAN;
                 case DOT_PRODUCT -> io.github.jbellis.jvector.vector.VectorSimilarityFunction.DOT_PRODUCT;
                 case COSINE      -> io.github.jbellis.jvector.vector.VectorSimilarityFunction.COSINE;
-                default -> throw new IllegalArgumentException("Unsupported similarity function: " + this.configuration.similarityFunction());
             };
         }
 
         @Override
         public void internalAdd(final long entityId, final E entity)
         {
+            // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
             final int ordinal = toOrdinal(entityId);
 
-            synchronized(this.parentMap())
+            this.ensureIndexInitialized();
+
+            final float[] vector = this.vectorize(entity);
+
+            // Store based on vectorizer type
+            if(!this.isEmbedded())
             {
-                this.ensureIndexInitialized();
+                this.vectorStore.add(new VectorEntry(entityId, vector));
+            }
 
-                final float[] vector = this.vectorize(entity);
+            this.markStateChangeChildren();
 
-                // Store based on vectorizer type
-                if(!this.isEmbedded())
-                {
-                    this.vectorStore.add(new VectorEntry(entityId, vector));
-                }
-
+            if(this.isEventualIndexing())
+            {
+                // Defer graph update to background thread
+                this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Add(ordinal, vector));
+            }
+            else
+            {
                 // Add to HNSW graph using entity ID as ordinal
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                this.builder.addGraphNode(ordinal, vf);
-
-                this.markStateChangeChildren();
+                this.executeOrDeferBuilderOp(() -> this.builder.addGraphNode(ordinal, vf));
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
@@ -1086,27 +1125,35 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void internalUpdate(final long entityId, final E replacedEntity, final E entity)
         {
-            synchronized(this.parentMap())
+            // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
+            this.ensureIndexInitialized();
+
+            final float[] vector = this.vectorize(entity);
+
+            final int ordinal = toOrdinal(entityId);
+
+            // Update based on vectorizer type
+            if(!this.isEmbedded())
             {
-                this.ensureIndexInitialized();
+                this.vectorStore.set(entityId, new VectorEntry(entityId, vector));
+            }
 
-                final float[] vector = this.vectorize(entity);
+            this.markStateChangeChildren();
 
-                final int ordinal = toOrdinal(entityId);
-                this.builder.markNodeDeleted(ordinal);
-                this.builder.removeDeletedNodes();
-
-                // Update based on vectorizer type
-                if(!this.isEmbedded())
-                {
-                    this.vectorStore.set(entityId, new VectorEntry(entityId, vector));
-                }
-
-                // Add to HNSW graph using entity ID as ordinal
+            if(this.isEventualIndexing())
+            {
+                // Defer graph update to background thread
+                this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Update(ordinal, vector));
+            }
+            else
+            {
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                this.builder.addGraphNode(ordinal, vf);
-
-                this.markStateChangeChildren();
+                this.executeOrDeferBuilderOp(() ->
+                {
+                    this.builder.markNodeDeleted(ordinal);
+                    this.builder.removeDeletedNodes();
+                    this.builder.addGraphNode(ordinal, vf);
+                });
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
@@ -1135,18 +1182,28 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void addVectorEntries(final List<VectorEntry> entries)
         {
-            synchronized(this.parentMap())
+            // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
+            this.ensureIndexInitialized();
+
+            if(!this.isEmbedded())
             {
-                this.ensureIndexInitialized();
+                this.vectorStore.addAll(entries);
+            }
 
-                if(!this.isEmbedded())
-                {
-                    this.vectorStore.addAll(entries);
-                }
+            this.markStateChangeChildren();
 
-                this.addGraphNodesSequential(entries);
-
-                this.markStateChangeChildren();
+            if(this.isEventualIndexing())
+            {
+                // Defer graph updates to background thread
+                entries.forEach(entry ->
+                    this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Add(
+                        toOrdinal(entry.sourceEntityId), entry.vector
+                    ))
+                );
+            }
+            else
+            {
+                this.executeOrDeferBuilderOp(() -> this.addGraphNodesSequential(entries));
 
                 // Mark dirty for background managers (with count for debouncing)
                 this.markDirtyForBackgroundManagers(entries.size());
@@ -1156,15 +1213,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         /**
          * Marks dirty for background managers with the specified change count.
          */
-        private void markDirtyForBackgroundManagers(final int count)
+        @Override
+        public void markDirtyForBackgroundManagers(final int count)
         {
-            if(this.persistenceManager != null)
+            if(this.backgroundTaskManager != null)
             {
-                this.persistenceManager.markDirty(count);
-            }
-            if(this.optimizationManager != null)
-            {
-                this.optimizationManager.markDirty(count);
+                this.backgroundTaskManager.markDirty(count);
             }
         }
 
@@ -1184,18 +1238,25 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void internalRemove(final long entityId, final E entity)
         {
-            synchronized(this.parentMap())
+            // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
+            this.ensureIndexInitialized();
+
+            final int ordinal = toOrdinal(entityId);
+            if(!this.isEmbedded())
             {
-                this.ensureIndexInitialized();
+                this.vectorStore.removeById(entityId);
+            }
 
-                final int ordinal = toOrdinal(entityId);
-                if(!this.isEmbedded())
-                {
-                    this.vectorStore.removeById(entityId);
-                }
-                this.builder.markNodeDeleted(ordinal);
+            this.markStateChangeChildren();
 
-                this.markStateChangeChildren();
+            if(this.isEventualIndexing())
+            {
+                // Defer graph update to background thread
+                this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Remove(ordinal));
+            }
+            else
+            {
+                this.executeOrDeferBuilderOp(() -> this.builder.markNodeDeleted(ordinal));
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
@@ -1205,7 +1266,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void internalRemoveAll()
         {
-            synchronized(this.parentMap())
+            // Acquire write lock to ensure no concurrent persistToDisk() Phase 2,
+            // search, or background worker mutation is running.
+            // closeInternalResources() destroys the graph and disk manager, which would
+            // corrupt any in-flight operation.
+            // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
+            this.builderLock.writeLock().lock();
+            try
             {
                 this.ensureIndexInitialized();
 
@@ -1214,11 +1281,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.vectorStore.removeAll();
                 }
 
-                // Shutdown optimization manager before closing
-                this.shutdownOptimizationManager(false);
-
-                // Shutdown persistence manager before closing
-                this.shutdownPersistenceManager(false);
+                // Shutdown background task manager (discard pending ops — they're stale)
+                this.shutdownBackgroundTaskManager(false, false, false);
 
                 this.closeInternalResources();
 
@@ -1229,6 +1293,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
             }
+            finally
+            {
+                this.builderLock.writeLock().unlock();
+            }
         }
 
         @Override
@@ -1236,34 +1304,34 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             this.validateDimension(queryVector);
 
-            // Acquire read lock for concurrent search during persistence
-            this.persistenceLock.readLock().lock();
+            // Acquire read lock — blocks during cleanup/persistence/removeAll/close,
+            // allows concurrent searches and GigaMap mutations.
+            // No synchronized(parentMap) — avoids lock-ordering deadlock with
+            // internalRemoveAll (which holds the GigaMap monitor and needs the write lock).
+            this.builderLock.readLock().lock();
             try
             {
-                synchronized(this.parentMap())
+                this.ensureIndexInitialized();
+
+                final VectorFloat<?> query = this.vectorTypeSupport.createFloatVector(queryVector);
+
+                // Choose search strategy based on index mode
+                final SearchResult result;
+                final boolean diskLoaded = this.diskManager != null && this.diskManager.isLoaded();
+                if(diskLoaded && this.diskManager.getDiskIndex() != null)
                 {
-                    this.ensureIndexInitialized();
-
-                    final VectorFloat<?> query = this.vectorTypeSupport.createFloatVector(queryVector);
-
-                    // Choose search strategy based on index mode
-                    final SearchResult result;
-                    final boolean diskLoaded = this.diskManager != null && this.diskManager.isLoaded();
-                    if(diskLoaded && this.diskManager.getDiskIndex() != null)
-                    {
-                        result = this.searchDiskIndex(query, k);
-                    }
-                    else
-                    {
-                        result = this.searchInMemoryIndex(query, k);
-                    }
-
-                    return this.convertSearchResult(result);
+                    result = this.searchDiskIndex(query, k);
                 }
+                else
+                {
+                    result = this.searchInMemoryIndex(query, k);
+                }
+
+                return this.convertSearchResult(result);
             }
             finally
             {
-                this.persistenceLock.readLock().unlock();
+                this.builderLock.readLock().unlock();
             }
         }
 
@@ -1359,15 +1427,63 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void optimize()
         {
-            synchronized(this.parentMap())
+            // Drain pending indexing operations to ensure graph is complete
+            if(this.isEventualIndexing())
             {
-                this.ensureIndexInitialized();
-                if(this.builder != null)
-                {
-                    this.builder.cleanup();
-                }
-                this.markStateChangeChildren();
+                this.backgroundTaskManager.drainQueue();
             }
+
+            this.doOptimize();
+        }
+
+        /**
+         * Core optimization logic without queue drain.
+         * Called directly from the background task manager's executor thread
+         * (where inline drain is already done) and from the public optimize() method.
+         */
+        @Override
+        public void doOptimize()
+        {
+            final GraphIndexBuilder capturedBuilder;
+
+            // Signal sync-mode mutations to defer builder ops during cleanup.
+            this.cleanupInProgress = true;
+            try
+            {
+                // Barrier: any in-flight GigaMap mutation (which holds the GigaMap monitor)
+                // will complete before we proceed. New mutations see the flag and defer.
+                synchronized(this.parentMap())
+                {
+                    this.ensureIndexInitialized();
+                    capturedBuilder = this.builder;
+                }
+
+                // cleanup() uses ForkJoinPool internally — must be outside
+                // synchronized(parentMap) to avoid deadlock with embedded vectorizers
+                // whose worker threads call parentMap.get().
+                if(capturedBuilder != null)
+                {
+                    // Write lock blocks background worker mutations (readLock) and searches.
+                    this.builderLock.writeLock().lock();
+                    try
+                    {
+                        capturedBuilder.cleanup();
+                    }
+                    finally
+                    {
+                        this.builderLock.writeLock().unlock();
+                    }
+                }
+            }
+            finally
+            {
+                this.cleanupInProgress = false;
+            }
+
+            // Apply any deferred sync-mode mutations now that cleanup is done.
+            this.drainDeferredBuilderOps();
+
+            this.markStateChangeChildren();
         }
 
         @Override
@@ -1378,19 +1494,57 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return; // No-op for in-memory indices
             }
 
-            // Acquire write lock for exclusive access during persistence
-            this.persistenceLock.writeLock().lock();
+            // Drain pending indexing operations to ensure graph is complete
+            if(this.isEventualIndexing())
+            {
+                this.backgroundTaskManager.drainQueue();
+            }
+
+            this.doPersistToDisk();
+        }
+
+        /**
+         * Core persistence logic without queue drain.
+         * Called directly from the background task manager's executor thread
+         * (where inline drain is already done) and from the public persistToDisk() method.
+         */
+        @Override
+        public void doPersistToDisk()
+        {
+            if(!this.configuration.onDisk())
+            {
+                return; // No-op for in-memory indices
+            }
+
+            // Signal sync-mode mutations to defer builder ops during cleanup + disk write.
+            this.cleanupInProgress = true;
             try
             {
-                synchronized(this.parentMap())
+                // Acquire write lock for exclusive access during persistence.
+                // This blocks searches, background worker mutations, removeAll, and close.
+                this.builderLock.writeLock().lock();
+                try
                 {
-                    this.ensureIndexInitialized();
+                    // Captured references for Phase 2 (disk write outside synchronized block)
+                    final OnHeapGraphIndex              capturedIndex  ;
+                    final RandomAccessVectorValues      capturedRavv   ;
+                    final PQCompressionManager          capturedPqMgr  ;
+                    final DiskIndexManager              capturedDiskMgr;
 
-                    // If we have an in-memory builder, write it to disk
-                    if(this.builder != null && this.index != null)
+                    final GraphIndexBuilder             capturedBuilder;
+
+                    // Phase 1: Barrier + reference capture inside synchronized(parentMap).
+                    // The barrier ensures any in-flight GigaMap mutation completes.
+                    // New mutations see cleanupInProgress=true and defer.
+                    synchronized(this.parentMap())
                     {
-                        // Cleanup the graph before writing (removes excess neighbors)
-                        this.builder.cleanup();
+                        this.ensureIndexInitialized();
+
+                        // If we have an in-memory builder, prepare for disk write
+                        if(this.builder == null || this.index == null)
+                        {
+                            return;
+                        }
 
                         // Initialize disk manager if needed
                         if(this.diskManager == null)
@@ -1400,26 +1554,48 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                                 this.name,
                                 this.configuration.indexDirectory(),
                                 this.configuration.dimension(),
-                                this.configuration.maxDegree()
+                                this.configuration.maxDegree(),
+                                this.configuration.parallelOnDiskWrite()
                             );
                         }
 
-                        // Create vector values for writing
-                        final RandomAccessVectorValues ravv = this.createVectorValues();
-
-                        // Write using disk manager
-                        this.diskManager.writeIndex(this.index, ravv, this.pqManager);
+                        // Capture references for use outside the synchronized block.
+                        // The parentMap monitor is released before cleanup and disk write
+                        // so that worker threads (ForkJoinPool in cleanup, disk writer)
+                        // can freely call parentMap.get() without deadlocking.
+                        capturedBuilder = this.builder;
+                        capturedIndex   = this.index;
+                        capturedRavv    = new NullSafeVectorValues(
+                            this.createVectorValues(), this.configuration.dimension(), this.vectorTypeSupport
+                        );
+                        capturedPqMgr   = this.pqManager;
+                        capturedDiskMgr = this.diskManager;
                     }
+
+                    // Phase 2: Cleanup and disk write outside synchronized(parentMap).
+                    // builderLock.writeLock() is still held, blocking searches,
+                    // background worker mutations, removeAll, and close.
+                    // parentMap monitor is released, so ForkJoinPool workers and
+                    // disk writer threads can call parentMap.get() for embedded vectors.
+                    capturedBuilder.cleanup();
+                    capturedDiskMgr.writeIndex(capturedIndex, capturedRavv, capturedPqMgr);
                 }
-            }
-            catch(final IOException ioe)
-            {
-                throw new IORuntimeException(ioe);
+                catch(final IOException ioe)
+                {
+                    throw new IORuntimeException(ioe);
+                }
+                finally
+                {
+                    this.builderLock.writeLock().unlock();
+                }
             }
             finally
             {
-                this.persistenceLock.writeLock().unlock();
+                this.cleanupInProgress = false;
             }
+
+            // Apply any deferred sync-mode mutations now that cleanup + persistence is done.
+            this.drainDeferredBuilderOps();
         }
 
         @Override
@@ -1459,43 +1635,47 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void close()
         {
-            // Shutdown optimization manager first (may optimize pending changes)
-            this.shutdownOptimizationManager(this.configuration.optimizeOnShutdown());
+            // Shutdown background task manager — drain indexing, optionally optimize and persist
+            this.shutdownBackgroundTaskManager(
+                true,
+                this.configuration.optimizeOnShutdown(),
+                this.configuration.persistOnShutdown()
+            );
 
-            // Shutdown persistence manager second (may persist pending changes)
-            this.shutdownPersistenceManager(this.configuration.persistOnShutdown());
-
-            synchronized(this.parentMap())
+            // Acquire write lock to ensure no concurrent search or persistToDisk() is running.
+            // closeInternalResources() destroys the graph and disk manager.
+            this.builderLock.writeLock().lock();
+            try
             {
                 this.closeInternalResources();
             }
-        }
-
-        /**
-         * Shuts down the background optimization manager.
-         *
-         * @param optimizePending if true, optimize pending changes before shutdown
-         */
-        private void shutdownOptimizationManager(final boolean optimizePending)
-        {
-            if(this.optimizationManager != null)
+            finally
             {
-                this.optimizationManager.shutdown(optimizePending);
-                this.optimizationManager = null;
+                this.builderLock.writeLock().unlock();
             }
         }
 
         /**
-         * Shuts down the background persistence manager.
+         * Shuts down the background task manager.
          *
-         * @param persistPending if true, persist pending changes before shutdown
+         * @param drainPending    if true, drain all pending indexing operations
+         * @param optimizePending if true and there are pending changes, optimize before shutdown
+         * @param persistPending  if true and there are pending changes, persist before shutdown
          */
-        private void shutdownPersistenceManager(final boolean persistPending)
+        private void shutdownBackgroundTaskManager(
+            final boolean drainPending,
+            final boolean optimizePending,
+            final boolean persistPending
+        )
         {
-            if(this.persistenceManager != null)
+            if(this.backgroundTaskManager != null)
             {
-                this.persistenceManager.shutdown(persistPending);
-                this.persistenceManager = null;
+                if(!drainPending)
+                {
+                    this.backgroundTaskManager.discardQueue();
+                }
+                this.backgroundTaskManager.shutdown(drainPending, optimizePending, persistPending);
+                this.backgroundTaskManager = null;
             }
         }
 
@@ -1566,12 +1746,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // callback interface implementations //
         ////////////////////////////////////////
 
-        // Note: BackgroundPersistenceManager.Callback.persistToDisk() is implemented
-        // by the public persistToDisk() method above.
-
-        // Note: BackgroundOptimizationManager.Callback.optimize() is implemented
-        // by the public optimize() method above.
-
         // PQCompressionManager.VectorProvider
 
         @Override
@@ -1613,6 +1787,94 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             else
             {
                 return this.vectorStore != null ? this.vectorStore.size() : 0;
+            }
+        }
+
+        // ================================================================
+        // BackgroundTaskManager.Callback implementation
+        // ================================================================
+
+        @Override
+        public void applyGraphAdd(final int ordinal, final float[] vector)
+        {
+            // Called from the background indexing worker thread (not from GigaMap's
+            // synchronized methods), so we use builderLock.readLock() to coordinate
+            // with cleanup (writeLock).
+            this.builderLock.readLock().lock();
+            try
+            {
+                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+                this.builder.addGraphNode(ordinal, vf);
+            }
+            finally
+            {
+                this.builderLock.readLock().unlock();
+            }
+        }
+
+        @Override
+        public void applyGraphUpdate(final int ordinal, final float[] vector)
+        {
+            this.builderLock.readLock().lock();
+            try
+            {
+                this.builder.markNodeDeleted(ordinal);
+                this.builder.removeDeletedNodes();
+                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+                this.builder.addGraphNode(ordinal, vf);
+            }
+            finally
+            {
+                this.builderLock.readLock().unlock();
+            }
+        }
+
+        @Override
+        public void applyGraphRemove(final int ordinal)
+        {
+            this.builderLock.readLock().lock();
+            try
+            {
+                this.builder.markNodeDeleted(ordinal);
+            }
+            finally
+            {
+                this.builderLock.readLock().unlock();
+            }
+        }
+
+
+        // ================================================================
+        // Builder operation deferral helpers
+        // ================================================================
+
+        /**
+         * Executes a builder operation immediately, or defers it if cleanup is in progress.
+         * Used by sync-mode mutations (called from GigaMap's synchronized methods) which
+         * cannot acquire builderLock without risking deadlock with embedded vectorizers.
+         */
+        private void executeOrDeferBuilderOp(final Runnable op)
+        {
+            if(this.cleanupInProgress)
+            {
+                this.deferredBuilderOps.add(op);
+            }
+            else
+            {
+                op.run();
+            }
+        }
+
+        /**
+         * Drains and executes all deferred builder operations.
+         * Called after cleanup completes (cleanupInProgress is already false).
+         */
+        private void drainDeferredBuilderOps()
+        {
+            Runnable op;
+            while((op = this.deferredBuilderOps.poll()) != null)
+            {
+                op.run();
             }
         }
 
