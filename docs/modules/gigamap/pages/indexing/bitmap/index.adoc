@@ -122,6 +122,9 @@ For high cardinality with range query support, the byte-decomposed indexers comb
 |ByteIndexerDouble
 |java.lang.Double, double
 
+|ByteIndexerInstant
+|java.time.Instant
+
 |===
 
 Another specialized indexer which can be used for all key types in combination with an `Comparator` is the `IndexerComparing`.

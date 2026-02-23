@@ -62,7 +62,6 @@ bitmap.setIdentityIndices(PersonIndices.id); // set as identity
 ...
 ----
 
-
 == Binary Index
 
 A special bitmap index designed for high cardinality.
@@ -85,34 +84,61 @@ For sub-64-bit types (`Byte`, `Short`, `Integer`, `Float`), this mapping is coll
 As a consequence, `Long.MAX_VALUE` is not supported as an index key and will throw an `IllegalArgumentException`.
 All other long values are fully supported.
 
-== Choosing Between Regular and Binary Indexers
+== Byte Index
 
-The bitmap index offers two families of indexers: **regular indexers** (e.g. `IndexerString`, `IndexerLong`) and **binary indexers** (e.g. `BinaryIndexerString`, `BinaryIndexerLong`). The right choice depends on your data characteristics and query needs.
+A composite bitmap index designed for high cardinality numeric types with range query support.
+
+It decomposes numbers into individual bytes (base 256) and stores each byte position as a separate sub-index with at most 256 entries. This uses the same composite index infrastructure as `IndexerLocalDate` (which decomposes into year/month/day).
+
+Byte indexers support both equality and range queries: `is`, `not`, `in`, `notIn`, `lessThan`, `lessThanEqual`, `greaterThan`, `greaterThanEqual`, and `between`.
+
+[source, java]
+----
+// use the builder
+final GigaMap<Product> gigaMap = GigaMap.<Product>Builder()
+    .withBitmapIdentityIndex(ProductIndices.price)
+    .build();
+
+// query with range conditions
+gigaMap.query(ProductIndices.price.between(10, 100));
+gigaMap.query(ProductIndices.price.greaterThan(50));
+----
+
+Use byte indexers when you need range queries on numeric types with high cardinality. Use binary indexers when you only need equality queries.
+
+== Choosing Between Regular, Binary, and Byte Indexers
+
+The bitmap index offers three families of indexers: **regular indexers** (e.g. `IndexerString`, `IndexerLong`), **binary indexers** (e.g. `BinaryIndexerString`, `BinaryIndexerLong`), and **byte indexers** (e.g. `ByteIndexerInt`, `ByteIndexerLong`). The right choice depends on your data characteristics and query needs.
 
 === Comparison
 
-[options="header",cols="2,3,3"]
+[options="header",cols="2,3,3,3"]
 |===
-|Aspect |Regular Indexer |Binary Indexer
+|Aspect |Regular Indexer |Binary Indexer |Byte Indexer
 
 |Cardinality
 |Low to medium (few distinct values, many entities per value)
+|High (many distinct values, few entities per value)
 |High (many distinct values, few entities per value)
 
 |Query types
 |Equality (`is`, `in`), predicates (`is(predicate)`), and - depending on the index type - range queries
 |Equality only (`is`, `in`)
+|Equality (`is`, `in`, `not`, `notIn`) and range queries (`lessThan`, `greaterThan`, `between`, etc.)
 
 |Key type
 |Any object with `equals`/`hashCode`
 |Must convert to `long`
+|Numeric types (must convert to `long`)
 
 |Memory
 |On-heap hash table
 |Off-heap bit-position array
+|Composite sub-indices with at most 256 entries per byte position
 
 |Null values
 |Native support
+|Requires sentinel value handling
 |Requires sentinel value handling
 
 |===
@@ -135,27 +161,14 @@ The bitmap index offers two families of indexers: **regular indexers** (e.g. `In
 
 **Typical use cases:** primary/foreign key indices, UUIDs, TSIDs, unique codes or reference numbers
 
+=== Use Byte Indexer When
 
-== Byte Index
+* Indexed values have **high cardinality** — many distinct values
+* You need **range queries** (`lessThan`, `greaterThan`, `between`, etc.) on high-cardinality data
+* The key is a **numeric type** that can be converted to `long`
+* You want the benefits of bitmap indexing for high-cardinality fields without sacrificing range query support
 
-A composite bitmap index designed for high cardinality numeric types with range query support.
+**Typical use cases:** prices, quantities, timestamps as numeric values, scores, measurements, or any numeric field that requires both high-cardinality support and range filtering
 
-It decomposes numbers into individual bytes (base 256) and stores each byte position as a separate sub-index with at most 256 entries. This uses the same composite index infrastructure as `IndexerLocalDate` (which decomposes into year/month/day).
-
-Byte indexers support both equality and range queries: `is`, `not`, `in`, `notIn`, `lessThan`, `lessThanEqual`, `greaterThan`, `greaterThanEqual`, and `between`.
-
-[source, java]
-----
-// use the builder
-final GigaMap<Product> gigaMap = GigaMap.<Product>Builder()
-    .withBitmapIdentityIndex(ProductIndices.price)
-    .build();
-
-// query with range conditions
-gigaMap.query(ProductIndices.price.between(10, 100));
-gigaMap.query(ProductIndices.price.greaterThan(50));
-----
-
-Use byte indexers when you need range queries on numeric types with high cardinality. Use binary indexers when you only need equality queries.
 
 
