@@ -113,3 +113,99 @@ optFirst.ifPresent(person -> ...);
 GigaQuery<Person> query = gigaMap.query(...);
 long count = query.count();
 ----
+
+== Multithreaded Query Execution
+
+For large datasets, query execution can be parallelized across multiple threads. This is done by passing an `IterationThreadProvider` when creating the query.
+
+=== Thread Count Providers
+
+A `ThreadCountProvider` determines how many threads are used for parallel execution.
+
+[source, java]
+----
+// Fixed number of threads
+ThreadCountProvider fixed = ThreadCountProvider.Fixed(4);
+
+// Adaptive: uses up to the number of available processors
+ThreadCountProvider adaptive = ThreadCountProvider.Adaptive();
+
+// Adaptive with a custom maximum
+ThreadCountProvider adaptiveCapped = ThreadCountProvider.Adaptive(8);
+----
+
+The adaptive provider calculates the thread count based on the number of bitmap result segments and the specified maximum, ensuring threads are not wasted on small datasets.
+
+=== Iteration Thread Providers
+
+An `IterationThreadProvider` manages the lifecycle of the threads used during iteration. There are two implementations:
+
+**Creating** -- Creates fresh threads for each query execution. Simple and suitable for infrequent queries.
+
+[source, java]
+----
+IterationThreadProvider provider = IterationThreadProvider.Creating(
+    ThreadCountProvider.Adaptive()
+);
+----
+
+**Pooling** -- Maintains a pool of reusable threads. Avoids the overhead of thread creation for frequent queries. The pool grows as needed and threads are returned to the pool after each query completes.
+
+[source, java]
+----
+IterationThreadProvider provider = IterationThreadProvider.Pooling(
+    4, // initial reserved thread count
+    ThreadCountProvider.Adaptive()
+);
+
+// Shut down the pool when no longer needed
+provider.shutdown();
+----
+
+=== Parallel Execution with Multiple Consumers
+
+The recommended way to use multithreaded execution is with the `execute(Consumer...)` method. Each consumer processes a portion of the result set in its own thread.
+
+[source, java]
+----
+IterationThreadProvider provider = IterationThreadProvider.Creating(
+    ThreadCountProvider.Adaptive()
+);
+
+GigaQuery<Person> query = gigaMap.query(provider)
+    .and(PersonIndices.city.is("Berlin"));
+
+// Execute with multiple consumers - each runs in its own thread
+query.execute(
+    person -> processPartA(person),
+    person -> processPartB(person)
+);
+----
+
+This approach is internally simpler and faster than the iterator-based multithreading, because it avoids the complexity of coordinating an `Iterator` across threads. The bitmap result is partitioned and each thread processes its assigned segments independently.
+
+=== Multithreaded Iterators
+
+Alternatively, a multithreaded query can be used with the standard iterator API. When a query is created with an `IterationThreadProvider`, calling `iterator()` produces a `ThreadedIterator` that processes bitmap result segments in parallel across worker threads.
+
+[source, java]
+----
+IterationThreadProvider provider = IterationThreadProvider.Pooling(
+    4,
+    ThreadCountProvider.Fixed(4)
+);
+
+GigaQuery<Person> query = gigaMap.query(provider)
+    .and(PersonIndices.lastName.is("Smith"));
+
+try(GigaIterator<Person> iterator = query.iterator())
+{
+    while(iterator.hasNext())
+    {
+        Person person = iterator.next();
+        // process
+    }
+}
+----
+
+NOTE: The multi-consumer `execute()` approach is preferred over multithreaded iterators for performance-critical workloads, as it avoids the overhead inherent in coordinating an `Iterator` across threads.
