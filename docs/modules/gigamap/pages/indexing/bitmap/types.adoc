@@ -74,4 +74,54 @@ Each long-bit corresponds to an entry, meaning there will be 64 entries max, no 
 Currently it only supports equality queries.
 Range queries are not supported yet.
 
+== Choosing Between Regular and Binary Indexers
+
+The bitmap index offers two families of indexers: **regular indexers** (e.g. `IndexerString`, `IndexerLong`) and **binary indexers** (e.g. `BinaryIndexerString`, `BinaryIndexerLong`). The right choice depends on your data characteristics and query needs.
+
+=== Comparison
+
+[options="header",cols="2,3,3"]
+|===
+|Aspect |Regular Indexer |Binary Indexer
+
+|Cardinality
+|Low to medium (few distinct values, many entities per value)
+|High (many distinct values, few entities per value)
+
+|Query types
+|Equality (`is`, `in`), predicates (`is(predicate)`), and - depending on the index type - range queries
+|Equality only (`is`, `in`)
+
+|Key type
+|Any object with `equals`/`hashCode`
+|Must convert to `long`
+
+|Memory
+|On-heap hash table
+|Off-heap bit-position array
+
+|Null values
+|Native support
+|Requires sentinel value handling
+
+|===
+
+=== Use Regular Indexer When
+
+* Indexed values have **low cardinality** — few distinct values shared by many entities (enums, categories, status fields)
+* You need **predicate-based queries**, e.g. `firstName.is(name -> name.startsWith("J"))`
+* You need **range queries** via `IndexerComparing`
+* The key type does not naturally map to `long`
+
+**Typical use cases:** enumerations, boolean flags, date/time fields, categories, multi-value fields
+
+=== Use Binary Indexer When
+
+* Indexed values have **high cardinality** — many distinct values (unique IDs, foreign keys)
+* Only **equality queries** are needed (`is`, `in`)
+* The key can be efficiently converted to `long` (numeric IDs, TSID, UUID)
+* **Memory efficiency** matters for large datasets
+
+**Typical use cases:** primary/foreign key indices, UUIDs, TSIDs, unique codes or reference numbers
+
 
