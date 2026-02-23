@@ -345,17 +345,46 @@ public abstract class AbstractBitmapIndexHashing<E, I, K> extends BitmapIndex.Ab
 	
 	public void internalHandleChanged(final I oldKeys , final long entityId, final I newKeys)
 	{
-		// (20.12.2024 TM)TODO: handle multi value indexing. See other call site of #internalEnsureEntry
-		final BitmapEntry<E, I, K> oldEntityEntry = this.internalLookupEntry(oldKeys);
-		final BitmapEntry<E, I, K> newEntityEntry = this.internalEnsureEntry(newKeys);
-		if(newEntityEntry == oldEntityEntry)
+		if(this.indexer instanceof IndexerMultiValue)
 		{
-			return;
+			@SuppressWarnings("unchecked")
+			final IndexerMultiValue<I, K> multiValueIndexer = (IndexerMultiValue<I, K>)this.indexer;
+			final Iterable<? extends K> oldKeySet = multiValueIndexer.indexEntityMultiValue(oldKeys);
+			final Iterable<? extends K> newKeySet = multiValueIndexer.indexEntityMultiValue(newKeys);
+			for(final K key : oldKeySet)
+			{
+				if(key != null)
+				{
+					final BitmapEntry<E, I, K> entry = this.getEntryForKey(key);
+					if(entry != null)
+					{
+						this.internalRemoveFromEntry(entityId, entry);
+					}
+				}
+			}
+			for(final K key : newKeySet)
+			{
+				if(key != null)
+				{
+					final BitmapEntry<E, I, K> entry = this.internalEnsureEntryForKey(key);
+					entry.add(entityId);
+				}
+			}
+			this.markStateChangeChildren2();
 		}
-		
-		this.internalRemoveFromEntry(entityId, oldEntityEntry);
-		newEntityEntry.add(entityId);
-		this.markStateChangeChildren2();
+		else
+		{
+			final BitmapEntry<E, I, K> oldEntityEntry = this.internalLookupEntry(oldKeys);
+			final BitmapEntry<E, I, K> newEntityEntry = this.internalEnsureEntry(newKeys);
+			if(newEntityEntry == oldEntityEntry)
+			{
+				return;
+			}
+
+			this.internalRemoveFromEntry(entityId, oldEntityEntry);
+			newEntityEntry.add(entityId);
+			this.markStateChangeChildren2();
+		}
 	}
 	
 }
