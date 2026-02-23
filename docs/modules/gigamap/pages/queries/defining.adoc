@@ -32,3 +32,48 @@ This enables us to use any custom logic inside query definitions if the predefin
 ----
 gigaMap.query(firstName.is(name -> name.length() > 3));
 ----
+
+Negation is also supported with `not` and `notIn`.
+
+[source, java]
+----
+// all persons NOT called 'John'
+gigaMap.query(firstName.not("John"));
+
+// all persons called neither 'John' nor 'Jim'
+gigaMap.query(firstName.notIn("John", "Jim"));
+----
+
+== Multi-Value Queries
+
+When using an `IndexerMultiValue`, each entity can have multiple indexed values (e.g. a list of tags or interests). The standard query methods work on the individual values in the collection:
+
+* `is(key)` — matches entities whose collection *contains* that key
+* `in(k1, k2, ...)` — matches entities whose collection contains *any* of the given keys (OR)
+* `not(key)` — matches entities whose collection does *not* contain that key
+* `notIn(k1, k2, ...)` — matches entities whose collection contains *none* of the given keys
+
+[source, java]
+----
+// persons interested in SPORTS
+gigaMap.query(interests.is(Interest.SPORTS));
+
+// persons interested in SPORTS or LITERATURE (or both)
+gigaMap.query(interests.in(Interest.SPORTS, Interest.LITERATURE));
+----
+
+Additionally, `IndexerMultiValue` provides the `all` method, which matches entities whose collection contains *all* of the specified keys (AND logic).
+
+[source, java]
+----
+// persons interested in both SPORTS and LITERATURE
+gigaMap.query(interests.all(Interest.SPORTS, Interest.LITERATURE));
+----
+
+Predicates also work with multi-value indexers. The predicate is applied to each key in the index.
+
+[source, java]
+----
+// persons with any interest matching a custom condition
+gigaMap.query(interests.is(interest -> interest.name().startsWith("S")));
+----
