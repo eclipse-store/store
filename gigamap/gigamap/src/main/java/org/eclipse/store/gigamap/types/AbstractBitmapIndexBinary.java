@@ -135,7 +135,16 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 	private void updateCachedEntriesLength()
 	{
 		this.entriesCount = this.entries.length;
-		this.entriesLengthCheckMask = ~((1L << this.entriesCount) - 1);
+
+		// The mask has 1-bits for positions outside the entries array range,
+		// used by fitsInEntries() to detect keys requiring out-of-range bit positions.
+		// When entriesCount == Long.SIZE (64), all bit positions are covered,
+		// so the mask must be 0. A naive (1L << 64) overflows to 1L in Java
+		// (shifts are mod 64), which would produce an all-ones mask and
+		// cause every query to return empty results.
+		this.entriesLengthCheckMask = this.entriesCount >= Long.SIZE
+			? 0L
+			: ~((1L << this.entriesCount) - 1);
 	}
 	
 	final BitmapEntry<E, I, Long>[] entries()

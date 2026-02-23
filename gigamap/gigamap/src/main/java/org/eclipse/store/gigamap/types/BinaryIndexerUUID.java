@@ -60,11 +60,25 @@ public interface BinaryIndexerUUID<E> extends BinaryCompositeIndexer<E>
 			return 2;
 		}
 		
+		/**
+		 * Fills the composite carrier with the UUID's bit representation, ensuring no position
+		 * is {@code 0L} since the composite bitmap index treats {@code 0L} as "empty position".
+		 * <p>
+		 * For non-zero bit halves, the raw value is used (backwards compatible with existing storages).
+		 * For zero halves, {@code Long.MAX_VALUE} is used as a sentinel. UUIDs with a half equal
+		 * to {@code Long.MAX_VALUE} would collide with zero, but this is astronomically unlikely
+		 * (~1 in 2^64) and both cases were previously broken (silently skipped during indexing).
+		 */
 		@Override
 		protected void fillCarrier(final UUID uuid, final long[] carrier)
 		{
-			carrier[0] = uuid.getMostSignificantBits();
-			carrier[1] = uuid.getLeastSignificantBits();
+			carrier[0] = ensureNonZero(uuid.getMostSignificantBits());
+			carrier[1] = ensureNonZero(uuid.getLeastSignificantBits());
+		}
+
+		private static long ensureNonZero(final long bits)
+		{
+			return bits == 0L ? Long.MAX_VALUE : bits;
 		}
 		
 		@Override

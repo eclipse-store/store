@@ -90,6 +90,17 @@ public interface BinaryIndexerString<E> extends BinaryCompositeIndexer<E>
 			return this.getString(entity);
 		}
 		
+		/**
+		 * Packs the string's UTF-8 bytes into long values (8 bytes per long), ensuring no position
+		 * is {@code 0L} since the composite bitmap index treats {@code 0L} as "empty position".
+		 * <p>
+		 * For non-zero packed values, the raw encoding is used (backwards compatible with existing storages).
+		 * Only 8 consecutive null bytes ({@code 0x00}) at a position boundary produce {@code 0L},
+		 * which is mapped to {@code Long.MAX_VALUE}. This is collision-free because
+		 * {@code Long.MAX_VALUE} ({@code 0x7FFFFFFFFFFFFFFF}) requires {@code 0xFF} bytes in
+		 * positions 0-6, and {@code 0xFF} is invalid in UTF-8 — it can never appear in the
+		 * output of {@code String.getBytes(UTF_8)}.
+		 */
 		@Override
 		protected long[] fillCarrier(final String value, final long[] carrier)
 		{
@@ -100,14 +111,22 @@ public interface BinaryIndexerString<E> extends BinaryCompositeIndexer<E>
 			{
 				result = new long[size];
 			}
-			
+
 			for(int i = 0; i < bytes.length; i++)
 			{
 				final int arrayIndex  = i / 8;
 				final int bitPosition = (i % 8) * 8;
 				result[arrayIndex] |= ((long)(bytes[i] & 0xFF)) << bitPosition;
 			}
-			
+
+			for(int i = 0; i < size; i++)
+			{
+				if(result[i] == 0L)
+				{
+					result[i] = Long.MAX_VALUE;
+				}
+			}
+
 			return result;
 		}
 		
