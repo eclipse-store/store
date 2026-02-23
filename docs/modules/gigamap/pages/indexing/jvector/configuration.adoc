@@ -120,7 +120,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 
 == On-Disk Storage
 
-For datasets that exceed available memory, enable on-disk storage to use memory-mapped files.
+For datasets that exceed available memory, enable on-disk storage to use memory-mapped files. See xref:indexing/jvector/advanced.adoc#_on_disk_index_with_compression[On-Disk Index with Compression] for an in-depth explanation of the build/persist lifecycle, memory-mapped access, PQ compression theory, and the two-phase search with reranking.
 
 [options="header",cols="1,1,3"]
 |===
@@ -193,7 +193,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 
 == Parallel On-Disk Writes
 
-When on-disk storage is enabled, persistence can optionally use parallel direct buffers and multiple worker threads (one per available processor) to write the index concurrently. This can significantly speed up persistence for large indices.
+When on-disk storage is enabled, persistence can optionally use parallel direct buffers and multiple worker threads (one per available processor) to write the index concurrently. This can significantly speed up persistence for large indices. See xref:indexing/jvector/advanced.adoc#_parallel_on_disk_writes[Parallel On-Disk Writes] in the advanced section for more details.
 
 This is disabled by default, as sequential single-threaded writing is preferred in resource-constrained environments or for smaller indices.
 
@@ -213,7 +213,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 == Background Persistence
 
 Enable automatic asynchronous persistence to avoid blocking operations during writes.
-Setting `persistenceIntervalMs` to a value greater than 0 enables background persistence.
+Setting `persistenceIntervalMs` to a value greater than 0 enables background persistence. See xref:indexing/jvector/advanced.adoc#_production_configuration[Production Configuration] for a combined example with background persistence and optimization.
 
 [options="header",cols="1,1,3"]
 |===
@@ -250,7 +250,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 == Background Optimization
 
 Enable periodic graph optimization to maintain query performance as the index grows.
-Setting `optimizationIntervalMs` to a value greater than 0 enables background optimization.
+Setting `optimizationIntervalMs` to a value greater than 0 enables background optimization. See xref:indexing/jvector/advanced.adoc#_manual_optimization_and_persistence[Manual Optimization and Persistence] for manual control.
 
 [options="header",cols="1,1,3"]
 |===
