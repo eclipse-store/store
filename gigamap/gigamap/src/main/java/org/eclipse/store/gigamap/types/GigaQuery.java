@@ -99,12 +99,20 @@ public interface GigaQuery<E> extends Predicate<E>, XIterable<E>, Iterable<E>, G
 	 */
 	public default Stream<E> stream()
 	{
-		// TODO find out if custom stream implementation is worth it
-		
+		/*
+		 * A custom Spliterator implementation was considered but deemed unnecessary.
+		 * The stream API is a convenience wrapper - performance-critical code should use
+		 * execute(), iterate(), or toList() instead. Query result size is not known upfront
+		 * (would require full iteration), so SIZED/parallel splitting optimizations are
+		 * not applicable.
+		 */
 		final GigaIterator<E> iterator = this.iterator();
 		return StreamSupport.stream(
-			() -> Spliterators.spliteratorUnknownSize(iterator, 0),
-			Spliterator.CONCURRENT,
+			() -> Spliterators.spliteratorUnknownSize(
+				iterator,
+				Spliterator.NONNULL | Spliterator.DISTINCT | Spliterator.CONCURRENT
+			),
+			Spliterator.NONNULL | Spliterator.DISTINCT | Spliterator.CONCURRENT,
 			false
 		)
 		.onClose(iterator::close)
