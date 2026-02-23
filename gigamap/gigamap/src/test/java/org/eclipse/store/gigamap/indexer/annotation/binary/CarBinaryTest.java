@@ -40,7 +40,6 @@ public class CarBinaryTest
         final BitmapIndices<CarBinary> bitmapIndices = vehicles.index().bitmap();
         IndexerGenerator.AnnotationBased(CarBinary.class).generateIndices(bitmapIndices);
 
-        assertThrows(IllegalArgumentException.class, () -> vehicles.add(new CarBinary("notValidVehicle", "Skoda", 0L)));
         vehicles.add(new CarBinary("notValidVehicle", "Skoda", 5555L));
 
     }
@@ -61,8 +60,6 @@ public class CarBinaryTest
         CarBinary carBinary = vehicles.query(vehicleId.is(1L)).findFirst().orElse(null);
         assertNotNull(carBinary);
         assertEquals("Toyota", carBinary.getMake());
-
-        assertThrows(IllegalArgumentException.class, () -> vehicles.add(new CarBinary("notValidVehicle", "Skoda", 0L)));
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(vehicles, tempDir)) {
             vehicles.add(new CarBinary("dkfjsdkljfd", "BMW", 2L));
@@ -96,8 +93,6 @@ public class CarBinaryTest
         CarBinary carBinary = vehicles.query(vehicleId.is(1L)).findFirst().orElse(null);
         assertNotNull(carBinary);
         assertEquals("Toyota", carBinary.getMake());
-
-        assertThrows(IllegalArgumentException.class, () -> vehicles.add(new CarBinary("notValidVehicle", "Skoda", 0L)));
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(vehicles, tempDir)) {
             vehicles.add(new CarBinary("dkfjsdkljfd", "BMW", 2L));

@@ -42,12 +42,16 @@ public class BinaryIndexerShortTest
                 .build();
 
         map.add(new ShortBinaryIndexerPojo((short) 1));
-        map.add(new ShortBinaryIndexerPojo((short) 2));
+        map.add(new ShortBinaryIndexerPojo((short) -5));
         map.add(new ShortBinaryIndexerPojo((short) 3));
+        map.add(new ShortBinaryIndexerPojo((short) 0));
 
-        List<ShortBinaryIndexerPojo> list = map.query(indexer.is(1L)).toList();
-        assertEquals(1, list.size());
-        assertEquals((short) 1, list.get(0).getShortValue());
+        for(short value : new short[]{1, -5, 3, 0})
+        {
+            List<ShortBinaryIndexerPojo> list = map.query(indexer.is(value)).toList();
+            assertEquals(1, list.size());
+            assertEquals(value, list.get(0).getShortValue());
+        }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(map, tempDir)) {
 
@@ -55,23 +59,28 @@ public class BinaryIndexerShortTest
 
         GigaMap<ShortBinaryIndexerPojo> newMap = GigaMap.New();
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newMap, tempDir)) {
-            assertEquals(3, newMap.size());
-            List<ShortBinaryIndexerPojo> newList = newMap.query(indexer.is(1L)).toList();
-            assertEquals(1, newList.size());
-            assertEquals((short) 1, newList.get(0).getShortValue());
+            assertEquals(4, newMap.size());
+
+            for(short value : new short[]{1, -5, 3, 0})
+            {
+                List<ShortBinaryIndexerPojo> newList = newMap.query(indexer.is(value)).toList();
+                assertEquals(1, newList.size());
+                assertEquals(value, newList.get(0).getShortValue());
+            }
+
             newMap.add(new ShortBinaryIndexerPojo(Short.MAX_VALUE));
             newMap.store();
         }
 
         GigaMap<ShortBinaryIndexerPojo> newMap2 = GigaMap.New();
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newMap2, tempDir)) {
-            assertEquals(4, newMap2.size());
+            assertEquals(5, newMap2.size());
             List<ShortBinaryIndexerPojo> newList = newMap2.query(indexer.is(Short.MAX_VALUE)).toList();
             assertEquals(1, newList.size());
             assertEquals(Short.MAX_VALUE, newList.get(0).getShortValue());
 
             List<ShortBinaryIndexerPojo> list1 = newMap2.query(indexer.not(Short.MAX_VALUE)).toList();
-            assertEquals(3, list1.size());
+            assertEquals(4, list1.size());
         }
     }
 

@@ -43,9 +43,12 @@ public class BinaryIndexerStringTest
             .withBitmapIdentityIndex(indexer)
             .build();
 
+        String nullBytes = "\0\0\0\0\0\0\0\0";
+
         map.add(new StringBinaryIndexerPojo("one"));
         map.add(new StringBinaryIndexerPojo("two"));
         map.add(new StringBinaryIndexerPojo("three"));
+        map.add(new StringBinaryIndexerPojo(nullBytes));
 
         List<StringBinaryIndexerPojo> one = map.query(indexer.is("one")).toList();
         assertEquals(1, one.size());
@@ -53,13 +56,17 @@ public class BinaryIndexerStringTest
             assertEquals("one",  pojo.getStringValue());
         });
 
+        List<StringBinaryIndexerPojo> nullByteResult = map.query(indexer.is(nullBytes)).toList();
+        assertEquals(1, nullByteResult.size());
+        assertEquals(nullBytes, nullByteResult.get(0).getStringValue());
+
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(map, tempDir)) {
             // Storage operations can be performed here
         }
 
         GigaMap<StringBinaryIndexerPojo> newMap = GigaMap.New();
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newMap, tempDir)) {
-            assertEquals(3, newMap.size());
+            assertEquals(4, newMap.size());
 
             List<StringBinaryIndexerPojo> newList = newMap.query(indexer.is("one")).toList();
             assertEquals(1, newList.size());
@@ -67,20 +74,24 @@ public class BinaryIndexerStringTest
                 assertEquals("one", pojo.getStringValue());
             });
 
+            List<StringBinaryIndexerPojo> newNullByteResult = newMap.query(indexer.is(nullBytes)).toList();
+            assertEquals(1, newNullByteResult.size());
+            assertEquals(nullBytes, newNullByteResult.get(0).getStringValue());
+
             newMap.add(new StringBinaryIndexerPojo("four"));
             newMap.store();
         }
 
         GigaMap<StringBinaryIndexerPojo> newMap2 = GigaMap.New();
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newMap2, tempDir)) {
-            assertEquals(4, newMap2.size());
+            assertEquals(5, newMap2.size());
             List<StringBinaryIndexerPojo> four1 = newMap2.query(indexer.is("four")).toList();
             four1.forEach(pojo -> {
                 assertEquals("four", pojo.getStringValue());
             });
 
             List<StringBinaryIndexerPojo> four = newMap2.query(indexer.not("four")).toList();
-            assertEquals(3, four.size());
+            assertEquals(4, four.size());
             four.forEach(pojo -> {
                 assertNotEquals("four", pojo.getStringValue());
             });

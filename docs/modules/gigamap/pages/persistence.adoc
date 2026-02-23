@@ -38,3 +38,22 @@ gigaMap.store();
 ----
 
 NOTE: Changes made to entities directly (outside of `update` or `apply`) are not tracked by the GigaMap and must be stored manually.
+
+== Concurrency
+
+When using GigaMap in a multi-threaded environment, it is important to understand how storing interacts with the GigaMap's internal locking.
+
+`gigaMap.store()` is the *recommended* way to store. It is synchronized on the GigaMap instance, which guarantees that no other thread can modify the GigaMap while the store operation is running.
+
+Storing the GigaMap through any other path, such as `storageManager.store(gigaMap)` or `storageConnection.storeAll(...)`, does *not* acquire the GigaMap's lock. If another thread modifies the GigaMap concurrently (e.g. by calling `add`, `remove`, or `update`), the internal data structures can be modified while they are being serialized, leading to errors such as `BinaryPersistenceException: Inconsistent element count`.
+
+If you need to store the GigaMap through an external path, you must synchronize on the GigaMap instance yourself:
+
+[source, java]
+----
+synchronized (gigaMap) {
+    storageManager.store(gigaMap);
+}
+----
+
+This is the same principle as the classic problem with synchronized JDK collections like `Vector`: synchronizing individual methods is not sufficient when multiple operations need to be atomic. In this case, the entire store traversal must be protected from concurrent modifications.
