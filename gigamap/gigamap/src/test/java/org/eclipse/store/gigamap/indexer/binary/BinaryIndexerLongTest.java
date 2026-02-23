@@ -54,9 +54,6 @@ public class BinaryIndexerLongTest
             assertEquals(value, list.get(0).getLongValue());
         }
 
-        assertThrows(IllegalArgumentException.class, () ->
-            map.add(new LongBinaryIndexerPojo(Long.MAX_VALUE)));
-
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(map, tempDir)) {
 
         }
@@ -86,6 +83,19 @@ public class BinaryIndexerLongTest
             List<LongBinaryIndexerPojo> list1 = newMap2.query(indexer.not(100L)).toList();
             assertEquals(4, list1.size());
         }
+    }
+
+    @Test
+    void maxLongNotAllowedTest()
+    {
+        LongBinaryIndexer indexer = new LongBinaryIndexer();
+
+        GigaMap<LongBinaryIndexerPojo> map = GigaMap.<LongBinaryIndexerPojo>Builder()
+                .withBitmapIdentityIndex(indexer)
+                .build();
+
+        assertThrows(IllegalArgumentException.class, () ->
+                map.add(new LongBinaryIndexerPojo(Long.MAX_VALUE)));
     }
 
     static class LongBinaryIndexer extends  BinaryIndexerLong.Abstract<LongBinaryIndexerPojo>
