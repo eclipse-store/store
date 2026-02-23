@@ -53,8 +53,8 @@ public class IterationThreadProviderTest
     @Test
     void testAdaptiveThreadCountProvider_validation()
     {
-        assertThrows(RuntimeException.class, () -> ThreadCountProvider.Adaptive(-5));
-        assertThrows(RuntimeException.class, () -> ThreadCountProvider.Adaptive(0));
+        assertThrows(NumberRangeException.class, () -> ThreadCountProvider.Adaptive(-5));
+        assertThrows(NumberRangeException.class, () -> ThreadCountProvider.Adaptive(0));
     }
 
     @Test
