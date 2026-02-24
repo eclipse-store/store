@@ -420,7 +420,7 @@ public interface ByteIndexerNumber<E, K extends Number> extends HashingComposite
 			@Override
 			public boolean test(final Object[] keys)
 			{
-				for(int i = 0; i < this.maxSubKeyPosition; i++)
+				for(int i = 0; i <= this.maxSubKeyPosition; i++)
 				{
 					if(!this.test(i, keys[i]))
 					{

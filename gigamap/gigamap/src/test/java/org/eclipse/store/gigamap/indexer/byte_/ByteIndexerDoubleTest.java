@@ -90,6 +90,30 @@ public class ByteIndexerDoubleTest
     }
 
     @Test
+    void rangeQueriesWithCloseValues()
+    {
+        final DoubleValueIndexer indexer = new DoubleValueIndexer();
+
+        final GigaMap<DoublePojo> map = GigaMap.<DoublePojo>Builder()
+            .withBitmapIdentityIndex(indexer)
+            .build();
+
+        // Values that share leading bytes in their ordered encoding,
+        // exercising ByteEqualsUntilPredicate for positions beyond byte[0].
+        map.add(new DoublePojo(1.0));
+        map.add(new DoublePojo(1.25));
+        map.add(new DoublePojo(1.5));
+        map.add(new DoublePojo(1.75));
+        map.add(new DoublePojo(2.0));
+
+        assertEquals(2, map.query(indexer.lessThan(1.5)).toList().size());
+        assertEquals(3, map.query(indexer.lessThanEqual(1.5)).toList().size());
+        assertEquals(2, map.query(indexer.greaterThan(1.5)).toList().size());
+        assertEquals(3, map.query(indexer.greaterThanEqual(1.5)).toList().size());
+        assertEquals(3, map.query(indexer.between(1.0, 1.5)).toList().size());
+    }
+
+    @Test
     void rangeQueriesWithNegativeValues()
     {
         final DoubleValueIndexer indexer = new DoubleValueIndexer();

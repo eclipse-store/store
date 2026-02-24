@@ -90,6 +90,30 @@ public class ByteIndexerFloatTest
     }
 
     @Test
+    void rangeQueriesWithCloseValues()
+    {
+        final FloatValueIndexer indexer = new FloatValueIndexer();
+
+        final GigaMap<FloatPojo> map = GigaMap.<FloatPojo>Builder()
+            .withBitmapIdentityIndex(indexer)
+            .build();
+
+        // Values that share leading bytes in their ordered encoding,
+        // exercising ByteEqualsUntilPredicate for positions beyond byte[0].
+        map.add(new FloatPojo(1.0f));
+        map.add(new FloatPojo(1.25f));
+        map.add(new FloatPojo(1.5f));
+        map.add(new FloatPojo(1.75f));
+        map.add(new FloatPojo(2.0f));
+
+        assertEquals(2, map.query(indexer.lessThan(1.5f)).toList().size());
+        assertEquals(3, map.query(indexer.lessThanEqual(1.5f)).toList().size());
+        assertEquals(2, map.query(indexer.greaterThan(1.5f)).toList().size());
+        assertEquals(3, map.query(indexer.greaterThanEqual(1.5f)).toList().size());
+        assertEquals(3, map.query(indexer.between(1.0f, 1.5f)).toList().size());
+    }
+
+    @Test
     void rangeQueriesWithNegativeValues()
     {
         final FloatValueIndexer indexer = new FloatValueIndexer();
