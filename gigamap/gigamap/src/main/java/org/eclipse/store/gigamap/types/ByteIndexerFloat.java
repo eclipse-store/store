@@ -24,6 +24,10 @@ package org.eclipse.store.gigamap.types;
  * {@link Float#NaN} is rejected at both index time and query time because NaN
  * is not ordered and would produce undefined query results. Positive and negative
  * infinity are fully supported and maintain their natural ordering.
+ * <p>
+ * Positive zero ({@code 0.0f}) and negative zero ({@code -0.0f}) are treated as distinct
+ * values, with {@code -0.0f} ordered before {@code 0.0f}. This is consistent with
+ * {@link Float#compare(float, float)} and {@link Float#floatToIntBits(float)} semantics.
  *
  * @param <E> the entity type
  *

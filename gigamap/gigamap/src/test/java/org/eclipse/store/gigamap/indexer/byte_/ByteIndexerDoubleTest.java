@@ -133,6 +133,30 @@ public class ByteIndexerDoubleTest
     }
 
     @Test
+    void positiveAndNegativeZeroAreDistinct()
+    {
+        final DoubleValueIndexer indexer = new DoubleValueIndexer();
+
+        final GigaMap<DoublePojo> map = GigaMap.<DoublePojo>Builder()
+            .withBitmapIdentityIndex(indexer)
+            .build();
+
+        map.add(new DoublePojo(-0.0));
+        map.add(new DoublePojo(0.0));
+
+        // -0.0 and 0.0 are stored as distinct values
+        assertEquals(2, map.size());
+        assertEquals(1, map.query(indexer.is(0.0)).toList().size());
+        assertEquals(1, map.query(indexer.is(-0.0)).toList().size());
+
+        // -0.0 is ordered before 0.0, consistent with Double.compare
+        assertEquals(1, map.query(indexer.lessThan(0.0)).toList().size());
+        assertEquals(0, map.query(indexer.lessThan(-0.0)).toList().size());
+        assertEquals(1, map.query(indexer.greaterThan(-0.0)).toList().size());
+        assertEquals(0, map.query(indexer.greaterThan(0.0)).toList().size());
+    }
+
+    @Test
     void nanRejectedAtIndexTime()
     {
         final DoubleValueIndexer indexer = new DoubleValueIndexer();

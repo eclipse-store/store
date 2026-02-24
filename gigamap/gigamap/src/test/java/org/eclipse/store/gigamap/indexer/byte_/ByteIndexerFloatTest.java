@@ -133,6 +133,30 @@ public class ByteIndexerFloatTest
     }
 
     @Test
+    void positiveAndNegativeZeroAreDistinct()
+    {
+        final FloatValueIndexer indexer = new FloatValueIndexer();
+
+        final GigaMap<FloatPojo> map = GigaMap.<FloatPojo>Builder()
+            .withBitmapIdentityIndex(indexer)
+            .build();
+
+        map.add(new FloatPojo(-0.0f));
+        map.add(new FloatPojo(0.0f));
+
+        // -0.0f and 0.0f are stored as distinct values
+        assertEquals(2, map.size());
+        assertEquals(1, map.query(indexer.is(0.0f)).toList().size());
+        assertEquals(1, map.query(indexer.is(-0.0f)).toList().size());
+
+        // -0.0f is ordered before 0.0f, consistent with Float.compare
+        assertEquals(1, map.query(indexer.lessThan(0.0f)).toList().size());
+        assertEquals(0, map.query(indexer.lessThan(-0.0f)).toList().size());
+        assertEquals(1, map.query(indexer.greaterThan(-0.0f)).toList().size());
+        assertEquals(0, map.query(indexer.greaterThan(0.0f)).toList().size());
+    }
+
+    @Test
     void nanRejectedAtIndexTime()
     {
         final FloatValueIndexer indexer = new FloatValueIndexer();
