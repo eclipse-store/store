@@ -1,0 +1,200 @@
+= Spatial Index
+
+The spatial indexer adds geographic coordinate indexing to entities stored in a GigaMap. It is part of the xref:indexing/bitmap/index.adoc[Bitmap] index infrastructure and automatically kept in sync as entities are added, updated, or removed.
+
+Under the hood, the indexer decomposes latitude/longitude pairs into order-preserving bytes using fixed-point integer encoding and stores them in the existing composite bitmap index. This enables efficient geographic queries like bounding box and proximity searches without external dependencies.
+
+== What is Spatial Indexing?
+
+Traditional database queries match exact values: `city = "Berlin"` finds only cities named Berlin. Spatial indexing is different -- it understands geographic coordinates:
+
+* *Bounding box*: Find all entities within a rectangular area defined by latitude/longitude bounds
+* *Proximity*: Find all entities within a given radius of a point
+* *Range queries*: Filter by latitude or longitude ranges independently
+* *Exact match*: Find entities at precise coordinates
+
+=== When to Use Spatial Indexing
+
+[options="header",cols="1,1,2"]
+|===
+|Query Type |Index Type |Example
+
+|Exact match
+|Bitmap
+|`category = "Electronics"`
+
+|Full-text search
+|Lucene
+|`description contains "wireless bluetooth"`
+
+|Similarity search
+|JVector
+|"Find products similar to this one"
+
+|Geographic queries
+|Spatial
+|"Find stores within 10km" or "Find all locations in Europe"
+|===
+
+Use the spatial indexer when you need to:
+
+* Find entities near a geographic point (stores, restaurants, delivery points)
+* Search within a bounding box (map viewport, regional queries)
+* Filter by latitude or longitude ranges
+* Match exact geographic coordinates
+
+== How it Works
+
+The `SpatialIndexer` uses fixed-point encoding to convert latitude and longitude values into integers, then decomposes each integer into 4 order-preserving bytes. This results in 8 sub-indices per coordinate pair (4 for latitude, 4 for longitude), leveraging the existing `HashingCompositeIndexer` infrastructure.
+
+The encoding uses a scale factor of 10^7, giving approximately 1.1cm precision -- more than sufficient for virtually all geographic use cases.
+
+== Example
+
+First, define a spatial indexer by extending `SpatialIndexer.Abstract` and implementing the two coordinate extraction methods.
+
+[source, java]
+----
+public class Location
+{
+    private String name;
+    private double latitude;
+    private double longitude;
+
+    // constructors, getters ...
+}
+----
+
+[source, java]
+----
+public class LocationIndex extends SpatialIndexer.Abstract<Location>
+{
+    @Override
+    protected Double getLatitude(final Location entity)
+    {
+        return entity.getLatitude();
+    }
+
+    @Override
+    protected Double getLongitude(final Location entity)
+    {
+        return entity.getLongitude();
+    }
+}
+----
+
+Then register the indexer with the GigaMap and start querying.
+
+[source, java]
+----
+// Create indexer instance (keep as singleton for query access)
+LocationIndex locationIndex = new LocationIndex();
+
+// Create GigaMap and register the spatial index
+GigaMap<Location> gigaMap = GigaMap.<Location>Builder()
+    .withBitmapIndex(locationIndex)
+    .build();
+
+// Add entities
+gigaMap.addAll(
+    new Location("New York",   40.7128,  -74.0060),
+    new Location("London",     51.5074,   -0.1278),
+    new Location("Tokyo",      35.6762,  139.6503),
+    new Location("Sydney",    -33.8688,  151.2093),
+    new Location("Cape Town", -33.9249,   18.4241)
+);
+----
+
+=== Querying
+
+[source, java]
+----
+// Find locations within a bounding box (Europe)
+gigaMap.query(locationIndex.withinBox(35.0, 60.0, -10.0, 30.0));
+
+// Find locations within 100km of New York
+gigaMap.query(locationIndex.near(40.7128, -74.0060, 100.0));
+
+// Find locations at exact coordinates
+gigaMap.query(locationIndex.at(51.5074, -0.1278));
+
+// Find locations in the northern hemisphere
+gigaMap.query(locationIndex.latitudeAbove(0.0));
+----
+
+== Query Methods
+
+[options="header",cols="2,3"]
+|===
+|Method |Description
+
+|`at(latitude, longitude)`
+|Exact coordinate match
+
+|`isNull()`
+|Entities with null coordinates
+
+|`latitudeBetween(min, max)`
+|Latitude within inclusive range
+
+|`longitudeBetween(min, max)`
+|Longitude within inclusive range
+
+|`latitudeAbove(min)`
+|Latitude >= min (inclusive)
+
+|`latitudeBelow(max)`
+|Latitude \<= max (inclusive)
+
+|`longitudeAbove(min)`
+|Longitude >= min (inclusive)
+
+|`longitudeBelow(max)`
+|Longitude \<= max (inclusive)
+
+|`withinBox(minLat, maxLat, minLon, maxLon)`
+|Bounding box query (handles antimeridian wrapping)
+
+|`near(latitude, longitude, radiusKm)`
+|Proximity search using bounding box approximation
+|===
+
+All query methods return `Condition` objects that can be combined with `and()` and `or()` for complex geographic filters.
+
+== Null Coordinates
+
+Entities may have null coordinates to represent locations without geographic data. Both latitude and longitude must be either null or non-null -- partial null coordinates throw an `IllegalArgumentException`.
+
+[source, java]
+----
+// Entities with null coordinates
+gigaMap.add(new Location("Virtual Office", null, null));
+
+// Query for entities without coordinates
+gigaMap.query(locationIndex.isNull());
+----
+
+== Persistence
+
+The spatial indexer works with EclipseStore persistence out of the box.
+
+[source, java]
+----
+try (EmbeddedStorageManager storage = EmbeddedStorage.start(gigaMap, storageDir))
+{
+    gigaMap.add(new Location("Berlin", 52.5200, 13.4050));
+    storage.storeRoot();
+}
+
+// After restart, spatial queries work immediately
+try (EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+{
+    GigaMap<Location> loaded = (GigaMap<Location>) storage.root();
+    loaded.query(locationIndex.near(52.5200, 13.4050, 50.0));
+}
+----
+
+== Further Reading
+
+* xref:indexing/spatial/use-cases.adoc[Use Cases]
+* xref:indexing/spatial/advanced.adoc[Advanced Usage]

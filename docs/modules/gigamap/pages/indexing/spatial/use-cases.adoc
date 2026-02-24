@@ -1,0 +1,298 @@
+= Use Cases
+
+This section provides examples for common spatial indexing scenarios.
+
+== Store Locator
+
+Find the nearest stores, restaurants, or service points to a customer's location.
+
+[source, java]
+----
+public class Store
+{
+    private long   id       ;
+    private String name     ;
+    private String address  ;
+    private double latitude ;
+    private double longitude;
+
+    // constructors, getters ...
+}
+
+public class StoreLocationIndex extends SpatialIndexer.Abstract<Store>
+{
+    @Override
+    protected Double getLatitude(final Store entity)
+    {
+        return entity.getLatitude();
+    }
+
+    @Override
+    protected Double getLongitude(final Store entity)
+    {
+        return entity.getLongitude();
+    }
+}
+----
+
+[source, java]
+----
+StoreLocationIndex storeLocation = new StoreLocationIndex();
+
+GigaMap<Store> stores = GigaMap.<Store>Builder()
+    .withBitmapIndex(storeLocation)
+    .build();
+
+// Find stores within 25km of the customer
+List<Store> nearbyStores = stores.query(storeLocation.near(48.1351, 11.5820, 25.0))
+    .stream()
+    .toList();
+----
+
+For exact circular distance filtering, combine the bounding box query with a post-filter.
+
+[source, java]
+----
+// Bounding box approximation + exact Haversine filtering
+List<Store> exactNearby = stores.query(storeLocation.near(48.1351, 11.5820, 25.0))
+    .stream()
+    .filter(storeLocation.withinRadius(48.1351, 11.5820, 25.0))
+    .toList();
+----
+
+== Regional Data Analysis
+
+Analyze data within geographic regions such as countries, states, or custom areas.
+
+[source, java]
+----
+public class SalesRecord
+{
+    private long    id       ;
+    private double  amount   ;
+    private String  product  ;
+    private double  latitude ;
+    private double  longitude;
+
+    // constructors, getters ...
+}
+
+public class SalesLocationIndex extends SpatialIndexer.Abstract<SalesRecord>
+{
+    @Override
+    protected Double getLatitude(final SalesRecord entity)
+    {
+        return entity.getLatitude();
+    }
+
+    @Override
+    protected Double getLongitude(final SalesRecord entity)
+    {
+        return entity.getLongitude();
+    }
+}
+----
+
+[source, java]
+----
+SalesLocationIndex salesLocation = new SalesLocationIndex();
+
+GigaMap<SalesRecord> sales = GigaMap.<SalesRecord>Builder()
+    .withBitmapIndex(salesLocation)
+    .build();
+
+// Sales in Central Europe (approximate bounding box)
+long europeanSales = sales.query(salesLocation.withinBox(47.0, 55.0, 5.0, 15.0)).count();
+
+// Sales in the southern hemisphere
+long southernSales = sales.query(salesLocation.latitudeBelow(0.0)).count();
+
+// Sales in the western hemisphere
+long westernSales = sales.query(salesLocation.longitudeBelow(0.0)).count();
+----
+
+== Fleet Tracking
+
+Track and query vehicle positions in a delivery or logistics system.
+
+[source, java]
+----
+public class Vehicle
+{
+    private String id             ;
+    private String type           ;
+    private double lastLatitude   ;
+    private double lastLongitude  ;
+
+    // constructors, getters ...
+}
+
+public class VehiclePositionIndex extends SpatialIndexer.Abstract<Vehicle>
+{
+    @Override
+    protected Double getLatitude(final Vehicle entity)
+    {
+        return entity.getLastLatitude();
+    }
+
+    @Override
+    protected Double getLongitude(final Vehicle entity)
+    {
+        return entity.getLastLongitude();
+    }
+}
+----
+
+[source, java]
+----
+VehiclePositionIndex vehiclePosition = new VehiclePositionIndex();
+
+GigaMap<Vehicle> vehicles = GigaMap.<Vehicle>Builder()
+    .withBitmapIndex(vehiclePosition)
+    .build();
+
+// Find all vehicles within 5km of the warehouse
+List<Vehicle> nearWarehouse = vehicles.query(
+    vehiclePosition.near(52.5200, 13.4050, 5.0)
+).stream().toList();
+
+// Find vehicles in the delivery zone
+List<Vehicle> inZone = vehicles.query(
+    vehiclePosition.withinBox(52.4, 52.6, 13.2, 13.6)
+).stream().toList();
+----
+
+== Real Estate Search
+
+Search for properties within a map viewport or near a point of interest.
+
+[source, java]
+----
+public class Property
+{
+    private long    id       ;
+    private String  title    ;
+    private double  price    ;
+    private int     rooms    ;
+    private double  latitude ;
+    private double  longitude;
+
+    // constructors, getters ...
+}
+
+public class PropertyLocationIndex extends SpatialIndexer.Abstract<Property>
+{
+    @Override
+    protected Double getLatitude(final Property entity)
+    {
+        return entity.getLatitude();
+    }
+
+    @Override
+    protected Double getLongitude(final Property entity)
+    {
+        return entity.getLongitude();
+    }
+}
+----
+
+[source, java]
+----
+PropertyLocationIndex propertyLocation = new PropertyLocationIndex();
+
+GigaMap<Property> properties = GigaMap.<Property>Builder()
+    .withBitmapIndex(propertyLocation)
+    .build();
+
+// Properties visible in map viewport
+List<Property> visibleOnMap = properties.query(
+    propertyLocation.withinBox(52.48, 52.56, 13.35, 13.45)
+).stream().toList();
+
+// Properties within walking distance of a subway station
+List<Property> nearSubway = properties.query(
+    propertyLocation.near(52.5200, 13.4050, 1.0)
+).stream().toList();
+----
+
+== Combining Spatial with Other Indices
+
+Spatial conditions can be combined with other bitmap index conditions for filtered geographic queries.
+
+[source, java]
+----
+public class Restaurant
+{
+    private long    id       ;
+    private String  name     ;
+    private String  cuisine  ;
+    private int     rating   ;
+    private double  latitude ;
+    private double  longitude;
+
+    // constructors, getters ...
+}
+
+// Define both spatial and regular indexers
+RestaurantLocationIndex location = new RestaurantLocationIndex();
+Indexer<Restaurant, String> cuisine = new Indexer.Abstract<>()
+{
+    @Override
+    public Class<String> keyType()
+    {
+        return String.class;
+    }
+
+    @Override
+    public String indexEntity(Restaurant entity)
+    {
+        return entity.getCuisine();
+    }
+};
+----
+
+[source, java]
+----
+GigaMap<Restaurant> restaurants = GigaMap.<Restaurant>Builder()
+    .withBitmapIndex(location)
+    .withBitmapIndex(cuisine)
+    .build();
+
+// Italian restaurants within 5km
+List<Restaurant> nearbyItalian = restaurants.query(
+    location.near(48.1351, 11.5820, 5.0)
+        .and(cuisine.is("Italian"))
+).stream().toList();
+----
+
+== Distance Calculation
+
+Use the static `haversineDistance` method to calculate great-circle distances between two geographic points.
+
+[source, java]
+----
+// Distance from New York to London in kilometers
+double distance = SpatialIndexer.haversineDistance(
+    40.7128, -74.0060,  // New York
+    51.5074,  -0.1278   // London
+);
+// ~5570 km
+----
+
+This is useful for sorting results by distance or displaying distances in the UI.
+
+[source, java]
+----
+double centerLat = 48.1351;
+double centerLon = 11.5820;
+
+List<Store> sortedByDistance = stores.query(storeLocation.near(centerLat, centerLon, 50.0))
+    .stream()
+    .sorted(Comparator.comparingDouble(store ->
+        SpatialIndexer.haversineDistance(
+            centerLat, centerLon,
+            store.getLatitude(), store.getLongitude()
+        )
+    ))
+    .toList();
+----

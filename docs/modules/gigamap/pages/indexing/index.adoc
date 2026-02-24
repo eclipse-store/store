@@ -17,6 +17,10 @@ GigaMap supports multiple index types, each optimized for different query patter
 |xref:indexing/jvector/index.adoc[JVector]
 |Vector similarity, semantic search, recommendations
 |"Find products similar to this one"
+
+|xref:indexing/spatial/index.adoc[Spatial]
+|Geographic coordinates, bounding box, proximity
+|`near(40.7, -74.0, 100)`
 |===
 
 == Choosing an Index Type
@@ -26,3 +30,5 @@ GigaMap supports multiple index types, each optimized for different query patter
 *xref:indexing/lucene/index.adoc[Lucene Index]* - Use for full-text search within text content. Ideal for searching product descriptions, article content, user comments, or any text where users search by keywords. Supports relevance ranking, phrase search, wildcards, and boolean queries.
 
 *xref:indexing/jvector/index.adoc[JVector Index]* - Use for vector similarity search with AI embeddings. Ideal for finding similar items, semantic search, recommendation systems, or RAG applications. Requires vector embeddings from an AI/ML model.
+
+*xref:indexing/spatial/index.adoc[Spatial Index]* - Use for geographic coordinate queries. Ideal for finding nearby locations, bounding box searches, and range filtering on latitude/longitude. Built on the bitmap index infrastructure with no external dependencies.
