@@ -30,7 +30,7 @@ import java.util.function.IntPredicate;
  * @param <E> the entity type
  * @param <K> the numeric key type
  */
-public interface ByteIndexerNumber<E, K extends Number> extends HashingCompositeIndexer<E>
+public interface ByteIndexerNumber<E, K extends Number> extends HashingCompositeIndexer<E>, NumberQueryable<E, K>
 {
 	/**
 	 * Creates an equality condition for the given key.
@@ -39,6 +39,7 @@ public interface ByteIndexerNumber<E, K extends Number> extends HashingComposite
 	 * @param key the key to compare for equality
 	 * @return a new condition representing the equality check
 	 */
+	@Override
 	public <S extends E> Condition<S> is(K key);
 
 	/**
@@ -48,6 +49,7 @@ public interface ByteIndexerNumber<E, K extends Number> extends HashingComposite
 	 * @param key the key to compare for inequality
 	 * @return a new condition representing the inequality check
 	 */
+	@Override
 	public <S extends E> Condition<S> not(K key);
 
 	/**
@@ -58,6 +60,7 @@ public interface ByteIndexerNumber<E, K extends Number> extends HashingComposite
 	 * @return a new condition representing the containment check
 	 */
 	@SuppressWarnings("unchecked")
+	@Override
 	public <S extends E> Condition<S> in(K... keys);
 
 	/**
@@ -68,6 +71,7 @@ public interface ByteIndexerNumber<E, K extends Number> extends HashingComposite
 	 * @return a new condition representing the negated containment check
 	 */
 	@SuppressWarnings("unchecked")
+	@Override
 	public <S extends E> Condition<S> notIn(K... keys);
 
 	/**
@@ -77,24 +81,27 @@ public interface ByteIndexerNumber<E, K extends Number> extends HashingComposite
 	 * @param boundExclusive the exclusive upper bound
 	 * @return a new condition representing the less-than check
 	 */
+	@Override
 	public <S extends E> Condition<S> lessThan(K boundExclusive);
 
 	/**
 	 * Creates a condition that checks if the key is less than or equal to the given bound.
 	 *
-	 * @param <S> the type of entity this condition applies to
+	 * @param <S>            the type of entity this condition applies to
 	 * @param boundInclusive the inclusive upper bound
 	 * @return a new condition representing the less-than-or-equal check
 	 */
+	@Override
 	public <S extends E> Condition<S> lessThanEqual(K boundInclusive);
 
 	/**
 	 * Creates a condition that checks if the key is strictly greater than the given bound.
 	 *
-	 * @param <S> the type of entity this condition applies to
+	 * @param <S>            the type of entity this condition applies to
 	 * @param boundExclusive the exclusive lower bound
 	 * @return a new condition representing the greater-than check
 	 */
+	@Override
 	public <S extends E> Condition<S> greaterThan(K boundExclusive);
 
 	/**
@@ -104,6 +111,7 @@ public interface ByteIndexerNumber<E, K extends Number> extends HashingComposite
 	 * @param boundInclusive the inclusive lower bound
 	 * @return a new condition representing the greater-than-or-equal check
 	 */
+	@Override
 	public <S extends E> Condition<S> greaterThanEqual(K boundInclusive);
 
 	/**
@@ -114,6 +122,7 @@ public interface ByteIndexerNumber<E, K extends Number> extends HashingComposite
 	 * @param endInclusive the inclusive end of the range
 	 * @return a new condition representing the between check
 	 */
+	@Override
 	public <S extends E> Condition<S> between(K startInclusive, K endInclusive);
 
 
