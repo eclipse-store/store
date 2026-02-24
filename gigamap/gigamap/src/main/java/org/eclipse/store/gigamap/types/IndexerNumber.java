@@ -20,7 +20,34 @@ package org.eclipse.store.gigamap.types;
  * @param <E> the type of entities being indexed
  * @param <K> the numerical type of the key, which must extend {@link Number}
  */
-public interface IndexerNumber<E, K extends Number> extends IndexerComparing<E, K>
+public interface IndexerNumber<E, K extends Number> extends IndexerComparing<E, K>, NumberQueryable<E, K>
 {
-    // typing interface
+    // Explicit overrides to resolve "abstract vs default" conflict between
+    // NumberQueryable (abstract) and IndexIdentifier (default).
+
+    @Override
+    default <S extends E> Condition<S> is(final K key)
+    {
+        return IndexerComparing.super.is(key);
+    }
+
+    @Override
+    default <S extends E> Condition<S> not(final K key)
+    {
+        return IndexerComparing.super.not(key);
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    default <S extends E> Condition<S> in(final K... keys)
+    {
+        return IndexerComparing.super.in(keys);
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    default <S extends E> Condition<S> notIn(final K... keys)
+    {
+        return IndexerComparing.super.notIn(keys);
+    }
 }

@@ -98,6 +98,35 @@ If you need indexers for high cardinality, like unique values, the binary indexe
 
 |===
 
+For high cardinality with range query support, the byte-decomposed indexers combine efficient storage with range operations (`lessThan`, `greaterThan`, `between`, etc.):
+
+[options="header",cols="1,2"]
+|===
+|Indexer |Key Type
+
+|ByteIndexerByte
+|java.lang.Byte, byte
+
+|ByteIndexerShort
+|java.lang.Short, short
+
+|ByteIndexerInteger
+|java.lang.Integer, int
+
+|ByteIndexerLong
+|java.lang.Long, long
+
+|ByteIndexerFloat
+|java.lang.Float, float
+
+|ByteIndexerDouble
+|java.lang.Double, double
+
+|ByteIndexerInstant
+|java.time.Instant
+
+|===
+
 Another specialized indexer which can be used for all key types in combination with an `Comparator` is the `IndexerComparing`.
 
 Besides these predefined indexers, custom indexers with arbitrary key types can be implemented.
