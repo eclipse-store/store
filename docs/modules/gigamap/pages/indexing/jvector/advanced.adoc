@@ -24,6 +24,136 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 
 NOTE: PQ compression automatically enforces `maxDegree=32` due to the FusedPQ algorithm constraint.
 
+=== How the On-Disk Index Works
+
+The vector index uses the HNSW (Hierarchical Navigable Small World) algorithm, which constructs a multi-layer proximity graph for efficient approximate nearest neighbor search. When on-disk mode is enabled, this graph is persisted to disk and accessed via memory-mapped files rather than being held entirely on the Java heap.
+
+==== Build and Persist Lifecycle
+
+The graph is always **built in-memory** first. Entities are added to the graph one at a time, each inserted by finding its nearest neighbors through a beam search and then connecting it to those neighbors via bidirectional edges. Once the in-memory graph is ready, it is serialized to disk.
+
+Persistence creates two files in the configured `indexDirectory`:
+
+* `{indexName}.graph` -- The full HNSW graph structure, including node connectivity (edges), and optionally embedded inline vectors and FusedPQ compressed data.
+* `{indexName}.meta` -- A small metadata file containing the file format version, the vector dimension, and the current vector count. This is used on startup to verify that the on-disk graph matches the current data.
+
+==== Loading from Disk
+
+On startup, the index first checks whether valid graph and metadata files exist. The metadata is verified: the dimension must match the configured value, and the vector count must match the number of vectors currently stored. If both checks pass, the graph is loaded directly from disk using memory-mapped I/O. This avoids rebuilding the graph from scratch, which can be expensive for large datasets.
+
+If the metadata does not match (e.g., because new entities were added while the application was offline, or the configuration changed), the on-disk files are ignored and the graph is rebuilt in-memory from the stored vectors.
+
+==== Memory-Mapped Access
+
+The on-disk graph is accessed through memory mapping the graph file. The operating system's virtual memory subsystem pages graph data in and out as needed, which means:
+
+* The JVM heap is not burdened with the full graph structure.
+* The OS page cache automatically keeps frequently accessed portions of the graph in physical memory.
+* Datasets much larger than available RAM can still be searched, with a trade-off of slightly higher query latency when pages need to be fetched from disk.
+
+=== Product Quantization (PQ) Compression
+
+Product Quantization is a lossy vector compression technique that drastically reduces the memory footprint of stored vectors while maintaining reasonable search accuracy.
+
+==== The Core Idea
+
+A raw float vector of dimension _D_ requires _D * 4_ bytes of storage. For a 768-dimensional embedding, that is 3,072 bytes per vector. At scale (e.g., 10 million vectors), this alone consumes roughly 30 GB of memory -- just for the vectors.
+
+PQ reduces this by splitting each vector into _M_ subspaces (contiguous slices) and independently quantizing each subspace using a codebook of 256 centroids (cluster centers). Since 256 values fit in a single byte (2^8 = 256), each subspace is encoded as one byte. A full vector is thus compressed from _D * 4_ bytes down to _M_ bytes.
+
+**Example:** A 768-dimensional vector with `pqSubspaces=48`:
+
+* Each subspace covers 768 / 48 = 16 dimensions.
+* Each subspace is encoded as 1 byte (index into its 256-entry codebook).
+* Compressed size: 48 bytes per vector (vs. 3,072 bytes raw) -- a **64x reduction**.
+
+==== Training the Codebook
+
+Before vectors can be compressed, PQ must learn the codebooks by clustering the training data. This happens automatically when the index is persisted to disk for the first time (provided at least 256 vectors exist). The training process:
+
+1. Collects all stored vectors.
+2. Splits each vector into _M_ subspaces.
+3. Runs k-means clustering (k=256) independently on each subspace, producing 256 centroids per subspace.
+4. Encodes every vector by replacing each subspace with the index of its nearest centroid.
+
+The resulting codebook and compressed codes are stored alongside the graph.
+
+==== Approximate Distance Computation
+
+Once vectors are compressed, distances between a query vector and a stored (compressed) vector can be computed without decompressing. For each subspace, the distance between the query's subspace and the centroid (looked up by the stored byte index) is precomputed into a lookup table. The total distance is the sum of these per-subspace distances.
+
+This is much faster than computing the full exact distance, because it replaces _D_ floating-point multiplications with _M_ table lookups and additions.
+
+=== FusedPQ: Compression Fused into the Graph
+
+When PQ compression is enabled for an on-disk index, the implementation uses **FusedPQ** -- a technique where the compressed PQ codes for each node's neighbors are stored directly alongside the graph edges in the on-disk file.
+
+During graph traversal (search), the HNSW algorithm must evaluate the distance from the query to each candidate neighbor. With FusedPQ, these approximate distances can be computed directly from the fused PQ codes embedded in the graph structure, without a separate random-access lookup into a vector store. This reduces I/O and cache misses during search.
+
+The on-disk graph file thus contains three types of data per node:
+
+* **Graph edges** -- The connections to neighboring nodes (the HNSW structure).
+* **Inline vectors** -- The full-precision float vectors, used for exact reranking.
+* **FusedPQ codes** -- The PQ-compressed representations of the node's neighbors, used for fast approximate scoring during traversal.
+
+The FusedPQ implementation requires exactly `maxDegree=32`. This is a fixed constraint of the algorithm's internal layout, which is why enabling PQ compression automatically enforces this value.
+
+=== Two-Phase Search with Reranking
+
+When PQ compression is active, searches use a **two-phase approach** to balance speed and accuracy:
+
+**Phase 1 -- Approximate candidate retrieval:** The HNSW graph is traversed using the FusedPQ-compressed vectors for fast approximate distance computation. This phase fetches `2 * k` candidates (twice the requested result count) to ensure the true top-k results are captured despite the approximation error introduced by quantization.
+
+**Phase 2 -- Exact reranking:** The `2 * k` approximate candidates are then re-scored using the full-precision inline vectors stored in the graph file. The exact scores are sorted and the best _k_ results are returned.
+
+This two-phase approach achieves nearly the same recall as an uncompressed search while benefiting from the speed and memory advantages of PQ during graph traversal.
+
+=== Choosing PQ Subspaces
+
+The `pqSubspaces` parameter (often called _M_ in PQ literature) controls the compression ratio and accuracy trade-off:
+
+[options="header",cols="1,1,2"]
+|===
+|Subspaces |Bytes per Vector |Characteristics
+
+|`dimension / 2` (e.g., 384 for dim=768)
+|384 bytes
+|Highest accuracy, least compression
+
+|`dimension / 4` (e.g., 192 for dim=768)
+|192 bytes
+|Good balance of accuracy and compression (recommended starting point)
+
+|`dimension / 8` (e.g., 96 for dim=768)
+|96 bytes
+|More aggressive compression, some accuracy loss
+
+|`dimension / 16` (e.g., 48 for dim=768)
+|48 bytes
+|Maximum compression, noticeable accuracy loss
+|===
+
+The dimension must be evenly divisible by the number of subspaces. If `pqSubspaces` is set to 0, it defaults to `dimension / 4`.
+
+=== Parallel On-Disk Writes
+
+For large indices, writing the graph to disk can be slow. Enabling `parallelOnDiskWrite(true)` uses the `OnDiskParallelGraphIndexWriter`, which allocates parallel direct buffers and uses multiple worker threads (one per available processor) to write the graph concurrently. This can significantly speed up persistence for indices with millions of nodes.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/vectors"))
+    .enablePqCompression(true)
+    .pqSubspaces(48)
+    .parallelOnDiskWrite(true) // Multi-threaded disk writes
+    .build();
+----
+
+Sequential (single-threaded) writing is the default, which is preferable in resource-constrained environments or for smaller indices.
+
 == Production Configuration
 
 For production systems with continuous updates, enable both background persistence and optimization.
