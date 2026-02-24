@@ -1950,13 +1950,6 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			this.baseSize      = size      - this.addingLevel1Index;
 			this.baseAddingId = currentId - this.addingLevel1Index;
 			
-			/* (23.12.2022 TM)TODO: crash robustness
-			 * compare the highest non-null element with currentId to recognize previous incomplete stores.
-			 * #storeCurrentLevel1AndClear might have stored the level1 array but not the data instance.
-			 * In that case, the data instance's state would be outdated and would have to be derived from
-			 * actual data.
-			 */
-			
 			if(this.addingLevel3Index == this.level3MaximumLength)
 			{
 				throw new IllegalStateException("Reached maximum capacity.");
@@ -2306,17 +2299,6 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			
 			return true;
 		}
-				
-		/* (03.01.2024 TM)TODO: More elaborate iterator management.
-		 * - flag to disallow iterator usage to guarantee mutability
-		 * - flag (or queued waiters) to disallow the creation of any new iterators to guarantee eventual mutability
-		 * - configurable strategy (exception, waiting with and without timeout, etc.)
-		 * - optionally thread-specific (using thread-localizing Threaded type)
-		 * - Some kind of forced closing of all Iterators.
-		 * ...
-		 * (this gets really complicated, just to use an iterator instead of an loop-iterating method)
-		 * 
-		 */
 		
 		final synchronized void closeIterator(final Reading iterator)
 		{
