@@ -107,12 +107,10 @@ public interface GigaQuery<E> extends Predicate<E>, XIterable<E>, Iterable<E>, G
 		 * not applicable.
 		 */
 		final GigaIterator<E> iterator = this.iterator();
+		final int characteristics = Spliterator.NONNULL | Spliterator.IMMUTABLE;
 		return StreamSupport.stream(
-			() -> Spliterators.spliteratorUnknownSize(
-				iterator,
-				Spliterator.NONNULL | Spliterator.DISTINCT | Spliterator.CONCURRENT
-			),
-			Spliterator.NONNULL | Spliterator.DISTINCT | Spliterator.CONCURRENT,
+			() -> Spliterators.spliteratorUnknownSize(iterator, characteristics),
+			characteristics,
 			false
 		)
 		.onClose(iterator::close)
