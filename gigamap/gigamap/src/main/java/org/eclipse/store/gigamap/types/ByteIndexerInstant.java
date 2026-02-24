@@ -94,23 +94,11 @@ public interface ByteIndexerInstant<E> extends HashingCompositeIndexer<E>, Index
 		@Override
 		protected final void fillCarrier(final Instant value, final Object[] carrier)
 		{
-			// epochSecond: 8 bytes, order-preserving (sign bit XOR)
-			final long orderedSec = value.getEpochSecond() ^ 0x8000000000000000L;
-			carrier[0] = (byte)(orderedSec >>> 56);
-			carrier[1] = (byte)(orderedSec >>> 48);
-			carrier[2] = (byte)(orderedSec >>> 40);
-			carrier[3] = (byte)(orderedSec >>> 32);
-			carrier[4] = (byte)(orderedSec >>> 24);
-			carrier[5] = (byte)(orderedSec >>> 16);
-			carrier[6] = (byte)(orderedSec >>>  8);
-			carrier[7] = (byte) orderedSec;
-
-			// nano: 4 bytes, order-preserving (always 0..999_999_999, XOR for consistency)
-			final int orderedNano = value.getNano() ^ 0x80000000;
-			carrier[8]  = (byte)(orderedNano >>> 24);
-			carrier[9]  = (byte)(orderedNano >>> 16);
-			carrier[10] = (byte)(orderedNano >>>  8);
-			carrier[11] = (byte) orderedNano;
+			final byte[] bytes = this.toOrderedBytes(value);
+			for(int i = 0; i < bytes.length; i++)
+			{
+				carrier[i] = bytes[i]; // auto-boxed to JVM-cached Byte instances
+			}
 		}
 
 		private byte[] toOrderedBytes(final Instant value)
