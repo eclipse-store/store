@@ -108,6 +108,98 @@ public class MultipleValueIndexTest
     }
 
     @Test
+    void multivalueUpdateRemovesOldKeys()
+    {
+        GigaMap<Patient>         gigaMap                  = GigaMap.New();
+        PatientIdentifierIndexer patientIdentifierIndexer = new PatientIdentifierIndexer();
+        gigaMap.index().bitmap().add(patientIdentifierIndexer);
+        Patient patient1 = new Patient("John", 25, List.of("123", "456"));
+        Patient patient2 = new Patient("Jane", 30, List.of("123"));
+        gigaMap.addAll(patient1, patient2);
+
+        // Update patient1: remove "456", add "789"
+        gigaMap.update(patient1, p -> {
+            p.setIdentifiers(List.of("123", "789"));
+        });
+
+        // "456" should no longer be queryable
+        assertEquals(0L, gigaMap.query(patientIdentifierIndexer.is("456")).count());
+        // "123" should still be queryable (patient1 kept it, patient2 also has it)
+        assertEquals(2L, gigaMap.query(patientIdentifierIndexer.is("123")).count());
+        // "789" should now be queryable (patient1)
+        assertEquals(1L, gigaMap.query(patientIdentifierIndexer.is("789")).count());
+    }
+
+    @Test
+    void multivalueUpdateCompleteKeyChange()
+    {
+        GigaMap<Patient>         gigaMap                  = GigaMap.New();
+        PatientIdentifierIndexer patientIdentifierIndexer = new PatientIdentifierIndexer();
+        gigaMap.index().bitmap().add(patientIdentifierIndexer);
+        Patient patient1 = new Patient("John", 25, List.of("aaa", "bbb"));
+        gigaMap.add(patient1);
+
+        // Replace all keys entirely
+        gigaMap.update(patient1, p -> {
+            p.setIdentifiers(List.of("xxx", "yyy"));
+        });
+
+        assertEquals(0L, gigaMap.query(patientIdentifierIndexer.is("aaa")).count());
+        assertEquals(0L, gigaMap.query(patientIdentifierIndexer.is("bbb")).count());
+        assertEquals(1L, gigaMap.query(patientIdentifierIndexer.is("xxx")).count());
+        assertEquals(1L, gigaMap.query(patientIdentifierIndexer.is("yyy")).count());
+    }
+
+    @Test
+    void multivalueUpdateUnchangedKeys()
+    {
+        GigaMap<Patient>         gigaMap                  = GigaMap.New();
+        PatientIdentifierIndexer patientIdentifierIndexer = new PatientIdentifierIndexer();
+        gigaMap.index().bitmap().add(patientIdentifierIndexer);
+        Patient patient1 = new Patient("John", 25, List.of("123", "456"));
+        gigaMap.add(patient1);
+
+        // Update with same keys — should be a no-op for the index
+        gigaMap.update(patient1, p -> {
+            p.setIdentifiers(List.of("123", "456"));
+        });
+
+        assertEquals(1L, gigaMap.query(patientIdentifierIndexer.is("123")).count());
+        assertEquals(1L, gigaMap.query(patientIdentifierIndexer.is("456")).count());
+        assertEquals(1L, gigaMap.size());
+    }
+
+    @Test
+    void multivalueUpdateMultipleEntities()
+    {
+        GigaMap<Patient>         gigaMap                  = GigaMap.New();
+        PatientIdentifierIndexer patientIdentifierIndexer = new PatientIdentifierIndexer();
+        gigaMap.index().bitmap().add(patientIdentifierIndexer);
+        Patient patient1 = new Patient("John", 25, List.of("123", "456"));
+        Patient patient2 = new Patient("Jane", 30, List.of("123", "789"));
+        Patient patient3 = new Patient("Jack", 35, List.of("456", "789"));
+        gigaMap.addAll(patient1, patient2, patient3);
+
+        // Before update: "123" -> patient1, patient2; "456" -> patient1, patient3; "789" -> patient2, patient3
+        assertEquals(2L, gigaMap.query(patientIdentifierIndexer.is("123")).count());
+        assertEquals(2L, gigaMap.query(patientIdentifierIndexer.is("456")).count());
+        assertEquals(2L, gigaMap.query(patientIdentifierIndexer.is("789")).count());
+
+        // Update patient1: remove "456", add "789"
+        gigaMap.update(patient1, p -> {
+            p.setIdentifiers(List.of("123", "789"));
+        });
+
+        // "123" still has patient1 and patient2
+        assertEquals(2L, gigaMap.query(patientIdentifierIndexer.is("123")).count());
+        // "456" now only has patient3
+        assertEquals(1L, gigaMap.query(patientIdentifierIndexer.is("456")).count());
+        // "789" now has patient1, patient2, and patient3
+        assertEquals(3L, gigaMap.query(patientIdentifierIndexer.is("789")).count());
+        assertEquals(3L, gigaMap.size());
+    }
+
+    @Test
     void multivalueRemoveTest()
     {
         GigaMap<Patient>         gigaMap                  = GigaMap.New();
