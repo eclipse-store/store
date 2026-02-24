@@ -345,14 +345,13 @@ public abstract class AbstractBitmapIndexHashing<E, I, K> extends BitmapIndex.Ab
 	
 	public void internalHandleChanged(final I oldKeys , final long entityId, final I newKeys)
 	{
-		// (20.12.2024 TM)TODO: handle multi value indexing. See other call site of #internalEnsureEntry
 		final BitmapEntry<E, I, K> oldEntityEntry = this.internalLookupEntry(oldKeys);
 		final BitmapEntry<E, I, K> newEntityEntry = this.internalEnsureEntry(newKeys);
 		if(newEntityEntry == oldEntityEntry)
 		{
 			return;
 		}
-		
+
 		this.internalRemoveFromEntry(entityId, oldEntityEntry);
 		newEntityEntry.add(entityId);
 		this.markStateChangeChildren2();

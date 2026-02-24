@@ -4,7 +4,7 @@ package org.eclipse.store.gigamap.experimental;
  * #%L
  * EclipseStore GigaMap
  * %%
- * Copyright (C) 2023 - 2025 MicroStream Software
+ * Copyright (C) 2023 - 2026 MicroStream Software
  * %%
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -18,11 +18,14 @@ import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.gigamap.types.IterationThreadProvider;
 import org.eclipse.store.gigamap.types.ThreadCountProvider;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 
 public class ThreadCountProviderTest
@@ -32,7 +35,6 @@ public class ThreadCountProviderTest
 
 
     @Test
-    @Disabled("https://github.com/eclipse-store/store/issues/449")
     void threadProviderTest()
     {
         GigaMap<ThreadEntity> gigaMap           = GigaMap.New();
@@ -41,11 +43,10 @@ public class ThreadCountProviderTest
 
         fillGigaMap(gigaMap);
 
-        IterationThreadProvider threadProvider = IterationThreadProvider.Creating(ThreadCountProvider.Fixed(4));
+        final IterationThreadProvider threadProvider = IterationThreadProvider.Creating(ThreadCountProvider.Fixed(4));
 
-        gigaMap.query(threadProvider).and(stringEntityIndex.contains("Thread")).forEach(System.out::println);
-        //TODO after issue fix write assertions
-
+        final long count = gigaMap.query(threadProvider).and(stringEntityIndex.contains("Thread")).count();
+        assertEquals(1000, count, "Should find 1000 entities containing 'Thread'");
     }
 
     private void fillGigaMap(GigaMap<ThreadEntity> gigaMap) {
