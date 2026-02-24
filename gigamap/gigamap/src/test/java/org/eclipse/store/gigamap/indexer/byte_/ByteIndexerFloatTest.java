@@ -133,7 +133,7 @@ public class ByteIndexerFloatTest
     }
 
     @Test
-    void positiveAndNegativeZeroAreDistinct()
+    void negativeZeroNormalizedToPositiveZero()
     {
         final FloatValueIndexer indexer = new FloatValueIndexer();
 
@@ -144,16 +144,10 @@ public class ByteIndexerFloatTest
         map.add(new FloatPojo(-0.0f));
         map.add(new FloatPojo(0.0f));
 
-        // -0.0f and 0.0f are stored as distinct values
+        // -0.0f is normalized to 0.0f, so both entries are stored under the same key
         assertEquals(2, map.size());
-        assertEquals(1, map.query(indexer.is(0.0f)).toList().size());
-        assertEquals(1, map.query(indexer.is(-0.0f)).toList().size());
-
-        // -0.0f is ordered before 0.0f, consistent with Float.compare
-        assertEquals(1, map.query(indexer.lessThan(0.0f)).toList().size());
-        assertEquals(0, map.query(indexer.lessThan(-0.0f)).toList().size());
-        assertEquals(1, map.query(indexer.greaterThan(-0.0f)).toList().size());
-        assertEquals(0, map.query(indexer.greaterThan(0.0f)).toList().size());
+        assertEquals(2, map.query(indexer.is(0.0f)).toList().size());
+        assertEquals(2, map.query(indexer.is(-0.0f)).toList().size());
     }
 
     @Test

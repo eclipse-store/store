@@ -133,7 +133,7 @@ public class ByteIndexerDoubleTest
     }
 
     @Test
-    void positiveAndNegativeZeroAreDistinct()
+    void negativeZeroNormalizedToPositiveZero()
     {
         final DoubleValueIndexer indexer = new DoubleValueIndexer();
 
@@ -144,16 +144,10 @@ public class ByteIndexerDoubleTest
         map.add(new DoublePojo(-0.0));
         map.add(new DoublePojo(0.0));
 
-        // -0.0 and 0.0 are stored as distinct values
+        // -0.0 is normalized to 0.0, so both entries are stored under the same key
         assertEquals(2, map.size());
-        assertEquals(1, map.query(indexer.is(0.0)).toList().size());
-        assertEquals(1, map.query(indexer.is(-0.0)).toList().size());
-
-        // -0.0 is ordered before 0.0, consistent with Double.compare
-        assertEquals(1, map.query(indexer.lessThan(0.0)).toList().size());
-        assertEquals(0, map.query(indexer.lessThan(-0.0)).toList().size());
-        assertEquals(1, map.query(indexer.greaterThan(-0.0)).toList().size());
-        assertEquals(0, map.query(indexer.greaterThan(0.0)).toList().size());
+        assertEquals(2, map.query(indexer.is(0.0)).toList().size());
+        assertEquals(2, map.query(indexer.is(-0.0)).toList().size());
     }
 
     @Test

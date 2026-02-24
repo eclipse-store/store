@@ -25,9 +25,8 @@ package org.eclipse.store.gigamap.types;
  * is not ordered and would produce undefined query results. Positive and negative
  * infinity are fully supported and maintain their natural ordering.
  * <p>
- * Positive zero ({@code 0.0f}) and negative zero ({@code -0.0f}) are treated as distinct
- * values, with {@code -0.0f} ordered before {@code 0.0f}. This is consistent with
- * {@link Float#compare(float, float)} and {@link Float#floatToIntBits(float)} semantics.
+ * Negative zero ({@code -0.0f}) is normalized to positive zero ({@code 0.0f})
+ * at both index time and query time, so they are treated as the same value.
  *
  * @param <E> the entity type
  *
@@ -68,7 +67,7 @@ public interface ByteIndexerFloat<E> extends ByteIndexerNumber<E, Float>
 			{
 				throw new IllegalArgumentException("NaN is not supported because it is not ordered");
 			}
-			final int bits = Float.floatToIntBits(value);
+			final int bits = Float.floatToIntBits(value + 0.0f);
 			final int ordered = bits >= 0
 				? bits ^ 0x80000000
 				: ~bits
