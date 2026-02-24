@@ -25,6 +25,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class ByteIndexerDoubleTest
 {
@@ -105,6 +106,55 @@ public class ByteIndexerDoubleTest
         assertEquals(2, map.query(indexer.lessThanEqual(-2.0)).toList().size());
         assertEquals(1, map.query(indexer.greaterThan(-2.0)).toList().size());
         assertEquals(2, map.query(indexer.greaterThanEqual(-2.0)).toList().size());
+    }
+
+    @Test
+    void nanRejectedAtIndexTime()
+    {
+        final DoubleValueIndexer indexer = new DoubleValueIndexer();
+
+        final GigaMap<DoublePojo> map = GigaMap.<DoublePojo>Builder()
+            .withBitmapIdentityIndex(indexer)
+            .build();
+
+        assertThrows(IllegalArgumentException.class, () -> map.add(new DoublePojo(Double.NaN)));
+    }
+
+    @Test
+    void nanRejectedAtQueryTime()
+    {
+        final DoubleValueIndexer indexer = new DoubleValueIndexer();
+
+        final GigaMap<DoublePojo> map = GigaMap.<DoublePojo>Builder()
+            .withBitmapIdentityIndex(indexer)
+            .build();
+
+        map.add(new DoublePojo(1.0));
+
+        assertThrows(IllegalArgumentException.class, () -> indexer.is(Double.NaN));
+        assertThrows(IllegalArgumentException.class, () -> indexer.lessThan(Double.NaN));
+        assertThrows(IllegalArgumentException.class, () -> indexer.greaterThan(Double.NaN));
+    }
+
+    @Test
+    void infinitySupported()
+    {
+        final DoubleValueIndexer indexer = new DoubleValueIndexer();
+
+        final GigaMap<DoublePojo> map = GigaMap.<DoublePojo>Builder()
+            .withBitmapIdentityIndex(indexer)
+            .build();
+
+        map.add(new DoublePojo(Double.NEGATIVE_INFINITY));
+        map.add(new DoublePojo(-1.0));
+        map.add(new DoublePojo(0.0));
+        map.add(new DoublePojo(1.0));
+        map.add(new DoublePojo(Double.POSITIVE_INFINITY));
+
+        assertEquals(1, map.query(indexer.is(Double.POSITIVE_INFINITY)).toList().size());
+        assertEquals(1, map.query(indexer.is(Double.NEGATIVE_INFINITY)).toList().size());
+        assertEquals(4, map.query(indexer.lessThan(Double.POSITIVE_INFINITY)).toList().size());
+        assertEquals(4, map.query(indexer.greaterThan(Double.NEGATIVE_INFINITY)).toList().size());
     }
 
     @Test

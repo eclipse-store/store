@@ -20,6 +20,10 @@ package org.eclipse.store.gigamap.types;
  * <p>
  * Uses IEEE 754 double-to-long bit conversion with sign-magnitude to
  * offset-binary transformation for order-preserving byte encoding.
+ * <p>
+ * {@link Double#NaN} is rejected at both index time and query time because NaN
+ * is not ordered and would produce undefined query results. Positive and negative
+ * infinity are fully supported and maintain their natural ordering.
  *
  * @param <E> the entity type
  *
@@ -56,6 +60,10 @@ public interface ByteIndexerDouble<E> extends ByteIndexerNumber<E, Double>
 		@Override
 		protected final void toOrderedBytes(final Double value, final byte[] target)
 		{
+			if(Double.isNaN(value))
+			{
+				throw new IllegalArgumentException("NaN is not supported because it is not ordered");
+			}
 			final long bits = Double.doubleToLongBits(value);
 			final long ordered = bits >= 0
 				? bits ^ 0x8000000000000000L

@@ -20,6 +20,10 @@ package org.eclipse.store.gigamap.types;
  * <p>
  * Uses IEEE 754 float-to-int bit conversion with sign-magnitude to
  * offset-binary transformation for order-preserving byte encoding.
+ * <p>
+ * {@link Float#NaN} is rejected at both index time and query time because NaN
+ * is not ordered and would produce undefined query results. Positive and negative
+ * infinity are fully supported and maintain their natural ordering.
  *
  * @param <E> the entity type
  *
@@ -56,6 +60,10 @@ public interface ByteIndexerFloat<E> extends ByteIndexerNumber<E, Float>
 		@Override
 		protected final void toOrderedBytes(final Float value, final byte[] target)
 		{
+			if(Float.isNaN(value))
+			{
+				throw new IllegalArgumentException("NaN is not supported because it is not ordered");
+			}
 			final int bits = Float.floatToIntBits(value);
 			final int ordered = bits >= 0
 				? bits ^ 0x80000000

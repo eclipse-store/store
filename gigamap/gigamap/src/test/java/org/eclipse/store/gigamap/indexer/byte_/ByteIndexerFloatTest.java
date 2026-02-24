@@ -25,6 +25,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class ByteIndexerFloatTest
 {
@@ -105,6 +106,55 @@ public class ByteIndexerFloatTest
         assertEquals(2, map.query(indexer.lessThanEqual(-2.0f)).toList().size());
         assertEquals(1, map.query(indexer.greaterThan(-2.0f)).toList().size());
         assertEquals(2, map.query(indexer.greaterThanEqual(-2.0f)).toList().size());
+    }
+
+    @Test
+    void nanRejectedAtIndexTime()
+    {
+        final FloatValueIndexer indexer = new FloatValueIndexer();
+
+        final GigaMap<FloatPojo> map = GigaMap.<FloatPojo>Builder()
+            .withBitmapIdentityIndex(indexer)
+            .build();
+
+        assertThrows(IllegalArgumentException.class, () -> map.add(new FloatPojo(Float.NaN)));
+    }
+
+    @Test
+    void nanRejectedAtQueryTime()
+    {
+        final FloatValueIndexer indexer = new FloatValueIndexer();
+
+        final GigaMap<FloatPojo> map = GigaMap.<FloatPojo>Builder()
+            .withBitmapIdentityIndex(indexer)
+            .build();
+
+        map.add(new FloatPojo(1.0f));
+
+        assertThrows(IllegalArgumentException.class, () -> indexer.is(Float.NaN));
+        assertThrows(IllegalArgumentException.class, () -> indexer.lessThan(Float.NaN));
+        assertThrows(IllegalArgumentException.class, () -> indexer.greaterThan(Float.NaN));
+    }
+
+    @Test
+    void infinitySupported()
+    {
+        final FloatValueIndexer indexer = new FloatValueIndexer();
+
+        final GigaMap<FloatPojo> map = GigaMap.<FloatPojo>Builder()
+            .withBitmapIdentityIndex(indexer)
+            .build();
+
+        map.add(new FloatPojo(Float.NEGATIVE_INFINITY));
+        map.add(new FloatPojo(-1.0f));
+        map.add(new FloatPojo(0.0f));
+        map.add(new FloatPojo(1.0f));
+        map.add(new FloatPojo(Float.POSITIVE_INFINITY));
+
+        assertEquals(1, map.query(indexer.is(Float.POSITIVE_INFINITY)).toList().size());
+        assertEquals(1, map.query(indexer.is(Float.NEGATIVE_INFINITY)).toList().size());
+        assertEquals(4, map.query(indexer.lessThan(Float.POSITIVE_INFINITY)).toList().size());
+        assertEquals(4, map.query(indexer.greaterThan(Float.NEGATIVE_INFINITY)).toList().size());
     }
 
     @Test
