@@ -1,4 +1,4 @@
-package org.eclipse.store.gigamap.indexer;
+package org.eclipse.store.gigamap.misc;
 
 /*-
  * #%L
@@ -18,9 +18,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.eclipse.serializer.exceptions.NumberRangeException;
 import org.eclipse.store.gigamap.types.BitmapResult;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.GigaQuery;
 import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.gigamap.types.IterationThreadProvider;
 import org.eclipse.store.gigamap.types.ThreadCountProvider;
@@ -99,6 +102,91 @@ public class IterationThreadProviderTest
         assertEquals(999, count);
     }
 
+    @Test
+    void testMultipleConsumersWithFixedThreadProvider()
+    {
+        final GigaMap<PersonWithCity> gigaMap = GigaMap.New();
+        final CityIndexer cityIndexer = new CityIndexer();
+        gigaMap.index().bitmap().add(cityIndexer);
+
+        // Prepare test data
+        for (int i = 0; i < 400; i++) {
+            gigaMap.add(new PersonWithCity("Person" + i, "Berlin", i));
+        }
+
+        final IterationThreadProvider provider = IterationThreadProvider.Creating(
+                ThreadCountProvider.Fixed(4)
+        );
+
+        final GigaQuery<PersonWithCity> query = gigaMap.query(provider)
+                .and(cityIndexer.is("Berlin"));
+
+        final AtomicInteger countA = new AtomicInteger(0);
+        final AtomicInteger countB = new AtomicInteger(0);
+        final AtomicInteger countC = new AtomicInteger(0);
+        final AtomicInteger countD = new AtomicInteger(0);
+
+        // Execute with 4 consumers
+        query.execute(
+                person -> countA.incrementAndGet(),
+                person -> countB.incrementAndGet(),
+                person -> countC.incrementAndGet(),
+                person -> countD.incrementAndGet()
+        );
+
+        final long expectedCount = 100;
+        assertEquals(expectedCount, countA.get());
+        assertEquals(expectedCount, countB.get());
+        assertEquals(expectedCount, countC.get());
+        assertEquals(expectedCount, countD.get());
+    }
+
+    @Test
+    void testMultipleConsumersWithPooling()
+    {
+        final GigaMap<PersonWithCity> gigaMap = GigaMap.New();
+        final CityIndexer cityIndexer = new CityIndexer();
+        gigaMap.index().bitmap().add(cityIndexer);
+
+        // Prepare test data
+        for (int i = 0; i < 300; i++) {
+            gigaMap.add(new PersonWithCity("Person" + i, "Munich", i));
+        }
+
+        final IterationThreadProvider provider = IterationThreadProvider.Pooling(
+                4,
+                ThreadCountProvider.Fixed(2)
+        );
+
+        final GigaQuery<PersonWithCity> query = gigaMap.query(provider)
+                .and(cityIndexer.is("Munich"));
+
+        final AtomicInteger countA = new AtomicInteger(0);
+        final AtomicInteger countB = new AtomicInteger(0);
+
+        // Execute with 2 consumers
+        query.execute(
+                person -> countA.incrementAndGet(),
+                person -> countB.incrementAndGet()
+        );
+
+        final long expectedCount = 150;
+        assertEquals(expectedCount, countA.get());
+        assertEquals(expectedCount, countB.get());
+
+        // Execute again to verify pooling reuses threads
+        countA.set(0);
+        countB.set(0);
+
+        query.execute(
+                person -> countA.incrementAndGet(),
+                person -> countB.incrementAndGet()
+        );
+
+        assertEquals(expectedCount, countA.get());
+        assertEquals(expectedCount, countB.get());
+    }
+
     private GigaMap<Person> prepageGigaMap(GigaMap<Person> map)
     {
         for (int i = 0; i < 1000; i++) {
@@ -146,6 +234,29 @@ public class IterationThreadProviderTest
                     "name='" + name + '\'' +
                     ", age=" + age +
                     '}';
+        }
+    }
+
+    private static class PersonWithCity
+    {
+        private final String name;
+        private final String city;
+        private final int age;
+
+        public PersonWithCity(final String name, final String city, final int age)
+        {
+            this.name = name;
+            this.city = city;
+            this.age = age;
+        }
+    }
+
+    private static class CityIndexer extends IndexerString.Abstract<PersonWithCity>
+    {
+        @Override
+        protected String getString(final PersonWithCity entity)
+        {
+            return entity.city;
         }
     }
 
