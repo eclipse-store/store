@@ -28,7 +28,7 @@ import org.eclipse.serializer.persistence.exceptions.PersistenceExceptionConsist
 import org.eclipse.serializer.persistence.types.PersistenceLegacyTypeHandler;
 import org.eclipse.serializer.persistence.types.PersistenceManager;
 import org.eclipse.serializer.persistence.types.PersistenceRootsView;
-import org.eclipse.serializer.persistence.types.PersistenceStoring;
+import org.eclipse.serializer.persistence.types.PersistenceStoringCallback;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDefinition;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDictionary;
 import org.eclipse.serializer.persistence.types.PersistenceTypeHandler;
@@ -302,7 +302,7 @@ public class ViewerBinaryTypeHandlerManager implements PersistenceTypeHandlerMan
 	}
 
 	@Override
-	public void checkForPendingRootsStoring(final PersistenceStoring storingCallback)
+	public void checkForPendingRootsStoring(final PersistenceStoringCallback storingCallback)
 	{
 		throw new UnsupportedOperationException();
 	}
