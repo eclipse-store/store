@@ -1115,11 +1115,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.ensureIndexInitialized();
 
             final float[] vector = this.vectorize(entity);
+            final VectorEntry vectorEntry = new VectorEntry(entityId, vector);
 
             // Store based on vectorizer type
             if(!this.isEmbedded())
             {
-                this.vectorStore.add(new VectorEntry(entityId, vector));
+                this.vectorStore.add(vectorEntry);
             }
 
             this.markStateChangeChildren();
@@ -1127,7 +1128,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(this.isEventualIndexing())
             {
                 // Defer graph update to background thread
-                this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Add(ordinal, vector));
+                this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Add(vectorEntry));
             }
             else
             {
@@ -1165,13 +1166,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.ensureIndexInitialized();
 
             final float[] vector = this.vectorize(entity);
-
-            final int ordinal = toOrdinal(entityId);
+            final VectorEntry vectorEntry = new VectorEntry(entityId, vector);
 
             // Update based on vectorizer type
             if(!this.isEmbedded())
             {
-                this.vectorStore.set(entityId, new VectorEntry(entityId, vector));
+                this.vectorStore.set(entityId, vectorEntry);
             }
 
             this.markStateChangeChildren();
@@ -1179,10 +1179,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(this.isEventualIndexing())
             {
                 // Defer graph update to background thread
-                this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Update(ordinal, vector));
+                this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Update(vectorEntry));
             }
             else
             {
+                final int ordinal = toOrdinal(entityId);
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
                 this.executeOrDeferBuilderOp(() ->
                 {
@@ -1240,11 +1241,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             if(this.isEventualIndexing())
             {
-                // Defer graph updates to background thread
-                entries.forEach(entry ->
-                    this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Add(
-                        toOrdinal(entry.sourceEntityId), entry.vector
-                    ))
+                // Defer graph updates to background thread as a single batch operation
+                this.backgroundTaskManager.enqueue(
+                    new BackgroundTaskManager.IndexingOperation.BatchAdd(entries)
                 );
             }
             else
@@ -1841,7 +1840,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // ================================================================
 
         @Override
-        public void applyGraphAdd(final int ordinal, final float[] vector)
+        public void applyGraphAdd(final VectorEntry entry)
         {
             // Called from the background indexing worker thread (not from GigaMap's
             // synchronized methods), so we use builderLock.readLock() to coordinate
@@ -1849,7 +1848,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.readLock().lock();
             try
             {
-                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+                final int ordinal = toOrdinal(entry.sourceEntityId);
+                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
                 this.builder.addGraphNode(ordinal, vf);
             }
             finally
@@ -1859,14 +1859,35 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         @Override
-        public void applyGraphUpdate(final int ordinal, final float[] vector)
+        public void applyGraphBatchAdd(final List<VectorEntry> entries)
+        {
+            // Acquires the lock once for the entire batch, avoiding per-entry lock overhead.
+            this.builderLock.readLock().lock();
+            try
+            {
+                for(final var entry : entries)
+                {
+                    final int ordinal = toOrdinal(entry.sourceEntityId);
+                    final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
+                    this.builder.addGraphNode(ordinal, vf);
+                }
+            }
+            finally
+            {
+                this.builderLock.readLock().unlock();
+            }
+        }
+
+        @Override
+        public void applyGraphUpdate(final VectorEntry entry)
         {
             this.builderLock.readLock().lock();
             try
             {
+                final int ordinal = toOrdinal(entry.sourceEntityId);
                 this.builder.markNodeDeleted(ordinal);
                 this.builder.removeDeletedNodes();
-                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
                 this.builder.addGraphNode(ordinal, vf);
             }
             finally
