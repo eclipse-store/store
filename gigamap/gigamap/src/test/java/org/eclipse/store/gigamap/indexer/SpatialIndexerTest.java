@@ -4,7 +4,7 @@ package org.eclipse.store.gigamap.indexer;
  * #%L
  * EclipseStore GigaMap
  * %%
- * Copyright (C) 2023 - 2025 MicroStream Software
+ * Copyright (C) 2023 - 2026 MicroStream Software
  * %%
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -232,8 +232,8 @@ public class SpatialIndexerTest
 		assertEquals(0.0, zero, 0.001);
 
 		// North pole to south pole: ~20015 km (half circumference)
-		final double poleToPool = SpatialIndexer.haversineDistance(90.0, 0.0, -90.0, 0.0);
-		assertEquals(20015.0, poleToPool, 100.0);
+		final double poleToPole = SpatialIndexer.haversineDistance(90.0, 0.0, -90.0, 0.0);
+		assertEquals(20015.0, poleToPole, 100.0);
 	}
 
 	@Test
@@ -314,6 +314,44 @@ public class SpatialIndexerTest
 		);
 		assertThrows(IllegalArgumentException.class, () ->
 			map.add(new Location("BadLonOnly", null, -74.0))
+		);
+
+		// Out-of-range latitude should throw (valid range: -90 to 90)
+		assertThrows(IllegalArgumentException.class, () ->
+			map.add(new Location("LatTooHigh", 91.0, 0.0))
+		);
+		assertThrows(IllegalArgumentException.class, () ->
+			map.add(new Location("LatTooLow", -91.0, 0.0))
+		);
+
+		// Out-of-range longitude should throw (valid range: -180 to 180)
+		assertThrows(IllegalArgumentException.class, () ->
+			map.add(new Location("LonTooHigh", 0.0, 181.0))
+		);
+		assertThrows(IllegalArgumentException.class, () ->
+			map.add(new Location("LonTooLow", 0.0, -181.0))
+		);
+
+		// NaN values should be rejected
+		assertThrows(IllegalArgumentException.class, () ->
+			map.add(new Location("LatNaN", Double.NaN, 0.0))
+		);
+		assertThrows(IllegalArgumentException.class, () ->
+			map.add(new Location("LonNaN", 0.0, Double.NaN))
+		);
+
+		// Infinity values should be rejected
+		assertThrows(IllegalArgumentException.class, () ->
+			map.add(new Location("LatPosInf", Double.POSITIVE_INFINITY, 0.0))
+		);
+		assertThrows(IllegalArgumentException.class, () ->
+			map.add(new Location("LatNegInf", Double.NEGATIVE_INFINITY, 0.0))
+		);
+		assertThrows(IllegalArgumentException.class, () ->
+			map.add(new Location("LonPosInf", 0.0, Double.POSITIVE_INFINITY))
+		);
+		assertThrows(IllegalArgumentException.class, () ->
+			map.add(new Location("LonNegInf", 0.0, Double.NEGATIVE_INFINITY))
 		);
 	}
 
