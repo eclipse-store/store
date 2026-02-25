@@ -33,10 +33,15 @@ import org.eclipse.store.gigamap.types.GigaMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.*;
-import java.util.*;
+import java.io.Closeable;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.IntStream;
 
 /**
  * A vector index that enables k-nearest-neighbor (k-NN) similarity search on entities.
@@ -1002,10 +1007,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         private float[] vectorize(final E entity)
         {
-            final float[] vector = this.vectorizer.vectorize(entity);
+            return this.validateVector(this.vectorizer.vectorize(entity));
+        }
+
+        private List<float[]> vectorize(final List<? extends E> entities)
+        {
+            final List<float[]> vectors = this.vectorizer.vectorizeAll(entities);
+            vectors.forEach(this::validateVector);
+            return vectors;
+        }
+
+        private float[] validateVector(final float[] vector)
+        {
             if(vector == null)
             {
-                throw new IllegalStateException("Null vector returned from vectorizer: " + entity);
+                throw new IllegalStateException("Null vector returned from vectorizer");
             }
 
             this.validateDimension(vector);
@@ -1165,16 +1181,26 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private List<VectorEntry> collectVectors(final long firstEntityId, final Iterable<? extends E> entities)
         {
-            final List<VectorEntry> entries = new ArrayList<>();
-            long currentEntityId = firstEntityId;
+            final List<float[]> vectors = this.vectorize(this.toList(entities));
+            return IntStream.range(0, vectors.size())
+                .mapToObj(i -> new VectorEntry(firstEntityId + i, vectors.get(i)))
+                .toList()
+            ;
+        }
 
-            for(final E entity : entities)
+        private List<? extends E> toList(final Iterable<? extends E> entities)
+        {
+            if(entities instanceof final List<? extends E> list)
             {
-                final float[] vector = this.vectorize(entity);
-                entries.add(new VectorEntry(currentEntityId++, vector));
+                return list;
             }
-
-            return entries;
+            if(entities instanceof final Collection<? extends E> collection)
+            {
+                return new ArrayList<>(collection);
+            }
+            final List<E> list = new ArrayList<>();
+            entities.forEach(list::add);
+            return list;
         }
 
         /**
