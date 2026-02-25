@@ -18,6 +18,7 @@
 
     <modules>
         <module>product-recommendations</module>
+        <module>country-explorer</module>
     </modules>
 
     <name>EclipseStore Demos</name>

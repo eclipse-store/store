@@ -1,0 +1,59 @@
+### List countries (paged)
+GET http://localhost:8081/countries?page=0&size=20
+
+### Get country by ISO code
+GET http://localhost:8081/countries/DE
+
+### Germany's neighbours within 1000 km
+GET http://localhost:8081/countries/nearby?alpha2=DE&radiusKm=1000
+
+### Countries near arbitrary coordinates (central Pacific)
+GET http://localhost:8081/countries/near?lat=0&lon=170&radiusKm=3000
+
+### 5 nearest countries to Australia
+GET http://localhost:8081/countries/nearest?alpha2=AU&k=5
+
+### 10 nearest countries to Japan
+GET http://localhost:8081/countries/nearest?alpha2=JP&k=10
+
+### Distance: Berlin to Tokyo
+GET http://localhost:8081/countries/distance?from=DE&to=JP
+
+### Distance: New York to London
+GET http://localhost:8081/countries/distance?from=US&to=GB
+
+### Distance: Brazil to South Africa
+GET http://localhost:8081/countries/distance?from=BR&to=ZA
+
+### All European countries
+GET http://localhost:8081/countries/continent/Europe
+
+### All African countries
+GET http://localhost:8081/countries/continent/Africa
+
+### All Asian countries
+GET http://localhost:8081/countries/continent/Asia
+
+### Bounding box: Middle East
+GET http://localhost:8081/countries/within-box?minLat=12&maxLat=42&minLon=25&maxLon=63
+
+### Bounding box: Southeast Asia
+GET http://localhost:8081/countries/within-box?minLat=-10&maxLat=25&minLon=95&maxLon=145
+
+### Bounding box: Central Europe
+GET http://localhost:8081/countries/within-box?minLat=45&maxLat=55&minLon=5&maxLon=25
+
+### Northern hemisphere
+GET http://localhost:8081/countries/hemisphere?hemisphere=north
+
+### Southern hemisphere
+GET http://localhost:8081/countries/hemisphere?hemisphere=south
+
+### Eastern hemisphere
+GET http://localhost:8081/countries/hemisphere?hemisphere=east
+
+### Western hemisphere
+GET http://localhost:8081/countries/hemisphere?hemisphere=west
+
+### Tropical countries (between tropics of Cancer and Capricorn)
+GET http://localhost:8081/countries/tropical
