@@ -127,6 +127,17 @@ For high cardinality with range query support, the byte-decomposed indexers comb
 
 |===
 
+For geographic coordinate indexing with spatial queries (bounding box, proximity, range), the xref:indexing/spatial/index.adoc[spatial indexer] is available:
+
+[options="header",cols="1,2"]
+|===
+|Indexer |Key Type
+
+|SpatialIndexer
+|Latitude/longitude coordinate pairs (Double)
+
+|===
+
 Another specialized indexer which can be used for all key types in combination with an `Comparator` is the `IndexerComparing`.
 
 Besides these predefined indexers, custom indexers with arbitrary key types can be implemented.

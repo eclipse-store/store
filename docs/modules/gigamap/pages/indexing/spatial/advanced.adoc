@@ -1,0 +1,206 @@
+= Advanced Usage
+
+This section covers advanced spatial indexing topics for production use.
+
+== Encoding and Precision
+
+The spatial indexer uses fixed-point integer encoding to represent coordinates:
+
+1. The coordinate value is multiplied by 10^7 (e.g., `51.5074` becomes `515074000`)
+2. The resulting integer is XOR'd with `0x80000000` to produce an order-preserving unsigned representation
+3. The 4 bytes of the integer are stored as individual sub-index entries
+
+This encoding provides approximately *1.1cm precision*, which is more than sufficient for virtually all geographic applications.
+
+[options="header",cols="1,1,1"]
+|===
+|Scale Factor |Precision |Suitable For
+
+|10^7 (used)
+|~1.1 cm
+|All practical applications
+|===
+
+The 8 sub-indices (4 for latitude, 4 for longitude) use the existing `HashingCompositeIndexer` infrastructure, so no additional storage mechanisms are required.
+
+== Antimeridian Handling
+
+The antimeridian (International Date Line at 180/-180 degrees longitude) requires special handling for queries that cross it.
+
+=== Bounding Box Queries
+
+When `minLon > maxLon` in a `withinBox` query, the indexer automatically splits the longitude range into two parts:
+
+[source, java]
+----
+// Bounding box crossing the antimeridian (170°E to 170°W)
+// Internally becomes: (170 to 180) OR (-180 to -170)
+gigaMap.query(locationIndex.withinBox(-20.0, -15.0, 170.0, -170.0));
+----
+
+=== Proximity Queries
+
+The `near` method also handles antimeridian wrapping. When the computed bounding box extends past 180 or -180 degrees longitude, it automatically splits the query.
+
+[source, java]
+----
+// Proximity search near the antimeridian
+// Fiji is at longitude 178.065 - a search centered at 179° will find it
+gigaMap.query(locationIndex.near(-17.7134, 179.0, 200.0));
+----
+
+== Post-Filtering with withinRadius
+
+The `near` method returns a bounding box approximation of the circular search area. This means some results in the corners of the bounding box may be outside the actual circle.
+
+For exact circular distance filtering, use the `withinRadius` predicate as a post-filter on query results.
+
+[source, java]
+----
+double centerLat = 40.0;
+double centerLon = -74.0;
+double radiusKm  = 150.0;
+
+// Step 1: Bounding box query (fast, may include false positives in corners)
+// Step 2: Post-filter with exact Haversine distance
+List<Location> exactResults = gigaMap.query(locationIndex.near(centerLat, centerLon, radiusKm))
+    .stream()
+    .filter(locationIndex.withinRadius(centerLat, centerLon, radiusKm))
+    .toList();
+----
+
+The bounding box query efficiently narrows down candidates using the bitmap index, while the `withinRadius` predicate applies exact great-circle distance calculation on the reduced result set.
+
+=== When to Use Post-Filtering
+
+[options="header",cols="1,2"]
+|===
+|Approach |Use When
+
+|`near()` only
+|Approximate results are acceptable, or the radius is small relative to the area covered
+
+|`near()` + `withinRadius()`
+|Exact circular distance is required, especially for large radii where the bounding box includes significant corner areas
+|===
+
+== Haversine Distance
+
+The `SpatialIndexer.haversineDistance` static method computes the great-circle distance between two points on Earth using the Haversine formula.
+
+[source, java]
+----
+double distanceKm = SpatialIndexer.haversineDistance(
+    40.7128, -74.0060,  // Point 1: New York
+    51.5074,  -0.1278   // Point 2: London
+);
+// Returns ~5570 km
+----
+
+The calculation assumes a spherical Earth with radius 6,371 km. This provides sufficient accuracy for most applications, though it does not account for the Earth's oblateness.
+
+== Null Coordinate Handling
+
+Both latitude and longitude must be either null or non-null. Attempting to index an entity with only one coordinate set throws an `IllegalArgumentException`.
+
+[source, java]
+----
+// Valid: both null
+gigaMap.add(new Location("Virtual", null, null));
+
+// Valid: both non-null
+gigaMap.add(new Location("Berlin", 52.52, 13.405));
+
+// Invalid: throws IllegalArgumentException
+gigaMap.add(new Location("Bad", 52.52, null));
+----
+
+Query for entities without coordinates using `isNull()`.
+
+[source, java]
+----
+gigaMap.query(locationIndex.isNull());
+----
+
+== Boundary Values
+
+The spatial indexer supports the full coordinate range:
+
+* Latitude: -90.0 (South Pole) to 90.0 (North Pole)
+* Longitude: -180.0 (antimeridian west) to 180.0 (antimeridian east)
+
+[source, java]
+----
+// Pole and dateline coordinates work correctly
+gigaMap.add(new Location("North Pole",     90.0,    0.0));
+gigaMap.add(new Location("South Pole",    -90.0,    0.0));
+gigaMap.add(new Location("Dateline East",   0.0,  180.0));
+gigaMap.add(new Location("Dateline West",   0.0, -180.0));
+
+// Full range queries
+gigaMap.query(locationIndex.latitudeBetween(-90.0, 90.0));   // All latitudes
+gigaMap.query(locationIndex.longitudeBetween(-180.0, 180.0)); // All longitudes
+----
+
+== Composing Complex Queries
+
+All spatial query methods return `Condition` objects that can be combined using `and()` and `or()`.
+
+[source, java]
+----
+// Northern hemisphere AND eastern hemisphere
+gigaMap.query(
+    locationIndex.latitudeAbove(0.0).and(locationIndex.longitudeAbove(0.0))
+);
+
+// Europe OR East Asia
+gigaMap.query(
+    locationIndex.withinBox(35.0, 60.0, -10.0, 30.0)
+        .or(locationIndex.withinBox(20.0, 50.0, 100.0, 150.0))
+);
+----
+
+== Implementation Details
+
+The `SpatialIndexer` extends `HashingCompositeIndexer`, which means it uses the same bitmap infrastructure as other composite indexers like `IndexerLocalDate` (year/month/day decomposition) and the byte indexers.
+
+=== Index Structure
+
+[options="header",cols="1,1,1"]
+|===
+|Sub-Index |Position |Content
+
+|Latitude byte 0
+|0
+|Most significant byte of latitude
+
+|Latitude byte 1
+|1
+|Second byte of latitude
+
+|Latitude byte 2
+|2
+|Third byte of latitude
+
+|Latitude byte 3
+|3
+|Least significant byte of latitude
+
+|Longitude byte 0
+|4
+|Most significant byte of longitude
+
+|Longitude byte 1
+|5
+|Second byte of longitude
+
+|Longitude byte 2
+|6
+|Third byte of longitude
+
+|Longitude byte 3
+|7
+|Least significant byte of longitude
+|===
+
+Range queries work by decomposing the bound values into bytes and constructing composite conditions that respect the byte ordering. The XOR encoding ensures that the byte ordering is preserved across negative and positive coordinates.
