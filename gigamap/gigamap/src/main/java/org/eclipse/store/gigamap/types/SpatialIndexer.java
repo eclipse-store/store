@@ -4,7 +4,7 @@ package org.eclipse.store.gigamap.types;
  * #%L
  * EclipseStore GigaMap
  * %%
- * Copyright (C) 2023 - 2025 MicroStream Software
+ * Copyright (C) 2023 - 2026 MicroStream Software
  * %%
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -207,6 +207,18 @@ public interface SpatialIndexer<E> extends HashingCompositeIndexer<E>
 			{
 				throw new IllegalArgumentException("Latitude and longitude must both be null or both be non-null");
 			}
+			if(Double.isNaN(lat) || Double.isNaN(lon) || Double.isInfinite(lat) || Double.isInfinite(lon))
+			{
+				throw new IllegalArgumentException("Latitude and longitude must be finite numbers");
+			}
+			if(lat < -90.0 || lat > 90.0)
+			{
+				throw new IllegalArgumentException("Latitude must be between -90 and 90, but was " + lat);
+			}
+			if(lon < -180.0 || lon > 180.0)
+			{
+				throw new IllegalArgumentException("Longitude must be between -180 and 180, but was " + lon);
+			}
 
 			Object[] c = carrier;
 			if(c == null || c.length != COMPOSITE_SIZE)
@@ -299,12 +311,20 @@ public interface SpatialIndexer<E> extends HashingCompositeIndexer<E>
 		)
 		{
 			final double latDelta = Math.toDegrees(radiusKm / EARTH_RADIUS_KM);
-			final double lonDelta = Math.toDegrees(
-				radiusKm / (EARTH_RADIUS_KM * Math.cos(Math.toRadians(latitude)))
-			);
 
 			final double minLat = Math.max(latitude - latDelta, -90.0);
 			final double maxLat = Math.min(latitude + latDelta,  90.0);
+
+			// Near the poles, cos(latitude) approaches zero making lonDelta infinite.
+			// In this case, restrict only by latitude and allow full longitude range.
+			if(Math.abs(latitude) > 89.9)
+			{
+				return (Condition<S>)this.latitudeBetween(minLat, maxLat);
+			}
+
+			final double lonDelta = Math.toDegrees(
+				radiusKm / (EARTH_RADIUS_KM * Math.cos(Math.toRadians(latitude)))
+			);
 			final double minLon = longitude - lonDelta;
 			final double maxLon = longitude + lonDelta;
 
