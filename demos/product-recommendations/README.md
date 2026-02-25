@@ -18,7 +18,7 @@ Uses [LangChain4j](https://docs.langchain4j.dev/) with a local [Ollama](https://
 mvn spring-boot:run
 ```
 
-The application starts on `http://localhost:8080` and initializes a GigaMap with 100 products from `products.json`.
+The application starts on `http://localhost:8080` and initializes a GigaMap with 500 products from `products.json`.
 
 ## REST API
 

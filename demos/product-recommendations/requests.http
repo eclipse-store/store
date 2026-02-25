@@ -8,7 +8,7 @@ GET http://localhost:8080/products/search?query=headphones&k=5
 GET http://localhost:8080/products/search?query=cooking&k=5
 
 ### Search for sports gear
-GET http://localhost:8080/products/search?query=running shoes&k=5
+GET http://localhost:8080/products/search?query=sport clothing&k=5
 
 ### Add one random product
 POST http://localhost:8080/products/add

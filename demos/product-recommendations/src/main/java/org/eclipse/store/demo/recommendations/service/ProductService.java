@@ -23,7 +23,7 @@ import java.util.Random;
 public class ProductService
 {
 	private static final Logger LOG                  = LoggerFactory.getLogger(ProductService.class);
-	private static final int    INITIAL_PRODUCT_COUNT = 100;
+	private static final int    INITIAL_PRODUCT_COUNT = 500;
 
 	private final GigaMap<Product>      gigaMap;
 	private final VectorIndex<Product>  vectorIndex;
@@ -46,7 +46,7 @@ public class ProductService
 	@PostConstruct
 	public void init()
 	{
-		if(this.gigaMap.size() > 0)
+		if(!this.gigaMap.isEmpty())
 		{
 			LOG.info("GigaMap already contains {} products, skipping initialization.", this.gigaMap.size());
 			return;
@@ -54,22 +54,20 @@ public class ProductService
 
 		final int count = Math.min(INITIAL_PRODUCT_COUNT, this.availableProducts.size());
 		LOG.info("Initializing GigaMap with {} products...", count);
-		for(int i = 0; i < count; i++)
-		{
-			this.gigaMap.add(this.availableProducts.get(i));
-		}
+
+		this.addRandomProducts(count);
+
 		LOG.info("Initialization complete. GigaMap contains {} products.", this.gigaMap.size());
 	}
 
 	public List<Product> addRandomProducts(final int count)
 	{
 		final List<Product> added = new ArrayList<>(count);
-		for(int i = 0; i < count; i++)
+		for(int i = 0; i < count && !this.availableProducts.isEmpty(); i++)
 		{
-			final Product product = this.availableProducts.get(this.random.nextInt(this.availableProducts.size()));
-			this.gigaMap.add(product);
-			added.add(product);
+			added.add(this.availableProducts.remove(this.random.nextInt(this.availableProducts.size())));
 		}
+		this.gigaMap.addAll(added);
 		return added;
 	}
 
@@ -91,20 +89,7 @@ public class ProductService
 		final long total = this.gigaMap.size();
 		final int  skip  = page * size;
 
-		final List<Product> products = new ArrayList<>();
-		int index = 0;
-		for(final Product product : this.gigaMap)
-		{
-			if(index >= skip + size)
-			{
-				break;
-			}
-			if(index >= skip)
-			{
-				products.add(product);
-			}
-			index++;
-		}
+		final List<Product> products = this.gigaMap.query().stream().skip(skip).limit(size).toList();
 
 		return new PageResult(products, total, page, size);
 	}

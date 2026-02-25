@@ -16,6 +16,6 @@ public class ProductVectorizer extends Vectorizer<Product>
 	@Override
 	public float[] vectorize(final Product product)
 	{
-		return this.embeddingModel.embed(product.name()).content().vector();
+		return this.embeddingModel.embed(product.name() + " " + product.category()).content().vector();
 	}
 }
