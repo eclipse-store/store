@@ -1,0 +1,17 @@
+### List products (paged)
+GET http://localhost:8080/products?page=0&size=20
+
+### Search similar products
+GET http://localhost:8080/products/search?query=headphones&k=5
+
+### Search for kitchen items
+GET http://localhost:8080/products/search?query=cooking&k=5
+
+### Search for sports gear
+GET http://localhost:8080/products/search?query=running shoes&k=5
+
+### Add one random product
+POST http://localhost:8080/products/add
+
+### Add 10 random products
+POST http://localhost:8080/products/add?count=10

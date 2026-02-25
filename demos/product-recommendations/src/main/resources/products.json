@@ -1,0 +1,6002 @@
+[
+  {
+    "name": "Wireless Bluetooth Headphones",
+    "category": "Electronics",
+    "price": 79.99,
+    "in_stock": true
+  },
+  {
+    "name": "Ergonomic Office Chair",
+    "category": "Furniture",
+    "price": 349.99,
+    "in_stock": true
+  },
+  {
+    "name": "Stainless Steel Water Bottle",
+    "category": "Kitchen",
+    "price": 24.99,
+    "in_stock": true
+  },
+  {
+    "name": "Mechanical Keyboard RGB",
+    "category": "Electronics",
+    "price": 129.99,
+    "in_stock": true
+  },
+  {
+    "name": "Running Shoes Ultra Lightweight",
+    "category": "Sports",
+    "price": 119.99,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Cotton T-Shirt",
+    "category": "Clothing",
+    "price": 29.99,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Power Bank 20000mAh",
+    "category": "Electronics",
+    "price": 39.99,
+    "in_stock": true
+  },
+  {
+    "name": "Cast Iron Skillet 12 inch",
+    "category": "Kitchen",
+    "price": 44.99,
+    "in_stock": true
+  },
+  {
+    "name": "Yoga Mat Non-Slip Premium",
+    "category": "Sports",
+    "price": 34.99,
+    "in_stock": true
+  },
+  {
+    "name": "LED Desk Lamp Adjustable",
+    "category": "Furniture",
+    "price": 59.99,
+    "in_stock": true
+  },
+  {
+    "name": "Noise Cancelling Earbuds",
+    "category": "Electronics",
+    "price": 149.99,
+    "in_stock": true
+  },
+  {
+    "name": "Bamboo Cutting Board Set",
+    "category": "Kitchen",
+    "price": 29.99,
+    "in_stock": true
+  },
+  {
+    "name": "Dumbbell Set Adjustable",
+    "category": "Sports",
+    "price": 199.99,
+    "in_stock": false
+  },
+  {
+    "name": "Standing Desk Converter",
+    "category": "Furniture",
+    "price": 279.99,
+    "in_stock": true
+  },
+  {
+    "name": "Wool Winter Jacket",
+    "category": "Clothing",
+    "price": 189.99,
+    "in_stock": true
+  },
+  {
+    "name": "USB-C Hub Multiport Adapter",
+    "category": "Electronics",
+    "price": 49.99,
+    "in_stock": true
+  },
+  {
+    "name": "French Press Coffee Maker",
+    "category": "Kitchen",
+    "price": 34.99,
+    "in_stock": true
+  },
+  {
+    "name": "Resistance Bands Set",
+    "category": "Sports",
+    "price": 19.99,
+    "in_stock": true
+  },
+  {
+    "name": "Memory Foam Pillow",
+    "category": "Furniture",
+    "price": 49.99,
+    "in_stock": true
+  },
+  {
+    "name": "Linen Button-Down Shirt",
+    "category": "Clothing",
+    "price": 59.99,
+    "in_stock": true
+  },
+  {
+    "name": "Wireless Mouse Ergonomic",
+    "category": "Electronics",
+    "price": 34.99,
+    "in_stock": true
+  },
+  {
+    "name": "Electric Kettle Temperature Control",
+    "category": "Kitchen",
+    "price": 69.99,
+    "in_stock": true
+  },
+  {
+    "name": "Jump Rope Speed Bearing",
+    "category": "Sports",
+    "price": 14.99,
+    "in_stock": true
+  },
+  {
+    "name": "Bookshelf 5-Tier Wooden",
+    "category": "Furniture",
+    "price": 129.99,
+    "in_stock": false
+  },
+  {
+    "name": "Denim Jeans Slim Fit",
+    "category": "Clothing",
+    "price": 69.99,
+    "in_stock": true
+  },
+  {
+    "name": "Webcam 4K Ultra HD",
+    "category": "Electronics",
+    "price": 89.99,
+    "in_stock": true
+  },
+  {
+    "name": "Air Fryer Digital 5.8 Qt",
+    "category": "Kitchen",
+    "price": 99.99,
+    "in_stock": true
+  },
+  {
+    "name": "Foam Roller Massage",
+    "category": "Sports",
+    "price": 24.99,
+    "in_stock": true
+  },
+  {
+    "name": "Monitor Stand Riser",
+    "category": "Furniture",
+    "price": 39.99,
+    "in_stock": true
+  },
+  {
+    "name": "Leather Belt Genuine",
+    "category": "Clothing",
+    "price": 39.99,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Watch Fitness Tracker",
+    "category": "Electronics",
+    "price": 199.99,
+    "in_stock": true
+  },
+  {
+    "name": "Blender High-Speed Professional",
+    "category": "Kitchen",
+    "price": 149.99,
+    "in_stock": true
+  },
+  {
+    "name": "Tennis Racket Carbon Fiber",
+    "category": "Sports",
+    "price": 89.99,
+    "in_stock": true
+  },
+  {
+    "name": "Floor Lamp Modern Arc",
+    "category": "Furniture",
+    "price": 79.99,
+    "in_stock": true
+  },
+  {
+    "name": "Canvas Sneakers Classic",
+    "category": "Clothing",
+    "price": 44.99,
+    "in_stock": true
+  },
+  {
+    "name": "External SSD 1TB Portable",
+    "category": "Electronics",
+    "price": 109.99,
+    "in_stock": true
+  },
+  {
+    "name": "Espresso Machine Automatic",
+    "category": "Kitchen",
+    "price": 449.99,
+    "in_stock": false
+  },
+  {
+    "name": "Cycling Helmet Ventilated",
+    "category": "Sports",
+    "price": 54.99,
+    "in_stock": true
+  },
+  {
+    "name": "Throw Blanket Fleece",
+    "category": "Furniture",
+    "price": 29.99,
+    "in_stock": true
+  },
+  {
+    "name": "Rain Jacket Waterproof",
+    "category": "Clothing",
+    "price": 79.99,
+    "in_stock": true
+  },
+  {
+    "name": "Laptop Stand Aluminum",
+    "category": "Electronics",
+    "price": 44.99,
+    "in_stock": true
+  },
+  {
+    "name": "Knife Set Stainless Steel",
+    "category": "Kitchen",
+    "price": 79.99,
+    "in_stock": true
+  },
+  {
+    "name": "Boxing Gloves Training",
+    "category": "Sports",
+    "price": 49.99,
+    "in_stock": true
+  },
+  {
+    "name": "Wall Clock Minimalist",
+    "category": "Furniture",
+    "price": 34.99,
+    "in_stock": true
+  },
+  {
+    "name": "Hiking Boots Waterproof",
+    "category": "Clothing",
+    "price": 139.99,
+    "in_stock": true
+  },
+  {
+    "name": "Wireless Charger Pad",
+    "category": "Electronics",
+    "price": 19.99,
+    "in_stock": true
+  },
+  {
+    "name": "Toaster 4-Slice Digital",
+    "category": "Kitchen",
+    "price": 54.99,
+    "in_stock": true
+  },
+  {
+    "name": "Kettlebell Cast Iron",
+    "category": "Sports",
+    "price": 39.99,
+    "in_stock": true
+  },
+  {
+    "name": "Desk Organizer Wooden",
+    "category": "Furniture",
+    "price": 24.99,
+    "in_stock": true
+  },
+  {
+    "name": "Cashmere Scarf",
+    "category": "Clothing",
+    "price": 89.99,
+    "in_stock": true
+  },
+  {
+    "name": "Bluetooth Speaker Waterproof",
+    "category": "Electronics",
+    "price": 59.99,
+    "in_stock": true
+  },
+  {
+    "name": "Slow Cooker Programmable",
+    "category": "Kitchen",
+    "price": 64.99,
+    "in_stock": true
+  },
+  {
+    "name": "Pull-Up Bar Doorway",
+    "category": "Sports",
+    "price": 29.99,
+    "in_stock": true
+  },
+  {
+    "name": "Accent Chair Velvet",
+    "category": "Furniture",
+    "price": 249.99,
+    "in_stock": true
+  },
+  {
+    "name": "Sunglasses Polarized UV400",
+    "category": "Clothing",
+    "price": 34.99,
+    "in_stock": true
+  },
+  {
+    "name": "Tablet Stand Adjustable",
+    "category": "Electronics",
+    "price": 24.99,
+    "in_stock": true
+  },
+  {
+    "name": "Salad Spinner Large",
+    "category": "Kitchen",
+    "price": 19.99,
+    "in_stock": true
+  },
+  {
+    "name": "Ab Roller Wheel",
+    "category": "Sports",
+    "price": 17.99,
+    "in_stock": true
+  },
+  {
+    "name": "Coat Rack Freestanding",
+    "category": "Furniture",
+    "price": 44.99,
+    "in_stock": true
+  },
+  {
+    "name": "Silk Tie Collection",
+    "category": "Clothing",
+    "price": 49.99,
+    "in_stock": true
+  },
+  {
+    "name": "Wireless Extra-Large Earphones",
+    "category": "Electronics",
+    "price": 85.0,
+    "in_stock": true
+  },
+  {
+    "name": "Wireless Industrial Earphones",
+    "category": "Electronics",
+    "price": 39.26,
+    "in_stock": true
+  },
+  {
+    "name": "Wireless Durable Earphones",
+    "category": "Electronics",
+    "price": 99.24,
+    "in_stock": true
+  },
+  {
+    "name": "Wireless Adjustable Earphones",
+    "category": "Electronics",
+    "price": 190.51,
+    "in_stock": true
+  },
+  {
+    "name": "Wireless Modern Earphones",
+    "category": "Electronics",
+    "price": 152.28,
+    "in_stock": true
+  },
+  {
+    "name": "Wireless Ultra Earphones",
+    "category": "Electronics",
+    "price": 70.45,
+    "in_stock": true
+  },
+  {
+    "name": "Wireless Vintage Earphones",
+    "category": "Electronics",
+    "price": 199.51,
+    "in_stock": true
+  },
+  {
+    "name": "Wireless Luxury Earphones",
+    "category": "Electronics",
+    "price": 163.58,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra Monitor 55-inch",
+    "category": "Electronics",
+    "price": 441.89,
+    "in_stock": true
+  },
+  {
+    "name": "Budget Monitor 40-inch",
+    "category": "Electronics",
+    "price": 173.9,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Monitor 50-inch",
+    "category": "Electronics",
+    "price": 577.44,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Monitor 24-inch",
+    "category": "Electronics",
+    "price": 777.72,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Monitor 24-inch",
+    "category": "Electronics",
+    "price": 635.45,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Monitor 27-inch",
+    "category": "Electronics",
+    "price": 450.99,
+    "in_stock": true
+  },
+  {
+    "name": "Slim Monitor 27-inch",
+    "category": "Electronics",
+    "price": 217.96,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Monitor 24-inch",
+    "category": "Electronics",
+    "price": 372.99,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Keyboard Elite",
+    "category": "Electronics",
+    "price": 216.82,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Keyboard Max",
+    "category": "Electronics",
+    "price": 65.23,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Keyboard XL",
+    "category": "Electronics",
+    "price": 170.91,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Keyboard Standard",
+    "category": "Electronics",
+    "price": 160.28,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Keyboard Lite",
+    "category": "Electronics",
+    "price": 52.39,
+    "in_stock": true
+  },
+  {
+    "name": "All-Purpose Keyboard Max",
+    "category": "Electronics",
+    "price": 55.07,
+    "in_stock": true
+  },
+  {
+    "name": "Rechargeable Keyboard Mini",
+    "category": "Electronics",
+    "price": 116.36,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Keyboard Set",
+    "category": "Electronics",
+    "price": 232.11,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Mouse Plus",
+    "category": "Electronics",
+    "price": 26.72,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Mouse Max",
+    "category": "Electronics",
+    "price": 29.18,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Mouse Max",
+    "category": "Electronics",
+    "price": 95.91,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Mouse Lite",
+    "category": "Electronics",
+    "price": 73.2,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Mouse XL",
+    "category": "Electronics",
+    "price": 17.62,
+    "in_stock": true
+  },
+  {
+    "name": "Insulated Mouse Collection",
+    "category": "Electronics",
+    "price": 39.54,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Mouse Sport",
+    "category": "Electronics",
+    "price": 24.71,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Mouse Set",
+    "category": "Electronics",
+    "price": 33.58,
+    "in_stock": true
+  },
+  {
+    "name": "USB Basic Cable 6ft",
+    "category": "Electronics",
+    "price": 22.23,
+    "in_stock": true
+  },
+  {
+    "name": "USB Home Cable 6ft",
+    "category": "Electronics",
+    "price": 8.48,
+    "in_stock": true
+  },
+  {
+    "name": "USB Lite Cable 10ft",
+    "category": "Electronics",
+    "price": 12.03,
+    "in_stock": true
+  },
+  {
+    "name": "USB Bundle Cable 10ft",
+    "category": "Electronics",
+    "price": 11.68,
+    "in_stock": true
+  },
+  {
+    "name": "USB Basic Cable 3ft",
+    "category": "Electronics",
+    "price": 26.68,
+    "in_stock": true
+  },
+  {
+    "name": "USB Plus Cable 10ft",
+    "category": "Electronics",
+    "price": 24.04,
+    "in_stock": true
+  },
+  {
+    "name": "USB Mini Cable 10ft",
+    "category": "Electronics",
+    "price": 14.38,
+    "in_stock": false
+  },
+  {
+    "name": "USB Elite Cable 10ft",
+    "category": "Electronics",
+    "price": 16.37,
+    "in_stock": true
+  },
+  {
+    "name": "Durable Webcam 1080p",
+    "category": "Electronics",
+    "price": 84.89,
+    "in_stock": true
+  },
+  {
+    "name": "Premium Webcam 1080p",
+    "category": "Electronics",
+    "price": 182.01,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Webcam 4K",
+    "category": "Electronics",
+    "price": 188.0,
+    "in_stock": true
+  },
+  {
+    "name": "Ergonomic Webcam 4K",
+    "category": "Electronics",
+    "price": 179.97,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Webcam 2K",
+    "category": "Electronics",
+    "price": 93.21,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra Webcam 4K",
+    "category": "Electronics",
+    "price": 102.97,
+    "in_stock": false
+  },
+  {
+    "name": "Pro-Grade Webcam 1080p",
+    "category": "Electronics",
+    "price": 52.56,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Webcam 720p",
+    "category": "Electronics",
+    "price": 197.99,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Microphone Bundle",
+    "category": "Electronics",
+    "price": 237.7,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Microphone Plus",
+    "category": "Electronics",
+    "price": 179.91,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra Microphone Max",
+    "category": "Electronics",
+    "price": 277.97,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight Microphone XL",
+    "category": "Electronics",
+    "price": 63.5,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Microphone Kit",
+    "category": "Electronics",
+    "price": 93.14,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Microphone Edition",
+    "category": "Electronics",
+    "price": 258.17,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Microphone Collection",
+    "category": "Electronics",
+    "price": 106.27,
+    "in_stock": false
+  },
+  {
+    "name": "Deluxe Microphone Edition",
+    "category": "Electronics",
+    "price": 162.39,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Speaker Turbo",
+    "category": "Electronics",
+    "price": 26.34,
+    "in_stock": false
+  },
+  {
+    "name": "Premium Speaker Series",
+    "category": "Electronics",
+    "price": 212.51,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Speaker Nano",
+    "category": "Electronics",
+    "price": 51.32,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Speaker Home",
+    "category": "Electronics",
+    "price": 50.03,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Speaker Plus",
+    "category": "Electronics",
+    "price": 261.03,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Speaker Elite",
+    "category": "Electronics",
+    "price": 112.9,
+    "in_stock": true
+  },
+  {
+    "name": "Budget Speaker Basic",
+    "category": "Electronics",
+    "price": 273.11,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Speaker Max",
+    "category": "Electronics",
+    "price": 82.26,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Router Basic",
+    "category": "Electronics",
+    "price": 103.43,
+    "in_stock": false
+  },
+  {
+    "name": "Durable Router Sport",
+    "category": "Electronics",
+    "price": 167.91,
+    "in_stock": false
+  },
+  {
+    "name": "Slim Router Sport",
+    "category": "Electronics",
+    "price": 238.8,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Router Basic",
+    "category": "Electronics",
+    "price": 261.85,
+    "in_stock": false
+  },
+  {
+    "name": "Limited Edition Router Pro",
+    "category": "Electronics",
+    "price": 78.32,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Router Pro",
+    "category": "Electronics",
+    "price": 97.03,
+    "in_stock": true
+  },
+  {
+    "name": "Extra-Large Router Bundle",
+    "category": "Electronics",
+    "price": 165.55,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Router Max",
+    "category": "Electronics",
+    "price": 48.61,
+    "in_stock": true
+  },
+  {
+    "name": "Travel-Size Hard Drive 50-inch",
+    "category": "Electronics",
+    "price": 98.92,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Hard Drive 55-inch",
+    "category": "Electronics",
+    "price": 41.02,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Hard Drive 50-inch",
+    "category": "Electronics",
+    "price": 40.23,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Hard Drive 24-inch",
+    "category": "Electronics",
+    "price": 118.72,
+    "in_stock": false
+  },
+  {
+    "name": "Ergonomic Hard Drive 55-inch",
+    "category": "Electronics",
+    "price": 187.4,
+    "in_stock": true
+  },
+  {
+    "name": "Premium Hard Drive 40-inch",
+    "category": "Electronics",
+    "price": 132.92,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Hard Drive 24-inch",
+    "category": "Electronics",
+    "price": 145.99,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Hard Drive 32-inch",
+    "category": "Electronics",
+    "price": 90.89,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra Headset XL",
+    "category": "Electronics",
+    "price": 141.44,
+    "in_stock": true
+  },
+  {
+    "name": "Eco-Friendly Headset XL",
+    "category": "Electronics",
+    "price": 54.39,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Headset Collection",
+    "category": "Electronics",
+    "price": 296.68,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Headset Elite",
+    "category": "Electronics",
+    "price": 191.87,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Headset Series",
+    "category": "Electronics",
+    "price": 302.75,
+    "in_stock": true
+  },
+  {
+    "name": "Magnetic Headset Turbo",
+    "category": "Electronics",
+    "price": 286.27,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Headset Standard",
+    "category": "Electronics",
+    "price": 292.69,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight Headset Elite",
+    "category": "Electronics",
+    "price": 32.09,
+    "in_stock": false
+  },
+  {
+    "name": "All-Purpose Printer Max",
+    "category": "Electronics",
+    "price": 92.38,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Printer Max",
+    "category": "Electronics",
+    "price": 197.54,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Printer Pro",
+    "category": "Electronics",
+    "price": 289.53,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Printer Mini",
+    "category": "Electronics",
+    "price": 137.64,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Printer Nano",
+    "category": "Electronics",
+    "price": 408.4,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Printer Turbo",
+    "category": "Electronics",
+    "price": 291.01,
+    "in_stock": true
+  },
+  {
+    "name": "Ergonomic Printer Max",
+    "category": "Electronics",
+    "price": 456.22,
+    "in_stock": true
+  },
+  {
+    "name": "Professional Printer Pro",
+    "category": "Electronics",
+    "price": 499.83,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Scanner Max",
+    "category": "Electronics",
+    "price": 278.5,
+    "in_stock": false
+  },
+  {
+    "name": "Heavy-Duty Scanner Set",
+    "category": "Electronics",
+    "price": 287.09,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Scanner Mini",
+    "category": "Electronics",
+    "price": 59.49,
+    "in_stock": false
+  },
+  {
+    "name": "Extra-Large Scanner Home",
+    "category": "Electronics",
+    "price": 132.93,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Scanner Plus",
+    "category": "Electronics",
+    "price": 55.48,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight Scanner Plus",
+    "category": "Electronics",
+    "price": 143.4,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Scanner Kit",
+    "category": "Electronics",
+    "price": 130.65,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Scanner V2",
+    "category": "Electronics",
+    "price": 226.8,
+    "in_stock": true
+  },
+  {
+    "name": "Custom TV 55-inch",
+    "category": "Electronics",
+    "price": 258.29,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight TV 27-inch",
+    "category": "Electronics",
+    "price": 453.16,
+    "in_stock": true
+  },
+  {
+    "name": "Smart TV 32-inch",
+    "category": "Electronics",
+    "price": 1678.99,
+    "in_stock": true
+  },
+  {
+    "name": "Essential TV 40-inch",
+    "category": "Electronics",
+    "price": 649.17,
+    "in_stock": false
+  },
+  {
+    "name": "Industrial TV 65-inch",
+    "category": "Electronics",
+    "price": 894.69,
+    "in_stock": true
+  },
+  {
+    "name": "Travel-Size TV 40-inch",
+    "category": "Electronics",
+    "price": 1182.84,
+    "in_stock": true
+  },
+  {
+    "name": "Classic TV 65-inch",
+    "category": "Electronics",
+    "price": 1012.32,
+    "in_stock": true
+  },
+  {
+    "name": "Mini TV 32-inch",
+    "category": "Electronics",
+    "price": 1912.99,
+    "in_stock": false
+  },
+  {
+    "name": "Vintage Projector Standard",
+    "category": "Electronics",
+    "price": 137.49,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Projector Lite",
+    "category": "Electronics",
+    "price": 308.18,
+    "in_stock": false
+  },
+  {
+    "name": "Durable Projector Kit",
+    "category": "Electronics",
+    "price": 138.15,
+    "in_stock": false
+  },
+  {
+    "name": "Ultra Projector Elite",
+    "category": "Electronics",
+    "price": 167.89,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Projector Collection",
+    "category": "Electronics",
+    "price": 649.41,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Projector Series",
+    "category": "Electronics",
+    "price": 359.71,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Projector Max",
+    "category": "Electronics",
+    "price": 425.54,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Projector Series",
+    "category": "Electronics",
+    "price": 160.0,
+    "in_stock": true
+  },
+  {
+    "name": "Magnetic Drone Edition",
+    "category": "Electronics",
+    "price": 907.64,
+    "in_stock": true
+  },
+  {
+    "name": "Budget Drone Nano",
+    "category": "Electronics",
+    "price": 951.79,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight Drone Max",
+    "category": "Electronics",
+    "price": 452.21,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Drone V2",
+    "category": "Electronics",
+    "price": 915.26,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Drone Elite",
+    "category": "Electronics",
+    "price": 359.82,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Drone XL",
+    "category": "Electronics",
+    "price": 443.72,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Drone Sport",
+    "category": "Electronics",
+    "price": 790.57,
+    "in_stock": true
+  },
+  {
+    "name": "Travel-Size Drone Turbo",
+    "category": "Electronics",
+    "price": 672.05,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Camera Kit",
+    "category": "Electronics",
+    "price": 1849.59,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Camera Standard",
+    "category": "Electronics",
+    "price": 1701.41,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Camera Basic",
+    "category": "Electronics",
+    "price": 1951.02,
+    "in_stock": true
+  },
+  {
+    "name": "Extra-Large Camera Bundle",
+    "category": "Electronics",
+    "price": 939.26,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Camera V2",
+    "category": "Electronics",
+    "price": 1079.01,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Camera Collection",
+    "category": "Electronics",
+    "price": 1582.98,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Camera Sport",
+    "category": "Electronics",
+    "price": 1690.26,
+    "in_stock": true
+  },
+  {
+    "name": "Professional Camera XL",
+    "category": "Electronics",
+    "price": 799.87,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Tablet 50-inch",
+    "category": "Electronics",
+    "price": 214.46,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Tablet 32-inch",
+    "category": "Electronics",
+    "price": 214.04,
+    "in_stock": true
+  },
+  {
+    "name": "Professional Tablet 65-inch",
+    "category": "Electronics",
+    "price": 288.36,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Tablet 65-inch",
+    "category": "Electronics",
+    "price": 553.16,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Tablet 27-inch",
+    "category": "Electronics",
+    "price": 396.66,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Tablet 40-inch",
+    "category": "Electronics",
+    "price": 311.5,
+    "in_stock": true
+  },
+  {
+    "name": "All-Purpose Tablet 40-inch",
+    "category": "Electronics",
+    "price": 458.06,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Tablet 50-inch",
+    "category": "Electronics",
+    "price": 579.09,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Phone Case Nano",
+    "category": "Electronics",
+    "price": 26.16,
+    "in_stock": true
+  },
+  {
+    "name": "Extra-Large Phone Case Plus",
+    "category": "Electronics",
+    "price": 20.38,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Phone Case Kit",
+    "category": "Electronics",
+    "price": 39.06,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Phone Case Turbo",
+    "category": "Electronics",
+    "price": 22.01,
+    "in_stock": true
+  },
+  {
+    "name": "Slim Phone Case Turbo",
+    "category": "Electronics",
+    "price": 15.12,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Phone Case Turbo",
+    "category": "Electronics",
+    "price": 18.89,
+    "in_stock": true
+  },
+  {
+    "name": "Eco-Friendly Phone Case Collection",
+    "category": "Electronics",
+    "price": 33.42,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra Phone Case Basic",
+    "category": "Electronics",
+    "price": 45.58,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Charger Bundle",
+    "category": "Electronics",
+    "price": 25.82,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Charger Elite",
+    "category": "Electronics",
+    "price": 41.72,
+    "in_stock": false
+  },
+  {
+    "name": "Industrial Charger Series",
+    "category": "Electronics",
+    "price": 49.26,
+    "in_stock": true
+  },
+  {
+    "name": "Budget Charger Plus",
+    "category": "Electronics",
+    "price": 31.45,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Charger Standard",
+    "category": "Electronics",
+    "price": 57.5,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Charger Nano",
+    "category": "Electronics",
+    "price": 21.31,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Charger Collection",
+    "category": "Electronics",
+    "price": 39.43,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Charger Pro",
+    "category": "Electronics",
+    "price": 39.82,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Battery Pack 27-inch",
+    "category": "Electronics",
+    "price": 53.33,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Battery Pack 55-inch",
+    "category": "Electronics",
+    "price": 65.13,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Battery Pack 24-inch",
+    "category": "Electronics",
+    "price": 59.83,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Battery Pack 24-inch",
+    "category": "Electronics",
+    "price": 60.62,
+    "in_stock": true
+  },
+  {
+    "name": "Eco-Friendly Battery Pack 32-inch",
+    "category": "Electronics",
+    "price": 32.55,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Battery Pack 40-inch",
+    "category": "Electronics",
+    "price": 22.41,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Battery Pack 50-inch",
+    "category": "Electronics",
+    "price": 78.25,
+    "in_stock": true
+  },
+  {
+    "name": "Premium Battery Pack 32-inch",
+    "category": "Electronics",
+    "price": 47.26,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable VR Headset Sport",
+    "category": "Electronics",
+    "price": 478.74,
+    "in_stock": false
+  },
+  {
+    "name": "Handcrafted VR Headset Basic",
+    "category": "Electronics",
+    "price": 195.27,
+    "in_stock": false
+  },
+  {
+    "name": "Heavy-Duty VR Headset Max",
+    "category": "Electronics",
+    "price": 490.88,
+    "in_stock": true
+  },
+  {
+    "name": "Premium VR Headset Basic",
+    "category": "Electronics",
+    "price": 414.85,
+    "in_stock": true
+  },
+  {
+    "name": "Magnetic VR Headset Set",
+    "category": "Electronics",
+    "price": 254.94,
+    "in_stock": true
+  },
+  {
+    "name": "Mini VR Headset Basic",
+    "category": "Electronics",
+    "price": 509.64,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced VR Headset Mini",
+    "category": "Electronics",
+    "price": 122.88,
+    "in_stock": true
+  },
+  {
+    "name": "Budget VR Headset Max",
+    "category": "Electronics",
+    "price": 423.12,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Smart Display 40-inch",
+    "category": "Electronics",
+    "price": 213.74,
+    "in_stock": false
+  },
+  {
+    "name": "Custom Smart Display 65-inch",
+    "category": "Electronics",
+    "price": 179.77,
+    "in_stock": true
+  },
+  {
+    "name": "Professional Smart Display 24-inch",
+    "category": "Electronics",
+    "price": 136.44,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Smart Display 27-inch",
+    "category": "Electronics",
+    "price": 210.85,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Smart Display 65-inch",
+    "category": "Electronics",
+    "price": 237.86,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Smart Display 32-inch",
+    "category": "Electronics",
+    "price": 210.83,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Smart Display 24-inch",
+    "category": "Electronics",
+    "price": 162.02,
+    "in_stock": true
+  },
+  {
+    "name": "All-Purpose Smart Display 32-inch",
+    "category": "Electronics",
+    "price": 75.66,
+    "in_stock": true
+  },
+  {
+    "name": "Insulated E-Reader XL",
+    "category": "Electronics",
+    "price": 265.75,
+    "in_stock": true
+  },
+  {
+    "name": "Durable E-Reader Home",
+    "category": "Electronics",
+    "price": 105.09,
+    "in_stock": true
+  },
+  {
+    "name": "Premium E-Reader Edition",
+    "category": "Electronics",
+    "price": 200.49,
+    "in_stock": true
+  },
+  {
+    "name": "Mini E-Reader Basic",
+    "category": "Electronics",
+    "price": 260.8,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial E-Reader V2",
+    "category": "Electronics",
+    "price": 106.56,
+    "in_stock": true
+  },
+  {
+    "name": "Rechargeable E-Reader Lite",
+    "category": "Electronics",
+    "price": 246.57,
+    "in_stock": false
+  },
+  {
+    "name": "Luxury E-Reader Sport",
+    "category": "Electronics",
+    "price": 290.36,
+    "in_stock": true
+  },
+  {
+    "name": "Organic E-Reader Mini",
+    "category": "Electronics",
+    "price": 285.77,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Soundbar Home",
+    "category": "Electronics",
+    "price": 490.98,
+    "in_stock": true
+  },
+  {
+    "name": "Rechargeable Soundbar Edition",
+    "category": "Electronics",
+    "price": 259.25,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Soundbar V2",
+    "category": "Electronics",
+    "price": 438.71,
+    "in_stock": true
+  },
+  {
+    "name": "Insulated Soundbar Turbo",
+    "category": "Electronics",
+    "price": 334.63,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Soundbar Set",
+    "category": "Electronics",
+    "price": 298.7,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Soundbar Basic",
+    "category": "Electronics",
+    "price": 311.08,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Soundbar V2",
+    "category": "Electronics",
+    "price": 415.65,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Soundbar Standard",
+    "category": "Electronics",
+    "price": 147.96,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Desk Turbo",
+    "category": "Furniture",
+    "price": 408.05,
+    "in_stock": true
+  },
+  {
+    "name": "Travel-Size Desk Turbo",
+    "category": "Furniture",
+    "price": 355.46,
+    "in_stock": true
+  },
+  {
+    "name": "Slim Desk Collection",
+    "category": "Furniture",
+    "price": 308.28,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Desk Bundle",
+    "category": "Furniture",
+    "price": 201.54,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Desk XL",
+    "category": "Furniture",
+    "price": 373.31,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Desk Lite",
+    "category": "Furniture",
+    "price": 193.49,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Desk Nano",
+    "category": "Furniture",
+    "price": 239.56,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Desk Max",
+    "category": "Furniture",
+    "price": 333.17,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Chair Bundle",
+    "category": "Furniture",
+    "price": 108.63,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Chair V2",
+    "category": "Furniture",
+    "price": 226.75,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Chair Bundle",
+    "category": "Furniture",
+    "price": 479.13,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Chair Mini",
+    "category": "Furniture",
+    "price": 267.18,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Chair Home",
+    "category": "Furniture",
+    "price": 240.18,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Chair Basic",
+    "category": "Furniture",
+    "price": 462.76,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Chair Set",
+    "category": "Furniture",
+    "price": 98.42,
+    "in_stock": true
+  },
+  {
+    "name": "Durable Chair Lite",
+    "category": "Furniture",
+    "price": 150.31,
+    "in_stock": true
+  },
+  {
+    "name": "Magnetic Shelf Basic",
+    "category": "Furniture",
+    "price": 156.97,
+    "in_stock": true
+  },
+  {
+    "name": "Durable Shelf XL",
+    "category": "Furniture",
+    "price": 42.45,
+    "in_stock": true
+  },
+  {
+    "name": "Premium Shelf Series",
+    "category": "Furniture",
+    "price": 99.3,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra Shelf Kit",
+    "category": "Furniture",
+    "price": 144.46,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Shelf Home",
+    "category": "Furniture",
+    "price": 90.81,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Shelf Collection",
+    "category": "Furniture",
+    "price": 160.1,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Shelf Kit",
+    "category": "Furniture",
+    "price": 120.69,
+    "in_stock": true
+  },
+  {
+    "name": "Budget Shelf Kit",
+    "category": "Furniture",
+    "price": 80.67,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Table Home",
+    "category": "Furniture",
+    "price": 123.52,
+    "in_stock": true
+  },
+  {
+    "name": "Premium Table Set",
+    "category": "Furniture",
+    "price": 114.4,
+    "in_stock": true
+  },
+  {
+    "name": "Insulated Table Series",
+    "category": "Furniture",
+    "price": 348.29,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Table Turbo",
+    "category": "Furniture",
+    "price": 285.09,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Table Lite",
+    "category": "Furniture",
+    "price": 175.0,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Table Edition",
+    "category": "Furniture",
+    "price": 161.23,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Table Home",
+    "category": "Furniture",
+    "price": 248.4,
+    "in_stock": true
+  },
+  {
+    "name": "Travel-Size Table V2",
+    "category": "Furniture",
+    "price": 324.98,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Cabinet Set",
+    "category": "Furniture",
+    "price": 125.71,
+    "in_stock": true
+  },
+  {
+    "name": "Extra-Large Cabinet Elite",
+    "category": "Furniture",
+    "price": 162.5,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Cabinet Elite",
+    "category": "Furniture",
+    "price": 345.28,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Cabinet Sport",
+    "category": "Furniture",
+    "price": 311.67,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Cabinet Turbo",
+    "category": "Furniture",
+    "price": 173.79,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Cabinet Collection",
+    "category": "Furniture",
+    "price": 232.82,
+    "in_stock": false
+  },
+  {
+    "name": "Ergonomic Cabinet Edition",
+    "category": "Furniture",
+    "price": 138.96,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight Cabinet Sport",
+    "category": "Furniture",
+    "price": 96.98,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight Sofa Set",
+    "category": "Furniture",
+    "price": 347.89,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra Sofa Basic",
+    "category": "Furniture",
+    "price": 994.36,
+    "in_stock": true
+  },
+  {
+    "name": "Slim Sofa Kit",
+    "category": "Furniture",
+    "price": 1084.0,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Sofa Nano",
+    "category": "Furniture",
+    "price": 787.01,
+    "in_stock": true
+  },
+  {
+    "name": "Durable Sofa Set",
+    "category": "Furniture",
+    "price": 1358.44,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Sofa Edition",
+    "category": "Furniture",
+    "price": 480.29,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Sofa Home",
+    "category": "Furniture",
+    "price": 1273.41,
+    "in_stock": true
+  },
+  {
+    "name": "Insulated Sofa Mini",
+    "category": "Furniture",
+    "price": 1008.95,
+    "in_stock": true
+  },
+  {
+    "name": "Budget Bed Frame Nano",
+    "category": "Furniture",
+    "price": 333.07,
+    "in_stock": true
+  },
+  {
+    "name": "Professional Bed Frame Nano",
+    "category": "Furniture",
+    "price": 957.8,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Bed Frame Home",
+    "category": "Furniture",
+    "price": 864.29,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Bed Frame Sport",
+    "category": "Furniture",
+    "price": 779.35,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Bed Frame XL",
+    "category": "Furniture",
+    "price": 502.57,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Bed Frame Standard",
+    "category": "Furniture",
+    "price": 684.41,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Bed Frame Home",
+    "category": "Furniture",
+    "price": 585.79,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Bed Frame Home",
+    "category": "Furniture",
+    "price": 536.55,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Dresser Plus",
+    "category": "Furniture",
+    "price": 277.47,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Dresser V2",
+    "category": "Furniture",
+    "price": 410.09,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight Dresser Standard",
+    "category": "Furniture",
+    "price": 313.02,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Dresser Sport",
+    "category": "Furniture",
+    "price": 314.54,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Dresser Kit",
+    "category": "Furniture",
+    "price": 502.7,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Dresser Set",
+    "category": "Furniture",
+    "price": 594.83,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Dresser Kit",
+    "category": "Furniture",
+    "price": 350.97,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Dresser Max",
+    "category": "Furniture",
+    "price": 510.38,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Nightstand Home",
+    "category": "Furniture",
+    "price": 75.48,
+    "in_stock": false
+  },
+  {
+    "name": "Vintage Nightstand Pro",
+    "category": "Furniture",
+    "price": 144.99,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Nightstand Home",
+    "category": "Furniture",
+    "price": 41.71,
+    "in_stock": true
+  },
+  {
+    "name": "Premium Nightstand Nano",
+    "category": "Furniture",
+    "price": 121.69,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Nightstand Home",
+    "category": "Furniture",
+    "price": 144.8,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Nightstand Elite",
+    "category": "Furniture",
+    "price": 104.87,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Nightstand Standard",
+    "category": "Furniture",
+    "price": 85.52,
+    "in_stock": true
+  },
+  {
+    "name": "Ergonomic Nightstand Sport",
+    "category": "Furniture",
+    "price": 137.02,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Ottoman Elite",
+    "category": "Furniture",
+    "price": 250.74,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Ottoman Turbo",
+    "category": "Furniture",
+    "price": 291.51,
+    "in_stock": true
+  },
+  {
+    "name": "Premium Ottoman Edition",
+    "category": "Furniture",
+    "price": 274.13,
+    "in_stock": true
+  },
+  {
+    "name": "Slim Ottoman Mini",
+    "category": "Furniture",
+    "price": 208.42,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Ottoman Edition",
+    "category": "Furniture",
+    "price": 179.13,
+    "in_stock": false
+  },
+  {
+    "name": "Budget Ottoman Series",
+    "category": "Furniture",
+    "price": 218.42,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Ottoman Elite",
+    "category": "Furniture",
+    "price": 138.38,
+    "in_stock": true
+  },
+  {
+    "name": "Extra-Large Ottoman Series",
+    "category": "Furniture",
+    "price": 108.72,
+    "in_stock": true
+  },
+  {
+    "name": "Slim Bench Basic",
+    "category": "Furniture",
+    "price": 62.25,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Bench Pro",
+    "category": "Furniture",
+    "price": 167.24,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight Bench Sport",
+    "category": "Furniture",
+    "price": 394.69,
+    "in_stock": true
+  },
+  {
+    "name": "Eco-Friendly Bench Series",
+    "category": "Furniture",
+    "price": 238.75,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Bench Turbo",
+    "category": "Furniture",
+    "price": 352.54,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Bench XL",
+    "category": "Furniture",
+    "price": 294.33,
+    "in_stock": false
+  },
+  {
+    "name": "Modern Bench Lite",
+    "category": "Furniture",
+    "price": 182.94,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Bench Max",
+    "category": "Furniture",
+    "price": 220.26,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Stool Kit",
+    "category": "Furniture",
+    "price": 52.29,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Stool Edition",
+    "category": "Furniture",
+    "price": 124.41,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Stool Lite",
+    "category": "Furniture",
+    "price": 60.02,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Stool Nano",
+    "category": "Furniture",
+    "price": 72.67,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Stool Pro",
+    "category": "Furniture",
+    "price": 66.63,
+    "in_stock": true
+  },
+  {
+    "name": "Budget Stool Basic",
+    "category": "Furniture",
+    "price": 91.25,
+    "in_stock": true
+  },
+  {
+    "name": "Durable Stool Series",
+    "category": "Furniture",
+    "price": 89.69,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Stool Home",
+    "category": "Furniture",
+    "price": 90.37,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Mirror Max",
+    "category": "Furniture",
+    "price": 122.89,
+    "in_stock": true
+  },
+  {
+    "name": "All-Purpose Mirror Elite",
+    "category": "Furniture",
+    "price": 76.43,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Mirror Series",
+    "category": "Furniture",
+    "price": 160.58,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Mirror Sport",
+    "category": "Furniture",
+    "price": 53.1,
+    "in_stock": false
+  },
+  {
+    "name": "Travel-Size Mirror Edition",
+    "category": "Furniture",
+    "price": 50.04,
+    "in_stock": true
+  },
+  {
+    "name": "Ergonomic Mirror Elite",
+    "category": "Furniture",
+    "price": 158.77,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Mirror Elite",
+    "category": "Furniture",
+    "price": 137.87,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Mirror Collection",
+    "category": "Furniture",
+    "price": 132.77,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Rug 32-inch",
+    "category": "Furniture",
+    "price": 485.68,
+    "in_stock": true
+  },
+  {
+    "name": "Professional Rug 50-inch",
+    "category": "Furniture",
+    "price": 234.44,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Rug 32-inch",
+    "category": "Furniture",
+    "price": 136.75,
+    "in_stock": false
+  },
+  {
+    "name": "Custom Rug 32-inch",
+    "category": "Furniture",
+    "price": 172.68,
+    "in_stock": false
+  },
+  {
+    "name": "Organic Rug 32-inch",
+    "category": "Furniture",
+    "price": 33.91,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Rug 32-inch",
+    "category": "Furniture",
+    "price": 310.59,
+    "in_stock": true
+  },
+  {
+    "name": "Ergonomic Rug 32-inch",
+    "category": "Furniture",
+    "price": 235.44,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Rug 65-inch",
+    "category": "Furniture",
+    "price": 67.23,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Curtains Elite",
+    "category": "Furniture",
+    "price": 102.8,
+    "in_stock": true
+  },
+  {
+    "name": "Extra-Large Curtains Series",
+    "category": "Furniture",
+    "price": 61.68,
+    "in_stock": true
+  },
+  {
+    "name": "Travel-Size Curtains Turbo",
+    "category": "Furniture",
+    "price": 55.0,
+    "in_stock": true
+  },
+  {
+    "name": "Magnetic Curtains Standard",
+    "category": "Furniture",
+    "price": 84.17,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Curtains Collection",
+    "category": "Furniture",
+    "price": 110.6,
+    "in_stock": false
+  },
+  {
+    "name": "Budget Curtains Elite",
+    "category": "Furniture",
+    "price": 120.83,
+    "in_stock": false
+  },
+  {
+    "name": "Eco-Friendly Curtains Mini",
+    "category": "Furniture",
+    "price": 127.67,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Curtains Edition",
+    "category": "Furniture",
+    "price": 45.89,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Lamp Pro",
+    "category": "Furniture",
+    "price": 106.62,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Lamp Set",
+    "category": "Furniture",
+    "price": 133.92,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Lamp Max",
+    "category": "Furniture",
+    "price": 162.05,
+    "in_stock": false
+  },
+  {
+    "name": "Foldable Lamp Pro",
+    "category": "Furniture",
+    "price": 158.74,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Lamp Mini",
+    "category": "Furniture",
+    "price": 30.76,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Lamp Turbo",
+    "category": "Furniture",
+    "price": 61.88,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Lamp Set",
+    "category": "Furniture",
+    "price": 144.06,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Lamp Plus",
+    "category": "Furniture",
+    "price": 120.62,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Pan Home",
+    "category": "Kitchen",
+    "price": 49.52,
+    "in_stock": true
+  },
+  {
+    "name": "Eco-Friendly Pan Series",
+    "category": "Kitchen",
+    "price": 65.43,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Pan Max",
+    "category": "Kitchen",
+    "price": 30.52,
+    "in_stock": true
+  },
+  {
+    "name": "Magnetic Pan Turbo",
+    "category": "Kitchen",
+    "price": 59.41,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Pan Plus",
+    "category": "Kitchen",
+    "price": 56.66,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Pan Nano",
+    "category": "Kitchen",
+    "price": 26.61,
+    "in_stock": false
+  },
+  {
+    "name": "Ergonomic Pan Basic",
+    "category": "Kitchen",
+    "price": 52.12,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Pan Mini",
+    "category": "Kitchen",
+    "price": 38.81,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra Pot Turbo",
+    "category": "Kitchen",
+    "price": 85.89,
+    "in_stock": true
+  },
+  {
+    "name": "Premium Pot Pro",
+    "category": "Kitchen",
+    "price": 95.57,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Pot Basic",
+    "category": "Kitchen",
+    "price": 35.45,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Pot Sport",
+    "category": "Kitchen",
+    "price": 81.3,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Pot XL",
+    "category": "Kitchen",
+    "price": 83.4,
+    "in_stock": true
+  },
+  {
+    "name": "Ergonomic Pot Nano",
+    "category": "Kitchen",
+    "price": 92.2,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Pot Bundle",
+    "category": "Kitchen",
+    "price": 86.09,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Pot Edition",
+    "category": "Kitchen",
+    "price": 81.26,
+    "in_stock": true
+  },
+  {
+    "name": "Slim Knife Home",
+    "category": "Kitchen",
+    "price": 10.92,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Knife Lite",
+    "category": "Kitchen",
+    "price": 138.68,
+    "in_stock": true
+  },
+  {
+    "name": "All-Purpose Knife Sport",
+    "category": "Kitchen",
+    "price": 74.45,
+    "in_stock": true
+  },
+  {
+    "name": "Insulated Knife Series",
+    "category": "Kitchen",
+    "price": 45.87,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Knife Sport",
+    "category": "Kitchen",
+    "price": 111.3,
+    "in_stock": true
+  },
+  {
+    "name": "Premium Knife Max",
+    "category": "Kitchen",
+    "price": 99.92,
+    "in_stock": false
+  },
+  {
+    "name": "Compact Knife Sport",
+    "category": "Kitchen",
+    "price": 58.71,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Knife V2",
+    "category": "Kitchen",
+    "price": 140.01,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Blender Nano",
+    "category": "Kitchen",
+    "price": 144.52,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Blender XL",
+    "category": "Kitchen",
+    "price": 103.43,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Blender Plus",
+    "category": "Kitchen",
+    "price": 127.14,
+    "in_stock": false
+  },
+  {
+    "name": "Solar-Powered Blender Kit",
+    "category": "Kitchen",
+    "price": 103.86,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Blender Plus",
+    "category": "Kitchen",
+    "price": 97.2,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Blender Turbo",
+    "category": "Kitchen",
+    "price": 42.18,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Blender Bundle",
+    "category": "Kitchen",
+    "price": 144.2,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Blender Set",
+    "category": "Kitchen",
+    "price": 141.42,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Mixer Set",
+    "category": "Kitchen",
+    "price": 95.62,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Mixer Plus",
+    "category": "Kitchen",
+    "price": 217.32,
+    "in_stock": true
+  },
+  {
+    "name": "All-Purpose Mixer XL",
+    "category": "Kitchen",
+    "price": 229.8,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Mixer Turbo",
+    "category": "Kitchen",
+    "price": 227.08,
+    "in_stock": true
+  },
+  {
+    "name": "Insulated Mixer Standard",
+    "category": "Kitchen",
+    "price": 75.99,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Mixer Home",
+    "category": "Kitchen",
+    "price": 47.98,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight Mixer Set",
+    "category": "Kitchen",
+    "price": 264.2,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Mixer Edition",
+    "category": "Kitchen",
+    "price": 160.86,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Oven Nano",
+    "category": "Kitchen",
+    "price": 310.54,
+    "in_stock": false
+  },
+  {
+    "name": "Smart Oven Set",
+    "category": "Kitchen",
+    "price": 146.56,
+    "in_stock": false
+  },
+  {
+    "name": "Eco-Friendly Oven Series",
+    "category": "Kitchen",
+    "price": 103.1,
+    "in_stock": true
+  },
+  {
+    "name": "Rechargeable Oven Plus",
+    "category": "Kitchen",
+    "price": 134.13,
+    "in_stock": true
+  },
+  {
+    "name": "Ergonomic Oven Collection",
+    "category": "Kitchen",
+    "price": 96.12,
+    "in_stock": true
+  },
+  {
+    "name": "Professional Oven Sport",
+    "category": "Kitchen",
+    "price": 290.99,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Oven Plus",
+    "category": "Kitchen",
+    "price": 73.73,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Oven Basic",
+    "category": "Kitchen",
+    "price": 317.9,
+    "in_stock": true
+  },
+  {
+    "name": "Budget Grill Plus",
+    "category": "Kitchen",
+    "price": 183.1,
+    "in_stock": true
+  },
+  {
+    "name": "Durable Grill Edition",
+    "category": "Kitchen",
+    "price": 215.8,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Grill Nano",
+    "category": "Kitchen",
+    "price": 79.67,
+    "in_stock": true
+  },
+  {
+    "name": "All-Purpose Grill Mini",
+    "category": "Kitchen",
+    "price": 38.7,
+    "in_stock": true
+  },
+  {
+    "name": "Extra-Large Grill Standard",
+    "category": "Kitchen",
+    "price": 234.6,
+    "in_stock": false
+  },
+  {
+    "name": "Modern Grill XL",
+    "category": "Kitchen",
+    "price": 264.03,
+    "in_stock": true
+  },
+  {
+    "name": "Eco-Friendly Grill V2",
+    "category": "Kitchen",
+    "price": 136.42,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Grill Sport",
+    "category": "Kitchen",
+    "price": 59.52,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Plates Set Pro",
+    "category": "Kitchen",
+    "price": 90.75,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Plates Set Collection",
+    "category": "Kitchen",
+    "price": 69.05,
+    "in_stock": false
+  },
+  {
+    "name": "Solar-Powered Plates Set Nano",
+    "category": "Kitchen",
+    "price": 77.81,
+    "in_stock": true
+  },
+  {
+    "name": "Magnetic Plates Set Sport",
+    "category": "Kitchen",
+    "price": 53.08,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Plates Set Max",
+    "category": "Kitchen",
+    "price": 27.21,
+    "in_stock": true
+  },
+  {
+    "name": "Durable Plates Set Max",
+    "category": "Kitchen",
+    "price": 76.5,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Plates Set Elite",
+    "category": "Kitchen",
+    "price": 64.03,
+    "in_stock": false
+  },
+  {
+    "name": "Slim Plates Set Max",
+    "category": "Kitchen",
+    "price": 89.51,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Cups Set Plus",
+    "category": "Kitchen",
+    "price": 32.93,
+    "in_stock": true
+  },
+  {
+    "name": "Budget Cups Set Turbo",
+    "category": "Kitchen",
+    "price": 20.84,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Cups Set XL",
+    "category": "Kitchen",
+    "price": 40.01,
+    "in_stock": true
+  },
+  {
+    "name": "Insulated Cups Set Turbo",
+    "category": "Kitchen",
+    "price": 19.24,
+    "in_stock": false
+  },
+  {
+    "name": "All-Purpose Cups Set Set",
+    "category": "Kitchen",
+    "price": 51.9,
+    "in_stock": true
+  },
+  {
+    "name": "Travel-Size Cups Set Elite",
+    "category": "Kitchen",
+    "price": 18.07,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Cups Set Home",
+    "category": "Kitchen",
+    "price": 47.47,
+    "in_stock": true
+  },
+  {
+    "name": "Durable Cups Set Pro",
+    "category": "Kitchen",
+    "price": 54.88,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Storage Container Series",
+    "category": "Kitchen",
+    "price": 18.39,
+    "in_stock": true
+  },
+  {
+    "name": "Insulated Storage Container Pro",
+    "category": "Kitchen",
+    "price": 38.96,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra Storage Container Collection",
+    "category": "Kitchen",
+    "price": 31.02,
+    "in_stock": true
+  },
+  {
+    "name": "Travel-Size Storage Container Set",
+    "category": "Kitchen",
+    "price": 39.17,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Storage Container Max",
+    "category": "Kitchen",
+    "price": 10.06,
+    "in_stock": false
+  },
+  {
+    "name": "Classic Storage Container Basic",
+    "category": "Kitchen",
+    "price": 11.82,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Storage Container Lite",
+    "category": "Kitchen",
+    "price": 41.61,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Storage Container Nano",
+    "category": "Kitchen",
+    "price": 37.43,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Utensil Set Mini",
+    "category": "Kitchen",
+    "price": 21.99,
+    "in_stock": true
+  },
+  {
+    "name": "Professional Utensil Set Turbo",
+    "category": "Kitchen",
+    "price": 52.58,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Utensil Set Bundle",
+    "category": "Kitchen",
+    "price": 40.98,
+    "in_stock": true
+  },
+  {
+    "name": "Eco-Friendly Utensil Set Set",
+    "category": "Kitchen",
+    "price": 30.26,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Utensil Set Turbo",
+    "category": "Kitchen",
+    "price": 41.78,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Utensil Set Collection",
+    "category": "Kitchen",
+    "price": 33.62,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Utensil Set Edition",
+    "category": "Kitchen",
+    "price": 38.63,
+    "in_stock": true
+  },
+  {
+    "name": "Ergonomic Utensil Set Set",
+    "category": "Kitchen",
+    "price": 34.97,
+    "in_stock": false
+  },
+  {
+    "name": "Foldable Baking Sheet Bundle",
+    "category": "Kitchen",
+    "price": 31.74,
+    "in_stock": true
+  },
+  {
+    "name": "Rechargeable Baking Sheet Nano",
+    "category": "Kitchen",
+    "price": 30.61,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Baking Sheet Elite",
+    "category": "Kitchen",
+    "price": 25.62,
+    "in_stock": true
+  },
+  {
+    "name": "Eco-Friendly Baking Sheet Collection",
+    "category": "Kitchen",
+    "price": 19.63,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Baking Sheet Series",
+    "category": "Kitchen",
+    "price": 18.18,
+    "in_stock": true
+  },
+  {
+    "name": "Durable Baking Sheet Basic",
+    "category": "Kitchen",
+    "price": 26.28,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Baking Sheet Series",
+    "category": "Kitchen",
+    "price": 12.14,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Baking Sheet Bundle",
+    "category": "Kitchen",
+    "price": 10.87,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Colander Home",
+    "category": "Kitchen",
+    "price": 15.31,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Colander Turbo",
+    "category": "Kitchen",
+    "price": 25.88,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Colander XL",
+    "category": "Kitchen",
+    "price": 18.35,
+    "in_stock": true
+  },
+  {
+    "name": "Durable Colander Plus",
+    "category": "Kitchen",
+    "price": 16.63,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Colander Bundle",
+    "category": "Kitchen",
+    "price": 8.67,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Colander Set",
+    "category": "Kitchen",
+    "price": 24.89,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Colander Plus",
+    "category": "Kitchen",
+    "price": 15.17,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Colander Collection",
+    "category": "Kitchen",
+    "price": 17.1,
+    "in_stock": true
+  },
+  {
+    "name": "Insulated Measuring Set Sport",
+    "category": "Kitchen",
+    "price": 18.88,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Measuring Set Elite",
+    "category": "Kitchen",
+    "price": 16.84,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Measuring Set Turbo",
+    "category": "Kitchen",
+    "price": 24.12,
+    "in_stock": false
+  },
+  {
+    "name": "Essential Measuring Set Basic",
+    "category": "Kitchen",
+    "price": 14.89,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra Measuring Set Elite",
+    "category": "Kitchen",
+    "price": 18.22,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Measuring Set Collection",
+    "category": "Kitchen",
+    "price": 9.11,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Measuring Set Collection",
+    "category": "Kitchen",
+    "price": 24.81,
+    "in_stock": true
+  },
+  {
+    "name": "Budget Measuring Set Home",
+    "category": "Kitchen",
+    "price": 6.25,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Thermos V2",
+    "category": "Kitchen",
+    "price": 39.91,
+    "in_stock": true
+  },
+  {
+    "name": "Premium Thermos V2",
+    "category": "Kitchen",
+    "price": 19.87,
+    "in_stock": true
+  },
+  {
+    "name": "Insulated Thermos Set",
+    "category": "Kitchen",
+    "price": 49.91,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Thermos Plus",
+    "category": "Kitchen",
+    "price": 40.25,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Thermos V2",
+    "category": "Kitchen",
+    "price": 45.11,
+    "in_stock": true
+  },
+  {
+    "name": "Travel-Size Thermos Home",
+    "category": "Kitchen",
+    "price": 32.83,
+    "in_stock": true
+  },
+  {
+    "name": "Professional Thermos XL",
+    "category": "Kitchen",
+    "price": 29.87,
+    "in_stock": false
+  },
+  {
+    "name": "Solar-Powered Thermos Mini",
+    "category": "Kitchen",
+    "price": 47.43,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Ice Maker Nano",
+    "category": "Kitchen",
+    "price": 69.56,
+    "in_stock": true
+  },
+  {
+    "name": "Durable Ice Maker Elite",
+    "category": "Kitchen",
+    "price": 249.52,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Ice Maker Pro",
+    "category": "Kitchen",
+    "price": 163.51,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Ice Maker Sport",
+    "category": "Kitchen",
+    "price": 290.15,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Ice Maker Collection",
+    "category": "Kitchen",
+    "price": 115.11,
+    "in_stock": true
+  },
+  {
+    "name": "Insulated Ice Maker Sport",
+    "category": "Kitchen",
+    "price": 252.22,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Ice Maker Collection",
+    "category": "Kitchen",
+    "price": 69.22,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra Ice Maker Series",
+    "category": "Kitchen",
+    "price": 264.46,
+    "in_stock": false
+  },
+  {
+    "name": "Advanced Food Processor Edition",
+    "category": "Kitchen",
+    "price": 246.66,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Food Processor Home",
+    "category": "Kitchen",
+    "price": 201.78,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Food Processor XL",
+    "category": "Kitchen",
+    "price": 194.22,
+    "in_stock": true
+  },
+  {
+    "name": "All-Purpose Food Processor Series",
+    "category": "Kitchen",
+    "price": 137.44,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Food Processor Mini",
+    "category": "Kitchen",
+    "price": 183.54,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Food Processor Series",
+    "category": "Kitchen",
+    "price": 100.65,
+    "in_stock": true
+  },
+  {
+    "name": "Slim Food Processor Kit",
+    "category": "Kitchen",
+    "price": 232.72,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Food Processor V2",
+    "category": "Kitchen",
+    "price": 96.09,
+    "in_stock": false
+  },
+  {
+    "name": "Durable Shoes Turbo",
+    "category": "Sports",
+    "price": 99.91,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Shoes XL",
+    "category": "Sports",
+    "price": 62.82,
+    "in_stock": false
+  },
+  {
+    "name": "Ergonomic Shoes Elite",
+    "category": "Sports",
+    "price": 138.47,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Shoes Basic",
+    "category": "Sports",
+    "price": 141.59,
+    "in_stock": true
+  },
+  {
+    "name": "Eco-Friendly Shoes Sport",
+    "category": "Sports",
+    "price": 73.07,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Shoes Elite",
+    "category": "Sports",
+    "price": 147.68,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Shoes Bundle",
+    "category": "Sports",
+    "price": 162.11,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Shoes Bundle",
+    "category": "Sports",
+    "price": 104.9,
+    "in_stock": true
+  },
+  {
+    "name": "Eco-Friendly Shorts Home",
+    "category": "Sports",
+    "price": 19.65,
+    "in_stock": false
+  },
+  {
+    "name": "Pro-Grade Shorts Sport",
+    "category": "Sports",
+    "price": 55.34,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Shorts Standard",
+    "category": "Sports",
+    "price": 46.5,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Shorts Sport",
+    "category": "Sports",
+    "price": 34.62,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Shorts Elite",
+    "category": "Sports",
+    "price": 57.94,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Shorts Mini",
+    "category": "Sports",
+    "price": 45.68,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Shorts Elite",
+    "category": "Sports",
+    "price": 52.85,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Shorts Collection",
+    "category": "Sports",
+    "price": 16.77,
+    "in_stock": true
+  },
+  {
+    "name": "Eco-Friendly Gloves XL",
+    "category": "Sports",
+    "price": 23.52,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Gloves Sport",
+    "category": "Sports",
+    "price": 65.49,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Gloves Mini",
+    "category": "Sports",
+    "price": 33.75,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Gloves Pro",
+    "category": "Sports",
+    "price": 42.09,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Gloves Turbo",
+    "category": "Sports",
+    "price": 12.58,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Gloves Standard",
+    "category": "Sports",
+    "price": 59.09,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Gloves Max",
+    "category": "Sports",
+    "price": 41.93,
+    "in_stock": true
+  },
+  {
+    "name": "All-Purpose Gloves Sport",
+    "category": "Sports",
+    "price": 51.65,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra Helmet Sport",
+    "category": "Sports",
+    "price": 119.35,
+    "in_stock": true
+  },
+  {
+    "name": "Eco-Friendly Helmet Bundle",
+    "category": "Sports",
+    "price": 118.48,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Helmet Set",
+    "category": "Sports",
+    "price": 140.34,
+    "in_stock": false
+  },
+  {
+    "name": "Handcrafted Helmet Basic",
+    "category": "Sports",
+    "price": 22.03,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Helmet Standard",
+    "category": "Sports",
+    "price": 135.3,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Helmet Mini",
+    "category": "Sports",
+    "price": 103.18,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Helmet V2",
+    "category": "Sports",
+    "price": 43.4,
+    "in_stock": true
+  },
+  {
+    "name": "Magnetic Helmet Elite",
+    "category": "Sports",
+    "price": 20.59,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Ball Lite",
+    "category": "Sports",
+    "price": 49.83,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Ball Mini",
+    "category": "Sports",
+    "price": 12.7,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Ball Lite",
+    "category": "Sports",
+    "price": 50.26,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Ball Pro",
+    "category": "Sports",
+    "price": 49.27,
+    "in_stock": true
+  },
+  {
+    "name": "Rechargeable Ball Basic",
+    "category": "Sports",
+    "price": 38.99,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight Ball Bundle",
+    "category": "Sports",
+    "price": 14.9,
+    "in_stock": true
+  },
+  {
+    "name": "Ergonomic Ball Lite",
+    "category": "Sports",
+    "price": 39.25,
+    "in_stock": false
+  },
+  {
+    "name": "Essential Ball V2",
+    "category": "Sports",
+    "price": 29.37,
+    "in_stock": true
+  },
+  {
+    "name": "Eco-Friendly Racket Sport",
+    "category": "Sports",
+    "price": 173.3,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Racket Max",
+    "category": "Sports",
+    "price": 128.65,
+    "in_stock": true
+  },
+  {
+    "name": "Extra-Large Racket Home",
+    "category": "Sports",
+    "price": 94.11,
+    "in_stock": true
+  },
+  {
+    "name": "Durable Racket Lite",
+    "category": "Sports",
+    "price": 22.61,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Racket Edition",
+    "category": "Sports",
+    "price": 60.03,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Racket Plus",
+    "category": "Sports",
+    "price": 27.21,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Racket Nano",
+    "category": "Sports",
+    "price": 165.75,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Racket Basic",
+    "category": "Sports",
+    "price": 120.53,
+    "in_stock": false
+  },
+  {
+    "name": "Budget Mat Mini",
+    "category": "Sports",
+    "price": 70.76,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Mat Standard",
+    "category": "Sports",
+    "price": 27.02,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Mat XL",
+    "category": "Sports",
+    "price": 73.07,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Mat Pro",
+    "category": "Sports",
+    "price": 50.26,
+    "in_stock": true
+  },
+  {
+    "name": "Travel-Size Mat Elite",
+    "category": "Sports",
+    "price": 76.45,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Mat Pro",
+    "category": "Sports",
+    "price": 55.24,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Mat Max",
+    "category": "Sports",
+    "price": 61.11,
+    "in_stock": true
+  },
+  {
+    "name": "Premium Mat Bundle",
+    "category": "Sports",
+    "price": 62.93,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Weights Pro",
+    "category": "Sports",
+    "price": 156.14,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight Weights Basic",
+    "category": "Sports",
+    "price": 193.87,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Weights Elite",
+    "category": "Sports",
+    "price": 129.39,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Weights Elite",
+    "category": "Sports",
+    "price": 215.18,
+    "in_stock": true
+  },
+  {
+    "name": "Extra-Large Weights Lite",
+    "category": "Sports",
+    "price": 291.48,
+    "in_stock": true
+  },
+  {
+    "name": "Rechargeable Weights Plus",
+    "category": "Sports",
+    "price": 226.56,
+    "in_stock": false
+  },
+  {
+    "name": "High-End Weights Lite",
+    "category": "Sports",
+    "price": 200.51,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Weights Bundle",
+    "category": "Sports",
+    "price": 206.44,
+    "in_stock": true
+  },
+  {
+    "name": "Insulated Band Series",
+    "category": "Sports",
+    "price": 31.94,
+    "in_stock": false
+  },
+  {
+    "name": "All-Purpose Band Set",
+    "category": "Sports",
+    "price": 37.34,
+    "in_stock": true
+  },
+  {
+    "name": "Ergonomic Band Collection",
+    "category": "Sports",
+    "price": 13.33,
+    "in_stock": false
+  },
+  {
+    "name": "Industrial Band Bundle",
+    "category": "Sports",
+    "price": 17.94,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Band Pro",
+    "category": "Sports",
+    "price": 18.05,
+    "in_stock": true
+  },
+  {
+    "name": "Magnetic Band Max",
+    "category": "Sports",
+    "price": 19.16,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Band Plus",
+    "category": "Sports",
+    "price": 38.96,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Band Nano",
+    "category": "Sports",
+    "price": 38.94,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Bag Turbo",
+    "category": "Sports",
+    "price": 69.4,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Bag Set",
+    "category": "Sports",
+    "price": 71.31,
+    "in_stock": true
+  },
+  {
+    "name": "All-Purpose Bag Edition",
+    "category": "Sports",
+    "price": 26.69,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Bag Elite",
+    "category": "Sports",
+    "price": 45.42,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Bag Pro",
+    "category": "Sports",
+    "price": 77.28,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Bag Kit",
+    "category": "Sports",
+    "price": 48.11,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Bag Turbo",
+    "category": "Sports",
+    "price": 84.29,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra Bag V2",
+    "category": "Sports",
+    "price": 67.83,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Water Bottle V2",
+    "category": "Sports",
+    "price": 26.67,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Water Bottle Plus",
+    "category": "Sports",
+    "price": 26.62,
+    "in_stock": false
+  },
+  {
+    "name": "Solar-Powered Water Bottle Collection",
+    "category": "Sports",
+    "price": 26.78,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Water Bottle Standard",
+    "category": "Sports",
+    "price": 19.01,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra Water Bottle Mini",
+    "category": "Sports",
+    "price": 24.76,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Water Bottle Edition",
+    "category": "Sports",
+    "price": 39.83,
+    "in_stock": false
+  },
+  {
+    "name": "Mini Water Bottle Set",
+    "category": "Sports",
+    "price": 28.84,
+    "in_stock": true
+  },
+  {
+    "name": "Premium Water Bottle Basic",
+    "category": "Sports",
+    "price": 14.89,
+    "in_stock": false
+  },
+  {
+    "name": "Organic Tracker V2",
+    "category": "Sports",
+    "price": 79.58,
+    "in_stock": true
+  },
+  {
+    "name": "Ergonomic Tracker Elite",
+    "category": "Sports",
+    "price": 131.79,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Tracker Bundle",
+    "category": "Sports",
+    "price": 146.53,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Tracker Basic",
+    "category": "Sports",
+    "price": 32.19,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Tracker Set",
+    "category": "Sports",
+    "price": 186.55,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Tracker Lite",
+    "category": "Sports",
+    "price": 165.17,
+    "in_stock": true
+  },
+  {
+    "name": "Extra-Large Tracker Nano",
+    "category": "Sports",
+    "price": 108.28,
+    "in_stock": false
+  },
+  {
+    "name": "Smart Tracker Plus",
+    "category": "Sports",
+    "price": 147.48,
+    "in_stock": true
+  },
+  {
+    "name": "All-Purpose Goggles Plus",
+    "category": "Sports",
+    "price": 16.27,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Goggles Elite",
+    "category": "Sports",
+    "price": 48.73,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Goggles Pro",
+    "category": "Sports",
+    "price": 39.66,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Goggles Series",
+    "category": "Sports",
+    "price": 47.73,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Goggles Home",
+    "category": "Sports",
+    "price": 43.53,
+    "in_stock": false
+  },
+  {
+    "name": "Professional Goggles Plus",
+    "category": "Sports",
+    "price": 18.03,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Goggles Home",
+    "category": "Sports",
+    "price": 50.98,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Goggles Nano",
+    "category": "Sports",
+    "price": 55.08,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Paddle Basic",
+    "category": "Sports",
+    "price": 33.21,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Paddle Basic",
+    "category": "Sports",
+    "price": 24.38,
+    "in_stock": true
+  },
+  {
+    "name": "Rechargeable Paddle Set",
+    "category": "Sports",
+    "price": 42.89,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Paddle Collection",
+    "category": "Sports",
+    "price": 34.2,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Paddle V2",
+    "category": "Sports",
+    "price": 30.24,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Paddle Mini",
+    "category": "Sports",
+    "price": 59.43,
+    "in_stock": true
+  },
+  {
+    "name": "All-Purpose Paddle Basic",
+    "category": "Sports",
+    "price": 98.09,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Paddle Max",
+    "category": "Sports",
+    "price": 32.02,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Jersey Kit",
+    "category": "Sports",
+    "price": 50.68,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Jersey XL",
+    "category": "Sports",
+    "price": 49.84,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight Jersey Plus",
+    "category": "Sports",
+    "price": 49.89,
+    "in_stock": false
+  },
+  {
+    "name": "High-End Jersey Max",
+    "category": "Sports",
+    "price": 38.17,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Jersey Elite",
+    "category": "Sports",
+    "price": 32.12,
+    "in_stock": true
+  },
+  {
+    "name": "Extra-Large Jersey Mini",
+    "category": "Sports",
+    "price": 52.8,
+    "in_stock": true
+  },
+  {
+    "name": "Rechargeable Jersey Pro",
+    "category": "Sports",
+    "price": 38.87,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Jersey XL",
+    "category": "Sports",
+    "price": 59.56,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Shirt Basic",
+    "category": "Clothing",
+    "price": 62.79,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Shirt Pro",
+    "category": "Clothing",
+    "price": 97.52,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Shirt Set",
+    "category": "Clothing",
+    "price": 17.39,
+    "in_stock": false
+  },
+  {
+    "name": "Classic Shirt Set",
+    "category": "Clothing",
+    "price": 47.35,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Shirt Set",
+    "category": "Clothing",
+    "price": 36.05,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Shirt Sport",
+    "category": "Clothing",
+    "price": 43.7,
+    "in_stock": false
+  },
+  {
+    "name": "Waterproof Shirt Bundle",
+    "category": "Clothing",
+    "price": 58.75,
+    "in_stock": true
+  },
+  {
+    "name": "Rechargeable Shirt Standard",
+    "category": "Clothing",
+    "price": 47.11,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Pants Bundle",
+    "category": "Clothing",
+    "price": 116.94,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Pants Elite",
+    "category": "Clothing",
+    "price": 46.52,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Pants Sport",
+    "category": "Clothing",
+    "price": 29.47,
+    "in_stock": true
+  },
+  {
+    "name": "Durable Pants Elite",
+    "category": "Clothing",
+    "price": 40.97,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Pants Collection",
+    "category": "Clothing",
+    "price": 51.34,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Pants Series",
+    "category": "Clothing",
+    "price": 38.06,
+    "in_stock": false
+  },
+  {
+    "name": "Insulated Pants Nano",
+    "category": "Clothing",
+    "price": 86.08,
+    "in_stock": true
+  },
+  {
+    "name": "Slim Pants XL",
+    "category": "Clothing",
+    "price": 92.66,
+    "in_stock": false
+  },
+  {
+    "name": "Eco-Friendly Jacket V2",
+    "category": "Clothing",
+    "price": 259.95,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Jacket Collection",
+    "category": "Clothing",
+    "price": 101.39,
+    "in_stock": true
+  },
+  {
+    "name": "Ergonomic Jacket Plus",
+    "category": "Clothing",
+    "price": 160.68,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Jacket V2",
+    "category": "Clothing",
+    "price": 110.91,
+    "in_stock": false
+  },
+  {
+    "name": "Heavy-Duty Jacket Series",
+    "category": "Clothing",
+    "price": 290.58,
+    "in_stock": true
+  },
+  {
+    "name": "Magnetic Jacket Standard",
+    "category": "Clothing",
+    "price": 117.47,
+    "in_stock": false
+  },
+  {
+    "name": "Industrial Jacket V2",
+    "category": "Clothing",
+    "price": 101.37,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Jacket Nano",
+    "category": "Clothing",
+    "price": 269.99,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Sweater Basic",
+    "category": "Clothing",
+    "price": 76.05,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Sweater Pro",
+    "category": "Clothing",
+    "price": 64.56,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Sweater Edition",
+    "category": "Clothing",
+    "price": 114.46,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Sweater Standard",
+    "category": "Clothing",
+    "price": 111.34,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Sweater Edition",
+    "category": "Clothing",
+    "price": 104.87,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Sweater Basic",
+    "category": "Clothing",
+    "price": 25.98,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Sweater Series",
+    "category": "Clothing",
+    "price": 51.3,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra Sweater XL",
+    "category": "Clothing",
+    "price": 59.25,
+    "in_stock": false
+  },
+  {
+    "name": "Adjustable Dress Series",
+    "category": "Clothing",
+    "price": 130.37,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Dress Bundle",
+    "category": "Clothing",
+    "price": 135.28,
+    "in_stock": true
+  },
+  {
+    "name": "Budget Dress Plus",
+    "category": "Clothing",
+    "price": 79.9,
+    "in_stock": false
+  },
+  {
+    "name": "Handcrafted Dress Max",
+    "category": "Clothing",
+    "price": 145.01,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Dress Bundle",
+    "category": "Clothing",
+    "price": 55.36,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Dress Bundle",
+    "category": "Clothing",
+    "price": 97.54,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Dress Kit",
+    "category": "Clothing",
+    "price": 190.92,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Dress Home",
+    "category": "Clothing",
+    "price": 59.7,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Skirt Set",
+    "category": "Clothing",
+    "price": 61.71,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Skirt XL",
+    "category": "Clothing",
+    "price": 61.38,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Skirt Series",
+    "category": "Clothing",
+    "price": 43.04,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Skirt Lite",
+    "category": "Clothing",
+    "price": 26.72,
+    "in_stock": true
+  },
+  {
+    "name": "Slim Skirt Standard",
+    "category": "Clothing",
+    "price": 44.31,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Skirt Sport",
+    "category": "Clothing",
+    "price": 45.48,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Skirt Kit",
+    "category": "Clothing",
+    "price": 62.85,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Skirt Basic",
+    "category": "Clothing",
+    "price": 75.52,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Coat Set",
+    "category": "Clothing",
+    "price": 112.78,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Coat Mini",
+    "category": "Clothing",
+    "price": 161.06,
+    "in_stock": true
+  },
+  {
+    "name": "Premium Coat Plus",
+    "category": "Clothing",
+    "price": 392.48,
+    "in_stock": true
+  },
+  {
+    "name": "Slim Coat Series",
+    "category": "Clothing",
+    "price": 365.98,
+    "in_stock": true
+  },
+  {
+    "name": "Rechargeable Coat Series",
+    "category": "Clothing",
+    "price": 160.44,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Coat Plus",
+    "category": "Clothing",
+    "price": 102.02,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Coat Pro",
+    "category": "Clothing",
+    "price": 202.75,
+    "in_stock": true
+  },
+  {
+    "name": "Eco-Friendly Coat Mini",
+    "category": "Clothing",
+    "price": 219.82,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Socks Pack Max",
+    "category": "Clothing",
+    "price": 27.6,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Socks Pack Sport",
+    "category": "Clothing",
+    "price": 28.25,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Socks Pack Mini",
+    "category": "Clothing",
+    "price": 14.25,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Socks Pack Basic",
+    "category": "Clothing",
+    "price": 11.38,
+    "in_stock": false
+  },
+  {
+    "name": "Luxury Socks Pack Mini",
+    "category": "Clothing",
+    "price": 29.33,
+    "in_stock": true
+  },
+  {
+    "name": "Travel-Size Socks Pack XL",
+    "category": "Clothing",
+    "price": 26.99,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Socks Pack Collection",
+    "category": "Clothing",
+    "price": 28.94,
+    "in_stock": true
+  },
+  {
+    "name": "Budget Socks Pack Kit",
+    "category": "Clothing",
+    "price": 9.96,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Hat V2",
+    "category": "Clothing",
+    "price": 36.62,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Hat Nano",
+    "category": "Clothing",
+    "price": 29.06,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Hat V2",
+    "category": "Clothing",
+    "price": 17.45,
+    "in_stock": true
+  },
+  {
+    "name": "Travel-Size Hat Elite",
+    "category": "Clothing",
+    "price": 37.06,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Hat Plus",
+    "category": "Clothing",
+    "price": 28.73,
+    "in_stock": false
+  },
+  {
+    "name": "Advanced Hat Mini",
+    "category": "Clothing",
+    "price": 43.66,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Hat Collection",
+    "category": "Clothing",
+    "price": 30.54,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Hat V2",
+    "category": "Clothing",
+    "price": 20.19,
+    "in_stock": false
+  },
+  {
+    "name": "Rechargeable Gloves Elite",
+    "category": "Clothing",
+    "price": 46.2,
+    "in_stock": true
+  },
+  {
+    "name": "Professional Gloves XL",
+    "category": "Clothing",
+    "price": 20.55,
+    "in_stock": false
+  },
+  {
+    "name": "Advanced Gloves Home",
+    "category": "Clothing",
+    "price": 10.9,
+    "in_stock": true
+  },
+  {
+    "name": "Ergonomic Gloves Standard",
+    "category": "Clothing",
+    "price": 53.44,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Gloves Home",
+    "category": "Clothing",
+    "price": 50.66,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Gloves Kit",
+    "category": "Clothing",
+    "price": 16.76,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Gloves Standard",
+    "category": "Clothing",
+    "price": 34.06,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Gloves Edition",
+    "category": "Clothing",
+    "price": 25.05,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Scarf Mini",
+    "category": "Clothing",
+    "price": 30.77,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Scarf Kit",
+    "category": "Clothing",
+    "price": 55.98,
+    "in_stock": true
+  },
+  {
+    "name": "Professional Scarf V2",
+    "category": "Clothing",
+    "price": 46.69,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Scarf Sport",
+    "category": "Clothing",
+    "price": 61.43,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Scarf V2",
+    "category": "Clothing",
+    "price": 73.04,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Scarf Mini",
+    "category": "Clothing",
+    "price": 60.34,
+    "in_stock": false
+  },
+  {
+    "name": "All-Purpose Scarf Collection",
+    "category": "Clothing",
+    "price": 43.48,
+    "in_stock": true
+  },
+  {
+    "name": "Durable Scarf Sport",
+    "category": "Clothing",
+    "price": 72.41,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Belt Elite",
+    "category": "Clothing",
+    "price": 25.97,
+    "in_stock": true
+  },
+  {
+    "name": "Budget Belt Basic",
+    "category": "Clothing",
+    "price": 27.91,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Belt Standard",
+    "category": "Clothing",
+    "price": 24.61,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Belt Nano",
+    "category": "Clothing",
+    "price": 21.27,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Belt Turbo",
+    "category": "Clothing",
+    "price": 58.17,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Belt Turbo",
+    "category": "Clothing",
+    "price": 65.96,
+    "in_stock": true
+  },
+  {
+    "name": "Travel-Size Belt XL",
+    "category": "Clothing",
+    "price": 48.53,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Belt Basic",
+    "category": "Clothing",
+    "price": 20.8,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Shoes Basic",
+    "category": "Clothing",
+    "price": 50.91,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Shoes V2",
+    "category": "Clothing",
+    "price": 88.02,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Shoes Elite",
+    "category": "Clothing",
+    "price": 137.0,
+    "in_stock": true
+  },
+  {
+    "name": "Travel-Size Shoes Nano",
+    "category": "Clothing",
+    "price": 100.28,
+    "in_stock": true
+  },
+  {
+    "name": "All-Purpose Shoes XL",
+    "category": "Clothing",
+    "price": 105.24,
+    "in_stock": true
+  },
+  {
+    "name": "Rechargeable Shoes Nano",
+    "category": "Clothing",
+    "price": 98.28,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Shoes V2",
+    "category": "Clothing",
+    "price": 183.43,
+    "in_stock": false
+  },
+  {
+    "name": "Waterproof Shoes Nano",
+    "category": "Clothing",
+    "price": 178.5,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Sandals Lite",
+    "category": "Clothing",
+    "price": 72.7,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Sandals Kit",
+    "category": "Clothing",
+    "price": 17.4,
+    "in_stock": true
+  },
+  {
+    "name": "Premium Sandals Plus",
+    "category": "Clothing",
+    "price": 21.03,
+    "in_stock": true
+  },
+  {
+    "name": "Extra-Large Sandals Nano",
+    "category": "Clothing",
+    "price": 72.87,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Sandals Series",
+    "category": "Clothing",
+    "price": 22.18,
+    "in_stock": false
+  },
+  {
+    "name": "Modern Sandals Set",
+    "category": "Clothing",
+    "price": 18.1,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Sandals Basic",
+    "category": "Clothing",
+    "price": 37.03,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight Sandals Sport",
+    "category": "Clothing",
+    "price": 34.45,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Boots Sport",
+    "category": "Clothing",
+    "price": 70.78,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Boots V2",
+    "category": "Clothing",
+    "price": 226.59,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Boots XL",
+    "category": "Clothing",
+    "price": 157.38,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Boots Series",
+    "category": "Clothing",
+    "price": 184.69,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Boots V2",
+    "category": "Clothing",
+    "price": 66.7,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Boots Plus",
+    "category": "Clothing",
+    "price": 135.64,
+    "in_stock": false
+  },
+  {
+    "name": "Organic Boots Max",
+    "category": "Clothing",
+    "price": 218.99,
+    "in_stock": true
+  },
+  {
+    "name": "Slim Boots Set",
+    "category": "Clothing",
+    "price": 72.19,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Programming Guide",
+    "category": "Books",
+    "price": 24.7,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Programming Guide",
+    "category": "Books",
+    "price": 54.17,
+    "in_stock": true
+  },
+  {
+    "name": "Travel-Size Programming Guide",
+    "category": "Books",
+    "price": 50.16,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Programming Guide",
+    "category": "Books",
+    "price": 45.02,
+    "in_stock": true
+  },
+  {
+    "name": "Professional Programming Guide",
+    "category": "Books",
+    "price": 25.48,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Programming Guide",
+    "category": "Books",
+    "price": 53.97,
+    "in_stock": true
+  },
+  {
+    "name": "Rechargeable Programming Guide",
+    "category": "Books",
+    "price": 18.83,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Programming Guide",
+    "category": "Books",
+    "price": 37.62,
+    "in_stock": false
+  },
+  {
+    "name": "Magnetic Cookbook Turbo",
+    "category": "Books",
+    "price": 11.35,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Cookbook Standard",
+    "category": "Books",
+    "price": 10.72,
+    "in_stock": true
+  },
+  {
+    "name": "Professional Cookbook Kit",
+    "category": "Books",
+    "price": 26.25,
+    "in_stock": true
+  },
+  {
+    "name": "Extra-Large Cookbook Max",
+    "category": "Books",
+    "price": 38.56,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Cookbook Pro",
+    "category": "Books",
+    "price": 31.4,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Cookbook Basic",
+    "category": "Books",
+    "price": 17.74,
+    "in_stock": true
+  },
+  {
+    "name": "All-Purpose Cookbook Basic",
+    "category": "Books",
+    "price": 27.58,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Cookbook Nano",
+    "category": "Books",
+    "price": 19.55,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra History Book Sport",
+    "category": "Books",
+    "price": 26.99,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable History Book Sport",
+    "category": "Books",
+    "price": 16.68,
+    "in_stock": true
+  },
+  {
+    "name": "Professional History Book Set",
+    "category": "Books",
+    "price": 33.91,
+    "in_stock": true
+  },
+  {
+    "name": "Budget History Book Turbo",
+    "category": "Books",
+    "price": 34.11,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight History Book Max",
+    "category": "Books",
+    "price": 25.75,
+    "in_stock": true
+  },
+  {
+    "name": "Insulated History Book Kit",
+    "category": "Books",
+    "price": 15.71,
+    "in_stock": true
+  },
+  {
+    "name": "Extra-Large History Book Elite",
+    "category": "Books",
+    "price": 31.1,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable History Book Series",
+    "category": "Books",
+    "price": 26.61,
+    "in_stock": true
+  },
+  {
+    "name": "All-Purpose Science Textbook Home",
+    "category": "Books",
+    "price": 56.53,
+    "in_stock": false
+  },
+  {
+    "name": "Extra-Large Science Textbook Standard",
+    "category": "Books",
+    "price": 73.72,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Science Textbook Kit",
+    "category": "Books",
+    "price": 21.86,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Science Textbook XL",
+    "category": "Books",
+    "price": 69.65,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Science Textbook Max",
+    "category": "Books",
+    "price": 42.23,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Science Textbook Standard",
+    "category": "Books",
+    "price": 31.49,
+    "in_stock": true
+  },
+  {
+    "name": "Ergonomic Science Textbook Collection",
+    "category": "Books",
+    "price": 78.04,
+    "in_stock": false
+  },
+  {
+    "name": "Foldable Science Textbook Mini",
+    "category": "Books",
+    "price": 31.77,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Novel Sport",
+    "category": "Books",
+    "price": 18.0,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Novel Plus",
+    "category": "Books",
+    "price": 20.39,
+    "in_stock": true
+  },
+  {
+    "name": "Extra-Large Novel Standard",
+    "category": "Books",
+    "price": 23.01,
+    "in_stock": false
+  },
+  {
+    "name": "Rechargeable Novel V2",
+    "category": "Books",
+    "price": 22.35,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Novel Basic",
+    "category": "Books",
+    "price": 14.15,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Novel Edition",
+    "category": "Books",
+    "price": 15.63,
+    "in_stock": false
+  },
+  {
+    "name": "Eco-Friendly Novel Lite",
+    "category": "Books",
+    "price": 24.63,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Novel Elite",
+    "category": "Books",
+    "price": 13.28,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Art Book Basic",
+    "category": "Books",
+    "price": 51.97,
+    "in_stock": true
+  },
+  {
+    "name": "Professional Art Book Edition",
+    "category": "Books",
+    "price": 43.14,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Art Book Elite",
+    "category": "Books",
+    "price": 55.05,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Art Book Plus",
+    "category": "Books",
+    "price": 42.48,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Art Book Basic",
+    "category": "Books",
+    "price": 53.25,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Art Book Home",
+    "category": "Books",
+    "price": 50.44,
+    "in_stock": true
+  },
+  {
+    "name": "Slim Art Book XL",
+    "category": "Books",
+    "price": 42.87,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Art Book Standard",
+    "category": "Books",
+    "price": 23.66,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra Travel Guide Home",
+    "category": "Books",
+    "price": 25.94,
+    "in_stock": false
+  },
+  {
+    "name": "Eco-Friendly Travel Guide Collection",
+    "category": "Books",
+    "price": 21.67,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Travel Guide Plus",
+    "category": "Books",
+    "price": 16.86,
+    "in_stock": true
+  },
+  {
+    "name": "Rechargeable Travel Guide Standard",
+    "category": "Books",
+    "price": 14.75,
+    "in_stock": true
+  },
+  {
+    "name": "Slim Travel Guide Turbo",
+    "category": "Books",
+    "price": 13.91,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Travel Guide Lite",
+    "category": "Books",
+    "price": 23.36,
+    "in_stock": true
+  },
+  {
+    "name": "Budget Travel Guide XL",
+    "category": "Books",
+    "price": 15.99,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Travel Guide Basic",
+    "category": "Books",
+    "price": 28.4,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight Self-Help Book Kit",
+    "category": "Books",
+    "price": 11.47,
+    "in_stock": false
+  },
+  {
+    "name": "Ergonomic Self-Help Book Basic",
+    "category": "Books",
+    "price": 22.63,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Self-Help Book Set",
+    "category": "Books",
+    "price": 15.68,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Self-Help Book Series",
+    "category": "Books",
+    "price": 14.92,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Self-Help Book Max",
+    "category": "Books",
+    "price": 26.63,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Self-Help Book Basic",
+    "category": "Books",
+    "price": 14.8,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Self-Help Book Max",
+    "category": "Books",
+    "price": 12.37,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Self-Help Book Plus",
+    "category": "Books",
+    "price": 17.56,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Business Book Pro",
+    "category": "Books",
+    "price": 34.27,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Business Book Lite",
+    "category": "Books",
+    "price": 13.49,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Business Book Nano",
+    "category": "Books",
+    "price": 19.4,
+    "in_stock": true
+  },
+  {
+    "name": "Eco-Friendly Business Book Mini",
+    "category": "Books",
+    "price": 25.37,
+    "in_stock": true
+  },
+  {
+    "name": "Travel-Size Business Book Sport",
+    "category": "Books",
+    "price": 32.58,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Business Book Edition",
+    "category": "Books",
+    "price": 32.44,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Business Book Set",
+    "category": "Books",
+    "price": 29.29,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Business Book Nano",
+    "category": "Books",
+    "price": 23.78,
+    "in_stock": true
+  },
+  {
+    "name": "All-Purpose Children's Book Kit",
+    "category": "Books",
+    "price": 8.98,
+    "in_stock": false
+  },
+  {
+    "name": "Ergonomic Children's Book Elite",
+    "category": "Books",
+    "price": 18.9,
+    "in_stock": false
+  },
+  {
+    "name": "High-End Children's Book Elite",
+    "category": "Books",
+    "price": 7.95,
+    "in_stock": true
+  },
+  {
+    "name": "Budget Children's Book Collection",
+    "category": "Books",
+    "price": 19.97,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Children's Book Turbo",
+    "category": "Books",
+    "price": 17.33,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Children's Book Kit",
+    "category": "Books",
+    "price": 14.81,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Children's Book Plus",
+    "category": "Books",
+    "price": 15.85,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Children's Book Edition",
+    "category": "Books",
+    "price": 10.11,
+    "in_stock": false
+  },
+  {
+    "name": "Eco-Friendly Plant Pot Plus",
+    "category": "Home & Garden",
+    "price": 27.49,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Plant Pot Set",
+    "category": "Home & Garden",
+    "price": 35.86,
+    "in_stock": true
+  },
+  {
+    "name": "Budget Plant Pot Turbo",
+    "category": "Home & Garden",
+    "price": 40.34,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Plant Pot Plus",
+    "category": "Home & Garden",
+    "price": 14.19,
+    "in_stock": true
+  },
+  {
+    "name": "All-Purpose Plant Pot Turbo",
+    "category": "Home & Garden",
+    "price": 19.8,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Plant Pot Collection",
+    "category": "Home & Garden",
+    "price": 12.99,
+    "in_stock": true
+  },
+  {
+    "name": "Professional Plant Pot Home",
+    "category": "Home & Garden",
+    "price": 8.13,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Plant Pot Collection",
+    "category": "Home & Garden",
+    "price": 8.15,
+    "in_stock": false
+  },
+  {
+    "name": "Solar-Powered Garden Tool Plus",
+    "category": "Home & Garden",
+    "price": 29.45,
+    "in_stock": true
+  },
+  {
+    "name": "Premium Garden Tool Lite",
+    "category": "Home & Garden",
+    "price": 50.89,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Garden Tool Max",
+    "category": "Home & Garden",
+    "price": 20.15,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Garden Tool XL",
+    "category": "Home & Garden",
+    "price": 32.29,
+    "in_stock": true
+  },
+  {
+    "name": "Budget Garden Tool Home",
+    "category": "Home & Garden",
+    "price": 53.96,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Garden Tool Sport",
+    "category": "Home & Garden",
+    "price": 27.34,
+    "in_stock": true
+  },
+  {
+    "name": "Insulated Garden Tool Collection",
+    "category": "Home & Garden",
+    "price": 22.46,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Garden Tool V2",
+    "category": "Home & Garden",
+    "price": 14.78,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Hose Mini",
+    "category": "Home & Garden",
+    "price": 18.44,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Hose Bundle",
+    "category": "Home & Garden",
+    "price": 24.33,
+    "in_stock": false
+  },
+  {
+    "name": "Vintage Hose Standard",
+    "category": "Home & Garden",
+    "price": 48.57,
+    "in_stock": true
+  },
+  {
+    "name": "Extra-Large Hose Kit",
+    "category": "Home & Garden",
+    "price": 46.91,
+    "in_stock": true
+  },
+  {
+    "name": "Travel-Size Hose XL",
+    "category": "Home & Garden",
+    "price": 39.68,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra Hose XL",
+    "category": "Home & Garden",
+    "price": 22.68,
+    "in_stock": false
+  },
+  {
+    "name": "Luxury Hose Basic",
+    "category": "Home & Garden",
+    "price": 48.37,
+    "in_stock": true
+  },
+  {
+    "name": "Ergonomic Hose Standard",
+    "category": "Home & Garden",
+    "price": 31.11,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Lawn Mower Collection",
+    "category": "Home & Garden",
+    "price": 486.2,
+    "in_stock": true
+  },
+  {
+    "name": "Magnetic Lawn Mower Edition",
+    "category": "Home & Garden",
+    "price": 108.02,
+    "in_stock": false
+  },
+  {
+    "name": "Luxury Lawn Mower Standard",
+    "category": "Home & Garden",
+    "price": 579.37,
+    "in_stock": false
+  },
+  {
+    "name": "All-Purpose Lawn Mower Max",
+    "category": "Home & Garden",
+    "price": 356.25,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Lawn Mower Bundle",
+    "category": "Home & Garden",
+    "price": 297.53,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Lawn Mower Edition",
+    "category": "Home & Garden",
+    "price": 186.81,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Lawn Mower Bundle",
+    "category": "Home & Garden",
+    "price": 210.05,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Lawn Mower Series",
+    "category": "Home & Garden",
+    "price": 133.67,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Bird Feeder Bundle",
+    "category": "Home & Garden",
+    "price": 15.26,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Bird Feeder Bundle",
+    "category": "Home & Garden",
+    "price": 10.53,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Bird Feeder XL",
+    "category": "Home & Garden",
+    "price": 27.62,
+    "in_stock": true
+  },
+  {
+    "name": "Magnetic Bird Feeder Edition",
+    "category": "Home & Garden",
+    "price": 17.09,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Bird Feeder Edition",
+    "category": "Home & Garden",
+    "price": 21.24,
+    "in_stock": true
+  },
+  {
+    "name": "Slim Bird Feeder Plus",
+    "category": "Home & Garden",
+    "price": 37.7,
+    "in_stock": true
+  },
+  {
+    "name": "Insulated Bird Feeder XL",
+    "category": "Home & Garden",
+    "price": 19.53,
+    "in_stock": true
+  },
+  {
+    "name": "Durable Bird Feeder Pro",
+    "category": "Home & Garden",
+    "price": 16.87,
+    "in_stock": true
+  },
+  {
+    "name": "Handcrafted Planter Box Kit",
+    "category": "Home & Garden",
+    "price": 70.38,
+    "in_stock": false
+  },
+  {
+    "name": "Heavy-Duty Planter Box Mini",
+    "category": "Home & Garden",
+    "price": 95.06,
+    "in_stock": true
+  },
+  {
+    "name": "Luxury Planter Box Max",
+    "category": "Home & Garden",
+    "price": 60.59,
+    "in_stock": true
+  },
+  {
+    "name": "Magnetic Planter Box XL",
+    "category": "Home & Garden",
+    "price": 53.92,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Planter Box Collection",
+    "category": "Home & Garden",
+    "price": 41.75,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Planter Box Elite",
+    "category": "Home & Garden",
+    "price": 57.66,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight Planter Box Home",
+    "category": "Home & Garden",
+    "price": 21.58,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Planter Box Elite",
+    "category": "Home & Garden",
+    "price": 78.13,
+    "in_stock": true
+  },
+  {
+    "name": "Ergonomic Outdoor Light Plus",
+    "category": "Home & Garden",
+    "price": 74.13,
+    "in_stock": false
+  },
+  {
+    "name": "Industrial Outdoor Light Nano",
+    "category": "Home & Garden",
+    "price": 74.8,
+    "in_stock": true
+  },
+  {
+    "name": "Durable Outdoor Light Set",
+    "category": "Home & Garden",
+    "price": 14.99,
+    "in_stock": true
+  },
+  {
+    "name": "Travel-Size Outdoor Light Basic",
+    "category": "Home & Garden",
+    "price": 63.41,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Outdoor Light Set",
+    "category": "Home & Garden",
+    "price": 55.56,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Outdoor Light Edition",
+    "category": "Home & Garden",
+    "price": 54.17,
+    "in_stock": true
+  },
+  {
+    "name": "Ultra Outdoor Light Plus",
+    "category": "Home & Garden",
+    "price": 27.8,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Outdoor Light Max",
+    "category": "Home & Garden",
+    "price": 37.84,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Doormat Collection",
+    "category": "Home & Garden",
+    "price": 19.24,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Doormat Elite",
+    "category": "Home & Garden",
+    "price": 18.07,
+    "in_stock": true
+  },
+  {
+    "name": "Eco-Friendly Doormat Kit",
+    "category": "Home & Garden",
+    "price": 34.49,
+    "in_stock": false
+  },
+  {
+    "name": "High-End Doormat Elite",
+    "category": "Home & Garden",
+    "price": 31.99,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Doormat Set",
+    "category": "Home & Garden",
+    "price": 15.46,
+    "in_stock": true
+  },
+  {
+    "name": "Magnetic Doormat XL",
+    "category": "Home & Garden",
+    "price": 11.77,
+    "in_stock": true
+  },
+  {
+    "name": "Slim Doormat Lite",
+    "category": "Home & Garden",
+    "price": 13.28,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Doormat Elite",
+    "category": "Home & Garden",
+    "price": 18.3,
+    "in_stock": true
+  },
+  {
+    "name": "Durable Wind Chime Standard",
+    "category": "Home & Garden",
+    "price": 12.64,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Wind Chime Kit",
+    "category": "Home & Garden",
+    "price": 18.41,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Wind Chime V2",
+    "category": "Home & Garden",
+    "price": 25.97,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Wind Chime Kit",
+    "category": "Home & Garden",
+    "price": 27.21,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Wind Chime Standard",
+    "category": "Home & Garden",
+    "price": 21.24,
+    "in_stock": true
+  },
+  {
+    "name": "Premium Wind Chime Series",
+    "category": "Home & Garden",
+    "price": 21.6,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Wind Chime Mini",
+    "category": "Home & Garden",
+    "price": 29.7,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Wind Chime Bundle",
+    "category": "Home & Garden",
+    "price": 22.91,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Watering Can Kit",
+    "category": "Home & Garden",
+    "price": 22.79,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Watering Can Nano",
+    "category": "Home & Garden",
+    "price": 13.12,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Watering Can Turbo",
+    "category": "Home & Garden",
+    "price": 24.24,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Watering Can Turbo",
+    "category": "Home & Garden",
+    "price": 20.81,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Watering Can Elite",
+    "category": "Home & Garden",
+    "price": 23.79,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Watering Can Kit",
+    "category": "Home & Garden",
+    "price": 19.32,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Watering Can Basic",
+    "category": "Home & Garden",
+    "price": 21.52,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Watering Can Edition",
+    "category": "Home & Garden",
+    "price": 14.41,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Compost Bin Elite",
+    "category": "Home & Garden",
+    "price": 57.17,
+    "in_stock": true
+  },
+  {
+    "name": "Insulated Compost Bin Basic",
+    "category": "Home & Garden",
+    "price": 57.93,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Compost Bin Standard",
+    "category": "Home & Garden",
+    "price": 59.09,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight Compost Bin Set",
+    "category": "Home & Garden",
+    "price": 32.79,
+    "in_stock": true
+  },
+  {
+    "name": "Magnetic Compost Bin XL",
+    "category": "Home & Garden",
+    "price": 37.49,
+    "in_stock": true
+  },
+  {
+    "name": "Slim Compost Bin Home",
+    "category": "Home & Garden",
+    "price": 29.41,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Compost Bin Basic",
+    "category": "Home & Garden",
+    "price": 37.28,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Compost Bin Kit",
+    "category": "Home & Garden",
+    "price": 53.16,
+    "in_stock": true
+  },
+  {
+    "name": "Lightweight Fence Panel Turbo",
+    "category": "Home & Garden",
+    "price": 99.23,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Fence Panel Kit",
+    "category": "Home & Garden",
+    "price": 75.71,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Fence Panel Turbo",
+    "category": "Home & Garden",
+    "price": 80.18,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Fence Panel Pro",
+    "category": "Home & Garden",
+    "price": 66.17,
+    "in_stock": true
+  },
+  {
+    "name": "Pro-Grade Fence Panel Mini",
+    "category": "Home & Garden",
+    "price": 84.35,
+    "in_stock": true
+  },
+  {
+    "name": "Industrial Fence Panel Standard",
+    "category": "Home & Garden",
+    "price": 50.12,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Fence Panel Max",
+    "category": "Home & Garden",
+    "price": 34.37,
+    "in_stock": false
+  },
+  {
+    "name": "Premium Fence Panel Nano",
+    "category": "Home & Garden",
+    "price": 70.16,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Patio Set Kit",
+    "category": "Home & Garden",
+    "price": 292.65,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Patio Set Set",
+    "category": "Home & Garden",
+    "price": 185.44,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Patio Set Nano",
+    "category": "Home & Garden",
+    "price": 585.61,
+    "in_stock": false
+  },
+  {
+    "name": "Pro-Grade Patio Set Sport",
+    "category": "Home & Garden",
+    "price": 308.85,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Patio Set Bundle",
+    "category": "Home & Garden",
+    "price": 669.01,
+    "in_stock": false
+  },
+  {
+    "name": "Industrial Patio Set Turbo",
+    "category": "Home & Garden",
+    "price": 463.23,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Patio Set Basic",
+    "category": "Home & Garden",
+    "price": 703.4,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Patio Set Standard",
+    "category": "Home & Garden",
+    "price": 127.4,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Face Cream Collection",
+    "category": "Beauty",
+    "price": 58.81,
+    "in_stock": true
+  },
+  {
+    "name": "Mini Face Cream Edition",
+    "category": "Beauty",
+    "price": 31.14,
+    "in_stock": true
+  },
+  {
+    "name": "Insulated Face Cream Bundle",
+    "category": "Beauty",
+    "price": 42.46,
+    "in_stock": false
+  },
+  {
+    "name": "Slim Face Cream Pro",
+    "category": "Beauty",
+    "price": 57.79,
+    "in_stock": true
+  },
+  {
+    "name": "Compact Face Cream Lite",
+    "category": "Beauty",
+    "price": 45.91,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Face Cream Turbo",
+    "category": "Beauty",
+    "price": 28.8,
+    "in_stock": false
+  },
+  {
+    "name": "Advanced Face Cream Series",
+    "category": "Beauty",
+    "price": 18.6,
+    "in_stock": true
+  },
+  {
+    "name": "Magnetic Face Cream Series",
+    "category": "Beauty",
+    "price": 42.18,
+    "in_stock": true
+  },
+  {
+    "name": "Vintage Shampoo Home",
+    "category": "Beauty",
+    "price": 18.29,
+    "in_stock": true
+  },
+  {
+    "name": "Budget Shampoo V2",
+    "category": "Beauty",
+    "price": 27.73,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Shampoo Plus",
+    "category": "Beauty",
+    "price": 7.45,
+    "in_stock": true
+  },
+  {
+    "name": "Organic Shampoo Edition",
+    "category": "Beauty",
+    "price": 18.16,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Shampoo Sport",
+    "category": "Beauty",
+    "price": 13.72,
+    "in_stock": true
+  },
+  {
+    "name": "Essential Shampoo Collection",
+    "category": "Beauty",
+    "price": 9.27,
+    "in_stock": true
+  },
+  {
+    "name": "Professional Shampoo Kit",
+    "category": "Beauty",
+    "price": 19.81,
+    "in_stock": true
+  },
+  {
+    "name": "Foldable Shampoo Nano",
+    "category": "Beauty",
+    "price": 14.47,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Hair Dryer XL",
+    "category": "Beauty",
+    "price": 87.68,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Hair Dryer Edition",
+    "category": "Beauty",
+    "price": 120.18,
+    "in_stock": true
+  },
+  {
+    "name": "Heavy-Duty Hair Dryer Elite",
+    "category": "Beauty",
+    "price": 94.79,
+    "in_stock": false
+  },
+  {
+    "name": "Budget Hair Dryer Collection",
+    "category": "Beauty",
+    "price": 108.01,
+    "in_stock": true
+  },
+  {
+    "name": "Ergonomic Hair Dryer Plus",
+    "category": "Beauty",
+    "price": 21.81,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Hair Dryer Standard",
+    "category": "Beauty",
+    "price": 149.25,
+    "in_stock": true
+  },
+  {
+    "name": "All-Purpose Hair Dryer Nano",
+    "category": "Beauty",
+    "price": 78.32,
+    "in_stock": true
+  },
+  {
+    "name": "Rechargeable Hair Dryer Nano",
+    "category": "Beauty",
+    "price": 129.12,
+    "in_stock": true
+  },
+  {
+    "name": "Deluxe Makeup Kit Edition",
+    "category": "Beauty",
+    "price": 34.45,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Makeup Kit Lite",
+    "category": "Beauty",
+    "price": 75.0,
+    "in_stock": true
+  },
+  {
+    "name": "Adjustable Makeup Kit Nano",
+    "category": "Beauty",
+    "price": 70.14,
+    "in_stock": false
+  },
+  {
+    "name": "Essential Makeup Kit Standard",
+    "category": "Beauty",
+    "price": 38.0,
+    "in_stock": false
+  },
+  {
+    "name": "Vintage Makeup Kit Max",
+    "category": "Beauty",
+    "price": 43.0,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Makeup Kit Nano",
+    "category": "Beauty",
+    "price": 74.35,
+    "in_stock": false
+  },
+  {
+    "name": "Advanced Makeup Kit Series",
+    "category": "Beauty",
+    "price": 34.45,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Makeup Kit Max",
+    "category": "Beauty",
+    "price": 57.66,
+    "in_stock": true
+  },
+  {
+    "name": "Classic Perfume Collection",
+    "category": "Beauty",
+    "price": 116.71,
+    "in_stock": true
+  },
+  {
+    "name": "Custom Perfume Max",
+    "category": "Beauty",
+    "price": 35.44,
+    "in_stock": true
+  },
+  {
+    "name": "High-End Perfume Mini",
+    "category": "Beauty",
+    "price": 85.24,
+    "in_stock": true
+  },
+  {
+    "name": "Premium Perfume Kit",
+    "category": "Beauty",
+    "price": 36.4,
+    "in_stock": true
+  },
+  {
+    "name": "Waterproof Perfume Standard",
+    "category": "Beauty",
+    "price": 75.86,
+    "in_stock": true
+  },
+  {
+    "name": "Eco-Friendly Perfume Standard",
+    "category": "Beauty",
+    "price": 83.17,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Perfume Edition",
+    "category": "Beauty",
+    "price": 56.55,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Perfume Series",
+    "category": "Beauty",
+    "price": 81.61,
+    "in_stock": true
+  },
+  {
+    "name": "Portable Razor Kit",
+    "category": "Beauty",
+    "price": 19.92,
+    "in_stock": true
+  },
+  {
+    "name": "Rechargeable Razor Elite",
+    "category": "Beauty",
+    "price": 23.37,
+    "in_stock": true
+  },
+  {
+    "name": "Smart Razor Edition",
+    "category": "Beauty",
+    "price": 7.15,
+    "in_stock": true
+  },
+  {
+    "name": "Eco-Friendly Razor Pro",
+    "category": "Beauty",
+    "price": 14.82,
+    "in_stock": true
+  },
+  {
+    "name": "Modern Razor V2",
+    "category": "Beauty",
+    "price": 6.43,
+    "in_stock": false
+  },
+  {
+    "name": "Lightweight Razor Bundle",
+    "category": "Beauty",
+    "price": 36.8,
+    "in_stock": true
+  },
+  {
+    "name": "Advanced Razor Max",
+    "category": "Beauty",
+    "price": 15.65,
+    "in_stock": false
+  },
+  {
+    "name": "Ultra Razor Standard",
+    "category": "Beauty",
+    "price": 17.62,
+    "in_stock": true
+  },
+  {
+    "name": "Durable Brush Set Basic",
+    "category": "Beauty",
+    "price": 33.46,
+    "in_stock": true
+  },
+  {
+    "name": "Solar-Powered Brush Set Lite",
+    "category": "Beauty",
+    "price": 47.67,
+    "in_stock": true
+  },
+  {
+    "name": "Limited Edition Brush Set Collection",
+    "category": "Beauty",
+    "price": 38.83,
+    "in_stock": false
+  },
+  {
+    "name": "Heavy-Duty Brush Set Lite",
+    "category": "Beauty",
+    "price": 49.01,
+    "in_stock": true
+  }
+]
