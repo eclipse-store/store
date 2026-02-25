@@ -1013,6 +1013,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private List<float[]> vectorize(final List<? extends E> entities)
         {
             final List<float[]> vectors = this.vectorizer.vectorizeAll(entities);
+
+            if(vectors == null)
+            {
+                throw new IllegalStateException(
+                    "vectorizeAll returned null in index \"%s\" (vectorizer: %s)"
+                        .formatted(this.name(), this.vectorizer.getClass().getName())
+                );
+            }
+
+            if(vectors.size() != entities.size())
+            {
+                throw new IllegalStateException(
+                    "vectorizeAll returned %d vectors for %d entities in index \"%s\" (vectorizer: %s)"
+                        .formatted(vectors.size(), entities.size(), this.name(), this.vectorizer.getClass().getName())
+                );
+            }
+
             vectors.forEach(this::validateVector);
             return vectors;
         }
@@ -1021,7 +1038,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             if(vector == null)
             {
-                throw new IllegalStateException("Null vector returned from vectorizer");
+                throw new IllegalStateException(
+                    "Null vector returned from vectorizer in index \"" + this.name()
+                        + "\" (vectorizer: " + this.vectorizer.getClass().getName() + ")"
+                );
             }
 
             this.validateDimension(vector);
