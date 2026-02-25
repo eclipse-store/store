@@ -295,6 +295,68 @@ CAUTION: When using computed vectors with an external service, be aware of poten
 
 IMPORTANT: The `vectorize()` method must never return `null`. If it does, an `IllegalStateException` is thrown when the entity is added, updated, or re-indexed. If some entities cannot produce a vector, they should be excluded before adding them to the GigaMap, or the vectorizer must provide a fallback vector.
 
+=== Batch Vectorization
+
+When adding multiple entities via `GigaMap.addAll()`, the vectorizer's `vectorizeAll()` method is called instead of `vectorize()` for each entity individually. The default implementation delegates to `vectorize()` one by one, but you can override it to use a more efficient batch API -- for example, sending all texts to an embedding service in a single request.
+
+This is especially useful with external embedding APIs like LangChain4j, where a single batch call is significantly faster than many individual calls due to reduced network overhead and server-side batching.
+
+[source, java]
+----
+public class ProductVectorizer extends Vectorizer<Product>
+{
+    private final EmbeddingModel embeddingModel;
+
+    public ProductVectorizer(EmbeddingModel embeddingModel)
+    {
+        this.embeddingModel = embeddingModel;
+    }
+
+    @Override
+    public float[] vectorize(Product product)
+    {
+        return embeddingModel.embed(product.name()).content().vector();
+    }
+
+    @Override
+    public List<float[]> vectorizeAll(List<? extends Product> products)
+    {
+        List<TextSegment> segments = products.stream()
+            .map(p -> TextSegment.from(p.name()))
+            .toList();
+
+        return embeddingModel.embedAll(segments).content().stream()
+            .map(Embedding::vector)
+            .toList();
+    }
+}
+----
+
+Using `addAll()` with a batch vectorizer:
+
+[source, java]
+----
+EmbeddingModel embeddingModel = OllamaEmbeddingModel.builder()
+    .baseUrl("http://localhost:11434")
+    .modelName("all-minilm")
+    .build();
+
+GigaMap<Product> gigaMap = GigaMap.New();
+VectorIndices<Product> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(384)  // all-minilm dimension
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .build();
+
+vectorIndices.add("embeddings", config, new ProductVectorizer(embeddingModel));
+
+// Batch add - calls vectorizeAll() once instead of vectorize() 100 times
+gigaMap.addAll(products);
+----
+
+TIP: Batch vectorization works with any `EmbeddingModel` implementation from LangChain4j, including OpenAI, Cohere, Ollama, and in-process models. Just swap the model builder.
+
 == Benchmarking
 
 The library includes benchmark tests following https://ann-benchmarks.com/[ANN-Benchmarks] methodology.
