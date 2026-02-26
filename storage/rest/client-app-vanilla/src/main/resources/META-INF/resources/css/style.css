@@ -335,6 +335,12 @@ body {
     color: var(--color-type);
 }
 
+.field-oid {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-text-muted);
+}
+
 .field-value {
     font-family: var(--font-mono);
     font-size: 13px;

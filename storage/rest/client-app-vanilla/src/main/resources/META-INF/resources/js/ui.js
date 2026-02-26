@@ -58,7 +58,7 @@ const UI = (() => {
 
         const thead = el("thead");
         const headRow = el("tr");
-        for (const label of ["Name", "Type", "Value"]) {
+        for (const label of ["Name", "Value", "Type", "Object ID"]) {
             headRow.appendChild(el("th", null, label));
         }
         thead.appendChild(headRow);
@@ -69,7 +69,7 @@ const UI = (() => {
 
         // Render root node
         const typeName = resolveTypeName(obj.typeId, typeDictionary);
-        const rootRow = createTreeRow(rootName, simpleName(typeName), "", 0, true, false);
+        const rootRow = createTreeRow(rootName, simpleName(typeName), "", 0, true, false, obj.objectId);
         tbody.appendChild(rootRow.tr);
 
         // Expand root immediately — add its children
@@ -84,7 +84,7 @@ const UI = (() => {
      * Create a single tree row.
      * @returns {{ tr: HTMLElement, setExpanded: function, childContainer: string }}
      */
-    function createTreeRow(name, typeName, value, depth, expandable, isRef) {
+    function createTreeRow(name, typeName, value, depth, expandable, isRef, objectId) {
         const tr = el("tr", "tree-row");
         tr.dataset.depth = depth;
         tr.dataset.expanded = "false";
@@ -106,9 +106,6 @@ const UI = (() => {
         nameCell.appendChild(el("span", "field-name", name));
         tr.appendChild(nameCell);
 
-        // Type cell
-        tr.appendChild(el("td", "field-type", typeName || ""));
-
         // Value cell
         const valueCell = el("td", "field-value");
         if (isRef && value) {
@@ -124,6 +121,12 @@ const UI = (() => {
             valueCell.appendChild(el("span", "value-string", String(value)));
         }
         tr.appendChild(valueCell);
+
+        // Type cell
+        tr.appendChild(el("td", "field-type", typeName || ""));
+
+        // Object ID cell
+        tr.appendChild(el("td", "field-oid", objectId || ""));
 
         // Expand/collapse logic
         let expanded = false;
@@ -151,17 +154,19 @@ const UI = (() => {
         const varLength = varLengthArray && varLengthArray.length === 1
             ? parseInt(varLengthArray[0], 10) : 0;
 
-        if (!data || data.length === 0) {
+        // Number of fixed-size members (from obj.length), not data.length
+        const fixedLength = obj.length !== undefined && obj.length !== null
+            ? parseInt(obj.length, 10) : (data ? data.length : 0);
+
+        if (!data || fixedLength === 0) {
             if (varLength > 0) {
-                // Pure collection — load variable members
+                // Pure collection — load variable members directly as children
                 addVariableChildren(tbody, parentRow, obj, typeDictionary, loadObject, depth, varLength);
             }
             return;
         }
 
-        const insertAfter = parentRow;
-
-        for (let i = 0; i < data.length; i++) {
+        for (let i = 0; i < fixedLength && i < data.length; i++) {
             const memberInfo = members[i] || {};
             const fieldName = memberInfo.name || ("field_" + i);
             const fieldType = memberInfo.type ? simpleName(memberInfo.type) : "";
@@ -174,11 +179,17 @@ const UI = (() => {
             if (isReference) {
                 // Reference to another object — expandable on click
                 const refTypeName = resolveTypeName(ref.typeId, typeDictionary);
-                const displayValue = simpleName(refTypeName) + " #" + ref.objectId;
-                const row = createTreeRow(fieldName, fieldType, displayValue, depth, true, true);
+                const refSimpleName = simpleName(refTypeName);
+                // Mimic Vaadin: if simplified, show data[0] as value; otherwise show (typeName)
+                const displayValue = ref.simplified && ref.data && ref.data.length > 0
+                    ? String(ref.data[0])
+                    : "(" + refSimpleName + ")";
+                const row = createTreeRow(fieldName, refSimpleName, displayValue, depth, !ref.simplified, true, ref.objectId);
                 insertRowAfterLastChild(tbody, parentRow, row.tr, depth);
 
-                setupLazyExpand(tbody, row, ref.objectId, typeDictionary, loadObject, depth);
+                if (!ref.simplified) {
+                    setupLazyExpand(tbody, row, ref.objectId, typeDictionary, loadObject, depth);
+                }
             } else if (isArray) {
                 // Inline array of values
                 const row = createTreeRow(fieldName, fieldType, "[" + value.length + " elements]", depth, value.length > 0, false);
@@ -196,7 +207,7 @@ const UI = (() => {
         }
 
         // Variable length members (e.g. collection elements after fixed fields)
-        if (varLength > 0 && data.length > 0) {
+        if (varLength > 0 && fixedLength > 0) {
             addVariableChildren(tbody, parentRow, obj, typeDictionary, loadObject, depth, varLength);
         }
     }
@@ -217,7 +228,7 @@ const UI = (() => {
                 ? "[" + offset + ".." + (offset + length - 1) + "]"
                 : "elements";
 
-            const row = createTreeRow(rangeLabel, varLength + " elements", "", depth, true, false);
+            const row = createTreeRow(rangeLabel, "", "", depth, true, false);
             insertRowAfterLastChild(tbody, parentRow, row.tr, depth);
 
             setupVariableExpand(tbody, row, oid, offset, length, typeDictionary, loadObject, depth);
@@ -238,7 +249,7 @@ const UI = (() => {
                 row.setExpanded(true);
                 const loadingRow = el("tr", "tree-row loading-row");
                 const loadingCell = el("td");
-                loadingCell.colSpan = 3;
+                loadingCell.colSpan = 4;
                 loadingCell.innerHTML = '<span class="tree-indent" style="padding-left:' + ((depth + 1) * 20) + 'px"></span><span class="spinner"></span> Loading...';
                 loadingRow.appendChild(loadingCell);
                 loadingRow.dataset.depth = depth + 1;
@@ -334,7 +345,7 @@ const UI = (() => {
                 if (!loaded) {
                     const loadingRow = el("tr", "tree-row loading-row");
                     const loadingCell = el("td");
-                    loadingCell.colSpan = 3;
+                    loadingCell.colSpan = 4;
                     loadingCell.innerHTML = '<span class="tree-indent" style="padding-left:' + ((depth + 1) * 20) + 'px"></span><span class="spinner"></span> Loading...';
                     loadingRow.appendChild(loadingCell);
                     loadingRow.dataset.depth = depth + 1;
@@ -363,10 +374,16 @@ const UI = (() => {
 
                                 if (isRef) {
                                     const refTypeName = resolveTypeName(ref.typeId, typeDictionary);
-                                    const displayValue = simpleName(refTypeName) + " #" + ref.objectId;
-                                    const childRow = createTreeRow("[" + idx + "]", simpleName(refTypeName), displayValue, depth + 1, true, true);
+                                    const refSimpleName = simpleName(refTypeName);
+                                    // Mimic Vaadin: if simplified, show data[0] as value; otherwise show (typeName)
+                                    const displayValue = ref.simplified && ref.data && ref.data.length > 0
+                                        ? String(ref.data[0])
+                                        : "(" + refSimpleName + ")";
+                                    const childRow = createTreeRow("[" + idx + "]", refSimpleName, displayValue, depth + 1, !ref.simplified, true, ref.objectId);
                                     insertRowAfterLastChild(tbody, row.tr, childRow.tr, depth + 1);
-                                    setupLazyExpand(tbody, childRow, ref.objectId, typeDictionary, loadObject, depth + 1);
+                                    if (!ref.simplified) {
+                                        setupLazyExpand(tbody, childRow, ref.objectId, typeDictionary, loadObject, depth + 1);
+                                    }
                                 } else {
                                     const displayValue = val === null || val === undefined ? "null" : String(val);
                                     const childRow = createTreeRow("[" + idx + "]", "", displayValue, depth + 1, false, false);
@@ -553,7 +570,8 @@ const UI = (() => {
                 if (currentTypeId !== null) {
                     dict[currentTypeId] = { typeName: currentTypeName, members: currentMembers };
                 }
-                currentTypeId = typeMatch[1];
+                // Strip leading zeros so keys match the REST API typeId format
+                currentTypeId = typeMatch[1].replace(/^0+/, "") || "0";
                 currentTypeName = typeMatch[2];
                 currentMembers = [];
                 continue;
