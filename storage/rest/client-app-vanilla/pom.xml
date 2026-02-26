@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+	<modelVersion>4.0.0</modelVersion>
+
+	<parent>
+		<groupId>org.eclipse.store</groupId>
+		<artifactId>storage-rest-parent</artifactId>
+		<version>4.0.0-SNAPSHOT</version>
+		<relativePath>../pom.xml</relativePath>
+	</parent>
+
+	<artifactId>storage-restclient-app-vanilla</artifactId>
+
+	<name>EclipseStore Storage REST Client App (Vanilla JS)</name>
+	<description>Lightweight storage viewer SPA built with Vanilla HTML/CSS/JS — zero external dependencies</description>
+	<url>https://projects.eclipse.org/projects/technology.store</url>
+
+	<properties>
+		<!-- No Java source code in this module -->
+		<maven.compiler.skip>true</maven.compiler.skip>
+	</properties>
+
+	<build>
+		<resources>
+			<resource>
+				<directory>src/main/resources</directory>
+			</resource>
+		</resources>
+		<plugins>
+			<!-- Skip Java compilation — this module contains only static web resources -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<configuration>
+					<skipMain>true</skipMain>
+					<skip>true</skip>
+				</configuration>
+			</plugin>
+			<!-- Override jar plugin — do not require OSGi manifest -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-jar-plugin</artifactId>
+				<configuration>
+					<archive>
+						<manifestFile combine.self="override"/>
+						<manifestEntries>
+							<built-by>${project.organization.name}</built-by>
+						</manifestEntries>
+					</archive>
+				</configuration>
+			</plugin>
+			<!-- Skip OSGi manifest generation — no classes -->
+			<plugin>
+				<groupId>org.apache.felix</groupId>
+				<artifactId>maven-bundle-plugin</artifactId>
+				<executions>
+					<execution>
+						<id>bundle-manifest</id>
+						<phase>none</phase>
+					</execution>
+				</executions>
+			</plugin>
+			<!-- Skip source JAR — no Java sources -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-source-plugin</artifactId>
+				<configuration>
+					<skipSource>true</skipSource>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+
+</project>
+
+

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EclipseStore Storage Viewer</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="icon" href="images/icon.ico">
+</head>
+<body>
+
+<!-- Connection Screen -->
+<div id="connect-screen" class="screen">
+    <div class="connect-card">
+        <img src="images/logo.png" alt="EclipseStore" class="logo">
+        <h2>Storage Viewer</h2>
+        <p class="subtitle">Connect to an EclipseStore REST endpoint</p>
+
+        <div class="form-group">
+            <label for="base-url">REST API Base URL</label>
+            <input
+                id="base-url"
+                type="url"
+                placeholder="http://localhost:4567/store-data"
+                spellcheck="false"
+                autocomplete="url"
+            >
+            <small class="hint">e.g. http://localhost:4567/store-data or http://localhost:8080/store-data/default</small>
+        </div>
+
+        <button id="btn-connect" class="btn btn-primary">Connect</button>
+
+        <div id="connect-error" class="error-message" hidden></div>
+
+        <div id="recent-urls" class="recent-urls" hidden>
+            <h4>Recent connections</h4>
+            <ul id="recent-urls-list"></ul>
+        </div>
+    </div>
+</div>
+
+<!-- Main Application Screen -->
+<div id="app-screen" class="screen" hidden>
+    <header class="app-header">
+        <div class="header-left">
+            <img src="images/logo.png" alt="EclipseStore" class="header-logo">
+            <span class="header-title">Storage Viewer</span>
+            <span id="header-url" class="header-url"></span>
+        </div>
+        <div class="header-right">
+            <button id="btn-refresh" class="btn btn-small" title="Reload root">⟳ Refresh</button>
+            <button id="btn-disconnect" class="btn btn-small btn-outline" title="Disconnect">✕ Disconnect</button>
+        </div>
+    </header>
+
+    <nav class="tab-bar">
+        <button class="tab active" data-tab="data">📦 Data</button>
+        <button class="tab" data-tab="statistics">📊 Statistics</button>
+        <button class="tab" data-tab="dictionary">📖 Dictionary</button>
+    </nav>
+
+    <main class="content">
+        <!-- Data Tab -->
+        <section id="tab-data" class="tab-content active">
+            <div id="breadcrumb" class="breadcrumb">
+                <span class="crumb" data-oid="root">root</span>
+            </div>
+            <div id="object-view" class="object-view">
+                <p class="placeholder">Loading root object…</p>
+            </div>
+        </section>
+
+        <!-- Statistics Tab -->
+        <section id="tab-statistics" class="tab-content" hidden>
+            <div id="statistics-view" class="statistics-view">
+                <p class="placeholder">Loading statistics…</p>
+            </div>
+        </section>
+
+        <!-- Dictionary Tab -->
+        <section id="tab-dictionary" class="tab-content" hidden>
+            <div id="dictionary-view" class="dictionary-view">
+                <p class="placeholder">Loading type dictionary…</p>
+            </div>
+        </section>
+    </main>
+
+    <footer class="app-footer">
+        <span>EclipseStore Vanilla Viewer</span>
+    </footer>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>
+

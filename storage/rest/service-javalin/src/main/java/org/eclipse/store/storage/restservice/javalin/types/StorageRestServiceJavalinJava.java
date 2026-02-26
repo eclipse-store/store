@@ -60,7 +60,10 @@ public class StorageRestServiceJavalinJava implements StorageRestService
 	public void start()
 	{
 		if (this.javalin == null) {
-			javalin = Javalin.create();
+			javalin = Javalin.create(config -> {
+				// Enable CORS for browser-based clients (e.g. vanilla viewer, file:// origins)
+				config.bundledPlugins.enableCors(cors -> cors.addRule(it -> it.anyHost()));
+			});
 		}
 		this.setupRoutes();
 		this.javalin.start(this.port);
