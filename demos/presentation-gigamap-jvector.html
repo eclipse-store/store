@@ -5,27 +5,30 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GigaMap + JVector Integration</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=SUSE:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   :root {
-    --bg: #0f172a;
-    --surface: #1e293b;
-    --surface2: #334155;
+    --bg: #060a14;
+    --surface: rgba(255, 255, 255, 0.035);
+    --surface-border: rgba(255, 255, 255, 0.07);
+    --surface-hover: rgba(255, 255, 255, 0.06);
     --accent: #6366f1;
-    --accent2: #818cf8;
-    --accent-glow: rgba(99, 102, 241, 0.3);
-    --text: #f1f5f9;
-    --text-dim: #94a3b8;
-    --green: #22c55e;
-    --orange: #f59e0b;
-    --pink: #ec4899;
-    --cyan: #06b6d4;
+    --accent2: #a5b4fc;
+    --accent-glow: rgba(99, 102, 241, 0.35);
+    --text: #e2e8f4;
+    --text-dim: #6b7a96;
+    --green: #34d399;
+    --orange: #fbbf24;
+    --pink: #f472b6;
+    --cyan: #22d3ee;
+    --glass-blur: 24px;
+    --transition-spring: cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   body {
-    font-family: 'Inter', sans-serif;
+    font-family: 'DM Sans', sans-serif;
     background: var(--bg);
     color: var(--text);
     overflow: hidden;
@@ -33,6 +36,98 @@
     width: 100vw;
   }
 
+  /* ============ ANIMATED MESH BACKGROUND ============ */
+  .mesh-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+  }
+
+  .mesh-bg::before {
+    content: '';
+    position: absolute;
+    inset: -50%;
+    width: 200%;
+    height: 200%;
+    background:
+      radial-gradient(ellipse 40% 30% at 25% 35%, rgba(99, 102, 241, 0.18) 0%, transparent 70%),
+      radial-gradient(ellipse 35% 25% at 75% 25%, rgba(34, 211, 238, 0.12) 0%, transparent 60%),
+      radial-gradient(ellipse 30% 35% at 55% 75%, rgba(244, 114, 182, 0.08) 0%, transparent 55%),
+      radial-gradient(ellipse 45% 20% at 10% 80%, rgba(52, 211, 153, 0.06) 0%, transparent 50%);
+    animation: meshDrift 25s ease-in-out infinite alternate;
+  }
+
+  @keyframes meshDrift {
+    0%   { transform: translate(0, 0) rotate(0deg) scale(1); }
+    25%  { transform: translate(3%, -2%) rotate(1.5deg) scale(1.03); }
+    50%  { transform: translate(-2%, 3%) rotate(-1deg) scale(0.97); }
+    75%  { transform: translate(1%, 1%) rotate(0.5deg) scale(1.02); }
+    100% { transform: translate(-1%, -1%) rotate(-0.5deg) scale(1); }
+  }
+
+  /* Dot grid overlay */
+  .mesh-bg::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* ============ FLOATING ORBS ============ */
+  .orb {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.5;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .orb-1 {
+    width: 400px; height: 400px;
+    background: radial-gradient(circle, rgba(99, 102, 241, 0.3), transparent 70%);
+    top: -10%; left: -5%;
+    animation: orbFloat1 30s ease-in-out infinite alternate;
+  }
+  .orb-2 {
+    width: 300px; height: 300px;
+    background: radial-gradient(circle, rgba(34, 211, 238, 0.25), transparent 70%);
+    top: 60%; right: -5%;
+    animation: orbFloat2 22s ease-in-out infinite alternate;
+  }
+  .orb-3 {
+    width: 250px; height: 250px;
+    background: radial-gradient(circle, rgba(244, 114, 182, 0.2), transparent 70%);
+    bottom: -5%; left: 30%;
+    animation: orbFloat3 28s ease-in-out infinite alternate;
+  }
+  .orb-4 {
+    width: 200px; height: 200px;
+    background: radial-gradient(circle, rgba(52, 211, 153, 0.15), transparent 70%);
+    top: 20%; right: 20%;
+    animation: orbFloat4 35s ease-in-out infinite alternate;
+  }
+
+  @keyframes orbFloat1 {
+    0%   { transform: translate(0, 0); }
+    100% { transform: translate(120px, 80px); }
+  }
+  @keyframes orbFloat2 {
+    0%   { transform: translate(0, 0); }
+    100% { transform: translate(-90px, -120px); }
+  }
+  @keyframes orbFloat3 {
+    0%   { transform: translate(0, 0); }
+    100% { transform: translate(80px, -60px); }
+  }
+  @keyframes orbFloat4 {
+    0%   { transform: translate(0, 0); }
+    100% { transform: translate(-60px, 100px); }
+  }
+
+  /* ============ SLIDE LAYOUT ============ */
   .slide {
     display: none;
     flex-direction: column;
@@ -41,48 +136,88 @@
     height: 100vh;
     width: 100vw;
     padding: 60px 80px;
-    animation: fadeIn 0.4s ease;
     position: relative;
+    z-index: 1;
   }
 
   .slide.active { display: flex; }
 
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(20px); }
-    to   { opacity: 1; transform: translateY(0); }
+  /* Slide transition */
+  .slide.active > * {
+    animation: slideReveal 0.6s var(--transition-spring) both;
   }
 
+  .slide.active > *:nth-child(1) { animation-delay: 0ms; }
+  .slide.active > *:nth-child(2) { animation-delay: 80ms; }
+  .slide.active > *:nth-child(3) { animation-delay: 160ms; }
+  .slide.active > *:nth-child(4) { animation-delay: 240ms; }
+  .slide.active > *:nth-child(5) { animation-delay: 320ms; }
+
+  @keyframes slideReveal {
+    from {
+      opacity: 0;
+      transform: translateY(32px) scale(0.97);
+      filter: blur(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+  }
+
+  /* ============ TYPOGRAPHY ============ */
   h1 {
-    font-size: 3.2rem;
+    font-family: 'SUSE', sans-serif;
+    font-size: 3.6rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #a5b4fc 0%, #22d3ee 40%, #f472b6 70%, #a5b4fc 100%);
+    background-size: 300% 300%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: gradientShift 8s ease-in-out infinite;
+    margin-bottom: 16px;
+    text-align: center;
+    letter-spacing: -0.02em;
+  }
+
+  @keyframes gradientShift {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  h2 {
+    font-family: 'SUSE', sans-serif;
+    font-size: 2.6rem;
     font-weight: 700;
     background: linear-gradient(135deg, var(--accent2), var(--cyan));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    margin-bottom: 16px;
-    text-align: center;
-  }
-
-  h2 {
-    font-size: 2.4rem;
-    font-weight: 600;
-    color: var(--accent2);
+    background-clip: text;
     margin-bottom: 40px;
     text-align: left;
     width: 100%;
+    letter-spacing: -0.01em;
   }
 
   h3 {
-    font-size: 1.3rem;
-    font-weight: 500;
+    font-family: 'SUSE', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 600;
     color: var(--cyan);
     margin-bottom: 12px;
+    letter-spacing: -0.01em;
   }
 
   .subtitle {
-    font-size: 1.4rem;
+    font-size: 1.35rem;
     color: var(--text-dim);
     margin-bottom: 48px;
     text-align: center;
+    line-height: 1.6;
+    font-weight: 300;
   }
 
   .content {
@@ -90,13 +225,14 @@
     max-width: 1100px;
   }
 
+  /* ============ LISTS ============ */
   ul {
     list-style: none;
     padding: 0;
   }
 
   ul li {
-    font-size: 1.25rem;
+    font-size: 1.2rem;
     line-height: 1.7;
     padding: 8px 0 8px 32px;
     position: relative;
@@ -112,21 +248,51 @@
     height: 8px;
     border-radius: 50%;
     background: var(--accent);
+    box-shadow: 0 0 10px var(--accent-glow);
   }
 
   ul li strong { color: var(--accent2); }
 
+  /* ============ CODE BLOCKS (Terminal Chrome) ============ */
   pre {
-    background: var(--surface);
-    border: 1px solid var(--surface2);
-    border-radius: 12px;
-    padding: 24px 28px;
+    position: relative;
+    background: rgba(10, 15, 30, 0.7);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    padding: 48px 28px 24px 28px;
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.92rem;
     line-height: 1.65;
     overflow-x: auto;
     margin: 12px 0;
     width: 100%;
+  }
+
+  /* Terminal window chrome */
+  pre::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 38px;
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 14px 14px 0 0;
+  }
+
+  pre::after {
+    content: '';
+    position: absolute;
+    top: 14px;
+    left: 18px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #ff5f57;
+    box-shadow: 18px 0 0 #febc2e, 36px 0 0 #28c840;
   }
 
   code { font-family: 'JetBrains Mono', monospace; }
@@ -137,10 +303,11 @@
   .num { color: var(--orange); }
   .fn  { color: var(--accent2); }
 
+  /* ============ GRID LAYOUTS ============ */
   .grid-2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 32px;
+    gap: 28px;
     width: 100%;
   }
 
@@ -151,37 +318,130 @@
     width: 100%;
   }
 
+  /* Stagger grid children */
+  .slide.active .grid-2 > *,
+  .slide.active .grid-3 > * {
+    animation: cardReveal 0.65s var(--transition-spring) both;
+  }
+  .slide.active .grid-2 > *:nth-child(1),
+  .slide.active .grid-3 > *:nth-child(1) { animation-delay: 200ms; }
+  .slide.active .grid-2 > *:nth-child(2),
+  .slide.active .grid-3 > *:nth-child(2) { animation-delay: 320ms; }
+  .slide.active .grid-3 > *:nth-child(3) { animation-delay: 440ms; }
+
+  @keyframes cardReveal {
+    from {
+      opacity: 0;
+      transform: translateY(28px) scale(0.96);
+      filter: blur(3px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+  }
+
+  /* ============ GLASSMORPHISM CARDS ============ */
   .card {
-    background: var(--surface);
-    border: 1px solid var(--surface2);
-    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--surface-border);
+    border-radius: 20px;
     padding: 28px;
+    transition: all 0.45s var(--transition-spring);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Subtle inner glow on cards */
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  }
+
+  .card:hover {
+    background: rgba(255, 255, 255, 0.055);
+    border-color: rgba(255, 255, 255, 0.13);
+    transform: translateY(-6px);
+    box-shadow:
+      0 24px 48px -12px rgba(0, 0, 0, 0.4),
+      0 0 0 1px rgba(255, 255, 255, 0.05);
   }
 
   .card.highlight {
-    border-color: var(--accent);
-    box-shadow: 0 0 30px var(--accent-glow);
+    border-color: rgba(99, 102, 241, 0.3);
+    box-shadow:
+      0 0 40px rgba(99, 102, 241, 0.12),
+      inset 0 1px 0 rgba(99, 102, 241, 0.15);
+  }
+
+  .card.highlight:hover {
+    border-color: rgba(99, 102, 241, 0.45);
+    box-shadow:
+      0 24px 48px -12px rgba(0, 0, 0, 0.4),
+      0 0 60px rgba(99, 102, 241, 0.18),
+      inset 0 1px 0 rgba(99, 102, 241, 0.2);
   }
 
   .card h3 { margin-bottom: 16px; }
-
   .card ul li { font-size: 1.05rem; }
 
+  /* ============ BADGES ============ */
   .badge {
     display: inline-block;
-    padding: 4px 14px;
+    padding: 5px 16px;
     border-radius: 20px;
     font-size: 0.85rem;
     font-weight: 500;
     margin: 4px 4px 4px 0;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
   }
 
-  .badge-accent  { background: rgba(99,102,241,0.2); color: var(--accent2); border: 1px solid rgba(99,102,241,0.3); }
-  .badge-green   { background: rgba(34,197,94,0.2); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
-  .badge-orange  { background: rgba(245,158,11,0.2); color: var(--orange); border: 1px solid rgba(245,158,11,0.3); }
-  .badge-cyan    { background: rgba(6,182,212,0.2); color: var(--cyan); border: 1px solid rgba(6,182,212,0.3); }
-  .badge-pink    { background: rgba(236,72,153,0.2); color: var(--pink); border: 1px solid rgba(236,72,153,0.3); }
+  .badge:hover {
+    transform: translateY(-2px);
+  }
 
+  .badge-accent {
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--accent2);
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    box-shadow: 0 0 16px rgba(99, 102, 241, 0.1);
+  }
+  .badge-green {
+    background: rgba(52, 211, 153, 0.12);
+    color: var(--green);
+    border: 1px solid rgba(52, 211, 153, 0.25);
+    box-shadow: 0 0 16px rgba(52, 211, 153, 0.08);
+  }
+  .badge-orange {
+    background: rgba(251, 191, 36, 0.12);
+    color: var(--orange);
+    border: 1px solid rgba(251, 191, 36, 0.25);
+    box-shadow: 0 0 16px rgba(251, 191, 36, 0.08);
+  }
+  .badge-cyan {
+    background: rgba(34, 211, 238, 0.12);
+    color: var(--cyan);
+    border: 1px solid rgba(34, 211, 238, 0.25);
+    box-shadow: 0 0 16px rgba(34, 211, 238, 0.08);
+  }
+  .badge-pink {
+    background: rgba(244, 114, 182, 0.12);
+    color: var(--pink);
+    border: 1px solid rgba(244, 114, 182, 0.25);
+    box-shadow: 0 0 16px rgba(244, 114, 182, 0.08);
+  }
+
+  /* ============ FLOW DIAGRAMS ============ */
   .flow {
     display: flex;
     align-items: center;
@@ -192,65 +452,124 @@
   }
 
   .flow-box {
-    background: var(--surface);
-    border: 1px solid var(--surface2);
-    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--surface-border);
+    border-radius: 12px;
     padding: 16px 22px;
     text-align: center;
     font-size: 1rem;
     font-weight: 500;
     min-width: 140px;
+    transition: all 0.35s var(--transition-spring);
   }
 
-  .flow-box.accent { border-color: var(--accent); background: rgba(99,102,241,0.1); }
-  .flow-box.green  { border-color: var(--green);  background: rgba(34,197,94,0.1); }
-  .flow-box.cyan   { border-color: var(--cyan);   background: rgba(6,182,212,0.1); }
-  .flow-box.orange { border-color: var(--orange); background: rgba(245,158,11,0.1); }
+  .flow-box:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.3);
+  }
+
+  .flow-box.accent {
+    border-color: rgba(99, 102, 241, 0.35);
+    background: rgba(99, 102, 241, 0.08);
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.06);
+  }
+  .flow-box.green {
+    border-color: rgba(52, 211, 153, 0.35);
+    background: rgba(52, 211, 153, 0.08);
+    box-shadow: 0 0 20px rgba(52, 211, 153, 0.06);
+  }
+  .flow-box.cyan {
+    border-color: rgba(34, 211, 238, 0.35);
+    background: rgba(34, 211, 238, 0.08);
+    box-shadow: 0 0 20px rgba(34, 211, 238, 0.06);
+  }
+  .flow-box.orange {
+    border-color: rgba(251, 191, 36, 0.35);
+    background: rgba(251, 191, 36, 0.08);
+    box-shadow: 0 0 20px rgba(251, 191, 36, 0.06);
+  }
 
   .flow-arrow {
     font-size: 1.5rem;
     color: var(--text-dim);
+    animation: arrowPulse 2s ease-in-out infinite;
   }
 
+  @keyframes arrowPulse {
+    0%, 100% { opacity: 0.5; transform: translateX(0); }
+    50% { opacity: 1; transform: translateX(3px); }
+  }
+
+  /* ============ NAVIGATION ============ */
   .nav {
     position: fixed;
     bottom: 24px;
     right: 32px;
     display: flex;
-    gap: 12px;
+    gap: 10px;
     z-index: 100;
   }
 
   .nav button {
-    background: var(--surface);
-    border: 1px solid var(--surface2);
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     color: var(--text);
-    padding: 10px 20px;
-    border-radius: 8px;
-    font-size: 1rem;
+    padding: 10px 22px;
+    border-radius: 12px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.3s var(--transition-spring);
   }
 
-  .nav button:hover { background: var(--surface2); border-color: var(--accent); }
+  .nav button:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(99, 102, 241, 0.4);
+    box-shadow: 0 0 24px rgba(99, 102, 241, 0.15);
+    transform: translateY(-2px);
+  }
 
+  .nav button:active {
+    transform: translateY(0) scale(0.97);
+  }
+
+  /* ============ PROGRESS BAR ============ */
   .progress {
     position: fixed;
     bottom: 0;
     left: 0;
     height: 3px;
-    background: linear-gradient(90deg, var(--accent), var(--cyan));
-    transition: width 0.3s ease;
+    background: linear-gradient(90deg, var(--accent), var(--cyan), var(--pink));
+    background-size: 200% 100%;
+    animation: progressGradient 4s ease infinite;
+    transition: width 0.5s var(--transition-spring);
+    box-shadow: 0 0 16px rgba(99, 102, 241, 0.4), 0 0 40px rgba(34, 211, 238, 0.2);
+    z-index: 100;
+  }
+
+  @keyframes progressGradient {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
   }
 
   .slide-num {
     position: fixed;
     bottom: 30px;
     left: 32px;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 400;
+    letter-spacing: 0.05em;
   }
 
+  /* ============ TITLE SLIDE SPECIFICS ============ */
   .logo-row {
     display: flex;
     align-items: center;
@@ -260,18 +579,56 @@
   }
 
   .logo-text {
+    font-family: 'SUSE', sans-serif;
     font-size: 1.6rem;
     font-weight: 600;
     color: var(--text-dim);
+    letter-spacing: -0.01em;
   }
 
+  /* Title slide halo */
+  #s1::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -55%);
+    width: 500px;
+    height: 500px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(99, 102, 241, 0.1) 0%, rgba(34, 211, 238, 0.05) 40%, transparent 70%);
+    filter: blur(40px);
+    animation: haloBreath 6s ease-in-out infinite alternate;
+    pointer-events: none;
+  }
+
+  @keyframes haloBreath {
+    0%   { transform: translate(-50%, -55%) scale(1); opacity: 0.6; }
+    100% { transform: translate(-50%, -55%) scale(1.15); opacity: 1; }
+  }
+
+  /* ============ DIAGRAM & LAYERS ============ */
   .diagram {
-    background: var(--surface);
-    border: 1px solid var(--surface2);
-    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.025);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--surface-border);
+    border-radius: 20px;
     padding: 32px;
     width: 100%;
     text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .diagram::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
   }
 
   .layer-stack {
@@ -284,13 +641,57 @@
 
   .layer {
     padding: 12px 32px;
-    border-radius: 8px;
+    border-radius: 10px;
     font-weight: 500;
     font-size: 1rem;
     min-width: 280px;
     text-align: center;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: all 0.3s ease;
   }
 
+  .layer:hover {
+    transform: scale(1.03);
+  }
+
+  /* Stagger layers in active slide */
+  .slide.active .layer-stack .layer {
+    animation: layerSlide 0.5s var(--transition-spring) both;
+  }
+  .slide.active .layer-stack > *:nth-child(1)  { animation-delay: 250ms; }
+  .slide.active .layer-stack > *:nth-child(2)  { animation-delay: 320ms; }
+  .slide.active .layer-stack > *:nth-child(3)  { animation-delay: 390ms; }
+  .slide.active .layer-stack > *:nth-child(4)  { animation-delay: 460ms; }
+  .slide.active .layer-stack > *:nth-child(5)  { animation-delay: 530ms; }
+  .slide.active .layer-stack > *:nth-child(6)  { animation-delay: 600ms; }
+  .slide.active .layer-stack > *:nth-child(7)  { animation-delay: 670ms; }
+  .slide.active .layer-stack > *:nth-child(8)  { animation-delay: 740ms; }
+  .slide.active .layer-stack > *:nth-child(9)  { animation-delay: 810ms; }
+
+  @keyframes layerSlide {
+    from { opacity: 0; transform: translateX(-30px) scale(0.95); }
+    to   { opacity: 1; transform: translateX(0) scale(1); }
+  }
+
+  /* Stagger flow boxes */
+  .slide.active .flow > * {
+    animation: flowAppear 0.4s var(--transition-spring) both;
+  }
+  .slide.active .flow > *:nth-child(1) { animation-delay: 200ms; }
+  .slide.active .flow > *:nth-child(2) { animation-delay: 280ms; }
+  .slide.active .flow > *:nth-child(3) { animation-delay: 360ms; }
+  .slide.active .flow > *:nth-child(4) { animation-delay: 440ms; }
+  .slide.active .flow > *:nth-child(5) { animation-delay: 520ms; }
+  .slide.active .flow > *:nth-child(6) { animation-delay: 600ms; }
+  .slide.active .flow > *:nth-child(7) { animation-delay: 680ms; }
+
+  @keyframes flowAppear {
+    from { opacity: 0; transform: translateY(16px) scale(0.9); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* ============ TABLE ============ */
   .table-wrap {
     width: 100%;
     overflow-x: auto;
@@ -305,24 +706,33 @@
   table th {
     text-align: left;
     padding: 14px 18px;
-    background: var(--surface);
+    background: rgba(255, 255, 255, 0.03);
     color: var(--accent2);
+    font-family: 'SUSE', sans-serif;
     font-weight: 600;
-    border-bottom: 2px solid var(--accent);
+    border-bottom: 2px solid rgba(99, 102, 241, 0.3);
   }
 
   table td {
     padding: 12px 18px;
-    border-bottom: 1px solid var(--surface2);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     color: var(--text);
+    transition: background 0.2s ease;
   }
 
-  table tr:hover td { background: rgba(99,102,241,0.05); }
+  table tr:hover td {
+    background: rgba(99, 102, 241, 0.04);
+  }
 
+  /* ============ BIG NUMBERS & MISC ============ */
   .big-number {
-    font-size: 3rem;
-    font-weight: 700;
-    color: var(--accent2);
+    font-family: 'SUSE', sans-serif;
+    font-size: 3.2rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--accent2), var(--cyan));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
     margin-bottom: 8px;
   }
 
@@ -330,9 +740,57 @@
     font-size: 2rem;
     margin-bottom: 12px;
   }
+
+  /* ============ TITLE BADGE ENTRANCE ============ */
+  #s1.active .badge {
+    animation: badgePop 0.5s var(--transition-spring) both;
+  }
+  #s1.active .badge:nth-child(1) { animation-delay: 400ms; }
+  #s1.active .badge:nth-child(2) { animation-delay: 480ms; }
+  #s1.active .badge:nth-child(3) { animation-delay: 560ms; }
+  #s1.active .badge:nth-child(4) { animation-delay: 640ms; }
+  #s1.active .badge:nth-child(5) { animation-delay: 720ms; }
+
+  @keyframes badgePop {
+    from { opacity: 0; transform: scale(0.7) translateY(10px); }
+    60%  { transform: scale(1.08) translateY(-2px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+  }
+
+  /* ============ KEYBOARD HINT ============ */
+  .key-hint {
+    position: fixed;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.75rem;
+    color: rgba(107, 122, 150, 0.5);
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.08em;
+    z-index: 100;
+    transition: opacity 0.4s ease;
+  }
+
+  .key-hint kbd {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    font-family: inherit;
+    font-size: 0.75rem;
+    margin: 0 2px;
+  }
 </style>
 </head>
 <body>
+
+<!-- Animated background layers -->
+<div class="mesh-bg"></div>
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+<div class="orb orb-3"></div>
+<div class="orb orb-4"></div>
 
 <!-- ===================== SLIDE 1: Title ===================== -->
 <div class="slide active" id="s1">
@@ -395,7 +853,7 @@
             A query for <em>"affordable laptop"</em> finds <em>"budget notebook computer"</em>
             even though no words overlap.
           </p>
-          <div style="margin-top:16px; padding:14px 18px; background:rgba(6,182,212,0.1); border:1px solid var(--cyan); border-radius:8px;">
+          <div style="margin-top:16px; padding:14px 18px; background:rgba(34,211,238,0.06); border:1px solid rgba(34,211,238,0.2); border-radius:10px;">
             <p style="font-size:0.95rem; color:var(--text); text-align:center;">
               Exact match: <code style="color:var(--orange)">"laptop" = "laptop"</code><br>
               Semantic match: <code style="color:var(--cyan)">"laptop" &asymp; "notebook" &asymp; "ultrabook"</code>
@@ -466,19 +924,19 @@
     </div>
     <div class="diagram" style="margin-top: 24px;">
       <div class="layer-stack">
-        <div class="layer" style="background:rgba(99,102,241,0.15); border:1px solid var(--accent); width: 90%;">
+        <div class="layer" style="background:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.3); width: 90%;">
           <strong>GigaMap&lt;E&gt;</strong> &mdash; entity storage + index registry
         </div>
         <div style="color:var(--text-dim);">&#9660;</div>
-        <div class="layer" style="background:rgba(6,182,212,0.15); border:1px solid var(--cyan); width: 75%;">
+        <div class="layer" style="background:rgba(34,211,238,0.1); border:1px solid rgba(34,211,238,0.3); width: 75%;">
           <strong>VectorIndices&lt;E&gt;</strong> &mdash; container for named vector indices
         </div>
         <div style="color:var(--text-dim);">&#9660;</div>
-        <div class="layer" style="background:rgba(34,197,94,0.15); border:1px solid var(--green); width: 60%;">
+        <div class="layer" style="background:rgba(52,211,153,0.1); border:1px solid rgba(52,211,153,0.3); width: 60%;">
           <strong>VectorIndex&lt;E&gt;</strong> &mdash; HNSW graph + search + persistence
         </div>
         <div style="color:var(--text-dim);">&#9660;</div>
-        <div class="layer" style="background:rgba(245,158,11,0.15); border:1px solid var(--orange); width: 45%;">
+        <div class="layer" style="background:rgba(251,191,36,0.1); border:1px solid rgba(251,191,36,0.3); width: 45%;">
           <strong>JVector HNSW Engine</strong> &mdash; graph construction + ANN search
         </div>
       </div>
@@ -533,19 +991,19 @@
       <div class="diagram" style="padding: 24px;">
         <h3 style="margin-bottom:20px;">Hierarchical Layers</h3>
         <div class="layer-stack">
-          <div class="layer" style="background:rgba(236,72,153,0.12); border:1px solid var(--pink); width: 40%;">
+          <div class="layer" style="background:rgba(244,114,182,0.08); border:1px solid rgba(244,114,182,0.3); width: 40%;">
             Layer 2 &mdash; sparse (entry point)
           </div>
           <div style="color:var(--text-dim); font-size:0.9rem;">&#9660; navigate to nearest</div>
-          <div class="layer" style="background:rgba(245,158,11,0.12); border:1px solid var(--orange); width: 65%;">
+          <div class="layer" style="background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.3); width: 65%;">
             Layer 1 &mdash; medium density
           </div>
           <div style="color:var(--text-dim); font-size:0.9rem;">&#9660; refine candidates</div>
-          <div class="layer" style="background:rgba(34,197,94,0.12); border:1px solid var(--green); width: 90%;">
+          <div class="layer" style="background:rgba(52,211,153,0.08); border:1px solid rgba(52,211,153,0.3); width: 90%;">
             Layer 0 &mdash; all nodes (fine-grained)
           </div>
           <div style="color:var(--text-dim); font-size:0.9rem;">&#9660;</div>
-          <div class="layer" style="background:rgba(99,102,241,0.15); border:1px solid var(--accent); width: 50%;">
+          <div class="layer" style="background:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.3); width: 50%;">
             Top-k results
           </div>
         </div>
@@ -744,7 +1202,7 @@ gigaMap.<span class="fn">addAll</span>(products);
           <div style="font-size:0.8rem; color:var(--text-dim);">entity &rarr; float[]</div>
         </div>
         <span class="flow-arrow">&rarr;</span>
-        <div class="flow-box" style="min-width:120px; border-color:var(--pink);">
+        <div class="flow-box" style="min-width:120px; border-color:rgba(244,114,182,0.35); background:rgba(244,114,182,0.08);">
           <div>Store Vector</div>
           <div style="font-size:0.8rem; color:var(--text-dim);">embedded or GigaMap</div>
         </div>
@@ -766,7 +1224,7 @@ gigaMap.<span class="fn">addAll</span>(products);
           <div style="font-size:0.8rem; color:var(--text-dim);">layer-by-layer</div>
         </div>
         <span class="flow-arrow">&rarr;</span>
-        <div class="flow-box" style="min-width:120px; border-color:var(--pink);">
+        <div class="flow-box" style="min-width:120px; border-color:rgba(244,114,182,0.35); background:rgba(244,114,182,0.08);">
           <div>Score + Rank</div>
           <div style="font-size:0.8rem; color:var(--text-dim);">similarity fn</div>
         </div>
@@ -861,7 +1319,7 @@ gigaMap.<span class="fn">addAll</span>(products);
       </div>
     </div>
     <div style="margin-top:40px; text-align:center;">
-      <pre style="display:inline-block; text-align:left; padding:20px 32px; font-size:0.95rem;">
+      <pre style="display:inline-block; text-align:left; padding:48px 32px 20px 32px; font-size:0.95rem;">
 <span class="cm">// That's all it takes</span>
 <span class="tp">GigaMap</span>&lt;<span class="tp">Product</span>&gt; map = <span class="tp">GigaMap</span>.<span class="fn">New</span>();
 <span class="tp">VectorIndex</span>&lt;<span class="tp">Product</span>&gt; idx = map.<span class="fn">index</span>()
@@ -882,21 +1340,38 @@ map.<span class="fn">addAll</span>(products);                       <span class=
 </div>
 <div class="progress" id="progress"></div>
 <div class="slide-num" id="slideNum"></div>
+<div class="key-hint" id="keyHint"><kbd>&larr;</kbd> <kbd>&rarr;</kbd> to navigate</div>
 
 <script>
   const slides = document.querySelectorAll('.slide');
   let current = 0;
+  let transitioning = false;
 
   function show(n) {
-    slides[current].classList.remove('active');
+    if (transitioning) return;
+    transitioning = true;
+
+    const oldSlide = slides[current];
     current = (n + slides.length) % slides.length;
-    slides[current].classList.remove('active');
-    void slides[current].offsetWidth;
-    slides[current].classList.add('active');
+    const newSlide = slides[current];
+
+    // Remove active from old slide
+    oldSlide.classList.remove('active');
+
+    // Force reflow so animations retrigger
+    void newSlide.offsetWidth;
+    newSlide.classList.add('active');
+
     document.getElementById('progress').style.width =
       ((current + 1) / slides.length * 100) + '%';
     document.getElementById('slideNum').textContent =
       (current + 1) + ' / ' + slides.length;
+
+    // Hide key hint after first navigation
+    const hint = document.getElementById('keyHint');
+    if (hint) hint.style.opacity = '0';
+
+    setTimeout(() => { transitioning = false; }, 100);
   }
 
   function next() { show(current + 1); }
@@ -908,6 +1383,19 @@ map.<span class="fn">addAll</span>(products);                       <span class=
     if (e.key === 'Home')       { e.preventDefault(); show(0); }
     if (e.key === 'End')        { e.preventDefault(); show(slides.length - 1); }
   });
+
+  // Touch support for mobile
+  let touchStartX = 0;
+  document.addEventListener('touchstart', e => {
+    touchStartX = e.changedTouches[0].screenX;
+  }, { passive: true });
+  document.addEventListener('touchend', e => {
+    const diff = e.changedTouches[0].screenX - touchStartX;
+    if (Math.abs(diff) > 60) {
+      if (diff < 0) next();
+      else prev();
+    }
+  }, { passive: true });
 
   show(0);
 </script>
