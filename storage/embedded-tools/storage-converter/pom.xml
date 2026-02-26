@@ -19,6 +19,12 @@
 	<description>EclipseStore Embedded Storage Tools Storage Converter</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
+	<properties>
+		<!-- Not published to Maven Central; users build from source via GitHub -->
+		<maven.deploy.skip>true</maven.deploy.skip>
+		<maven.install.skip>false</maven.install.skip>
+	</properties>
+
 	<dependencies>
 		<dependency>
 			<groupId>org.eclipse.store</groupId>

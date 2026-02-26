@@ -48,6 +48,28 @@ mvn org.openrewrite.maven:rewrite-maven-plugin:run \
 
 After migration, the storage can be opened with {product-name}.
 
+=== Standalone JAR
+
+The standalone JAR is not built by default. To build it locally, activate the `migrator-standalone` Maven profile in the EclipseStore repository:
+
+[source, bash]
+----
+mvn -Pmigrator-standalone clean package -pl storage/embedded-tools/storage-migrator -am
+----
+
+This produces a fat JAR with all dependencies included:
+
+----
+storage/embedded-tools/storage-migrator/target/storage-embedded-tools-storage-migrator-<version>-jar-with-dependencies.jar
+----
+
+You can then use this JAR as the recipe artifact coordinate in the migration commands above, or publish it to your local Maven repository:
+
+[source, bash]
+----
+mvn -Pmigrator-standalone install -pl storage/embedded-tools/storage-migrator -am
+----
+
 [IMPORTANT]
 ====
 * Always create a backup of your code and storage before running the migrator
