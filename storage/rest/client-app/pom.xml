@@ -52,10 +52,52 @@
 		<dependency>
 			<groupId>com.vaadin</groupId>
 			<artifactId>vaadin-core</artifactId>
+			<exclusions>
+				<!-- Hilla full-stack framework — not used, saves ~7.5 MB
+				     (removes kotlin, javaparser, swagger, hilla-* transitives) -->
+				<exclusion>
+					<groupId>com.vaadin</groupId>
+					<artifactId>hilla</artifactId>
+				</exclusion>
+				<exclusion>
+					<groupId>com.vaadin</groupId>
+					<artifactId>hilla-dev</artifactId>
+				</exclusion>
+				<!-- Collaboration engine — not used -->
+				<exclusion>
+					<groupId>com.vaadin</groupId>
+					<artifactId>collaboration-engine</artifactId>
+				</exclusion>
+			</exclusions>
 		</dependency>
 		<dependency>
 			<groupId>com.vaadin</groupId>
 			<artifactId>vaadin-spring-boot-starter</artifactId>
+			<exclusions>
+				<!-- Spring Data Commons — not used by this viewer app -->
+				<exclusion>
+					<groupId>org.springframework.data</groupId>
+					<artifactId>spring-data-commons</artifactId>
+				</exclusion>
+				<!-- Spring Security — not used, no auth in this viewer -->
+				<exclusion>
+					<groupId>org.springframework.security</groupId>
+					<artifactId>spring-security-core</artifactId>
+				</exclusion>
+				<exclusion>
+					<groupId>org.springframework.security</groupId>
+					<artifactId>spring-security-crypto</artifactId>
+				</exclusion>
+				<!-- Hilla exclusions (also pulled by starter) -->
+				<exclusion>
+					<groupId>com.vaadin</groupId>
+					<artifactId>hilla</artifactId>
+				</exclusion>
+				<exclusion>
+					<groupId>com.vaadin</groupId>
+					<artifactId>hilla-dev</artifactId>
+				</exclusion>
+			</exclusions>
 		</dependency>
 		<dependency>
 			<groupId>jakarta.activation</groupId>

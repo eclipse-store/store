@@ -19,18 +19,39 @@
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
 	<properties>
-		<vaadin.version>24.2.6</vaadin.version>
-		<spring.boot.version>3.2.0</spring.boot.version>
+		<vaadin.version>24.8.10</vaadin.version>
+		<spring.boot.version>3.5.6</spring.boot.version>
 	</properties>
 
 	<dependencyManagement>
 		<dependencies>
+			<dependency>
+				<groupId>com.vaadin</groupId>
+				<artifactId>vaadin-bom</artifactId>
+				<version>${vaadin.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
 			<dependency>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-dependencies</artifactId>
 				<version>${spring.boot.version}</version>
 				<type>pom</type>
 				<scope>import</scope>
+			</dependency>
+			<!-- Override root POM's JUnit 5.8.2 — incompatible with Spring Boot 3.5.6
+			     which manages junit-platform-commons 1.12.2 -->
+			<dependency>
+				<groupId>org.junit.jupiter</groupId>
+				<artifactId>junit-jupiter-engine</artifactId>
+				<version>5.12.2</version>
+				<scope>test</scope>
+			</dependency>
+			<dependency>
+				<groupId>org.junit.jupiter</groupId>
+				<artifactId>junit-jupiter-api</artifactId>
+				<version>5.12.2</version>
+				<scope>test</scope>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
@@ -40,6 +61,41 @@
 			<groupId>org.eclipse.store</groupId>
 			<artifactId>storage-restclient-app</artifactId>
 			<version>${project.version}</version>
+			<exclusions>
+				<!-- Hilla full-stack framework — not used -->
+				<exclusion>
+					<groupId>com.vaadin</groupId>
+					<artifactId>hilla</artifactId>
+				</exclusion>
+				<exclusion>
+					<groupId>com.vaadin</groupId>
+					<artifactId>hilla-dev</artifactId>
+				</exclusion>
+				<!-- Vaadin dev tools — not needed at runtime -->
+				<exclusion>
+					<groupId>com.vaadin</groupId>
+					<artifactId>vaadin-dev</artifactId>
+				</exclusion>
+				<!-- Collaboration engine — not used -->
+				<exclusion>
+					<groupId>com.vaadin</groupId>
+					<artifactId>collaboration-engine</artifactId>
+				</exclusion>
+				<!-- Spring Data — not used by this viewer app -->
+				<exclusion>
+					<groupId>org.springframework.data</groupId>
+					<artifactId>spring-data-commons</artifactId>
+				</exclusion>
+				<!-- Spring Security — no auth in this viewer -->
+				<exclusion>
+					<groupId>org.springframework.security</groupId>
+					<artifactId>spring-security-core</artifactId>
+				</exclusion>
+				<exclusion>
+					<groupId>org.springframework.security</groupId>
+					<artifactId>spring-security-crypto</artifactId>
+				</exclusion>
+			</exclusions>
 		</dependency>
 
 		<dependency>
@@ -50,7 +106,6 @@
 		<dependency>
 			<groupId>org.junit.jupiter</groupId>
 			<artifactId>junit-jupiter-engine</artifactId>
-			<version>5.10.0</version>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>
