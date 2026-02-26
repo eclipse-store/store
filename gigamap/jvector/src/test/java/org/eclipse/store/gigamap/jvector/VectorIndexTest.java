@@ -72,7 +72,7 @@ class VectorIndexTest
         @Override
         public int hashCode()
         {
-            return Objects.hash(this.content, this.embedding);
+            return Objects.hash(this.content, Arrays.hashCode(this.embedding));
         }
 
         @Override

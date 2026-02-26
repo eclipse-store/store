@@ -17,6 +17,7 @@ package org.eclipse.store.gigamap.jvector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -52,19 +53,20 @@ class BackgroundTaskManager
     sealed interface IndexingOperation
         permits IndexingOperation.Add,
                 IndexingOperation.Update,
-                IndexingOperation.Remove
+                IndexingOperation.Remove,
+                IndexingOperation.BatchAdd
     {
         void execute(Callback callback);
 
         /**
          * Add a node to the HNSW graph.
          */
-        record Add(int ordinal, float[] vector) implements IndexingOperation
+        record Add(VectorEntry entry) implements IndexingOperation
         {
             @Override
             public void execute(final Callback callback)
             {
-                callback.applyGraphAdd(this.ordinal, this.vector);
+                callback.applyGraphAdd(this.entry);
                 callback.markDirtyForBackgroundManagers(1);
             }
         }
@@ -72,12 +74,12 @@ class BackgroundTaskManager
         /**
          * Update a node in the HNSW graph (delete + re-add).
          */
-        record Update(int ordinal, float[] vector) implements IndexingOperation
+        record Update(VectorEntry entry) implements IndexingOperation
         {
             @Override
             public void execute(final Callback callback)
             {
-                callback.applyGraphUpdate(this.ordinal, this.vector);
+                callback.applyGraphUpdate(this.entry);
                 callback.markDirtyForBackgroundManagers(1);
             }
         }
@@ -94,6 +96,22 @@ class BackgroundTaskManager
                 callback.markDirtyForBackgroundManagers(1);
             }
         }
+
+        /**
+         * Batch add multiple nodes to the HNSW graph.
+         * <p>
+         * Acquires the builder lock once for the entire batch and marks dirty
+         * once with the total count, avoiding per-entry overhead.
+         */
+        record BatchAdd(List<VectorEntry> entries) implements IndexingOperation
+        {
+            @Override
+            public void execute(final Callback callback)
+            {
+                callback.applyGraphBatchAdd(this.entries);
+                callback.markDirtyForBackgroundManagers(this.entries.size());
+            }
+        }
     }
 
     // ========================================================================
@@ -106,9 +124,11 @@ class BackgroundTaskManager
      */
     interface Callback
     {
-        void applyGraphAdd(int ordinal, float[] vector);
+        void applyGraphAdd(VectorEntry entry);
 
-        void applyGraphUpdate(int ordinal, float[] vector);
+        void applyGraphBatchAdd(List<VectorEntry> entries);
+
+        void applyGraphUpdate(VectorEntry entry);
 
         void applyGraphRemove(int ordinal);
 

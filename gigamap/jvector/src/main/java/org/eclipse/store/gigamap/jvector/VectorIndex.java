@@ -33,10 +33,15 @@ import org.eclipse.store.gigamap.types.GigaMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.*;
-import java.util.*;
+import java.io.Closeable;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.IntStream;
 
 /**
  * A vector index that enables k-nearest-neighbor (k-NN) similarity search on entities.
@@ -1002,10 +1007,41 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         private float[] vectorize(final E entity)
         {
-            final float[] vector = this.vectorizer.vectorize(entity);
+            return this.validateVector(this.vectorizer.vectorize(entity));
+        }
+
+        private List<float[]> vectorize(final List<? extends E> entities)
+        {
+            final List<float[]> vectors = this.vectorizer.vectorizeAll(entities);
+
+            if(vectors == null)
+            {
+                throw new IllegalStateException(
+                    "vectorizeAll returned null in index \"%s\" (vectorizer: %s)"
+                        .formatted(this.name(), this.vectorizer.getClass().getName())
+                );
+            }
+
+            if(vectors.size() != entities.size())
+            {
+                throw new IllegalStateException(
+                    "vectorizeAll returned %d vectors for %d entities in index \"%s\" (vectorizer: %s)"
+                        .formatted(vectors.size(), entities.size(), this.name(), this.vectorizer.getClass().getName())
+                );
+            }
+
+            vectors.forEach(this::validateVector);
+            return vectors;
+        }
+
+        private float[] validateVector(final float[] vector)
+        {
             if(vector == null)
             {
-                throw new IllegalStateException("Null vector returned from vectorizer: " + entity);
+                throw new IllegalStateException(
+                    "Null vector returned from vectorizer in index \"" + this.name()
+                        + "\" (vectorizer: " + this.vectorizer.getClass().getName() + ")"
+                );
             }
 
             this.validateDimension(vector);
@@ -1079,11 +1115,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.ensureIndexInitialized();
 
             final float[] vector = this.vectorize(entity);
+            final VectorEntry vectorEntry = new VectorEntry(entityId, vector);
 
             // Store based on vectorizer type
             if(!this.isEmbedded())
             {
-                this.vectorStore.add(new VectorEntry(entityId, vector));
+                this.vectorStore.add(vectorEntry);
             }
 
             this.markStateChangeChildren();
@@ -1091,7 +1128,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(this.isEventualIndexing())
             {
                 // Defer graph update to background thread
-                this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Add(ordinal, vector));
+                this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Add(vectorEntry));
             }
             else
             {
@@ -1129,13 +1166,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.ensureIndexInitialized();
 
             final float[] vector = this.vectorize(entity);
-
-            final int ordinal = toOrdinal(entityId);
+            final VectorEntry vectorEntry = new VectorEntry(entityId, vector);
 
             // Update based on vectorizer type
             if(!this.isEmbedded())
             {
-                this.vectorStore.set(entityId, new VectorEntry(entityId, vector));
+                this.vectorStore.set(entityId, vectorEntry);
             }
 
             this.markStateChangeChildren();
@@ -1143,10 +1179,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(this.isEventualIndexing())
             {
                 // Defer graph update to background thread
-                this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Update(ordinal, vector));
+                this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Update(vectorEntry));
             }
             else
             {
+                final int ordinal = toOrdinal(entityId);
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
                 this.executeOrDeferBuilderOp(() ->
                 {
@@ -1165,16 +1202,26 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private List<VectorEntry> collectVectors(final long firstEntityId, final Iterable<? extends E> entities)
         {
-            final List<VectorEntry> entries = new ArrayList<>();
-            long currentEntityId = firstEntityId;
+            final List<float[]> vectors = this.vectorize(this.toList(entities));
+            return IntStream.range(0, vectors.size())
+                .mapToObj(i -> new VectorEntry(firstEntityId + i, vectors.get(i)))
+                .toList()
+            ;
+        }
 
-            for(final E entity : entities)
+        private List<? extends E> toList(final Iterable<? extends E> entities)
+        {
+            if(entities instanceof final List<? extends E> list)
             {
-                final float[] vector = this.vectorize(entity);
-                entries.add(new VectorEntry(currentEntityId++, vector));
+                return list;
             }
-
-            return entries;
+            if(entities instanceof final Collection<? extends E> collection)
+            {
+                return new ArrayList<>(collection);
+            }
+            final List<E> list = new ArrayList<>();
+            entities.forEach(list::add);
+            return list;
         }
 
         /**
@@ -1194,11 +1241,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             if(this.isEventualIndexing())
             {
-                // Defer graph updates to background thread
-                entries.forEach(entry ->
-                    this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Add(
-                        toOrdinal(entry.sourceEntityId), entry.vector
-                    ))
+                // Defer graph updates to background thread as a single batch operation
+                this.backgroundTaskManager.enqueue(
+                    new BackgroundTaskManager.IndexingOperation.BatchAdd(entries)
                 );
             }
             else
@@ -1795,7 +1840,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // ================================================================
 
         @Override
-        public void applyGraphAdd(final int ordinal, final float[] vector)
+        public void applyGraphAdd(final VectorEntry entry)
         {
             // Called from the background indexing worker thread (not from GigaMap's
             // synchronized methods), so we use builderLock.readLock() to coordinate
@@ -1803,7 +1848,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.readLock().lock();
             try
             {
-                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+                final int ordinal = toOrdinal(entry.sourceEntityId);
+                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
                 this.builder.addGraphNode(ordinal, vf);
             }
             finally
@@ -1813,14 +1859,35 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         @Override
-        public void applyGraphUpdate(final int ordinal, final float[] vector)
+        public void applyGraphBatchAdd(final List<VectorEntry> entries)
+        {
+            // Acquires the lock once for the entire batch, avoiding per-entry lock overhead.
+            this.builderLock.readLock().lock();
+            try
+            {
+                for(final var entry : entries)
+                {
+                    final int ordinal = toOrdinal(entry.sourceEntityId);
+                    final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
+                    this.builder.addGraphNode(ordinal, vf);
+                }
+            }
+            finally
+            {
+                this.builderLock.readLock().unlock();
+            }
+        }
+
+        @Override
+        public void applyGraphUpdate(final VectorEntry entry)
         {
             this.builderLock.readLock().lock();
             try
             {
+                final int ordinal = toOrdinal(entry.sourceEntityId);
                 this.builder.markNodeDeleted(ordinal);
                 this.builder.removeDeletedNodes();
-                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
                 this.builder.addGraphNode(ordinal, vf);
             }
             finally

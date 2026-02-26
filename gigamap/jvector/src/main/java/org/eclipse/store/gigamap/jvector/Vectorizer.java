@@ -14,6 +14,8 @@ package org.eclipse.store.gigamap.jvector;
  * #L%
  */
 
+import java.util.List;
+
 /**
  * A type for converting objects of type E into their vector representations.
  * Implementations provide a way to map entities into numerical vectors for
@@ -48,6 +50,24 @@ public abstract class Vectorizer<E>
      * @return a float array representing the numerical vector of the entity
      */
     public abstract float[] vectorize(E entity);
+
+    /**
+     * Converts a list of entities into their respective numerical vector representations.
+     * <p>
+     * This default implementation just delegates to {@link #vectorize(Object)} for each entity.
+     * <p>
+     * If you want to implement an optimized custom batch vectorization logic, override this method.
+     *
+     * @param entities a list of entities of type E to be vectorized
+     * @return a list of float arrays, where each array represents the numerical vector of the corresponding entity
+     */
+    public List<float[]> vectorizeAll(final List<? extends E> entities)
+    {
+        return entities.stream()
+            .map(this::vectorize)
+            .toList()
+        ;
+    }
 
     /**
      * Returns whether this vectorizer extracts vectors already embedded
