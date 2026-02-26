@@ -1914,7 +1914,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				
 				this.indices.internalAddAll(currentId, entities);
 				
-				return this.nextFreeId() - currentId;
+				return this.nextFreeId() - 1;
 			}
 			catch(final Exception e)
 			{
