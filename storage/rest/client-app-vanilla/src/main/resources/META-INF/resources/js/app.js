@@ -208,7 +208,7 @@
         try {
             const obj = await StorageApi.getObject(oid, {
                 valueLength: DEFAULT_VALUE_LENGTH,
-                resolveReferences: true,
+                references: true,
             });
 
             objectView.innerHTML = "";

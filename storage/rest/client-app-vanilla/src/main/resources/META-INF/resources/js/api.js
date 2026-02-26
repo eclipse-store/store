@@ -57,10 +57,19 @@ const StorageApi = (() => {
 
     /**
      * Get the root object reference.
-     * @returns {Promise<{name: string, objectId: number}>}
+     * The objectId is extracted as a string to avoid JavaScript number precision
+     * loss — EclipseStore object IDs can exceed Number.MAX_SAFE_INTEGER.
+     * @returns {Promise<{name: string, objectId: string}>}
      */
-    function getRoot() {
-        return request("root", "json");
+    async function getRoot() {
+        const raw = await request("root", "text");
+        // Parse manually to preserve large objectId as string
+        const parsed = JSON.parse(raw);
+        const idMatch = raw.match(/"objectId"\s*:\s*(\d+)/);
+        if (idMatch) {
+            parsed.objectId = idMatch[1];
+        }
+        return parsed;
     }
 
     /**
