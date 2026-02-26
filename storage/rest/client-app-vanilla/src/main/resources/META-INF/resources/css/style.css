@@ -438,3 +438,70 @@ body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ---------- Tree Table ---------- */
+.tree-view {
+    overflow-x: auto;
+}
+
+.tree-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--color-surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    font-size: 13px;
+}
+
+.tree-table th {
+    text-align: left;
+    padding: 10px 14px;
+    background: #f1f3f4;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--color-text-muted);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.tree-table td {
+    padding: 4px 14px;
+    border-bottom: 1px solid var(--color-border);
+    vertical-align: top;
+    line-height: 1.6;
+}
+
+.tree-table tr:last-child td { border-bottom: none; }
+.tree-row:hover td { background: var(--color-hover); }
+
+.tree-name-cell {
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.tree-indent {
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+.tree-toggle {
+    display: inline-block;
+    width: 16px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--color-text-muted);
+    user-select: none;
+    flex-shrink: 0;
+    transition: color .1s;
+}
+.tree-toggle:hover { color: var(--color-primary); }
+
+.tree-toggle-placeholder {
+    display: inline-block;
+    width: 16px;
+    flex-shrink: 0;
+}
+

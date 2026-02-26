@@ -188,13 +188,29 @@
         connectError.hidden = true;
     }
 
+    // ── Object Loading ─────────────────────────────────────────────────
+
+    /**
+     * Load an object by OID, with optional extra parameters.
+     * Used as callback by the tree UI for lazy-loading children.
+     * @param {string|number} oid
+     * @param {Object} [extraParams] — e.g. { fixedLength, variableOffset, variableLength, references }
+     * @returns {Promise<ViewerObjectDescription>}
+     */
+    async function loadObject(oid, extraParams) {
+        const opts = Object.assign({
+            valueLength: DEFAULT_VALUE_LENGTH,
+            references: true,
+        }, extraParams || {});
+        return StorageApi.getObject(oid, opts);
+    }
+
     // ── Object Navigation ────────────────────────────────────────────────
 
     async function navigateTo(oid, label) {
         // Update breadcrumb trail
         const existingIndex = navigationTrail.findIndex(t => t.oid === oid);
         if (existingIndex >= 0) {
-            // Navigating back — truncate trail
             navigationTrail = navigationTrail.slice(0, existingIndex + 1);
         } else {
             navigationTrail.push({ label: label || ("#" + oid), oid: oid });
@@ -206,16 +222,10 @@
         objectView.innerHTML = '<span class="spinner"></span> Loading…';
 
         try {
-            const obj = await StorageApi.getObject(oid, {
-                valueLength: DEFAULT_VALUE_LENGTH,
-                references: true,
-            });
+            const obj = await loadObject(oid);
 
             objectView.innerHTML = "";
-            const rendered = UI.renderObject(obj, typeDictionary, (refOid) => {
-                const refTypeName = "object";
-                navigateTo(refOid, UI.simpleName(refTypeName) + " #" + refOid);
-            });
+            const rendered = UI.renderObjectTree(obj, typeDictionary, label || "root", loadObject);
             objectView.appendChild(rendered);
 
         } catch (err) {
