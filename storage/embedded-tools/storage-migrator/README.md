@@ -13,6 +13,26 @@ Change or omit the `eclipseStoreVersion` and `typeDictionaryRelativePath` parame
 The codebase migration is only done when `eclipseStoreVersion` is set.
 The type dictionary migration is only done when `typeDictionaryRelativePath` is set.
 
+### Building the Standalone JAR
+
+The standalone JAR (fat JAR with all dependencies) is not built by default. To build it locally, activate the `migrator-standalone` Maven profile from the repository root:
+
+````
+mvn -Pmigrator-standalone clean package -pl storage/embedded-tools/storage-migrator -am
+````
+
+The resulting JAR is located at:
+
+````
+storage/embedded-tools/storage-migrator/target/storage-embedded-tools-storage-migrator-<version>-jar-with-dependencies.jar
+````
+
+To install it into your local Maven repository:
+
+````
+mvn -Pmigrator-standalone install -pl storage/embedded-tools/storage-migrator -am
+````
+
 ### Migration of both, source code and type dictionary:
 
 ````

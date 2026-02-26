@@ -18,7 +18,13 @@
 	<name>EclipseStore Storage Embedded Tools Storage Migrator</name>
 	<description>EclipseStore Embedded Storage Tools Storage Migrator</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
-	
+
+	<properties>
+		<!-- Not published to Maven Central; users build from source via GitHub -->
+		<maven.deploy.skip>true</maven.deploy.skip>
+		<maven.install.skip>false</maven.install.skip>
+	</properties>
+
     <dependencyManagement>
         <dependencies>
             <dependency>
@@ -84,7 +90,7 @@
 	
 	<profiles>
 		<profile>
-			<id>production</id>
+			<id>migrator-standalone</id>
 			<build>
 	        <plugins>
 	            <plugin>

@@ -316,18 +316,39 @@ public class GigaMapUnitTest
             values.add(String.valueOf(i));
         }
         final long l = gigaMap.addAll(values);
-        assertEquals(1000, l);
+        assertEquals(999, l);
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(gigaMap, tempDir)) {
-            assertEquals(1000, gigaMap.addAll(values));
+            assertEquals(1999, gigaMap.addAll(values));
             gigaMap.store();
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
             final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
-            assertEquals(1000, gigaMap2.addAll(values));
+            assertEquals(2999, gigaMap2.addAll(values));
             assertEquals(3000, gigaMap2.size());
         }
+    }
+
+    @Test
+    void addAllReturnsLastAssignedId()
+    {
+        final GigaMap<String> gigaMap = GigaMap.New();
+
+        // addAll should return the last assigned id, consistent with add()
+        final long lastId = gigaMap.addAll("a", "b", "c");
+        assertEquals(2, lastId);
+        assertEquals(lastId, gigaMap.highestUsedId());
+
+        // subsequent addAll continues from the next free id
+        final long lastId2 = gigaMap.addAll("d", "e");
+        assertEquals(4, lastId2);
+        assertEquals(lastId2, gigaMap.highestUsedId());
+
+        // single element addAll should behave like add
+        final long lastId3 = gigaMap.addAll("f");
+        assertEquals(5, lastId3);
+        assertEquals(gigaMap.add("g"), lastId3 + 1);
     }
 
     @Test
