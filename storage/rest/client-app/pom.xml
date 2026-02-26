@@ -68,12 +68,6 @@
 					<groupId>com.vaadin</groupId>
 					<artifactId>collaboration-engine</artifactId>
 				</exclusion>
-				<!-- Vaadin dev tools — not needed at runtime, saves ~7 MB
-				     (removes javaparser, jna, oshi, nimbus-jose-jwt, copilot) -->
-				<exclusion>
-					<groupId>com.vaadin</groupId>
-					<artifactId>vaadin-dev</artifactId>
-				</exclusion>
 			</exclusions>
 		</dependency>
 		<dependency>

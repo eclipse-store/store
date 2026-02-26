@@ -39,6 +39,20 @@
 				<type>pom</type>
 				<scope>import</scope>
 			</dependency>
+			<!-- Override root POM's JUnit 5.8.2 — incompatible with Spring Boot 3.5.6
+			     which manages junit-platform-commons 1.12.2 -->
+			<dependency>
+				<groupId>org.junit.jupiter</groupId>
+				<artifactId>junit-jupiter-engine</artifactId>
+				<version>5.12.2</version>
+				<scope>test</scope>
+			</dependency>
+			<dependency>
+				<groupId>org.junit.jupiter</groupId>
+				<artifactId>junit-jupiter-api</artifactId>
+				<version>5.12.2</version>
+				<scope>test</scope>
+			</dependency>
 		</dependencies>
 	</dependencyManagement>
 
@@ -92,7 +106,6 @@
 		<dependency>
 			<groupId>org.junit.jupiter</groupId>
 			<artifactId>junit-jupiter-engine</artifactId>
-			<version>5.10.0</version>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>
