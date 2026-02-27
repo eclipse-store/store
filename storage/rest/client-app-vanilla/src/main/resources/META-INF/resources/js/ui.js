@@ -486,51 +486,157 @@ const UI = (() => {
     function renderStatistics(stats) {
         const container = el("div");
 
-        // Summary cards
-        const grid = el("div", "stats-grid");
+        const table = document.createElement("table");
+        table.className = "tree-table";
 
-        const cards = [
-            { label: "Created", value: stats.creationTime || "–" },
-            { label: "Total Data Size", value: formatBytes(stats.totalDataLength) },
-            { label: "Total Files", value: formatNumber(stats.fileCount) },
-            { label: "Live Data Size", value: formatBytes(stats.liveDataLength) },
-        ];
+        const thead = el("thead");
+        const headRow = el("tr");
+        headRow.appendChild(el("th", null, "Name"));
+        headRow.appendChild(el("th", null, "Value"));
+        thead.appendChild(headRow);
+        table.appendChild(thead);
 
-        for (const card of cards) {
-            const c = el("div", "stat-card");
-            c.appendChild(el("div", "stat-label", card.label));
-            c.appendChild(el("div", "stat-value", card.value));
-            grid.appendChild(c);
-        }
-        container.appendChild(grid);
+        const tbody = el("tbody");
+        table.appendChild(tbody);
 
-        // Channel files table
-        if (stats.channelStatistics && stats.channelStatistics.length > 0) {
-            container.appendChild(el("h3", null, "Channel Statistics"));
-            const table = document.createElement("table");
-            table.className = "channel-table";
+        // Top-level items (always visible)
+        addStatRow(tbody, "Creation Time", stats.creationTime || "–", 0);
+        addStatRow(tbody, "File Count", formatNumber(stats.fileCount), 0);
+        addStatRow(tbody, "Live Data Size", formatBytes(stats.liveDataLength), 0);
+        addStatRow(tbody, "Total Data Size", formatBytes(stats.totalDataLength), 0);
 
-            const thead = el("thead");
-            const headRow = el("tr");
-            for (const h of ["Channel", "Files", "Data Size"]) {
-                headRow.appendChild(el("th", null, h));
+        // Channels — REST API returns a HashMap (object with integer keys), not an array
+        const channelMap = stats.channelStatistics;
+        if (channelMap && typeof channelMap === "object") {
+            const channelEntries = Object.entries(channelMap)
+                .map(([key, ch]) => ({ index: ch.channelIndex !== undefined ? ch.channelIndex : parseInt(key, 10), data: ch }))
+                .sort((a, b) => a.index - b.index);
+
+            if (channelEntries.length > 0) {
+                const channelsRow = addStatToggleRow(tbody, "Channels", "", 0);
+
+                for (const entry of channelEntries) {
+                    const ch = entry.data;
+
+                    // Channel N — child of Channels
+                    const channelRow = addStatToggleRow(tbody, "Channel " + entry.index, "", 1);
+                    channelRow.tr.style.display = "none";
+                    channelsRow.childRows.push(channelRow);
+
+                    // Channel stats — children of Channel N
+                    addStatRow(tbody, "File Count", formatNumber(ch.fileCount), 2, channelRow);
+                    addStatRow(tbody, "Live Data Size", formatBytes(ch.liveDataLength), 2, channelRow);
+                    addStatRow(tbody, "Total Data Size", formatBytes(ch.totalDataLength), 2, channelRow);
+
+                    // Files group within this channel
+                    if (ch.files && ch.files.length > 0) {
+                        const filesRow = addStatToggleRow(tbody, "Files", "", 2);
+                        filesRow.tr.style.display = "none";
+                        channelRow.childRows.push(filesRow);
+
+                        for (const file of ch.files) {
+                            // Individual file — child of Files
+                            const fileRow = addStatToggleRow(tbody, "File " + file.fileNumber, file.file || "", 3);
+                            fileRow.tr.style.display = "none";
+                            filesRow.childRows.push(fileRow);
+
+                            // File stats — children of File N
+                            addStatRow(tbody, "Live Data Size", formatBytes(file.liveDataLength), 4, fileRow);
+                            addStatRow(tbody, "Total Data Size", formatBytes(file.totalDataLength), 4, fileRow);
+                        }
+                    }
+                }
             }
-            thead.appendChild(headRow);
-            table.appendChild(thead);
-
-            const tbodyEl = el("tbody");
-            for (const ch of stats.channelStatistics) {
-                const row = el("tr");
-                row.appendChild(el("td", null, String(ch.channelIndex !== undefined ? ch.channelIndex : "–")));
-                row.appendChild(el("td", null, formatNumber(ch.fileCount)));
-                row.appendChild(el("td", null, formatBytes(ch.totalDataLength)));
-                tbodyEl.appendChild(row);
-            }
-            table.appendChild(tbodyEl);
-            container.appendChild(table);
         }
 
+        container.appendChild(table);
         return container;
+    }
+
+    /**
+     * Add a simple (non-expandable) statistics row.
+     */
+    function addStatRow(tbody, name, value, depth, parentToggle) {
+        const tr = el("tr", "tree-row");
+        tr.dataset.depth = depth;
+
+        const nameCell = el("td", "tree-name-cell");
+        const indent = el("span", "tree-indent");
+        indent.style.paddingLeft = (depth * 20) + "px";
+        nameCell.appendChild(indent);
+        nameCell.appendChild(el("span", "tree-toggle-placeholder", " "));
+        nameCell.appendChild(el("span", "field-name", name));
+        tr.appendChild(nameCell);
+
+        tr.appendChild(el("td", "field-value", value));
+        tbody.appendChild(tr);
+
+        // Hide by default if it has a parent toggle
+        if (parentToggle) {
+            tr.style.display = "none";
+            if (!parentToggle.childRows) parentToggle.childRows = [];
+            parentToggle.childRows.push({ tr: tr });
+        }
+
+        return { tr: tr };
+    }
+
+    /**
+     * Add an expandable statistics row (with toggle arrow).
+     */
+    function addStatToggleRow(tbody, name, value, depth) {
+        const tr = el("tr", "tree-row");
+        tr.dataset.depth = depth;
+        tr.dataset.expanded = "false";
+
+        const nameCell = el("td", "tree-name-cell");
+        const indent = el("span", "tree-indent");
+        indent.style.paddingLeft = (depth * 20) + "px";
+        nameCell.appendChild(indent);
+
+        const toggle = el("span", "tree-toggle", "▸");
+        toggle.dataset.state = "collapsed";
+        toggle.style.cursor = "pointer";
+        nameCell.appendChild(toggle);
+        nameCell.appendChild(el("span", "field-name", name));
+        tr.appendChild(nameCell);
+
+        tr.appendChild(el("td", "field-value", value));
+        tbody.appendChild(tr);
+
+        const rowObj = { tr: tr, childRows: [] };
+
+        toggle.addEventListener("click", () => {
+            const isExpanded = tr.dataset.expanded === "true";
+            tr.dataset.expanded = isExpanded ? "false" : "true";
+            toggle.textContent = isExpanded ? "▸" : "▾";
+            toggle.dataset.state = isExpanded ? "collapsed" : "expanded";
+
+            // Show/hide direct children
+            setStatChildrenVisible(rowObj, !isExpanded);
+        });
+
+        return rowObj;
+    }
+
+    /**
+     * Recursively show/hide stat tree children.
+     */
+    function setStatChildrenVisible(parentObj, visible) {
+        if (!parentObj.childRows) return;
+        for (const child of parentObj.childRows) {
+            child.tr.style.display = visible ? "" : "none";
+            // If hiding, also collapse and hide grandchildren
+            if (!visible && child.childRows && child.childRows.length > 0) {
+                child.tr.dataset.expanded = "false";
+                const toggle = child.tr.querySelector(".tree-toggle");
+                if (toggle) {
+                    toggle.textContent = "▸";
+                    toggle.dataset.state = "collapsed";
+                }
+                setStatChildrenVisible(child, false);
+            }
+        }
     }
 
     // ── Dictionary View ─────────────────────────────────────────────────
