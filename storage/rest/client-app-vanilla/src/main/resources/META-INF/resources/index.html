@@ -65,8 +65,14 @@
             <div id="breadcrumb" class="breadcrumb">
                 <span class="crumb" data-oid="root">root</span>
             </div>
-            <div id="object-view" class="object-view">
-                <p class="placeholder">Loading root object…</p>
+            <div class="split-layout">
+                <div id="object-view" class="object-view split-primary">
+                    <p class="placeholder">Loading root object…</p>
+                </div>
+                <div class="split-divider" id="split-divider"></div>
+                <div id="detail-view" class="detail-view split-secondary">
+                    <p class="detail-placeholder">Select a row to view details</p>
+                </div>
             </div>
         </section>
 

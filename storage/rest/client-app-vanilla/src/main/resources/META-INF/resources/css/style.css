@@ -32,7 +32,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-    font-family: var(--font-sans);
+    font-family: var(--font-sans), sans-serif;
     font-size: 14px;
     line-height: 1.5;
     color: var(--color-text);
@@ -199,7 +199,7 @@ body {
 .header-url {
     font-size: 12px;
     opacity: .7;
-    font-family: var(--font-mono);
+    font-family: var(--font-mono, monospace);
 }
 
 .header-right {
@@ -261,7 +261,7 @@ body {
     align-items: center;
     margin-bottom: 16px;
     font-size: 13px;
-    font-family: var(--font-mono);
+    font-family: var(--font-mono, monospace);
 }
 .breadcrumb .crumb {
     color: var(--color-link);
@@ -271,6 +271,105 @@ body {
 .breadcrumb .separator {
     color: var(--color-text-muted);
     user-select: none;
+}
+
+/* ---------- Split Layout ---------- */
+.split-layout {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 180px); /* header + tabs + breadcrumb + footer */
+    min-height: 400px;
+}
+
+.split-primary {
+    flex: 65 1 0;
+    overflow: auto;
+    min-height: 100px;
+}
+
+.split-divider {
+    height: 6px;
+    background: var(--color-border);
+    cursor: row-resize;
+    flex-shrink: 0;
+    position: relative;
+}
+
+.split-divider:hover,
+.split-divider.dragging {
+    background: var(--color-primary);
+}
+
+.split-secondary {
+    flex: 35 1 0;
+    overflow: auto;
+    min-height: 80px;
+    background: var(--color-surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+}
+
+/* Detail panel content */
+.detail-view {
+    padding: 0;
+}
+
+.detail-placeholder {
+    padding: 24px;
+    color: var(--color-text-muted);
+    font-style: italic;
+    text-align: center;
+}
+
+.detail-view table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.detail-view th {
+    text-align: left;
+    padding: 8px 14px;
+    background: #f1f3f4;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--color-text-muted);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.detail-view td {
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--color-border);
+    vertical-align: top;
+    font-family: var(--font-mono, monospace);
+    font-size: 13px;
+}
+
+.detail-view tr:last-child td { border-bottom: none; }
+.detail-view tr:hover td { background: var(--color-hover); }
+
+/* Detail header row — the selected element itself */
+.detail-header-row td {
+    font-weight: 600;
+    background: #f8f9fa;
+}
+
+.detail-textarea {
+    width: 100%;
+    min-height: 100px;
+    padding: 12px;
+    border: none;
+    background: var(--color-surface);
+    font-family: var(--font-mono, monospace);
+    font-size: 13px;
+    resize: none;
+    box-sizing: border-box;
+}
+
+/* Selected row highlight in tree */
+.tree-row.selected td {
+    background: var(--color-hover);
 }
 
 /* ---------- Object View (Data Table) ---------- */
@@ -291,13 +390,13 @@ body {
     padding: 8px 0;
 }
 .object-header .type-name {
-    font-family: var(--font-mono);
+    font-family: var(--font-mono, monospace);
     font-size: 15px;
     color: var(--color-type);
     font-weight: 600;
 }
 .object-header .oid {
-    font-family: var(--font-mono);
+    font-family: var(--font-mono, monospace);
     font-size: 12px;
     color: var(--color-text-muted);
 }
@@ -324,25 +423,25 @@ body {
 .object-view tr:hover td { background: var(--color-hover); }
 
 .field-name {
-    font-family: var(--font-mono);
+    font-family: var(--font-mono, monospace);
     font-weight: 500;
     font-size: 13px;
 }
 
 .field-type {
-    font-family: var(--font-mono);
+    font-family: var(--font-mono, monospace);
     font-size: 12px;
     color: var(--color-type);
 }
 
 .field-oid {
-    font-family: var(--font-mono);
+    font-family: var(--font-mono, monospace);
     font-size: 12px;
     color: var(--color-text-muted);
 }
 
 .field-value {
-    font-family: var(--font-mono);
+    font-family: var(--font-mono, monospace);
     font-size: 13px;
 }
 
@@ -415,7 +514,7 @@ body {
     padding: 20px;
     border-radius: var(--radius);
     box-shadow: var(--shadow);
-    font-family: var(--font-mono);
+    font-family: var(--font-mono, monospace);
     font-size: 13px;
     line-height: 1.6;
     overflow-x: auto;

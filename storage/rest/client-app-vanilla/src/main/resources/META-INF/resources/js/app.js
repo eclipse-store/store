@@ -32,6 +32,8 @@
     const btnRefresh    = $("btn-refresh");
     const btnDisconnect = $("btn-disconnect");
     const objectView    = $("object-view");
+    const detailView    = $("detail-view");
+    const splitDivider  = $("split-divider");
     const breadcrumbEl  = $("breadcrumb");
     const statsView     = $("statistics-view");
     const dictView      = $("dictionary-view");
@@ -140,7 +142,8 @@
             // Test connectivity and get root
             const root = await StorageApi.getRoot();
             if (!root || root.objectId === undefined) {
-                throw new Error("Invalid response from server — not an EclipseStore REST endpoint?");
+                showConnectError("Invalid response from server — not an EclipseStore REST endpoint?");
+                return;
             }
 
             rootOid = root.objectId;
@@ -195,7 +198,7 @@
      * Used as callback by the tree UI for lazy-loading children.
      * @param {string|number} oid
      * @param {Object} [extraParams] — e.g. { fixedLength, variableOffset, variableLength, references }
-     * @returns {Promise<ViewerObjectDescription>}
+     * @returns {Promise<Object>} — ViewerObjectDescription from the REST API
      */
     async function loadObject(oid, extraParams) {
         const opts = Object.assign({
@@ -225,7 +228,8 @@
             const obj = await loadObject(oid);
 
             objectView.innerHTML = "";
-            const rendered = UI.renderObjectTree(obj, typeDictionary, label || "root", loadObject);
+            detailView.innerHTML = '<p class="detail-placeholder">Select a row to view details</p>';
+            const rendered = UI.renderObjectTree(obj, typeDictionary, label || "root", loadObject, onRowSelect);
             objectView.appendChild(rendered);
 
         } catch (err) {
@@ -245,6 +249,43 @@
         breadcrumbEl.replaceWith(bc);
         // Re-assign the element reference since we replaced it
         // (we use the same id, so querySelector still works)
+    }
+
+    // ── Detail Panel ────────────────────────────────────────────────────
+
+    /**
+     * Called when a row is selected in the tree.
+     * Renders the detail panel with the selected element's info.
+     */
+    function onRowSelect(meta) {
+        detailView.innerHTML = "";
+        detailView.appendChild(UI.renderDetailPanel(meta, typeDictionary, loadObject));
+    }
+
+    // ── Split Divider Drag ──────────────────────────────────────────────
+
+    if (splitDivider) {
+        let dragging = false;
+        splitDivider.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            dragging = true;
+            splitDivider.classList.add("dragging");
+        });
+        document.addEventListener("mousemove", (e) => {
+            if (!dragging) return;
+            const layout = splitDivider.parentElement;
+            const rect = layout.getBoundingClientRect();
+            const y = e.clientY - rect.top;
+            const pct = Math.max(20, Math.min(80, (y / rect.height) * 100));
+            objectView.style.flex = pct + " 1 0";
+            detailView.style.flex = (100 - pct) + " 1 0";
+        });
+        document.addEventListener("mouseup", () => {
+            if (dragging) {
+                dragging = false;
+                splitDivider.classList.remove("dragging");
+            }
+        });
     }
 
     // ── Statistics ───────────────────────────────────────────────────────

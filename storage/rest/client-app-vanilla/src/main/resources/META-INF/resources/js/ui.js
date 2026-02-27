@@ -49,9 +49,10 @@ const UI = (() => {
      * @param {Object} typeDictionary — parsed type dictionary
      * @param {string} rootName — display name for the root node
      * @param {function} loadObject — async callback(oid) → ViewerObjectDescription
+     * @param {function} [onRowSelect] — optional callback(rowMeta) when a row is clicked
      * @returns {HTMLElement}
      */
-    function renderObjectTree(obj, typeDictionary, rootName, loadObject) {
+    function renderObjectTree(obj, typeDictionary, rootName, loadObject, onRowSelect) {
         const container = el("div", "tree-view");
         const table = document.createElement("table");
         table.className = "tree-table";
@@ -67,9 +68,30 @@ const UI = (() => {
         const tbody = el("tbody");
         table.appendChild(tbody);
 
+        // Row selection via event delegation on tbody
+        let selectedRow = null;
+        tbody.addEventListener("click", (e) => {
+            const tr = e.target.closest("tr");
+            if (!tr || !tr._rowMeta) return;
+            // Ignore clicks on toggle arrows (handled by expand/collapse)
+            if (e.target.classList.contains("tree-toggle")) return;
+            if (selectedRow) selectedRow.classList.remove("selected");
+            tr.classList.add("selected");
+            selectedRow = tr;
+            if (onRowSelect) onRowSelect(tr._rowMeta);
+        });
+
         // Render root node
         const typeName = resolveTypeName(obj.typeId, typeDictionary);
         const rootRow = createTreeRow(rootName, simpleName(typeName), "", 0, true, false, obj.objectId);
+        rootRow.tr._rowMeta = {
+            name: rootName,
+            typeName: simpleName(typeName),
+            value: "",
+            objectId: obj.objectId,
+            hasMembers: true,
+            obj: obj,
+        };
         tbody.appendChild(rootRow.tr);
 
         // Expand root immediately — add its children
@@ -185,6 +207,10 @@ const UI = (() => {
                     ? String(ref.data[0])
                     : "(" + refSimpleName + ")";
                 const row = createTreeRow(fieldName, refSimpleName, displayValue, depth, !ref.simplified, true, ref.objectId);
+                row.tr._rowMeta = {
+                    name: fieldName, typeName: refSimpleName, value: displayValue,
+                    objectId: ref.objectId, hasMembers: !ref.simplified, ref: ref,
+                };
                 insertRowAfterLastChild(tbody, parentRow, row.tr, depth);
 
                 if (!ref.simplified) {
@@ -193,6 +219,10 @@ const UI = (() => {
             } else if (isArray) {
                 // Inline array of values
                 const row = createTreeRow(fieldName, fieldType, "[" + value.length + " elements]", depth, value.length > 0, false);
+                row.tr._rowMeta = {
+                    name: fieldName, typeName: fieldType, value: "[" + value.length + " elements]",
+                    hasMembers: value.length > 0, arrayValues: value,
+                };
                 insertRowAfterLastChild(tbody, parentRow, row.tr, depth);
 
                 if (value.length > 0) {
@@ -202,6 +232,9 @@ const UI = (() => {
                 // Primitive value
                 const displayValue = value === null || value === undefined ? "null" : String(value);
                 const row = createTreeRow(fieldName, fieldType, displayValue, depth, false, false);
+                row.tr._rowMeta = {
+                    name: fieldName, typeName: fieldType, value: displayValue, hasMembers: false,
+                };
                 insertRowAfterLastChild(tbody, parentRow, row.tr, depth);
             }
         }
@@ -229,6 +262,10 @@ const UI = (() => {
                 : "elements";
 
             const row = createTreeRow(rangeLabel, "", "", depth, true, false);
+            row.tr._rowMeta = {
+                name: rangeLabel, typeName: "", value: "",
+                hasMembers: true, isRange: true,
+            };
             insertRowAfterLastChild(tbody, parentRow, row.tr, depth);
 
             setupVariableExpand(tbody, row, oid, offset, length, typeDictionary, loadObject, depth);
@@ -260,6 +297,10 @@ const UI = (() => {
                     // Remove loading row
                     loadingRow.remove();
                     addObjectChildren(tbody, row.tr, childObj, typeDictionary, loadObject, depth + 1);
+                    // Store loaded object for detail panel
+                    if (row.tr._rowMeta) {
+                        row.tr._rowMeta.obj = childObj;
+                    }
                     loaded = true;
                 } catch (err) {
                     loadingRow.querySelector("td").textContent = "Error: " + err.message;
@@ -313,6 +354,9 @@ const UI = (() => {
                         for (let i = 0; i < values.length; i++) {
                             const val = values[i];
                             const childRow = createTreeRow("[" + i + "]", "", String(val), depth + 1, false, false);
+                            childRow.tr._rowMeta = {
+                                name: "[" + i + "]", typeName: "", value: String(val), hasMembers: false,
+                            };
                             insertRowAfterLastChild(tbody, row.tr, childRow.tr, depth + 1);
                         }
                         childrenAdded = true;
@@ -380,6 +424,10 @@ const UI = (() => {
                                         ? String(ref.data[0])
                                         : "(" + refSimpleName + ")";
                                     const childRow = createTreeRow("[" + idx + "]", refSimpleName, displayValue, depth + 1, !ref.simplified, true, ref.objectId);
+                                    childRow.tr._rowMeta = {
+                                        name: "[" + idx + "]", typeName: refSimpleName, value: displayValue,
+                                        objectId: ref.objectId, hasMembers: !ref.simplified, ref: ref,
+                                    };
                                     insertRowAfterLastChild(tbody, row.tr, childRow.tr, depth + 1);
                                     if (!ref.simplified) {
                                         setupLazyExpand(tbody, childRow, ref.objectId, typeDictionary, loadObject, depth + 1);
@@ -387,6 +435,9 @@ const UI = (() => {
                                 } else {
                                     const displayValue = val === null || val === undefined ? "null" : String(val);
                                     const childRow = createTreeRow("[" + idx + "]", "", displayValue, depth + 1, false, false);
+                                    childRow.tr._rowMeta = {
+                                        name: "[" + idx + "]", typeName: "", value: displayValue, hasMembers: false,
+                                    };
                                     insertRowAfterLastChild(tbody, row.tr, childRow.tr, depth + 1);
                                 }
                             }
@@ -732,9 +783,158 @@ const UI = (() => {
         return nav;
     }
 
+    // ── Detail Panel ────────────────────────────────────────────────────
+
+    /**
+     * Render the detail panel content for a selected tree row.
+     * Matches Vaadin behavior:
+     *   - If the element has members (is an object) → show a detail tree grid with its fields
+     *   - If the element is a leaf → show its value in a read-only text area
+     *
+     * @param {Object} meta — row metadata from _rowMeta
+     * @param {Object} typeDictionary — parsed type dictionary
+     * @param {function} loadObject — async callback(oid) → ViewerObjectDescription
+     * @returns {HTMLElement}
+     */
+    function renderDetailPanel(meta, typeDictionary, loadObject) {
+        const container = el("div", "detail-content");
+
+        if (meta.hasMembers && meta.obj) {
+            // Object with members — show detail tree grid with element header
+            container.appendChild(renderDetailTree(meta, meta.obj, typeDictionary));
+        } else if (meta.hasMembers && meta.objectId) {
+            // Reference not yet loaded — load and display
+            const spinner = el("div", null);
+            spinner.innerHTML = '<span class="spinner"></span> Loading details…';
+            container.appendChild(spinner);
+
+            loadObject(meta.objectId).then(obj => {
+                // Cache for future clicks
+                meta.obj = obj;
+                container.innerHTML = "";
+                container.appendChild(renderDetailTree(meta, obj, typeDictionary));
+            }).catch(err => {
+                container.innerHTML = "";
+                container.appendChild(el("div", "error-message", "Failed to load: " + err.message));
+            });
+        } else if (meta.arrayValues) {
+            // Array — show all values
+            container.appendChild(renderDetailTree(meta, { data: meta.arrayValues, typeId: null }, typeDictionary));
+        } else if (meta.isRange) {
+            // Range node — no detail to show
+            container.appendChild(el("p", "detail-placeholder", "Expand the range to see individual elements"));
+        } else {
+            // Leaf value — show in text area
+            const textarea = document.createElement("textarea");
+            textarea.className = "detail-textarea";
+            textarea.readOnly = true;
+            textarea.value = meta.value || "";
+            container.appendChild(textarea);
+        }
+
+        return container;
+    }
+
+    /**
+     * Render a detail tree grid showing the selected element as header row
+     * with its children expanded below — matching the Vaadin detail panel.
+     *
+     * @param {Object} meta — row metadata of the selected element
+     * @param {Object} obj — loaded ViewerObjectDescription
+     * @param {Object} typeDictionary — parsed type dictionary
+     */
+    function renderDetailTree(meta, obj, typeDictionary) {
+        const table = document.createElement("table");
+
+        const thead = el("thead");
+        const headRow = el("tr");
+        headRow.appendChild(el("th", null, "Name"));
+        headRow.appendChild(el("th", null, "Value"));
+        headRow.appendChild(el("th", null, "Type"));
+        headRow.appendChild(el("th", null, "Object ID"));
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+
+        const tbody = el("tbody");
+        table.appendChild(tbody);
+
+        // Header row — the selected element itself (with Type & Object ID)
+        const elementTypeName = obj.typeId
+            ? simpleName(resolveTypeName(obj.typeId, typeDictionary))
+            : (meta.typeName || "");
+        const elementValue = meta.value || (elementTypeName ? "(" + elementTypeName + ")" : "");
+        const elementOid = obj.objectId || meta.objectId || "";
+
+        const headerTr = el("tr", "detail-header-row");
+        headerTr.appendChild(el("td", "field-name", meta.name || ""));
+        headerTr.appendChild(el("td", "field-value", elementValue));
+        headerTr.appendChild(el("td", "field-type", elementTypeName));
+        headerTr.appendChild(el("td", "field-oid", elementOid));
+        tbody.appendChild(headerTr);
+
+        // Children rows — fields of the object
+        const data = obj.data || [];
+        const references = obj.references || [];
+        const members = obj.typeId ? resolveMembers(obj.typeId, typeDictionary) : [];
+        const fixedLength = obj.length !== undefined && obj.length !== null
+            ? parseInt(obj.length, 10) : data.length;
+
+        for (let i = 0; i < fixedLength && i < data.length; i++) {
+            const memberInfo = members[i] || {};
+            const fieldName = memberInfo.name || ("[" + i + "]");
+            const fieldType = memberInfo.type ? simpleName(memberInfo.type) : "";
+            const ref = references[i] || null;
+            const value = data[i];
+            const isReference = ref && ref.objectId && ref.objectId !== "0";
+
+            const tr = el("tr");
+
+            if (isReference) {
+                const refTypeName = resolveTypeName(ref.typeId, typeDictionary);
+                const refSimpleName = simpleName(refTypeName);
+                const displayValue = ref.simplified && ref.data && ref.data.length > 0
+                    ? String(ref.data[0])
+                    : "(" + refSimpleName + ")";
+                tr.appendChild(el("td", "field-name", "  " + fieldName));
+                tr.appendChild(el("td", "field-value", displayValue));
+                tr.appendChild(el("td", "field-type", refSimpleName));
+                tr.appendChild(el("td", "field-oid", ref.objectId));
+            } else if (Array.isArray(value)) {
+                tr.appendChild(el("td", "field-name", "  " + fieldName));
+                tr.appendChild(el("td", "field-value", "[" + value.length + " elements]"));
+                tr.appendChild(el("td", "field-type", fieldType));
+                tr.appendChild(el("td", "field-oid", ""));
+            } else {
+                const displayValue = value === null || value === undefined ? "null" : String(value);
+                tr.appendChild(el("td", "field-name", "  " + fieldName));
+                tr.appendChild(el("td", "field-value", displayValue));
+                tr.appendChild(el("td", "field-type", fieldType));
+                tr.appendChild(el("td", "field-oid", ""));
+            }
+
+            tbody.appendChild(tr);
+        }
+
+        // Variable-length elements (for pure collections)
+        const varLengthArray = obj.variableLength;
+        const varLength = varLengthArray && varLengthArray.length === 1
+            ? parseInt(varLengthArray[0], 10) : 0;
+        if (varLength > 0 && fixedLength === 0) {
+            const tr = el("tr");
+            tr.appendChild(el("td", "field-name", "  elements"));
+            tr.appendChild(el("td", "field-value", varLength + " elements"));
+            tr.appendChild(el("td", "field-type", ""));
+            tr.appendChild(el("td", "field-oid", ""));
+            tbody.appendChild(tr);
+        }
+
+        return table;
+    }
+
     // Public API
     return Object.freeze({
         renderObjectTree,
+        renderDetailPanel,
         renderStatistics,
         renderDictionary,
         parseTypeDictionary,
