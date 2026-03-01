@@ -45,7 +45,7 @@ jobs:
             echo "Branch does not exist in serializer repository, skipping serializer version change"          
           fi
       - name: Make a snapshot
-        run: mvn -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy -U -Dmaven.javadoc.skip=true
+        run: mvn -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy -U -Dmaven.javadoc.skip=true -Dgpg.skip=true
         env:
           MAVEN_USERNAME: ${{ secrets.CENTRAL_SONATYPE_TOKEN_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.CENTRAL_SONATYPE_TOKEN_PASSWORD }}
