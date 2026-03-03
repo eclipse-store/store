@@ -84,7 +84,7 @@ public interface SpatialIndexer<E> extends HashingCompositeIndexer<E>
 	 *
 	 * @param <S> the type of entity this condition applies to
 	 * @param maxInclusive the maximum latitude (inclusive)
-	 * @return a condition for latitude <= maxInclusive
+	 * @return a condition for {@code latitude <= maxInclusive}
 	 */
 	public <S extends E> Condition<S> latitudeBelow(double maxInclusive);
 
@@ -102,7 +102,7 @@ public interface SpatialIndexer<E> extends HashingCompositeIndexer<E>
 	 *
 	 * @param <S> the type of entity this condition applies to
 	 * @param maxInclusive the maximum longitude (inclusive)
-	 * @return a condition for longitude <= maxInclusive
+	 * @return a condition for {@code longitude <= maxInclusive}
 	 */
 	public <S extends E> Condition<S> longitudeBelow(double maxInclusive);
 
