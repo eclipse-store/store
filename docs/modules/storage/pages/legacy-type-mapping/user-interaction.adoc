@@ -68,7 +68,6 @@ foundation.onConnectionFoundation(f ->
 
 Use cases for custom resultors:
 
-* Logging to a file or logging framework instead of the console
 * Writing confirmed mappings to the refactoring CSV for future determinism
 * Integrating with external approval workflows
 * Sending notifications when schema changes are detected
