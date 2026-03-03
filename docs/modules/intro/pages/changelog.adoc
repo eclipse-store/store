@@ -1,22 +1,28 @@
 = Changelog
 
-== 4.0.0 (Beta 1)
+== 4.0.0 (Beta)
 
 === Features
 
-* xref:gigamap:indexing/jvector/index.adoc[Vector index for GigaMap] https://github.com/eclipse-store/store/pull/548[[548]]
-* Lucene index update https://github.com/eclipse-store/store/pull/546[[546]]
+* GigaMap
+    - New xref:gigamap:indexing/jvector/index.adoc[Vector index] https://github.com/eclipse-store/store/pull/548[[548]]
+    - New xref:gigamap:indexing/spatial/index.adoc[Spatial index] https://github.com/eclipse-store/store/pull/582[[582]]
+    - xref:gigamap:indexing/lucene/index.adoc[Lucene index] update https://github.com/eclipse-store/store/pull/546[[546]]
+    - Concurrency handling improvements and eventual indexing https://github.com/eclipse-store/store/pull/564[[564]]
+    - ByteIndexers for numeric and Instant types https://github.com/eclipse-store/store/pull/574[[574]]
+    - Indexer for ZonedDateTime and Instant https://github.com/eclipse-store/store/pull/565[[565]]
+    - Add support for zero and negative value indexing in BinaryIndexers https://github.com/eclipse-store/store/pull/566[[566]]
 * Native memory accessors to ensure future compatibility with upcoming Java versions https://github.com/eclipse-serializer/serializer/issues/130[[130]] https://github.com/eclipse-serializer/serializer/pull/225[[225]]
 
 === Bugfixes
 
-* Fix for ArrayIndexOutOfBoundsException in GigaMap https://github.com/eclipse-store/store/issues/500[[500]] https://github.com/eclipse-store/store/pull/524[[524]]
-* Fix for NullPointerException in GigaMap https://github.com/eclipse-store/store/pull/549[[549]]
+* Fixes for GigaMap https://github.com/eclipse-store/store/issues/500[[500]] https://github.com/eclipse-store/store/pull/524[[524]] https://github.com/eclipse-store/store/pull/549[[549]] https://github.com/eclipse-store/store/pull/563[[563]] https://github.com/eclipse-store/store/pull/570[[570]] https://github.com/eclipse-store/store/pull/571[[571]] https://github.com/eclipse-store/store/pull/586[[586]] https://github.com/eclipse-store/store/pull/595[[595]]
 * Fixes for Lazy references, which could cause storage inconsistencies https://github.com/eclipse-serializer/serializer/issues/221[[221]] https://github.com/eclipse-serializer/serializer/pull/222[[222]] https://github.com/eclipse-serializer/serializer/pull/227[[227]]
 
 === Other changes
 
 * Type handling updates and adjustments to changes in the JDK https://github.com/eclipse-serializer/serializer/issues/223[[223]] https://github.com/eclipse-serializer/serializer/pull/224[[224]] https://github.com/eclipse-serializer/serializer/issues/226[[226]] https://github.com/eclipse-serializer/serializer/pull/228[[228]]
+* Vaadin viewer app optimizations https://github.com/eclipse-store/store/pull/588[[588]]
 
 
 == 3.1.0
