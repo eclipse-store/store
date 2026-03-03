@@ -34,10 +34,10 @@ import org.eclipse.serializer.persistence.types.PersistenceStoreHandler;
  * <p>
  * Key Responsibilities:
  * <ul>
- * <li>Storing data fields and references for a CustomConstraints.Default<?> instance into a binary format.</li>
- * <li>Restoring a CustomConstraints.Default<?> instance from binary data and associating it with its parent
+ * <li>Storing data fields and references for a {@code CustomConstraints.Default<?>} instance into a binary format.</li>
+ * <li>Restoring a {@code CustomConstraints.Default<?>} instance from binary data and associating it with its parent
  * and other dependencies.</li>
- * <li>Updating the state of a CustomConstraints.Default<?> instance when its binary data is loaded.</li>
+ * <li>Updating the state of a {@code CustomConstraints.Default<?>} instance when its binary data is loaded.</li>
  * <li>Iterating over loadable references to facilitate dependency resolution.</li>
  * </ul>
  */

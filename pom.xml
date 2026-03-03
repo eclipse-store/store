@@ -241,7 +241,7 @@
                         <doclint>none</doclint>
                         <failOnError>${javadoc.failed.on.error}</failOnError>
                         <notree>true</notree>
-                        <source>8</source>
+                        <source>${maven.compiler.release}</source>
                         <doctitle>Eclipse Store API</doctitle>
                         <windowtitle>Eclipse Store API</windowtitle>
                         <archive>
