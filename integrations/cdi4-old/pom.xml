@@ -18,6 +18,9 @@
 
     <artifactId>eclipse-store-integrations-cdi4</artifactId>
     <packaging>pom</packaging>
+    <name>EclipseStore Integrations CDI 4</name>
+    <description>EclipseStore CDI 4 Extension</description>
+    <url>https://projects.eclipse.org/projects/technology.store</url>
 
     <distributionManagement>
         <relocation>
