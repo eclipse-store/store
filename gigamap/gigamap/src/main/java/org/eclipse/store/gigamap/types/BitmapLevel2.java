@@ -626,11 +626,15 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 	@Override
 	protected void finalize() throws Throwable
 	{
-		deallocate(this.level2Address);
+		if(this.level2Address > 0)
+		{
+			deallocate(this.level2Address);
+		}
 	}
-	
-	
-	
+
+
+
+
 	///////////////////////////////////////////////////////////////////////////
 	// Allocation //
 	///////////////
@@ -659,7 +663,7 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 		return level1Address;
 	}
 		
-	private static void deallocate(final long level2Address)
+	static void deallocate(final long level2Address)
 	{
 		final long indexArrayStart = getIndexArrayStartAddress(level2Address);
 		final long indexArrayBound = getIndexArrayBoundAddressEffective(level2Address);

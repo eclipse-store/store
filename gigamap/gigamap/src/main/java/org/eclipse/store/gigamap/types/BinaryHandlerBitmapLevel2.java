@@ -99,6 +99,8 @@ public class BinaryHandlerBitmapLevel2 extends AbstractBinaryHandlerCustom<Bitma
 		final PersistenceLoadHandler handler
 	)
 	{
+		final long oldAddress = instance.level2Address;
+
 		final long contentLength = Binary.toBinaryListContentByteLength(data.getBinaryListTotalByteLength(BITMAP_LEVEL2_VERSION_SIZE));
 		final int  fullLength    = BitmapLevel2.getTotalLengthFromPersistentLength(XTypes.to_int(contentLength));
 
@@ -111,6 +113,12 @@ public class BinaryHandlerBitmapLevel2 extends AbstractBinaryHandlerCustom<Bitma
 		BitmapLevel2.validateLevel2SegmentType(level2Address);
 
 		instance.level2Address = level2Address;
+
+		// deallocate old off-heap memory to prevent leaks when updating an existing instance
+		if(oldAddress > 0)
+		{
+			BitmapLevel2.deallocate(oldAddress);
+		}
 	}
 	
 	@Override
