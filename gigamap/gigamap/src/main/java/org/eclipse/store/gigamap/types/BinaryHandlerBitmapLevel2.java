@@ -66,18 +66,7 @@ public class BinaryHandlerBitmapLevel2 extends AbstractBinaryHandlerCustom<Bitma
 	@Override
 	public BitmapLevel2 create(final Binary data, final PersistenceLoadHandler handler)
 	{
-		final long contentLength = Binary.toBinaryListContentByteLength(data.getBinaryListTotalByteLength(BITMAP_LEVEL2_VERSION_SIZE));
-		final int  fullLength    = BitmapLevel2.getTotalLengthFromPersistentLength(XTypes.to_int(contentLength));
-		
-		final long level2Address     = XMemory.allocate(fullLength);
-		final long persistentAddress = BitmapLevel2.toPersistentDataAddress(level2Address);
-		data.copyToAddress(Binary.toBinaryListElementsOffset(BITMAP_LIST_OFFSET), persistentAddress, contentLength);
-		BitmapLevel2.initializeFromData(level2Address, fullLength);
-		
-		// required to prevent JVM crashes caused by misinterpreted off-heap data.
-		BitmapLevel2.validateLevel2SegmentType(level2Address);
-				
-		return new BitmapLevel2(false, level2Address);
+		return new BitmapLevel2(false, 0);
 	}
 	
 	@Override
@@ -110,7 +99,18 @@ public class BinaryHandlerBitmapLevel2 extends AbstractBinaryHandlerCustom<Bitma
 		final PersistenceLoadHandler handler
 	)
 	{
-		// there are no references to be set, hence nothing to do here
+		final long contentLength = Binary.toBinaryListContentByteLength(data.getBinaryListTotalByteLength(BITMAP_LEVEL2_VERSION_SIZE));
+		final int  fullLength    = BitmapLevel2.getTotalLengthFromPersistentLength(XTypes.to_int(contentLength));
+
+		final long level2Address     = XMemory.allocate(fullLength);
+		final long persistentAddress = BitmapLevel2.toPersistentDataAddress(level2Address);
+		data.copyToAddress(Binary.toBinaryListElementsOffset(BITMAP_LIST_OFFSET), persistentAddress, contentLength);
+		BitmapLevel2.initializeFromData(level2Address, fullLength);
+
+		// required to prevent JVM crashes caused by misinterpreted off-heap data.
+		BitmapLevel2.validateLevel2SegmentType(level2Address);
+
+		instance.level2Address = level2Address;
 	}
 	
 	@Override
