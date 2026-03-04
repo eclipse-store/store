@@ -672,9 +672,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // GraphSearcher pool for thread-local reuse
         private transient ExplicitThreadLocal<GraphSearcher> searcherPool;
 
-        // Flag indicating graph was loaded from file (skip rebuild)
-        private transient boolean graphLoadedFromFile;
-
         // Read/write lock for builder operations.
         // Read lock: concurrent searches and background-worker mutations
         // Write lock: exclusive access for cleanup, persistence, removeAll, close
@@ -750,14 +747,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 this.initializeIndex();
 
-                // Skip rebuild if graph was loaded from file
-                if(this.graphLoadedFromFile)
-                {
-                    this.graphLoadedFromFile = false; // Reset flag
-                    return;
-                }
-
-                // Rebuild graph from stored data (after deserialization)
+                // Rebuild graph from stored data (after deserialization).
+                // Always needed so the in-memory builder has the full graph
+                // for subsequent updates and persistToDisk().
                 this.rebuildGraphFromStore();
             }
         }
@@ -826,6 +818,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 );
             }
 
+            // Initialize in-memory builder
+            this.initializeInMemoryBuilder();
+
             // Try to load from disk if on-disk mode is enabled
             if(this.configuration.onDisk())
             {
@@ -839,24 +834,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 );
                 if(this.diskManager.tryLoad())
                 {
-                    this.graphLoadedFromFile = true;
                     // Mark PQ as trained if compression was enabled (FusedPQ is embedded)
                     if(this.pqManager != null)
                     {
                         this.pqManager.markTrained();
                         LOG.debug("FusedPQ compression loaded from disk for '{}'", this.name);
                     }
-                    // Initialize searcher pool for disk index
-                    this.initializeSearcherPool();
-                    // Start background managers if enabled
-                    this.startBackgroundManagersIfEnabled();
-                    return;
                 }
-                LOG.info("Could not load disk index for '{}', will build in-memory and persist later", this.name);
+                else
+                {
+                    LOG.info("Could not load disk index for '{}', will build in-memory and persist later", this.name);
+                }
             }
 
-            // Initialize in-memory builder
-            this.initializeInMemoryBuilder();
+            // Initialize searcher pool
+            this.initializeSearcherPool();
 
             // Start background managers if enabled
             this.startBackgroundManagersIfEnabled();
@@ -923,9 +915,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 true // use hierarchical index
             );
             this.index = (OnHeapGraphIndex)this.builder.getGraph();
-
-            // Initialize searcher pool for in-memory index
-            this.initializeSearcherPool();
         }
 
         /**
