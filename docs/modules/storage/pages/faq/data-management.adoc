@@ -19,7 +19,7 @@ When objects are updated or deleted, the old data is not immediately removed fro
 Instead, new data is appended and the deleted data becomes "garbage."
 The xref:housekeeping.adoc[housekeeping] process runs in the background to reclaim space from deleted or updated objects.
 
-You can monitor storage growth through the xref:../misc:monitoring/index.adoc[monitoring] JMX beans, which report the amount of persisted data.
+You can monitor storage growth through the xref:misc:monitoring/index.adoc[monitoring] JMX beans, which report the amount of persisted data.
 
 == How can I reduce storage size?
 

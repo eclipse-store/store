@@ -87,7 +87,7 @@ If the application runs out of memory:
 * Use xref:loading-data/lazy-loading/index.adoc[Lazy references] to avoid loading the entire object graph into memory
 * Configure the xref:loading-data/lazy-loading/clearing-lazy-references.adoc[LazyReferenceManager] to clear unused lazy references
 * Increase the JVM heap size (`-Xmx`)
-* Monitor memory usage via xref:../misc:monitoring/index.adoc[JMX monitoring]
+* Monitor memory usage via xref:misc:monitoring/index.adoc[JMX monitoring]
 
 == Storage Recovery Steps
 
