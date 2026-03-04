@@ -196,7 +196,7 @@ class VectorIndexDiskTest
             }
         }
 
-        // Phase 2: Reload and verify
+        // Phase 2: Reload, verify, and add more vectors
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
             {
@@ -219,6 +219,35 @@ class VectorIndexDiskTest
 
                 // Results should match (or at least be very similar due to HNSW nature)
                 assertEquals(expectedIds.size(), actualIds.size());
+
+                // Add more vectors after reload — this exercises the builder
+                // that must be available even when the disk index was loaded
+                final int additionalCount = 100;
+                addRandomDocuments(gigaMap, new Random(123), dimension, additionalCount, "reload_doc_");
+                assertEquals(vectorCount + additionalCount, gigaMap.size());
+
+                // Persist updated index and store
+                index.persistToDisk();
+                storage.storeRoot();
+            }
+        }
+
+        // Phase 3: Reload again and verify added vectors survived
+        {
+            try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+            {
+                @SuppressWarnings("unchecked")
+                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
+
+                assertEquals(vectorCount + 100, gigaMap.size());
+
+                final VectorIndex<Document> index = vectorIndices.get("embeddings");
+                assertTrue(index.isOnDisk());
+
+                // Search should return results from the full dataset
+                final VectorSearchResult<Document> result = index.search(queryVector, 10);
+                assertEquals(10, result.size());
             }
         }
     }
@@ -359,11 +388,16 @@ class VectorIndexDiskTest
                     .indexDirectory(indexDir)
                     .build();
 
-                vectorIndices.add("embeddings", config, new ComputedDocumentVectorizer());
+                final VectorIndex<Document> index = vectorIndices.add(
+                    "embeddings", config, new ComputedDocumentVectorizer()
+                );
 
                 addRandomDocuments(gigaMap, random, dimension, 100, "phase1_doc_");
 
                 assertEquals(100, gigaMap.size());
+
+                // Persist to disk so Phase 2 exercises the disk-loaded path
+                index.persistToDisk();
                 storage.storeRoot();
             }
         }
@@ -382,10 +416,13 @@ class VectorIndexDiskTest
                 final VectorSearchResult<Document> result = index.search(randomVector(random, dimension), 10);
                 assertEquals(10, result.size());
 
-                // Add more vectors
+                // Add more vectors after disk-loaded restart
                 addRandomDocuments(gigaMap, random, dimension, 50, "phase2_doc_");
 
                 assertEquals(150, gigaMap.size());
+
+                // Persist updated index so Phase 3 loads from disk too
+                index.persistToDisk();
                 storage.storeRoot();
             }
         }
