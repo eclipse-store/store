@@ -21,7 +21,7 @@
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
     <properties>
-        <aws.sdk.version>2.35.5</aws.sdk.version>
+        <aws.sdk.version>2.42.4</aws.sdk.version>
     </properties>
 
 	<modules>
