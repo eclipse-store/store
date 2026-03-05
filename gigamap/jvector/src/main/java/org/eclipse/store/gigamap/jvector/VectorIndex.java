@@ -1231,6 +1231,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             this.markStateChangeChildren();
 
+            final int ordinal = toOrdinal(entityId);
+
+            // In incremental mode, mark the ordinal as deleted from disk graph
+            // so disk search excludes the stale version immediately,
+            // regardless of whether indexing is synchronous or eventual.
+            if(this.incrementalMode && this.diskDeletedOrdinals != null)
+            {
+                this.diskDeletedOrdinals.add(ordinal);
+            }
+
             if(this.isEventualIndexing())
             {
                 // Defer graph update to background thread
@@ -1238,21 +1248,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             else
             {
-                final int ordinal = toOrdinal(entityId);
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-
-                // In incremental mode, mark the ordinal as deleted from disk graph
-                // so disk search excludes the stale version immediately.
-                if(this.incrementalMode && this.diskDeletedOrdinals != null)
-                {
-                    this.diskDeletedOrdinals.add(ordinal);
-                }
 
                 this.executeOrDeferBuilderOp(() ->
                 {
-                    // In incremental mode, the ordinal may not exist in the in-memory builder
-                    // (it only exists on disk). Only mark deleted if it's in the builder.
-                    if(!this.incrementalMode)
+                    // Mark deleted in builder if the node exists there.
+                    // In incremental mode, nodes added after disk reload live in the builder
+                    // and must be deleted before re-adding. Disk-only nodes are excluded
+                    // via diskDeletedOrdinals and won't be in the builder.
+                    if(this.index != null && this.index.containsNode(ordinal))
                     {
                         this.builder.markNodeDeleted(ordinal);
                         this.builder.removeDeletedNodes();
@@ -1360,6 +1364,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             this.markStateChangeChildren();
 
+            // In incremental mode, mark the ordinal as deleted from disk graph
+            // so disk search excludes it immediately, even before background
+            // processing has updated the on-disk graph.
+            if(this.incrementalMode && this.diskDeletedOrdinals != null)
+            {
+                this.diskDeletedOrdinals.add(ordinal);
+            }
+
             if(this.isEventualIndexing())
             {
                 // Defer graph update to background thread
@@ -1367,15 +1379,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             else
             {
-                // In incremental mode, mark the ordinal as deleted from disk graph
-                // so disk search excludes it immediately.
-                if(this.incrementalMode && this.diskDeletedOrdinals != null)
-                {
-                    this.diskDeletedOrdinals.add(ordinal);
-                }
-
-                // Only mark deleted in builder if the node exists there (non-incremental mode)
-                if(!this.incrementalMode)
+                // Mark deleted in the in-memory builder if the node exists there
+                // (e.g., added after disk reload). Disk-only nodes are excluded
+                // via diskDeletedOrdinals and won't be in the builder.
+                if(this.index != null && this.index.containsNode(ordinal))
                 {
                     this.executeOrDeferBuilderOp(() -> this.builder.markNodeDeleted(ordinal));
                 }
@@ -1539,6 +1546,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(this.inMemorySearcherPool != null && this.index != null && this.index.size(0) > 0)
             {
                 final GraphSearcher memSearcher = this.inMemorySearcherPool.get();
+                // Refresh view so the searcher sees nodes added since pool initialization
+                memSearcher.setView(this.index.getView());
                 memResult = memSearcher.search(scoreProvider, k, this.index.getView().liveNodes());
             }
 

@@ -14,9 +14,12 @@ package org.eclipse.store.gigamap.jvector;
  * #L%
  */
 
-import static java.time.Duration.ofMillis;
-import static org.awaitility.Awaitility.await;
-import static org.junit.jupiter.api.Assertions.*;
+import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -32,12 +35,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
-import org.eclipse.store.gigamap.types.GigaMap;
-import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
-import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
-import org.junit.jupiter.api.io.TempDir;
+import static java.time.Duration.ofMillis;
+import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for on-disk VectorIndex functionality and Product Quantization.
@@ -135,6 +135,7 @@ class VectorIndexDiskTest
     void testOnDiskIndexCreationAndPersistence(@TempDir final Path tempDir) throws IOException
     {
         final int vectorCount = 500;
+        final int additionalCount = 100;
         final int dimension = 64;
         final Random random = new Random(42);
 
@@ -222,7 +223,6 @@ class VectorIndexDiskTest
 
                 // Add more vectors after reload — this exercises the builder
                 // that must be available even when the disk index was loaded
-                final int additionalCount = 100;
                 addRandomDocuments(gigaMap, new Random(123), dimension, additionalCount, "reload_doc_");
                 assertEquals(vectorCount + additionalCount, gigaMap.size());
 
@@ -240,7 +240,7 @@ class VectorIndexDiskTest
                 final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
-                assertEquals(vectorCount + 100, gigaMap.size());
+                assertEquals(vectorCount + additionalCount, gigaMap.size());
 
                 final VectorIndex<Document> index = vectorIndices.get("embeddings");
                 assertTrue(index.isOnDisk());
@@ -2650,12 +2650,11 @@ class VectorIndexDiskTest
                     .indexDirectory(indexDir)
                     .build();
 
-                vectorIndices.add("embeddings", config, new ComputedDocumentVectorizer());
+                final VectorIndex<Document> index = vectorIndices.add("embeddings", config, new ComputedDocumentVectorizer());
 
                 addRandomDocuments(gigaMap, random, dimension, 100, "doc_");
                 gigaMap.add(new Document("needle", needleVector));
 
-                final VectorIndex<Document> index = vectorIndices.get("embeddings");
                 needleEntityId = index.search(needleVector, 1).iterator().next().entityId();
 
                 index.persistToDisk();
@@ -2672,9 +2671,12 @@ class VectorIndexDiskTest
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
                 final VectorIndex<Document> index = vectorIndices.get("embeddings");
 
-                // Update needle: remove old and add new with opposite direction
-                gigaMap.removeById(needleEntityId);
-                gigaMap.add(new Document("updated_needle", oppositeVector));
+                // Update needle in-place via set() — exercises internalUpdate() in incremental mode.
+                // This keeps the same entityId but changes the vector direction.
+                // Force lazy segment loading before set() (set uses peek() internally).
+                assertNotNull(gigaMap.get(needleEntityId));
+                gigaMap.set(needleEntityId, new Document("updated_needle", oppositeVector));
+                assertEquals(101, gigaMap.size(), "Size should be unchanged after in-place update");
 
                 // Search for original needle direction — updated entity should not be top result
                 final VectorSearchResult<Document> result = index.search(needleVector, 5);
@@ -2696,6 +2698,38 @@ class VectorIndexDiskTest
                     }
                 }
                 assertTrue(foundUpdated, "Updated needle should be found when searching in its new direction");
+
+                // Also test updating a node that was added in incremental mode (builder-only).
+                // Add a new entity, then update it in-place — exercises internalUpdate()
+                // for an ordinal that exists in the builder, not on disk.
+                final long newId = gigaMap.add(new Document("builder_node", needleVector));
+                assertEquals(102, gigaMap.size());
+
+                // Update it in-place — the builder must delete the old node and re-add
+                gigaMap.get(newId); // force lazy segment loading
+                gigaMap.set(newId, new Document("builder_node_updated", oppositeVector));
+                assertEquals(102, gigaMap.size(), "Size unchanged after in-place update of builder node");
+
+                // Verify the entity was actually updated
+                assertEquals("builder_node_updated", gigaMap.get(newId).content());
+
+                // Search should find the updated builder node and not the stale version
+                final VectorSearchResult<Document> builderResult = index.search(oppositeVector, 102);
+                boolean foundBuilderUpdated = false;
+                boolean foundStaleBuilderNode = false;
+                for(final VectorSearchResult.Entry<Document> entry : builderResult)
+                {
+                    if("builder_node_updated".equals(entry.entity().content()))
+                    {
+                        foundBuilderUpdated = true;
+                    }
+                    if("builder_node".equals(entry.entity().content()))
+                    {
+                        foundStaleBuilderNode = true;
+                    }
+                }
+                assertFalse(foundStaleBuilderNode, "Stale builder node should not appear in search");
+                assertTrue(foundBuilderUpdated, "Updated builder node should be found in search");
             }
         }
     }
