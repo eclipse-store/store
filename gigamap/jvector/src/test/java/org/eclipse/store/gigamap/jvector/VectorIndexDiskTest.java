@@ -2460,11 +2460,13 @@ class VectorIndexDiskTest
         final Path indexDir = tempDir.resolve("index");
         final Path storageDir = tempDir.resolve("storage");
 
-        // Add a distinguishable needle vector
-        final float[] needleVector = new float[dimension];
-        needleVector[0] = 1.0f;
+        // Distinguishable needle vectors for deterministic assertions
+        final float[] oldNeedleVector = new float[dimension];
+        oldNeedleVector[0] = 1.0f;
+        final float[] newNeedleVector = new float[dimension];
+        newNeedleVector[1] = 1.0f;
 
-        // Phase 1: Create index, add vectors, persist
+        // Phase 1: Create index, add vectors including old needle, persist
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
             {
@@ -2482,6 +2484,7 @@ class VectorIndexDiskTest
                 final VectorIndex<Document> index = vectorIndices.add("embeddings", config, new ComputedDocumentVectorizer());
 
                 addRandomDocuments(gigaMap, random, dimension, 100, "original_");
+                gigaMap.add(new Document("original_needle", oldNeedleVector));
 
                 index.persistToDisk();
                 storage.storeRoot();
@@ -2497,39 +2500,27 @@ class VectorIndexDiskTest
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
                 final VectorIndex<Document> index = vectorIndices.get("embeddings");
 
-                assertEquals(100, gigaMap.size());
+                assertEquals(101, gigaMap.size());
 
                 // Add new vectors (goes to in-memory builder in incremental mode)
                 addRandomDocuments(gigaMap, random, dimension, 50, "new_");
+                gigaMap.add(new Document("new_needle", newNeedleVector));
 
-                // Add the needle vector
-                gigaMap.add(new Document("needle", needleVector));
+                assertEquals(152, gigaMap.size());
 
-                assertEquals(151, gigaMap.size());
+                // Search for old needle — should be found from disk graph
+                final VectorSearchResult<Document> oldResult = index.search(oldNeedleVector, 5);
+                final VectorSearchResult.Entry<Document> oldFirst = oldResult.iterator().next();
+                assertEquals("original_needle", oldFirst.entity().content(),
+                    "Old needle should be found from disk graph");
+                assertTrue(oldFirst.score() > 0.99f, "Exact match should have score close to 1.0");
 
-                // Search should find results from both disk and in-memory
-                final VectorSearchResult<Document> result = index.search(needleVector, 10);
-                assertEquals(10, result.size());
-
-                // The needle should be the first result
-                final VectorSearchResult.Entry<Document> first = result.iterator().next();
-                assertEquals("needle", first.entity().content(), "Needle should be found in incremental search");
-                assertTrue(first.score() > 0.99f, "Exact match should have score close to 1.0");
-
-                // Verify search can find both old (disk) and new (in-memory) vectors
-                // Use a broader search with a random query to avoid bias toward one set
-                final VectorSearchResult<Document> broadResult = index.search(
-                    randomVector(new Random(999), dimension), 50
-                );
-                boolean hasOld = false;
-                boolean hasNew = false;
-                for(final VectorSearchResult.Entry<Document> entry : broadResult)
-                {
-                    if(entry.entity().content().startsWith("original_")) hasOld = true;
-                    if(entry.entity().content().startsWith("new_"))      hasNew = true;
-                }
-                assertTrue(hasOld, "Should find old vectors from disk graph");
-                assertTrue(hasNew, "Should find new vectors from in-memory builder");
+                // Search for new needle — should be found from in-memory builder
+                final VectorSearchResult<Document> newResult = index.search(newNeedleVector, 5);
+                final VectorSearchResult.Entry<Document> newFirst = newResult.iterator().next();
+                assertEquals("new_needle", newFirst.entity().content(),
+                    "New needle should be found from in-memory builder");
+                assertTrue(newFirst.score() > 0.99f, "Exact match should have score close to 1.0");
             }
         }
     }
@@ -2577,8 +2568,9 @@ class VectorIndexDiskTest
                 // Verify needle is found
                 final VectorIndex<Document> index = vectorIndices.get("embeddings");
                 final VectorSearchResult<Document> result = index.search(needleVector, 5);
-                assertEquals("needle", result.iterator().next().entity().content());
-                needleEntityId = result.iterator().next().entityId();
+                final VectorSearchResult.Entry<Document> firstEntry = result.iterator().next();
+                assertEquals("needle", firstEntry.entity().content());
+                needleEntityId = firstEntry.entityId();
 
                 index.persistToDisk();
                 storage.storeRoot();
