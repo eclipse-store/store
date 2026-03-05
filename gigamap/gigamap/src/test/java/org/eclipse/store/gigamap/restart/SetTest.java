@@ -55,12 +55,8 @@ public class SetTest
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
             final GigaMap<Customer> root = (GigaMap<Customer>) manager.root();
-            Optional<Customer> first = root.query().findFirst();
-
-            if (first.isPresent()) {
-                root.set(0, newCustomer);
-                root.store();
-            }
+            root.set(0, newCustomer);
+            root.store();
 
             long count = root.query(nameIndexer.startsWith("Updated")).count();
             assertEquals(1, count);
