@@ -24,20 +24,19 @@ final class VectorEntry
 {
     /*
      * Indexer for source entity IDs.
-     * It stores source entity IDs as 1-based to avoid 0 as an invalid binary index value.
      */
     final static BinaryIndexerLong<VectorEntry> SOURCE_ENTITY_ID_INDEXER = new BinaryIndexerLong.Abstract<>()
     {
         @Override
-        protected Long getLong(final VectorEntry entry)
+        public String name()
         {
-            return entry.sourceEntityId + 1;
+            return "sourceEntityId";
         }
 
         @Override
-        public <S extends VectorEntry> Condition<S> is(final Long key)
+        protected Long getLong(final VectorEntry entry)
         {
-            return super.is(key + 1);
+            return entry.sourceEntityId;
         }
     };
 
