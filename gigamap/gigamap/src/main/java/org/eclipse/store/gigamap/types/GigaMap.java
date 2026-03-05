@@ -1726,24 +1726,25 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		
 		private E internalSet(final long entityId, final E entity)
 		{
-			final GigaLevel3<E>          level3   = this.level3();
-			final Lazy<GigaLevel2<E>> lvl2Lazy = level3.segments[this.toLevel3Index(entityId)];
-			final GigaLevel2<E>          level2   = lvl2Lazy.peek();
-			final Lazy<GigaLevel1<E>> lvl1Lazy = level2.segments[this.toLevel2Index(entityId)];
-			final GigaLevel1<E>          level1   = lvl1Lazy.peek();
-			
+			final GigaLevel3<E>       level3      = this.level3();
+			final int                 level3Index = this.toLevel3Index(entityId);
+			final Lazy<GigaLevel2<E>> lvl2Lazy    = level3.segments[level3Index];
+			final GigaLevel2<E>       level2      = lvl2Lazy.get();
+			final int                 level2Index = this.toLevel2Index(entityId);
+			final Lazy<GigaLevel1<E>> lvl1Lazy    = level2.segments[level2Index];
+			final GigaLevel1<E>       level1      = lvl1Lazy.get();
+
 			final int level1Index    = this.toLevel1Index(entityId);
 			final E   replacedEntity = level1.entities[level1Index];
-			
+
 			// only change state if there is an actual change in the entity data.
 			if(!this.equalator.equal(replacedEntity, entity))
 			{
 				this.constraints.check(entityId, replacedEntity, entity);
 				level1.entities[level1Index] = entity;
-				level1.markStateChangeInstance();
-				level2.markStateChangeChildren();
-				level3.markStateChangeChildren();
-				
+				level3.markChanged(level3Index);
+				level2.markChanged(level2Index);
+
 				this.indices.internalUpdateIndices(entityId, replacedEntity, entity, this.constraints.custom());
 			}
 			
