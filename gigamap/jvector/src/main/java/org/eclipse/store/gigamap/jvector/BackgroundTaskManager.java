@@ -50,7 +50,7 @@ class BackgroundTaskManager
     /**
      * Sealed interface for indexing operations that can be queued.
      */
-    sealed interface IndexingOperation
+    private static sealed interface IndexingOperation
         permits IndexingOperation.Add,
                 IndexingOperation.Update,
                 IndexingOperation.Remove,
@@ -246,10 +246,31 @@ class BackgroundTaskManager
     // Indexing queue methods
     // ========================================================================
 
+
+    void enqueueAdd(final VectorEntry entry)
+    {
+        this.enqueue(new IndexingOperation.Add(entry));
+    }
+
+    void enqueueBatchAdd(final List<VectorEntry> entries)
+    {
+        this.enqueue(new IndexingOperation.BatchAdd(entries));
+    }
+
+    void enqueueUpdate(final VectorEntry entry)
+    {
+        this.enqueue(new IndexingOperation.Update(entry));
+    }
+
+    void enqueueRemove(final int ordinal)
+    {
+        this.enqueue(new IndexingOperation.Remove(ordinal));
+    }
+
     /**
      * Enqueues an indexing operation for background processing.
      */
-    void enqueue(final IndexingOperation op)
+    private void enqueue(final IndexingOperation op)
     {
         this.indexingQueue.add(op);
         if(this.indexingTaskScheduled.compareAndSet(false, true))
