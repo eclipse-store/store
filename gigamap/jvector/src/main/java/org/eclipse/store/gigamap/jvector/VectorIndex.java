@@ -38,9 +38,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -1577,8 +1575,32 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 return Bits.ALL;
             }
-            final Set<Integer> deleted = this.diskDeletedOrdinals;
-            return i -> !deleted.contains(i);
+
+            int maxOrdinal = -1;
+            for(final Integer ord : this.diskDeletedOrdinals)
+            {
+                if(ord > maxOrdinal)
+                {
+                    maxOrdinal = ord;
+                }
+            }
+
+            if(maxOrdinal < 0)
+            {
+                return Bits.ALL;
+            }
+
+            // Build a primitive boolean[] mask to avoid boxing in the hot search path.
+            final boolean[] deletedMask = new boolean[maxOrdinal + 1];
+            for(final Integer ord : this.diskDeletedOrdinals)
+            {
+                if(ord >= 0)
+                {
+                    deletedMask[ord] = true;
+                }
+            }
+
+            return i -> i < 0 || i >= deletedMask.length || !deletedMask[i];
         }
 
         /**
@@ -1591,24 +1613,76 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final int k
         )
         {
-            // Collect all nodes into a map (ordinal -> best score)
-            final Map<Integer, Float> bestScores = new HashMap<>();
+            final SearchResult.NodeScore[] diskNodes = diskResult.getNodes();
+            final SearchResult.NodeScore[] memNodes  = memResult.getNodes();
+            final int totalCandidates = diskNodes.length + memNodes.length;
 
-            for(final SearchResult.NodeScore node : diskResult.getNodes())
+            if(totalCandidates == 0)
             {
-                bestScores.merge(node.node, node.score, Math::max);
-            }
-            for(final SearchResult.NodeScore node : memResult.getNodes())
-            {
-                bestScores.merge(node.node, node.score, Math::max);
+                final int visitedCount = diskResult.getVisitedCount() + memResult.getVisitedCount();
+                return new SearchResult(new SearchResult.NodeScore[0], visitedCount, 0, 0, 0, 0f);
             }
 
-            // Sort by score descending and take top-k
-            final SearchResult.NodeScore[] merged = bestScores.entrySet().stream()
-                .sorted((a, b) -> Float.compare(b.getValue(), a.getValue()))
-                .limit(k)
-                .map(e -> new SearchResult.NodeScore(e.getKey(), e.getValue()))
-                .toArray(SearchResult.NodeScore[]::new);
+            /*
+             * Primitive open-addressing hash table (int -> float) to deduplicate by ordinal
+             * and to avoid the overhead of HashMap<Integer, Float> boxing
+             */
+            final int tableSize = Integer.highestOneBit(totalCandidates * 2 - 1) << 1;
+            final int[]   keys   = new int  [tableSize];
+            final float[] values = new float[tableSize];
+            Arrays.fill(keys, -1);
+
+            int uniqueCount = 0;
+            for (final SearchResult.NodeScore[] nodes : new SearchResult.NodeScore[][]{diskNodes, memNodes})
+            {
+                for (final SearchResult.NodeScore node : nodes)
+                {
+                    int idx =
+                        (node.node & 0x7fffffff) // strip the sign bit, ensuring a non-negative hash value
+                        & (tableSize - 1) // a fast modulo since tableSize is always a power of two
+                    ;
+                    while (true)
+                    {
+                        if (keys[idx] == -1) // empty slot — node not yet in the table
+                        {
+                            keys[idx] = node.node;
+                            values[idx] = node.score;
+                            uniqueCount++;
+                            break;
+                        }
+                        if (keys[idx] == node.node) // duplicate found — same node already present
+                        {
+                            if (node.score > values[idx])
+                            {
+                                values[idx] = node.score;
+                            }
+                            break;
+                        }
+
+                        // collision — different node occupies this slot
+                        // advance to the next slot
+                        idx = (idx + 1) & (tableSize - 1);
+                    }
+                }
+            }
+
+            // Materialize and sort
+            final SearchResult.NodeScore[] all = new SearchResult.NodeScore[uniqueCount];
+            int outIdx = 0;
+            for(int i = 0; i < tableSize && outIdx < uniqueCount; i++)
+            {
+                if(keys[i] != -1)
+                {
+                    all[outIdx++] = new SearchResult.NodeScore(keys[i], values[i]);
+                }
+            }
+
+            Arrays.sort(all, (a, b) -> Float.compare(b.score, a.score));
+
+            final int resultSize = Math.min(k, all.length);
+            final SearchResult.NodeScore[] merged = resultSize == all.length
+                ? all
+                : Arrays.copyOf(all, resultSize);
 
             final int visitedCount = diskResult.getVisitedCount() + memResult.getVisitedCount();
             return new SearchResult(merged, visitedCount, 0, 0, 0, 0f);
@@ -1762,12 +1836,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         return;
                     }
 
-                    // If in incremental mode, exit it first by rebuilding the full graph
-                    if(this.incrementalMode)
-                    {
-                        this.exitIncrementalMode();
-                    }
-
                     // Captured references for Phase 2 (disk write outside synchronized block)
                     final OnHeapGraphIndex         capturedIndex  ;
                     final RandomAccessVectorValues capturedRavv   ;
@@ -1782,6 +1850,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     synchronized(this.parentMap())
                     {
                         this.ensureIndexInitialized();
+
+                        // If in incremental mode, exit it first by rebuilding the full graph.
+                        // Must happen inside synchronized(parentMap) so that
+                        // rebuildGraphFromStore() does not race with in-flight mutations.
+                        if(this.incrementalMode)
+                        {
+                            this.exitIncrementalMode();
+                        }
 
                         // If we have an in-memory builder, prepare for disk write
                         if(this.builder == null || this.index == null)
