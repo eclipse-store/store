@@ -379,22 +379,33 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	}
 	
 	/**
-	 * Get the registered identity indices to distinctly identify entities.
+	 * Get the registered identity indices used to identify entities during lookup and removal operations.
+	 * <p>
+	 * Note: Identity indices do not enforce uniqueness. To ensure that identity values are unique
+	 * across all entities, add a unique constraint via {@link #addUniqueConstraint(String, Indexer)}.
 	 *
-	 * @return all registered indentity indices, might be <code>null</code>
+	 * @return all registered identity indices, might be <code>null</code>
 	 */
 	public XImmutableEnum<? extends BitmapIndex<E, ?>> identityIndices();
-	
+
 	/**
-	 * Sets the identity indices to distinctly identify entities.
+	 * Sets the identity indices used to identify entities during lookup and removal operations.
+	 * <p>
+	 * Identity indices define which fields are used to build internal queries for looking up
+	 * and removing entities. They do not enforce uniqueness. To ensure that no two entities
+	 * share the same identity value, add a unique constraint via {@link #addUniqueConstraint(String, Indexer)}.
 	 *
 	 * @param identityIndices the new, non-empty, identity indices
 	 * @return this
 	 */
 	public BitmapIndices<E> setIdentityIndices(XGettingEnum<? extends IndexIdentifier<? super E, ?>> identityIndices);
-	
+
 	/**
-	 * Sets the identity indices to distinctly identify entities.
+	 * Sets the identity indices used to identify entities during lookup and removal operations.
+	 * <p>
+	 * Identity indices define which fields are used to build internal queries for looking up
+	 * and removing entities. They do not enforce uniqueness. To ensure that no two entities
+	 * share the same identity value, add a unique constraint via {@link #addUniqueConstraint(String, Indexer)}.
 	 *
 	 * @param identityIndices the new, non-empty, identity indices
 	 * @return this
