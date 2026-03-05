@@ -1726,11 +1726,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		
 		private E internalSet(final long entityId, final E entity)
 		{
-			final GigaLevel3<E>          level3   = this.level3();
+			final GigaLevel3<E>       level3   = this.level3();
 			final Lazy<GigaLevel2<E>> lvl2Lazy = level3.segments[this.toLevel3Index(entityId)];
-			final GigaLevel2<E>          level2   = lvl2Lazy.peek();
+			final GigaLevel2<E>       level2   = lvl2Lazy.get();
 			final Lazy<GigaLevel1<E>> lvl1Lazy = level2.segments[this.toLevel2Index(entityId)];
-			final GigaLevel1<E>          level1   = lvl1Lazy.peek();
+			final GigaLevel1<E>       level1   = lvl1Lazy.get();
 			
 			final int level1Index    = this.toLevel1Index(entityId);
 			final E   replacedEntity = level1.entities[level1Index];
