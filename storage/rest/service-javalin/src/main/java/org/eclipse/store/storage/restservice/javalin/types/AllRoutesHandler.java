@@ -14,9 +14,7 @@ package org.eclipse.store.storage.restservice.javalin.types;
  * #L%
  */
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Stream;
 
 import io.javalin.http.Context;
 import io.javalin.http.Handler;
