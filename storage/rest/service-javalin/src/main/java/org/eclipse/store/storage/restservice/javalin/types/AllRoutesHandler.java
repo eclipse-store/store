@@ -40,7 +40,7 @@ public final class AllRoutesHandler implements Handler
 				new RouteWithMethodsDto(base + "/", "get"),
 				new RouteWithMethodsDto(base + "/root", "get"),
 				new RouteWithMethodsDto(base + "/dictionary", "get"),
-				new RouteWithMethodsDto(base + "/object/:oid", "get"),
+				new RouteWithMethodsDto(base + "/object/{oid}", "get"),
 				new RouteWithMethodsDto(base + "/maintenance/filesStatistics", "get")
 		);
 
