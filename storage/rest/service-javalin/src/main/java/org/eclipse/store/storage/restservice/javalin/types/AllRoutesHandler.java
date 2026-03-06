@@ -17,9 +17,6 @@ package org.eclipse.store.storage.restservice.javalin.types;
 import java.util.ArrayList;
 import java.util.stream.Stream;
 
-import org.eclipse.jetty.http.HttpMethod;
-
-import io.javalin.http.ContentType;
 import io.javalin.http.Context;
 import io.javalin.http.Handler;
 
@@ -39,13 +36,13 @@ public final class AllRoutesHandler implements Handler
 		ctx.contentType("application/json");
 
 		var routes = new ArrayList<>(Stream.of(
-				new RouteWithMethodsDto("/" + storageName + "/", HttpMethod.GET.name().toLowerCase()),
-				new RouteWithMethodsDto("/" + storageName + "/root", HttpMethod.GET.name().toLowerCase()),
-				new RouteWithMethodsDto("/" + storageName + "/dictionary", HttpMethod.GET.name().toLowerCase()),
-				new RouteWithMethodsDto("/" + storageName + "/object/:oid", HttpMethod.GET.name().toLowerCase()),
-				new RouteWithMethodsDto("/" + storageName + "/maintenance/filesStatistics", HttpMethod.GET.name().toLowerCase())
+				new RouteWithMethodsDto("/" + storageName + "/", "get"),
+				new RouteWithMethodsDto("/" + storageName + "/root", "get"),
+				new RouteWithMethodsDto("/" + storageName + "/dictionary", "get"),
+				new RouteWithMethodsDto("/" + storageName + "/object/:oid", "get"),
+				new RouteWithMethodsDto("/" + storageName + "/maintenance/filesStatistics", "get")
 		).toList());
 
-		ctx.contentType(ContentType.JSON).result(routes.toString());
+		ctx.contentType("application/json").result(routes.toString());
 	}
 }

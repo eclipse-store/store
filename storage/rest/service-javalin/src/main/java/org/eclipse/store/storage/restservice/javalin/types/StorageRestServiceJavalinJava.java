@@ -23,6 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.javalin.Javalin;
+import io.javalin.config.JavalinConfig;
 import io.javalin.http.Handler;
 
 public class StorageRestServiceJavalinJava implements StorageRestService
@@ -60,34 +61,47 @@ public class StorageRestServiceJavalinJava implements StorageRestService
 	public void start()
 	{
 		if (this.javalin == null) {
-			javalin = Javalin.create();
+			javalin = Javalin.create(config -> {
+				this.setupRoutes(config);
+			});
 		}
-		this.setupRoutes();
 		this.javalin.start(this.port);
 	}
 
 
-	private void setupRoutes()
+	private void setupRoutes(final JavalinConfig config)
 	{
-		final AllRoutesHandler allRoutesHandler = new AllRoutesHandler(this.storageName);
-		final Handler rootHandler = new RootHandler(storageRestAdapter);
-		final Handler dictionaryHandler = new DictionaryHandler(storageRestAdapter);
-		final Handler getObjectHandler = new GetObjectHandler(storageRestAdapter);
-		final Handler storageFilesStatisticsHandler = new StorageFilesStatisticsHandler(storageRestAdapter);
+		final Handler allRoutesHandler   = withExceptionHandling(new AllRoutesHandler(this.storageName));
+		final Handler rootHandler        = withExceptionHandling(new RootHandler(storageRestAdapter));
+		final Handler dictionaryHandler  = withExceptionHandling(new DictionaryHandler(storageRestAdapter));
+		final Handler getObjectHandler   = withExceptionHandling(new GetObjectHandler(storageRestAdapter));
+		final Handler filesStatsHandler  = withExceptionHandling(new StorageFilesStatisticsHandler(storageRestAdapter));
 
-		this.javalin.get("/" + this.storageName + "/", allRoutesHandler);
-		this.javalin.get("/" + this.storageName + "/root", rootHandler);
-		this.javalin.get("/" + this.storageName + "/dictionary", dictionaryHandler);
-		this.javalin.get("/" + this.storageName + "/object/{oid}", getObjectHandler);
-		this.javalin.get("/" + this.storageName + "/maintenance/filesStatistics", storageFilesStatisticsHandler);
+		final String base = "/" + this.storageName;
 
-		this.javalin.exception(InvalidRouteParametersException.class, (e, ctx) -> {
-			ctx.status(404).result(e.getMessage());
-		});
+		config.routes.get(base + "/",                              allRoutesHandler);
+		config.routes.get(base + "/root",                          rootHandler);
+		config.routes.get(base + "/dictionary",                    dictionaryHandler);
+		config.routes.get(base + "/object/{oid}",                  getObjectHandler);
+		config.routes.get(base + "/maintenance/filesStatistics",   filesStatsHandler);
+	}
 
-		this.javalin.exception(StorageRestAdapterException.class, (e, ctx) -> {
-			ctx.status(404).result(e.getMessage());
-		});
+	private Handler withExceptionHandling(final Handler delegate)
+	{
+		return ctx -> {
+			try
+			{
+				delegate.handle(ctx);
+			}
+			catch (final InvalidRouteParametersException e)
+			{
+				ctx.status(404).result(e.getMessage());
+			}
+			catch (final StorageRestAdapterException e)
+			{
+				ctx.status(404).result(e.getMessage());
+			}
+		};
 	}
 
 	@Override
