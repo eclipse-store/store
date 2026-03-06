@@ -15,6 +15,7 @@ package org.eclipse.store.storage.restservice.javalin.types;
  */
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.stream.Stream;
 
 import io.javalin.http.Context;
@@ -33,16 +34,16 @@ public final class AllRoutesHandler implements Handler
 	@Override
 	public void handle(final Context ctx)
 	{
-		ctx.contentType("application/json");
+		final String base = "/" + storageName;
 
-		var routes = new ArrayList<>(Stream.of(
-				new RouteWithMethodsDto("/" + storageName + "/", "get"),
-				new RouteWithMethodsDto("/" + storageName + "/root", "get"),
-				new RouteWithMethodsDto("/" + storageName + "/dictionary", "get"),
-				new RouteWithMethodsDto("/" + storageName + "/object/:oid", "get"),
-				new RouteWithMethodsDto("/" + storageName + "/maintenance/filesStatistics", "get")
-		).toList());
+		var routes = List.of(
+				new RouteWithMethodsDto(base + "/", "get"),
+				new RouteWithMethodsDto(base + "/root", "get"),
+				new RouteWithMethodsDto(base + "/dictionary", "get"),
+				new RouteWithMethodsDto(base + "/object/:oid", "get"),
+				new RouteWithMethodsDto(base + "/maintenance/filesStatistics", "get")
+		);
 
-		ctx.contentType("application/json").result(routes.toString());
+		ctx.json(routes);
 	}
 }
