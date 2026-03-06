@@ -24,6 +24,7 @@ import org.slf4j.LoggerFactory;
 
 import io.javalin.Javalin;
 import io.javalin.config.JavalinConfig;
+import io.javalin.plugin.bundled.CorsPluginConfig;
 
 public class StorageRestServiceJavalinJava implements StorageRestService
 {
@@ -61,6 +62,7 @@ public class StorageRestServiceJavalinJava implements StorageRestService
 	{
 		if (this.javalin == null) {
 			javalin = Javalin.create(config -> {
+				config.bundledPlugins.enableCors(cors -> cors.addRule(CorsPluginConfig.CorsRule::anyHost));
 				this.setupRoutes(config);
 			});
 		}
