@@ -1185,6 +1185,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             else
             {
+                // Drain any deferred builder ops before adding a new graph node.
+                if(!this.cleanupInProgress)
+                {
+                    this.drainDeferredBuilderOps();
+                }
+
                 // Add to HNSW graph using entity ID as ordinal
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
                 this.executeOrDeferBuilderOp(() -> this.builder.addGraphNode(ordinal, vf));
@@ -1246,21 +1252,40 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             else
             {
+                // Drain any deferred builder ops (e.g. from a preceding addAll()) before
+                // modifying graph nodes. This avoids interleaving batch-add ops with
+                // delete+re-add ops, which can corrupt HNSW neighbor lists.
+                if(!this.cleanupInProgress)
+                {
+                    this.drainDeferredBuilderOps();
+                }
+
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
 
-                this.executeOrDeferBuilderOp(() ->
+                if(this.isEmbedded())
                 {
-                    // Mark deleted in builder if the node exists there.
-                    // In incremental mode, nodes added after disk reload live in the builder
-                    // and must be deleted before re-adding. Disk-only nodes are excluded
-                    // via diskDeletedOrdinals and won't be in the builder.
-                    if(this.index != null && this.index.containsNode(ordinal))
+                    // For embedded vectorizers: removeDeletedNodes() uses ForkJoinPool
+                    // whose workers call parentMap.get(), deadlocking with the GigaMap
+                    // monitor we hold. Instead, just mark dirty and let the next
+                    // optimize/persist cycle rebuild the graph connections. The updated
+                    // entity is already in the GigaMap, so EntityBackedVectorValues will
+                    // return the new vector for similarity scoring during search.
+                    this.markDirtyForBackgroundManagers(1);
+                }
+                else
+                {
+                    // For computed vectorizers: vectors are stored separately, so
+                    // removeDeletedNodes() won't call parentMap.get(). Safe to inline.
+                    this.executeOrDeferBuilderOp(() ->
                     {
-                        this.builder.markNodeDeleted(ordinal);
-                        this.builder.removeDeletedNodes();
-                    }
-                    this.builder.addGraphNode(ordinal, vf);
-                });
+                        if(this.index != null && this.index.containsNode(ordinal))
+                        {
+                            this.builder.markNodeDeleted(ordinal);
+                            this.builder.removeDeletedNodes();
+                        }
+                        this.builder.addGraphNode(ordinal, vf);
+                    });
+                }
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
@@ -1316,6 +1341,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             else
             {
+                // Drain any deferred builder ops (e.g. from a preceding set() or removeById())
+                // before adding new nodes. This avoids interleaving delete+re-add ops from
+                // set/remove with batch-add ops, which can corrupt HNSW neighbor lists.
+                // Safe to drain here because we hold the GigaMap monitor and cleanup is not
+                // in progress (if it were, executeOrDeferBuilderOp below would defer anyway).
+                if(!this.cleanupInProgress)
+                {
+                    this.drainDeferredBuilderOps();
+                }
+
                 this.executeOrDeferBuilderOp(() -> this.addGraphNodesSequential(entries));
 
                 // Mark dirty for background managers (with count for debouncing)
@@ -1377,6 +1412,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             else
             {
+                // Drain any deferred builder ops before modifying graph nodes.
+                if(!this.cleanupInProgress)
+                {
+                    this.drainDeferredBuilderOps();
+                }
+
                 // Mark deleted in the in-memory builder if the node exists there
                 // (e.g., added after disk reload). Disk-only nodes are excluded
                 // via diskDeletedOrdinals and won't be in the builder.
