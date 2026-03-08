@@ -557,6 +557,25 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     }
 
     /**
+     * Retrieves the vector associated with the given entity ID.
+     * <p>
+     * If the vectorizer is embedded, the vector is computed on-the-fly from the entity
+     * stored in the parent map. Otherwise, the vector is looked up from the vector store.
+     *
+     * <h4>Example</h4>
+     * <pre>{@code
+     * float[] vector = index.getVector(entityId);
+     * if (vector != null) {
+     *     System.out.println("Vector dimension: " + vector.length);
+     * }
+     * }</pre>
+     *
+     * @param entityId the entity ID whose vector to retrieve
+     * @return the vector as a float array, or {@code null} if no vector is found for the given entity ID
+     */
+    public float[] getVector(long entityId);
+
+    /**
      * Closes the index and releases all associated resources.
      * <p>
      * This method should be called when the index is no longer needed. It performs
@@ -1473,6 +1492,27 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 this.builderLock.writeLock().unlock();
             }
+        }
+
+        @Override
+        public float[] getVector(final long entityId)
+        {
+            if(this.isEmbedded())
+            {
+                final E entity = this.parentMap().get(entityId);
+                if(entity == null)
+                {
+                    return null;
+                }
+                return this.vectorizer.vectorize(entity);
+            }
+
+            final VectorEntry entry = this.vectorStore.get(entityId);
+            if(entry == null)
+            {
+                return null;
+            }
+            return entry.vector;
         }
 
         @Override

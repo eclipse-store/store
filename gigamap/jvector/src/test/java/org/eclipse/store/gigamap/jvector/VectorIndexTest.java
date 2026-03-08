@@ -2302,4 +2302,103 @@ class VectorIndexTest
             }
         }
     }
+
+    /**
+     * Test getVector with embedded vectorizer.
+     */
+    @Test
+    void testGetVectorEmbedded()
+    {
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(3)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .build();
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings",
+            config,
+            new EmbeddedDocumentVectorizer()
+        );
+
+        final float[] vec1 = {1.0f, 0.0f, 0.0f};
+        final float[] vec2 = {0.0f, 1.0f, 0.0f};
+        final float[] vec3 = {0.0f, 0.0f, 1.0f};
+
+        gigaMap.add(new Document("doc1", vec1));
+        gigaMap.add(new Document("doc2", vec2));
+        gigaMap.add(new Document("doc3", vec3));
+
+        // Retrieve vectors by entity ID
+        assertArrayEquals(vec1, index.getVector(0));
+        assertArrayEquals(vec2, index.getVector(1));
+        assertArrayEquals(vec3, index.getVector(2));
+
+        // Non-existent entity ID should return null
+        assertNull(index.getVector(999));
+    }
+
+    /**
+     * Test getVector with computed (non-embedded) vectorizer.
+     */
+    @Test
+    void testGetVectorComputed()
+    {
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(3)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .build();
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings",
+            config,
+            new ComputedDocumentVectorizer()
+        );
+
+        final float[] vec1 = {1.0f, 2.0f, 3.0f};
+        final float[] vec2 = {4.0f, 5.0f, 6.0f};
+
+        gigaMap.add(new Document("doc1", vec1));
+        gigaMap.add(new Document("doc2", vec2));
+
+        // Retrieve vectors by entity ID
+        assertArrayEquals(vec1, index.getVector(0));
+        assertArrayEquals(vec2, index.getVector(1));
+
+        // Non-existent entity ID should return null
+        assertNull(index.getVector(999));
+    }
+
+    /**
+     * Test getVector reflects updated vector after entity update.
+     */
+    @Test
+    void testGetVectorAfterUpdate()
+    {
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(3)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .build();
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings",
+            config,
+            new ComputedDocumentVectorizer()
+        );
+
+        gigaMap.add(new Document("doc1", new float[]{1.0f, 0.0f, 0.0f}));
+        assertArrayEquals(new float[]{1.0f, 0.0f, 0.0f}, index.getVector(0));
+
+        // Update the entity with a new vector
+        gigaMap.set(0, new Document("doc1-updated", new float[]{0.0f, 1.0f, 0.0f}));
+        assertArrayEquals(new float[]{0.0f, 1.0f, 0.0f}, index.getVector(0));
+    }
 }
