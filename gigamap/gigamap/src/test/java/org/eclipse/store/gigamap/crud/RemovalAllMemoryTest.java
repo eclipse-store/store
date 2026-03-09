@@ -50,7 +50,8 @@ public class RemovalAllMemoryTest
 	static final int CUSTOMER_COUNT = 10_000;
 	static final int ITERATIONS = 10;
 
-	static boolean isZGCActive() {
+	static boolean isZGCActive()
+	{
 		return ManagementFactory.getGarbageCollectorMXBeans()
 				.stream()
 				.anyMatch(gc -> gc.getName().contains("ZGC"));
@@ -238,7 +239,7 @@ public class RemovalAllMemoryTest
 				final long afterRemove = memoryUsage();
 				final long storageSizeAfterRemove = this.dirSize();
 
-				assertTrue(storageSizeAfterRemove < 1, "Storage size after remove all should be almost 0 MB, is:" + storageSizeAfterRemove );
+				assertTrue(storageSizeAfterRemove < 1, "Storage size after remove all should be almost 0 MB, is: " + storageSizeAfterRemove );
 
 				collector.add(
 					new MemoryStatus(beforeFill, afterStore, afterRemove, storageSizeBeforeStore, storageSizeAfterStore, storageSizeAfterRemove)
