@@ -1564,7 +1564,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             );
 
             final GraphSearcher searcher = this.inMemorySearcherPool.get();
-            final Bits acceptBits = this.index != null ? this.index.getView().liveNodes() : Bits.ALL;
+            // Refresh the view so the searcher sees nodes added or re-added since pool
+            // initialization (ConcurrentGraphIndexView uses snapshot isolation based on
+            // a completion timestamp captured at creation time).
+            final var view = this.index != null ? this.index.getView() : null;
+            if(view != null)
+            {
+                searcher.setView(view);
+            }
+            final Bits acceptBits = view != null ? view.liveNodes() : Bits.ALL;
             return searcher.search(scoreProvider, k, acceptBits);
         }
 
