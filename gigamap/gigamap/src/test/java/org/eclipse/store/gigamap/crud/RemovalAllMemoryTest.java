@@ -24,9 +24,11 @@ import org.eclipse.store.storage.types.Storage;
 import org.eclipse.store.storage.types.StorageChannelCountProvider;
 import org.eclipse.store.storage.types.StorageConfiguration;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.condition.DisabledIf;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -36,12 +38,23 @@ import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ *  The test is disabled if ZGC is active, because ZGC does not immediately
+ *  free memory after garbage collection, which can affect the results.
+ */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@DisabledIf("isZGCActive")
 public class RemovalAllMemoryTest
 {
-	
+
 	static final int CUSTOMER_COUNT = 10_000;
 	static final int ITERATIONS = 10;
+
+	static boolean isZGCActive() {
+		return ManagementFactory.getGarbageCollectorMXBeans()
+				.stream()
+				.anyMatch(gc -> gc.getName().contains("ZGC"));
+	}
 	
 	@TempDir
 	Path newDirectory;
@@ -225,7 +238,7 @@ public class RemovalAllMemoryTest
 				final long afterRemove = memoryUsage();
 				final long storageSizeAfterRemove = this.dirSize();
 
-				assertTrue(storageSizeAfterRemove <= 1, "Storage size after remove all should be almost 0 MB, is:" + storageSizeAfterRemove );
+				assertTrue(storageSizeAfterRemove < 1, "Storage size after remove all should be almost 0 MB, is:" + storageSizeAfterRemove );
 
 				collector.add(
 					new MemoryStatus(beforeFill, afterStore, afterRemove, storageSizeBeforeStore, storageSizeAfterStore, storageSizeAfterRemove)
