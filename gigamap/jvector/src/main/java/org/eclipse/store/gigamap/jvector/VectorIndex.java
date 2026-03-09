@@ -557,6 +557,25 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     }
 
     /**
+     * Retrieves the vector associated with the given entity ID.
+     * <p>
+     * If the vectorizer is embedded, the vector is computed on-the-fly from the entity
+     * stored in the parent map. Otherwise, the vector is looked up from the vector store.
+     *
+     * <h4>Example</h4>
+     * <pre>{@code
+     * float[] vector = index.getVector(entityId);
+     * if (vector != null) {
+     *     System.out.println("Vector dimension: " + vector.length);
+     * }
+     * }</pre>
+     *
+     * @param entityId the entity ID whose vector to retrieve
+     * @return the vector as a float array, or {@code null} if no vector is found for the given entity ID
+     */
+    public float[] getVector(long entityId);
+
+    /**
      * Closes the index and releases all associated resources.
      * <p>
      * This method should be called when the index is no longer needed. It performs
@@ -1185,6 +1204,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             else
             {
+                // Drain any deferred builder ops before adding a new graph node.
+                if(!this.cleanupInProgress)
+                {
+                    this.drainDeferredBuilderOps();
+                }
+
                 // Add to HNSW graph using entity ID as ordinal
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
                 this.executeOrDeferBuilderOp(() -> this.builder.addGraphNode(ordinal, vf));
@@ -1246,21 +1271,38 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             else
             {
-                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-
-                this.executeOrDeferBuilderOp(() ->
+                // Drain any deferred builder ops (e.g. from a preceding addAll()) before
+                // modifying graph nodes. This avoids interleaving batch-add ops with
+                // delete+re-add ops, which can corrupt HNSW neighbor lists.
+                if(!this.cleanupInProgress)
                 {
-                    // Mark deleted in builder if the node exists there.
-                    // In incremental mode, nodes added after disk reload live in the builder
-                    // and must be deleted before re-adding. Disk-only nodes are excluded
-                    // via diskDeletedOrdinals and won't be in the builder.
-                    if(this.index != null && this.index.containsNode(ordinal))
+                    this.drainDeferredBuilderOps();
+                }
+
+                if(this.isEmbedded())
+                {
+                    // For embedded vectorizers: removeDeletedNodes() uses ForkJoinPool
+                    // whose workers call parentMap.get(), deadlocking with the GigaMap
+                    // monitor we hold. Instead, let the next optimize/persist cycle
+                    // rebuild the graph connections. The updated entity is already in
+                    // the GigaMap, so EntityBackedVectorValues will return the new
+                    // vector for similarity scoring during search.
+                }
+                else
+                {
+                    // For computed vectorizers: vectors are stored separately, so
+                    // removeDeletedNodes() won't call parentMap.get(). Safe to inline.
+                    final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+                    this.executeOrDeferBuilderOp(() ->
                     {
-                        this.builder.markNodeDeleted(ordinal);
-                        this.builder.removeDeletedNodes();
-                    }
-                    this.builder.addGraphNode(ordinal, vf);
-                });
+                        if(this.index != null && this.index.containsNode(ordinal))
+                        {
+                            this.builder.markNodeDeleted(ordinal);
+                            this.builder.removeDeletedNodes();
+                        }
+                        this.builder.addGraphNode(ordinal, vf);
+                    });
+                }
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
@@ -1316,6 +1358,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             else
             {
+                // Drain any deferred builder ops (e.g. from a preceding set() or removeById())
+                // before adding new nodes. This avoids interleaving delete+re-add ops from
+                // set/remove with batch-add ops, which can corrupt HNSW neighbor lists.
+                // Safe to drain here because we hold the GigaMap monitor and cleanup is not
+                // in progress (if it were, executeOrDeferBuilderOp below would defer anyway).
+                if(!this.cleanupInProgress)
+                {
+                    this.drainDeferredBuilderOps();
+                }
+
                 this.executeOrDeferBuilderOp(() -> this.addGraphNodesSequential(entries));
 
                 // Mark dirty for background managers (with count for debouncing)
@@ -1377,6 +1429,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             else
             {
+                // Drain any deferred builder ops before modifying graph nodes.
+                if(!this.cleanupInProgress)
+                {
+                    this.drainDeferredBuilderOps();
+                }
+
                 // Mark deleted in the in-memory builder if the node exists there
                 // (e.g., added after disk reload). Disk-only nodes are excluded
                 // via diskDeletedOrdinals and won't be in the builder.
@@ -1432,6 +1490,27 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 this.builderLock.writeLock().unlock();
             }
+        }
+
+        @Override
+        public float[] getVector(final long entityId)
+        {
+            if(this.isEmbedded())
+            {
+                final E entity = this.parentMap().get(entityId);
+                if(entity == null)
+                {
+                    return null;
+                }
+                return this.vectorizer.vectorize(entity);
+            }
+
+            final VectorEntry entry = this.vectorStore.get(entityId);
+            if(entry == null)
+            {
+                return null;
+            }
+            return entry.vector;
         }
 
         @Override
