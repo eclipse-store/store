@@ -1279,8 +1279,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.drainDeferredBuilderOps();
                 }
 
-                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-
                 if(this.isEmbedded())
                 {
                     // For embedded vectorizers: removeDeletedNodes() uses ForkJoinPool
@@ -1289,12 +1287,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // optimize/persist cycle rebuild the graph connections. The updated
                     // entity is already in the GigaMap, so EntityBackedVectorValues will
                     // return the new vector for similarity scoring during search.
-                    this.markDirtyForBackgroundManagers(1);
                 }
                 else
                 {
                     // For computed vectorizers: vectors are stored separately, so
                     // removeDeletedNodes() won't call parentMap.get(). Safe to inline.
+                    final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
                     this.executeOrDeferBuilderOp(() ->
                     {
                         if(this.index != null && this.index.containsNode(ordinal))
