@@ -28,9 +28,6 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class VectorIndexSetAndSearchTest
 {
-    @TempDir
-    Path tempDir;
-
     static class Entity
     {
         float[] vector;
@@ -48,16 +45,10 @@ class VectorIndexSetAndSearchTest
         {
             return entity.vector;
         }
-
-        @Override
-        public boolean isEmbedded()
-        {
-            return false;
-        }
     }
 
     @Test
-    void setAfterSearchUpdatesHNSWGraph()
+    void setAfterSearchUpdatesHNSWGraph(@TempDir final Path tempDir)
     {
         final GigaMap<Entity> map = GigaMap.New();
         final VectorIndices<Entity> vectorIndices = map.index().register(VectorIndices.Category());
@@ -67,14 +58,14 @@ class VectorIndexSetAndSearchTest
                 .dimension(4)
                 .similarityFunction(VectorSimilarityFunction.COSINE)
                 .onDisk(true)
-                .indexDirectory(this.tempDir.resolve("index"))
+                .indexDirectory(tempDir.resolve("index"))
                 .eventualIndexing(false)
                 .build(),
             new EntityVectorizer()
         );
 
         final long idA = map.add(new Entity(new float[]{1, 0, 0, 0}));
-        final long idB = map.add(new Entity(new float[]{0, 1, 0, 0}));
+        map.add(new Entity(new float[]{0, 1, 0, 0}));
 
         final VectorIndex<Entity> index = vectorIndices.get("vec");
         final var results = index.search(new float[]{1, 0, 0, 0}, 5);
@@ -95,7 +86,7 @@ class VectorIndexSetAndSearchTest
     }
 
     @Test
-    void setWithoutPriorSearchUpdatesHNSWGraph()
+    void setWithoutPriorSearchUpdatesHNSWGraph(@TempDir final Path tempDir)
     {
         final GigaMap<Entity> map = GigaMap.New();
         final VectorIndices<Entity> vectorIndices = map.index().register(VectorIndices.Category());
@@ -105,14 +96,14 @@ class VectorIndexSetAndSearchTest
                 .dimension(4)
                 .similarityFunction(VectorSimilarityFunction.COSINE)
                 .onDisk(true)
-                .indexDirectory(this.tempDir.resolve("index"))
+                .indexDirectory(tempDir.resolve("index"))
                 .eventualIndexing(false)
                 .build(),
             new EntityVectorizer()
         );
 
         final long idA = map.add(new Entity(new float[]{1, 0, 0, 0}));
-        final long idB = map.add(new Entity(new float[]{0, 1, 0, 0}));
+        map.add(new Entity(new float[]{0, 1, 0, 0}));
 
         map.set(idA, new Entity(new float[]{0.5f, 0.5f, 0, 0}));
 
