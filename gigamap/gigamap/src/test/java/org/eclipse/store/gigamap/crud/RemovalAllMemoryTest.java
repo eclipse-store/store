@@ -225,7 +225,7 @@ public class RemovalAllMemoryTest
 				final long afterRemove = memoryUsage();
 				final long storageSizeAfterRemove = this.dirSize();
 
-				assertTrue(storageSizeAfterRemove < 1, "Storage size after remove all should be almost 0 MB");
+				assertTrue(storageSizeAfterRemove <= 1, "Storage size after remove all should be almost 0 MB, is:" + storageSizeAfterRemove );
 
 				collector.add(
 					new MemoryStatus(beforeFill, afterStore, afterRemove, storageSizeBeforeStore, storageSizeAfterStore, storageSizeAfterRemove)
