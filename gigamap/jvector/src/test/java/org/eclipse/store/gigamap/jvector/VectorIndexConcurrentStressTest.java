@@ -370,7 +370,7 @@ class VectorIndexConcurrentStressTest
                                 }
 
                                 completedOps.incrementAndGet();
-                            } catch (final Exception e)
+                            } catch (final Throwable e)
                             {
                                 errors.add(e);
                                 hasError.set(true);
@@ -722,7 +722,7 @@ class VectorIndexConcurrentStressTest
                                     assertNotNull(result);
                                 }
                             }
-                            catch(final Exception e)
+                            catch(final Throwable e)
                             {
                                 errors.add(e);
                                 hasError.set(true);
@@ -889,7 +889,7 @@ class VectorIndexConcurrentStressTest
                                     assertNotNull(result);
                                 }
                             }
-                            catch(final Exception e)
+                            catch(final Throwable e)
                             {
                                 errors.add(e);
                                 hasError.set(true);

@@ -661,7 +661,7 @@ class VectorIndexInterleavingTest
 
                             completedOps.incrementAndGet();
                         }
-                        catch(final Exception e)
+                        catch(final Throwable e)
                         {
                             errors.add(e);
                             hasError.set(true);
@@ -758,7 +758,7 @@ class VectorIndexInterleavingTest
                     }
                 }
             }
-            catch(final Exception e)
+            catch(final Throwable e)
             {
                 errors.add(e);
                 hasError.set(true);
@@ -788,7 +788,7 @@ class VectorIndexInterleavingTest
                     }
                 }
             }
-            catch(final Exception e)
+            catch(final Throwable e)
             {
                 errors.add(e);
                 hasError.set(true);
@@ -873,7 +873,7 @@ class VectorIndexInterleavingTest
                     }
                 }
             }
-            catch(final Exception e)
+            catch(final Throwable e)
             {
                 errors.add(e);
                 hasError.set(true);
@@ -903,7 +903,7 @@ class VectorIndexInterleavingTest
                     }
                 }
             }
-            catch(final Exception e)
+            catch(final Throwable e)
             {
                 errors.add(e);
                 hasError.set(true);
@@ -987,7 +987,7 @@ class VectorIndexInterleavingTest
                     }
                 }
             }
-            catch(final Exception e)
+            catch(final Throwable e)
             {
                 errors.add(e);
                 hasError.set(true);
@@ -1016,7 +1016,7 @@ class VectorIndexInterleavingTest
                     }
                 }
             }
-            catch(final Exception e)
+            catch(final Throwable e)
             {
                 errors.add(e);
                 hasError.set(true);
@@ -1095,7 +1095,7 @@ class VectorIndexInterleavingTest
                     }
                 }
             }
-            catch(final Exception e)
+            catch(final Throwable e)
             {
                 errors.add(e);
                 hasError.set(true);
@@ -1124,7 +1124,7 @@ class VectorIndexInterleavingTest
                     }
                 }
             }
-            catch(final Exception e)
+            catch(final Throwable e)
             {
                 errors.add(e);
                 hasError.set(true);
@@ -1275,7 +1275,7 @@ class VectorIndexInterleavingTest
                                 assertNotNull(result);
                             }
                         }
-                        catch(final Exception e)
+                        catch(final Throwable e)
                         {
                             errors.add(e);
                             hasError.set(true);
