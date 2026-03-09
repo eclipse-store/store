@@ -1283,10 +1283,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     // For embedded vectorizers: removeDeletedNodes() uses ForkJoinPool
                     // whose workers call parentMap.get(), deadlocking with the GigaMap
-                    // monitor we hold. Instead, just mark dirty and let the next
-                    // optimize/persist cycle rebuild the graph connections. The updated
-                    // entity is already in the GigaMap, so EntityBackedVectorValues will
-                    // return the new vector for similarity scoring during search.
+                    // monitor we hold. Instead, let the next optimize/persist cycle
+                    // rebuild the graph connections. The updated entity is already in
+                    // the GigaMap, so EntityBackedVectorValues will return the new
+                    // vector for similarity scoring during search.
                 }
                 else
                 {
