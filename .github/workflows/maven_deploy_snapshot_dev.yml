@@ -51,3 +51,12 @@ jobs:
           MAVEN_PASSWORD: ${{ secrets.CENTRAL_SONATYPE_TOKEN_PASSWORD }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.ORG_GPG_PASSPHRASE }}
           MAVEN_GPG_KEY: ${{ secrets.ORG_GPG_PRIVATE_KEY }}
+
+      - name: Report JUnit results (dorny - surefire)
+        if: always()
+        uses: dorny/test-reporter@v2
+        with:
+          name: "GigaMap - Dev Test result without slow"
+          path: '**/target/**/surefire-reports/*.xml'
+          reporter: java-junit
+          fail-on-error: false

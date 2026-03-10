@@ -17,6 +17,7 @@ package org.eclipse.store.gigamap.jvector;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -42,6 +43,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for on-disk VectorIndex functionality and Product Quantization.
  */
+@Tag("slow")
 class VectorIndexDiskTest
 {
     /**

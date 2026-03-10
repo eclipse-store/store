@@ -1,7 +1,11 @@
 # This workflow will build a Java project with Maven
 # For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-maven
 
-name: Java CI with Maven
+name: Java slow tests
+
+permissions:
+  contents: read
+  checks: write
 
 on:
   push:
@@ -22,14 +26,14 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
         cache: 'maven'
-    - name: Build with Maven
-      run: mvn  -T 1C -P examples -B clean package --file pom.xml -U
+    - name: Run slow tests
+      run: mvn  -T 1C -P examples -P slow-tests -B clean test --no-transfer-progress --file pom.xml -U -Dmaven.javadoc.skip=true -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
 
     - name: Report JUnit results (dorny - surefire)
       if: always()
       uses: dorny/test-reporter@v2
       with:
-        name: "GigaMap - CI Test result without slow"
+        name: "GigaMap - Slow Tests Results"
         path: '**/target/**/surefire-reports/*.xml'
         reporter: java-junit
         fail-on-error: false

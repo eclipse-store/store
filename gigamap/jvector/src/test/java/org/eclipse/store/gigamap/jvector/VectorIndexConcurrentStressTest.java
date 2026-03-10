@@ -15,6 +15,7 @@ package org.eclipse.store.gigamap.jvector;
  */
 
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -50,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * The primary assertion is that no exceptions are thrown and no deadlocks occur
  * (enforced by {@link Timeout}).
  */
+@Tag("slow")
 class VectorIndexConcurrentStressTest
 {
     record Document(String content, float[] embedding) {}

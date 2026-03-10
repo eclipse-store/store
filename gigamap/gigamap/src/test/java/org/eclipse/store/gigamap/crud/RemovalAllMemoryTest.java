@@ -42,6 +42,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *  The test is disabled if ZGC is active, because ZGC does not immediately
  *  free memory after garbage collection, which can affect the results.
  */
+@Tag("slow")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @DisabledIf("isZGCActive")
 public class RemovalAllMemoryTest
