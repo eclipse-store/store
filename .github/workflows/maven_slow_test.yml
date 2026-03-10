@@ -25,3 +25,11 @@ jobs:
     - name: Build with Maven
       run: mvn  -T 1C -P examples -P slow-tests -B clean test --file pom.xml -U
 
+    - name: Report JUnit results (dorny - surefire)
+      if: always()
+      uses: dorny/test-reporter@v1
+      with:
+        name: JUnit (Surefire)
+        path: '**/target/**/surefire-reports/*.xml'
+        reporter: junit
+        fail-on-error: false
