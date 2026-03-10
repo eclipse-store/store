@@ -31,5 +31,5 @@ jobs:
       with:
         name: JUnit (Surefire)
         path: '**/target/**/surefire-reports/*.xml'
-        reporter: junit
+        reporter: java-junit
         fail-on-error: false
