@@ -27,7 +27,7 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
     - name: Run slow tests
-      run: mvn  -T 1C -P examples -P slow-tests -B clean test --no-transfer-progress --file pom.xml -U
+      run: mvn  -T 1C -P examples -P slow-tests -B clean test --no-transfer-progress --file pom.xml -U -Dmaven.javadoc.skip=true -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
 
     - name: Report JUnit results (dorny - surefire)
       if: always()
