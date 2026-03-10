@@ -3,6 +3,10 @@
 
 name: Java slow tests
 
+permissions:
+  contents: read
+  checks: write
+
 on:
   push:
     branches:
@@ -33,3 +37,4 @@ jobs:
         path: '**/target/**/surefire-reports/*.xml'
         reporter: java-junit
         fail-on-error: false
+
