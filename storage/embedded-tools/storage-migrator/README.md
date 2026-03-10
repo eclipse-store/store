@@ -36,17 +36,17 @@ mvn -Pmigrator-standalone install -pl storage/embedded-tools/storage-migrator -a
 ### Migration of both, source code and type dictionary:
 
 ````
-mvn org.openrewrite.maven:rewrite-maven-plugin:run -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:4.0.0-beta1 -DeclipseStoreVersion=4.0.0-beta1 -Drewrite.plainTextMasks=**/*.ptd  -DtypeDictionaryRelativeFilePath=src/main/resources/PersistenceTypeDictionary.ptd
+mvn org.openrewrite.maven:rewrite-maven-plugin:run -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:4.0.0 -DeclipseStoreVersion=4.0.0 -Drewrite.plainTextMasks=**/*.ptd  -DtypeDictionaryRelativeFilePath=src/main/resources/PersistenceTypeDictionary.ptd
 ````
 
 ### Migration of source code only:
 
 ````
-mvn org.openrewrite.maven:rewrite-maven-plugin:run -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:4.0.0-beta1 -DeclipseStoreVersion=4.0.0-beta1
+mvn org.openrewrite.maven:rewrite-maven-plugin:run -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:4.0.0 -DeclipseStoreVersion=4.0.0
 ````
 
 ### Migration of type dictionary only:
 
 ````
-mvn org.openrewrite.maven:rewrite-maven-plugin:run -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:4.0.0-beta1 -Drewrite.plainTextMasks=**/*.ptd  -DtypeDictionaryRelativeFilePath=src/main/resources/PersistenceTypeDictionary.ptd
+mvn org.openrewrite.maven:rewrite-maven-plugin:run -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:4.0.0 -Drewrite.plainTextMasks=**/*.ptd  -DtypeDictionaryRelativeFilePath=src/main/resources/PersistenceTypeDictionary.ptd
 ````

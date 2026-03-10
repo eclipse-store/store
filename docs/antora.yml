@@ -8,6 +8,6 @@ nav:
 asciidoc:
   attributes:
     product-name: 'EclipseStore'
-    display-version: '4.0.0 (Beta)'
+    display-version: '4.0.0'
     api-version: '4'
-    maven-version: '4.0.0-beta3'
+    maven-version: '4.0.0'
