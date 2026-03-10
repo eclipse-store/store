@@ -18,6 +18,7 @@ import org.eclipse.serializer.util.X;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -31,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for VectorIndex and VectorIndices.
  */
+@Tag("slow")
 class VectorIndexTest
 {
     /**

@@ -22,6 +22,7 @@ import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.GigaQuery;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -348,6 +349,7 @@ public class GigaMapStoreTests
 	}
 	
 	@Test
+	@Tag("slow")
 	void queryCount2()
 	{
 		final GigaMap<Entity> map       = fixedSizeMap(100_000, EntityCreator.FLAT);
