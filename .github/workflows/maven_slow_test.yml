@@ -26,7 +26,7 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
         cache: 'maven'
-    - name: Build with Maven
+    - name: Run slow tests
       run: mvn  -T 1C -P examples -P slow-tests -B clean test --no-transfer-progress --file pom.xml -U
 
     - name: Report JUnit results (dorny - surefire)
