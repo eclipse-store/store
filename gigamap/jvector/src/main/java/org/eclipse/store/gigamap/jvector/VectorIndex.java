@@ -695,7 +695,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         // Incremental on-disk mode: after disk reload, use disk index for search
         // and in-memory builder only for new mutations. Full rebuild deferred to persistToDisk().
-        private transient boolean                            incrementalMode    ;
+        // Volatile: written under writeLock (reenterIncrementalMode, exitIncrementalMode)
+        // but read by mutation methods (internalUpdate, internalRemove) under parentMap
+        // monitor only, without builderLock.
+        private transient volatile boolean                   incrementalMode    ;
         private transient Set<Integer>                       diskDeletedOrdinals;
         private transient ExplicitThreadLocal<GraphSearcher> diskSearcherPool    ;
 
