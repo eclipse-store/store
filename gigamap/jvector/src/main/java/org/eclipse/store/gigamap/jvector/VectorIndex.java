@@ -876,8 +876,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                     // Enter incremental on-disk mode: disk index serves search,
                     // in-memory builder only handles new mutations.
-                    this.incrementalMode     = true;
+                    // Set state fields first, then flip incrementalMode last for safe publication.
                     this.diskDeletedOrdinals = ConcurrentHashMap.newKeySet();
+                    this.incrementalMode     = true;
                     LOG.info("Entering incremental on-disk mode for '{}' — skipping full graph rebuild", this.name);
                 }
                 else
@@ -2126,9 +2127,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                 this.initializeInMemoryBuilder();
 
-                // Set incremental state
-                this.incrementalMode     = true;
+                // Set incremental state: set state fields first, then flip incrementalMode last for safe publication.
                 this.diskDeletedOrdinals = ConcurrentHashMap.newKeySet();
+                this.incrementalMode     = true;
 
                 // Reinitialize searcher pools (disk + in-memory)
                 this.closeSearcherPools();
