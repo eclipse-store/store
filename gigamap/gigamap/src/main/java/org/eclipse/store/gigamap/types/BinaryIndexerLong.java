@@ -27,11 +27,21 @@ package org.eclipse.store.gigamap.types;
  */
 public interface BinaryIndexerLong<E> extends BinaryIndexerNumber<E, Long>
 {
+	// Explicit overrides to resolve ambiguous methods between
+	// BinaryIndexerNumber (abstract) and IndexIdentifier (default)
+	// because K = Long matches the key type of BinaryIndexer<E> extends Indexer<E, Long>.
+
 	@Override
 	public <S extends E> Condition<S> is(Long key);
-	
+
+	@Override
+	public <S extends E> Condition<S> not(Long key);
+
 	@Override
 	public <S extends E> Condition<S> in(Long... keys);
+
+	@Override
+	public <S extends E> Condition<S> notIn(Long... keys);
 		
 	
 	
