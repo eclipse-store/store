@@ -1667,15 +1667,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return Bits.ALL;
             }
 
-            // Snapshot to avoid race conditions with concurrent modifications.
-            final Integer[] snapshot = this.diskDeletedOrdinals.toArray(new Integer[0]);
-
+            // Snapshot into a primitive int[] and find max in a single pass
+            // to avoid Integer[] boxing overhead on every search query.
+            final Set<Integer> deleted = this.diskDeletedOrdinals;
+            final int size = deleted.size();
+            final int[] snapshot = new int[size];
+            int count = 0;
             int maxOrdinal = -1;
-            for(final Integer ord : snapshot)
+            for(final Integer ord : deleted)
             {
-                if(ord > maxOrdinal)
+                final int o = ord;
+                if(count < size)
                 {
-                    maxOrdinal = ord;
+                    snapshot[count++] = o;
+                }
+                if(o > maxOrdinal)
+                {
+                    maxOrdinal = o;
                 }
             }
 
@@ -1686,9 +1694,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // Build a primitive boolean[] mask to avoid boxing in the hot search path.
             final boolean[] deletedMask = new boolean[maxOrdinal + 1];
-            for(final Integer ord : snapshot)
+            for(int i = 0; i < count; i++)
             {
-                if(ord >= 0)
+                final int ord = snapshot[i];
+                if(ord >= 0 && ord <= maxOrdinal)
                 {
                     deletedMask[ord] = true;
                 }
