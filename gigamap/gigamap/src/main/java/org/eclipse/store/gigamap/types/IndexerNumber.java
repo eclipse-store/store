@@ -52,7 +52,8 @@ public interface IndexerNumber<E, K extends Number> extends IndexerComparing<E, 
     }
 
 
-    // Explicit overrides to resolve ambiguous methods
+    // Explicit overrides to resolve ambiguous methods between
+    // IndexerComparing (abstract) and NumberQueryable (abstract).
 
     @Override
     <S extends E> Condition<S> lessThan(final K boundExclusive);
