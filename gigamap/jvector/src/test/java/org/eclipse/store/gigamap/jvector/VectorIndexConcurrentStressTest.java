@@ -937,4 +937,187 @@ class VectorIndexConcurrentStressTest
             assertNotNull(finalResult);
         }
     }
+
+
+    // ==================== Incremental Mode Regression ====================
+
+    /**
+     * Regression test for concurrent search vs. mutation in incremental on-disk mode.
+     * <p>
+     * Seeds entities, persists to disk (entering incremental mode), then hammers
+     * the index with concurrent searches and updates/removes. This exercises the
+     * {@code createDiskAcceptBits()} path that previously threw
+     * {@code ArrayIndexOutOfBoundsException} when {@code diskDeletedOrdinals}
+     * was modified between the max-scan and mask-fill passes.
+     */
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    void testIncrementalMode_ConcurrentSearchVsMutation(@TempDir final Path tempDir)
+        throws Exception
+    {
+        final int dimension    = 64;
+        final int seedCount    = 30;
+        final int opsPerThread = 200;
+        final int threadCount  = 4;
+        final Path indexDir    = tempDir.resolve("incremental_regression");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(16)
+            .beamWidth(100)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .build();
+
+        try (final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings", config, new ComputedDocumentVectorizer()
+        ))
+        {
+            // Seed entities
+            final Random seedRandom = new Random(42);
+            for (int i = 0; i < seedCount; i++)
+            {
+                gigaMap.add(new Document("seed_" + i, randomVector(seedRandom, dimension)));
+            }
+
+            // Persist to disk — this enters incremental on-disk mode on reload
+            index.persistToDisk();
+
+            // Verify we are in incremental mode
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>) index;
+            // The index should have re-entered incremental mode after persist
+
+            // Shared state
+            final AtomicLong nextEntityId = new AtomicLong(seedCount);
+            final AtomicBoolean hasError = new AtomicBoolean(false);
+            final List<Throwable> errors = java.util.Collections.synchronizedList(new ArrayList<>());
+            final CountDownLatch startLatch = new CountDownLatch(1);
+            final CountDownLatch doneLatch = new CountDownLatch(threadCount);
+
+            final ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+
+            for (int t = 0; t < threadCount; t++)
+            {
+                final int threadId = t;
+                executor.submit(() ->
+                {
+                    try
+                    {
+                        startLatch.await();
+
+                        final Random random = new Random(2000 + threadId);
+
+                        for (int op = 0; op < opsPerThread && !hasError.get(); op++)
+                        {
+                            try
+                            {
+                                final int action = random.nextInt(100);
+
+                                if (action < 15)
+                                {
+                                    // 15%: ADD — grows ordinal space during search
+                                    final float[] vector = randomVector(random, dimension);
+                                    synchronized (gigaMap)
+                                    {
+                                        gigaMap.add(new Document(
+                                            "t" + threadId + "_" + op, vector
+                                        ));
+                                    }
+                                }
+                                else if (action < 35)
+                                {
+                                    // 20%: UPDATE — adds to diskDeletedOrdinals
+                                    final long targetId = random.nextInt(seedCount);
+                                    final float[] vector = randomVector(random, dimension);
+                                    synchronized (gigaMap)
+                                    {
+                                        try
+                                        {
+                                            gigaMap.set(targetId, new Document(
+                                                "updated_" + targetId, vector
+                                            ));
+                                        }
+                                        catch (final Exception e)
+                                        {
+                                            // Entity may have been removed — acceptable
+                                        }
+                                    }
+                                }
+                                else if (action < 50)
+                                {
+                                    // 15%: REMOVE — adds to diskDeletedOrdinals
+                                    final long targetId = random.nextInt(seedCount);
+                                    synchronized (gigaMap)
+                                    {
+                                        try
+                                        {
+                                            gigaMap.removeById(targetId);
+                                        }
+                                        catch (final Exception e)
+                                        {
+                                            // Entity may already be removed — acceptable
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    // 50%: SEARCH — exercises createDiskAcceptBits()
+                                    final float[] queryVector = randomVector(random, dimension);
+                                    final VectorSearchResult<Document> result =
+                                        index.search(queryVector, 5);
+                                    assertNotNull(result);
+                                }
+                            }
+                            catch (final Throwable e)
+                            {
+                                errors.add(e);
+                                hasError.set(true);
+                            }
+                        }
+                    }
+                    catch (final InterruptedException e)
+                    {
+                        Thread.currentThread().interrupt();
+                    }
+                    finally
+                    {
+                        doneLatch.countDown();
+                    }
+                });
+            }
+
+            // Release all threads simultaneously
+            startLatch.countDown();
+
+            assertTrue(doneLatch.await(60, TimeUnit.SECONDS),
+                "Threads should complete within timeout");
+
+            executor.shutdown();
+            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+
+            // Report errors
+            if (!errors.isEmpty())
+            {
+                final StringBuilder sb = new StringBuilder();
+                sb.append("Incremental mode regression test failed");
+                sb.append("\n").append(errors.size()).append(" error(s):");
+                for (final Throwable err : errors)
+                {
+                    sb.append("\n  - ").append(err.getClass().getSimpleName())
+                        .append(": ").append(err.getMessage());
+                }
+                fail(sb.toString());
+            }
+
+            // Final consistency check
+            final VectorSearchResult<Document> finalResult = index.search(
+                randomVector(new Random(999), dimension), 5
+            );
+            assertNotNull(finalResult);
+        }
+    }
 }

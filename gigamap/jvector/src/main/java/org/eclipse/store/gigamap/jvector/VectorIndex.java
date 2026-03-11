@@ -695,7 +695,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         // Incremental on-disk mode: after disk reload, use disk index for search
         // and in-memory builder only for new mutations. Full rebuild deferred to persistToDisk().
-        private transient boolean                            incrementalMode    ;
+        // Volatile: written under writeLock (reenterIncrementalMode, exitIncrementalMode)
+        // but read by mutation methods (internalUpdate, internalRemove) under parentMap
+        // monitor only, without builderLock.
+        private transient volatile boolean                   incrementalMode    ;
         private transient Set<Integer>                       diskDeletedOrdinals;
         private transient ExplicitThreadLocal<GraphSearcher> diskSearcherPool    ;
 
@@ -873,8 +876,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                     // Enter incremental on-disk mode: disk index serves search,
                     // in-memory builder only handles new mutations.
-                    this.incrementalMode     = true;
+                    // Set state fields first, then flip incrementalMode last for safe publication.
                     this.diskDeletedOrdinals = ConcurrentHashMap.newKeySet();
+                    this.incrementalMode     = true;
                     LOG.info("Entering incremental on-disk mode for '{}' — skipping full graph rebuild", this.name);
                 }
                 else
@@ -1663,12 +1667,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return Bits.ALL;
             }
 
+            // Snapshot into a primitive int[] and find max in a single pass
+            // to avoid Integer[] boxing overhead on every search query.
+            final Set<Integer> deleted = this.diskDeletedOrdinals;
+            final int size = deleted.size();
+            final int[] snapshot = new int[size];
+            int count = 0;
             int maxOrdinal = -1;
-            for(final Integer ord : this.diskDeletedOrdinals)
+            for(final Integer ord : deleted)
             {
-                if(ord > maxOrdinal)
+                final int o = ord;
+                if(count < size)
                 {
-                    maxOrdinal = ord;
+                    snapshot[count++] = o;
+                }
+                if(o > maxOrdinal)
+                {
+                    maxOrdinal = o;
                 }
             }
 
@@ -1679,9 +1694,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // Build a primitive boolean[] mask to avoid boxing in the hot search path.
             final boolean[] deletedMask = new boolean[maxOrdinal + 1];
-            for(final Integer ord : this.diskDeletedOrdinals)
+            for(int i = 0; i < count; i++)
             {
-                if(ord >= 0)
+                final int ord = snapshot[i];
+                if(ord >= 0 && ord <= maxOrdinal)
                 {
                     deletedMask[ord] = true;
                 }
@@ -2120,9 +2136,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                 this.initializeInMemoryBuilder();
 
-                // Set incremental state
-                this.incrementalMode     = true;
+                // Set incremental state: set state fields first, then flip incrementalMode last for safe publication.
                 this.diskDeletedOrdinals = ConcurrentHashMap.newKeySet();
+                this.incrementalMode     = true;
 
                 // Reinitialize searcher pools (disk + in-memory)
                 this.closeSearcherPools();
