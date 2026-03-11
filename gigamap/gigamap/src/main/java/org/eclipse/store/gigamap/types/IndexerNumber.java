@@ -50,4 +50,22 @@ public interface IndexerNumber<E, K extends Number> extends IndexerComparing<E, 
     {
         return IndexerComparing.super.notIn(keys);
     }
+
+
+    // Explicit overrides to resolve ambiguous methods
+
+    @Override
+    <S extends E> Condition<S> lessThan(final K boundExclusive);
+
+    @Override
+    <S extends E> Condition<S> lessThanEqual(final K boundInclusive);
+
+    @Override
+    <S extends E> Condition<S> greaterThan(final K boundExclusive);
+
+    @Override
+    <S extends E> Condition<S> greaterThanEqual(final K boundInclusive);
+
+    @Override
+    <S extends E> Condition<S> between(final K startInclusive, final K endInclusive);
 }
