@@ -32,96 +32,32 @@ import java.util.function.IntPredicate;
  */
 public interface ByteIndexerNumber<E, K extends Number> extends HashingCompositeIndexer<E>, NumberQueryable<E, K>
 {
-	/**
-	 * Creates an equality condition for the given key.
-	 *
-	 * @param <S> the type of entity this condition applies to
-	 * @param key the key to compare for equality
-	 * @return a new condition representing the equality check
-	 */
 	@Override
 	public <S extends E> Condition<S> is(K key);
 
-	/**
-	 * Creates a negated equality condition for the given key.
-	 *
-	 * @param <S> the type of entity this condition applies to
-	 * @param key the key to compare for inequality
-	 * @return a new condition representing the inequality check
-	 */
 	@Override
 	public <S extends E> Condition<S> not(K key);
 
-	/**
-	 * Creates a condition that checks if the key is contained within the specified keys.
-	 *
-	 * @param <S> the type of entity this condition applies to
-	 * @param keys the array of keys to compare to
-	 * @return a new condition representing the containment check
-	 */
 	@SuppressWarnings("unchecked")
 	@Override
 	public <S extends E> Condition<S> in(K... keys);
 
-	/**
-	 * Creates a condition that checks if the key is not contained within the specified keys.
-	 *
-	 * @param <S> the type of entity this condition applies to
-	 * @param keys the array of keys to compare to
-	 * @return a new condition representing the negated containment check
-	 */
 	@SuppressWarnings("unchecked")
 	@Override
 	public <S extends E> Condition<S> notIn(K... keys);
 
-	/**
-	 * Creates a condition that checks if the key is strictly less than the given bound.
-	 *
-	 * @param <S> the type of entity this condition applies to
-	 * @param boundExclusive the exclusive upper bound
-	 * @return a new condition representing the less-than check
-	 */
 	@Override
 	public <S extends E> Condition<S> lessThan(K boundExclusive);
 
-	/**
-	 * Creates a condition that checks if the key is less than or equal to the given bound.
-	 *
-	 * @param <S>            the type of entity this condition applies to
-	 * @param boundInclusive the inclusive upper bound
-	 * @return a new condition representing the less-than-or-equal check
-	 */
 	@Override
 	public <S extends E> Condition<S> lessThanEqual(K boundInclusive);
 
-	/**
-	 * Creates a condition that checks if the key is strictly greater than the given bound.
-	 *
-	 * @param <S>            the type of entity this condition applies to
-	 * @param boundExclusive the exclusive lower bound
-	 * @return a new condition representing the greater-than check
-	 */
 	@Override
 	public <S extends E> Condition<S> greaterThan(K boundExclusive);
 
-	/**
-	 * Creates a condition that checks if the key is greater than or equal to the given bound.
-	 *
-	 * @param <S> the type of entity this condition applies to
-	 * @param boundInclusive the inclusive lower bound
-	 * @return a new condition representing the greater-than-or-equal check
-	 */
 	@Override
 	public <S extends E> Condition<S> greaterThanEqual(K boundInclusive);
 
-	/**
-	 * Creates a condition that checks if the key is within the specified range, inclusive.
-	 *
-	 * @param <S> the type of entity this condition applies to
-	 * @param startInclusive the inclusive start of the range
-	 * @param endInclusive the inclusive end of the range
-	 * @return a new condition representing the between check
-	 */
 	@Override
 	public <S extends E> Condition<S> between(K startInclusive, K endInclusive);
 
