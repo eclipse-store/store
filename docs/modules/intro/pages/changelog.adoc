@@ -1,5 +1,13 @@
 = Changelog
 
+== 4.0.1
+
+=== Bugfixes
+
+* Fix race conditions in VectorIndex incremental on-disk mode https://github.com/eclipse-store/store/pull/620[[620]]
+* Resolve method ambiguities in indexer-related classes and interfaces https://github.com/eclipse-store/store/pull/619[[619]]
+
+
 == 4.0.0
 
 === Features
