@@ -78,31 +78,26 @@ public interface StorageManager extends StorageController, StorageConnection, Da
 	 * @return a new {@link StorageConnection} instance.
 	 */
 	public StorageConnection createConnection();
-	
+
 	/**
-	 * Return the persistent object graph's root object, without specific typing.
-	 * <p>
-	 * If a specifically typed root instance reference is desired, it is preferable to hold a properly typed constant
-	 * reference to it and let the storage initialization use that instance as the root.<br>
-	 * See the following code snippet on how to do that:
-	 * <pre>{@code
-	 *static final MyAppRoot      ROOT    = new MyAppRoot();
-	 *static final StorageManager STORAGE = EmbeddedStorage.start(ROOT);
-	 * }</pre>
-	 * 
-	 * @return the persistent object graph's root object.
+	 * Returns the current root object of the persistent object graph managed by this instance.
+	 * The root object is the entry point for accessing the graph of persisted objects.
+	 *
+	 * @param <R> the type of the root object
+	 * @return the root object of the persistent object graph, or null if no root is currently set
 	 */
-	public Object root();
+	public <R> R root();
 	
 	/**
 	 * Sets the passed instance as the new root for the persistent object graph.<br>
 	 * Note that this will replace the old root instance, potentially resulting in wiping the whole database.
-	 * 
+	 *
+	 * @param <R> the type of the root object
 	 * @param newRoot the new root instance to be set.
 	 * 
 	 * @return the passed {@literal newRoot} to allow fluent usage of this method.
 	 */
-	public Object setRoot(Object newRoot);
+	public <R> R setRoot(R newRoot);
 	
 	/**
 	 * Stores the registered root instance (as returned by {@link #root()}) by using the default storing logic
@@ -127,7 +122,6 @@ public interface StorageManager extends StorageController, StorageConnection, Da
 	 * @return the root object of the persistent object graph, cast to the specified type
 	 * @throws IllegalArgumentException if the supplied initial root is null
 	 */
-	@SuppressWarnings("unchecked")
 	public default <R> R ensureRoot(final Supplier<R> initialRootSupplier)
 	{
 		if (!this.isRunning())
@@ -145,7 +139,7 @@ public interface StorageManager extends StorageController, StorageConnection, Da
 			this.setRoot(initialRoot);
 			this.storeRoot();
 		}
-		return (R) this.root();
+		return this.root();
 	}
 	
 	/**
