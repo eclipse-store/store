@@ -67,13 +67,12 @@ public interface CacheStore<K, V> extends CacheLoader<K, V>, CacheWriter<K, V>
 				this.cacheKey = cacheKey;
 			}
 
-			@SuppressWarnings("unchecked")
 			@Override
 			public <K, V> XTable<K, Lazy<V>> provideTable(final StorageManager storage, final boolean create)
 			{
 				boolean                                  storeRoot = false;
 				XTable<String, Lazy<XTable<K, Lazy<V>>>> rootTable;
-				if((rootTable = (XTable<String, Lazy<XTable<K, Lazy<V>>>>)storage.root()) == null)
+				if((rootTable = storage.root()) == null)
 				{
 					storage.setRoot(rootTable = EqHashTable.New());
 					storeRoot = true;
@@ -110,7 +109,7 @@ public interface CacheStore<K, V> extends CacheLoader<K, V>, CacheWriter<K, V>
 			{
 				boolean                                  storeRoot = false;
 				XTable<String, Lazy<XTable<K, Lazy<V>>>> rootTable;
-				if((rootTable = (XTable<String, Lazy<XTable<K, Lazy<V>>>>)Lazy.get((Lazy)storage.root())) == null)
+				if((rootTable = Lazy.get(storage.root())) == null)
 				{
 					storage.setRoot(Lazy.Reference(rootTable = EqHashTable.New()));
 					storeRoot = true;

@@ -62,7 +62,7 @@ public class DoubleNonPrimitiveIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<DoublePerson> newMap = (GigaMap<DoublePerson>) manager.root();
+            GigaMap<DoublePerson> newMap = manager.root();
             long count = newMap.query(new DoublePersonIndex().between(20.0, 30.0)).count();
             assertEquals(2, count);
             newMap.query(new DoublePersonIndex().between(20.0, 30.0)).forEach(doublePerson -> assertTrue(doublePerson.getScore() >= 20.0 && doublePerson.getScore() <= 30.0));
@@ -83,7 +83,7 @@ public class DoubleNonPrimitiveIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<DoublePerson> newMap = (GigaMap<DoublePerson>) manager.root();
+            GigaMap<DoublePerson> newMap = manager.root();
             long count = newMap.query(new DoublePersonIndex().greaterThanEqual(20.0)).count();
             assertEquals(3, count);
             newMap.query(new DoublePersonIndex().greaterThanEqual(20.0)).forEach(doublePerson -> assertTrue(doublePerson.getScore() >= 20.0));
@@ -104,7 +104,7 @@ public class DoubleNonPrimitiveIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<DoublePerson> newMap = (GigaMap<DoublePerson>) manager.root();
+            GigaMap<DoublePerson> newMap = manager.root();
             long count = newMap.query(new DoublePersonIndex().greaterThan(20.0)).count();
             assertEquals(2, count);
             newMap.query(new DoublePersonIndex().greaterThan(20.0)).forEach(doublePerson -> assertTrue(doublePerson.getScore() > 20.0));
@@ -125,7 +125,7 @@ public class DoubleNonPrimitiveIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<DoublePerson> newMap = (GigaMap<DoublePerson>) manager.root();
+            GigaMap<DoublePerson> newMap = manager.root();
             long count = newMap.query(new DoublePersonIndex().lessThanEqual(20.0)).count();
             assertEquals(3, count);
             newMap.query(new DoublePersonIndex().lessThanEqual(20.0)).forEach(doublePerson -> assertTrue(doublePerson.getScore() <= 20.0));
@@ -146,7 +146,7 @@ public class DoubleNonPrimitiveIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<DoublePerson> newMap = (GigaMap<DoublePerson>) manager.root();
+            GigaMap<DoublePerson> newMap = manager.root();
             long count = newMap.query(new DoublePersonIndex().lessThan(20.0)).count();
             assertEquals(2, count);
             newMap.query(new DoublePersonIndex().lessThan(20.0)).forEach(doublePerson -> assertTrue(doublePerson.getScore() < 20.0));
@@ -182,7 +182,7 @@ public class DoubleNonPrimitiveIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<DoublePerson> newMap = (GigaMap<DoublePerson>) manager.root();
+            GigaMap<DoublePerson> newMap = manager.root();
             newMap.query(doublePersonIndex.is(20.0)).forEach(doublePerson -> assertEquals(20.0, doublePerson.getScore()));
             newMap.query(doublePersonIndex.is(30.0)).forEach(doublePerson -> assertEquals(30.0, doublePerson.getScore()));
 

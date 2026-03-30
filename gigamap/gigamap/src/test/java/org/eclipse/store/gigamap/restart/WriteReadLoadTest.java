@@ -67,7 +67,7 @@ public class WriteReadLoadTest
     void readFromRepositoryTest()
     {
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            final GigaMap<String> gigaMap = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap = manager.root();
             assertAll(
                     () -> assertEquals(AMOUNT * 3, gigaMap.size()),
                     () -> assertEquals("Hello0", gigaMap.get(0)),
@@ -84,7 +84,7 @@ public class WriteReadLoadTest
         final StringIndexer stringIndexer = new StringIndexer();
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            final GigaMap<String> gigaMap = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap = manager.root();
             final BitmapIndices<String> register = gigaMap.index().bitmap();
             final BitmapIndex<String, String> stringIndexer1 = register.get("StringIndexer");
             if (stringIndexer1 == null) {

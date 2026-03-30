@@ -64,7 +64,7 @@ public class EqualatorStoreTest
 
         try (EmbeddedStorageManager storage = EmbeddedStorage.start(storagePath))
         {
-            GigaMap<Item> loaded = (GigaMap<Item>) storage.root();
+            GigaMap<Item> loaded = storage.root();
             assertEquals(2, loaded.size());
             loaded.remove(item1);
             loaded.remove(item2);

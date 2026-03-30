@@ -69,7 +69,7 @@ public class InstantIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<InstantPerson> newMap = (GigaMap<InstantPerson>) manager.root();
+            GigaMap<InstantPerson> newMap = manager.root();
             long count = newMap.query(instantPersonIndex.between(toInstant(2021, 1, 1, 12, 0, 0), toInstant(2021, 1, 1, 14, 0, 0))).count();
             assertEquals(3, count);
             long count1 = newMap.query(instantPersonIndex.between(toInstant(2021, 1, 1, 12, 0, 0), toInstant(2021, 1, 1, 14, 0, 0))).count();
@@ -92,7 +92,7 @@ public class InstantIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<InstantPerson> newMap = (GigaMap<InstantPerson>) manager.root();
+            GigaMap<InstantPerson> newMap = manager.root();
             long count = newMap.query(instantPersonIndex.after(toInstant(2021, 1, 1, 12, 0, 0))).count();
             assertEquals(9, count);
             long count1 = newMap.query(instantPersonIndex.after(toInstant(2021, 1, 1, 13, 0, 0))).count();
@@ -113,7 +113,7 @@ public class InstantIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<InstantPerson> newMap = (GigaMap<InstantPerson>) manager.root();
+            GigaMap<InstantPerson> newMap = manager.root();
             long count = newMap.query(instantPersonIndex.before(toInstant(2021, 1, 1, 12, 0, 1))).count();
             assertEquals(1, count);
             long count1 = newMap.query(instantPersonIndex.before(toInstant(2021, 1, 1, 13, 0, 0))).count();
@@ -132,7 +132,7 @@ public class InstantIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<InstantPerson> newMap = (GigaMap<InstantPerson>) manager.root();
+            GigaMap<InstantPerson> newMap = manager.root();
             long count = newMap.query(instantPersonIndex.isSecond(0)).count();
             assertEquals(10, count);
         }
@@ -149,7 +149,7 @@ public class InstantIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<InstantPerson> newMap = (GigaMap<InstantPerson>) manager.root();
+            GigaMap<InstantPerson> newMap = manager.root();
             long count = newMap.query(instantPersonIndex.isMinute(0)).count();
             assertEquals(10, count);
         }
@@ -166,7 +166,7 @@ public class InstantIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<InstantPerson> newMap = (GigaMap<InstantPerson>) manager.root();
+            GigaMap<InstantPerson> newMap = manager.root();
             long count = newMap.query(instantPersonIndex.isHour(12)).count();
             assertEquals(1, count);
         }
@@ -183,7 +183,7 @@ public class InstantIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<InstantPerson> newMap = (GigaMap<InstantPerson>) manager.root();
+            GigaMap<InstantPerson> newMap = manager.root();
             long count = newMap.query(instantPersonIndex.isTime(12, 0, 0)).count();
             assertEquals(1, count);
         }
@@ -200,7 +200,7 @@ public class InstantIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<InstantPerson> newMap = (GigaMap<InstantPerson>) manager.root();
+            GigaMap<InstantPerson> newMap = manager.root();
             long count = newMap.query(instantPersonIndex.isDay(1)).count();
             assertEquals(10, count);
         }
@@ -217,7 +217,7 @@ public class InstantIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<InstantPerson> newMap = (GigaMap<InstantPerson>) manager.root();
+            GigaMap<InstantPerson> newMap = manager.root();
             long count = newMap.query(instantPersonIndex.isMonth(1)).count();
             assertEquals(10, count);
         }
@@ -234,7 +234,7 @@ public class InstantIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<InstantPerson> newMap = (GigaMap<InstantPerson>) manager.root();
+            GigaMap<InstantPerson> newMap = manager.root();
             long count = newMap.query(instantPersonIndex.isYear(2021)).count();
             assertEquals(10, count);
         }
@@ -251,7 +251,7 @@ public class InstantIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<InstantPerson> newMap = (GigaMap<InstantPerson>) manager.root();
+            GigaMap<InstantPerson> newMap = manager.root();
             long count = newMap.query(instantPersonIndex.isDate(2021, 1, 1)).count();
             assertEquals(10, count);
         }
@@ -268,7 +268,7 @@ public class InstantIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<InstantPerson> newMap = (GigaMap<InstantPerson>) manager.root();
+            GigaMap<InstantPerson> newMap = manager.root();
             long count = newMap.query(instantPersonIndex.isDateTime(2021, 1, 1, 12, 0, 0)).count();
             assertEquals(1, count);
         }
@@ -302,7 +302,7 @@ public class InstantIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<InstantPerson> newMap = (GigaMap<InstantPerson>) manager.root();
+            GigaMap<InstantPerson> newMap = manager.root();
             newMap.query(instantPersonIndex.is(toInstant(2000, 1, 1, 0, 0, 0))).forEach(person -> assertEquals(toInstant(2000, 1, 1, 0, 0, 0), person.getTimestamp()));
             newMap.query(instantPersonIndex.is(toInstant(1990, 1, 1, 0, 0, 0))).forEach(person -> assertEquals(toInstant(1990, 1, 1, 0, 0, 0), person.getTimestamp()));
 
@@ -336,7 +336,7 @@ public class InstantIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<InstantPerson> newMap = (GigaMap<InstantPerson>) manager.root();
+            GigaMap<InstantPerson> newMap = manager.root();
             List<InstantPerson> list1 = newMap.query(instantPersonIndex.beforeEqual(toInstant(1990, 1, 1, 0, 0, 0))).toList();
             assertEquals(2, list1.size());
             list1.forEach(person -> assertNotEquals("Alice", person.name));
@@ -364,7 +364,7 @@ public class InstantIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<InstantPerson> newMap = (GigaMap<InstantPerson>) manager.root();
+            GigaMap<InstantPerson> newMap = manager.root();
             List<InstantPerson> list1 = newMap.query(instantPersonIndex.afterEqual(toInstant(1990, 1, 1, 0, 0, 0))).toList();
             assertEquals(2, list1.size());
             list1.forEach(person -> assertNotEquals("Charlie", person.name));

@@ -56,7 +56,7 @@ public class AdvanceRestartTest
     {
 
         manager.start();
-        AdvanceRestartRoot root = (AdvanceRestartRoot) manager.root();
+        AdvanceRestartRoot root = manager.root();
         root.setValue("hello");
         manager.storeRoot();
         manager.shutdown();
@@ -68,7 +68,7 @@ public class AdvanceRestartTest
         final EmbeddedStorageFoundation<?> storageFoundation = this.foundationFactory.createStorageFoundation(this.myConfiguration);
         try (EmbeddedStorageManager storage = storageFoundation.start())
         {
-            final AdvanceRestartRoot rootFromStorage = (AdvanceRestartRoot) storage.root();
+            final AdvanceRestartRoot rootFromStorage = storage.root();
             assertEquals("hello", rootFromStorage.getValue());
         }
     }

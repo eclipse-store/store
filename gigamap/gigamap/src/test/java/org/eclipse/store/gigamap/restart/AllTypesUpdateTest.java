@@ -191,7 +191,7 @@ public class AllTypesUpdateTest
                 storageManager.setRoot(map);
                 storageManager.storeRoot();
             } else {
-                GigaMap<AllTypesPojo> map = (GigaMap<AllTypesPojo>) storageManager.root();
+                GigaMap<AllTypesPojo> map = storageManager.root();
 
                 AllTypesPojo pojo = getRandomPojo(map);
                 map.update(pojo, operation);

@@ -253,7 +253,7 @@ import java.util.stream.IntStream;
  *
  * // Load
  * try (EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir)) {
- *     GigaMap<Document> gigaMap = (GigaMap<Document>) storage.root();
+ *     GigaMap<Document> gigaMap = storage.root();
  *     VectorIndices<Document> indices = gigaMap.index().get(VectorIndices.Category());
  *     VectorIndex<Document> index = indices.get("embeddings");
  *

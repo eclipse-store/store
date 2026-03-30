@@ -67,7 +67,7 @@ public class LocalDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDateTimePerson> newMap = (GigaMap<LocalDateTimePerson>) manager.root();
+            GigaMap<LocalDateTimePerson> newMap = manager.root();
             long count = newMap.query(localDateTimePersonIndex.between(LocalDateTime.of(2021, 1, 1, 12, 0), LocalDateTime.of(2021, 1, 1, 14, 0))).count();
             assertEquals(3, count);
             long count1 = newMap.query(localDateTimePersonIndex.between(LocalDateTime.of(2021, 1, 1, 12, 0), LocalDateTime.of(2021, 1, 1, 14, 0))).count();
@@ -90,7 +90,7 @@ public class LocalDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDateTimePerson> newMap = (GigaMap<LocalDateTimePerson>) manager.root();
+            GigaMap<LocalDateTimePerson> newMap = manager.root();
             long count = newMap.query(localDateTimePersonIndex.after(LocalDateTime.of(2021, 1, 1, 12, 0))).count();
             assertEquals(9, count);
             long count1 = newMap.query(localDateTimePersonIndex.after(LocalDateTime.of(2021, 1, 1, 13, 0))).count();
@@ -111,7 +111,7 @@ public class LocalDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDateTimePerson> newMap = (GigaMap<LocalDateTimePerson>) manager.root();
+            GigaMap<LocalDateTimePerson> newMap = manager.root();
             long count = newMap.query(localDateTimePersonIndex.before(LocalDateTime.of(2021, 1, 1, 12, 1))).count();
             assertEquals(1, count);
             long count1 = newMap.query(localDateTimePersonIndex.before(LocalDateTime.of(2021, 1, 1, 13, 0))).count();
@@ -130,7 +130,7 @@ public class LocalDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDateTimePerson> newMap = (GigaMap<LocalDateTimePerson>) manager.root();
+            GigaMap<LocalDateTimePerson> newMap = manager.root();
             long count = newMap.query(localDateTimePersonIndex.isSecond(0)).count();
             assertEquals(10, count);
         }
@@ -147,7 +147,7 @@ public class LocalDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDateTimePerson> newMap = (GigaMap<LocalDateTimePerson>) manager.root();
+            GigaMap<LocalDateTimePerson> newMap = manager.root();
             long count = newMap.query(localDateTimePersonIndex.isMinute(0)).count();
             assertEquals(10, count);
         }
@@ -164,7 +164,7 @@ public class LocalDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDateTimePerson> newMap = (GigaMap<LocalDateTimePerson>) manager.root();
+            GigaMap<LocalDateTimePerson> newMap = manager.root();
             long count = newMap.query(localDateTimePersonIndex.isHour(12)).count();
             assertEquals(1, count);
         }
@@ -181,7 +181,7 @@ public class LocalDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDateTimePerson> newMap = (GigaMap<LocalDateTimePerson>) manager.root();
+            GigaMap<LocalDateTimePerson> newMap = manager.root();
             long count = newMap.query(localDateTimePersonIndex.isTime(12, 0, 0)).count();
             assertEquals(1, count);
         }
@@ -198,7 +198,7 @@ public class LocalDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDateTimePerson> newMap = (GigaMap<LocalDateTimePerson>) manager.root();
+            GigaMap<LocalDateTimePerson> newMap = manager.root();
             long count = newMap.query(localDateTimePersonIndex.isDay(1)).count();
             assertEquals(10, count);
         }
@@ -215,7 +215,7 @@ public class LocalDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDateTimePerson> newMap = (GigaMap<LocalDateTimePerson>) manager.root();
+            GigaMap<LocalDateTimePerson> newMap = manager.root();
             long count = newMap.query(localDateTimePersonIndex.isMonth(1)).count();
             assertEquals(10, count);
         }
@@ -232,7 +232,7 @@ public class LocalDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDateTimePerson> newMap = (GigaMap<LocalDateTimePerson>) manager.root();
+            GigaMap<LocalDateTimePerson> newMap = manager.root();
             long count = newMap.query(localDateTimePersonIndex.isYear(2021)).count();
             assertEquals(10, count);
         }
@@ -249,7 +249,7 @@ public class LocalDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDateTimePerson> newMap = (GigaMap<LocalDateTimePerson>) manager.root();
+            GigaMap<LocalDateTimePerson> newMap = manager.root();
             long count = newMap.query(localDateTimePersonIndex.isDate(2021, 1, 1)).count();
             assertEquals(10, count);
         }
@@ -266,7 +266,7 @@ public class LocalDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDateTimePerson> newMap = (GigaMap<LocalDateTimePerson>) manager.root();
+            GigaMap<LocalDateTimePerson> newMap = manager.root();
             long count = newMap.query(localDateTimePersonIndex.isDateTime(2021, 1, 1, 12, 0,0)).count();
             assertEquals(1, count);
         }
@@ -300,7 +300,7 @@ public class LocalDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDateTimePerson> newMap = (GigaMap<LocalDateTimePerson>) manager.root();
+            GigaMap<LocalDateTimePerson> newMap = manager.root();
             newMap.query(localDateTimePersonIndex.is(LocalDateTime.of(2000, 1, 1, 0, 0))).forEach(localDateTimePerson -> assertEquals(LocalDateTime.of(2000, 1, 1, 0, 0), localDateTimePerson.getBirthday()));
             newMap.query(localDateTimePersonIndex.is(LocalDateTime.of(1990, 1, 1, 0, 0))).forEach(localDateTimePerson -> assertEquals(LocalDateTime.of(1990, 1, 1, 0, 0), localDateTimePerson.getBirthday()));
 
@@ -334,7 +334,7 @@ public class LocalDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDateTimePerson> newMap = (GigaMap<LocalDateTimePerson>) manager.root();
+            GigaMap<LocalDateTimePerson> newMap = manager.root();
             List<LocalDateTimePerson> list1 = newMap.query(localDateTimePersonIndex.beforeEqual(LocalDateTime.of(1990, 1, 1, 0, 0))).toList();
             assertEquals(2, list1.size());
             list1.forEach(localDateTimePerson -> assertNotEquals("Alice", localDateTimePerson.name));
@@ -362,7 +362,7 @@ public class LocalDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDateTimePerson> newMap = (GigaMap<LocalDateTimePerson>) manager.root();
+            GigaMap<LocalDateTimePerson> newMap = manager.root();
             List<LocalDateTimePerson> list1 = newMap.query(localDateTimePersonIndex.afterEqual(LocalDateTime.of(1990, 1, 1, 0, 0))).toList();
             assertEquals(2, list1.size());
             list1.forEach(localDateTimePerson -> assertNotEquals("Charlie", localDateTimePerson.name));

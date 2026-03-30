@@ -51,7 +51,7 @@ public class UpdateTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            final GigaMap<Customer> root = (GigaMap<Customer>) manager.root();
+            final GigaMap<Customer> root = manager.root();
             Optional<Customer> first = root.query().findFirst();
             if (first.isPresent()) {
                 Customer customer = first.get();
@@ -61,7 +61,7 @@ public class UpdateTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            final GigaMap<Customer> root = (GigaMap<Customer>) manager.root();
+            final GigaMap<Customer> root = manager.root();
             root.query().findFirst().ifPresent(customer -> {
                 assertEquals("John Doe", customer.getName());
                 assertEquals(6, root.size());

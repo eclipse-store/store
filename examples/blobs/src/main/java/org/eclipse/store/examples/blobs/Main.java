@@ -59,7 +59,7 @@ public class Main
 			System.out.println("Existing Database found:");
 		}
 		
-		final MyRoot root = (MyRoot)storage.root();
+		final MyRoot root = storage.root();
 		for(final FileAsset fileAsset : root.getFileAssets())
 		{
 			System.out.println("File asset '" + fileAsset.getName() + "' file = "

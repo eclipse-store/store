@@ -274,8 +274,7 @@ public class SpatialIndexerTest
 
 		try(final EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir))
 		{
-			@SuppressWarnings("unchecked")
-			final GigaMap<Location> loaded = (GigaMap<Location>)manager.root();
+			final GigaMap<Location> loaded = manager.root();
 
 			assertEquals(3, loaded.query(this.locationIndex.latitudeBetween(0.0, 90.0)).count());
 			assertEquals(1, loaded.query(this.locationIndex.withinBox(35.0, 60.0, -10.0, 30.0)).count());
@@ -294,8 +293,7 @@ public class SpatialIndexerTest
 
 		try(final EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir))
 		{
-			@SuppressWarnings("unchecked")
-			final GigaMap<Location> loaded = (GigaMap<Location>)manager.root();
+			final GigaMap<Location> loaded = manager.root();
 
 			assertEquals(1, loaded.query(this.locationIndex.at(40.7128, -74.0060)).count());
 		}

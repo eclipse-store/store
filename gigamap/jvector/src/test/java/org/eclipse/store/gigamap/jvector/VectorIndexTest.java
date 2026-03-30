@@ -328,8 +328,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 assertNotNull(gigaMap);
 
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
@@ -445,8 +444,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 assertNotNull(gigaMap);
 
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
@@ -647,8 +645,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 // Search and compare results
@@ -806,8 +803,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 assertEquals(100, gigaMap.size(), "Should have 100 documents from phase 1");
@@ -838,8 +834,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 assertEquals(150, gigaMap.size(), "Should have 150 documents from phases 1+2");
@@ -866,8 +861,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 assertEquals(200, gigaMap.size(), "Should have all 200 documents");
@@ -930,8 +924,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 // Add 50 more vectors
@@ -951,8 +944,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 assertEquals(150, gigaMap.size());
@@ -968,8 +960,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 final VectorIndex<Document> index = vectorIndices.get("embeddings");
@@ -1025,8 +1016,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 assertEquals(200, gigaMap.size());
@@ -1057,8 +1047,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 assertEquals(300, gigaMap.size());
@@ -1123,8 +1112,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 assertEquals(500, gigaMap.size());
@@ -1146,8 +1134,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 // DON'T load graph - let it rebuild from entities
@@ -1204,8 +1191,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 final int expectedSize = 50 + (cycle - 1) * 10;
@@ -1230,8 +1216,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 // 50 initial + 10 cycles * 10 documents = 150 total
@@ -2136,8 +2121,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 assertNotNull(gigaMap);
 
                 assertEquals(90, gigaMap.size(), "Should still have 90 entities after restart");
@@ -2210,8 +2194,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 assertNotNull(gigaMap);
 
                 assertEquals(90, gigaMap.size(), "Should still have 90 entities after restart");
@@ -2284,8 +2267,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 assertNotNull(gigaMap);
 
                 assertEquals(30, gigaMap.size(), "Should have 30 new documents after restart");

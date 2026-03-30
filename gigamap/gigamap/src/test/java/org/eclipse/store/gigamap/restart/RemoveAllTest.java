@@ -50,13 +50,13 @@ public class RemoveAllTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            final GigaMap<Customer> root = (GigaMap<Customer>) manager.root();
+            final GigaMap<Customer> root = manager.root();
             root.removeAll();
             root.store();
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            final GigaMap<Customer> root = (GigaMap<Customer>) manager.root();
+            final GigaMap<Customer> root = manager.root();
             assertEquals(0, root.size(), "Size of the map should be 0 after removing all elements");
 
             long count = root.query(nameIndexer.startsWith("John")).count();

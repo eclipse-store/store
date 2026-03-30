@@ -65,7 +65,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             long count = newMap.query(localDatePersonIndex.between(LocalDate.of(1990, 1, 1), LocalDate.of(2000, 1, 1))).count();
             assertEquals(2, count);
             long count1 = newMap.query(localDatePersonIndex.between(LocalDate.of(1990, 1, 1), LocalDate.of(1990, 1, 1))).count();
@@ -86,7 +86,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             long count = newMap.query(localDatePersonIndex.after(LocalDate.of(1990, 1, 1))).count();
             assertEquals(1, count);
 //            long count1 = newMap.query(localDatePersonIndex.after(LocalDate.of(2000, 1, 1))).count();
@@ -107,7 +107,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             long count = newMap.query(localDatePersonIndex.before(LocalDate.of(2000, 1, 1))).count();
             assertEquals(2, count);
             long count1 = newMap.query(localDatePersonIndex.before(LocalDate.of(1990, 1, 1))).count();
@@ -128,7 +128,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             long count1 = newMap.query(localDatePersonIndex.isDay(1)).count();
             assertEquals(3, count1);
 //            long count2 = newMap.query(localDatePersonIndex.isDay(2)).count();
@@ -149,7 +149,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             long count1 = newMap.query(localDatePersonIndex.isMonth(1)).count();
             assertEquals(3, count1);
 //            long count2 = newMap.query(localDatePersonIndex.isMonth(2)).count();
@@ -170,7 +170,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             long count1 = newMap.query(localDatePersonIndex.isYear(2000)).count();
             assertEquals(1, count1);
             long count2 = newMap.query(localDatePersonIndex.isYear(1990)).count();
@@ -192,7 +192,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             long count1 = newMap.query(localDatePersonIndex.isDate(2000, 1, 1)).count();
             assertEquals(1, count1);
             long count2 = newMap.query(localDatePersonIndex.isDate(1990, 1, 1)).count();
@@ -218,7 +218,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             newMap.query(localDatePersonIndex.is(LocalDate.of(2000, 1, 1))).forEach(localDatePerson -> assertEquals(LocalDate.of(2000, 1, 1), localDatePerson.getBirthday()));
             newMap.query(localDatePersonIndex.is(LocalDate.of(1990, 1, 1))).forEach(localDatePerson -> assertEquals(LocalDate.of(1990, 1, 1), localDatePerson.getBirthday()));
 
@@ -254,7 +254,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             long count = newMap.query(localDatePersonIndex.beforeEqual(LocalDate.of(1990, 1, 1))).count();
             assertEquals(2, count);
             long count1 = newMap.query(localDatePersonIndex.beforeEqual(LocalDate.of(1980, 1, 1))).count();
@@ -275,7 +275,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             long count = newMap.query(localDatePersonIndex.afterEqual(LocalDate.of(1990, 1, 1))).count();
             assertEquals(2, count);
             long count1 = newMap.query(localDatePersonIndex.afterEqual(LocalDate.of(2000, 1, 1))).count();

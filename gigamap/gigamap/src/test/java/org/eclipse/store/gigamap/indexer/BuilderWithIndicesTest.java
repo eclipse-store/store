@@ -57,7 +57,7 @@ public class BuilderWithIndicesTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(gigaMap, storagePath)) {
-            GigaMap<Entity> map2 = (GigaMap<Entity>) storageManager.root();
+            GigaMap<Entity> map2 = storageManager.root();
             assertEquals("1000", map2.query().findFirst().get().value);
         }
     }
@@ -79,7 +79,7 @@ public class BuilderWithIndicesTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(gigaMap, storagePath)) {
-            GigaMap<Entity> map2 = (GigaMap<Entity>) storageManager.root();
+            GigaMap<Entity> map2 = storageManager.root();
             assertEquals("1000", map2.query().findFirst().get().value);
         }
     }
@@ -100,7 +100,7 @@ public class BuilderWithIndicesTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(gigaMap, storagePath)) {
-            GigaMap<Entity> map2 = (GigaMap<Entity>) storageManager.root();
+            GigaMap<Entity> map2 = storageManager.root();
             assertEquals("1000", map2.query().findFirst().get().value);
         }
     }
@@ -122,7 +122,7 @@ public class BuilderWithIndicesTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(gigaMap, storagePath)) {
-            GigaMap<Entity> map2 = (GigaMap<Entity>) storageManager.root();
+            GigaMap<Entity> map2 = storageManager.root();
             assertEquals("1000", map2.query().findFirst().get().value);
         }
     }
@@ -146,7 +146,7 @@ public class BuilderWithIndicesTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(gigaMap, storagePath)) {
-            GigaMap<Entity> map2 = (GigaMap<Entity>) storageManager.root();
+            GigaMap<Entity> map2 = storageManager.root();
             assertEquals("1000", map2.query().findFirst().get().value);
         }
     }
@@ -167,7 +167,7 @@ public class BuilderWithIndicesTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(gigaMap, storagePath)) {
-            GigaMap<Entity> map2 = (GigaMap<Entity>) storageManager.root();
+            GigaMap<Entity> map2 = storageManager.root();
             assertEquals("1000", map2.query().findFirst().get().value);
         }
     }
@@ -189,7 +189,7 @@ public class BuilderWithIndicesTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(gigaMap, storagePath)) {
-            GigaMap<Entity> map2 = (GigaMap<Entity>) storageManager.root();
+            GigaMap<Entity> map2 = storageManager.root();
             assertEquals("1000", map2.query(stringIndexer.is("1000")).findFirst().get().value);
         }
 
@@ -214,7 +214,7 @@ public class BuilderWithIndicesTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(gigaMap, storagePath)) {
-            GigaMap<Entity> map2 = (GigaMap<Entity>) storageManager.root();
+            GigaMap<Entity> map2 = storageManager.root();
             assertEquals("1000", map2.query(stringIndexer.is("1000")).findFirst().get().value);
         }
     }

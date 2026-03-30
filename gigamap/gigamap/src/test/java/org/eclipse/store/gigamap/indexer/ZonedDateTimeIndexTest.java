@@ -70,7 +70,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.between(toUTC(2021, 1, 1, 12, 0, 0), toUTC(2021, 1, 1, 14, 0, 0))).count();
             assertEquals(3, count);
             long count1 = newMap.query(zonedDateTimePersonIndex.between(toUTC(2021, 1, 1, 12, 0, 0), toUTC(2021, 1, 1, 14, 0, 0))).count();
@@ -93,7 +93,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.after(toUTC(2021, 1, 1, 12, 0, 0))).count();
             assertEquals(9, count);
             long count1 = newMap.query(zonedDateTimePersonIndex.after(toUTC(2021, 1, 1, 13, 0, 0))).count();
@@ -114,7 +114,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.before(toUTC(2021, 1, 1, 12, 0, 1))).count();
             assertEquals(1, count);
             long count1 = newMap.query(zonedDateTimePersonIndex.before(toUTC(2021, 1, 1, 13, 0, 0))).count();
@@ -133,7 +133,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.isSecond(0)).count();
             assertEquals(10, count);
         }
@@ -150,7 +150,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.isMinute(0)).count();
             assertEquals(10, count);
         }
@@ -167,7 +167,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.isHour(12)).count();
             assertEquals(1, count);
         }
@@ -184,7 +184,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.isTime(12, 0, 0)).count();
             assertEquals(1, count);
         }
@@ -201,7 +201,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.isDay(1)).count();
             assertEquals(10, count);
         }
@@ -218,7 +218,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.isMonth(1)).count();
             assertEquals(10, count);
         }
@@ -235,7 +235,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.isYear(2021)).count();
             assertEquals(10, count);
         }
@@ -252,7 +252,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.isDate(2021, 1, 1)).count();
             assertEquals(10, count);
         }
@@ -269,7 +269,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.isDateTime(2021, 1, 1, 12, 0, 0)).count();
             assertEquals(1, count);
         }
@@ -303,7 +303,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             newMap.query(zonedDateTimePersonIndex.is(toUTC(2000, 1, 1, 0, 0, 0))).forEach(person -> assertEquals(toUTC(2000, 1, 1, 0, 0, 0), person.getTimestamp()));
             newMap.query(zonedDateTimePersonIndex.is(toUTC(1990, 1, 1, 0, 0, 0))).forEach(person -> assertEquals(toUTC(1990, 1, 1, 0, 0, 0), person.getTimestamp()));
 
@@ -337,7 +337,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             List<ZonedDateTimePerson> list1 = newMap.query(zonedDateTimePersonIndex.beforeEqual(toUTC(1990, 1, 1, 0, 0, 0))).toList();
             assertEquals(2, list1.size());
             list1.forEach(person -> assertNotEquals("Alice", person.name));
@@ -365,7 +365,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             List<ZonedDateTimePerson> list1 = newMap.query(zonedDateTimePersonIndex.afterEqual(toUTC(1990, 1, 1, 0, 0, 0))).toList();
             assertEquals(2, list1.size());
             list1.forEach(person -> assertNotEquals("Charlie", person.name));

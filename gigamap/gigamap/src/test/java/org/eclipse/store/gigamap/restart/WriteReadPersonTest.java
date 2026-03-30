@@ -65,7 +65,7 @@ public class WriteReadPersonTest
     void readFromRepositoryTest()
     {
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            final GigaMap<Patient> gigaMap = (GigaMap<Patient>) manager.root();
+            final GigaMap<Patient> gigaMap = manager.root();
             assertEquals(AMOUNT + 2, gigaMap.size());
         }
     }

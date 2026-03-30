@@ -49,7 +49,7 @@ public class WriteReadTest
     void readAndCheckValuesTest()
     {
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            final GigaMap<String> gigaMap = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap = manager.root();
             assertAll(
                     () -> assertEquals(3, gigaMap.size()),
                     () -> assertEquals("Hello", gigaMap.get(0)),

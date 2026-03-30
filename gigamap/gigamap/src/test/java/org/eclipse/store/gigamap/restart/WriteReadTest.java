@@ -33,7 +33,6 @@ public class WriteReadTest
     @TempDir
     static Path tempDir;
 
-    @SuppressWarnings("unchecked")
     @Test
     @Order(1)
     void writeTest()
@@ -57,13 +56,12 @@ public class WriteReadTest
 
     }
 
-    @SuppressWarnings("unchecked")
     @Test
     @Order(2)
     void name()
     {
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap = manager.root();
             assertAll(
                     () -> assertEquals("Hello", gigaMap.get(0)),
                     () -> assertEquals("ahoj", gigaMap.get(1)),

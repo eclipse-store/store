@@ -77,7 +77,7 @@ public class RestartStorageBeanTest
         final EmbeddedStorageFoundation<?> storageFoundation = this.foundationFactory.createStorageFoundation(this.myConfiguration, pair);
         try (EmbeddedStorageManager storage = storageFoundation.start())
         {
-            final RestartRoot rootFromStorage = (RestartRoot) storage.root();
+            final RestartRoot rootFromStorage = storage.root();
             assertEquals("hello", rootFromStorage.getValue());
         }
     }

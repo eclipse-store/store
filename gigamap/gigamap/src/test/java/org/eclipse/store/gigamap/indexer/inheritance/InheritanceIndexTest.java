@@ -59,7 +59,7 @@ public class InheritanceIndexTest
 
         //load data test
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(workDir)) {
-            GigaMap<Employee> loadedEmployees = (GigaMap<Employee>) manager.root();
+            GigaMap<Employee> loadedEmployees = manager.root();
 
             assertEquals(1, loadedEmployees.query(employeeAgeIndexer.is(30)).count());
             assertEquals("Jane", loadedEmployees.query(employeeAgeIndexer.is(30)).findFirst().get().getName());

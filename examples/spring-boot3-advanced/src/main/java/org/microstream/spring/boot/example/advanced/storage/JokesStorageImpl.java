@@ -45,7 +45,7 @@ public class JokesStorageImpl implements JokesStorage
     public String oneJoke(Integer id)
     {
         String joke;
-        JokesRoot root = (JokesRoot) storageManager.root();
+        JokesRoot root = storageManager.root();
         if (id > root.getJokes().size())
         {
             throw new IllegalArgumentException("No jokes with this id");
@@ -58,7 +58,7 @@ public class JokesStorageImpl implements JokesStorage
     @Read
     public List<String> allJokes()
     {
-        JokesRoot root = (JokesRoot) storageManager.root();
+        JokesRoot root = storageManager.root();
         return new ArrayList<>(root.getJokes()); // Create new List... never return original one.
     }
 
@@ -66,7 +66,7 @@ public class JokesStorageImpl implements JokesStorage
     @Write
     public Integer addNewJoke(String joke)
     {
-        JokesRoot root = (JokesRoot) storageManager.root();
+        JokesRoot root = storageManager.root();
         root.getJokes().add(joke);
         storageManager.store(root.getJokes());
         return root.getJokes().size();
@@ -76,7 +76,7 @@ public class JokesStorageImpl implements JokesStorage
     @Write
     public void addJokes(List<String> jokes)
     {
-        JokesRoot root = (JokesRoot) storageManager.root();
+        JokesRoot root = storageManager.root();
         root.getJokes().addAll(jokes);
         storageManager.store(root.getJokes());
     }
@@ -85,7 +85,7 @@ public class JokesStorageImpl implements JokesStorage
     @Write
     public Integer saveAllJokes(List<String> jokes)
     {
-        JokesRoot root = (JokesRoot) storageManager.root();
+        JokesRoot root = storageManager.root();
         root.setJokes(jokes);
         Storer eagerStorer = storageManager.createEagerStorer();
         eagerStorer.store(root);

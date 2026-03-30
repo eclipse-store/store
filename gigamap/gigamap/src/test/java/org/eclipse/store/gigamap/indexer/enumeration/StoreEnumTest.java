@@ -45,7 +45,7 @@ public class StoreEnumTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(workDir)) {
-            GigaMap<StoreEnum> loadedGigaMap = (GigaMap<StoreEnum>) manager.root();
+            GigaMap<StoreEnum> loadedGigaMap = manager.root();
 
             List<StoreEnum> expectedList = List.of(StoreEnum.VALUE, StoreEnum.SECOND, StoreEnum.THIRD);
             List<StoreEnum> loadedEnumList = loadedGigaMap.query().toList();
@@ -65,7 +65,7 @@ public class StoreEnumTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(workDir)) {
-            List<StoreEnum> loadedEnumList = (List<StoreEnum>) manager.root();
+            List<StoreEnum> loadedEnumList = manager.root();
 
             List<StoreEnum> expectedList = List.of(StoreEnum.VALUE, StoreEnum.SECOND, StoreEnum.THIRD);
             Assertions.assertIterableEquals(expectedList, loadedEnumList);
