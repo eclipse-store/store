@@ -38,15 +38,8 @@ public class WriteReadTest
     @Order(1)
     void writeTest()
     {
-        GigaMap<String> gigaMap = GigaMap.New();
-
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            if (manager.root() == null) {
-                manager.setRoot(gigaMap);
-                manager.storeRoot();
-            } else {
-                gigaMap = (GigaMap<String>) manager.root();
-            }
+            final GigaMap<String> gigaMap = manager.ensureRoot(GigaMap::New);
 
             gigaMap.add("Hello");
             gigaMap.store();

@@ -43,15 +43,9 @@ public class WriteReadPersonTest
     @BeforeAll
     static void writeTest()
     {
-        GigaMap<Patient> gigaMap = GigaMap.New();
-
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            if (manager.root() == null) {
-                manager.setRoot(gigaMap);
-            } else {
-                gigaMap = (GigaMap<Patient>) manager.root();
-            }
-            manager.storeRoot();
+
+            GigaMap<Patient> gigaMap = manager.ensureRoot(GigaMap::New);
 
             for (int i = 0; i < AMOUNT; i++) {
                 gigaMap.add(Patient.createRandomPatient());
@@ -79,7 +73,6 @@ public class WriteReadPersonTest
     @Test
     void addIndex()
     {
-        GigaMap<Patient> gigaMap = GigaMap.New();
 
         final PatientIndexer patientIndexer = new PatientIndexer();
         final PatientIndexerFaxIndexer patientIndexerFaxIndexer = new PatientIndexerFaxIndexer();
@@ -87,11 +80,8 @@ public class WriteReadPersonTest
         final PatientAgeIndexer patientAgeIndexer = new PatientAgeIndexer();
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            if (manager.root() == null) {
-                manager.setRoot(gigaMap);
-            } else {
-                gigaMap = (GigaMap<Patient>) manager.root();
-            }
+
+            GigaMap<Patient> gigaMap = manager.ensureRoot(GigaMap::New);
 
             final BitmapIndices<Patient>       register = gigaMap.index().bitmap();
             final BitmapIndex<Patient, String> indexer  = register.get("PatientIndexer");
