@@ -599,7 +599,6 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 
         private int defaultMaxResults()
         {
-
 			return XMath.cap_int(this.gigaMap.size());
         }
 
