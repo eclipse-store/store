@@ -135,6 +135,7 @@ public class CompositeIndexNullHandlingTest
 			);
 
 			assertEquals(1, map.size());
+			map.store();
 		}
 
 		// Verify persistence
