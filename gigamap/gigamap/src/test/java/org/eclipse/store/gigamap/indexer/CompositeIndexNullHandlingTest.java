@@ -167,12 +167,9 @@ public class CompositeIndexNullHandlingTest
 		// Update all to non-null timestamps
 		assertDoesNotThrow(() ->
 		{
-			event1.timestamp = Instant.parse("2025-06-15T10:30:00Z");
-			event2.timestamp = Instant.parse("2025-06-15T11:30:00Z");
-			event3.timestamp = Instant.parse("2025-06-15T12:30:00Z");
-			map.update(event1, e -> {});
-			map.update(event2, e -> {});
-			map.update(event3, e -> {});
+			map.update(event1, e -> e.timestamp = Instant.parse("2025-06-15T10:30:00Z"));
+			map.update(event2, e -> e.timestamp = Instant.parse("2025-06-15T11:30:00Z"));
+			map.update(event3, e -> e.timestamp = Instant.parse("2025-06-15T12:30:00Z"));
 		});
 
 		assertEquals(3, map.size());
