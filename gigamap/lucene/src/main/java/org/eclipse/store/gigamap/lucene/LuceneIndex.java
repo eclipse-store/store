@@ -599,20 +599,31 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 
         private int defaultMaxResults()
         {
-            return XMath.cap_int(this.gigaMap.size());
+
+			return XMath.cap_int(this.gigaMap.size());
         }
 
         private void lazyInit() throws IOException
         {
             if(this.directory == null)
             {
+                this.directory = this.createDirectory();
+                final IndexWriterConfig writerConfig = new IndexWriterConfig(
+                    this.analyzer = this.context.analyzerCreator().createAnalyzer()
+                );
+                if(this.usesGraphDirectory())
+                {
+                    // GraphDirectory stores index data in the persistent fileEntries map.
+                    // ConcurrentMergeScheduler would modify that map from background threads,
+                    // racing with GigaMap#store serialization. SerialMergeScheduler ensures
+                    // merges run on the caller's thread, which holds the GigaMap lock.
+                    writerConfig.setMergeScheduler(new SerialMergeScheduler());
+                }
                 this.searcher              = new IndexSearcher(
                     this.reader            = DirectoryReader.open(
                         this.writer        = new IndexWriter(
-                            this.directory = this.createDirectory(),
-                            new IndexWriterConfig(
-                                this.analyzer = this.context.analyzerCreator().createAnalyzer()
-                            )
+                            this.directory,
+                            writerConfig
                         )
                     )
                 );
@@ -630,12 +641,16 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
             }
         }
 
+		private boolean usesGraphDirectory()
+		{
+			return this.context.directoryCreator() == null;
+		}
+
 		private Directory createDirectory()
 		{
-			final DirectoryCreator creator = this.context.directoryCreator();
-			return creator != null
-				? creator.createDirectory()
-				: new GraphDirectory()
+			return this.usesGraphDirectory()
+				? new GraphDirectory()
+				: this.context.directoryCreator().createDirectory()
 			;
 		}
 
