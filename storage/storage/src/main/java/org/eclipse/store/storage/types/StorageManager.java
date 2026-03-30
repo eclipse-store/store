@@ -18,6 +18,8 @@ import org.eclipse.serializer.persistence.types.PersistenceObjectRegistry;
 import org.eclipse.serializer.persistence.types.PersistenceRootsView;
 import org.eclipse.serializer.persistence.types.Storer;
 
+import java.util.function.Supplier;
+
 
 /**
  * Central managing type for a native Java database's storage layer.
@@ -113,6 +115,38 @@ public interface StorageManager extends StorageController, StorageConnection, Da
 	 * @return the root instance's objectId.
 	 */
 	public long storeRoot();
+
+	/**
+	 * Ensures that the root object of the persistent object graph is initialized and available.
+	 * If the storage is not running, it starts the storage. If the root object is not set, it uses
+	 * the given supplier to provide the initial root and stores it. Throws an exception if the
+	 * initial root provided by the supplier is null.
+	 *
+	 * @param <R> the type of the root object
+	 * @param initialRootSupplier a supplier that provides the initial root object if it is not already set
+	 * @return the root object of the persistent object graph, cast to the specified type
+	 * @throws IllegalArgumentException if the supplied initial root is null
+	 */
+	@SuppressWarnings("unchecked")
+	public default <R> R ensureRoot(final Supplier<R> initialRootSupplier)
+	{
+		if (!this.isRunning())
+		{
+			this.start();
+		}
+
+		if (this.root() == null)
+		{
+			final R initialRoot = initialRootSupplier.get();
+			if(initialRoot == null)
+			{
+				throw new IllegalArgumentException("Initial root must not be null");
+			}
+			this.setRoot(initialRoot);
+			this.storeRoot();
+		}
+		return (R) this.root();
+	}
 	
 	/**
 	 * Returns a read-only view on all technical root instance registered in this {@link StorageManager} instance.<br>

@@ -77,38 +77,6 @@ public interface EmbeddedStorageManager extends StorageManager
 	@Override
 	public EmbeddedStorageManager start();
 
-	/**
-	 * Ensures that the root object of the persistent object graph is initialized and available.
-	 * If the storage is not running, it starts the storage. If the root object is not set, it uses
-	 * the given supplier to provide the initial root and stores it. Throws an exception if the
-	 * initial root provided by the supplier is null.
-	 *
-	 * @param <R> the type of the root object
-	 * @param initialRootSupplier a supplier that provides the initial root object if it is not already set
-	 * @return the root object of the persistent object graph, cast to the specified type
-	 * @throws IllegalArgumentException if the supplied initial root is null
-	 */
-	@SuppressWarnings("unchecked")
-	public default <R> R ensureRoot(final Supplier<R> initialRootSupplier)
-	{
-		if (!this.isRunning())
-		{
-			this.start();
-		}
-
-		if (this.root() == null)
-		{
-			final R initialRoot = initialRootSupplier.get();
-			if(initialRoot == null)
-			{
-				throw new IllegalArgumentException("Initial root must not be null");
-			}
-			this.setRoot(initialRoot);
-			this.storeRoot();
-		}
-		return (R) this.root();
-	}
-
 	
 	
 	public static EmbeddedStorageManager.Default New(
