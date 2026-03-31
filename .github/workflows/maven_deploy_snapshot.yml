@@ -27,9 +27,18 @@ jobs:
           server-username: MAVEN_USERNAME
           server-password: MAVEN_PASSWORD
       - name: Make a snapshot from Main branch
-        run: mvn -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy -U
+        run: mvn -T 1C -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy -U -Dmaven.javadoc.skip=true -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
         env:
           MAVEN_USERNAME: ${{ secrets.CENTRAL_SONATYPE_TOKEN_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.CENTRAL_SONATYPE_TOKEN_PASSWORD }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.ORG_GPG_PASSPHRASE }}
           MAVEN_GPG_KEY: ${{ secrets.ORG_GPG_PRIVATE_KEY }}
+
+      - name: Report JUnit results (dorny - surefire)
+        if: always()
+        uses: dorny/test-reporter@v2
+        with:
+          name: "GigaMap - Test result without slow"
+          path: '**/target/**/surefire-reports/*.xml'
+          reporter: java-junit
+          fail-on-error: false

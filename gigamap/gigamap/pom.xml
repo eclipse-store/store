@@ -9,7 +9,7 @@
     <parent>
         <groupId>org.eclipse.store</groupId>
         <artifactId>gigamap-parent</artifactId>
-        <version>4.0.0-SNAPSHOT</version>
+        <version>5.0.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>gigamap</artifactId>
@@ -28,11 +28,6 @@
             <groupId>org.eclipse.store</groupId>
             <artifactId>storage-embedded</artifactId>
             <version>${project.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-engine</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

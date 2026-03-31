@@ -39,6 +39,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.IntStream;
@@ -555,6 +557,25 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     }
 
     /**
+     * Retrieves the vector associated with the given entity ID.
+     * <p>
+     * If the vectorizer is embedded, the vector is computed on-the-fly from the entity
+     * stored in the parent map. Otherwise, the vector is looked up from the vector store.
+     *
+     * <h4>Example</h4>
+     * <pre>{@code
+     * float[] vector = index.getVector(entityId);
+     * if (vector != null) {
+     *     System.out.println("Vector dimension: " + vector.length);
+     * }
+     * }</pre>
+     *
+     * @param entityId the entity ID whose vector to retrieve
+     * @return the vector as a float array, or {@code null} if no vector is found for the given entity ID
+     */
+    public float[] getVector(long entityId);
+
+    /**
      * Closes the index and releases all associated resources.
      * <p>
      * This method should be called when the index is no longer needed. It performs
@@ -665,15 +686,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private transient OnHeapGraphIndex  index            ;
 
         // Managers (transient - recreated on load)
-        private transient DiskIndexManager     diskManager        ;
-        private transient PQCompressionManager pqManager          ;
-        transient BackgroundTaskManager        backgroundTaskManager;
+        private transient DiskIndexManager      diskManager          ;
+        private transient PQCompressionManager  pqManager            ;
+                transient BackgroundTaskManager backgroundTaskManager;
 
         // GraphSearcher pool for thread-local reuse
-        private transient ExplicitThreadLocal<GraphSearcher> searcherPool;
+        private transient ExplicitThreadLocal<GraphSearcher> inMemorySearcherPool;
 
-        // Flag indicating graph was loaded from file (skip rebuild)
-        private transient boolean graphLoadedFromFile;
+        // Incremental on-disk mode: after disk reload, use disk index for search
+        // and in-memory builder only for new mutations. Full rebuild deferred to persistToDisk().
+        // Volatile: written under writeLock (reenterIncrementalMode, exitIncrementalMode)
+        // but read by mutation methods (internalUpdate, internalRemove) under parentMap
+        // monitor only, without builderLock.
+        private transient volatile boolean                   incrementalMode    ;
+        private transient Set<Integer>                       diskDeletedOrdinals;
+        private transient ExplicitThreadLocal<GraphSearcher> diskSearcherPool    ;
 
         // Read/write lock for builder operations.
         // Read lock: concurrent searches and background-worker mutations
@@ -685,7 +712,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // so sync-mode mutations (which hold that monitor) cannot use builderLock — they use
         // this flag instead. The synchronized(parentMap) barrier in optimize()/persistToDisk()
         // ensures any in-flight mutation completes before cleanup begins.
-        private transient volatile boolean cleanupInProgress;
+        private transient volatile boolean                cleanupInProgress;
         private transient ConcurrentLinkedQueue<Runnable> deferredBuilderOps;
 
 
@@ -750,15 +777,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 this.initializeIndex();
 
-                // Skip rebuild if graph was loaded from file
-                if(this.graphLoadedFromFile)
+                if(!this.incrementalMode)
                 {
-                    this.graphLoadedFromFile = false; // Reset flag
-                    return;
+                    // Rebuild graph from stored data (after deserialization).
+                    // Skipped in incremental mode — disk index serves search,
+                    // in-memory builder only handles new mutations.
+                    this.rebuildGraphFromStore();
                 }
-
-                // Rebuild graph from stored data (after deserialization)
-                this.rebuildGraphFromStore();
             }
         }
 
@@ -826,6 +851,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 );
             }
 
+            // Initialize in-memory builder
+            this.initializeInMemoryBuilder();
+
             // Try to load from disk if on-disk mode is enabled
             if(this.configuration.onDisk())
             {
@@ -839,24 +867,28 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 );
                 if(this.diskManager.tryLoad())
                 {
-                    this.graphLoadedFromFile = true;
                     // Mark PQ as trained if compression was enabled (FusedPQ is embedded)
                     if(this.pqManager != null)
                     {
                         this.pqManager.markTrained();
                         LOG.debug("FusedPQ compression loaded from disk for '{}'", this.name);
                     }
-                    // Initialize searcher pool for disk index
-                    this.initializeSearcherPool();
-                    // Start background managers if enabled
-                    this.startBackgroundManagersIfEnabled();
-                    return;
+
+                    // Enter incremental on-disk mode: disk index serves search,
+                    // in-memory builder only handles new mutations.
+                    // Set state fields first, then flip incrementalMode last for safe publication.
+                    this.diskDeletedOrdinals = ConcurrentHashMap.newKeySet();
+                    this.incrementalMode     = true;
+                    LOG.info("Entering incremental on-disk mode for '{}' — skipping full graph rebuild", this.name);
                 }
-                LOG.info("Could not load disk index for '{}', will build in-memory and persist later", this.name);
+                else
+                {
+                    LOG.info("Could not load disk index for '{}', will build in-memory and persist later", this.name);
+                }
             }
 
-            // Initialize in-memory builder
-            this.initializeInMemoryBuilder();
+            // Initialize searcher pool
+            this.initializeSearcherPool();
 
             // Start background managers if enabled
             this.startBackgroundManagersIfEnabled();
@@ -905,16 +937,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void initializeInMemoryBuilder()
         {
-            final RandomAccessVectorValues ravv = new NullSafeVectorValues(
+            final RandomAccessVectorValues vectorValues = new NullSafeVectorValues(
                 this.createVectorValues(), this.configuration.dimension(), this.vectorTypeSupport
             );
-            final BuildScoreProvider bsp = BuildScoreProvider.randomAccessScoreProvider(
-                ravv,
+            final BuildScoreProvider scoreProvider = BuildScoreProvider.randomAccessScoreProvider(
+                vectorValues,
                 this.jvectorSimilarityFunction()
             );
 
             this.builder = new GraphIndexBuilder(
-                bsp,
+                scoreProvider,
                 this.configuration.dimension(),
                 this.configuration.maxDegree(),
                 this.configuration.beamWidth(),
@@ -923,9 +955,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 true // use hierarchical index
             );
             this.index = (OnHeapGraphIndex)this.builder.getGraph();
-
-            // Initialize searcher pool for in-memory index
-            this.initializeSearcherPool();
         }
 
         /**
@@ -933,15 +962,49 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void initializeSearcherPool()
         {
-            // Close existing pool if present
-            this.closeSearcherPool();
+            // Close existing pools if present
+            this.closeSearcherPools();
 
             final boolean diskLoaded = this.diskManager != null && this.diskManager.isLoaded();
-            if(diskLoaded && this.diskManager.getDiskIndex() != null)
+
+            if(this.incrementalMode && diskLoaded && this.diskManager.getDiskIndex() != null)
             {
-                // Pool for disk index
+                // Incremental mode: two pools — disk searcher for existing data,
+                // in-memory searcher for newly added data
                 final var diskIndex = this.diskManager.getDiskIndex();
-                this.searcherPool = ExplicitThreadLocal.withInitial(() ->
+                this.diskSearcherPool = ExplicitThreadLocal.withInitial(() ->
+                {
+                    try
+                    {
+                        return new GraphSearcher(diskIndex);
+                    }
+                    catch(final Exception e)
+                    {
+                        throw new RuntimeException("Failed to create GraphSearcher for disk index", e);
+                    }
+                });
+
+                // In-memory pool for the builder's graph (new mutations)
+                if(this.index != null)
+                {
+                    this.inMemorySearcherPool = ExplicitThreadLocal.withInitial(() ->
+                    {
+                        try
+                        {
+                            return new GraphSearcher(this.index);
+                        }
+                        catch(final Exception e)
+                        {
+                            throw new RuntimeException("Failed to create GraphSearcher for in-memory index", e);
+                        }
+                    });
+                }
+            }
+            else if(diskLoaded && this.diskManager.getDiskIndex() != null)
+            {
+                // Non-incremental disk mode: single pool for disk index
+                final var diskIndex = this.diskManager.getDiskIndex();
+                this.inMemorySearcherPool = ExplicitThreadLocal.withInitial(() ->
                 {
                     try
                     {
@@ -955,8 +1018,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             else if(this.index != null)
             {
-                // Pool for in-memory index
-                this.searcherPool = ExplicitThreadLocal.withInitial(() ->
+                // In-memory only pool
+                this.inMemorySearcherPool = ExplicitThreadLocal.withInitial(() ->
                 {
                     try
                     {
@@ -971,21 +1034,34 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Closes the searcher pool and releases resources.
+         * Closes the searcher pools and releases resources.
          */
-        private void closeSearcherPool()
+        private void closeSearcherPools()
         {
-            if(this.searcherPool != null)
+            if(this.diskSearcherPool != null)
             {
                 try
                 {
-                    this.searcherPool.close();
+                    this.diskSearcherPool.close();
+                }
+                catch(final Exception e)
+                {
+                    LOG.warn("Error closing disk searcher pool: {}", e.getMessage());
+                }
+                this.diskSearcherPool = null;
+            }
+
+            if(this.inMemorySearcherPool != null)
+            {
+                try
+                {
+                    this.inMemorySearcherPool.close();
                 }
                 catch(final Exception e)
                 {
                     LOG.warn("Error closing searcher pool: {}", e.getMessage());
                 }
-                this.searcherPool = null;
+                this.inMemorySearcherPool = null;
             }
         }
 
@@ -1128,10 +1204,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(this.isEventualIndexing())
             {
                 // Defer graph update to background thread
-                this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Add(vectorEntry));
+                this.backgroundTaskManager.enqueueAdd(vectorEntry);
             }
             else
             {
+                // Drain any deferred builder ops before adding a new graph node.
+                if(!this.cleanupInProgress)
+                {
+                    this.drainDeferredBuilderOps();
+                }
+
                 // Add to HNSW graph using entity ID as ordinal
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
                 this.executeOrDeferBuilderOp(() -> this.builder.addGraphNode(ordinal, vf));
@@ -1176,21 +1258,55 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             this.markStateChangeChildren();
 
+            final int ordinal = toOrdinal(entityId);
+
+            // In incremental mode, mark the ordinal as deleted from disk graph
+            // so disk search excludes the stale version immediately,
+            // regardless of whether indexing is synchronous or eventual.
+            if(this.incrementalMode && this.diskDeletedOrdinals != null)
+            {
+                this.diskDeletedOrdinals.add(ordinal);
+            }
+
             if(this.isEventualIndexing())
             {
                 // Defer graph update to background thread
-                this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Update(vectorEntry));
+                this.backgroundTaskManager.enqueueUpdate(vectorEntry);
             }
             else
             {
-                final int ordinal = toOrdinal(entityId);
-                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                this.executeOrDeferBuilderOp(() ->
+                // Drain any deferred builder ops (e.g. from a preceding addAll()) before
+                // modifying graph nodes. This avoids interleaving batch-add ops with
+                // delete+re-add ops, which can corrupt HNSW neighbor lists.
+                if(!this.cleanupInProgress)
                 {
-                    this.builder.markNodeDeleted(ordinal);
-                    this.builder.removeDeletedNodes();
-                    this.builder.addGraphNode(ordinal, vf);
-                });
+                    this.drainDeferredBuilderOps();
+                }
+
+                if(this.isEmbedded())
+                {
+                    // For embedded vectorizers: removeDeletedNodes() uses ForkJoinPool
+                    // whose workers call parentMap.get(), deadlocking with the GigaMap
+                    // monitor we hold. Instead, let the next optimize/persist cycle
+                    // rebuild the graph connections. The updated entity is already in
+                    // the GigaMap, so EntityBackedVectorValues will return the new
+                    // vector for similarity scoring during search.
+                }
+                else
+                {
+                    // For computed vectorizers: vectors are stored separately, so
+                    // removeDeletedNodes() won't call parentMap.get(). Safe to inline.
+                    final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+                    this.executeOrDeferBuilderOp(() ->
+                    {
+                        if(this.index != null && this.index.containsNode(ordinal))
+                        {
+                            this.builder.markNodeDeleted(ordinal);
+                            this.builder.removeDeletedNodes();
+                        }
+                        this.builder.addGraphNode(ordinal, vf);
+                    });
+                }
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
@@ -1242,12 +1358,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(this.isEventualIndexing())
             {
                 // Defer graph updates to background thread as a single batch operation
-                this.backgroundTaskManager.enqueue(
-                    new BackgroundTaskManager.IndexingOperation.BatchAdd(entries)
-                );
+                this.backgroundTaskManager.enqueueBatchAdd(entries);
             }
             else
             {
+                // Drain any deferred builder ops (e.g. from a preceding set() or removeById())
+                // before adding new nodes. This avoids interleaving delete+re-add ops from
+                // set/remove with batch-add ops, which can corrupt HNSW neighbor lists.
+                // Safe to drain here because we hold the GigaMap monitor and cleanup is not
+                // in progress (if it were, executeOrDeferBuilderOp below would defer anyway).
+                if(!this.cleanupInProgress)
+                {
+                    this.drainDeferredBuilderOps();
+                }
+
                 this.executeOrDeferBuilderOp(() -> this.addGraphNodesSequential(entries));
 
                 // Mark dirty for background managers (with count for debouncing)
@@ -1294,14 +1418,34 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             this.markStateChangeChildren();
 
+            // In incremental mode, mark the ordinal as deleted from disk graph
+            // so disk search excludes it immediately, even before background
+            // processing has updated the on-disk graph.
+            if(this.incrementalMode && this.diskDeletedOrdinals != null)
+            {
+                this.diskDeletedOrdinals.add(ordinal);
+            }
+
             if(this.isEventualIndexing())
             {
                 // Defer graph update to background thread
-                this.backgroundTaskManager.enqueue(new BackgroundTaskManager.IndexingOperation.Remove(ordinal));
+                this.backgroundTaskManager.enqueueRemove(ordinal);
             }
             else
             {
-                this.executeOrDeferBuilderOp(() -> this.builder.markNodeDeleted(ordinal));
+                // Drain any deferred builder ops before modifying graph nodes.
+                if(!this.cleanupInProgress)
+                {
+                    this.drainDeferredBuilderOps();
+                }
+
+                // Mark deleted in the in-memory builder if the node exists there
+                // (e.g., added after disk reload). Disk-only nodes are excluded
+                // via diskDeletedOrdinals and won't be in the builder.
+                if(this.index != null && this.index.containsNode(ordinal))
+                {
+                    this.executeOrDeferBuilderOp(() -> this.builder.markNodeDeleted(ordinal));
+                }
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
@@ -1326,6 +1470,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.vectorStore.removeAll();
                 }
 
+                // Reset incremental state before closing resources
+                this.incrementalMode = false;
+                if(this.diskDeletedOrdinals != null)
+                {
+                    this.diskDeletedOrdinals.clear();
+                    this.diskDeletedOrdinals = null;
+                }
+
                 // Shutdown background task manager (discard pending ops — they're stale)
                 this.shutdownBackgroundTaskManager(false, false, false);
 
@@ -1342,6 +1494,27 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 this.builderLock.writeLock().unlock();
             }
+        }
+
+        @Override
+        public float[] getVector(final long entityId)
+        {
+            if(this.isEmbedded())
+            {
+                final E entity = this.parentMap().get(entityId);
+                if(entity == null)
+                {
+                    return null;
+                }
+                return this.vectorizer.vectorize(entity);
+            }
+
+            final VectorEntry entry = this.vectorStore.get(entityId);
+            if(entry == null)
+            {
+                return null;
+            }
+            return entry.vector;
         }
 
         @Override
@@ -1362,8 +1535,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                 // Choose search strategy based on index mode
                 final SearchResult result;
-                final boolean diskLoaded = this.diskManager != null && this.diskManager.isLoaded();
-                if(diskLoaded && this.diskManager.getDiskIndex() != null)
+                if (this.incrementalMode)
+                {
+                    result = this.searchIncremental(query, k);
+                }
+                else if (this.diskManager != null && this.diskManager.isLoaded() && this.diskManager.getDiskIndex() != null)
                 {
                     result = this.searchDiskIndex(query, k);
                 }
@@ -1385,16 +1561,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private SearchResult searchInMemoryIndex(final VectorFloat<?> query, final int k)
         {
-            final RandomAccessVectorValues ravv = this.createCachingVectorValues();
-            final SearchScoreProvider ssp = DefaultSearchScoreProvider.exact(
+            final SearchScoreProvider scoreProvider = DefaultSearchScoreProvider.exact(
                 query,
                 this.jvectorSimilarityFunction(),
-                ravv
+                this.createCachingVectorValues()
             );
 
-            final GraphSearcher searcher = this.searcherPool.get();
-            final Bits acceptBits = this.index != null ? this.index.getView().liveNodes() : Bits.ALL;
-            return searcher.search(ssp, k, acceptBits);
+            final GraphSearcher searcher = this.inMemorySearcherPool.get();
+            // Refresh the view so the searcher sees nodes added or re-added since pool
+            // initialization (ConcurrentGraphIndexView uses snapshot isolation based on
+            // a completion timestamp captured at creation time).
+            final var view = this.index != null ? this.index.getView() : null;
+            if(view != null)
+            {
+                searcher.setView(view);
+            }
+            final Bits acceptBits = view != null ? view.liveNodes() : Bits.ALL;
+            return searcher.search(scoreProvider, k, acceptBits);
         }
 
         /**
@@ -1405,28 +1588,207 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // If PQ is available, use compressed scoring with reranking
             if(this.pqManager != null && this.pqManager.isTrained() && this.pqManager.getCompressedVectors() != null)
             {
-                final RandomAccessVectorValues ravv = this.createCachingVectorValues();
-                final GraphSearcher searcher = this.searcherPool.get();
+                final GraphSearcher searcher = this.inMemorySearcherPool.get();
                 return this.pqManager.searchWithRerank(
                     query,
                     k,
                     searcher,
-                    ravv,
+                    this.createCachingVectorValues(),
                     this.jvectorSimilarityFunction()
                 );
             }
 
             // Otherwise, search disk index with exact vectors using pooled searcher
-            final RandomAccessVectorValues ravv = this.createCachingVectorValues();
-            final SearchScoreProvider ssp = DefaultSearchScoreProvider.exact(
+            final SearchScoreProvider scoreProvider = DefaultSearchScoreProvider.exact(
                 query,
                 this.jvectorSimilarityFunction(),
-                ravv
+                this.createCachingVectorValues()
             );
 
-            final GraphSearcher searcher = this.searcherPool.get();
-            final Bits acceptBits = this.index != null ? this.index.getView().liveNodes() : Bits.ALL;
-            return searcher.search(ssp, k, acceptBits);
+            final GraphSearcher searcher = this.inMemorySearcherPool.get();
+            return searcher.search(scoreProvider, k, Bits.ALL);
+        }
+
+        /**
+         * Searches in incremental mode: queries both the disk graph (for existing data)
+         * and the in-memory builder graph (for new mutations), then merges results.
+         */
+        private SearchResult searchIncremental(final VectorFloat<?> query, final int k)
+        {
+            final SearchScoreProvider scoreProvider = DefaultSearchScoreProvider.exact(
+                query,
+                this.jvectorSimilarityFunction(),
+                this.createCachingVectorValues()
+            );
+
+            // 1. Search disk graph (excluding deleted/updated ordinals)
+            SearchResult diskResult = null;
+            if(this.diskSearcherPool != null)
+            {
+                final GraphSearcher diskSearcher = this.diskSearcherPool.get();
+                final Bits acceptBits = this.createDiskAcceptBits();
+                diskResult = diskSearcher.search(scoreProvider, k, acceptBits);
+            }
+
+            // 2. Search in-memory graph (new mutations only)
+            SearchResult memResult = null;
+            if(this.inMemorySearcherPool != null && this.index != null && this.index.size(0) > 0)
+            {
+                final GraphSearcher memSearcher = this.inMemorySearcherPool.get();
+                // Refresh view so the searcher sees nodes added since pool initialization
+                memSearcher.setView(this.index.getView());
+                memResult = memSearcher.search(scoreProvider, k, this.index.getView().liveNodes());
+            }
+
+            // 3. Merge results
+            if(diskResult == null && memResult == null)
+            {
+                return new SearchResult(new SearchResult.NodeScore[0], 0, 0, 0, 0, 0f);
+            }
+            if(diskResult == null)
+            {
+                return memResult;
+            }
+            if(memResult == null)
+            {
+                return diskResult;
+            }
+
+            return this.mergeSearchResults(diskResult, memResult, k);
+        }
+
+        /**
+         * Creates accept bits for disk graph search that excludes deleted/updated ordinals.
+         */
+        private Bits createDiskAcceptBits()
+        {
+            if(this.diskDeletedOrdinals == null || this.diskDeletedOrdinals.isEmpty())
+            {
+                return Bits.ALL;
+            }
+
+            // Snapshot into a primitive int[] and find max in a single pass
+            // to avoid Integer[] boxing overhead on every search query.
+            final Set<Integer> deleted = this.diskDeletedOrdinals;
+            final int size = deleted.size();
+            final int[] snapshot = new int[size];
+            int count = 0;
+            int maxOrdinal = -1;
+            for(final Integer ord : deleted)
+            {
+                final int o = ord;
+                if(count < size)
+                {
+                    snapshot[count++] = o;
+                }
+                if(o > maxOrdinal)
+                {
+                    maxOrdinal = o;
+                }
+            }
+
+            if(maxOrdinal < 0)
+            {
+                return Bits.ALL;
+            }
+
+            // Build a primitive boolean[] mask to avoid boxing in the hot search path.
+            final boolean[] deletedMask = new boolean[maxOrdinal + 1];
+            for(int i = 0; i < count; i++)
+            {
+                final int ord = snapshot[i];
+                if(ord >= 0 && ord <= maxOrdinal)
+                {
+                    deletedMask[ord] = true;
+                }
+            }
+
+            return i -> i < 0 || i >= deletedMask.length || !deletedMask[i];
+        }
+
+        /**
+         * Merges two SearchResults: combines nodes, deduplicates by ordinal
+         * (keeping higher score), sorts by score descending, and takes top-k.
+         */
+        private SearchResult mergeSearchResults(
+            final SearchResult diskResult,
+            final SearchResult memResult,
+            final int k
+        )
+        {
+            final SearchResult.NodeScore[] diskNodes = diskResult.getNodes();
+            final SearchResult.NodeScore[] memNodes  = memResult.getNodes();
+            final int totalCandidates = diskNodes.length + memNodes.length;
+
+            if(totalCandidates == 0)
+            {
+                final int visitedCount = diskResult.getVisitedCount() + memResult.getVisitedCount();
+                return new SearchResult(new SearchResult.NodeScore[0], visitedCount, 0, 0, 0, 0f);
+            }
+
+            /*
+             * Primitive open-addressing hash table (int -> float) to deduplicate by ordinal
+             * and to avoid the overhead of HashMap<Integer, Float> boxing
+             */
+            final int tableSize = Integer.highestOneBit(totalCandidates * 2 - 1) << 1;
+            final int[]   keys   = new int  [tableSize];
+            final float[] values = new float[tableSize];
+            Arrays.fill(keys, -1);
+
+            int uniqueCount = 0;
+            for (final SearchResult.NodeScore[] nodes : new SearchResult.NodeScore[][]{diskNodes, memNodes})
+            {
+                for (final SearchResult.NodeScore node : nodes)
+                {
+                    int idx =
+                        (node.node & 0x7fffffff) // strip the sign bit, ensuring a non-negative hash value
+                        & (tableSize - 1) // a fast modulo since tableSize is always a power of two
+                    ;
+                    while (true)
+                    {
+                        if (keys[idx] == -1) // empty slot — node not yet in the table
+                        {
+                            keys[idx] = node.node;
+                            values[idx] = node.score;
+                            uniqueCount++;
+                            break;
+                        }
+                        if (keys[idx] == node.node) // duplicate found — same node already present
+                        {
+                            if (node.score > values[idx])
+                            {
+                                values[idx] = node.score;
+                            }
+                            break;
+                        }
+
+                        // collision — different node occupies this slot
+                        // advance to the next slot
+                        idx = (idx + 1) & (tableSize - 1);
+                    }
+                }
+            }
+
+            // Materialize and sort
+            final SearchResult.NodeScore[] all = new SearchResult.NodeScore[uniqueCount];
+            int outIdx = 0;
+            for(int i = 0; i < tableSize && outIdx < uniqueCount; i++)
+            {
+                if(keys[i] != -1)
+                {
+                    all[outIdx++] = new SearchResult.NodeScore(keys[i], values[i]);
+                }
+            }
+
+            Arrays.sort(all, (a, b) -> Float.compare(b.score, a.score));
+
+            final int resultSize = Math.min(k, all.length);
+            final SearchResult.NodeScore[] merged = resultSize == all.length
+                ? all
+                : Arrays.copyOf(all, resultSize);
+
+            final int visitedCount = diskResult.getVisitedCount() + memResult.getVisitedCount();
+            return new SearchResult(merged, visitedCount, 0, 0, 0, 0f);
         }
 
         /**
@@ -1437,7 +1799,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private RandomAccessVectorValues createCachingVectorValues()
         {
-            final RandomAccessVectorValues raw = this.isEmbedded()
+            final RandomAccessVectorValues vectorValues = this.isEmbedded()
                 ? new EntityBackedVectorValues.Caching<>(
                     this.parentMap(),
                     this.vectorizer,
@@ -1449,7 +1811,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.configuration.dimension(),
                     this.vectorTypeSupport
                 );
-            return new NullSafeVectorValues(raw, this.configuration.dimension(), this.vectorTypeSupport);
+            return new NullSafeVectorValues(vectorValues, this.configuration.dimension(), this.vectorTypeSupport);
         }
 
         /**
@@ -1570,13 +1932,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.builderLock.writeLock().lock();
                 try
                 {
-                    // Captured references for Phase 2 (disk write outside synchronized block)
-                    final OnHeapGraphIndex              capturedIndex  ;
-                    final RandomAccessVectorValues      capturedRavv   ;
-                    final PQCompressionManager          capturedPqMgr  ;
-                    final DiskIndexManager              capturedDiskMgr;
+                    // If incremental mode with no changes, skip persist entirely
+                    if(this.incrementalMode && this.isIncrementalClean())
+                    {
+                        LOG.debug("No incremental changes for '{}', skipping persist", this.name);
+                        return;
+                    }
 
-                    final GraphIndexBuilder             capturedBuilder;
+                    // Captured references for Phase 2 (disk write outside synchronized block)
+                    final OnHeapGraphIndex         capturedIndex  ;
+                    final RandomAccessVectorValues capturedRavv   ;
+                    final PQCompressionManager     capturedPqMgr  ;
+                    final DiskIndexManager         capturedDiskMgr;
+
+                    final GraphIndexBuilder        capturedBuilder;
 
                     // Phase 1: Barrier + reference capture inside synchronized(parentMap).
                     // The barrier ensures any in-flight GigaMap mutation completes.
@@ -1584,6 +1953,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     synchronized(this.parentMap())
                     {
                         this.ensureIndexInitialized();
+
+                        // If in incremental mode, exit it first by rebuilding the full graph.
+                        // Must happen inside synchronized(parentMap) so that
+                        // rebuildGraphFromStore() does not race with in-flight mutations.
+                        if(this.incrementalMode)
+                        {
+                            this.exitIncrementalMode();
+                        }
 
                         // If we have an in-memory builder, prepare for disk write
                         if(this.builder == null || this.index == null)
@@ -1624,6 +2001,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // disk writer threads can call parentMap.get() for embedded vectors.
                     capturedBuilder.cleanup();
                     capturedDiskMgr.writeIndex(capturedIndex, capturedRavv, capturedPqMgr);
+
+                    // After writing, re-enter incremental mode for fast subsequent operation
+                    this.reenterIncrementalMode();
                 }
                 catch(final IOException ioe)
                 {
@@ -1641,6 +2021,135 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // Apply any deferred sync-mode mutations now that cleanup + persistence is done.
             this.drainDeferredBuilderOps();
+        }
+
+        /**
+         * Returns true if incremental mode has no pending changes:
+         * no deletions from disk and the in-memory builder graph is empty.
+         */
+        private boolean isIncrementalClean()
+        {
+            final boolean noDeletions = this.diskDeletedOrdinals == null || this.diskDeletedOrdinals.isEmpty();
+            final boolean noNewNodes  = this.index == null || this.index.size(0) == 0;
+            return noDeletions && noNewNodes;
+        }
+
+        /**
+         * Exits incremental mode by closing disk resources, rebuilding the full graph
+         * from stored vectors, and resetting incremental state.
+         * Must be called under builderLock.writeLock().
+         */
+        private void exitIncrementalMode()
+        {
+            LOG.info("Exiting incremental on-disk mode for '{}' — rebuilding full graph for persist", this.name);
+
+            // Close disk manager (disk searcher pool is closed by closeSearcherPool below)
+            if(this.diskManager != null)
+            {
+                this.diskManager.close();
+                this.diskManager = null;
+            }
+
+            // Reset incremental state
+            this.incrementalMode = false;
+            if(this.diskDeletedOrdinals != null)
+            {
+                this.diskDeletedOrdinals.clear();
+                this.diskDeletedOrdinals = null;
+            }
+
+            // Close existing in-memory builder and index
+            if(this.builder != null)
+            {
+                try
+                {
+                    this.builder.close();
+                }
+                catch(final IOException e)
+                {
+                    LOG.warn("Error closing builder during exitIncrementalMode: {}", e.getMessage());
+                }
+                this.builder = null;
+            }
+            if(this.index != null)
+            {
+                this.index.close();
+                this.index = null;
+            }
+
+            // Close searcher pool (will be re-created)
+            this.closeSearcherPools();
+
+            // Reinitialize builder and rebuild full graph from stored vectors
+            this.initializeInMemoryBuilder();
+            this.rebuildGraphFromStore();
+            this.initializeSearcherPool();
+        }
+
+        /**
+         * Re-enters incremental mode after a disk write: reloads the disk index,
+         * resets the in-memory builder to empty, and sets incremental state.
+         * Must be called under builderLock.writeLock().
+         */
+        private void reenterIncrementalMode()
+        {
+            // Close existing disk manager if present
+            if(this.diskManager != null)
+            {
+                this.diskManager.close();
+                this.diskManager = null;
+            }
+
+            // Recreate disk manager and load the just-written index
+            this.diskManager = new DiskIndexManager.Default(
+                this,
+                this.name,
+                this.configuration.indexDirectory(),
+                this.configuration.dimension(),
+                this.configuration.maxDegree(),
+                this.configuration.parallelOnDiskWrite()
+            );
+
+            if(this.diskManager.tryLoad())
+            {
+                if(this.pqManager != null)
+                {
+                    this.pqManager.markTrained();
+                }
+
+                // Reset in-memory builder to empty (all data is now on disk)
+                if(this.builder != null)
+                {
+                    try
+                    {
+                        this.builder.close();
+                    }
+                    catch(final IOException e)
+                    {
+                        LOG.warn("Error closing builder during reenterIncrementalMode: {}", e.getMessage());
+                    }
+                }
+                if(this.index != null)
+                {
+                    this.index.close();
+                }
+
+                this.initializeInMemoryBuilder();
+
+                // Set incremental state: set state fields first, then flip incrementalMode last for safe publication.
+                this.diskDeletedOrdinals = ConcurrentHashMap.newKeySet();
+                this.incrementalMode     = true;
+
+                // Reinitialize searcher pools (disk + in-memory)
+                this.closeSearcherPools();
+                this.initializeSearcherPool();
+
+                LOG.info("Re-entered incremental on-disk mode for '{}'", this.name);
+            }
+            else
+            {
+                LOG.warn("Failed to reload disk index for '{}' after persist, staying in full in-memory mode", this.name);
+            }
         }
 
         @Override
@@ -1730,8 +2239,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void closeInternalResources()
         {
-            // Close searcher pool first (searchers reference the index)
-            this.closeSearcherPool();
+            // Close searcher pools first (searchers reference the index)
+            this.closeSearcherPools();
+
+            // Reset incremental mode state
+            this.incrementalMode = false;
+            if(this.diskDeletedOrdinals != null)
+            {
+                this.diskDeletedOrdinals.clear();
+                this.diskDeletedOrdinals = null;
+            }
 
             if(this.builder != null)
             {

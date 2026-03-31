@@ -32,7 +32,6 @@ public class StoreEnumInsideTest
     Path tempDir;
 
     @Test
-    @Disabled("https://github.com/eclipse-store/store/issues/448")
     void storeEnumInsideTest()
     {
         Person person = new Person("John", 30, StoreEnum.VALUE);
@@ -50,7 +49,6 @@ public class StoreEnumInsideTest
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
             GigaMap<Person> loadedGigaMap = (GigaMap<Person>) manager.root();
 
-            //TODO check after fix
             List<Person> list = loadedGigaMap.query().toList();
             Assertions.assertEquals(3, list.size(), "There should be 3 persons in the GigaMap");
         }

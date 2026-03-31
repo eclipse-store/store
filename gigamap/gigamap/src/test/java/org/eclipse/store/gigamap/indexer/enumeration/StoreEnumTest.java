@@ -33,7 +33,6 @@ public class StoreEnumTest
     Path workDir;
 
     @Test
-    @Disabled("https://github.com/eclipse-store/store/issues/448")
     void enumTest()
     {
         GigaMap<StoreEnum> gigaMap = GigaMap.New();
@@ -48,7 +47,6 @@ public class StoreEnumTest
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(workDir)) {
             GigaMap<StoreEnum> loadedGigaMap = (GigaMap<StoreEnum>) manager.root();
 
-            //TODO check after fix
             List<StoreEnum> expectedList = List.of(StoreEnum.VALUE, StoreEnum.SECOND, StoreEnum.THIRD);
             List<StoreEnum> loadedEnumList = loadedGigaMap.query().toList();
             Assertions.assertIterableEquals(expectedList, loadedEnumList);

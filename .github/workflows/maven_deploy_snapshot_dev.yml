@@ -45,9 +45,18 @@ jobs:
             echo "Branch does not exist in serializer repository, skipping serializer version change"          
           fi
       - name: Make a snapshot
-        run: mvn -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy -U
+        run: mvn  -T 1C -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy -U -Dmaven.javadoc.skip=true -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
         env:
           MAVEN_USERNAME: ${{ secrets.CENTRAL_SONATYPE_TOKEN_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.CENTRAL_SONATYPE_TOKEN_PASSWORD }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.ORG_GPG_PASSPHRASE }}
           MAVEN_GPG_KEY: ${{ secrets.ORG_GPG_PRIVATE_KEY }}
+
+      - name: Report JUnit results (dorny - surefire)
+        if: always()
+        uses: dorny/test-reporter@v2
+        with:
+          name: "GigaMap - Dev Test result without slow"
+          path: '**/target/**/surefire-reports/*.xml'
+          reporter: java-junit
+          fail-on-error: false

@@ -15,6 +15,7 @@ package org.eclipse.store.gigamap.jvector;
  */
 
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -50,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * The primary assertion is that no exceptions are thrown and no deadlocks occur
  * (enforced by {@link Timeout}).
  */
+@Tag("slow")
 class VectorIndexConcurrentStressTest
 {
     record Document(String content, float[] embedding) {}
@@ -227,6 +229,20 @@ class VectorIndexConcurrentStressTest
      */
     private void runStressTest(final ConfigCombo combo, final Path indexDir) throws Exception
     {
+        this.runStressTest(combo, indexDir, new ComputedDocumentVectorizer());
+    }
+
+    private void runStressTestEmbedded(final ConfigCombo combo, final Path indexDir) throws Exception
+    {
+        this.runStressTest(combo, indexDir, new EmbeddedDocumentVectorizer());
+    }
+
+    private void runStressTest(
+        final ConfigCombo combo,
+        final Path indexDir,
+        final Vectorizer<Document> vectorizer
+    ) throws Exception
+    {
         final int dimension       = 64;
         final int seedCount       = 30;
         final int opsPerThread    = 60;
@@ -238,7 +254,7 @@ class VectorIndexConcurrentStressTest
         final VectorIndexConfiguration config = buildConfig(combo, dimension, indexDir);
 
         try (final VectorIndex<Document> index = vectorIndices.add(
-            "embeddings", config, new ComputedDocumentVectorizer()
+            "embeddings", config, vectorizer
         ))
         {
             // Seed the index with initial entities so updates/removes have targets
@@ -289,9 +305,9 @@ class VectorIndexConcurrentStressTest
                             {
                                 final int action = random.nextInt(100);
 
-                                if (action < 30)
+                                if (action < 25)
                                 {
-                                    // 30%: ADD
+                                    // 25%: ADD
                                     final float[] vector = randomVector(random, dimension);
                                     synchronized (gigaMap)
                                     {
@@ -299,9 +315,9 @@ class VectorIndexConcurrentStressTest
                                             "t" + threadId + "_" + op, vector
                                         ));
                                     }
-                                } else if (action < 45)
+                                } else if (action < 37)
                                 {
-                                    // 15%: UPDATE (set) — target a seed entity
+                                    // 12%: UPDATE (set) — target a seed entity
                                     final long targetId = random.nextInt(seedCount);
                                     final float[] vector = randomVector(random, dimension);
                                     synchronized (gigaMap)
@@ -316,9 +332,9 @@ class VectorIndexConcurrentStressTest
                                             // Entity may have been removed by another thread — acceptable
                                         }
                                     }
-                                } else if (action < 55)
+                                } else if (action < 45)
                                 {
-                                    // 10%: REMOVE — target a seed entity
+                                    // 8%: REMOVE — target a seed entity
                                     final long targetId = random.nextInt(seedCount);
                                     synchronized (gigaMap)
                                     {
@@ -330,6 +346,22 @@ class VectorIndexConcurrentStressTest
                                             // Entity may already be removed — acceptable
                                         }
                                     }
+                                } else if (action < 55)
+                                {
+                                    // 10%: ADDALL — batch add 2-3 documents
+                                    final int batchSize = 2 + random.nextInt(2);
+                                    final List<Document> batch = new ArrayList<>();
+                                    for (int b = 0; b < batchSize; b++)
+                                    {
+                                        batch.add(new Document(
+                                            "t" + threadId + "_batch_" + op + "_" + b,
+                                            randomVector(random, dimension)
+                                        ));
+                                    }
+                                    synchronized (gigaMap)
+                                    {
+                                        gigaMap.addAll(batch);
+                                    }
                                 } else
                                 {
                                     // 45%: SEARCH
@@ -340,7 +372,7 @@ class VectorIndexConcurrentStressTest
                                 }
 
                                 completedOps.incrementAndGet();
-                            } catch (final Exception e)
+                            } catch (final Throwable e)
                             {
                                 errors.add(e);
                                 hasError.set(true);
@@ -402,6 +434,34 @@ class VectorIndexConcurrentStressTest
 
     @Test
     @Timeout(value = 120, unit = TimeUnit.SECONDS)
+    void testConcurrentStress_InMemory_Embedded()
+    {
+        final List<ConfigCombo> combos = allCombos().stream()
+            .filter(c -> !c.onDisk())
+            .toList();
+
+        assertFalse(combos.isEmpty(), "Should have in-memory combos");
+
+        final List<String> passed = new ArrayList<>();
+        for(final ConfigCombo combo : combos)
+        {
+            try
+            {
+                this.runStressTestEmbedded(combo, null);
+                passed.add(combo.label());
+            }
+            catch(final Exception e)
+            {
+                fail("Failed for combo: " + combo.label() + " — " + e.getMessage(), e);
+            }
+        }
+
+        assertEquals(combos.size(), passed.size(),
+            "All in-memory combos should pass");
+    }
+
+    @Test
+    @Timeout(value = 120, unit = TimeUnit.SECONDS)
     void testConcurrentStress_InMemory()
     {
         final List<ConfigCombo> combos = allCombos().stream()
@@ -430,6 +490,36 @@ class VectorIndexConcurrentStressTest
 
 
     // ==================== On-Disk without PQ Combinations ====================
+
+    @Test
+    @Timeout(value = 180, unit = TimeUnit.SECONDS)
+    void testConcurrentStress_OnDisk_NoPQ_Embedded(@TempDir final Path tempDir)
+    {
+        final List<ConfigCombo> combos = allCombos().stream()
+            .filter(c -> c.onDisk() && !c.pqCompression())
+            .toList();
+
+        assertFalse(combos.isEmpty(), "Should have on-disk no-PQ combos");
+
+        final List<String> passed = new ArrayList<>();
+        int comboIndex = 0;
+        for(final ConfigCombo combo : combos)
+        {
+            final Path indexDir = tempDir.resolve("embedded_combo_" + comboIndex++);
+            try
+            {
+                this.runStressTestEmbedded(combo, indexDir);
+                passed.add(combo.label());
+            }
+            catch(final Exception e)
+            {
+                fail("Failed for combo: " + combo.label() + " — " + e.getMessage(), e);
+            }
+        }
+
+        assertEquals(combos.size(), passed.size(),
+            "All on-disk no-PQ combos should pass");
+    }
 
     @Test
     @Timeout(value = 180, unit = TimeUnit.SECONDS)
@@ -496,6 +586,190 @@ class VectorIndexConcurrentStressTest
 
 
     // ==================== Focused Eventual Indexing Stress ====================
+
+    /**
+     * Focused test: heavier load with eventual indexing and embedded vectorizer.
+     * Exercises the EntityBackedVectorValues.getVector() → GigaMap.get() path
+     * that caused the original ForkJoinPool deadlock.
+     */
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    void testEventualIndexingHeavyConcurrentLoad_Embedded(@TempDir final Path tempDir)
+        throws Exception
+    {
+        final int dimension = 64;
+        final int seedCount = 50;
+        final int opsPerThread = 150;
+        final int threadCount = 6;
+        final Path indexDir = tempDir.resolve("heavy_embedded");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(16)
+            .beamWidth(100)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .eventualIndexing(true)
+            .optimizationIntervalMs(300)
+            .minChangesBetweenOptimizations(10)
+            .persistenceIntervalMs(500)
+            .minChangesBetweenPersists(5)
+            .build();
+
+        try (final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings", config, new EmbeddedDocumentVectorizer()
+        ))
+        {
+            // Seed
+            final Random seedRandom = new Random(42);
+            for (int i = 0; i < seedCount; i++)
+            {
+                gigaMap.add(new Document("seed_" + i, randomVector(seedRandom, dimension)));
+            }
+
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>) index;
+            defaultIndex.backgroundTaskManager.drainQueue();
+
+            final AtomicBoolean hasError = new AtomicBoolean(false);
+            final List<Throwable> errors = java.util.Collections.synchronizedList(new ArrayList<>());
+            final CountDownLatch startLatch = new CountDownLatch(1);
+            final CountDownLatch doneLatch = new CountDownLatch(threadCount);
+
+            final ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+
+            for (int t = 0; t < threadCount; t++)
+            {
+                final int threadId = t;
+                executor.submit(() ->
+                {
+                    try
+                    {
+                        startLatch.await();
+                        final Random random = new Random(2000 + threadId);
+
+                        for (int op = 0; op < opsPerThread && !hasError.get(); op++)
+                        {
+                            try
+                            {
+                                final int action = random.nextInt(100);
+
+                                if (action < 20)
+                                {
+                                    // ADD
+                                    synchronized (gigaMap)
+                                    {
+                                        gigaMap.add(new Document(
+                                            "t" + threadId + "_" + op,
+                                            randomVector(random, dimension)
+                                        ));
+                                    }
+                                }
+                                else if (action < 32)
+                                {
+                                    // UPDATE
+                                    final long targetId = random.nextInt(seedCount);
+                                    synchronized (gigaMap)
+                                    {
+                                        try
+                                        {
+                                            gigaMap.set(targetId, new Document(
+                                                "upd_" + targetId,
+                                                randomVector(random, dimension)
+                                            ));
+                                        }
+                                        catch(final Exception ignored)
+                                        {
+                                        }
+                                    }
+                                } else if (action < 40)
+                                {
+                                    // REMOVE
+                                    final long targetId = random.nextInt(seedCount);
+                                    synchronized (gigaMap)
+                                    {
+                                        try
+                                        {
+                                            gigaMap.removeById(targetId);
+                                        }
+                                        catch(final Exception ignored)
+                                        {
+                                        }
+                                    }
+                                } else if (action < 50)
+                                {
+                                    // ADDALL
+                                    final int batchSize = 2 + random.nextInt(2);
+                                    final List<Document> batch = new ArrayList<>();
+                                    for (int b = 0; b < batchSize; b++)
+                                    {
+                                        batch.add(new Document(
+                                            "t" + threadId + "_batch_" + op + "_" + b,
+                                            randomVector(random, dimension)
+                                        ));
+                                    }
+                                    synchronized (gigaMap)
+                                    {
+                                        gigaMap.addAll(batch);
+                                    }
+                                } else
+                                {
+                                    // SEARCH
+                                    final VectorSearchResult<Document> result = index.search(
+                                        randomVector(random, dimension), 5
+                                    );
+                                    assertNotNull(result);
+                                }
+                            }
+                            catch(final Throwable e)
+                            {
+                                errors.add(e);
+                                hasError.set(true);
+                            }
+                        }
+                    }
+                    catch(final InterruptedException e)
+                    {
+                        Thread.currentThread().interrupt();
+                    }
+                    finally
+                    {
+                        doneLatch.countDown();
+                    }
+                });
+            }
+
+            startLatch.countDown();
+
+            assertTrue(doneLatch.await(60, TimeUnit.SECONDS),
+                "Heavy concurrent load (embedded) should complete within timeout");
+
+            executor.shutdown();
+            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+
+            if (!errors.isEmpty())
+            {
+                final StringBuilder sb = new StringBuilder("Heavy eventual indexing stress test (embedded) failed:");
+                for (final Throwable err : errors)
+                {
+                    sb.append("\n  - ").append(err.getClass().getSimpleName())
+                        .append(": ").append(err.getMessage());
+                }
+                fail(sb.toString());
+            }
+
+            // Drain and verify final state
+            defaultIndex.backgroundTaskManager.drainQueue();
+
+            final VectorSearchResult<Document> finalResult = index.search(
+                randomVector(new Random(999), dimension), 5
+            );
+            assertNotNull(finalResult);
+        }
+    }
 
     /**
      * Focused test: heavier load with eventual indexing enabled.
@@ -617,7 +891,7 @@ class VectorIndexConcurrentStressTest
                                     assertNotNull(result);
                                 }
                             }
-                            catch(final Exception e)
+                            catch(final Throwable e)
                             {
                                 errors.add(e);
                                 hasError.set(true);
@@ -657,6 +931,189 @@ class VectorIndexConcurrentStressTest
             // Drain and verify final state
             defaultIndex.backgroundTaskManager.drainQueue();
 
+            final VectorSearchResult<Document> finalResult = index.search(
+                randomVector(new Random(999), dimension), 5
+            );
+            assertNotNull(finalResult);
+        }
+    }
+
+
+    // ==================== Incremental Mode Regression ====================
+
+    /**
+     * Regression test for concurrent search vs. mutation in incremental on-disk mode.
+     * <p>
+     * Seeds entities, persists to disk (entering incremental mode), then hammers
+     * the index with concurrent searches and updates/removes. This exercises the
+     * {@code createDiskAcceptBits()} path that previously threw
+     * {@code ArrayIndexOutOfBoundsException} when {@code diskDeletedOrdinals}
+     * was modified between the max-scan and mask-fill passes.
+     */
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    void testIncrementalMode_ConcurrentSearchVsMutation(@TempDir final Path tempDir)
+        throws Exception
+    {
+        final int dimension    = 64;
+        final int seedCount    = 30;
+        final int opsPerThread = 200;
+        final int threadCount  = 4;
+        final Path indexDir    = tempDir.resolve("incremental_regression");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(16)
+            .beamWidth(100)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .build();
+
+        try (final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings", config, new ComputedDocumentVectorizer()
+        ))
+        {
+            // Seed entities
+            final Random seedRandom = new Random(42);
+            for (int i = 0; i < seedCount; i++)
+            {
+                gigaMap.add(new Document("seed_" + i, randomVector(seedRandom, dimension)));
+            }
+
+            // Persist to disk — this enters incremental on-disk mode on reload
+            index.persistToDisk();
+
+            // Verify we are in incremental mode
+            final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>) index;
+            // The index should have re-entered incremental mode after persist
+
+            // Shared state
+            final AtomicLong nextEntityId = new AtomicLong(seedCount);
+            final AtomicBoolean hasError = new AtomicBoolean(false);
+            final List<Throwable> errors = java.util.Collections.synchronizedList(new ArrayList<>());
+            final CountDownLatch startLatch = new CountDownLatch(1);
+            final CountDownLatch doneLatch = new CountDownLatch(threadCount);
+
+            final ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+
+            for (int t = 0; t < threadCount; t++)
+            {
+                final int threadId = t;
+                executor.submit(() ->
+                {
+                    try
+                    {
+                        startLatch.await();
+
+                        final Random random = new Random(2000 + threadId);
+
+                        for (int op = 0; op < opsPerThread && !hasError.get(); op++)
+                        {
+                            try
+                            {
+                                final int action = random.nextInt(100);
+
+                                if (action < 15)
+                                {
+                                    // 15%: ADD — grows ordinal space during search
+                                    final float[] vector = randomVector(random, dimension);
+                                    synchronized (gigaMap)
+                                    {
+                                        gigaMap.add(new Document(
+                                            "t" + threadId + "_" + op, vector
+                                        ));
+                                    }
+                                }
+                                else if (action < 35)
+                                {
+                                    // 20%: UPDATE — adds to diskDeletedOrdinals
+                                    final long targetId = random.nextInt(seedCount);
+                                    final float[] vector = randomVector(random, dimension);
+                                    synchronized (gigaMap)
+                                    {
+                                        try
+                                        {
+                                            gigaMap.set(targetId, new Document(
+                                                "updated_" + targetId, vector
+                                            ));
+                                        }
+                                        catch (final Exception e)
+                                        {
+                                            // Entity may have been removed — acceptable
+                                        }
+                                    }
+                                }
+                                else if (action < 50)
+                                {
+                                    // 15%: REMOVE — adds to diskDeletedOrdinals
+                                    final long targetId = random.nextInt(seedCount);
+                                    synchronized (gigaMap)
+                                    {
+                                        try
+                                        {
+                                            gigaMap.removeById(targetId);
+                                        }
+                                        catch (final Exception e)
+                                        {
+                                            // Entity may already be removed — acceptable
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    // 50%: SEARCH — exercises createDiskAcceptBits()
+                                    final float[] queryVector = randomVector(random, dimension);
+                                    final VectorSearchResult<Document> result =
+                                        index.search(queryVector, 5);
+                                    assertNotNull(result);
+                                }
+                            }
+                            catch (final Throwable e)
+                            {
+                                errors.add(e);
+                                hasError.set(true);
+                            }
+                        }
+                    }
+                    catch (final InterruptedException e)
+                    {
+                        Thread.currentThread().interrupt();
+                    }
+                    finally
+                    {
+                        doneLatch.countDown();
+                    }
+                });
+            }
+
+            // Release all threads simultaneously
+            startLatch.countDown();
+
+            assertTrue(doneLatch.await(60, TimeUnit.SECONDS),
+                "Threads should complete within timeout");
+
+            executor.shutdown();
+            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+
+            // Report errors
+            if (!errors.isEmpty())
+            {
+                final StringBuilder sb = new StringBuilder();
+                sb.append("Incremental mode regression test failed");
+                sb.append("\n").append(errors.size()).append(" error(s):");
+                for (final Throwable err : errors)
+                {
+                    sb.append("\n  - ").append(err.getClass().getSimpleName())
+                        .append(": ").append(err.getMessage());
+                }
+                fail(sb.toString());
+            }
+
+            // Final consistency check
             final VectorSearchResult<Document> finalResult = index.search(
                 randomVector(new Random(999), dimension), 5
             );

@@ -11,20 +11,16 @@ This page provides a high-level overview of how {product-name} and the Eclipse S
 
 === Relationship
 
-----
-┌─────────────────────────────────────────────────┐
-│                 Your Application                 │
-├─────────────────────────────────────────────────┤
-│              EclipseStore Storage                │
-│   (StorageManager, Lazy Loading, Housekeeping)   │
-├─────────────────────────────────────────────────┤
-│             Eclipse Serializer                   │
-│  (Binary Persistence, Type Handling, Type Dict)  │
-├─────────────────────────────────────────────────┤
-│          Storage Targets / AFS                   │
-│  (File System, S3, Azure, SQL, Redis, Kafka...) │
-└─────────────────────────────────────────────────┘
-----
+[cols="1"]
+|===
+^| Your Application
+^| EclipseStore Storage +
+(StorageManager, Lazy Loading, Housekeeping)
+^| Eclipse Serializer +
+(Binary Persistence, Type Handling, Type Dict)
+^| Storage Targets / AFS +
+(File System, S3, Azure, SQL, Redis, Kafka...)
+|===
 
 The Eclipse Serializer can be used independently of EclipseStore for pure serialization tasks (e.g., network communication, caching, data transfer).
 EclipseStore depends on the serializer for all persistence operations.
