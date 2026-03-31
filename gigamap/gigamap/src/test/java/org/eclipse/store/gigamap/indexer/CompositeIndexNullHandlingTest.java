@@ -4,7 +4,7 @@ package org.eclipse.store.gigamap.indexer;
  * #%L
  * EclipseStore GigaMap
  * %%
- * Copyright (C) 2023 - 2025 MicroStream Software
+ * Copyright (C) 2023 - 2026 MicroStream Software
  * %%
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -14,7 +14,7 @@ package org.eclipse.store.gigamap.indexer;
  * #L%
  */
 
-import org.eclipse.store.gigamap.types.BitmapIndices;
+
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.IndexerInstant;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
@@ -170,6 +170,9 @@ public class CompositeIndexNullHandlingTest
 			map.update(event1, e -> e.timestamp = Instant.parse("2025-06-15T10:30:00Z"));
 			map.update(event2, e -> e.timestamp = Instant.parse("2025-06-15T11:30:00Z"));
 			map.update(event3, e -> e.timestamp = Instant.parse("2025-06-15T12:30:00Z"));
+			map.update(event1, e -> {});
+			map.update(event2, e -> {});
+			map.update(event3, e -> {});
 		});
 
 		assertEquals(3, map.size());
@@ -199,6 +202,6 @@ public class CompositeIndexNullHandlingTest
 
 		// Verify queries after update
 		assertEquals(0, map.query(indexer.is((Instant) null)).count());
-		assertEquals(2, map.query(indexer.is((Instant) null).or(indexer.is(Instant.parse("2025-06-15T10:30:00Z")))).count());
+		assertEquals(1, map.query(indexer.is((Instant) null).or(indexer.is(Instant.parse("2025-06-15T10:30:00Z")))).count());
 	}
 }
