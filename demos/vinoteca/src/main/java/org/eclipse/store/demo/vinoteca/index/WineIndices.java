@@ -22,6 +22,12 @@ public final class WineIndices
 	public static final IndexerString<Wine> NAME = new IndexerString.Abstract<>()
 	{
 		@Override
+		public String name()
+		{
+			return "name";
+		}
+
+		@Override
 		protected String getString(final Wine wine)
 		{
 			return wine.getName();
@@ -30,6 +36,12 @@ public final class WineIndices
 
 	public static final IndexerString<Wine> TYPE = new IndexerString.Abstract<>()
 	{
+		@Override
+		public String name()
+		{
+			return "type";
+		}
+
 		@Override
 		protected String getString(final Wine wine)
 		{
@@ -40,6 +52,12 @@ public final class WineIndices
 	public static final IndexerString<Wine> GRAPE_VARIETY = new IndexerString.Abstract<>()
 	{
 		@Override
+		public String name()
+		{
+			return "grape_variety";
+		}
+
+		@Override
 		protected String getString(final Wine wine)
 		{
 			return wine.getGrapeVariety().name();
@@ -48,6 +66,12 @@ public final class WineIndices
 
 	public static final IndexerString<Wine> WINERY_NAME = new IndexerString.Abstract<>()
 	{
+		@Override
+		public String name()
+		{
+			return "winery_name";
+		}
+
 		@Override
 		protected String getString(final Wine wine)
 		{
@@ -58,6 +82,12 @@ public final class WineIndices
 	public static final IndexerString<Wine> COUNTRY = new IndexerString.Abstract<>()
 	{
 		@Override
+		public String name()
+		{
+			return "country";
+		}
+
+		@Override
 		protected String getString(final Wine wine)
 		{
 			return wine.getWinery().getCountry();
@@ -66,6 +96,12 @@ public final class WineIndices
 
 	public static final IndexerString<Wine> REGION = new IndexerString.Abstract<>()
 	{
+		@Override
+		public String name()
+		{
+			return "region";
+		}
+
 		@Override
 		protected String getString(final Wine wine)
 		{

@@ -19,7 +19,11 @@ import java.util.List;
 
 import org.eclipse.store.demo.vinoteca.index.WineDocumentPopulator;
 import org.eclipse.store.demo.vinoteca.index.WineIndices;
+import org.eclipse.store.demo.vinoteca.index.WineVectorizer;
 import org.eclipse.store.demo.vinoteca.index.WineryIndices;
+import org.eclipse.store.gigamap.jvector.VectorIndexConfiguration;
+import org.eclipse.store.gigamap.jvector.VectorIndices;
+import org.eclipse.store.gigamap.jvector.VectorSimilarityFunction;
 import org.eclipse.store.gigamap.lucene.DirectoryCreator;
 import org.eclipse.store.gigamap.lucene.LuceneContext;
 import org.eclipse.store.gigamap.lucene.LuceneIndex;
@@ -46,6 +50,14 @@ public class DataRoot
 		this.wines.index().register(LuceneIndex.Category(
 			LuceneContext.New(DirectoryCreator.ByteBuffers(), new WineDocumentPopulator())
 		));
+		final VectorIndices<Wine> vectorIndices = this.wines.index().register(VectorIndices.Category());
+		vectorIndices.add("wine-embeddings",
+			VectorIndexConfiguration.builder()
+				.dimension(384)
+				.similarityFunction(VectorSimilarityFunction.COSINE)
+				.build(),
+			new WineVectorizer("http://localhost:11434", "all-minilm")
+		);
 
 		this.wineries = GigaMap.New();
 		this.wineries.index().bitmap().addAll(

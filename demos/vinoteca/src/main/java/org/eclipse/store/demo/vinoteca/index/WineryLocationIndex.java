@@ -20,6 +20,12 @@ import org.eclipse.store.gigamap.types.SpatialIndexer;
 public class WineryLocationIndex extends SpatialIndexer.Abstract<Winery>
 {
 	@Override
+	public String name()
+	{
+		return "location";
+	}
+
+	@Override
 	protected Double getLatitude(final Winery winery)
 	{
 		return winery.getLatitude();

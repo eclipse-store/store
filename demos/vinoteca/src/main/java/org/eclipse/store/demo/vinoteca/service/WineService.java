@@ -18,6 +18,7 @@ import org.eclipse.store.demo.vinoteca.dto.*;
 import org.eclipse.store.demo.vinoteca.index.WineIndices;
 import org.eclipse.store.demo.vinoteca.model.*;
 import org.eclipse.store.gigamap.jvector.VectorIndex;
+import org.eclipse.store.gigamap.jvector.VectorIndices;
 import org.eclipse.store.gigamap.jvector.VectorSearchResult;
 import org.eclipse.store.gigamap.lucene.LuceneIndex;
 import org.eclipse.store.gigamap.types.GigaMap;
@@ -25,7 +26,6 @@ import org.eclipse.store.integrations.spring.boot.types.concurrent.Mutex;
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Read;
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Write;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import javax.money.Monetary;
@@ -48,10 +48,10 @@ public class WineService
 	private final Optional<VectorIndex<Wine>> vectorIndex;
 	private final EmbeddedStorageManager      storageManager;
 
+	@SuppressWarnings("unchecked")
 	public WineService(
-		final DataRoot                 dataRoot,
-		final EmbeddedStorageManager   storageManager,
-		@Autowired(required = false) final VectorIndex<Wine> vectorIndex
+		final DataRoot               dataRoot,
+		final EmbeddedStorageManager storageManager
 	)
 	{
 		this.dataRoot       = dataRoot;
@@ -59,7 +59,10 @@ public class WineService
 		this.wineryGigaMap  = dataRoot.getWineries();
 		this.luceneIndex    = this.wineGigaMap.index().get(LuceneIndex.class);
 		this.storageManager = storageManager;
-		this.vectorIndex    = Optional.ofNullable(vectorIndex);
+
+		final VectorIndices<Wine> vectorIndices = this.wineGigaMap.index().get(VectorIndices.class);
+		this.vectorIndex = Optional.ofNullable(vectorIndices)
+			.map(vi -> vi.get("wine-embeddings"));
 	}
 
 	@Read

@@ -1,28 +1,10 @@
 {
   "properties": [
     {
-      "name": "vinoteca.vector-enabled",
-      "type": "java.lang.Boolean",
-      "description": "Enable vector similarity search via Ollama embedding model.",
-      "defaultValue": false
-    },
-    {
       "name": "vinoteca.initial-data-count",
       "type": "java.lang.Integer",
       "description": "Number of wines to generate on first startup.",
       "defaultValue": 300
-    },
-    {
-      "name": "ollama.base-url",
-      "type": "java.lang.String",
-      "description": "Base URL of the Ollama server for vector embeddings.",
-      "defaultValue": "http://localhost:11434"
-    },
-    {
-      "name": "ollama.model-name",
-      "type": "java.lang.String",
-      "description": "Ollama embedding model name.",
-      "defaultValue": "all-minilm"
     }
   ]
 }

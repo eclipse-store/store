@@ -24,6 +24,12 @@ public final class WineryIndices
 	public static final IndexerString<Winery> NAME = new IndexerString.Abstract<>()
 	{
 		@Override
+		public String name()
+		{
+			return "name";
+		}
+
+		@Override
 		protected String getString(final Winery winery)
 		{
 			return winery.getName();
@@ -33,6 +39,12 @@ public final class WineryIndices
 	public static final IndexerString<Winery> REGION = new IndexerString.Abstract<>()
 	{
 		@Override
+		public String name()
+		{
+			return "region";
+		}
+
+		@Override
 		protected String getString(final Winery winery)
 		{
 			return winery.getRegion();
@@ -41,6 +53,12 @@ public final class WineryIndices
 
 	public static final IndexerString<Winery> COUNTRY = new IndexerString.Abstract<>()
 	{
+		@Override
+		public String name()
+		{
+			return "country";
+		}
+
 		@Override
 		protected String getString(final Winery winery)
 		{

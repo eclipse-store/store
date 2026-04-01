@@ -9,7 +9,7 @@ package org.eclipse.store.demo.vinoteca.index;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -19,28 +19,45 @@ import java.util.List;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.model.ollama.OllamaEmbeddingModel;
 import org.eclipse.store.demo.vinoteca.model.Wine;
 import org.eclipse.store.gigamap.jvector.Vectorizer;
 
 public class WineVectorizer extends Vectorizer<Wine>
 {
-	private final EmbeddingModel embeddingModel;
+	private final String baseUrl;
+	private final String modelName;
 
-	public WineVectorizer(final EmbeddingModel embeddingModel)
+	private transient EmbeddingModel embeddingModel;
+
+	public WineVectorizer(final String baseUrl, final String modelName)
 	{
-		this.embeddingModel = embeddingModel;
+		this.baseUrl   = baseUrl;
+		this.modelName = modelName;
+	}
+
+	private EmbeddingModel embeddingModel()
+	{
+		if (this.embeddingModel == null)
+		{
+			this.embeddingModel = OllamaEmbeddingModel.builder()
+				.baseUrl(this.baseUrl)
+				.modelName(this.modelName)
+				.build();
+		}
+		return this.embeddingModel;
 	}
 
 	@Override
 	public float[] vectorize(final Wine wine)
 	{
-		return this.embeddingModel.embed(toText(wine)).content().vector();
+		return this.embeddingModel().embed(toText(wine)).content().vector();
 	}
 
 	@Override
 	public List<float[]> vectorizeAll(final List<? extends Wine> entities)
 	{
-		return this.embeddingModel.embedAll(
+		return this.embeddingModel().embedAll(
 				entities.stream().map(WineVectorizer::toText).map(TextSegment::from).toList()
 			)
 			.content()
