@@ -27,9 +27,9 @@ public class WineDocumentPopulator extends DocumentPopulator<Wine>
 		document.add(createTextField("tastingNotes", wine.getTastingNotes() != null ? wine.getTastingNotes() : ""));
 		document.add(createTextField("aroma", wine.getAroma() != null ? wine.getAroma() : ""));
 		document.add(createTextField("foodPairing", wine.getFoodPairing() != null ? wine.getFoodPairing() : ""));
-		document.add(createStringField("type", wine.getType().name()));
-		document.add(createStringField("grapeVariety", wine.getGrapeVariety().name()));
-		document.add(createStringField("region", wine.getWinery().getRegion()));
-		document.add(createStringField("country", wine.getWinery().getCountry()));
+		document.add(createStringField("type", wine.getType().name().toLowerCase()));
+		document.add(createStringField("grapeVariety", wine.getGrapeVariety().name().toLowerCase()));
+		document.add(createStringField("region", wine.getWinery().getRegion().toLowerCase()));
+		document.add(createStringField("country", wine.getWinery().getCountry().toLowerCase()));
 	}
 }

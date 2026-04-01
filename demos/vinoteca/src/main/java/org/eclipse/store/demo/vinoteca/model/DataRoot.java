@@ -48,7 +48,7 @@ public class DataRoot
 			WineIndices.REGION
 		);
 		this.wines.index().register(LuceneIndex.Category(
-			LuceneContext.New(DirectoryCreator.ByteBuffers(), new WineDocumentPopulator())
+			LuceneContext.New(new WineDocumentPopulator())
 		));
 		final VectorIndices<Wine> vectorIndices = this.wines.index().register(VectorIndices.Category());
 		vectorIndices.add("wine-embeddings",

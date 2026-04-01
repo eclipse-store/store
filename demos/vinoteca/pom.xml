@@ -15,7 +15,7 @@
     <description>
         A comprehensive wine cellar and vineyard platform showcasing the full potential
         of EclipseStore with GigaMap (bitmap, spatial, vector, and Lucene indices),
-        Spring Boot, Vaadin, GraphQL, REST/OpenAPI, and Apache JEXL.
+        Spring Boot, Vaadin, GraphQL, and REST/OpenAPI.
     </description>
 
     <properties>
@@ -24,7 +24,6 @@
         <vaadin.version>24.10.0</vaadin.version>
         <langchain4j.version>1.11.0</langchain4j.version>
         <lucene.version>9.8.0</lucene.version>
-        <jexl.version>3.4.0</jexl.version>
         <moneta.version>1.4.4</moneta.version>
     </properties>
 
@@ -114,13 +113,6 @@
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-ollama</artifactId>
             <version>${langchain4j.version}</version>
-        </dependency>
-
-        <!-- Apache JEXL -->
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-jexl3</artifactId>
-            <version>${jexl.version}</version>
         </dependency>
 
         <!-- JavaMoney Moneta -->

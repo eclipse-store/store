@@ -27,7 +27,6 @@ import org.eclipse.store.demo.vinoteca.ui.view.AnalyticsView;
 import org.eclipse.store.demo.vinoteca.ui.view.CustomersView;
 import org.eclipse.store.demo.vinoteca.ui.view.DataGeneratorView;
 import org.eclipse.store.demo.vinoteca.ui.view.FullTextSearchView;
-import org.eclipse.store.demo.vinoteca.ui.view.JexlPlaygroundView;
 import org.eclipse.store.demo.vinoteca.ui.view.OrdersView;
 import org.eclipse.store.demo.vinoteca.ui.view.SimilaritySearchView;
 import org.eclipse.store.demo.vinoteca.ui.view.WineCatalogView;
@@ -56,7 +55,6 @@ public class MainLayout extends AppLayout
 		nav.addItem(new SideNavItem("Customers",           CustomersView.class));
 		nav.addItem(new SideNavItem("Orders",              OrdersView.class));
 		nav.addItem(new SideNavItem("Analytics",           AnalyticsView.class));
-		nav.addItem(new SideNavItem("JEXL Playground",     JexlPlaygroundView.class));
 		nav.addItem(new SideNavItem("Data Generator",      DataGeneratorView.class));
 
 		addToDrawer(nav);
