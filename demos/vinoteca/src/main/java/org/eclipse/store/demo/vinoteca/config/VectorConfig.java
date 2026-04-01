@@ -17,6 +17,7 @@ package org.eclipse.store.demo.vinoteca.config;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.ollama.OllamaEmbeddingModel;
 import org.eclipse.store.demo.vinoteca.index.WineVectorizer;
+import org.eclipse.store.demo.vinoteca.model.DataRoot;
 import org.eclipse.store.demo.vinoteca.model.Wine;
 import org.eclipse.store.gigamap.jvector.VectorIndex;
 import org.eclipse.store.gigamap.jvector.VectorIndexConfiguration;
@@ -52,11 +53,11 @@ public class VectorConfig
 
 	@Bean
 	public VectorIndex<Wine> wineVectorIndex(
-		final GigaMap<Wine>  wineGigaMap,
+		final DataRoot       dataRoot,
 		final WineVectorizer vectorizer
 	)
 	{
-		final VectorIndices<Wine> vectorIndices = wineGigaMap.index().register(VectorIndices.Category());
+		final VectorIndices<Wine> vectorIndices = dataRoot.getWines().index().register(VectorIndices.Category());
 		final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 			.dimension(384)
 			.similarityFunction(VectorSimilarityFunction.COSINE)

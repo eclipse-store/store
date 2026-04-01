@@ -14,42 +14,33 @@ package org.eclipse.store.demo.vinoteca.service;
  * #L%
  */
 
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.stream.Collectors;
-
 import org.eclipse.store.demo.vinoteca.dto.OrderInput;
 import org.eclipse.store.demo.vinoteca.dto.PageResult;
-import org.eclipse.store.demo.vinoteca.model.Customer;
-import org.eclipse.store.demo.vinoteca.model.DataRoot;
-import org.eclipse.store.demo.vinoteca.model.Order;
-import org.eclipse.store.demo.vinoteca.model.OrderItem;
-import org.eclipse.store.demo.vinoteca.model.OrderStatus;
-import org.eclipse.store.demo.vinoteca.model.Wine;
-import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.demo.vinoteca.model.*;
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Mutex;
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Read;
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Write;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
+
 @Service
 @Mutex("orderStore")
 public class OrderService
 {
 	private final DataRoot               dataRoot;
-	private final GigaMap<Wine>          wineGigaMap;
 	private final EmbeddedStorageManager storageManager;
 
 	public OrderService(
 		final DataRoot               dataRoot,
-		final GigaMap<Wine>          wineGigaMap,
 		final EmbeddedStorageManager storageManager
 	)
 	{
 		this.dataRoot       = dataRoot;
-		this.wineGigaMap    = wineGigaMap;
 		this.storageManager = storageManager;
 	}
 
@@ -70,7 +61,7 @@ public class OrderService
 		final List<OrderItem> items = new ArrayList<>();
 		for (final OrderInput.OrderItemInput itemInput : input.items())
 		{
-			final Wine wine = this.wineGigaMap.get(itemInput.wineId());
+			final Wine wine = this.dataRoot.getWines().get(itemInput.wineId());
 			if (wine == null)
 			{
 				throw new IllegalArgumentException("Wine not found: " + itemInput.wineId());

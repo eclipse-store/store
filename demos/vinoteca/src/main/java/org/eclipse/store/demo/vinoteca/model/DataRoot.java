@@ -17,6 +17,12 @@ package org.eclipse.store.demo.vinoteca.model;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.eclipse.store.demo.vinoteca.index.WineDocumentPopulator;
+import org.eclipse.store.demo.vinoteca.index.WineIndices;
+import org.eclipse.store.demo.vinoteca.index.WineryIndices;
+import org.eclipse.store.gigamap.lucene.DirectoryCreator;
+import org.eclipse.store.gigamap.lucene.LuceneContext;
+import org.eclipse.store.gigamap.lucene.LuceneIndex;
 import org.eclipse.store.gigamap.types.GigaMap;
 
 public class DataRoot
@@ -28,8 +34,27 @@ public class DataRoot
 
 	public DataRoot()
 	{
-		this.wines     = GigaMap.New();
-		this.wineries  = GigaMap.New();
+		this.wines = GigaMap.New();
+		this.wines.index().bitmap().addAll(
+			WineIndices.NAME,
+			WineIndices.TYPE,
+			WineIndices.GRAPE_VARIETY,
+			WineIndices.WINERY_NAME,
+			WineIndices.COUNTRY,
+			WineIndices.REGION
+		);
+		this.wines.index().register(LuceneIndex.Category(
+			LuceneContext.New(DirectoryCreator.ByteBuffers(), new WineDocumentPopulator())
+		));
+
+		this.wineries = GigaMap.New();
+		this.wineries.index().bitmap().addAll(
+			WineryIndices.LOCATION,
+			WineryIndices.NAME,
+			WineryIndices.REGION,
+			WineryIndices.COUNTRY
+		);
+
 		this.customers = new ArrayList<>();
 		this.orders    = new ArrayList<>();
 	}

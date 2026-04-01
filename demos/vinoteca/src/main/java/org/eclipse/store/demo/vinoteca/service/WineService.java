@@ -50,26 +50,23 @@ import org.springframework.stereotype.Service;
 @Mutex("wineStore")
 public class WineService
 {
+	private final DataRoot                    dataRoot;
 	private final GigaMap<Wine>               wineGigaMap;
 	private final GigaMap<Winery>             wineryGigaMap;
-	private final DataRoot                    dataRoot;
 	private final LuceneIndex<Wine>           luceneIndex;
 	private final Optional<VectorIndex<Wine>> vectorIndex;
 	private final EmbeddedStorageManager      storageManager;
 
 	public WineService(
-		final GigaMap<Wine>            wineGigaMap,
-		final GigaMap<Winery>          wineryGigaMap,
 		final DataRoot                 dataRoot,
-		final LuceneIndex<Wine>        luceneIndex,
 		final EmbeddedStorageManager   storageManager,
 		@Autowired(required = false) final VectorIndex<Wine> vectorIndex
 	)
 	{
-		this.wineGigaMap    = wineGigaMap;
-		this.wineryGigaMap  = wineryGigaMap;
 		this.dataRoot       = dataRoot;
-		this.luceneIndex    = luceneIndex;
+		this.wineGigaMap    = dataRoot.getWines();
+		this.wineryGigaMap  = dataRoot.getWineries();
+		this.luceneIndex    = this.wineGigaMap.index().get(LuceneIndex.class);
 		this.storageManager = storageManager;
 		this.vectorIndex    = Optional.ofNullable(vectorIndex);
 	}

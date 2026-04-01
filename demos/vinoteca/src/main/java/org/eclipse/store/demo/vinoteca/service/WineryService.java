@@ -22,6 +22,7 @@ import org.eclipse.store.demo.vinoteca.dto.PageResult;
 import org.eclipse.store.demo.vinoteca.dto.WineryInput;
 import org.eclipse.store.demo.vinoteca.index.WineryIndices;
 import org.eclipse.store.demo.vinoteca.index.WineryLocationIndex;
+import org.eclipse.store.demo.vinoteca.model.DataRoot;
 import org.eclipse.store.demo.vinoteca.model.Winery;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.SpatialIndexer;
@@ -34,16 +35,12 @@ import org.springframework.stereotype.Service;
 @Mutex("wineryStore")
 public class WineryService
 {
-	private final GigaMap<Winery>     wineryGigaMap;
-	private final WineryLocationIndex locationIndex;
+	private final GigaMap<Winery>      wineryGigaMap;
+	private final WineryLocationIndex locationIndex = WineryIndices.LOCATION;
 
-	public WineryService(
-		final GigaMap<Winery>     wineryGigaMap,
-		final WineryLocationIndex locationIndex
-	)
+	public WineryService(final DataRoot dataRoot)
 	{
-		this.wineryGigaMap = wineryGigaMap;
-		this.locationIndex = locationIndex;
+		this.wineryGigaMap = dataRoot.getWineries();
 	}
 
 	@Read
