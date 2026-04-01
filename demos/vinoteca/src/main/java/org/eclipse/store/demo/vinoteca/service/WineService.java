@@ -14,27 +14,9 @@ package org.eclipse.store.demo.vinoteca.service;
  * #L%
  */
 
-import java.time.LocalDateTime;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.stream.Collectors;
-
-import javax.money.Monetary;
-import javax.money.MonetaryAmount;
-
-import org.eclipse.store.demo.vinoteca.dto.PageResult;
-import org.eclipse.store.demo.vinoteca.dto.ReviewInput;
-import org.eclipse.store.demo.vinoteca.dto.SimilarWineResult;
-import org.eclipse.store.demo.vinoteca.dto.WineInput;
-import org.eclipse.store.demo.vinoteca.dto.WineStatsResult;
+import org.eclipse.store.demo.vinoteca.dto.*;
 import org.eclipse.store.demo.vinoteca.index.WineIndices;
-import org.eclipse.store.demo.vinoteca.model.Customer;
-import org.eclipse.store.demo.vinoteca.model.DataRoot;
-import org.eclipse.store.demo.vinoteca.model.Review;
-import org.eclipse.store.demo.vinoteca.model.Wine;
-import org.eclipse.store.demo.vinoteca.model.Winery;
+import org.eclipse.store.demo.vinoteca.model.*;
 import org.eclipse.store.gigamap.jvector.VectorIndex;
 import org.eclipse.store.gigamap.jvector.VectorSearchResult;
 import org.eclipse.store.gigamap.lucene.LuceneIndex;
@@ -45,6 +27,15 @@ import org.eclipse.store.integrations.spring.boot.types.concurrent.Write;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
+import javax.money.Monetary;
+import javax.money.MonetaryAmount;
+import java.time.LocalDateTime;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 @Mutex("wineStore")
@@ -306,6 +297,19 @@ public class WineService
 			.orElse(List.of());
 	}
 
+	@Read
+	public List<Review> getReviews(final long wineId)
+	{
+		final Wine wine = this.wineGigaMap.get(wineId);
+		return wine != null && wine.getReviews() != null ? wine.getReviews() : List.of();
+	}
+
+	@Read
+	public List<Review> getReviews(final Wine wine)
+	{
+		return wine != null && wine.getReviews() != null ? wine.getReviews() : List.of();
+	}
+
 	@Write
 	public Wine addReview(final long wineId, final ReviewInput input)
 	{
@@ -314,10 +318,19 @@ public class WineService
 		{
 			throw new IllegalArgumentException("Wine not found: " + wineId);
 		}
+		return this.addReview(wine, input);
+	}
+
+	@Write
+	public Wine addReview(final Wine wine, final ReviewInput input)
+	{
+		if (wine == null)
+		{
+			throw new IllegalArgumentException("Wine must not be null");
+		}
 		final Customer customer = this.dataRoot.getCustomers().get(input.customerIndex());
 		final Review review = new Review(customer, input.rating(), input.text(), LocalDateTime.now());
 
-		// Use gigaMap.update() to keep indices in sync when modifying rating/ratingCount
 		this.wineGigaMap.update(wine, w -> {
 			w.getReviews().add(review);
 			final double newAvg = w.getReviews().stream()
@@ -331,13 +344,6 @@ public class WineService
 		this.wineGigaMap.store();
 		this.storageManager.store(wine.getReviews());
 		return wine;
-	}
-
-	@Read
-	public List<Review> getReviews(final long wineId)
-	{
-		final Wine wine = this.wineGigaMap.get(wineId);
-		return wine != null && wine.getReviews() != null ? wine.getReviews() : List.of();
 	}
 
 	@Read

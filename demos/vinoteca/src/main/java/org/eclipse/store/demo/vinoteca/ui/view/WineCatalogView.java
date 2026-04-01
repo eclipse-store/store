@@ -26,6 +26,7 @@ import com.vaadin.flow.router.Route;
 import com.vaadin.flow.router.RouteAlias;
 import org.eclipse.store.demo.vinoteca.model.Wine;
 import org.eclipse.store.demo.vinoteca.model.WineType;
+import org.eclipse.store.demo.vinoteca.service.CustomerService;
 import org.eclipse.store.demo.vinoteca.service.WineService;
 import org.eclipse.store.demo.vinoteca.ui.MainLayout;
 
@@ -34,12 +35,14 @@ import org.eclipse.store.demo.vinoteca.ui.MainLayout;
 @PageTitle("Wine Catalog | Vinoteca")
 public class WineCatalogView extends VerticalLayout
 {
-	private final WineService wineService;
-	private final Grid<Wine>  grid;
+	private final WineService     wineService;
+	private final CustomerService customerService;
+	private final Grid<Wine>      grid;
 
-	public WineCatalogView(final WineService wineService)
+	public WineCatalogView(final WineService wineService, final CustomerService customerService)
 	{
-		this.wineService = wineService;
+		this.wineService     = wineService;
+		this.customerService = customerService;
 
 		setSizeFull();
 
@@ -87,6 +90,13 @@ public class WineCatalogView extends VerticalLayout
 		this.grid.addColumn(Wine::getRating).setHeader("Rating").setSortable(true);
 		this.grid.addColumn(Wine::getBottlesInStock).setHeader("Stock").setSortable(true);
 		this.grid.setSizeFull();
+		this.grid.addItemClickListener(e -> {
+			final WineDetailDialog dialog = new WineDetailDialog(
+				e.getItem(), this.wineService, this.customerService,
+				() -> this.grid.getDataProvider().refreshItem(e.getItem())
+			);
+			dialog.open();
+		});
 
 		add(filters, this.grid);
 		this.loadData();
