@@ -26,6 +26,7 @@ import com.vaadin.flow.router.Route;
 import org.eclipse.store.demo.vinoteca.dto.DataMetrics;
 import org.eclipse.store.demo.vinoteca.dto.WineStatsResult;
 import org.eclipse.store.demo.vinoteca.model.Wine;
+import org.eclipse.store.demo.vinoteca.service.CustomerService;
 import org.eclipse.store.demo.vinoteca.service.DataGeneratorService;
 import org.eclipse.store.demo.vinoteca.service.WineService;
 import org.eclipse.store.demo.vinoteca.ui.MainLayout;
@@ -36,6 +37,7 @@ public class AnalyticsView extends VerticalLayout
 {
 	public AnalyticsView(
 		final WineService          wineService,
+		final CustomerService      customerService,
 		final DataGeneratorService dataGeneratorService
 	)
 	{
@@ -85,6 +87,10 @@ public class AnalyticsView extends VerticalLayout
 		topGrid.addColumn(Wine::getVintage).setHeader("Vintage");
 		topGrid.setItems(wineService.topRated(10));
 		topGrid.setHeight("300px");
+		topGrid.addItemClickListener(e -> new WineDetailDialog(
+			e.getItem(), wineService, customerService,
+			() -> topGrid.getDataProvider().refreshItem(e.getItem())
+		).open());
 		add(topGrid);
 	}
 

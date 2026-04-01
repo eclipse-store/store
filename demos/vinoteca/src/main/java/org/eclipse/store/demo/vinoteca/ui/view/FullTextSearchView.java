@@ -25,6 +25,7 @@ import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import org.eclipse.store.demo.vinoteca.model.Wine;
+import org.eclipse.store.demo.vinoteca.service.CustomerService;
 import org.eclipse.store.demo.vinoteca.service.WineService;
 import org.eclipse.store.demo.vinoteca.ui.MainLayout;
 
@@ -32,7 +33,7 @@ import org.eclipse.store.demo.vinoteca.ui.MainLayout;
 @PageTitle("Full-Text Search | Vinoteca")
 public class FullTextSearchView extends VerticalLayout
 {
-	public FullTextSearchView(final WineService wineService)
+	public FullTextSearchView(final WineService wineService, final CustomerService customerService)
 	{
 		setSizeFull();
 
@@ -68,6 +69,10 @@ public class FullTextSearchView extends VerticalLayout
 		grid.addColumn(w -> w.getWinery().getCountry()).setHeader("Country");
 		grid.addColumn(Wine::getTastingNotes).setHeader("Tasting Notes").setAutoWidth(true);
 		grid.setSizeFull();
+		grid.addItemClickListener(e -> new WineDetailDialog(
+			e.getItem(), wineService, customerService,
+			() -> grid.getDataProvider().refreshItem(e.getItem())
+		).open());
 
 		final Button searchBtn = new Button("Search", e -> {
 			if (!queryField.isEmpty())

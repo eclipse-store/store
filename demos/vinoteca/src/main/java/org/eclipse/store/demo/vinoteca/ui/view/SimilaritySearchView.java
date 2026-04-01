@@ -24,6 +24,7 @@ import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import org.eclipse.store.demo.vinoteca.dto.SimilarWineResult;
+import org.eclipse.store.demo.vinoteca.service.CustomerService;
 import org.eclipse.store.demo.vinoteca.service.WineService;
 import org.eclipse.store.demo.vinoteca.ui.MainLayout;
 
@@ -31,7 +32,7 @@ import org.eclipse.store.demo.vinoteca.ui.MainLayout;
 @PageTitle("Similarity Search | Vinoteca")
 public class SimilaritySearchView extends VerticalLayout
 {
-	public SimilaritySearchView(final WineService wineService)
+	public SimilaritySearchView(final WineService wineService, final CustomerService customerService)
 	{
 		setSizeFull();
 
@@ -52,6 +53,9 @@ public class SimilaritySearchView extends VerticalLayout
 		grid.addColumn(r -> r.wine().getWinery().getRegion()).setHeader("Region");
 		grid.addColumn(r -> String.format("%.4f", r.score())).setHeader("Similarity Score");
 		grid.setSizeFull();
+		grid.addItemClickListener(e -> new WineDetailDialog(
+			e.getItem().wine(), wineService, customerService, null
+		).open());
 
 		final Button searchBtn = new Button("Find Similar Wines", e -> {
 			if (!queryField.isEmpty())
