@@ -78,6 +78,14 @@ public class WineVectorizer extends Vectorizer<Wine>
 		{
 			sb.append(' ').append(wine.getTastingNotes());
 		}
+		if (wine.getAroma() != null)
+		{
+			sb.append(' ').append(wine.getAroma());
+		}
+		if (wine.getFoodPairing() != null)
+		{
+			sb.append(' ').append(wine.getFoodPairing());
+		}
 		return sb.toString();
 	}
 }
