@@ -127,7 +127,6 @@ public interface StorageManager extends StorageController, StorageConnection, Da
 	public default <R> R ensureRoot(final Supplier<R> initialRootSupplier)
 	{
 		Objects.requireNonNull(initialRootSupplier, "initialRootSupplier must not be null");
-		
 		if (!this.isRunning())
 		{
 			this.start();
