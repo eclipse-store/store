@@ -37,14 +37,22 @@ public class FullTextSearchView extends VerticalLayout
 		setSizeFull();
 
 		final Paragraph help = new Paragraph(
-			"Lucene query syntax: tastingNotes:cherry AND type:RED, " +
-			"aroma:pepper, name:\"Chateau Margaux\", foodPairing:steak"
+			"Lucene query syntax — Text fields: name, tastingNotes, aroma, foodPairing. " +
+			"Exact fields: type, grapeVariety, region, country. " +
+			"Operators: AND, OR, NOT. Phrases: \"pinot noir\""
 		);
 		help.getStyle().set("color", "var(--lumo-secondary-text-color)");
 
 		final TextField queryField = new TextField("Lucene Query");
 		queryField.setWidthFull();
-		queryField.setPlaceholder("e.g., tastingNotes:cherry AND type:RED");
+		queryField.setPlaceholder("e.g., tastingNotes:cherry AND type:red");
+
+		final HorizontalLayout chips = new HorizontalLayout();
+		addChip(chips, queryField, "tastingNotes:cherry AND type:red");
+		addChip(chips, queryField, "aroma:pepper");
+		addChip(chips, queryField, "country:france");
+		addChip(chips, queryField, "foodPairing:steak");
+		addChip(chips, queryField, "name:cabernet");
 
 		final IntegerField maxResults = new IntegerField("Max Results");
 		maxResults.setValue(20);
@@ -82,6 +90,14 @@ public class FullTextSearchView extends VerticalLayout
 		controls.setWidthFull();
 		controls.setFlexGrow(1, queryField);
 
-		add(help, controls, grid);
+		add(help, chips, controls, grid);
+	}
+
+	private void addChip(final HorizontalLayout container, final TextField target, final String expression)
+	{
+		final Button chip = new Button(expression);
+		chip.getStyle().set("font-size", "var(--lumo-font-size-xs)");
+		chip.addClickListener(e -> target.setValue(expression));
+		container.add(chip);
 	}
 }
