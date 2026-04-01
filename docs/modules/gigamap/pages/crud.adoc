@@ -22,11 +22,13 @@ GigaMap<Entity> gigaMap = GigaMap.New(
 
 == Locking
 
-The GigaMap employs internal read-write locking, making it thread-safe.
+The GigaMap employs internal read-write locking, making it thread-safe for its own operations (`add`, `remove`, `update`, `get`, etc.).
 
 However, all reading operations must be closed at the end to determine when the read locks should be released.
 
 Most of the default reading methods, like `get`, are atomic read operations that are closed by default internally. Only when using iterators should you remember to close them, best by using a try-with-resources block.
+
+NOTE: The internal locking covers GigaMap operations, but *not* the store operation when using `storageManager.store(gigaMap)`. Use `gigaMap.store()` instead, which acquires the internal lock during storing. See xref:persistence.adoc#_why_not_storagemanager_store_gigamap[Persistence] for details.
 
 == Creating and Adding Entities
 

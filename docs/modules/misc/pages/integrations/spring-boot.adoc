@@ -174,7 +174,14 @@ org.eclipse.store.second.root=org.eclipse.store.integrations.spring.boot.types.s
 ----
 
 == Mutex Locking
-{product-name} supports mutex locking. This is useful if you have multiple processes that need to access the same objects. Easiest way to use it is to use the annotation `@read` and `@write` on the methods that need to be locked. The annotation @read is used for methods that only read data and @write is used for methods that modify data.
+{product-name} supports mutex locking. This is useful if you have multiple processes that need to access the same objects. Easiest way to use it is to use the annotation `@Read` and `@Write` on the methods that need to be locked. The annotation `@Read` is used for methods that only read data and `@Write` is used for methods that modify data.
+
+[IMPORTANT]
+====
+A `@Write` method *must* contain both the object graph modification and the corresponding `store()` call.
+If the mutation and the store happen in separate methods (or outside the lock), other threads may observe inconsistent state.
+This is the same principle described in xref:misc:locking/index.adoc[Locking]: modifying the object graph and storing the changes must always be done under the same lock.
+====
 
 To activate  mutex locking, you need to add the following dependency to Maven pom.xml of your SpringBoot application:
 
@@ -202,7 +209,9 @@ public class SomeStorageImpl implements SomeStorage
     @Write
     public void addSomething(String something)
     {
-        // Add something to the storage
+        // Modify the object graph AND store — both inside the @Write method
+        this.root.getSomethings().add(something);
+        this.storageManager.store(this.root.getSomethings());
     }
 }
 ----
