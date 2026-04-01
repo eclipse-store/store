@@ -5,6 +5,6 @@
    \ \/ /  | || | | || (_) | |_|  __/| (__| (_| |
     \__/   |_||_| |_| \___/ \__|\___| \___|\__,_|
 
-  Powered by EclipseStore ${project.version}
+  Powered by EclipseStore ${application.version}
   Spring Boot ${spring-boot.version}
 
