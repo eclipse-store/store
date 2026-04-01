@@ -18,6 +18,7 @@ import org.eclipse.serializer.persistence.types.PersistenceObjectRegistry;
 import org.eclipse.serializer.persistence.types.PersistenceRootsView;
 import org.eclipse.serializer.persistence.types.Storer;
 
+import java.util.Objects;
 import java.util.function.Supplier;
 
 
@@ -120,10 +121,13 @@ public interface StorageManager extends StorageController, StorageConnection, Da
 	 * @param <R> the type of the root object
 	 * @param initialRootSupplier a supplier that provides the initial root object if it is not already set
 	 * @return the root object of the persistent object graph, cast to the specified type
+	 * @throws NullPointerException if {@code initialRootSupplier} is null
 	 * @throws IllegalArgumentException if the supplied initial root is null
 	 */
 	public default <R> R ensureRoot(final Supplier<R> initialRootSupplier)
 	{
+		Objects.requireNonNull(initialRootSupplier, "initialRootSupplier must not be null");
+		
 		if (!this.isRunning())
 		{
 			this.start();
