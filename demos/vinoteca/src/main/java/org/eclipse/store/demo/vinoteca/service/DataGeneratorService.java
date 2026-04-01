@@ -336,10 +336,12 @@ public class DataGeneratorService
 		final List<Customer> customers = new ArrayList<>();
 		for (int i = 0; i < count; i++)
 		{
+			final String firstName = this.faker.name().firstName();
+			final String lastName  = this.faker.name().lastName();
 			final Customer customer = new Customer(
-				this.faker.name().firstName(),
-				this.faker.name().lastName(),
-				this.faker.internet().emailAddress(),
+				firstName,
+				lastName,
+				this.faker.internet().emailAddress(firstName + " " + lastName),
 				this.faker.address().city(),
 				this.faker.address().country()
 			);
