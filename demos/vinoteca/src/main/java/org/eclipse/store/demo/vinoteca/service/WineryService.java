@@ -14,9 +14,6 @@ package org.eclipse.store.demo.vinoteca.service;
  * #L%
  */
 
-import java.util.Comparator;
-import java.util.List;
-
 import org.eclipse.store.demo.vinoteca.dto.NearbyWineryResult;
 import org.eclipse.store.demo.vinoteca.dto.PageResult;
 import org.eclipse.store.demo.vinoteca.dto.WineryInput;
@@ -30,6 +27,9 @@ import org.eclipse.store.integrations.spring.boot.types.concurrent.Mutex;
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Read;
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Write;
 import org.springframework.stereotype.Service;
+
+import java.util.Comparator;
+import java.util.List;
 
 @Service
 @Mutex("wineryStore")
@@ -209,6 +209,12 @@ public class WineryService
 			from.getLatitude(), from.getLongitude(),
 			to.getLatitude(), to.getLongitude()
 		) * 10.0) / 10.0;
+	}
+
+	@Read
+	public List<String> countries()
+	{
+		return WineryIndices.COUNTRY.resolveKeys(this.wineryGigaMap);
 	}
 
 	@Read

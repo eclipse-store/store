@@ -23,12 +23,12 @@ import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.NumberField;
-import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import org.eclipse.store.demo.vinoteca.dto.NearbyWineryResult;
 import org.eclipse.store.demo.vinoteca.model.Winery;
 import org.eclipse.store.demo.vinoteca.service.WineryService;
+import org.eclipse.store.demo.vinoteca.ui.LeafletMap;
 import org.eclipse.store.demo.vinoteca.ui.MainLayout;
 
 @Route(value = "wineries", layout = MainLayout.class)
@@ -37,13 +37,13 @@ public class WineryExplorerView extends VerticalLayout
 {
 	private final WineryService wineryService;
 	private final Grid<Winery>  wineryGrid;
-	private final Grid<NearbyWineryResult> nearbyGrid;
+	private final LeafletMap    map;
 
 	public WineryExplorerView(final WineryService wineryService)
 	{
 		this.wineryService = wineryService;
 		this.wineryGrid = new Grid<>(Winery.class, false);
-		this.nearbyGrid = new Grid<>(NearbyWineryResult.class, false);
+		this.map        = new LeafletMap();
 		setSizeFull();
 
 		// Spatial search panel
@@ -55,34 +55,45 @@ public class WineryExplorerView extends VerticalLayout
 		final Button nearbyBtn = new Button("Find Nearby", e -> {
 			if (latField.getValue() != null && lonField.getValue() != null)
 			{
-				final List<NearbyWineryResult> results = this.wineryService.nearby(
+				final List<Winery> results = this.wineryService.nearby(
 					latField.getValue(), lonField.getValue(), radiusField.getValue()
-				);
-				this.nearbyGrid.setItems(results);
-				this.nearbyGrid.setVisible(true);
+				).stream().map(NearbyWineryResult::winery).toList();
+				this.wineryGrid.setItems(results);
+				this.updateMap(results);
 				Notification.show("Found " + results.size() + " nearby wineries");
 			}
 		});
 
 		final ComboBox<String> hemisphereFilter = new ComboBox<>("Hemisphere");
 		hemisphereFilter.setItems("north", "south", "east", "west");
+		final ComboBox<String> countryFilter = new ComboBox<>("Country");
+		countryFilter.setItems(this.wineryService.countries().stream().sorted().toList());
 
-		final Button hemisphereBtn = new Button("Filter", e -> {
-			if (hemisphereFilter.getValue() != null)
+		hemisphereFilter.addValueChangeListener(e -> {
+			if (e.getValue() != null)
 			{
-				this.wineryGrid.setItems(this.wineryService.hemisphere(hemisphereFilter.getValue()));
+				countryFilter.clear();
+				final List<Winery> results = this.wineryService.hemisphere(e.getValue());
+				this.wineryGrid.setItems(results);
+				this.updateMap(results);
 			}
 		});
 
-		final TextField countryFilter = new TextField("Country");
-		final Button countryBtn = new Button("Filter by Country", e -> {
-			if (!countryFilter.isEmpty())
+		countryFilter.addValueChangeListener(e -> {
+			if (e.getValue() != null)
 			{
-				this.wineryGrid.setItems(this.wineryService.byCountry(countryFilter.getValue()));
+				hemisphereFilter.clear();
+				final List<Winery> results = this.wineryService.byCountry(e.getValue());
+				this.wineryGrid.setItems(results);
+				this.updateMap(results);
 			}
 		});
 
-		final Button resetBtn = new Button("Show All", e -> this.loadAll());
+		final Button resetBtn = new Button("Show All", e -> {
+			hemisphereFilter.clear();
+			countryFilter.clear();
+			this.loadAll();
+		});
 
 		final HorizontalLayout spatialPanel = new HorizontalLayout(
 			latField, lonField, radiusField, nearbyBtn
@@ -90,7 +101,7 @@ public class WineryExplorerView extends VerticalLayout
 		spatialPanel.setDefaultVerticalComponentAlignment(Alignment.END);
 
 		final HorizontalLayout filterPanel = new HorizontalLayout(
-			hemisphereFilter, hemisphereBtn, countryFilter, countryBtn, resetBtn
+			hemisphereFilter, countryFilter, resetBtn
 		);
 		filterPanel.setDefaultVerticalComponentAlignment(Alignment.END);
 
@@ -102,21 +113,41 @@ public class WineryExplorerView extends VerticalLayout
 		this.wineryGrid.addColumn(Winery::getFoundedYear).setHeader("Founded").setSortable(true);
 		this.wineryGrid.addColumn(w -> w.getWines() != null ? w.getWines().size() : 0).setHeader("Wines");
 		this.wineryGrid.setSizeFull();
+		this.wineryGrid.addItemClickListener(e -> {
+			final Winery w = e.getItem();
+			latField.setValue(w.getLatitude());
+			lonField.setValue(w.getLongitude());
+			this.map.selectMarker(w.getLatitude(), w.getLongitude());
+		});
 
-		this.nearbyGrid.addColumn(r -> r.winery().getName()).setHeader("Winery");
-		this.nearbyGrid.addColumn(r -> r.winery().getRegion()).setHeader("Region");
-		this.nearbyGrid.addColumn(r -> r.winery().getCountry()).setHeader("Country");
-		this.nearbyGrid.addColumn(NearbyWineryResult::distanceKm).setHeader("Distance (km)");
-		this.nearbyGrid.setVisible(false);
-		this.nearbyGrid.setHeight("300px");
+		this.map.setHeight("400px");
+		this.map.setWidthFull();
+		this.map.addMapClickListener((lat, lon) -> {
+			latField.setValue(Math.round(lat * 10000.0) / 10000.0);
+			lonField.setValue(Math.round(lon * 10000.0) / 10000.0);
+		});
 
-		add(spatialPanel, filterPanel, this.wineryGrid, this.nearbyGrid);
+		add(spatialPanel, filterPanel, this.map, this.wineryGrid);
 		this.loadAll();
 	}
 
 	private void loadAll()
 	{
-		this.wineryGrid.setItems(this.wineryService.list(0, 1000).content());
-		this.nearbyGrid.setVisible(false);
+		final List<Winery> wineries = this.wineryService.list(0, 1000).content();
+		this.wineryGrid.setItems(wineries);
+		this.updateMap(wineries);
+	}
+
+	private void updateMap(final List<Winery> wineries)
+	{
+		this.map.setMarkers(
+			wineries.stream()
+				.map(w -> new LeafletMap.Marker(
+					w.getLatitude(),
+					w.getLongitude(),
+					"<b>" + w.getName() + "</b><br>" + w.getRegion() + ", " + w.getCountry()
+				))
+				.toList()
+		);
 	}
 }
