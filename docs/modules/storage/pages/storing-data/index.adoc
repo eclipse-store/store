@@ -8,6 +8,14 @@ While storing your data most of the work {product-name} performs for you.
 You only need to call the store method on the correct object.
 The rule is: "The Object that has been modified has to be stored!".
 
+[IMPORTANT]
+====
+In a multi-threaded application, modifying the object graph and storing the changes *must be done under the same lock*.
+{product-name} cannot enforce this on the application level — it is *your responsibility* to ensure that no other thread can read or modify the affected objects between the mutation and the corresponding `store()` call.
+Without this guarantee, other threads may observe inconsistent in-memory state or the stored data may not reflect the intended change.
+See xref:misc:locking/index.adoc[Locking] for details.
+====
+
 Storing objects that are not part of an object graph is most likely pointless.
 
 == Storing Root Instances
