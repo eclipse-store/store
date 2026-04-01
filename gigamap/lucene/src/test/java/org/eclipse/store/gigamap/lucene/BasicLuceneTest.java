@@ -263,7 +263,7 @@ public class BasicLuceneTest
 
         LuceneIndex<Article> luceneIndex2 = null;
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(gigaMap, storagePath)) {
-            GigaMap<Article> gigaMap2 = (GigaMap<Article>) storageManager.root();
+            GigaMap<Article> gigaMap2 = storageManager.root();
             luceneIndex2 = gigaMap2.index().get(LuceneIndex.class);
 
             List<Article> result2 = new ArrayList<>();
@@ -350,7 +350,7 @@ public class BasicLuceneTest
 
         LuceneIndex<Article> luceneIndex2 = null;
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(gigaMap, storagePath)) {
-            GigaMap<Article> gigaMap2 = (GigaMap<Article>) storageManager.root();
+            GigaMap<Article> gigaMap2 = storageManager.root();
             luceneIndex2 = gigaMap2.index().get(LuceneIndex.class);
 
             List<Article> result2 = new ArrayList<>();

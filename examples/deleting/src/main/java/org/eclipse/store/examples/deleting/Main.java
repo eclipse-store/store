@@ -58,7 +58,7 @@ public class Main
     	{
     		System.out.println("Existing Database found:");
     		
-    		final MyRoot root = (MyRoot) storage.root();
+    		final MyRoot root = storage.root();
     		root.myObjects.forEach(System.out::println);
     		
     		if(!root.myObjects.isEmpty())

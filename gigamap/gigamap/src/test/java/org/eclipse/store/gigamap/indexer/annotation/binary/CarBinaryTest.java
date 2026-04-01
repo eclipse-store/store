@@ -68,7 +68,7 @@ public class CarBinaryTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<CarBinary> loadedVehicles = (GigaMap<CarBinary>) storageManager.root();
+            GigaMap<CarBinary> loadedVehicles = storageManager.root();
             BitmapIndex<CarBinary, Long> vehicleId1 = loadedVehicles.index().bitmap().get(Long.class, "vehicleId");
             CarBinary carBinary1 = loadedVehicles.query(vehicleId1.is(1L)).findFirst().orElse(null);
             assertNotNull(carBinary1);

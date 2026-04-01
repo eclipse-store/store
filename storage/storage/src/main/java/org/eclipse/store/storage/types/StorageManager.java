@@ -18,6 +18,9 @@ import org.eclipse.serializer.persistence.types.PersistenceObjectRegistry;
 import org.eclipse.serializer.persistence.types.PersistenceRootsView;
 import org.eclipse.serializer.persistence.types.Storer;
 
+import java.util.Objects;
+import java.util.function.Supplier;
+
 
 /**
  * Central managing type for a native Java database's storage layer.
@@ -76,31 +79,26 @@ public interface StorageManager extends StorageController, StorageConnection, Da
 	 * @return a new {@link StorageConnection} instance.
 	 */
 	public StorageConnection createConnection();
-	
+
 	/**
-	 * Return the persistent object graph's root object, without specific typing.
-	 * <p>
-	 * If a specifically typed root instance reference is desired, it is preferable to hold a properly typed constant
-	 * reference to it and let the storage initialization use that instance as the root.<br>
-	 * See the following code snippet on how to do that:
-	 * <pre>{@code
-	 *static final MyAppRoot      ROOT    = new MyAppRoot();
-	 *static final StorageManager STORAGE = EmbeddedStorage.start(ROOT);
-	 * }</pre>
-	 * 
-	 * @return the persistent object graph's root object.
+	 * Returns the current root object of the persistent object graph managed by this instance.
+	 * The root object is the entry point for accessing the graph of persisted objects.
+	 *
+	 * @param <R> the type of the root object
+	 * @return the root object of the persistent object graph, or null if no root is currently set
 	 */
-	public Object root();
+	public <R> R root();
 	
 	/**
 	 * Sets the passed instance as the new root for the persistent object graph.<br>
 	 * Note that this will replace the old root instance, potentially resulting in wiping the whole database.
-	 * 
+	 *
+	 * @param <R> the type of the root object
 	 * @param newRoot the new root instance to be set.
 	 * 
 	 * @return the passed {@literal newRoot} to allow fluent usage of this method.
 	 */
-	public Object setRoot(Object newRoot);
+	public <R> R setRoot(R newRoot);
 	
 	/**
 	 * Stores the registered root instance (as returned by {@link #root()}) by using the default storing logic
@@ -113,6 +111,40 @@ public interface StorageManager extends StorageController, StorageConnection, Da
 	 * @return the root instance's objectId.
 	 */
 	public long storeRoot();
+
+	/**
+	 * Ensures that the root object of the persistent object graph is initialized and available.
+	 * If the storage is not running, it starts the storage. If the root object is not set, it uses
+	 * the given supplier to provide the initial root and stores it. Throws an exception if the
+	 * initial root provided by the supplier is null.
+	 *
+	 * @param <R> the type of the root object
+	 * @param initialRootSupplier a supplier that provides the initial root object if it is not already set
+	 * @return the root object of the persistent object graph, cast to the specified type
+	 * @throws NullPointerException if {@code initialRootSupplier} is null
+	 * @throws IllegalArgumentException if the supplied initial root is null
+	 */
+	public default <R> R ensureRoot(final Supplier<R> initialRootSupplier)
+	{
+		Objects.requireNonNull(initialRootSupplier, "initialRootSupplier must not be null");
+
+		if (!this.isRunning())
+		{
+			this.start();
+		}
+
+		if (this.root() == null)
+		{
+			final R initialRoot = initialRootSupplier.get();
+			if(initialRoot == null)
+			{
+				throw new IllegalArgumentException("Initial root must not be null");
+			}
+			this.setRoot(initialRoot);
+			this.storeRoot();
+		}
+		return this.root();
+	}
 	
 	/**
 	 * Returns a read-only view on all technical root instance registered in this {@link StorageManager} instance.<br>

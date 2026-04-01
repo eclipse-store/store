@@ -70,7 +70,7 @@ public class InteratorIndexIdTest
         }
 
         try (EmbeddedStorageManager storage = EmbeddedStorage.start(guitars, tempDir) ) {
-            GigaMap<Guitar> loadedGuitars = (GigaMap<Guitar>) storage.root();
+            GigaMap<Guitar> loadedGuitars = storage.root();
             Map<Long, Guitar> loadedControlMap = new HashMap<>();
             loadedGuitars.query(brandIndexer.is("Gibson")).iterateIndexed(loadedControlMap::put);
 

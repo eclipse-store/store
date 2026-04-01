@@ -196,13 +196,13 @@ public class StorageManagerProxy extends UsageMarkable.Default implements Storag
     }
 
     @Override
-    public Object root()
+    public <R> R root()
     {
         return this.getStorageManager().root();
     }
 
     @Override
-    public Object setRoot(final Object newRoot)
+    public <R> R setRoot(final R newRoot)
     {
         return this.getStorageManager().setRoot(newRoot);
     }

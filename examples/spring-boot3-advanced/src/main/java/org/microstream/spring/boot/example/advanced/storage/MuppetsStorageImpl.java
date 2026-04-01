@@ -43,7 +43,7 @@ public class MuppetsStorageImpl implements MuppetStorage
     @Read
     public String oneMuppet(Integer id)
     {
-        MuppetsRoot root = (MuppetsRoot) storageManager.root();
+        MuppetsRoot root = storageManager.root();
         if (id > root.getMuppets().size())
         {
             throw new IllegalArgumentException("No muppet with this id");
@@ -55,7 +55,7 @@ public class MuppetsStorageImpl implements MuppetStorage
     @Read
     public List<String> allMuppets()
     {
-        MuppetsRoot root = (MuppetsRoot) storageManager.root();
+        MuppetsRoot root = storageManager.root();
         return new ArrayList<>(root.getMuppets()); // Create new List... never return original one.
 
     }
@@ -64,7 +64,7 @@ public class MuppetsStorageImpl implements MuppetStorage
     @Write
     public int addMuppets(List<String> muppets)
     {
-        MuppetsRoot root = (MuppetsRoot) storageManager.root();
+        MuppetsRoot root = storageManager.root();
         root.setMuppets(muppets);
         Storer eagerStorer = storageManager.createEagerStorer();
         eagerStorer.store(root);

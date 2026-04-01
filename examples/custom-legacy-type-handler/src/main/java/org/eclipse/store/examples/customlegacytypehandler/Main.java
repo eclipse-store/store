@@ -68,7 +68,7 @@ public class Main
 							.registerLegacyTypeHandler(new LegacyTypeHandlerNicePlace()))
 					.start();
 			
-			final NicePlace myPlace = (NicePlace)storage.root();
+			final NicePlace myPlace = storage.root();
 	
 			System.out.println("loaded legacy storage:");
 			System.out.println(ObjectToString(myPlace));

@@ -66,7 +66,7 @@ public class RestartFailed3000Test
 		
 		try(EmbeddedStorageManager manager = EmbeddedStorage.start(this.newDirectory))
 		{
-			final GigaMap<String> loadedMap = (GigaMap<String>)manager.root();
+			final GigaMap<String> loadedMap = manager.root();
 			assertEquals(3000, loadedMap.size());
 			assertEquals(AMOUNT * 3, loadedMap.size());
 			assertEquals("Hello0", loadedMap.get(0));

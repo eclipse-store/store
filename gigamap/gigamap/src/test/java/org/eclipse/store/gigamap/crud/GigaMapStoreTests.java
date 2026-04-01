@@ -54,7 +54,7 @@ public class GigaMapStoreTests
 		}
 
 		try (EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir)) {
-			final GigaMap<Entity> loaded = (GigaMap<Entity>) manager.root();
+			final GigaMap<Entity> loaded = manager.root();
             assertTrue(loaded.isEmpty());
 			assertEquals(0, loaded.size());
 		}
@@ -93,7 +93,7 @@ public class GigaMapStoreTests
 		}
 
 		try (EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir)) {
-			final GigaMap<Entity> loaded = (GigaMap<Entity>) manager.root();
+			final GigaMap<Entity> loaded = manager.root();
 			assertEquals(2, loaded.size());
 			loaded.add(Entity.Random());
 			loaded.store();
@@ -132,7 +132,7 @@ public class GigaMapStoreTests
 		}
 
 		try (EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir)) {
-			final GigaMap<Entity> loaded = (GigaMap<Entity>) manager.root();
+			final GigaMap<Entity> loaded = manager.root();
 			assertEquals(initialSize + 1, loaded.size());
 		}
 	}
@@ -148,7 +148,7 @@ public class GigaMapStoreTests
 		}
 
 		try (EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir)) {
-			final GigaMap<Entity> loaded = (GigaMap<Entity>) manager.root();
+			final GigaMap<Entity> loaded = manager.root();
 			assertThrows(IllegalArgumentException.class, () -> loaded.add(null));
 		}
 	}
@@ -183,7 +183,7 @@ public class GigaMapStoreTests
 		}
 
 		try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDirLocal)) {
-			final GigaMap<Entity> loaded = (GigaMap<Entity>) manager.root();
+			final GigaMap<Entity> loaded = manager.root();
 			assertEquals(initialSize + add.size(), loaded.size());
 		}
 	}
@@ -227,7 +227,7 @@ public class GigaMapStoreTests
 		}
 
 		try (EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir)) {
-			final GigaMap<Entity> loaded = (GigaMap<Entity>) manager.root();
+			final GigaMap<Entity> loaded = manager.root();
 			assertEquals(size + 1, loaded.size());
 		}
 	}
@@ -248,7 +248,7 @@ public class GigaMapStoreTests
 		}
 
 		try (EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir)) {
-			final GigaMap<Entity> loaded = (GigaMap<Entity>) manager.root();
+			final GigaMap<Entity> loaded = manager.root();
 			assertEquals(initialSize - 1, loaded.size());
 		}
 	}
@@ -269,7 +269,7 @@ public class GigaMapStoreTests
 		}
 
 		try (EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir)) {
-			final GigaMap<Entity> loaded = (GigaMap<Entity>) manager.root();
+			final GigaMap<Entity> loaded = manager.root();
 			assertEquals(initialSize - 1, loaded.size());
 		}
 	}
@@ -288,7 +288,7 @@ public class GigaMapStoreTests
 		}
 
 		try (EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir)) {
-			final GigaMap<Entity> loaded = (GigaMap<Entity>) manager.root();
+			final GigaMap<Entity> loaded = manager.root();
 			final AtomicInteger     loadedCounter = new AtomicInteger();
 			loaded.iterate(element -> loadedCounter.incrementAndGet());
 			assertEquals(entryCount, loadedCounter.get());
@@ -311,7 +311,7 @@ public class GigaMapStoreTests
 		}
 
 		try (EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir)) {
-			final GigaMap<Entity> loaded = (GigaMap<Entity>) manager.root();
+			final GigaMap<Entity> loaded = manager.root();
 			final LongSummaryStatistics loadedStats = new LongSummaryStatistics();
 			loaded.iterateIndexed((id, element) -> loadedStats.accept(id));
 			assertEquals(entryCount, loadedStats.getCount());
@@ -342,7 +342,7 @@ public class GigaMapStoreTests
 		}
 
 		try (EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir)) {
-			final GigaMap<Entity> loaded = (GigaMap<Entity>) manager.root();
+			final GigaMap<Entity> loaded = manager.root();
 			final GigaQuery<Entity> loadedQuery = loaded.query(Entity.intValueIndex.is(0));
 			assertEquals(100, loadedQuery.count());
 		}
@@ -369,7 +369,7 @@ public class GigaMapStoreTests
 		}
 
 		try (EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir)) {
-			final GigaMap<Entity> loaded = (GigaMap<Entity>) manager.root();
+			final GigaMap<Entity> loaded = manager.root();
 			final GigaQuery<Entity> loadedQuery = loaded.query(Entity.intValueIndex.is(searchFor));
 			assertEquals(expected.get(), loadedQuery.count());
 		}
@@ -400,7 +400,7 @@ public class GigaMapStoreTests
 		}
 
 		try (EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir)) {
-			final GigaMap<Entity> loaded = (GigaMap<Entity>) manager.root();
+			final GigaMap<Entity> loaded = manager.root();
 			final GigaQuery<Entity> loadedQuery = loaded.query(Entity.intValueIndex.is(0));
 			final AtomicInteger     loadedForEachCounter  = new AtomicInteger();
 			final AtomicInteger     loadedIteratorCounter = new AtomicInteger();
@@ -426,7 +426,7 @@ public class GigaMapStoreTests
 		}
 
 		try (EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir)) {
-			final GigaMap<Entity> loaded = (GigaMap<Entity>) manager.root();
+			final GigaMap<Entity> loaded = manager.root();
 			final GigaQuery<Entity> loadedQuery = loaded.query(Entity.wordIndex.not("red"));
 			loadedQuery.execute(entity -> assertNotNull(entity));
 		}
@@ -451,7 +451,7 @@ public class GigaMapStoreTests
 		}
 
 		try (EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir)) {
-			final GigaMap<Entity> loaded = (GigaMap<Entity>) manager.root();
+			final GigaMap<Entity> loaded = manager.root();
 			final Entity loadedEntity = loaded.get(5);
 			assertEquals(newWord, loadedEntity.getWord());
 		}
@@ -471,7 +471,7 @@ public class GigaMapStoreTests
 		}
 
 		try (EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir)) {
-			final GigaMap<Entity> loaded = (GigaMap<Entity>) manager.root();
+			final GigaMap<Entity> loaded = manager.root();
 			assertNull(loaded.peek(1)); // not loaded after start of storage manager
 			loaded.get(1);
 			assertNotNull(loaded.peek(1)); // loaded after get
@@ -494,7 +494,7 @@ public class GigaMapStoreTests
 		}
 
 		try (EmbeddedStorageManager manager = EmbeddedStorage.start(this.tempDir)) {
-			final GigaMap<Entity> loaded = (GigaMap<Entity>) manager.root();
+			final GigaMap<Entity> loaded = manager.root();
 			assertNotNull(loaded.index().bitmap().get(Integer.class, Entity.intValueIndex.name()));
 			assertNotNull(loaded.index().bitmap().get(Entity.wordIndex.name()));
 		}

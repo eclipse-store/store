@@ -87,7 +87,7 @@ public class AddTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            final GigaMap<Customer> root = (GigaMap<Customer>) manager.root();
+            final GigaMap<Customer> root = manager.root();
             root.add(new Customer("Updated Name", 100));
             root.store();
 
@@ -98,7 +98,7 @@ public class AddTest
 
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            final GigaMap<Customer> root2 = (GigaMap<Customer>) manager.root();
+            final GigaMap<Customer> root2 = manager.root();
 
             assertEquals(7, root2.size(), "Size of the map should be 7 after adding a new customer");
             assertEquals("Updated Name", root2.query(nameIndexer.is("Updated Name")).findFirst().get().getName());
@@ -110,7 +110,7 @@ public class AddTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            final GigaMap<Customer> root2 = (GigaMap<Customer>) manager.root();
+            final GigaMap<Customer> root2 = manager.root();
 
             assertEquals(8, root2.size(), "Size of the map should be 7 after adding a new customer");
             assertEquals("Updated Name second", root2.query(nameIndexer.is("Updated Name second")).findFirst().get().getName());
