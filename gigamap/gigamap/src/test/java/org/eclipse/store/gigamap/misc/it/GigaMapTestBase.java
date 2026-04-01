@@ -95,13 +95,12 @@ public abstract class GigaMapTestBase<T>
 	}
 		
 	@AfterAll
-	@SuppressWarnings("unchecked")
 	protected void shutdown()
 	{
 		this.storage.shutdown();
 		
 		this.storage = this.startStorage();
-		this.gigaMap = (GigaMap<T>)this.storage.root();
+		this.gigaMap = this.storage.root();
 		
 		assertEquals(this.testDataAmount, this.gigaMap.size());
 		
@@ -123,10 +122,9 @@ public abstract class GigaMapTestBase<T>
 	}
 	
 	
-	@SuppressWarnings("unchecked")
 	private GigaMap<T> ensureRoot(final EmbeddedStorageManager storage)
 	{
-		GigaMap<T> gigaMap = (GigaMap<T>)storage.root();
+		GigaMap<T> gigaMap = storage.root();
 		if(gigaMap != null)
 		{
 			return gigaMap;

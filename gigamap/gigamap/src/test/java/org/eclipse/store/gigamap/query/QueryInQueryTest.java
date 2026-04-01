@@ -70,7 +70,7 @@ public class QueryInQueryTest
 
         //reload it and test again
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(workDir)) {
-            Root root2 = (Root) storageManager.root();
+            Root root2 = storageManager.root();
             GigaMap<Address> addressGigaMap1 = root2.getAddressGigaMap();
             GigaMap<Person> personGigaMap1 = root2.getPersonGigaMap();
             GigaQuery<Person> street1 = personGigaMap1.query(personStreetIndexer.in(addressGigaMap1.query(addressIndexer.is("street"))));

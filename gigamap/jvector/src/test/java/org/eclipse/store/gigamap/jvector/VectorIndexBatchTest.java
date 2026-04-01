@@ -346,8 +346,7 @@ class VectorIndexBatchTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 assertNotNull(gigaMap);
                 assertEquals(21, gigaMap.size());
 

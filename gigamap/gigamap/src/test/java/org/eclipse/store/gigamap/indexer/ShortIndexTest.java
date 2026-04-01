@@ -66,7 +66,7 @@ public class ShortIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ShortPerson> newMap = (GigaMap<ShortPerson>) manager.root();
+            GigaMap<ShortPerson> newMap = manager.root();
             long count = map.query(shortPersonIndex.between((short) 20, (short) 30)).count();
             assertEquals(2, count);
             newMap.query(shortPersonIndex.between((short) 20, (short) 30)).forEach(shortPerson -> assertTrue(shortPerson.getAge() >= 20 && shortPerson.getAge() <= 30));
@@ -119,7 +119,7 @@ public class ShortIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ShortPerson> newMap = (GigaMap<ShortPerson>) manager.root();
+            GigaMap<ShortPerson> newMap = manager.root();
             long count = map.query(shortPersonIndex.greaterThanEqual((short) 20)).count();
             assertEquals(3, count);
             newMap.query(shortPersonIndex.greaterThanEqual((short) 20)).forEach(shortPerson -> assertTrue(shortPerson.getAge() >= 20));
@@ -140,7 +140,7 @@ public class ShortIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ShortPerson> newMap = (GigaMap<ShortPerson>) manager.root();
+            GigaMap<ShortPerson> newMap = manager.root();
             long count = map.query(shortPersonIndex.greaterThan((short) 20)).count();
             assertEquals(2, count);
             newMap.query(shortPersonIndex.greaterThan((short) 20)).forEach(shortPerson -> assertTrue(shortPerson.getAge() > 20));
@@ -161,7 +161,7 @@ public class ShortIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ShortPerson> newMap = (GigaMap<ShortPerson>) manager.root();
+            GigaMap<ShortPerson> newMap = manager.root();
             long count = map.query(shortPersonIndex.lessThanEqual((short) 30)).count();
             assertEquals(2, count);
             newMap.query(shortPersonIndex.lessThanEqual((short) 30)).forEach(shortPerson -> assertTrue(shortPerson.getAge() <= 30));
@@ -182,7 +182,7 @@ public class ShortIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ShortPerson> newMap = (GigaMap<ShortPerson>) manager.root();
+            GigaMap<ShortPerson> newMap = manager.root();
             long count = map.query(shortPersonIndex.lessThan((short) 30)).count();
             assertEquals(1, count);
             newMap.query(shortPersonIndex.lessThan((short) 30)).forEach(shortPerson -> assertTrue(shortPerson.getAge() < 30));
@@ -208,7 +208,7 @@ public class ShortIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ShortPerson> newMap = (GigaMap<ShortPerson>) manager.root();
+            GigaMap<ShortPerson> newMap = manager.root();
             newMap.query(shortPersonIndex.is((short) 20)).forEach(shortPerson -> assertEquals((short) 20, shortPerson.getAge()));
             newMap.query(shortPersonIndex.is((short) 30)).forEach(shortPerson -> assertEquals((short) 30, shortPerson.getAge()));
 

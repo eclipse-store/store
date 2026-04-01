@@ -48,7 +48,7 @@ public class Commands
 
 		DataRoot data()
 		{
-			return (DataRoot)this.storageManager.root();
+			return this.storageManager.root();
 		}
 
 		void print(final List<Item> items)

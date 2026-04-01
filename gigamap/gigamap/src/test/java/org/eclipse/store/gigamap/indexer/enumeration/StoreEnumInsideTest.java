@@ -47,7 +47,7 @@ public class StoreEnumInsideTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<Person> loadedGigaMap = (GigaMap<Person>) manager.root();
+            GigaMap<Person> loadedGigaMap = manager.root();
 
             List<Person> list = loadedGigaMap.query().toList();
             Assertions.assertEquals(3, list.size(), "There should be 3 persons in the GigaMap");

@@ -62,7 +62,7 @@ public class BinaryIndexerTest
 
         // Reload and compare results of both indexes
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(storagePath)) {
-            GigaMap<LongEntity> map2 = (GigaMap<LongEntity>) storageManager.root();
+            GigaMap<LongEntity> map2 = storageManager.root();
 
             BitmapIndex<LongEntity, Long> binary = map2.index().bitmap().get(Long.class, "org.eclipse.store.gigamap.indexer.BinaryIndexerTest.LongIndexer");
             BitmapIndex<LongEntity, Long> normal = map2.index().bitmap().get(Long.class, "org.eclipse.store.gigamap.indexer.BinaryIndexerTest.LongNormalIndexer");
@@ -163,7 +163,7 @@ public class BinaryIndexerTest
 
         // Reload and re-verify
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(storagePath)) {
-            GigaMap<LongEntity> reloadedMap = (GigaMap<LongEntity>) storageManager.root();
+            GigaMap<LongEntity> reloadedMap = storageManager.root();
             BitmapIndex<LongEntity, Long> index = reloadedMap.index().bitmap().get(Long.class, "org.eclipse.store.gigamap.indexer.BinaryIndexerTest.LongIndexer");
 
             assertEquals(10, reloadedMap.query(index.is(42L)).count());
@@ -189,7 +189,7 @@ public class BinaryIndexerTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(storagePath)) {
-            GigaMap<LongEntity> map2 = (GigaMap<LongEntity>) storageManager.root();
+            GigaMap<LongEntity> map2 = storageManager.root();
             LongEntity entity1 = map2.query(indexer.is(99L)).findFirst().orElse(null);
             assertNotNull(entity1);
             assertEquals(99L, entity1.value);
@@ -262,7 +262,7 @@ public class BinaryIndexerTest
 
         // Reload and verify correctness of queries
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(storagePath)) {
-            GigaMap<LongEntity> map2 = (GigaMap<LongEntity>) storageManager.root();
+            GigaMap<LongEntity> map2 = storageManager.root();
 
             BitmapIndex<LongEntity, Long> index = map2.index().bitmap().get(Long.class, "org.eclipse.store.gigamap.indexer.BinaryIndexerTest.LongIndexer");
             for (LongEntity longEntity : list) {
@@ -300,7 +300,7 @@ public class BinaryIndexerTest
 
         // Reload and verify correctness of queries
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(storagePath)) {
-            GigaMap<LongEntity> map2 = (GigaMap<LongEntity>) storageManager.root();
+            GigaMap<LongEntity> map2 = storageManager.root();
 
             BitmapIndex<LongEntity, Long> index = map2.index().bitmap().get(Long.class, "org.eclipse.store.gigamap.indexer.BinaryIndexerTest.LongIndexer");
             for (LongEntity longEntity : list) {
@@ -335,7 +335,7 @@ public class BinaryIndexerTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(storagePath)) {
-            GigaMap<LongEntity> map2 = (GigaMap<LongEntity>) storageManager.root();
+            GigaMap<LongEntity> map2 = storageManager.root();
 
             BitmapIndex<LongEntity, Long> index = map2.index().bitmap().get(Long.class, "org.eclipse.store.gigamap.indexer.BinaryIndexerTest.LongIndexer");
             for (LongEntity longEntity : list) {
@@ -371,7 +371,7 @@ public class BinaryIndexerTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(storagePath)) {
-            GigaMap<LongEntity> map2 = (GigaMap<LongEntity>) storageManager.root();
+            GigaMap<LongEntity> map2 = storageManager.root();
 
             BitmapIndex<LongEntity, Long> index = map2.index().bitmap().get(Long.class, "org.eclipse.store.gigamap.indexer.BinaryIndexerTest.LongIndexer");
             for (LongEntity longEntity : list) {
@@ -410,7 +410,7 @@ public class BinaryIndexerTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(storagePath)) {
-            GigaMap<LongEntity> map2 = (GigaMap<LongEntity>) storageManager.root();
+            GigaMap<LongEntity> map2 = storageManager.root();
             map2.add(new LongEntity(5L));
 //            map2.store();
 
@@ -419,7 +419,7 @@ public class BinaryIndexerTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(storagePath)) {
-            GigaMap<LongEntity> map2 = (GigaMap<LongEntity>) storageManager.root();
+            GigaMap<LongEntity> map2 = storageManager.root();
 
             LongEntity longEntity = map2.query(indexer.is(5L)).findFirst().orElse(null);
             assertNull(longEntity);
@@ -441,7 +441,7 @@ public class BinaryIndexerTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(storagePath)) {
-            GigaMap<LongEntity> map2 = (GigaMap<LongEntity>) storageManager.root();
+            GigaMap<LongEntity> map2 = storageManager.root();
             map2.add(new LongEntity(Long.MAX_VALUE));
 //            map2.store();
 
@@ -450,7 +450,7 @@ public class BinaryIndexerTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(storagePath)) {
-            GigaMap<LongEntity> map2 = (GigaMap<LongEntity>) storageManager.root();
+            GigaMap<LongEntity> map2 = storageManager.root();
 
             LongEntity longEntity = map2.query(indexer.is(Long.MAX_VALUE)).findFirst().orElse(null);
             assertNull(longEntity);
@@ -484,7 +484,7 @@ public class BinaryIndexerTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(gigaMap, storagePath)) {
-            GigaMap<LongEntity> map2 = (GigaMap<LongEntity>) storageManager.root();
+            GigaMap<LongEntity> map2 = storageManager.root();
             longEntity = map2.query(wrapped.is(1L)).findFirst().get();
             assertEquals(entity1.value, longEntity.value);
         }
@@ -519,7 +519,7 @@ public class BinaryIndexerTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(gigaMap, storagePath)) {
-            GigaMap<LongEntity> map2 = (GigaMap<LongEntity>) storageManager.root();
+            GigaMap<LongEntity> map2 = storageManager.root();
             BitmapIndex<LongEntity, Long> index = map2.index().bitmap().get(Long.class, "org.eclipse.store.gigamap.indexer.BinaryIndexerTest.LongIndexer");
 
             longEntity = map2.query(index.is(1L)).findFirst().get();
@@ -532,7 +532,7 @@ public class BinaryIndexerTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(gigaMap, storagePath)) {
-            GigaMap<LongEntity> map2 = (GigaMap<LongEntity>) storageManager.root();
+            GigaMap<LongEntity> map2 = storageManager.root();
             BitmapIndex<LongEntity, Long> index = map2.index().bitmap().get(Long.class, "org.eclipse.store.gigamap.indexer.BinaryIndexerTest.LongIndexer");
 
             assertEquals(5000L, map2.query(index.is(5_000L)).findFirst().get().value);
@@ -567,7 +567,7 @@ public class BinaryIndexerTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(gigaMap, storagePath)) {
-            GigaMap<LongEntity> map2 = (GigaMap<LongEntity>) storageManager.root();
+            GigaMap<LongEntity> map2 = storageManager.root();
             longEntity = map2.query(wrapped.is(1L)).findFirst().get();
             assertEquals(entity1.value, longEntity.value);
 

@@ -162,14 +162,15 @@ public interface EmbeddedStorageManager extends StorageManager
 			return this.database;
 		}
 
+		@SuppressWarnings("unchecked")
 		@Override
-		public final Object root()
+		public final <R> R root()
 		{
-			return this.rootReference().get();
+			return (R)this.rootReference().get();
 		}
 		
 		@Override
-		public final Object setRoot(final Object newRoot)
+		public final <R> R setRoot(final R newRoot)
 		{
 			this.rootReference().setRoot(newRoot);
 			

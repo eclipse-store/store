@@ -30,7 +30,7 @@ public class UpdateTest
 		{
 			try(final EmbeddedStorageManager storage = EmbeddedStorage.start(Paths.get("target", "update_test")))
 			{
-				GigaMap<Entity> map = (GigaMap<Entity>)storage.root();
+				GigaMap<Entity> map = storage.root();
 				if(map == null)
 				{
 					map = GigaMap.New();

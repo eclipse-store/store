@@ -54,7 +54,7 @@ public class ApplyTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            final GigaMap<Customer> root = (GigaMap<Customer>) manager.root();
+            final GigaMap<Customer> root = manager.root();
             Optional<Customer> first = root.query().findFirst();
             if (first.isPresent()) {
                 Customer customer = first.get();
@@ -74,7 +74,7 @@ public class ApplyTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            final GigaMap<Customer> root2 = (GigaMap<Customer>) manager.root();
+            final GigaMap<Customer> root2 = manager.root();
 
             long count = root2.query(nameIndexer.startsWith("Upda")).count();
             assertEquals(1, count, "Count of customers with name starting with 'Upda' should be 1");

@@ -48,7 +48,7 @@ public class IntIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<IntegerPerson> newMap = (GigaMap<IntegerPerson>) manager.root();
+            GigaMap<IntegerPerson> newMap = manager.root();
             long count = newMap.query(integerPersonIndex.isNull()).count();
             assertEquals(0, count);
         }
@@ -67,7 +67,7 @@ public class IntIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<IntegerPerson> newMap = (GigaMap<IntegerPerson>) manager.root();
+            GigaMap<IntegerPerson> newMap = manager.root();
             long count = newMap.query(integerPersonIndex.between(5, 8)).count();
             assertEquals(4, count);
             long count1 = newMap.query(integerPersonIndex.between(4, 8)).count();
@@ -88,7 +88,7 @@ public class IntIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<IntegerPerson> newMap = (GigaMap<IntegerPerson>) manager.root();
+            GigaMap<IntegerPerson> newMap = manager.root();
             long count = newMap.query(integerPersonIndex.greaterThanEqual(5)).count();
             assertEquals(6, count);
             long count1 = newMap.query(integerPersonIndex.greaterThanEqual(4)).count();
@@ -109,7 +109,7 @@ public class IntIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<IntegerPerson> newMap = (GigaMap<IntegerPerson>) manager.root();
+            GigaMap<IntegerPerson> newMap = manager.root();
             long count = newMap.query(integerPersonIndex.greaterThan(5)).count();
             assertEquals(5, count);
             long count1 = newMap.query(integerPersonIndex.greaterThan(4)).count();
@@ -130,7 +130,7 @@ public class IntIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<IntegerPerson> newMap = (GigaMap<IntegerPerson>) manager.root();
+            GigaMap<IntegerPerson> newMap = manager.root();
             long count = newMap.query(integerPersonIndex.lessThanEqual(5)).count();
             assertEquals(6, count);
             long count1 = newMap.query(integerPersonIndex.lessThanEqual(4)).count();
@@ -151,7 +151,7 @@ public class IntIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<IntegerPerson> newMap = (GigaMap<IntegerPerson>) manager.root();
+            GigaMap<IntegerPerson> newMap = manager.root();
             long count = newMap.query(integerPersonIndex.lessThan(5)).count();
             assertEquals(5, count);
             long count1 = newMap.query(integerPersonIndex.lessThan(4)).count();
@@ -186,7 +186,7 @@ public class IntIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<IntegerPerson> newMap = (GigaMap<IntegerPerson>) manager.root();
+            GigaMap<IntegerPerson> newMap = manager.root();
             newMap.query(integerPersonIndex.is(20)).forEach(integerPerson -> assertEquals(20, integerPerson.getAge()));
             newMap.query(integerPersonIndex.is(30)).forEach(integerPerson -> assertEquals(30, integerPerson.getAge()));
 

@@ -43,7 +43,7 @@ public class BooleanIndexTest
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(map, tempDir)) {}
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<BooleanPerson> newMap = (GigaMap<BooleanPerson>) storageManager.root();
+            GigaMap<BooleanPerson> newMap = storageManager.root();
             assertEquals(2, newMap.query(booleanPersonIndex.isTrue()).count());
             assertEquals(1, newMap.query(booleanPersonIndex.isFalse()).count());
             BooleanPerson booleanPerson = newMap.get(0);
@@ -66,7 +66,7 @@ public class BooleanIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<BooleanPerson> newMap = (GigaMap<BooleanPerson>) manager.root();
+            GigaMap<BooleanPerson> newMap = manager.root();
             long count1 = newMap.query(booleanPersonIndex.isFalse()).count();
             assertEquals(1, count1);
             newMap.query(booleanPersonIndex.isFalse()).forEach(booleanPerson -> assertFalse(booleanPerson.isAdult()));
@@ -88,7 +88,7 @@ public class BooleanIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<BooleanPerson> newMap = (GigaMap<BooleanPerson>) manager.root();
+            GigaMap<BooleanPerson> newMap = manager.root();
             long count1 = newMap.query(booleanPersonIndex.isTrue()).count();
             assertEquals(2, count1);
 
@@ -115,7 +115,7 @@ public class BooleanIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<BooleanPerson> newMap = (GigaMap<BooleanPerson>) manager.root();
+            GigaMap<BooleanPerson> newMap = manager.root();
             newMap.query(booleanPersonIndex.is(true)).forEach(booleanPerson -> assertTrue(booleanPerson.isAdult()));
             newMap.query(booleanPersonIndex.is(false)).forEach(booleanPerson -> assertFalse(booleanPerson.isAdult()));
 

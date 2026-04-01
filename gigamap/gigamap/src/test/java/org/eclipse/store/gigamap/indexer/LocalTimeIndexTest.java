@@ -79,7 +79,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             long count = newMap.query(localTimePersonIndex.between(LocalTime.of(12, 0), LocalTime.of(14, 0))).count();
             assertEquals(3, count);
             long count1 = newMap.query(localTimePersonIndex.between(LocalTime.of(12, 0), LocalTime.of(14, 0))).count();
@@ -102,7 +102,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             long count = newMap.query(localTimePersonIndex.after(LocalTime.of(12, 0))).count();
             assertEquals(2, count);
             long count1 = newMap.query(localTimePersonIndex.after(LocalTime.of(13, 0))).count();
@@ -123,7 +123,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             long count = newMap.query(localTimePersonIndex.afterEqual(LocalTime.of(12, 0))).count();
             assertEquals(3, count);
             long count1 = newMap.query(localTimePersonIndex.afterEqual(LocalTime.of(13, 0))).count();
@@ -144,7 +144,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             long count = newMap.query(localTimePersonIndex.before(LocalTime.of(13, 0))).count();
             assertEquals(1, count);
             long count1 = newMap.query(localTimePersonIndex.before(LocalTime.of(12, 0))).count();
@@ -165,7 +165,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             long count = newMap.query(localTimePersonIndex.beforeEqual(LocalTime.of(13, 0))).count();
             assertEquals(2, count);
             long count1 = newMap.query(localTimePersonIndex.beforeEqual(LocalTime.of(12, 0))).count();
@@ -184,7 +184,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             long count = newMap.query(localTimePersonIndex.isSecond(0)).count();
             assertEquals(3, count);
         }
@@ -201,7 +201,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             long count = newMap.query(localTimePersonIndex.isMinute(0)).count();
             assertEquals(3, count);
         }
@@ -218,7 +218,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             long count = newMap.query(localTimePersonIndex.isHour(12)).count();
             assertEquals(1, count);
         }
@@ -235,7 +235,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             long count = newMap.query(localTimePersonIndex.isTime(12, 0, 0)).count();
             assertEquals(1, count);
         }
@@ -259,7 +259,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             newMap.query(localTimePersonIndex.is(LocalTime.of(12, 0))).forEach(localTimePerson -> assertEquals(LocalTime.of(12, 0), localTimePerson.getLunchTime()));
             newMap.query(localTimePersonIndex.is(LocalTime.of(13, 0))).forEach(localTimePerson -> assertEquals(LocalTime.of(13, 0), localTimePerson.getLunchTime()));
 

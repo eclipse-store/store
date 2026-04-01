@@ -43,7 +43,7 @@ public class GigaMapUnitTest
             assertEquals("1000", gigaMap.get(0));
         }
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertEquals("1000", gigaMap2.get(0));
         }
     }
@@ -57,7 +57,7 @@ public class GigaMapUnitTest
             assertEquals("1000", gigaMap.get(0));
         }
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertEquals("1000", gigaMap2.get(0));
         }
     }
@@ -71,7 +71,7 @@ public class GigaMapUnitTest
             assertThrows(IllegalArgumentException.class, () -> gigaMap.add(null));
         }
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertThrows(IllegalArgumentException.class, () -> gigaMap2.add(null));
         }
     }
@@ -87,7 +87,7 @@ public class GigaMapUnitTest
             assertThrows(IllegalArgumentException.class, () -> gigaMap.add(null));
         }
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertThrows(IllegalArgumentException.class, () -> gigaMap2.replace(s, null));
         }
     }
@@ -103,7 +103,7 @@ public class GigaMapUnitTest
             assertThrows(IllegalArgumentException.class, () -> gigaMap.set(0, null));
         }
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertThrows(IllegalArgumentException.class, () -> gigaMap2.set(0, null));
         }
     }
@@ -117,7 +117,7 @@ public class GigaMapUnitTest
             assertEquals("1000", gigaMap.get(0));
         }
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertEquals("1000", gigaMap2.get(0));
         }
     }
@@ -153,7 +153,7 @@ public class GigaMapUnitTest
             assertEquals("1000", gigaMap.get(0));
         }
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertEquals("1000", gigaMap2.get(0));
         }
     }
@@ -180,7 +180,7 @@ public class GigaMapUnitTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertEquals(10, gigaMap2.highestUsedId());
         }
     }
@@ -201,7 +201,7 @@ public class GigaMapUnitTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertFalse(gigaMap2.isEmpty());
         }
     }
@@ -229,7 +229,7 @@ public class GigaMapUnitTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertEquals("1000", gigaMap2.get(0));
         }
 
@@ -246,7 +246,7 @@ public class GigaMapUnitTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertNull(gigaMap2.get(0));
         }
 
@@ -283,7 +283,7 @@ public class GigaMapUnitTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertEquals(1004, gigaMap2.add("1000"));
         }
     }
@@ -324,7 +324,7 @@ public class GigaMapUnitTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertEquals(2999, gigaMap2.addAll(values));
             assertEquals(3000, gigaMap2.size());
         }
@@ -368,7 +368,7 @@ public class GigaMapUnitTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             gigaMap2.addAll("1000", "1001", "1002", "1003", "1004", "1005", "1006", "1007", "1008", "1009");
             assertEquals(30, gigaMap2.size());
         }
@@ -390,7 +390,7 @@ public class GigaMapUnitTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertNull(gigaMap2.peek(0));
         }
     }
@@ -404,7 +404,7 @@ public class GigaMapUnitTest
             assertNull(gigaMap.peek(-1));
         }
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertNull(gigaMap2.peek(-1));
         }
     }
@@ -436,7 +436,7 @@ public class GigaMapUnitTest
             assertNull(gigaMap.removeById(9));
         }
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertNull(gigaMap2.removeById(9));
         }
     }
@@ -520,7 +520,7 @@ public class GigaMapUnitTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertThrows(RuntimeException.class, () -> gigaMap2.remove("1000", indexer));
         }
     }
@@ -696,7 +696,7 @@ public class GigaMapUnitTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertEquals(10, gigaMap2.size());
             gigaMap2.removeAll();
             assertEquals(0, gigaMap2.size());
@@ -705,7 +705,7 @@ public class GigaMapUnitTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertEquals(0, gigaMap2.size());
         }
 
@@ -736,7 +736,7 @@ public class GigaMapUnitTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertEquals(gigaMap.size(), gigaMap2.size());
 
             String s = gigaMap2.query(indexer.is("20")).findFirst().get();
@@ -749,7 +749,7 @@ public class GigaMapUnitTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertEquals(0, gigaMap2.size());
         }
 
@@ -838,7 +838,7 @@ public class GigaMapUnitTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            final GigaMap<String> gigaMap2 = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap2 = manager.root();
             assertEquals("[1005, 1006]", gigaMap2.toString(5, 2));
         }
     }
