@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EclipseStore Product Recommendations Demo - Source Guide</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        :root {
+            --bg: #ffffff;
+            --fg: #1a1a2e;
+            --muted: #5a5a7a;
+            --accent: #4361ee;
+            --accent-light: #eef0ff;
+            --border: #e2e4ea;
+            --code-bg: #f6f7f9;
+            --code-border: #e2e4ea;
+            --heading-color: #16213e;
+            --tag-bg: #e8f4f8;
+            --tag-color: #0077b6;
+            --highlight: #fff3cd;
+            --section-divider: #4361ee;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: var(--fg);
+            background: var(--bg);
+            line-height: 1.7;
+            font-size: 15px;
+        }
+
+        /* Print styles */
+        @media print {
+            body { font-size: 11pt; line-height: 1.5; }
+            .page-break { page-break-before: always; }
+            .no-print { display: none; }
+            pre { font-size: 9pt; }
+            .toc { page-break-after: always; }
+            h2 { page-break-before: always; }
+            h2:first-of-type { page-break-before: avoid; }
+            pre, .code-block { break-inside: avoid; }
+            .explanation { break-inside: avoid; }
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 50px;
+        }
+
+        /* Title page */
+        .title-page {
+            text-align: center;
+            padding: 80px 0 60px;
+            border-bottom: 3px solid var(--section-divider);
+            margin-bottom: 50px;
+        }
+        .title-page h1 {
+            font-size: 2.4em;
+            font-weight: 700;
+            color: var(--heading-color);
+            margin-bottom: 12px;
+            letter-spacing: -0.02em;
+        }
+        .title-page .subtitle {
+            font-size: 1.2em;
+            color: var(--muted);
+            margin-bottom: 30px;
+        }
+        .title-page .meta {
+            font-size: 0.9em;
+            color: var(--muted);
+        }
+        .title-page .tags {
+            margin-top: 25px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .tag {
+            display: inline-block;
+            background: var(--tag-bg);
+            color: var(--tag-color);
+            padding: 4px 14px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 500;
+        }
+
+        /* TOC */
+        .toc {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 30px 35px;
+            margin-bottom: 50px;
+        }
+        .toc h2 {
+            font-size: 1.3em;
+            margin-bottom: 15px;
+            color: var(--heading-color);
+            page-break-before: avoid;
+        }
+        .toc ol {
+            padding-left: 20px;
+        }
+        .toc li {
+            margin-bottom: 6px;
+        }
+        .toc a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        .toc a:hover { text-decoration: underline; }
+        .toc .sub { padding-left: 22px; font-size: 0.93em; }
+
+        /* Section headings */
+        h2 {
+            font-size: 1.6em;
+            font-weight: 700;
+            color: var(--heading-color);
+            margin: 50px 0 10px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid var(--section-divider);
+            letter-spacing: -0.01em;
+        }
+        h3 {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: var(--heading-color);
+            margin: 30px 0 10px;
+        }
+        h4 {
+            font-size: 1.05em;
+            font-weight: 600;
+            color: var(--muted);
+            margin: 20px 0 8px;
+        }
+
+        p { margin-bottom: 14px; }
+
+        /* Explanation blocks */
+        .explanation {
+            background: var(--accent-light);
+            border-left: 4px solid var(--accent);
+            padding: 18px 22px;
+            margin: 20px 0;
+            border-radius: 0 6px 6px 0;
+        }
+        .explanation p:last-child { margin-bottom: 0; }
+        .explanation strong { color: var(--accent); }
+
+        .note {
+            background: var(--highlight);
+            border-left: 4px solid #ffc107;
+            padding: 14px 18px;
+            margin: 16px 0;
+            border-radius: 0 6px 6px 0;
+            font-size: 0.93em;
+        }
+
+        /* Code blocks */
+        pre {
+            background: var(--code-bg);
+            border: 1px solid var(--code-border);
+            border-radius: 6px;
+            padding: 20px 22px;
+            overflow-x: auto;
+            margin: 16px 0 24px;
+            font-size: 0.88em;
+            line-height: 1.55;
+        }
+        code {
+            font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+        }
+        pre code {
+            color: var(--fg);
+        }
+        p code, li code {
+            background: var(--code-bg);
+            border: 1px solid var(--code-border);
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+
+        .file-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--heading-color);
+            color: #fff;
+            padding: 10px 18px;
+            border-radius: 6px 6px 0 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85em;
+            margin-top: 20px;
+        }
+        .file-header + pre {
+            margin-top: 0;
+            border-radius: 0 0 6px 6px;
+            border-top: none;
+        }
+
+        ul, ol {
+            padding-left: 24px;
+            margin-bottom: 14px;
+        }
+        li { margin-bottom: 5px; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0 24px;
+            font-size: 0.93em;
+        }
+        th, td {
+            border: 1px solid var(--border);
+            padding: 10px 14px;
+            text-align: left;
+        }
+        th {
+            background: var(--code-bg);
+            font-weight: 600;
+        }
+
+        .arch-diagram {
+            text-align: center;
+            padding: 30px 20px;
+            margin: 20px 0;
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .arch-diagram pre {
+            display: inline-block;
+            text-align: left;
+            background: none;
+            border: none;
+            font-size: 0.85em;
+            padding: 0;
+            margin: 0;
+        }
+
+        .footer {
+            margin-top: 60px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+            color: var(--muted);
+            font-size: 0.85em;
+            text-align: center;
+        }
+
+        /* Syntax highlighting (basic) */
+        .kw { color: #7c3aed; font-weight: 500; }
+        .ty { color: #0077b6; }
+        .st { color: #059669; }
+        .cm { color: #94a3b8; font-style: italic; }
+        .an { color: #e67e22; }
+        .fn { color: #d63384; }
+        .num { color: #e67e22; }
+    </style>
+</head>
+<body>
+<div class="container">
+
+    <!-- TITLE PAGE -->
+    <div class="title-page">
+        <h1>Building Semantic Product Search<br>with EclipseStore GigaMap</h1>
+        <p class="subtitle">A complete walkthrough of the Product Recommendations demo</p>
+        <div class="tags">
+            <span class="tag">EclipseStore 4.0</span>
+            <span class="tag">GigaMap</span>
+            <span class="tag">Vector Search</span>
+            <span class="tag">Spring Boot 4</span>
+            <span class="tag">LangChain4j</span>
+            <span class="tag">Ollama</span>
+        </div>
+    </div>
+
+    <!-- TABLE OF CONTENTS -->
+    <div class="toc">
+        <h2>Contents</h2>
+        <ol>
+            <li><a href="#overview">Overview &amp; Architecture</a></li>
+            <li><a href="#dependencies">Project Setup &amp; Dependencies</a></li>
+            <li><a href="#product">The Product Model</a></li>
+            <li><a href="#vectorizer">Product Vectorization</a>
+                <div class="sub">How products become searchable vectors</div>
+            </li>
+            <li><a href="#config">GigaMap &amp; Vector Index Configuration</a>
+                <div class="sub">Wiring GigaMap, VectorIndex, and Ollama together</div>
+            </li>
+            <li><a href="#service">The Product Service</a>
+                <div class="sub">Catalog lifecycle, search, and pagination</div>
+            </li>
+            <li><a href="#controller">The REST Controller</a>
+                <div class="sub">API endpoints for listing, searching, and adding products</div>
+            </li>
+            <li><a href="#running">Running the Demo</a></li>
+        </ol>
+    </div>
+
+    <!-- 1. OVERVIEW -->
+    <h2 id="overview">1. Overview &amp; Architecture</h2>
+
+    <p>This demo application shows how to build a <strong>semantic product recommendation engine</strong> using
+    <strong>EclipseStore GigaMap</strong> with integrated vector search. Instead of relying on keyword matching,
+    products are converted into dense vector embeddings that capture their semantic meaning. A query like
+    <em>"wireless headphones"</em> will find products related to audio equipment &mdash; even if they don't
+    contain those exact words.</p>
+
+    <div class="explanation">
+        <p><strong>Key Concepts:</strong></p>
+        <ul>
+            <li><strong>GigaMap</strong> &mdash; EclipseStore's high-performance in-memory map with built-in support for indexing, including vector indices</li>
+            <li><strong>VectorIndex</strong> &mdash; An approximate nearest-neighbor (ANN) search index powered by JVector, registered directly on a GigaMap</li>
+            <li><strong>Vectorizer</strong> &mdash; An abstraction for converting domain entities into numerical vectors; here implemented via LangChain4j and Ollama</li>
+        </ul>
+    </div>
+
+    <div class="arch-diagram">
+        <pre><code>                    REST API
+                       |
+              +--------+--------+
+              |                 |
+         ProductController      |
+              |                 |
+         ProductService         |
+           /       \            |
+     GigaMap    VectorIndex     |
+    (storage)   (ANN search)    |
+         \         /            |
+      ProductVectorizer         |
+              |                 |
+       EmbeddingModel           |
+         (Ollama)               |
+              |                 |
+    "name category" ---> [0.12, -0.34, 0.56, ...]
+                          384-dimensional vector</code></pre>
+    </div>
+
+    <p>The flow is straightforward: products are stored in a GigaMap. When a product is added, the
+    <code>ProductVectorizer</code> converts it into a 384-dimensional vector using an Ollama embedding model.
+    This vector is stored in the <code>VectorIndex</code>. When a user searches, their query is also
+    embedded into a vector, and the index returns the most similar products via cosine similarity.</p>
+
+    <!-- 2. DEPENDENCIES -->
+    <h2 id="dependencies" class="page-break">2. Project Setup &amp; Dependencies</h2>
+
+    <p>The demo is a Spring Boot 4 application with four key dependencies:</p>
+
+    <table>
+        <tr><th>Dependency</th><th>Purpose</th></tr>
+        <tr><td><code>spring-boot-starter-web</code></td><td>REST API framework</td></tr>
+        <tr><td><code>gigamap-jvector</code></td><td>EclipseStore GigaMap with JVector-based vector indexing</td></tr>
+        <tr><td><code>langchain4j-ollama</code></td><td>LangChain4j integration with Ollama for text embeddings</td></tr>
+        <tr><td><code>springdoc-openapi-starter-webmvc-ui</code></td><td>Swagger UI for interactive API exploration</td></tr>
+    </table>
+
+    <div class="file-header">pom.xml (dependencies)</div>
+<pre><code>&lt;<span class="kw">dependencies</span>&gt;
+    &lt;<span class="kw">dependency</span>&gt;
+        &lt;<span class="ty">groupId</span>&gt;org.springframework.boot&lt;/<span class="ty">groupId</span>&gt;
+        &lt;<span class="ty">artifactId</span>&gt;spring-boot-starter-web&lt;/<span class="ty">artifactId</span>&gt;
+    &lt;/<span class="kw">dependency</span>&gt;
+
+    &lt;<span class="kw">dependency</span>&gt;
+        &lt;<span class="ty">groupId</span>&gt;org.eclipse.store&lt;/<span class="ty">groupId</span>&gt;
+        &lt;<span class="ty">artifactId</span>&gt;gigamap-jvector&lt;/<span class="ty">artifactId</span>&gt;
+        &lt;<span class="ty">version</span>&gt;${project.version}&lt;/<span class="ty">version</span>&gt;
+    &lt;/<span class="kw">dependency</span>&gt;
+
+    &lt;<span class="kw">dependency</span>&gt;
+        &lt;<span class="ty">groupId</span>&gt;dev.langchain4j&lt;/<span class="ty">groupId</span>&gt;
+        &lt;<span class="ty">artifactId</span>&gt;langchain4j-ollama&lt;/<span class="ty">artifactId</span>&gt;
+        &lt;<span class="ty">version</span>&gt;${langchain4j.version}&lt;/<span class="ty">version</span>&gt;
+    &lt;/<span class="kw">dependency</span>&gt;
+&lt;/<span class="kw">dependencies</span>&gt;</code></pre>
+
+    <div class="file-header">application.properties</div>
+<pre><code>server.port=<span class="num">8080</span>
+
+ollama.base-url=<span class="st">http://localhost:11434</span>
+ollama.model-name=<span class="st">all-minilm</span>
+
+springdoc.swagger-ui.try-it-out-enabled=<span class="kw">true</span>
+springdoc.swagger-ui.url=<span class="st">/v3/api-docs</span></code></pre>
+
+    <div class="note">
+        <strong>Note:</strong> The <code>all-minilm</code> model produces 384-dimensional embeddings.
+        If you use a different model, the vector dimension in <code>GigaMapConfig</code> must be adjusted accordingly.
+    </div>
+
+    <!-- 3. PRODUCT MODEL -->
+    <h2 id="product" class="page-break">3. The Product Model</h2>
+
+    <p>The domain entity is a simple Java record with four fields. Products are deserialized from a
+    <code>products.json</code> catalog file at startup and stored in the GigaMap.</p>
+
+    <div class="explanation">
+        <p><strong>Design choice:</strong> Only <code>name</code> and <code>category</code> are used for
+        vector embedding. Price and stock status are deliberately excluded because they don't carry
+        semantic meaning &mdash; a $50 product and a $500 product in the same category should still
+        be considered similar.</p>
+    </div>
+
+    <div class="file-header">model/Product.java</div>
+<pre><code><span class="kw">package</span> <span class="ty">org.eclipse.store.demo.recommendations.model</span>;
+
+<span class="kw">import</span> <span class="ty">com.fasterxml.jackson.annotation.JsonProperty</span>;
+
+<span class="kw">public record</span> <span class="ty">Product</span>(
+    <span class="ty">String</span> name,
+    <span class="ty">String</span> category,
+    <span class="kw">double</span> price,
+    <span class="an">@JsonProperty</span>(<span class="st">"in_stock"</span>) <span class="kw">boolean</span> inStock
+)
+{
+}</code></pre>
+
+    <p>The <code>@JsonProperty("in_stock")</code> annotation maps the snake_case JSON field to Java's camelCase
+    convention. An example product in JSON:</p>
+
+<pre><code>{
+    <span class="st">"name"</span>: <span class="st">"Wireless Headphones"</span>,
+    <span class="st">"category"</span>: <span class="st">"Electronics"</span>,
+    <span class="st">"price"</span>: <span class="num">59.99</span>,
+    <span class="st">"in_stock"</span>: <span class="kw">true</span>
+}</code></pre>
+
+    <!-- 4. VECTORIZER -->
+    <h2 id="vectorizer" class="page-break">4. Product Vectorization</h2>
+
+    <p>The <code>ProductVectorizer</code> is the bridge between domain objects and vector space. It extends
+    EclipseStore's <code>Vectorizer&lt;Product&gt;</code> base class, which defines the contract for
+    converting entities into float arrays for the VectorIndex.</p>
+
+    <div class="explanation">
+        <p><strong>How it works:</strong></p>
+        <ol>
+            <li>A product is converted to text: <code>"Wireless Headphones Electronics"</code> (name + space + category)</li>
+            <li>This text is passed to the Ollama embedding model via LangChain4j</li>
+            <li>The model returns a 384-dimensional float array capturing the semantic meaning</li>
+            <li>This vector is stored in the VectorIndex for similarity search</li>
+        </ol>
+    </div>
+
+    <h3>Vectorizer Modes</h3>
+    <p>The base <code>Vectorizer</code> class supports two modes:</p>
+    <table>
+        <tr><th>Mode</th><th>isEmbedded()</th><th>Behavior</th></tr>
+        <tr><td><strong>Computed</strong> (default)</td><td><code>false</code></td><td>Vectors are computed externally (e.g., via an API). VectorIndex stores them separately.</td></tr>
+        <tr><td><strong>Embedded</strong></td><td><code>true</code></td><td>Vectors are already stored in the entity. VectorIndex reads them on demand &mdash; no duplicate storage.</td></tr>
+    </table>
+    <p>Our <code>ProductVectorizer</code> uses <strong>computed mode</strong> because vectors are generated by an
+    external Ollama model and are not part of the <code>Product</code> record.</p>
+
+    <div class="file-header">vectorizer/ProductVectorizer.java</div>
+<pre><code><span class="kw">package</span> <span class="ty">org.eclipse.store.demo.recommendations.vectorizer</span>;
+
+<span class="kw">import</span> <span class="ty">dev.langchain4j.data.embedding.Embedding</span>;
+<span class="kw">import</span> <span class="ty">dev.langchain4j.data.segment.TextSegment</span>;
+<span class="kw">import</span> <span class="ty">dev.langchain4j.model.embedding.EmbeddingModel</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.recommendations.model.Product</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.gigamap.jvector.Vectorizer</span>;
+
+<span class="kw">import</span> <span class="ty">java.util.List</span>;
+
+<span class="kw">public class</span> <span class="ty">ProductVectorizer</span> <span class="kw">extends</span> <span class="ty">Vectorizer</span>&lt;<span class="ty">Product</span>&gt;
+{
+    <span class="kw">private final</span> <span class="ty">EmbeddingModel</span> embeddingModel;
+
+    <span class="kw">public</span> <span class="fn">ProductVectorizer</span>(<span class="kw">final</span> <span class="ty">EmbeddingModel</span> embeddingModel)
+    {
+        <span class="kw">this</span>.embeddingModel = embeddingModel;
+    }
+
+    <span class="an">@Override</span>
+    <span class="kw">public</span> <span class="kw">float</span>[] <span class="fn">vectorize</span>(<span class="kw">final</span> <span class="ty">Product</span> product)
+    {
+        <span class="kw">return this</span>.embeddingModel.<span class="fn">embed</span>(<span class="fn">toText</span>(product)).<span class="fn">content</span>().<span class="fn">vector</span>();
+    }
+
+    <span class="an">@Override</span>
+    <span class="kw">public</span> <span class="ty">List</span>&lt;<span class="kw">float</span>[]&gt; <span class="fn">vectorizeAll</span>(<span class="kw">final</span> <span class="ty">List</span>&lt;? <span class="kw">extends</span> <span class="ty">Product</span>&gt; entities)
+    {
+        <span class="kw">return this</span>.embeddingModel.<span class="fn">embedAll</span>(
+                entities.<span class="fn">stream</span>().<span class="fn">map</span>(<span class="ty">ProductVectorizer</span>::toText).<span class="fn">map</span>(<span class="ty">TextSegment</span>::from).<span class="fn">toList</span>()
+            )
+            .<span class="fn">content</span>()
+            .<span class="fn">stream</span>()
+            .<span class="fn">map</span>(<span class="ty">Embedding</span>::vector)
+            .<span class="fn">toList</span>();
+    }
+
+    <span class="kw">private static</span> <span class="ty">String</span> <span class="fn">toText</span>(<span class="kw">final</span> <span class="ty">Product</span> product)
+    {
+        <span class="kw">return</span> product.<span class="fn">name</span>() + <span class="st">" "</span> + product.<span class="fn">category</span>();
+    }
+}</code></pre>
+
+    <h3>Key Design Decisions</h3>
+
+    <h4>Text Representation</h4>
+    <p>The <code>toText()</code> method concatenates name and category with a space:
+    <code>"Wireless Headphones Electronics"</code>. This is intentionally simple &mdash; the embedding model
+    handles the semantic understanding. Both fields contribute to the vector: the name provides product
+    identity and the category provides domain context, improving cross-boundary similarity matches.</p>
+
+    <h4>Batch Vectorization</h4>
+    <p>The <code>vectorizeAll()</code> method overrides the base class's default sequential implementation to use
+    the embedding model's native <code>embedAll()</code>. This is critical for performance:</p>
+    <ul>
+        <li>Reduces round-trips to the Ollama server (especially important for remote deployments)</li>
+        <li>Enables internal batching and parallelism within the model</li>
+        <li>Minimizes per-request overhead (connection setup, serialization)</li>
+    </ul>
+    <p>At startup, when 500 products are loaded at once, this batch path avoids 500 individual HTTP calls.</p>
+
+    <!-- 5. CONFIG -->
+    <h2 id="config" class="page-break">5. GigaMap &amp; Vector Index Configuration</h2>
+
+    <p>The <code>GigaMapConfig</code> class wires together all infrastructure components as Spring beans.
+    This is where the storage layer, vector indexing, and embedding model meet.</p>
+
+    <div class="file-header">config/GigaMapConfig.java</div>
+<pre><code><span class="kw">package</span> <span class="ty">org.eclipse.store.demo.recommendations.config</span>;
+
+<span class="kw">import</span> <span class="ty">dev.langchain4j.model.embedding.EmbeddingModel</span>;
+<span class="kw">import</span> <span class="ty">dev.langchain4j.model.ollama.OllamaEmbeddingModel</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.recommendations.model.Product</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.recommendations.vectorizer.ProductVectorizer</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.gigamap.jvector.VectorIndex</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.gigamap.jvector.VectorIndexConfiguration</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.gigamap.jvector.VectorIndices</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.gigamap.jvector.VectorSimilarityFunction</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.gigamap.types.GigaMap</span>;
+<span class="kw">import</span> <span class="ty">org.springframework.beans.factory.annotation.Value</span>;
+<span class="kw">import</span> <span class="ty">org.springframework.context.annotation.Bean</span>;
+<span class="kw">import</span> <span class="ty">org.springframework.context.annotation.Configuration</span>;
+
+<span class="an">@Configuration</span>
+<span class="kw">public class</span> <span class="ty">GigaMapConfig</span>
+{
+    <span class="an">@Bean</span>
+    <span class="kw">public</span> <span class="ty">EmbeddingModel</span> <span class="fn">embeddingModel</span>(
+        <span class="an">@Value</span>(<span class="st">"${ollama.base-url}"</span>) <span class="kw">final</span> <span class="ty">String</span> baseUrl,
+        <span class="an">@Value</span>(<span class="st">"${ollama.model-name}"</span>) <span class="kw">final</span> <span class="ty">String</span> modelName
+    )
+    {
+        <span class="kw">return</span> <span class="ty">OllamaEmbeddingModel</span>.<span class="fn">builder</span>()
+            .<span class="fn">baseUrl</span>(baseUrl)
+            .<span class="fn">modelName</span>(modelName)
+            .<span class="fn">build</span>();
+    }
+
+    <span class="an">@Bean</span>
+    <span class="kw">public</span> <span class="ty">ProductVectorizer</span> <span class="fn">productVectorizer</span>(<span class="kw">final</span> <span class="ty">EmbeddingModel</span> embeddingModel)
+    {
+        <span class="kw">return new</span> <span class="ty">ProductVectorizer</span>(embeddingModel);
+    }
+
+    <span class="an">@Bean</span>
+    <span class="kw">public</span> <span class="ty">GigaMap</span>&lt;<span class="ty">Product</span>&gt; <span class="fn">productGigaMap</span>()
+    {
+        <span class="kw">return</span> <span class="ty">GigaMap</span>.<span class="fn">New</span>();
+    }
+
+    <span class="an">@Bean</span>
+    <span class="kw">public</span> <span class="ty">VectorIndex</span>&lt;<span class="ty">Product</span>&gt; <span class="fn">productVectorIndex</span>(
+        <span class="kw">final</span> <span class="ty">GigaMap</span>&lt;<span class="ty">Product</span>&gt; gigaMap,
+        <span class="kw">final</span> <span class="ty">ProductVectorizer</span> vectorizer
+    )
+    {
+        <span class="kw">final</span> <span class="ty">VectorIndices</span>&lt;<span class="ty">Product</span>&gt; vectorIndices = gigaMap.<span class="fn">index</span>().<span class="fn">register</span>(<span class="ty">VectorIndices</span>.<span class="fn">Category</span>());
+
+        <span class="kw">final</span> <span class="ty">VectorIndexConfiguration</span> config = <span class="ty">VectorIndexConfiguration</span>.<span class="fn">builder</span>()
+            .<span class="fn">dimension</span>(<span class="num">384</span>)
+            .<span class="fn">similarityFunction</span>(<span class="ty">VectorSimilarityFunction</span>.COSINE)
+            .<span class="fn">build</span>();
+
+        <span class="kw">return</span> vectorIndices.<span class="fn">add</span>(<span class="st">"product-embeddings"</span>, config, vectorizer);
+    }
+}</code></pre>
+
+    <h3>Walkthrough</h3>
+
+    <h4>1. Embedding Model Bean</h4>
+    <p>Creates an <code>OllamaEmbeddingModel</code> connecting to a local Ollama instance. The
+    <code>all-minilm</code> model is a lightweight sentence transformer that produces 384-dimensional embeddings &mdash;
+    fast enough for real-time use while providing good semantic quality. This bean is shared between the
+    <code>ProductVectorizer</code> (for indexing) and the <code>ProductService</code> (for query embedding).</p>
+
+    <h4>2. GigaMap Bean</h4>
+    <p><code>GigaMap.New()</code> creates a new in-memory GigaMap instance. GigaMap serves as both the primary
+    data store and the host for vector indices. Products added to the GigaMap are automatically passed through
+    any registered vector indices for indexing.</p>
+
+    <h4>3. VectorIndex Registration</h4>
+    <div class="explanation">
+        <p><strong>This is the core integration point.</strong> Setting up a VectorIndex on a GigaMap requires three steps:</p>
+        <ol>
+            <li><strong>Register the index category:</strong> <code>gigaMap.index().register(VectorIndices.Category())</code>
+                tells the GigaMap that vector-based indices will be used</li>
+            <li><strong>Configure the index:</strong> Specify the vector dimension (384) and similarity function (COSINE).
+                Cosine similarity measures the angle between vectors &mdash; ideal for text embeddings where
+                direction encodes meaning and magnitude is irrelevant</li>
+            <li><strong>Add the named index:</strong> <code>vectorIndices.add("product-embeddings", config, vectorizer)</code>
+                creates a named index with the given configuration and vectorizer. The name allows multiple
+                vector indices on the same GigaMap</li>
+        </ol>
+    </div>
+
+    <!-- 6. SERVICE -->
+    <h2 id="service" class="page-break">6. The Product Service</h2>
+
+    <p>The <code>ProductService</code> is the central orchestrator: it manages the product catalog lifecycle,
+    handles similarity search, and provides paginated listing. This is where all the pieces come together.</p>
+
+    <div class="file-header">service/ProductService.java</div>
+<pre><code><span class="kw">package</span> <span class="ty">org.eclipse.store.demo.recommendations.service</span>;
+
+<span class="kw">import</span> <span class="ty">com.fasterxml.jackson.core.type.TypeReference</span>;
+<span class="kw">import</span> <span class="ty">com.fasterxml.jackson.databind.ObjectMapper</span>;
+<span class="kw">import</span> <span class="ty">dev.langchain4j.model.embedding.EmbeddingModel</span>;
+<span class="kw">import</span> <span class="ty">jakarta.annotation.PostConstruct</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.recommendations.model.Product</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.gigamap.jvector.VectorIndex</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.gigamap.jvector.VectorSearchResult</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.gigamap.types.GigaMap</span>;
+<span class="kw">import</span> <span class="ty">org.slf4j.Logger</span>;
+<span class="kw">import</span> <span class="ty">org.slf4j.LoggerFactory</span>;
+<span class="kw">import</span> <span class="ty">org.springframework.core.io.ClassPathResource</span>;
+<span class="kw">import</span> <span class="ty">org.springframework.stereotype.Service</span>;
+
+<span class="kw">import</span> <span class="ty">java.io.IOException</span>;
+<span class="kw">import</span> <span class="ty">java.io.InputStream</span>;
+<span class="kw">import</span> <span class="ty">java.util.ArrayList</span>;
+<span class="kw">import</span> <span class="ty">java.util.List</span>;
+<span class="kw">import</span> <span class="ty">java.util.Random</span>;
+
+<span class="an">@Service</span>
+<span class="kw">public class</span> <span class="ty">ProductService</span>
+{
+    <span class="kw">private static final</span> <span class="ty">Logger</span> LOG                   = <span class="ty">LoggerFactory</span>.<span class="fn">getLogger</span>(<span class="ty">ProductService</span>.<span class="kw">class</span>);
+    <span class="kw">private static final int</span>    INITIAL_PRODUCT_COUNT = <span class="num">500</span>;
+
+    <span class="kw">private final</span> <span class="ty">GigaMap</span>&lt;<span class="ty">Product</span>&gt;      gigaMap;
+    <span class="kw">private final</span> <span class="ty">VectorIndex</span>&lt;<span class="ty">Product</span>&gt;  vectorIndex;
+    <span class="kw">private final</span> <span class="ty">EmbeddingModel</span>        embeddingModel;
+    <span class="kw">private final</span> <span class="ty">List</span>&lt;<span class="ty">Product</span>&gt;         availableProducts;
+    <span class="kw">private final</span> <span class="ty">Random</span>                random = <span class="kw">new</span> <span class="ty">Random</span>();
+
+    <span class="kw">public</span> <span class="fn">ProductService</span>(
+        <span class="kw">final</span> <span class="ty">GigaMap</span>&lt;<span class="ty">Product</span>&gt; gigaMap,
+        <span class="kw">final</span> <span class="ty">VectorIndex</span>&lt;<span class="ty">Product</span>&gt; vectorIndex,
+        <span class="kw">final</span> <span class="ty">EmbeddingModel</span> embeddingModel
+    )
+    {
+        <span class="kw">this</span>.gigaMap           = gigaMap;
+        <span class="kw">this</span>.vectorIndex       = vectorIndex;
+        <span class="kw">this</span>.embeddingModel    = embeddingModel;
+        <span class="kw">this</span>.availableProducts = <span class="fn">loadProductCatalog</span>();
+    }
+
+    <span class="an">@PostConstruct</span>
+    <span class="kw">public void</span> <span class="fn">init</span>()
+    {
+        <span class="kw">if</span>(!<span class="kw">this</span>.gigaMap.<span class="fn">isEmpty</span>())
+        {
+            LOG.<span class="fn">info</span>(<span class="st">"GigaMap already contains {} products, skipping initialization."</span>,
+                <span class="kw">this</span>.gigaMap.<span class="fn">size</span>());
+            <span class="kw">return</span>;
+        }
+
+        <span class="kw">final int</span> count = <span class="ty">Math</span>.<span class="fn">min</span>(INITIAL_PRODUCT_COUNT, <span class="kw">this</span>.availableProducts.<span class="fn">size</span>());
+        LOG.<span class="fn">info</span>(<span class="st">"Initializing GigaMap with {} products..."</span>, count);
+
+        <span class="kw">this</span>.<span class="fn">addRandomProducts</span>(count);
+
+        LOG.<span class="fn">info</span>(<span class="st">"Initialization complete. GigaMap contains {} products."</span>,
+            <span class="kw">this</span>.gigaMap.<span class="fn">size</span>());
+    }
+
+    <span class="kw">public</span> <span class="ty">List</span>&lt;<span class="ty">Product</span>&gt; <span class="fn">addRandomProducts</span>(<span class="kw">final int</span> count)
+    {
+        <span class="kw">final</span> <span class="ty">List</span>&lt;<span class="ty">Product</span>&gt; added = <span class="kw">new</span> <span class="ty">ArrayList</span>&lt;&gt;(count);
+        <span class="kw">for</span>(<span class="kw">int</span> i = <span class="num">0</span>; i &lt; count &amp;&amp; !<span class="kw">this</span>.availableProducts.<span class="fn">isEmpty</span>(); i++)
+        {
+            added.<span class="fn">add</span>(<span class="kw">this</span>.availableProducts.<span class="fn">remove</span>(
+                <span class="kw">this</span>.random.<span class="fn">nextInt</span>(<span class="kw">this</span>.availableProducts.<span class="fn">size</span>())));
+        }
+        <span class="kw">this</span>.gigaMap.<span class="fn">addAll</span>(added);
+        <span class="kw">return</span> added;
+    }
+
+    <span class="kw">public</span> <span class="ty">List</span>&lt;<span class="ty">SearchResult</span>&gt; <span class="fn">search</span>(<span class="kw">final</span> <span class="ty">String</span> query, <span class="kw">final int</span> k)
+    {
+        <span class="kw">final float</span>[] queryVector = <span class="kw">this</span>.embeddingModel.<span class="fn">embed</span>(query).<span class="fn">content</span>().<span class="fn">vector</span>();
+        <span class="kw">final</span> <span class="ty">VectorSearchResult</span>&lt;<span class="ty">Product</span>&gt; result = <span class="kw">this</span>.vectorIndex.<span class="fn">search</span>(queryVector, k);
+
+        <span class="kw">final</span> <span class="ty">List</span>&lt;<span class="ty">SearchResult</span>&gt; results = <span class="kw">new</span> <span class="ty">ArrayList</span>&lt;&gt;();
+        <span class="kw">for</span>(<span class="kw">final</span> <span class="ty">VectorSearchResult.Entry</span>&lt;<span class="ty">Product</span>&gt; entry : result)
+        {
+            results.<span class="fn">add</span>(<span class="kw">new</span> <span class="ty">SearchResult</span>(entry.<span class="fn">entity</span>(), entry.<span class="fn">score</span>()));
+        }
+        <span class="kw">return</span> results;
+    }
+
+    <span class="kw">public</span> <span class="ty">PageResult</span> <span class="fn">list</span>(<span class="kw">final int</span> page, <span class="kw">final int</span> size)
+    {
+        <span class="kw">final long</span> total = <span class="kw">this</span>.gigaMap.<span class="fn">size</span>();
+        <span class="kw">final int</span>  skip  = page * size;
+
+        <span class="kw">final</span> <span class="ty">List</span>&lt;<span class="ty">Product</span>&gt; products = <span class="kw">this</span>.gigaMap.<span class="fn">query</span>().<span class="fn">stream</span>()
+            .<span class="fn">skip</span>(skip).<span class="fn">limit</span>(size).<span class="fn">toList</span>();
+
+        <span class="kw">return new</span> <span class="ty">PageResult</span>(products, total, page, size);
+    }
+
+    <span class="kw">private static</span> <span class="ty">List</span>&lt;<span class="ty">Product</span>&gt; <span class="fn">loadProductCatalog</span>()
+    {
+        <span class="kw">try</span>(<span class="kw">final</span> <span class="ty">InputStream</span> is = <span class="kw">new</span> <span class="ty">ClassPathResource</span>(<span class="st">"products.json"</span>).<span class="fn">getInputStream</span>())
+        {
+            <span class="kw">return new</span> <span class="ty">ObjectMapper</span>().<span class="fn">readValue</span>(is, <span class="kw">new</span> <span class="ty">TypeReference</span>&lt;&gt;() {});
+        }
+        <span class="kw">catch</span>(<span class="kw">final</span> <span class="ty">IOException</span> e)
+        {
+            <span class="kw">throw new</span> <span class="ty">RuntimeException</span>(<span class="st">"Failed to load products.json"</span>, e);
+        }
+    }
+
+    <span class="kw">public record</span> <span class="ty">SearchResult</span>(<span class="ty">Product</span> product, <span class="kw">float</span> score) {}
+
+    <span class="kw">public record</span> <span class="ty">PageResult</span>(<span class="ty">List</span>&lt;<span class="ty">Product</span>&gt; products, <span class="kw">long</span> total, <span class="kw">int</span> page, <span class="kw">int</span> size) {}
+}</code></pre>
+
+    <h3>Walkthrough</h3>
+
+    <h4>Initialization &amp; Catalog Loading</h4>
+    <p>The constructor loads the full product catalog from <code>products.json</code> into a mutable list.
+    The <code>@PostConstruct init()</code> method then seeds the GigaMap with up to 500 random products.
+    The idempotency check (<code>gigaMap.isEmpty()</code>) ensures that if the application restarts with
+    a persistent GigaMap, existing data is preserved.</p>
+
+    <h4>Adding Products</h4>
+    <p><code>addRandomProducts()</code> randomly selects products from the remaining catalog pool and adds
+    them via <code>gigaMap.addAll()</code>. This single call triggers the GigaMap to automatically pass
+    each product through the registered <code>ProductVectorizer</code>, compute its embedding, and insert
+    it into the VectorIndex. No manual indexing step is needed.</p>
+
+    <h4>Semantic Search</h4>
+    <div class="explanation">
+        <p><strong>The search method is remarkably concise</strong> &mdash; just three lines of logic:</p>
+        <ol>
+            <li><strong>Embed the query:</strong> <code>embeddingModel.embed(query).content().vector()</code>
+                converts the user's natural-language query into the same 384-dimensional vector space as the products</li>
+            <li><strong>Search the index:</strong> <code>vectorIndex.search(queryVector, k)</code> performs
+                approximate nearest-neighbor search, returning the top-k most similar products</li>
+            <li><strong>Map results:</strong> Each <code>VectorSearchResult.Entry</code> contains the matched
+                entity and its cosine similarity score (0.0 to 1.0)</li>
+        </ol>
+    </div>
+
+    <h4>Response Records</h4>
+    <p>Two inner records provide clean response structures:</p>
+    <ul>
+        <li><code>SearchResult(product, score)</code> &mdash; pairs a matched product with its similarity score</li>
+        <li><code>PageResult(products, total, page, size)</code> &mdash; standard pagination envelope</li>
+    </ul>
+
+    <!-- 7. CONTROLLER -->
+    <h2 id="controller" class="page-break">7. The REST Controller</h2>
+
+    <p>The <code>ProductController</code> exposes three endpoints under <code>/products</code>:</p>
+
+    <table>
+        <tr><th>Method</th><th>Path</th><th>Description</th><th>Key Parameters</th></tr>
+        <tr>
+            <td><code>GET</code></td>
+            <td><code>/products</code></td>
+            <td>Paginated listing of all products</td>
+            <td><code>page</code> (default: 0), <code>size</code> (default: 20)</td>
+        </tr>
+        <tr>
+            <td><code>GET</code></td>
+            <td><code>/products/search</code></td>
+            <td>Semantic similarity search</td>
+            <td><code>query</code> (required), <code>k</code> (default: 5)</td>
+        </tr>
+        <tr>
+            <td><code>POST</code></td>
+            <td><code>/products/add</code></td>
+            <td>Add random products from catalog</td>
+            <td><code>count</code> (default: 1)</td>
+        </tr>
+    </table>
+
+    <div class="file-header">controller/ProductController.java</div>
+<pre><code><span class="kw">package</span> <span class="ty">org.eclipse.store.demo.recommendations.controller</span>;
+
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.recommendations.model.Product</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.recommendations.service.ProductService</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.recommendations.service.ProductService.PageResult</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.recommendations.service.ProductService.SearchResult</span>;
+<span class="kw">import</span> <span class="ty">org.springframework.web.bind.annotation.GetMapping</span>;
+<span class="kw">import</span> <span class="ty">org.springframework.web.bind.annotation.PostMapping</span>;
+<span class="kw">import</span> <span class="ty">org.springframework.web.bind.annotation.RequestMapping</span>;
+<span class="kw">import</span> <span class="ty">org.springframework.web.bind.annotation.RequestParam</span>;
+<span class="kw">import</span> <span class="ty">org.springframework.web.bind.annotation.RestController</span>;
+
+<span class="kw">import</span> <span class="ty">java.util.List</span>;
+
+<span class="an">@RestController</span>
+<span class="an">@RequestMapping</span>(<span class="st">"/products"</span>)
+<span class="kw">public class</span> <span class="ty">ProductController</span>
+{
+    <span class="kw">private final</span> <span class="ty">ProductService</span> productService;
+
+    <span class="kw">public</span> <span class="fn">ProductController</span>(<span class="kw">final</span> <span class="ty">ProductService</span> productService)
+    {
+        <span class="kw">this</span>.productService = productService;
+    }
+
+    <span class="an">@GetMapping</span>
+    <span class="kw">public</span> <span class="ty">PageResult</span> <span class="fn">list</span>(
+        <span class="an">@RequestParam</span>(defaultValue = <span class="st">"0"</span>) <span class="kw">final int</span> page,
+        <span class="an">@RequestParam</span>(defaultValue = <span class="st">"20"</span>) <span class="kw">final int</span> size
+    )
+    {
+        <span class="kw">return this</span>.productService.<span class="fn">list</span>(page, size);
+    }
+
+    <span class="an">@GetMapping</span>(<span class="st">"/search"</span>)
+    <span class="kw">public</span> <span class="ty">List</span>&lt;<span class="ty">SearchResult</span>&gt; <span class="fn">search</span>(
+        <span class="an">@RequestParam</span> <span class="kw">final</span> <span class="ty">String</span> query,
+        <span class="an">@RequestParam</span>(defaultValue = <span class="st">"5"</span>) <span class="kw">final int</span> k
+    )
+    {
+        <span class="kw">return this</span>.productService.<span class="fn">search</span>(query, k);
+    }
+
+    <span class="an">@PostMapping</span>(<span class="st">"/add"</span>)
+    <span class="kw">public</span> <span class="ty">List</span>&lt;<span class="ty">Product</span>&gt; <span class="fn">addRandom</span>(<span class="an">@RequestParam</span>(defaultValue = <span class="st">"1"</span>) <span class="kw">final int</span> count)
+    {
+        <span class="kw">return this</span>.productService.<span class="fn">addRandomProducts</span>(count);
+    }
+}</code></pre>
+
+    <div class="explanation">
+        <p><strong>Note:</strong> The controller is deliberately thin &mdash; it contains no business logic,
+        only parameter binding and delegation. All the heavy lifting (embedding, searching, GigaMap interaction)
+        lives in the <code>ProductService</code>. A Swagger UI is also auto-configured at
+        <code>/swagger-ui.html</code> for interactive testing.</p>
+    </div>
+
+    <!-- 8. RUNNING -->
+    <h2 id="running" class="page-break">8. Running the Demo</h2>
+
+    <h3>Prerequisites</h3>
+    <ol>
+        <li><strong>Java 17+</strong> (required by Spring Boot 4)</li>
+        <li><strong>Ollama</strong> installed and running locally</li>
+        <li>Pull the embedding model: <code>ollama pull all-minilm</code></li>
+    </ol>
+
+    <h3>Start the Application</h3>
+<pre><code><span class="cm"># From the project root</span>
+mvn -pl demos/product-recommendations spring-boot:run</code></pre>
+
+    <p>On first startup, the service loads products from <code>products.json</code>, seeds 500 into the GigaMap
+    (each being vectorized via Ollama), and starts the REST API on port 8080.</p>
+
+    <h3>Try the API</h3>
+
+    <h4>Search for products</h4>
+<pre><code>curl <span class="st">"http://localhost:8080/products/search?query=wireless+headphones&k=5"</span></code></pre>
+
+    <p>Example response:</p>
+<pre><code>[
+  {
+    <span class="st">"product"</span>: {
+      <span class="st">"name"</span>: <span class="st">"Bluetooth Over-Ear Headphones"</span>,
+      <span class="st">"category"</span>: <span class="st">"Electronics"</span>,
+      <span class="st">"price"</span>: <span class="num">79.99</span>,
+      <span class="st">"in_stock"</span>: <span class="kw">true</span>
+    },
+    <span class="st">"score"</span>: <span class="num">0.892</span>
+  },
+  ...
+]</code></pre>
+
+    <h4>List products (paginated)</h4>
+<pre><code>curl <span class="st">"http://localhost:8080/products?page=0&size=10"</span></code></pre>
+
+    <h4>Add more products</h4>
+<pre><code>curl -X POST <span class="st">"http://localhost:8080/products/add?count=50"</span></code></pre>
+
+    <h4>Swagger UI</h4>
+    <p>Open <code>http://localhost:8080/swagger-ui.html</code> in your browser for interactive API exploration
+    with "Try it out" enabled by default.</p>
+
+    <h3>Project Structure</h3>
+<pre><code>demos/product-recommendations/
+  src/main/java/.../recommendations/
+    ProductRecommendationsApplication.java  <span class="cm">// Spring Boot entry point</span>
+    config/
+      GigaMapConfig.java                    <span class="cm">// GigaMap, VectorIndex, Ollama beans</span>
+    model/
+      Product.java                          <span class="cm">// Domain record (name, category, price, inStock)</span>
+    vectorizer/
+      ProductVectorizer.java                <span class="cm">// Product -> float[] via embedding model</span>
+    service/
+      ProductService.java                   <span class="cm">// Catalog lifecycle, search, pagination</span>
+    controller/
+      ProductController.java                <span class="cm">// REST endpoints</span>
+  src/main/resources/
+    application.properties                  <span class="cm">// Server & Ollama config</span>
+    products.json                           <span class="cm">// Product catalog data</span></code></pre>
+
+    <!-- FOOTER -->
+    <div class="footer">
+        <p>EclipseStore Product Recommendations Demo &mdash; Source Reference</p>
+        <p>EclipseStore 4.0 | Spring Boot 4.0.2 | LangChain4j 1.11.0</p>
+    </div>
+
+</div>
+</body>
+</html>

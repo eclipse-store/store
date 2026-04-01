@@ -58,6 +58,7 @@
         <module>storage</module>
         <module>integrations</module>
         <module>gigamap</module>
+        <module>demos</module>
     </modules>
 
     <scm>
