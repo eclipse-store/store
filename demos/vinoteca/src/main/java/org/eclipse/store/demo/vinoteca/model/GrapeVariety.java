@@ -1,0 +1,34 @@
+package org.eclipse.store.demo.vinoteca.model;
+
+/*-
+ * #%L
+ * EclipseStore Demo Vinoteca
+ * %%
+ * Copyright (C) 2023 - 2026 MicroStream Software
+ * %%
+ * This program and the accompanying materials are made
+ * available under the terms of the Eclipse Public License 2.0
+ * which is available at https://www.eclipse.org/legal/epl-2.0/
+ * 
+ * SPDX-License-Identifier: EPL-2.0
+ * #L%
+ */
+
+public enum GrapeVariety
+{
+	CABERNET_SAUVIGNON,
+	MERLOT,
+	PINOT_NOIR,
+	CHARDONNAY,
+	SAUVIGNON_BLANC,
+	RIESLING,
+	SYRAH,
+	TEMPRANILLO,
+	SANGIOVESE,
+	NEBBIOLO,
+	MALBEC,
+	PINOT_GRIGIO,
+	GEWURZTRAMINER,
+	GRENACHE,
+	ZINFANDEL
+}

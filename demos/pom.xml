@@ -19,6 +19,7 @@
     <modules>
         <module>country-explorer</module>
         <module>product-recommendations</module>
+        <module>vinoteca</module>
     </modules>
 
     <name>EclipseStore Demos</name>

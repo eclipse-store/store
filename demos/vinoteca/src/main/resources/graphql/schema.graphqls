@@ -1,0 +1,220 @@
+enum WineType { RED, WHITE, ROSE, SPARKLING, DESSERT, ORANGE }
+enum GrapeVariety { CABERNET_SAUVIGNON, MERLOT, PINOT_NOIR, CHARDONNAY, SAUVIGNON_BLANC, RIESLING, SYRAH, TEMPRANILLO, SANGIOVESE, NEBBIOLO, MALBEC, PINOT_GRIGIO, GEWURZTRAMINER, GRENACHE, ZINFANDEL }
+enum OrderStatus { PENDING, CONFIRMED, SHIPPED, DELIVERED, CANCELLED }
+
+type Wine {
+    name: String!
+    wineryName: String!
+    grapeVariety: GrapeVariety!
+    type: WineType!
+    vintage: Int!
+    price: Float!
+    currency: String!
+    rating: Float!
+    ratingCount: Int!
+    tastingNotes: String
+    aroma: String
+    foodPairing: String
+    alcoholContent: Float!
+    bottlesInStock: Int!
+    available: Boolean!
+}
+
+type Winery {
+    name: String!
+    region: String!
+    country: String!
+    latitude: Float!
+    longitude: Float!
+    description: String
+    foundedYear: Int!
+}
+
+type Customer {
+    firstName: String!
+    lastName: String!
+    fullName: String!
+    email: String!
+    city: String
+    country: String
+}
+
+type Order {
+    customerName: String!
+    orderDate: String!
+    status: OrderStatus!
+    items: [OrderItem!]!
+    total: Float
+}
+
+type OrderItem {
+    wineName: String!
+    quantity: Int!
+    priceAtPurchase: Float!
+    subtotal: Float!
+}
+
+type Review {
+    customerName: String!
+    rating: Float!
+    text: String
+    date: String!
+}
+
+type WinePage {
+    content: [Wine!]!
+    total: Int!
+    page: Int!
+    size: Int!
+}
+
+type WineryPage {
+    content: [Winery!]!
+    total: Int!
+    page: Int!
+    size: Int!
+}
+
+type CustomerPage {
+    content: [Customer!]!
+    total: Int!
+    page: Int!
+    size: Int!
+}
+
+type OrderPage {
+    content: [Order!]!
+    total: Int!
+    page: Int!
+    size: Int!
+}
+
+type SimilarWineResult {
+    wine: Wine!
+    score: Float!
+}
+
+type NearbyWineryResult {
+    winery: Winery!
+    distanceKm: Float!
+}
+
+type WineStats {
+    totalCount: Int!
+    averageRating: Float!
+    averagePrice: Float!
+    typeDistribution: [TypeCount!]!
+    countryDistribution: [CountryCount!]!
+}
+
+type TypeCount {
+    type: String!
+    count: Int!
+}
+
+type CountryCount {
+    country: String!
+    count: Int!
+}
+
+type DataMetrics {
+    wineries: Int!
+    wines: Int!
+    customers: Int!
+    orders: Int!
+    reviews: Int!
+}
+
+input WineInput {
+    name: String!
+    wineryId: Int!
+    grapeVariety: GrapeVariety!
+    type: WineType!
+    vintage: Int!
+    price: Float!
+    currency: String
+    tastingNotes: String
+    aroma: String
+    foodPairing: String
+    alcoholContent: Float!
+    bottlesInStock: Int!
+    available: Boolean!
+}
+
+input WineryInput {
+    name: String!
+    region: String!
+    country: String!
+    latitude: Float!
+    longitude: Float!
+    description: String
+    foundedYear: Int!
+}
+
+input CustomerInput {
+    firstName: String!
+    lastName: String!
+    email: String!
+    city: String
+    country: String
+}
+
+input OrderItemInput {
+    wineId: Int!
+    quantity: Int!
+}
+
+input OrderInput {
+    customerIndex: Int!
+    items: [OrderItemInput!]!
+}
+
+input ReviewInput {
+    customerIndex: Int!
+    rating: Float!
+    text: String
+}
+
+type Query {
+    wines(page: Int = 0, size: Int = 20): WinePage!
+    wine(id: ID!): Wine
+    winesByType(type: WineType!): [Wine!]!
+    winesByCountry(country: String!): [Wine!]!
+    winesByRegion(region: String!): [Wine!]!
+    winesByGrape(grape: GrapeVariety!): [Wine!]!
+    winesByVintage(year: Int!): [Wine!]!
+    winesByWinery(wineryName: String!): [Wine!]!
+    topRatedWines(limit: Int = 10): [Wine!]!
+    fulltextSearch(query: String!, maxResults: Int = 20): [Wine!]!
+    similarWines(query: String!, k: Int = 5): [SimilarWineResult!]!
+    wineReviews(wineId: ID!): [Review!]!
+
+    wineries(page: Int = 0, size: Int = 20): WineryPage!
+    winery(id: ID!): Winery
+    nearbyWineries(lat: Float!, lon: Float!, radiusKm: Float!): [NearbyWineryResult!]!
+    wineriesByCountry(country: String!): [Winery!]!
+    wineriesByRegion(region: String!): [Winery!]!
+
+    customers(page: Int = 0, size: Int = 20): CustomerPage!
+    orders(page: Int = 0, size: Int = 20): OrderPage!
+
+    wineStats: WineStats!
+    dataMetrics: DataMetrics!
+}
+
+type Mutation {
+    createWine(input: WineInput!): Wine!
+    updateWine(id: ID!, input: WineInput!): Wine!
+    deleteWine(id: ID!): Boolean!
+
+    createWinery(input: WineryInput!): Winery!
+    updateWinery(id: ID!, input: WineryInput!): Winery!
+
+    createCustomer(input: CustomerInput!): Customer!
+    createOrder(input: OrderInput!): Order!
+    updateOrderStatus(index: Int!, status: OrderStatus!): Order!
+
+    addReview(wineId: ID!, input: ReviewInput!): Wine!
+
+    generateData(count: Int = 50): DataMetrics!
+}
