@@ -37,8 +37,7 @@ public class BasicExample
 	{
 		return EmbeddedStorage.start(Paths.get("target/basic-example"));
 	}
-	
-	@SuppressWarnings("unchecked")
+
 	static GigaMap<Person> ensureGigaMap()
 	{
 		GigaMap<Person> gigaMap = storageManager.root();
