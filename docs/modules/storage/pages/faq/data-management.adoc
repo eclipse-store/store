@@ -36,6 +36,11 @@ However, *your application code is responsible for synchronizing access to the s
 Since {product-name} stores plain Java objects that live in memory, the same concurrency rules apply as for any shared mutable data in Java.
 Without proper synchronization, concurrent reads and writes to the same objects can cause race conditions and inconsistent state — just like with any in-memory data structure.
 
+In particular, modifying the object graph and calling `store()` *must be done under the same lock*.
+{product-name} cannot enforce this on the application level.
+If the modification and the store call are not in the same synchronized scope, other threads may read intermediate state or the persisted data may diverge from what is in memory.
+See xref:misc:locking/index.adoc[Locking] for details.
+
 Use xref:misc:locking/index.adoc[locking] or other synchronization strategies to protect your data during concurrent access.
 
 [IMPORTANT]

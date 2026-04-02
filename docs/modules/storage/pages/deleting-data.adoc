@@ -4,6 +4,8 @@ Deleting data does not require performing explicit deleting actions like `DELETE
 If a stored object is not reachable anymore its data will be deleted from the storage later.
 This behavior is comparable to Java's garbage collector.
 
+NOTE: In a multi-threaded application, removing references and calling `store()` *must be done under the same lock* to prevent other threads from observing inconsistent state. This is the application's responsibility. See xref:misc:locking/index.adoc[Locking] for details.
+
 == Basic Deletion
 
 Remove the reference to the object and store the parent:

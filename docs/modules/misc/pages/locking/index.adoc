@@ -4,6 +4,14 @@
 
 Therefore, the application must handle concurrency if it is multi-threaded.
 
+[IMPORTANT]
+====
+Modifying the object graph and storing the changes *must always be done under the same lock*.
+{product-name} cannot provide this synchronization on the application level — it is the application's responsibility.
+If the modification and the `store()` call are not protected by the same lock, other threads may read partially modified state or the persisted data may become inconsistent with the in-memory object graph.
+See the examples below for how to achieve this.
+====
+
 The easiest way is to synchronize all affected code, but this makes your application effectively single-threaded.
 This is not advisable if performance is important.
 
