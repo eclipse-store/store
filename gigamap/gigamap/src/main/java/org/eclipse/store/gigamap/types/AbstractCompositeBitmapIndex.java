@@ -525,13 +525,44 @@ implements BitmapIndex.TopLevel<E, KS>
 		subResultAnds.add(new BitmapResult.ChainOr(subResults.toArray(BitmapResult.class)));
 	}
 	
+
 	final void internalHandleChanged(final KS oldKeys, final long entityId, final KS newKeys)
 	{
+		// Ensure sub-indices array is large enough for newKeys
 		this.ensureSubIndices(newKeys);
 
-		for(final Sub<E, KS, K> subIndex : this.subIndices)
+		// Iterate all sub-indices and handle each position based on old/new key presence
+		for(int i = 0; i < this.subIndices.length; i++)
 		{
-			subIndex.internalHandleChanged(oldKeys, entityId, newKeys);
+			// Check if old/new keys are empty at this sub-index position
+			// This guard is critical: when oldKeys is shorter than subIndices (e.g. NULL() = Object[1]
+			// vs decomposed Instant = Object[6]), positions beyond oldKeys.length must be treated as
+			// "new additions" not "changes" to avoid ArrayIndexOutOfBoundsException.
+			final boolean oldEmpty = this.isEmpty(oldKeys, i);
+			final boolean newEmpty = this.isEmpty(newKeys, i);
+
+			if(oldEmpty && newEmpty)
+			{
+				// Both empty: nothing to do
+				continue;
+			}
+
+			final Sub<E, KS, K> subIndex = this.subIndices[i];
+			if(oldEmpty)
+			{
+				// Old key didn't exist at this position: ADD
+				subIndex.internalAddToEntry(entityId, newKeys);
+			}
+			else if(newEmpty)
+			{
+				// New key no longer relevant: REMOVE
+				subIndex.internalRemove(entityId, oldKeys);
+			}
+			else
+			{
+				// Both exist: HANDLE CHANGE
+				subIndex.internalHandleChanged(oldKeys, entityId, newKeys);
+			}
 		}
 		this.markStateChangeChildren();
 	}
