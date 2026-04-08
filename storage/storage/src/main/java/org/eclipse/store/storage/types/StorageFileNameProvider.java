@@ -47,7 +47,7 @@ public interface StorageFileNameProvider
 	/* (18.06.2020 TM)TODO: remove parsing from filename provider.
 	 * So far, the meta information of a file are parsed from its file name.
 	 * This is dangerous since renaming a file would affect (= destroy) the storage data order and consistency.
-	 * The clean solution would be to embed the meta data in a file header and then validate
+	 * The clean solution would be to embed the metadata in a file header and then validate
 	 * the file name against that information.
 	 * But until then, the name provider must also serve as a parser.
 	 */
@@ -56,6 +56,13 @@ public interface StorageFileNameProvider
 		Consumer<? super F>        collector   ,
 		int                        channelIndex,
 		AFile file
+	);
+
+	public <F extends StorageDataFile> void parseDeletedDataInventoryFile(
+			StorageDataFile.Creator<F> fileCreator ,
+			Consumer<? super F>        collector   ,
+			int                        channelIndex,
+			AFile file
 	);
 	
 	
@@ -323,6 +330,67 @@ public interface StorageFileNameProvider
 				throw new StorageException("Invalid data file name: " + file);
 			}
 			
+			// strictly validly named file, collect.
+			collector.accept(fileCreator.createDataFile(file, channelIndex, fileNumber));
+		}
+
+		public <F extends StorageDataFile> void parseDeletedDataInventoryFile(
+				final StorageDataFile.Creator<F> fileCreator ,
+				final Consumer<? super F>        collector   ,
+				final int                        channelIndex,
+				final AFile                      file
+		)
+		{
+			final String filename = file.name();
+			if(!filename.startsWith(this.dataFilePrefix))
+			{
+				return;
+			}
+			if(!this.rescuedFileType().equals(file.type()))
+			{
+				return;
+			}
+
+			/*
+			 * From here on, the file must have a valid data file name.
+			 * Anything else is an error, since it is most probably a data file with a ruined file name.
+			 * If someone wants to create a backup file of a data file in the same directory,
+			 * they can/must give it another file type or name prefix.
+			 */
+
+			final String middlePart = filename.substring(this.dataFilePrefix.length());
+			final int separatorIndex = middlePart.indexOf('_');
+			if(separatorIndex < 0)
+			{
+				throw new StorageException("Invalid data file name: " + file);
+			}
+
+			final String hashIndexString = middlePart.substring(0, separatorIndex);
+			try
+			{
+				if(Integer.parseInt(hashIndexString) != channelIndex)
+				{
+					throw new StorageException("Invalid channel for data file: " + file);
+				}
+			}
+			catch(final NumberFormatException e)
+			{
+				throw new StorageException("Invalid data file name: " + file);
+			}
+
+			final String fileNumberString = middlePart.substring(separatorIndex + 1,
+				middlePart.indexOf('_', separatorIndex + 1));
+
+			final long fileNumber;
+			try
+			{
+				fileNumber = Long.parseLong(fileNumberString);
+			}
+			catch(final NumberFormatException e)
+			{
+				throw new StorageException("Invalid data file name: " + file);
+			}
+
 			// strictly validly named file, collect.
 			collector.accept(fileCreator.createDataFile(file, channelIndex, fileNumber));
 		}

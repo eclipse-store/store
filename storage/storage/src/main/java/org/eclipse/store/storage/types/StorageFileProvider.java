@@ -54,7 +54,12 @@ public interface StorageFileProvider extends PersistenceTypeDictionaryIoHandler.
 		C                          collector   ,
 		int                        channelIndex
 	);
-	
+
+	public <F extends StorageDataFile, C extends Consumer<F>> C collectDeletedDataFiles(
+			StorageDataFile.Creator<F> creator     ,
+			C                          collector   ,
+			int                        channelIndex
+	);
 	
 	public interface Builder<B extends Builder<?>>
 	{
@@ -479,6 +484,31 @@ public interface StorageFileProvider extends PersistenceTypeDictionaryIoHandler.
 				this.fileNameProvider.parseDataInventoryFile(creator, collector, channelIndex, f);
 			});
 			
+			return collector;
+		}
+
+		@Override
+		public <F extends StorageDataFile, C extends Consumer<F>> C collectDeletedDataFiles(
+			StorageDataFile.Creator<F> creator,
+			C collector,
+			int channelIndex)
+		{
+			this.deletionDirectory.inventorize();
+			final ADirectory directory = this.deletionDirectory.getDirectory(
+				fileNameProvider.provideChannelDirectoryName(channelIndex));
+
+			if(directory != null)
+			{
+				directory.iterateFiles(f ->
+				{
+					// collecting files refers only to those that physically exist. Residual AFS entries don't count.
+					if (!f.exists()) {
+						return;
+					}
+					this.fileNameProvider.parseDeletedDataInventoryFile(creator, collector, channelIndex, f);
+				});
+			}
+
 			return collector;
 		}
 
