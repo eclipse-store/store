@@ -23,10 +23,17 @@ import org.eclipse.store.demo.vinoteca.model.Order;
 import org.eclipse.store.demo.vinoteca.service.CustomerService;
 import org.eclipse.store.demo.vinoteca.ui.MainLayout;
 
+/**
+ * Master/detail customer screen: a top grid lists all customers; selecting a row populates a
+ * second grid below with that customer's order history.
+ */
 @Route(value = "customers", layout = MainLayout.class)
 @PageTitle("Customers | Vinoteca")
 public class CustomersView extends VerticalLayout
 {
+	/**
+	 * @param customerService the customer application service that provides the listing
+	 */
 	public CustomersView(final CustomerService customerService)
 	{
 		setSizeFull();

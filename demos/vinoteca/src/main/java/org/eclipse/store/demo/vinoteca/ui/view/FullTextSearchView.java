@@ -29,10 +29,23 @@ import org.eclipse.store.demo.vinoteca.service.CustomerService;
 import org.eclipse.store.demo.vinoteca.service.WineService;
 import org.eclipse.store.demo.vinoteca.ui.MainLayout;
 
+/**
+ * Lucene full-text search screen for the wines GigaMap.
+ * <p>
+ * The user enters a Lucene query — leveraging tokenised text fields ({@code name},
+ * {@code tastingNotes}, {@code aroma}, {@code foodPairing}) and untokenised string fields
+ * ({@code type}, {@code grapeVariety}, {@code region}, {@code country}) populated by
+ * {@link org.eclipse.store.demo.vinoteca.index.WineDocumentPopulator WineDocumentPopulator}.
+ * Pre-defined sample queries (chips) demonstrate the supported syntax.
+ */
 @Route(value = "search", layout = MainLayout.class)
 @PageTitle("Full-Text Search | Vinoteca")
 public class FullTextSearchView extends VerticalLayout
 {
+	/**
+	 * @param wineService     the wine application service (executes the Lucene query)
+	 * @param customerService the customer service (forwarded to the detail dialog)
+	 */
 	public FullTextSearchView(final WineService wineService, final CustomerService customerService)
 	{
 		setSizeFull();

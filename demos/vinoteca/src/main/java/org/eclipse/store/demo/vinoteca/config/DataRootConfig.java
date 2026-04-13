@@ -32,6 +32,16 @@ public class DataRootConfig
 {
 	private static final Logger LOG = LoggerFactory.getLogger(DataRootConfig.class);
 
+	/**
+	 * Exposes the persistent {@link DataRoot} as a Spring bean and logs a one-line summary of the
+	 * dataset size on application startup.
+	 *
+	 * @param storageManager the EclipseStore storage manager auto-configured by
+	 *                       {@code integrations-spring-boot3}; its
+	 *                       {@link EmbeddedStorageManager#root() root} is the {@link DataRoot}
+	 *                       declared in {@code application.properties}
+	 * @return the loaded data root (newly created on first start, deserialized on subsequent ones)
+	 */
 	@Bean
 	public DataRoot dataRoot(final EmbeddedStorageManager storageManager)
 	{

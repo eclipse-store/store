@@ -22,23 +22,44 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * REST controller exposing data-management operations at {@code /api/v1/data}.
+ * <p>
+ * Provides on-demand access to the synthetic data generator and to top-level dataset metrics —
+ * the same operations powering the "Data Generator" view of the Vaadin UI.
+ */
 @RestController
 @RequestMapping("/api/v1/data")
 public class DataRestController
 {
 	private final DataGeneratorService dataGeneratorService;
 
+	/**
+	 * @param dataGeneratorService the underlying data generator service
+	 */
 	public DataRestController(final DataGeneratorService dataGeneratorService)
 	{
 		this.dataGeneratorService = dataGeneratorService;
 	}
 
+	/**
+	 * {@code POST /api/v1/data/generate} — append a fresh batch of generated data to the
+	 * persistent graph.
+	 *
+	 * @param count the target number of wines to add (default {@code 50})
+	 * @return aggregate counts of the entire persisted graph after the generation
+	 */
 	@PostMapping("/generate")
 	public DataMetrics generate(@RequestParam(defaultValue = "50") final int count)
 	{
 		return this.dataGeneratorService.generate(count);
 	}
 
+	/**
+	 * {@code GET /api/v1/data/metrics} — top-level entity counts of the persisted graph.
+	 *
+	 * @return aggregate dataset metrics
+	 */
 	@GetMapping("/metrics")
 	public DataMetrics metrics()
 	{

@@ -16,11 +16,28 @@ package org.eclipse.store.demo.vinoteca.dto;
 
 import java.util.List;
 
+/**
+ * Inbound DTO used by the REST and GraphQL APIs to place a new
+ * {@link org.eclipse.store.demo.vinoteca.model.Order Order}.
+ * <p>
+ * The {@link #customerIndex()} addresses a customer by its position in
+ * {@link org.eclipse.store.demo.vinoteca.model.DataRoot#getCustomers()} (rather than by entity id),
+ * matching the demo's intentionally simple list-based customer storage.
+ *
+ * @param customerIndex the index of the placing customer in the customers list
+ * @param items         the line items to include in the order
+ */
 public record OrderInput(
 	int              customerIndex,
 	List<OrderItemInput> items
 )
 {
+	/**
+	 * A single line item in an {@link OrderInput}.
+	 *
+	 * @param wineId   the GigaMap entity id of the wine being ordered
+	 * @param quantity the number of bottles
+	 */
 	public record OrderItemInput(
 		long wineId,
 		int  quantity

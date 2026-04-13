@@ -29,6 +29,29 @@ import org.eclipse.store.gigamap.lucene.LuceneContext;
 import org.eclipse.store.gigamap.lucene.LuceneIndex;
 import org.eclipse.store.gigamap.types.GigaMap;
 
+/**
+ * The persistent root of the Vinoteca object graph.
+ * <p>
+ * EclipseStore is configured (in {@code application.properties}) to use this class as the storage
+ * root, meaning a single {@code DataRoot} instance is loaded on startup and re-stored whenever
+ * the application persists changes. All domain data is reachable from here:
+ * <ul>
+ *   <li>{@link #getWines() wines}    — a {@link GigaMap} of {@link Wine} objects with bitmap,
+ *       Lucene full-text and JVector vector indices registered;</li>
+ *   <li>{@link #getWineries() wineries} — a {@link GigaMap} of {@link Winery} objects with bitmap
+ *       and spatial indices registered;</li>
+ *   <li>{@link #getCustomers() customers} — a plain {@link List} of {@link Customer} entries;</li>
+ *   <li>{@link #getOrders() orders}      — a plain {@link List} of {@link Order} entries.</li>
+ * </ul>
+ * <p>
+ * The default constructor builds a fresh, empty graph with all indices wired up; this is what
+ * runs the very first time the application starts (when no storage directory exists yet). On
+ * subsequent starts EclipseStore deserializes the existing root instead.
+ *
+ * @see org.eclipse.store.demo.vinoteca.config.DataRootConfig
+ * @see org.eclipse.store.demo.vinoteca.index.WineIndices
+ * @see org.eclipse.store.demo.vinoteca.index.WineryIndices
+ */
 public class DataRoot
 {
 	private GigaMap<Wine>    wines;
@@ -36,6 +59,19 @@ public class DataRoot
 	private List<Customer>   customers;
 	private List<Order>      orders;
 
+	/**
+	 * Builds a fresh, empty data root with all GigaMap indices configured:
+	 * <ul>
+	 *   <li>Bitmap indices on wine name/type/grape/winery/country/region;</li>
+	 *   <li>A Lucene full-text index over wine name, tasting notes, aroma and food pairing;</li>
+	 *   <li>A JVector vector index ({@code "wine-embeddings"}, 384-dim cosine) backed by a
+	 *       LangChain4j Ollama embedding model running locally on
+	 *       {@code http://localhost:11434} with model {@code all-minilm};</li>
+	 *   <li>Bitmap and spatial indices on wineries.</li>
+	 * </ul>
+	 * Used only when no persisted root exists yet — subsequent application starts deserialize the
+	 * existing root from the storage directory.
+	 */
 	public DataRoot()
 	{
 		this.wines = GigaMap.New();
@@ -71,21 +107,25 @@ public class DataRoot
 		this.orders    = new ArrayList<>();
 	}
 
+	/** @return the indexed collection of all wines */
 	public GigaMap<Wine> getWines()
 	{
 		return this.wines;
 	}
 
+	/** @return the indexed collection of all wineries */
 	public GigaMap<Winery> getWineries()
 	{
 		return this.wineries;
 	}
 
+	/** @return the (mutable) list of all customers */
 	public List<Customer> getCustomers()
 	{
 		return this.customers;
 	}
 
+	/** @return the (mutable) list of all orders */
 	public List<Order> getOrders()
 	{
 		return this.orders;

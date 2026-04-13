@@ -27,9 +27,27 @@ import org.eclipse.serializer.reference.Lazy;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/**
+ * Jackson configuration that teaches the REST layer how to deal with two Vinoteca-specific types
+ * that are not natively supported by Spring's default {@code ObjectMapper}:
+ * <ul>
+ *   <li>{@link MonetaryAmount} — serialized as a small JSON object
+ *       ({@code { "amount": …, "currency": "EUR" }}) instead of relying on JavaMoney's default
+ *       (and somewhat verbose) serialization;</li>
+ *   <li>{@link Lazy} — serialized as JSON {@code null}; this short-circuits the lazy reference
+ *       so the REST layer never accidentally triggers loading of large back-references, and
+ *       avoids cycles such as {@code Wine → reviews → customer → orders → items → wine}.</li>
+ * </ul>
+ */
 @Configuration
 public class JacksonConfig
 {
+	/**
+	 * Builds the custom Jackson module containing the {@link MonetaryAmount} and {@link Lazy}
+	 * serializers.
+	 *
+	 * @return the module to be picked up automatically by Spring Boot's {@code ObjectMapper}
+	 */
 	@Bean
 	public Module vinotecaJacksonModule()
 	{

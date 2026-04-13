@@ -32,8 +32,24 @@ import org.eclipse.store.demo.vinoteca.ui.view.SimilaritySearchView;
 import org.eclipse.store.demo.vinoteca.ui.view.WineCatalogView;
 import org.eclipse.store.demo.vinoteca.ui.view.WineryExplorerView;
 
+/**
+ * Top-level Vaadin {@link AppLayout} that frames every routed view in the Vinoteca UI.
+ * <p>
+ * Provides a navbar with the application title and a side navigation drawer that links to all
+ * eight first-class views: {@link org.eclipse.store.demo.vinoteca.ui.view.WineCatalogView Wine Catalog},
+ * {@link org.eclipse.store.demo.vinoteca.ui.view.WineryExplorerView Wineries},
+ * {@link org.eclipse.store.demo.vinoteca.ui.view.SimilaritySearchView Similarity Search},
+ * {@link org.eclipse.store.demo.vinoteca.ui.view.FullTextSearchView Full-Text Search},
+ * {@link org.eclipse.store.demo.vinoteca.ui.view.CustomersView Customers},
+ * {@link org.eclipse.store.demo.vinoteca.ui.view.OrdersView Orders},
+ * {@link org.eclipse.store.demo.vinoteca.ui.view.AnalyticsView Analytics} and
+ * {@link org.eclipse.store.demo.vinoteca.ui.view.DataGeneratorView Data Generator}.
+ */
 public class MainLayout extends AppLayout
 {
+	/**
+	 * Builds the navbar (title + drawer toggle) and the side-nav with one entry per view.
+	 */
 	public MainLayout()
 	{
 		final DrawerToggle toggle = new DrawerToggle();

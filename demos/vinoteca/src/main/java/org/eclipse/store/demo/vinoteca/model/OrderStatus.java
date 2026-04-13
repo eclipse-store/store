@@ -14,11 +14,24 @@ package org.eclipse.store.demo.vinoteca.model;
  * #L%
  */
 
+/**
+ * Lifecycle state of an {@link Order}.
+ * <p>
+ * Orders typically progress {@link #PENDING} → {@link #CONFIRMED} → {@link #SHIPPED} →
+ * {@link #DELIVERED}; {@link #CANCELLED} is a terminal state that may be entered from any earlier
+ * stage. The Vinoteca demo does not enforce these transitions strictly — they are simply the
+ * conventional flow used by the data generator and the orders view.
+ */
 public enum OrderStatus
 {
+	/** The order has been placed but not yet acknowledged. */
 	PENDING,
+	/** The order has been confirmed and is awaiting shipment. */
 	CONFIRMED,
+	/** The order has shipped and is in transit. */
 	SHIPPED,
+	/** The order has been delivered to the customer. */
 	DELIVERED,
+	/** The order was cancelled — terminal state. */
 	CANCELLED
 }

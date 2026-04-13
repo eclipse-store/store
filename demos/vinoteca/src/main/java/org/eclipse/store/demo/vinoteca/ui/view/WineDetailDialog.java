@@ -42,6 +42,14 @@ import org.eclipse.store.demo.vinoteca.model.Wine;
 import org.eclipse.store.demo.vinoteca.service.CustomerService;
 import org.eclipse.store.demo.vinoteca.service.WineService;
 
+/**
+ * Modal dialog showing the full detail of a single {@link Wine}: producer info, type/grape,
+ * price, rating, alcohol/stock, tasting notes/aroma/food pairing, an existing-reviews list, and
+ * a form to attach a new review.
+ * <p>
+ * Used as the "drill-down" target for the wine grids on the catalog, full-text-search,
+ * similarity-search and analytics views.
+ */
 public class WineDetailDialog extends Dialog
 {
 	private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
@@ -53,6 +61,16 @@ public class WineDetailDialog extends Dialog
 	private final Span            ratingLabel;
 	private final Runnable        onReviewAdded;
 
+	/**
+	 * Creates the dialog (but does not open it — call {@link #open()}).
+	 *
+	 * @param wine            the wine to display
+	 * @param wineService     the wine service used to load reviews and submit new ones
+	 * @param customerService the customer service used to populate the reviewer drop-down
+	 * @param onReviewAdded   optional callback invoked after a new review has been persisted
+	 *                        (typically used by the calling view to refresh its grid row); may be
+	 *                        {@code null}
+	 */
 	public WineDetailDialog(
 		final Wine            wine,
 		final WineService     wineService,

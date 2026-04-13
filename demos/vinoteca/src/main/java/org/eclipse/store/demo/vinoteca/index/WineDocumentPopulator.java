@@ -18,8 +18,26 @@ import org.apache.lucene.document.Document;
 import org.eclipse.store.demo.vinoteca.model.Wine;
 import org.eclipse.store.gigamap.lucene.DocumentPopulator;
 
+/**
+ * Populates a Lucene {@link Document} with searchable fields derived from a {@link Wine}.
+ * <p>
+ * Drives the Lucene full-text index registered on the wines GigaMap. The {@code name},
+ * {@code tastingNotes}, {@code aroma} and {@code foodPairing} fields are tokenised
+ * ({@link DocumentPopulator#createTextField text fields}) so that the full-text and
+ * similarity-search screens can match arbitrary keywords; {@code type}, {@code grapeVariety},
+ * {@code region} and {@code country} are stored as untokenised
+ * ({@link DocumentPopulator#createStringField string fields}, lowercased) for exact-term
+ * filtering inside Lucene queries.
+ */
 public class WineDocumentPopulator extends DocumentPopulator<Wine>
 {
+	/**
+	 * Adds Lucene fields for a single wine. Null-valued tasting notes, aroma and food-pairing are
+	 * mapped to the empty string so the Lucene field is always present.
+	 *
+	 * @param document the Lucene document to add fields to
+	 * @param wine     the source wine
+	 */
 	@Override
 	public void populate(final Document document, final Wine wine)
 	{

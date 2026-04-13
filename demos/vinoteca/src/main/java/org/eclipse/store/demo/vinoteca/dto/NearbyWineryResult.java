@@ -16,6 +16,16 @@ package org.eclipse.store.demo.vinoteca.dto;
 
 import org.eclipse.store.demo.vinoteca.model.Winery;
 
+/**
+ * One entry of a "wineries near a point" query result.
+ * <p>
+ * Produced by {@link org.eclipse.store.demo.vinoteca.service.WineryService#findNearby
+ * WineryService.findNearby(...)}, which uses the spatial index registered on the wineries
+ * GigaMap and computes the great-circle distance via the Haversine formula.
+ *
+ * @param winery     the matching winery
+ * @param distanceKm the distance from the query point in kilometres
+ */
 public record NearbyWineryResult(
 	Winery winery,
 	double distanceKm

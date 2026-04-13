@@ -30,6 +30,12 @@ import org.eclipse.store.demo.vinoteca.service.CustomerService;
 import org.eclipse.store.demo.vinoteca.service.WineService;
 import org.eclipse.store.demo.vinoteca.ui.MainLayout;
 
+/**
+ * Default landing view of the Vinoteca UI. Lists all wines in a sortable {@link Grid} together
+ * with text/type/country/region filters wired to the corresponding bitmap-index queries on
+ * {@link WineService}. Clicking a row opens a {@link WineDetailDialog} for inspection and
+ * review-adding.
+ */
 @Route(value = "wines", layout = MainLayout.class)
 @RouteAlias(value = "", layout = MainLayout.class)
 @PageTitle("Wine Catalog | Vinoteca")
@@ -39,6 +45,11 @@ public class WineCatalogView extends VerticalLayout
 	private final CustomerService customerService;
 	private final Grid<Wine>      grid;
 
+	/**
+	 * @param wineService     the wine application service (provides listing and filter queries)
+	 * @param customerService the customer service (forwarded to the detail dialog so users can
+	 *                        attach reviews)
+	 */
 	public WineCatalogView(final WineService wineService, final CustomerService customerService)
 	{
 		this.wineService     = wineService;

@@ -28,10 +28,23 @@ import org.eclipse.store.demo.vinoteca.service.CustomerService;
 import org.eclipse.store.demo.vinoteca.service.WineService;
 import org.eclipse.store.demo.vinoteca.ui.MainLayout;
 
+/**
+ * Natural-language similarity-search screen powered by the JVector vector index registered on
+ * the wines GigaMap.
+ * <p>
+ * The user types a free-form description (e.g. "fruity red wine with cherry and spice notes");
+ * the query is encoded with the same Ollama embedding model used to populate the index, and the
+ * top-{@code k} nearest neighbours are displayed with their cosine similarity scores. If Ollama
+ * is unavailable the result list will be empty and the UI shows a hint.
+ */
 @Route(value = "similarity", layout = MainLayout.class)
 @PageTitle("Similarity Search | Vinoteca")
 public class SimilaritySearchView extends VerticalLayout
 {
+	/**
+	 * @param wineService     the wine application service (executes the vector similarity search)
+	 * @param customerService the customer service (forwarded to the detail dialog)
+	 */
 	public SimilaritySearchView(final WineService wineService, final CustomerService customerService)
 	{
 		setSizeFull();

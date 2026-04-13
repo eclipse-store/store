@@ -25,9 +25,26 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.graphql.execution.RuntimeWiringConfigurer;
 
+/**
+ * GraphQL runtime wiring for the Vinoteca schema.
+ * <p>
+ * The schema (see {@code src/main/resources/graphql/schema.graphqls}) exposes flattened scalar
+ * fields for several derived attributes that have no direct getter on the underlying domain types:
+ * for example {@code Wine.wineryName}, {@code Order.customerName}, {@code OrderItem.subtotal} or
+ * {@code Wine.price} (which has to flatten {@link javax.money.MonetaryAmount MonetaryAmount} into
+ * a plain {@code double}). This configuration registers the corresponding
+ * {@link DataFetcher data fetchers} so that those schema fields can be resolved from the domain
+ * objects without polluting the model with presentation-only accessors.
+ */
 @Configuration
 public class GraphQlConfig
 {
+	/**
+	 * Wires the GraphQL runtime with custom data fetchers for the {@code Wine}, {@code Order},
+	 * {@code OrderItem} and {@code Review} types.
+	 *
+	 * @return a configurer that augments the auto-generated wiring with derived-field fetchers
+	 */
 	@Bean
 	public RuntimeWiringConfigurer runtimeWiringConfigurer()
 	{

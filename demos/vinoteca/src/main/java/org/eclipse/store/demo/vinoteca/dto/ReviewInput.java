@@ -14,6 +14,17 @@ package org.eclipse.store.demo.vinoteca.dto;
  * #L%
  */
 
+/**
+ * Inbound DTO used by the REST and GraphQL APIs to attach a
+ * {@link org.eclipse.store.demo.vinoteca.model.Review Review} to a wine.
+ * <p>
+ * The {@link #customerIndex()} addresses the reviewer by position in
+ * {@link org.eclipse.store.demo.vinoteca.model.DataRoot#getCustomers()}.
+ *
+ * @param customerIndex the index of the reviewing customer in the customers list
+ * @param rating        the rating (typically 0.0 – 5.0)
+ * @param text          the optional free-form review text
+ */
 public record ReviewInput(
 	int    customerIndex,
 	double rating,

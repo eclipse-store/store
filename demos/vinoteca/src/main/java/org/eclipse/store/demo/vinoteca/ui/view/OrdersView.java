@@ -27,6 +27,11 @@ import org.eclipse.store.demo.vinoteca.model.OrderStatus;
 import org.eclipse.store.demo.vinoteca.service.OrderService;
 import org.eclipse.store.demo.vinoteca.ui.MainLayout;
 
+/**
+ * Master/detail orders screen with a status filter. The top grid lists orders; selecting a row
+ * shows the line items of that order in a second grid below. The status drop-down filters the
+ * top grid via {@link OrderService#byStatus}.
+ */
 @Route(value = "orders", layout = MainLayout.class)
 @PageTitle("Orders | Vinoteca")
 public class OrdersView extends VerticalLayout
@@ -34,6 +39,9 @@ public class OrdersView extends VerticalLayout
 	private final OrderService orderService;
 	private final Grid<Order>  orderGrid;
 
+	/**
+	 * @param orderService the order application service that provides the listings and filters
+	 */
 	public OrdersView(final OrderService orderService)
 	{
 		this.orderService = orderService;

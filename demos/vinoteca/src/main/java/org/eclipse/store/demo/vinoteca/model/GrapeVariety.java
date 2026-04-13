@@ -14,21 +14,45 @@ package org.eclipse.store.demo.vinoteca.model;
  * #L%
  */
 
+/**
+ * The dominant grape variety used to make a {@link Wine}.
+ * <p>
+ * Only a curated subset of internationally recognized varieties is modelled — enough to make the
+ * demo's filtering and analytics screens meaningful without exhaustively cataloguing every variety
+ * known to ampelography. The enum values back the
+ * {@link org.eclipse.store.demo.vinoteca.index.WineIndices#GRAPE_VARIETY GRAPE_VARIETY} bitmap
+ * index on the wines {@link org.eclipse.store.gigamap.types.GigaMap GigaMap}.
+ */
 public enum GrapeVariety
 {
+	/** Cabernet Sauvignon (red). */
 	CABERNET_SAUVIGNON,
+	/** Merlot (red). */
 	MERLOT,
+	/** Pinot Noir (red). */
 	PINOT_NOIR,
+	/** Chardonnay (white). */
 	CHARDONNAY,
+	/** Sauvignon Blanc (white). */
 	SAUVIGNON_BLANC,
+	/** Riesling (white). */
 	RIESLING,
+	/** Syrah / Shiraz (red). */
 	SYRAH,
+	/** Tempranillo (red). */
 	TEMPRANILLO,
+	/** Sangiovese (red). */
 	SANGIOVESE,
+	/** Nebbiolo (red). */
 	NEBBIOLO,
+	/** Malbec (red). */
 	MALBEC,
+	/** Pinot Grigio / Pinot Gris (white). */
 	PINOT_GRIGIO,
+	/** Gewürztraminer (aromatic white). */
 	GEWURZTRAMINER,
+	/** Grenache / Garnacha (red). */
 	GRENACHE,
+	/** Zinfandel / Primitivo (red). */
 	ZINFANDEL
 }

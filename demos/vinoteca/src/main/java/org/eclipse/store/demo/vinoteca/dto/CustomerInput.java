@@ -14,6 +14,16 @@ package org.eclipse.store.demo.vinoteca.dto;
  * #L%
  */
 
+/**
+ * Inbound DTO used by the REST and GraphQL APIs to create a
+ * {@link org.eclipse.store.demo.vinoteca.model.Customer Customer}.
+ *
+ * @param firstName the given name
+ * @param lastName  the family name
+ * @param email     the email address
+ * @param city      the city (may be {@code null})
+ * @param country   the country (may be {@code null})
+ */
 public record CustomerInput(
 	String firstName,
 	String lastName,

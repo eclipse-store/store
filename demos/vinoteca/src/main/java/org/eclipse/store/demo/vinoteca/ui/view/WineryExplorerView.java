@@ -31,6 +31,14 @@ import org.eclipse.store.demo.vinoteca.service.WineryService;
 import org.eclipse.store.demo.vinoteca.ui.LeafletMap;
 import org.eclipse.store.demo.vinoteca.ui.MainLayout;
 
+/**
+ * Geographic explorer of the wineries collection.
+ * <p>
+ * Combines a {@link LeafletMap} with a {@link Grid} of wineries plus filter controls that
+ * exercise the spatial and bitmap indices on the wineries GigaMap: a "find nearby" panel
+ * (latitude/longitude/radius), hemisphere and country drop-downs, and a click-to-pick interaction
+ * on the map and grid that keeps both views in sync.
+ */
 @Route(value = "wineries", layout = MainLayout.class)
 @PageTitle("Winery Explorer | Vinoteca")
 public class WineryExplorerView extends VerticalLayout
@@ -39,6 +47,9 @@ public class WineryExplorerView extends VerticalLayout
 	private final Grid<Winery>  wineryGrid;
 	private final LeafletMap    map;
 
+	/**
+	 * @param wineryService the winery application service that backs all queries on this view
+	 */
 	public WineryExplorerView(final WineryService wineryService)
 	{
 		this.wineryService = wineryService;

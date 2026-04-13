@@ -16,6 +16,18 @@ package org.eclipse.store.demo.vinoteca.dto;
 
 import java.util.List;
 
+/**
+ * A generic, immutable page of results returned by the paged list endpoints.
+ * <p>
+ * {@code PageResult} is the API surface used both by the REST controllers and by the GraphQL
+ * {@code WinePage} / {@code WineryPage} / {@code CustomerPage} / {@code OrderPage} types.
+ *
+ * @param <T>     the entity type carried in this page
+ * @param content the entities that fall in the requested page slice
+ * @param total   the total number of entities (across all pages) matching the query
+ * @param page    the zero-based page number that this result represents
+ * @param size    the requested page size
+ */
 public record PageResult<T>(
 	List<T> content,
 	long    total,

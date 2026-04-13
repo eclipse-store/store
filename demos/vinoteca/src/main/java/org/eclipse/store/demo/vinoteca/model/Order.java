@@ -19,6 +19,17 @@ import java.util.List;
 
 import javax.money.MonetaryAmount;
 
+/**
+ * Domain entity representing a customer order placed in the Vinoteca shop.
+ * <p>
+ * An {@code Order} bundles a {@link Customer}, a timestamp, a snapshot list of
+ * {@link OrderItem order items} (each capturing the price at the time of purchase) and the current
+ * {@link OrderStatus}. The contained item list is immutable — it is captured via {@link List#copyOf}
+ * in the constructor — so once an order is placed its line items cannot be mutated.
+ *
+ * @see OrderItem
+ * @see OrderStatus
+ */
 public class Order
 {
 	private Customer      customer;
@@ -26,10 +37,22 @@ public class Order
 	private List<OrderItem> items;
 	private OrderStatus   status;
 
+	/**
+	 * No-arg constructor required by EclipseStore for object reconstruction during loading.
+	 */
 	public Order()
 	{
 	}
 
+	/**
+	 * Creates a new {@code Order}. The provided item list is defensively copied via
+	 * {@link List#copyOf}; the resulting {@code Order} therefore exposes an unmodifiable view.
+	 *
+	 * @param customer  the customer placing the order
+	 * @param orderDate the timestamp at which the order was placed
+	 * @param items     the line items (must not be {@code null}; copied)
+	 * @param status    the initial order status
+	 */
 	public Order(
 		final Customer        customer,
 		final LocalDateTime   orderDate,
@@ -43,31 +66,41 @@ public class Order
 		this.status    = status;
 	}
 
+	/** @return the customer who placed the order */
 	public Customer getCustomer()
 	{
 		return this.customer;
 	}
 
+	/** @return the timestamp at which the order was placed */
 	public LocalDateTime getOrderDate()
 	{
 		return this.orderDate;
 	}
 
+	/** @return the unmodifiable list of line items */
 	public List<OrderItem> getItems()
 	{
 		return this.items;
 	}
 
+	/** @return the current order status */
 	public OrderStatus getStatus()
 	{
 		return this.status;
 	}
 
+	/** @param status the new order status */
 	public void setStatus(final OrderStatus status)
 	{
 		this.status = status;
 	}
 
+	/**
+	 * Computes the total monetary value of the order by summing the subtotals of all line items.
+	 *
+	 * @return the order total, or {@code null} if the order has no items
+	 */
 	public MonetaryAmount getTotal()
 	{
 		return this.items.stream()

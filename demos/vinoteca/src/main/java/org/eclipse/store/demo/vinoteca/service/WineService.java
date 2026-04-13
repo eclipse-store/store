@@ -37,6 +37,24 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+/**
+ * Application service exposing all wine-related operations against the wines
+ * {@link GigaMap} stored in the {@link DataRoot}.
+ * <p>
+ * The service combines plain CRUD with index-backed queries that exercise every flavour of
+ * GigaMap index registered on the wines collection:
+ * <ul>
+ *   <li>bitmap indices (e.g. {@link #byType byType}, {@link #byCountry byCountry},
+ *       {@link #byGrape byGrape}, {@link #byWinery byWinery});</li>
+ *   <li>the Lucene full-text index (see {@link #fulltextSearch fulltextSearch});</li>
+ *   <li>the JVector vector similarity index (see {@link #similar similar} and
+ *       {@link #similarTo similarTo}).</li>
+ * </ul>
+ * The {@link Mutex @Mutex("wineStore")} annotation together with {@link Read @Read} and
+ * {@link Write @Write} schedules concurrent invocations so that reads can run in parallel but
+ * writes are exclusive — this matches EclipseStore's threading guarantees for the underlying
+ * GigaMap.
+ */
 @Service
 @Mutex("wineStore")
 public class WineService
@@ -48,6 +66,14 @@ public class WineService
 	private final Optional<VectorIndex<Wine>> vectorIndex;
 	private final EmbeddedStorageManager      storageManager;
 
+	/**
+	 * Constructs the service and resolves the registered Lucene and (optional) vector indices
+	 * from the wines GigaMap.
+	 *
+	 * @param dataRoot       the persistent root (provided by {@code DataRootConfig})
+	 * @param storageManager the EclipseStore storage manager, used to {@code store} sub-graphs
+	 *                       (such as a wine's review list) after mutations
+	 */
 	@SuppressWarnings("unchecked")
 	public WineService(
 		final DataRoot               dataRoot,
@@ -65,6 +91,13 @@ public class WineService
 			.map(vi -> vi.get("wine-embeddings"));
 	}
 
+	/**
+	 * Returns a name-sorted page of wines.
+	 *
+	 * @param page the zero-based page number
+	 * @param size the page size
+	 * @return a page wrapping the wines in the requested slice and the total wine count
+	 */
 	@Read
 	public PageResult<Wine> list(final int page, final int size)
 	{
@@ -78,12 +111,25 @@ public class WineService
 		return new PageResult<>(wines, total, page, size);
 	}
 
+	/**
+	 * Looks up a single wine by its GigaMap entity id.
+	 *
+	 * @param id the GigaMap entity id
+	 * @return the wine, or {@code null} if no wine with that id exists
+	 */
 	@Read
 	public Wine findById(final long id)
 	{
 		return this.wineGigaMap.get(id);
 	}
 
+	/**
+	 * Creates a new wine, links it back to its producing winery, and persists both.
+	 *
+	 * @param input the wine to create
+	 * @return the created wine
+	 * @throws IllegalArgumentException if {@link WineInput#wineryId()} does not resolve to a winery
+	 */
 	@Write
 	public Wine create(final WineInput input)
 	{
@@ -122,6 +168,16 @@ public class WineService
 		return wine;
 	}
 
+	/**
+	 * Partially updates an existing wine. Only fields whose value in {@code input} is non-null
+	 * (or, for primitives, greater than zero) are applied — this keeps the same DTO usable for
+	 * full and partial updates. The mutation is performed via {@link GigaMap#update}, which
+	 * guarantees that all registered indices stay in sync.
+	 *
+	 * @param id    the GigaMap entity id of the wine to update
+	 * @param input the (partial) new field values
+	 * @return the updated wine, or {@code null} if no wine with that id exists
+	 */
 	@Write
 	public Wine update(final long id, final WineInput input)
 	{
@@ -164,6 +220,12 @@ public class WineService
 		return wine;
 	}
 
+	/**
+	 * Deletes a wine and removes it from the producing winery's wine list.
+	 *
+	 * @param id the GigaMap entity id of the wine to delete
+	 * @return {@code true} if a wine was deleted, {@code false} if no wine had this id
+	 */
 	@Write
 	public boolean delete(final long id)
 	{
@@ -182,6 +244,12 @@ public class WineService
 		return true;
 	}
 
+	/**
+	 * Returns all wines of the given type, served by the {@link WineIndices#TYPE} bitmap index.
+	 *
+	 * @param type the wine type name (case-insensitive, e.g. {@code "red"} or {@code "WHITE"})
+	 * @return name-sorted matching wines
+	 */
 	@Read
 	public List<Wine> byType(final String type)
 	{
@@ -191,6 +259,13 @@ public class WineService
 			.toList();
 	}
 
+	/**
+	 * Returns all wines from the given country, served by the {@link WineIndices#COUNTRY} bitmap
+	 * index (which de-references the producing winery).
+	 *
+	 * @param country the country to filter by (exact, case-sensitive match)
+	 * @return name-sorted matching wines
+	 */
 	@Read
 	public List<Wine> byCountry(final String country)
 	{
@@ -200,6 +275,13 @@ public class WineService
 			.toList();
 	}
 
+	/**
+	 * Returns all wines from the given region, served by the {@link WineIndices#REGION} bitmap
+	 * index.
+	 *
+	 * @param region the region to filter by
+	 * @return name-sorted matching wines
+	 */
 	@Read
 	public List<Wine> byRegion(final String region)
 	{
@@ -209,6 +291,13 @@ public class WineService
 			.toList();
 	}
 
+	/**
+	 * Returns all wines made from the given grape variety, served by the
+	 * {@link WineIndices#GRAPE_VARIETY} bitmap index.
+	 *
+	 * @param grape the grape variety enum name (case-insensitive, e.g. {@code "merlot"})
+	 * @return name-sorted matching wines
+	 */
 	@Read
 	public List<Wine> byGrape(final String grape)
 	{
@@ -218,6 +307,13 @@ public class WineService
 			.toList();
 	}
 
+	/**
+	 * Returns all wines produced by the given winery, served by the
+	 * {@link WineIndices#WINERY_NAME} bitmap index.
+	 *
+	 * @param winery the winery name (exact match)
+	 * @return name-sorted matching wines
+	 */
 	@Read
 	public List<Wine> byWinery(final String winery)
 	{
@@ -227,6 +323,13 @@ public class WineService
 			.toList();
 	}
 
+	/**
+	 * Returns all wines of a given vintage. Performed as a full scan + filter (no dedicated index
+	 * exists for the vintage attribute).
+	 *
+	 * @param year the vintage year
+	 * @return name-sorted matching wines
+	 */
 	@Read
 	public List<Wine> byVintage(final int year)
 	{
@@ -237,6 +340,12 @@ public class WineService
 			.toList();
 	}
 
+	/**
+	 * Returns the top-rated wines, descending by {@link Wine#getRating()}.
+	 *
+	 * @param limit the maximum number of wines to return
+	 * @return up to {@code limit} highest-rated wines
+	 */
 	@Read
 	public List<Wine> topRated(final int limit)
 	{
@@ -247,6 +356,14 @@ public class WineService
 			.toList();
 	}
 
+	/**
+	 * Returns all wines whose price falls inside the given closed interval, sorted ascending by
+	 * price. Performed as a full scan + filter.
+	 *
+	 * @param minPrice the inclusive lower bound on the price
+	 * @param maxPrice the inclusive upper bound on the price
+	 * @return matching wines, ascending by price
+	 */
 	@Read
 	public List<Wine> priceRange(final double minPrice, final double maxPrice)
 	{
@@ -257,12 +374,34 @@ public class WineService
 			.toList();
 	}
 
+	/**
+	 * Runs a Lucene full-text query over the wine name, tasting notes, aroma and food-pairing
+	 * fields populated by {@link org.eclipse.store.demo.vinoteca.index.WineDocumentPopulator
+	 * WineDocumentPopulator}.
+	 *
+	 * @param query      the Lucene query string
+	 * @param maxResults the maximum number of hits to return
+	 * @return the matching wines, in Lucene relevance order
+	 */
 	@Read
 	public List<Wine> fulltextSearch(final String query, final int maxResults)
 	{
 		return this.luceneIndex.query(query, maxResults);
 	}
 
+	/**
+	 * Vector similarity search: encodes the {@code query} string with the same embedding model
+	 * used to populate the wine vector index and returns the {@code k} nearest neighbours.
+	 * <p>
+	 * The query string is wrapped in a throw-away {@link Wine} purely to feed the existing
+	 * {@link org.eclipse.store.demo.vinoteca.index.WineVectorizer WineVectorizer} (which expects a
+	 * {@code Wine}). Returns an empty list if no vector index is configured (e.g. if Ollama is
+	 * unreachable on startup).
+	 *
+	 * @param query the natural-language query
+	 * @param k     the number of nearest neighbours to return
+	 * @return up to {@code k} similar wines with their cosine similarity scores
+	 */
 	@Read
 	public List<SimilarWineResult> similar(final String query, final int k)
 	{
@@ -279,6 +418,15 @@ public class WineService
 			.orElse(List.of());
 	}
 
+	/**
+	 * Vector similarity search anchored on an existing wine — finds the {@code k} closest wines
+	 * to {@code wineId}. The anchor wine itself is filtered out of the result.
+	 *
+	 * @param wineId the GigaMap entity id of the anchor wine
+	 * @param k      the number of similar wines to return
+	 * @return up to {@code k} similar wines (excluding the anchor) with their cosine similarity
+	 *         scores; an empty list if {@code wineId} is unknown or no vector index is configured
+	 */
 	@Read
 	public List<SimilarWineResult> similarTo(final long wineId, final int k)
 	{
@@ -300,6 +448,12 @@ public class WineService
 			.orElse(List.of());
 	}
 
+	/**
+	 * Loads the reviews of a wine, triggering the lazy reference if necessary.
+	 *
+	 * @param wineId the GigaMap entity id of the wine
+	 * @return the (possibly empty) list of reviews; an empty list if {@code wineId} is unknown
+	 */
 	@Read
 	public List<Review> getReviews(final long wineId)
 	{
@@ -307,12 +461,27 @@ public class WineService
 		return wine != null && wine.getReviews() != null ? wine.getReviews() : List.of();
 	}
 
+	/**
+	 * Loads the reviews of a wine, triggering the lazy reference if necessary.
+	 *
+	 * @param wine the wine; may be {@code null}
+	 * @return the (possibly empty) list of reviews; an empty list if {@code wine} is {@code null}
+	 */
 	@Read
 	public List<Review> getReviews(final Wine wine)
 	{
 		return wine != null && wine.getReviews() != null ? wine.getReviews() : List.of();
 	}
 
+	/**
+	 * Adds a review to a wine identified by its entity id and recomputes the wine's average
+	 * {@link Wine#getRating() rating} and {@link Wine#getRatingCount() rating count}.
+	 *
+	 * @param wineId the GigaMap entity id of the wine
+	 * @param input  the review payload
+	 * @return the updated wine
+	 * @throws IllegalArgumentException if {@code wineId} does not resolve to a wine
+	 */
 	@Write
 	public Wine addReview(final long wineId, final ReviewInput input)
 	{
@@ -324,6 +493,17 @@ public class WineService
 		return this.addReview(wine, input);
 	}
 
+	/**
+	 * Adds a review to the given wine and recomputes the wine's average
+	 * {@link Wine#getRating() rating} and {@link Wine#getRatingCount() rating count}. The mutation
+	 * is performed inside {@link GigaMap#update} so the bitmap, Lucene and vector indices
+	 * registered on the wines GigaMap are kept consistent.
+	 *
+	 * @param wine  the wine to attach the review to (must not be {@code null})
+	 * @param input the review payload
+	 * @return the updated wine
+	 * @throws IllegalArgumentException if {@code wine} is {@code null}
+	 */
 	@Write
 	public Wine addReview(final Wine wine, final ReviewInput input)
 	{
@@ -349,6 +529,13 @@ public class WineService
 		return wine;
 	}
 
+	/**
+	 * Computes aggregate catalog statistics for the analytics view: total count, average rating,
+	 * average price, distribution by {@link org.eclipse.store.demo.vinoteca.model.WineType WineType}
+	 * and distribution by country. All averages are rounded to one decimal place.
+	 *
+	 * @return the aggregate statistics, or a zero-result if the catalog is empty
+	 */
 	@Read
 	public WineStatsResult getStats()
 	{

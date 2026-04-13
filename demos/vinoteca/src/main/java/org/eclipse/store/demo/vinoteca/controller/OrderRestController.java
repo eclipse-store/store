@@ -31,17 +31,33 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * REST controller exposing order operations at {@code /api/v1/orders}.
+ * <p>
+ * Orders are addressed by their position in the orders list (the {@code index} path variable),
+ * matching the demo's intentionally simple list-based order storage.
+ */
 @RestController
 @RequestMapping("/api/v1/orders")
 public class OrderRestController
 {
 	private final OrderService orderService;
 
+	/**
+	 * @param orderService the underlying order application service
+	 */
 	public OrderRestController(final OrderService orderService)
 	{
 		this.orderService = orderService;
 	}
 
+	/**
+	 * {@code GET /api/v1/orders} — paged listing of all orders.
+	 *
+	 * @param page zero-based page number (default {@code 0})
+	 * @param size page size (default {@code 20})
+	 * @return a page of orders
+	 */
 	@GetMapping
 	public PageResult<Order> list(
 		@RequestParam(defaultValue = "0") final int page,
@@ -51,12 +67,25 @@ public class OrderRestController
 		return this.orderService.list(page, size);
 	}
 
+	/**
+	 * {@code POST /api/v1/orders} — place a new order.
+	 *
+	 * @param input the order to place
+	 * @return the newly created order, with status {@link OrderStatus#PENDING}
+	 */
 	@PostMapping
 	public Order create(@RequestBody final OrderInput input)
 	{
 		return this.orderService.create(input);
 	}
 
+	/**
+	 * {@code PUT /api/v1/orders/{index}/status} — change the status of an existing order.
+	 *
+	 * @param index  the zero-based order index
+	 * @param status the new status (passed as a query parameter)
+	 * @return 200 with the updated order, or 404 if {@code index} is out of range
+	 */
 	@PutMapping("/{index}/status")
 	public ResponseEntity<Order> updateStatus(
 		@PathVariable final int index,
@@ -67,6 +96,12 @@ public class OrderRestController
 		return order != null ? ResponseEntity.ok(order) : ResponseEntity.notFound().build();
 	}
 
+	/**
+	 * {@code GET /api/v1/orders/by-status/{status}} — orders currently in the given status.
+	 *
+	 * @param status the status to filter by
+	 * @return matching orders, in insertion order
+	 */
 	@GetMapping("/by-status/{status}")
 	public List<Order> byStatus(@PathVariable final OrderStatus status)
 	{

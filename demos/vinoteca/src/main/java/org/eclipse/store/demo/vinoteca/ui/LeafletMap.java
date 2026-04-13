@@ -22,13 +22,35 @@ import com.vaadin.flow.component.AttachEvent;
 import com.vaadin.flow.component.ClientCallable;
 import com.vaadin.flow.component.html.Div;
 
+/**
+ * Lightweight Vaadin wrapper around the <a href="https://leafletjs.com">Leaflet</a> JavaScript map.
+ * <p>
+ * The component lazily injects Leaflet's CSS and JS from a CDN on the first attach, then renders
+ * the map and a configurable set of {@link Marker markers} into a {@link Div} container. Markers
+ * and free-space clicks are forwarded back to the server through a {@link ClientCallable}, which
+ * dispatches them to all registered {@link #addMapClickListener listeners}.
+ * <p>
+ * Used by the {@link org.eclipse.store.demo.vinoteca.ui.view.WineryExplorerView Winery Explorer}
+ * view to plot winery locations and let users pick coordinates by clicking the map.
+ */
 public class LeafletMap extends Div
 {
+	/**
+	 * A single map marker.
+	 *
+	 * @param lat   latitude in decimal degrees
+	 * @param lon   longitude in decimal degrees
+	 * @param popup HTML popup content shown when the marker is clicked (may be {@code null})
+	 */
 	public record Marker(double lat, double lon, String popup) {}
 
 	private List<Marker> pendingMarkers;
 	private final List<BiConsumer<Double, Double>> clickListeners = new ArrayList<>();
 
+	/**
+	 * Creates an empty map container with sensible default styling. The actual Leaflet map is
+	 * rendered when the component is attached to the UI and {@link #setMarkers(List)} is called.
+	 */
 	public LeafletMap()
 	{
 		setId("leaflet-map-" + System.identityHashCode(this));
@@ -71,6 +93,12 @@ public class LeafletMap extends Div
 		}
 	}
 
+	/**
+	 * Replaces all markers on the map. If the component is not attached yet, the markers are
+	 * stashed and applied on the next {@code onAttach}.
+	 *
+	 * @param markers the new marker set
+	 */
 	public void setMarkers(final List<Marker> markers)
 	{
 		if (!isAttached())
@@ -118,6 +146,14 @@ public class LeafletMap extends Div
 		getElement().executeJs(js.toString());
 	}
 
+	/**
+	 * Pans the map to the given coordinates, zooms in and opens that marker's popup. The marker
+	 * must have been previously added via {@link #setMarkers(List)} — if no marker exists at the
+	 * coordinates, this method is a no-op.
+	 *
+	 * @param lat the marker latitude
+	 * @param lon the marker longitude
+	 */
 	public void selectMarker(final double lat, final double lon)
 	{
 		getElement().executeJs(
@@ -131,6 +167,12 @@ public class LeafletMap extends Div
 		);
 	}
 
+	/**
+	 * Registers a listener that will be invoked whenever the user clicks anywhere on the map
+	 * (either on free space or on a marker).
+	 *
+	 * @param listener a {@code (latitude, longitude)} consumer
+	 */
 	public void addMapClickListener(final BiConsumer<Double, Double> listener)
 	{
 		this.clickListeners.add(listener);

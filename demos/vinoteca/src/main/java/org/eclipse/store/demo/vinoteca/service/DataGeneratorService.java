@@ -42,6 +42,24 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+/**
+ * Synthetic-data generator that bootstraps the Vinoteca demo on first start and powers the
+ * "Data Generator" view at runtime.
+ * <p>
+ * The generator is built around a curated list of real-world wine
+ * {@link WineRegion regions} (Bordeaux, Burgundy, Tuscany, Napa Valley, Mendoza, …), each pinned
+ * to a realistic latitude/longitude bounding box and a small whitelist of well-known winery names
+ * and grape varieties. From that it produces {@link Winery wineries} with believable coordinates,
+ * grape-appropriate {@link Wine wines} (vintage 1990–2025, 8–300 € prices, plausible alcohol
+ * content per type), {@link Customer customers} via {@link Faker datafaker}, randomly composed
+ * {@link Order orders} and {@link Review reviews} that drive the wine ratings.
+ * <p>
+ * The {@link Random} is seeded with a constant ({@code 42}) so generated datasets are reproducible
+ * across restarts as long as the catalogue tables above stay the same.
+ *
+ * @see #init()
+ * @see #generate(int)
+ */
 @Service
 public class DataGeneratorService
 {
@@ -179,12 +197,22 @@ public class DataGeneratorService
 		{"dark chocolate", "berry desserts", "soft cheese"},
 	};
 
+	/**
+	 * @param dataRoot       the persistent root that will receive the generated entities
+	 * @param storageManager the EclipseStore storage manager, used to {@code store} the customers
+	 *                       and orders lists after generation
+	 */
 	public DataGeneratorService(final DataRoot dataRoot, final EmbeddedStorageManager storageManager)
 	{
 		this.dataRoot       = dataRoot;
 		this.storageManager = storageManager;
 	}
 
+	/**
+	 * Spring lifecycle hook invoked after the bean has been constructed. If the persistent graph
+	 * is empty, generates an initial dataset of 300 wines (plus the related wineries, customers,
+	 * orders and reviews); otherwise just logs the existing dataset size.
+	 */
 	@PostConstruct
 	public void init()
 	{
@@ -211,6 +239,15 @@ public class DataGeneratorService
 		);
 	}
 
+	/**
+	 * Generates a complete dataset on top of whatever is already persisted: a fresh batch of
+	 * wineries (one per region), {@code wineCount} wines distributed across them, 50 customers,
+	 * 200 orders and 100 reviews. All generated data is appended to the existing graph and
+	 * persisted before this method returns.
+	 *
+	 * @param wineCount the target number of wines to generate
+	 * @return aggregate counts of the entire persisted graph (existing + newly generated)
+	 */
 	@Write
 	public DataMetrics generate(final int wineCount)
 	{
@@ -431,6 +468,11 @@ public class DataGeneratorService
 		}
 	}
 
+	/**
+	 * Computes top-level entity counts of the persisted graph for the analytics dashboard.
+	 *
+	 * @return aggregate dataset metrics
+	 */
 	@Read
 	public DataMetrics getMetrics()
 	{
@@ -472,6 +514,19 @@ public class DataGeneratorService
 		return sb.toString();
 	}
 
+	/**
+	 * Internal descriptor for a real-world wine region: its centroid (used for display) plus a
+	 * latitude/longitude bounding box from which winery coordinates are randomly sampled.
+	 *
+	 * @param name    the region name (e.g. {@code "Bordeaux"})
+	 * @param country the country the region belongs to
+	 * @param lat     the centroid latitude
+	 * @param lon     the centroid longitude
+	 * @param minLat  the minimum sampling latitude
+	 * @param maxLat  the maximum sampling latitude
+	 * @param minLon  the minimum sampling longitude
+	 * @param maxLon  the maximum sampling longitude
+	 */
 	private record WineRegion(
 		String name, String country,
 		double lat, double lon,

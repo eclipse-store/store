@@ -28,6 +28,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * Application service for placing and inspecting orders.
+ * <p>
+ * Like {@link CustomerService}, this service operates on a plain {@link java.util.List} of
+ * {@link Order} entries on the {@link DataRoot}. New orders also end up on the placing customer's
+ * own order list, mirroring the bidirectional model.
+ */
 @Service
 @Mutex("orderStore")
 public class OrderService
@@ -35,6 +42,11 @@ public class OrderService
 	private final DataRoot               dataRoot;
 	private final EmbeddedStorageManager storageManager;
 
+	/**
+	 * @param dataRoot       the persistent root from which the orders list is taken
+	 * @param storageManager the EclipseStore storage manager, used to persist the orders list
+	 *                       and individual order mutations
+	 */
 	public OrderService(
 		final DataRoot               dataRoot,
 		final EmbeddedStorageManager storageManager
@@ -44,6 +56,13 @@ public class OrderService
 		this.storageManager = storageManager;
 	}
 
+	/**
+	 * Returns a slice of the orders list.
+	 *
+	 * @param page the zero-based page number
+	 * @param size the page size
+	 * @return a page wrapping the orders in the requested slice and the total order count
+	 */
 	@Read
 	public PageResult<Order> list(final int page, final int size)
 	{
@@ -54,6 +73,17 @@ public class OrderService
 		return new PageResult<>(orders.subList(from, to), total, page, size);
 	}
 
+	/**
+	 * Places a new order. Each item's price is captured as the wine's current
+	 * {@link Wine#getPrice() price} so that subsequent price changes do not retroactively alter
+	 * past orders. The new order is appended both to the global orders list and to the placing
+	 * customer's own order list.
+	 *
+	 * @param input the order to place
+	 * @return the newly created order, with status {@link OrderStatus#PENDING}
+	 * @throws IllegalArgumentException if any referenced wine id cannot be resolved
+	 * @throws IndexOutOfBoundsException if {@link OrderInput#customerIndex()} is out of range
+	 */
 	@Write
 	public Order create(final OrderInput input)
 	{
@@ -76,6 +106,13 @@ public class OrderService
 		return order;
 	}
 
+	/**
+	 * Updates the status of an existing order, addressed by its position in the orders list.
+	 *
+	 * @param index  the zero-based list index of the order
+	 * @param status the new status
+	 * @return the updated order, or {@code null} if {@code index} is out of range
+	 */
 	@Write
 	public Order updateStatus(final int index, final OrderStatus status)
 	{
@@ -90,6 +127,12 @@ public class OrderService
 		return order;
 	}
 
+	/**
+	 * Returns all orders currently in the given status.
+	 *
+	 * @param status the status to filter by
+	 * @return the matching orders, in insertion order
+	 */
 	@Read
 	public List<Order> byStatus(final OrderStatus status)
 	{

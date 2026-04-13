@@ -16,6 +16,17 @@ package org.eclipse.store.demo.vinoteca.dto;
 
 import org.eclipse.store.demo.vinoteca.model.Wine;
 
+/**
+ * One entry of a vector similarity search result against the wine embedding index.
+ * <p>
+ * Produced by {@link org.eclipse.store.demo.vinoteca.service.WineService#findSimilar
+ * WineService.findSimilar(...)}, which queries the JVector vector index registered on the wines
+ * GigaMap. The {@link #score()} is the cosine similarity in {@code [0.0, 1.0]} where higher means
+ * more similar.
+ *
+ * @param wine  the matching wine
+ * @param score the cosine similarity score
+ */
 public record SimilarWineResult(
 	Wine  wine,
 	float score

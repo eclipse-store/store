@@ -16,6 +16,15 @@ package org.eclipse.store.demo.vinoteca.dto;
 
 import java.util.Map;
 
+/**
+ * Aggregated catalog statistics shown on the analytics screen.
+ *
+ * @param totalCount          the total number of wines
+ * @param averageRating       the average customer rating across all wines
+ * @param averagePrice        the average bottle price across all wines (numeric, no currency)
+ * @param typeDistribution    the number of wines per {@link org.eclipse.store.demo.vinoteca.model.WineType WineType} (key is the enum name)
+ * @param countryDistribution the number of wines per producing country
+ */
 public record WineStatsResult(
 	long               totalCount,
 	double             averageRating,

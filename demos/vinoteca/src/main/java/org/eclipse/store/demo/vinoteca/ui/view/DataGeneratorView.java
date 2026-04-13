@@ -27,6 +27,15 @@ import org.eclipse.store.demo.vinoteca.dto.DataMetrics;
 import org.eclipse.store.demo.vinoteca.service.DataGeneratorService;
 import org.eclipse.store.demo.vinoteca.ui.MainLayout;
 
+/**
+ * Operator screen for the synthetic-data generator.
+ * <p>
+ * Lets the user trigger an additional generation run on top of whatever is already persisted and
+ * displays the resulting top-level entity counts. Useful for stress-testing the GigaMap indices
+ * with a larger dataset.
+ *
+ * @see DataGeneratorService#generate(int)
+ */
 @Route(value = "generate", layout = MainLayout.class)
 @PageTitle("Data Generator | Vinoteca")
 public class DataGeneratorView extends VerticalLayout
@@ -38,6 +47,9 @@ public class DataGeneratorView extends VerticalLayout
 	private final Span ordersCount    = new Span();
 	private final Span reviewsCount   = new Span();
 
+	/**
+	 * @param generatorService the data generator service this view delegates to
+	 */
 	public DataGeneratorView(final DataGeneratorService generatorService)
 	{
 		this.generatorService = generatorService;

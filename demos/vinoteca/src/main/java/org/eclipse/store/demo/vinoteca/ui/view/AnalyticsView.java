@@ -31,10 +31,22 @@ import org.eclipse.store.demo.vinoteca.service.DataGeneratorService;
 import org.eclipse.store.demo.vinoteca.service.WineService;
 import org.eclipse.store.demo.vinoteca.ui.MainLayout;
 
+/**
+ * Read-only analytics dashboard.
+ * <p>
+ * Renders summary cards (winery/wine/customer/order/review counts plus average rating and price)
+ * built from {@link DataGeneratorService#getMetrics()} and {@link WineService#getStats()}; below
+ * them, three grids display the wine-type and country distributions and the top-10 rated wines.
+ */
 @Route(value = "analytics", layout = MainLayout.class)
 @PageTitle("Analytics | Vinoteca")
 public class AnalyticsView extends VerticalLayout
 {
+	/**
+	 * @param wineService          the wine application service (provides the catalog statistics)
+	 * @param customerService      the customer service (forwarded to the detail dialog)
+	 * @param dataGeneratorService the data generator service (provides the top-level entity counts)
+	 */
 	public AnalyticsView(
 		final WineService          wineService,
 		final CustomerService      customerService,
