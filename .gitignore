@@ -91,3 +91,28 @@ storage/rest/client-app/src/main/dev-bundle/
 
 node_modules/
 
+
+
+# Claude (Anthropic)
+.claude/
+CLAUDE.local.md
+
+# Cursor
+.cursor/
+.cursorignore
+.cursorindexingignore
+.cursorrules
+
+# GitHub Copilot
+.github/copilot-instructions.md
+.copilot-review-instructions.md
+
+# Windsurf (Codeium)
+.windsurf/
+.windsurfrules
+
+# Codeium
+.codeium/
+
+# JetBrains AI Assistant
+.idea/ai-assistant/
