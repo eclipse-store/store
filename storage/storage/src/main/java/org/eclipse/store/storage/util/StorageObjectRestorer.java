@@ -14,8 +14,8 @@ package org.eclipse.store.storage.util;
  * #L%
  */
 
-import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.ADirectory;
+import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AReadableFile;
 import org.eclipse.serializer.afs.types.AWritableFile;
 import org.eclipse.serializer.memory.XMemory;
@@ -26,7 +26,10 @@ import org.eclipse.store.storage.types.*;
 import org.slf4j.Logger;
 
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * Strategy for restoring a previously persisted object by object id.
@@ -64,7 +67,7 @@ public interface StorageObjectRestorer
 
         private final StorageLiveFileProvider                                     storageFileProvider;
         private final int                                                         channelCount;
-        private final Hashtable<Integer, TreeMap<Long, StorageDataInventoryFile>> dataFiles      = new Hashtable<>();
+        private final HashMap<Integer, TreeMap<Long, StorageDataInventoryFile>> dataFiles      = new HashMap<>();
         private final int[]                                                      dataFilesSizes;
 
 
@@ -230,7 +233,9 @@ public interface StorageObjectRestorer
                 final TreeMap<Long, StorageDataInventoryFile> channelFiles = new TreeMap<>(Comparator.reverseOrder());
                 storageFileProvider.collectDataFiles(StorageDataInventoryFile::New, f -> channelFiles.put(f.number(), f), channelIndex);
 
-                final long lastFileNumber = channelFiles.firstKey() + 1;
+                final long lastFileNumber = channelFiles.isEmpty()
+                    ? 0L
+                    : channelFiles.firstKey() + 1;
 
                 final AFile storageFile = storageFileProvider.provideDataFile(channelIndex, lastFileNumber);
                 storageFile.ensureExists();
@@ -249,13 +254,12 @@ public interface StorageObjectRestorer
 
                 try
                 {
-                    // (TODO) Simple default guess, should use StorageTimeStampProvider
                     final long fileTimeStamp = getLastTimeStamp(storageFileProvider) + 1;
                     writeTransactionLogCreate(channelIndex, lastFileNumber, fileTimeStamp);
                     writeTransactionLogStore(channelIndex, fileTimeStamp, blob.length);
 
                     //write other channels transaction log zero store
-                    for(int channel =  0; channel < channelCount; channel++)
+                    for(int channel = 0; channel < channelCount; channel++)
                     {
                         if(channel != channelIndex)
                         {
