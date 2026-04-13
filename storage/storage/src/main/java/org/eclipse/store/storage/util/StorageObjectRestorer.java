@@ -64,7 +64,8 @@ public interface StorageObjectRestorer
 
         private final StorageLiveFileProvider                                     storageFileProvider;
         private final int                                                         channelCount;
-        private final Hashtable<Integer, TreeMap<Long, StorageDataInventoryFile>> dataFiles = new Hashtable<>();
+        private final Hashtable<Integer, TreeMap<Long, StorageDataInventoryFile>> dataFiles      = new Hashtable<>();
+        private final int[]                                                      dataFilesSizes;
 
 
         /**
@@ -94,6 +95,7 @@ public interface StorageObjectRestorer
             super();
             this.storageFileProvider = storageFileProvider;
             this.channelCount = channelCount;
+            this.dataFilesSizes = new int[channelCount];
         }
 
         /**
@@ -109,6 +111,7 @@ public interface StorageObjectRestorer
             super();
             this.storageFileProvider = configuration.fileProvider();
             this.channelCount = configuration.channelCountProvider().getChannelCount();
+            this.dataFilesSizes = new int[channelCount];
         }
 
 
@@ -136,6 +139,7 @@ public interface StorageObjectRestorer
             }
 
             collectDeletedDataFiles();
+            collectStorageFilesSizes();
 
             final TreeMap<Long, ObjectEntry> findings = searchObject(objectId);
             logger.debug("Found occurrences of {}: \n {}", objectId, findings);
@@ -145,8 +149,8 @@ public interface StorageObjectRestorer
                 final ObjectEntry entry = findings.firstEntry().getValue();
                 logger.info("Restoring object {} with blob from {}@{}", objectId, entry.file().identifier(), entry.entryPosition());
                 final byte[] blob = readBlob(entry);
-                // (TODO) remove log, can expose user data
-                logger.trace("object {} blob: {}", objectId, HexFormat.ofDelimiter(" ").formatHex(blob));
+
+                logger.debug("object {} blob size: {}", objectId, blob.length);
 
                 return appendBlobToStorage(blob, (int) (objectId % channelCount));
             }
@@ -245,8 +249,19 @@ public interface StorageObjectRestorer
 
                 try
                 {
-                    final long lastFileTimeStamp = getLastTimeStamp(storageFileProvider);
-                    writeTransactionLog(channelIndex, lastFileNumber, lastFileTimeStamp, blob.length);
+                    // (TODO) Simple default guess, should use StorageTimeStampProvider
+                    final long fileTimeStamp = getLastTimeStamp(storageFileProvider) + 1;
+                    writeTransactionLogCreate(channelIndex, lastFileNumber, fileTimeStamp);
+                    writeTransactionLogStore(channelIndex, fileTimeStamp, blob.length);
+
+                    //write other channels transaction log zero store
+                    for(int channel =  0; channel < channelCount; channel++)
+                    {
+                        if(channel != channelIndex)
+                        {
+                            writeTransactionLogStore(channel, fileTimeStamp, dataFilesSizes[channel]);
+                        }
+                    }
                 }
                 catch (final StorageException e)
                 {
@@ -323,49 +338,78 @@ public interface StorageObjectRestorer
         }
 
         /**
-         * Write a pair of transactions log entries that describe the creation of the
-         * data file and a store operation of the provided length at the calculated
+         * Write a store transactions log entries that describes a
+         * store operation of the provided length at the calculated
          * timestamp.
          *
          * @param channelIndex channel to which the transaction belongs
-         * @param lastFileNumber file number that was created by the append operation
-         * @param lastTimeStamp  highest known previous timestamp (used to derive the new one)
-         * @param length         length of the appended data blob
+         * @param timeStamp    highest known previous timestamp (used to derive the new one)
+         * @param length       length of the appended data blob
          */
-        private void writeTransactionLog(final int channelIndex, final long lastFileNumber, final long lastTimeStamp, final int length)
+        private void writeTransactionLogStore(final int channelIndex, final long timeStamp, final int length)
         {
-            final long timeStamp = lastTimeStamp + 1; // (TODO) Simple default guess, should use StorageTimeStampProvider
-
-            final ByteBuffer entryBufferFileCreation = XMemory.allocateDirectNative(StorageTransactionsAnalysis.Logic.entryLengthFileCreation());
-            final long entryBufferFileCreationAddress = XMemory.getDirectByteBufferAddress(entryBufferFileCreation);
-            StorageTransactionsAnalysis.Logic.initializeEntryFileCreation(entryBufferFileCreationAddress);
-
-            StorageTransactionsAnalysis.Logic.setEntryFileCreation(entryBufferFileCreationAddress, 0, timeStamp, lastFileNumber);
-
             final ByteBuffer entryBufferStore = XMemory.allocateDirectNative(StorageTransactionsAnalysis.Logic.entryLengthStore());
             final long entryBufferStoreAddress = XMemory.getDirectByteBufferAddress(entryBufferStore);
             StorageTransactionsAnalysis.Logic.initializeEntryStore(entryBufferStoreAddress);
-
             StorageTransactionsAnalysis.Logic.setEntryStore(XMemory.getDirectByteBufferAddress(entryBufferStore), length, timeStamp);
 
             final AWritableFile transactionFile = storageFileProvider.provideTransactionsFile(channelIndex).useWriting();
 
+            logger.debug("Writing store transaction log entry for channel {} length {} timestamp {}",
+                channelIndex, length, timeStamp);
+
             try
             {
-                transactionFile.writeBytes(entryBufferFileCreation);
                 transactionFile.writeBytes(entryBufferStore);
             }
             catch (final Exception e)
             {
-                throw new RuntimeException("Failed to write transaction log", e);
+                throw new RuntimeException("Failed to write store transaction log entry", e);
+            }
+            finally
+            {
+                transactionFile.release();
+                XMemory.deallocateDirectByteBuffer(entryBufferStore);
+            }
+        }
+
+        /**
+         * Write a Create transactions log entries that describes a
+         * file creation operation of the provided length at the calculated
+         * timestamp.
+         *
+         * @param channelIndex channel to which the transaction belongs
+         * @param fileNumber   file number of the newly created file
+         * @param timeStamp    file creation timestamp
+         */
+        private void writeTransactionLogCreate(final int channelIndex, final long fileNumber, final long timeStamp)
+        {
+            final ByteBuffer entryBufferFileCreation = XMemory.allocateDirectNative(StorageTransactionsAnalysis.Logic.entryLengthFileCreation());
+            final long entryBufferFileCreationAddress = XMemory.getDirectByteBufferAddress(entryBufferFileCreation);
+            StorageTransactionsAnalysis.Logic.initializeEntryFileCreation(entryBufferFileCreationAddress);
+            StorageTransactionsAnalysis.Logic.setEntryFileCreation(entryBufferFileCreationAddress, 0, timeStamp, fileNumber);
+
+            final AWritableFile transactionFile = storageFileProvider.provideTransactionsFile(channelIndex).useWriting();
+
+            logger.debug("Writing file creation transaction log entry for channel {} file number {} timestamp {}",
+                channelIndex, fileNumber, timeStamp);
+
+            try
+            {
+                transactionFile.writeBytes(entryBufferFileCreation);
+            }
+            catch (final Exception e)
+            {
+                throw new RuntimeException("Failed to write file creation transaction log entry", e);
             }
             finally
             {
                 transactionFile.release();
                 XMemory.deallocateDirectByteBuffer(entryBufferFileCreation);
-                XMemory.deallocateDirectByteBuffer(entryBufferStore);
             }
         }
+
+
 
         /**
          * Collect inventory information for deleted data files across all channels.
@@ -385,6 +429,25 @@ public interface StorageObjectRestorer
 
                 dataFiles.put(i, channelFiles);
                 logger.debug("Collected Files {}", channelFiles);
+            }
+        }
+
+        /**
+         * Collect the size (in bytes) of the most-recent data file for each
+         * configured storage channel and store the result in the
+         * {@link #dataFilesSizes} array.
+         */
+        private void collectStorageFilesSizes()
+        {
+            for (int i = 0; i < this.channelCount; i++)
+            {
+                final TreeMap<Long, Long> channelFiles = new TreeMap<>(Comparator.reverseOrder());
+                this.storageFileProvider.collectDataFiles(
+                        StorageDataInventoryFile::New,
+                        f -> channelFiles.put(f.number(), f.size()),
+                        i);
+
+                dataFilesSizes[i] = channelFiles.firstEntry().getValue().intValue();
             }
         }
 
