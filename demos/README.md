@@ -22,6 +22,14 @@ Uses LangChain4j with a local Ollama embedding model to vectorize products and f
 - **Prerequisites:** Java 17+, Ollama with `all-minilm` model
 - **Key features:** Vector similarity search, HNSW indexing, embedding generation
 
+### [Vinoteca](vinoteca/)
+
+Comprehensive wine-cellar and vineyard platform that combines **all four GigaMap index types** — bitmap, spatial, Lucene full-text and JVector vector — in a single application, exposed through a Vaadin UI, GraphQL and REST/OpenAPI.
+
+- **Port:** 8082
+- **Prerequisites:** Java 17+, Ollama with `all-minilm` model
+- **Key features:** Bitmap + spatial + Lucene + vector indices on the same dataset, Vaadin UI with Leaflet map, GraphQL + REST APIs
+
 ## Quick Start
 
 ```
@@ -33,6 +41,11 @@ mvn spring-boot:run
 ollama pull all-minilm
 cd product-recommendations
 mvn spring-boot:run
+
+# Vinoteca (requires Ollama)
+ollama pull all-minilm
+cd vinoteca
+mvn spring-boot:run
 ```
 
-Each demo includes a Swagger UI for interactive exploration and a `requests.http` file for IntelliJ.
+Each demo includes a Swagger UI for interactive exploration and a `requests.http` file for IntelliJ; the Vinoteca demo additionally exposes a Vaadin UI and a GraphiQL playground.
