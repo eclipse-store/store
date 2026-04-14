@@ -378,9 +378,13 @@ public interface StorageFileNameProvider
 				throw new StorageException("Invalid data file name: " + file);
 			}
 
-			final String fileNumberString = middlePart.substring(separatorIndex + 1,
-				middlePart.indexOf('_', separatorIndex + 1));
+			final int deletionTagSeparatorIndex = middlePart.indexOf('_', separatorIndex + 1);
+			if(deletionTagSeparatorIndex < 0)
+			{
+				throw new StorageException("Invalid data file name: " + file);
+			}
 
+			final String fileNumberString = middlePart.substring(separatorIndex + 1, deletionTagSeparatorIndex);
 			final long fileNumber;
 			try
 			{
