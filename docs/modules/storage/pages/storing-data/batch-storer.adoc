@@ -1,0 +1,131 @@
+= Batch Storer
+
+The `BatchStorer` is designed for write-heavy operations that accumulate store operations and commit them in batches rather than individually.
+This can significantly improve throughput when many objects need to be stored in rapid succession.
+
+== How It Works
+
+Unlike a regular `Storer`, which commits data on each explicit `commit()` call, the `BatchStorer` accumulates store operations and flushes them to the backing storage based on a configurable `Controller`.
+A background daemon thread periodically checks whether the controller's flush condition is met.
+
+Each `store()` call always re-serializes explicitly passed root instances, even if they have already been registered in the current storer lifecycle.
+This ensures that mutable objects (e.g. collections whose content changes between calls) always capture their current state.
+Child objects encountered during graph traversal use lazy semantics and are only stored if they are not yet known to the persistence context.
+
+`BatchStorer` implements `AutoCloseable`.
+On close, it flushes any remaining pending data and releases resources.
+
+== Creating a BatchStorer
+
+A `BatchStorer` is created from the `EmbeddedStorageManager`:
+
+[source, java]
+----
+BatchStorer storer = storageManager.createBatchStorer(
+    controller,    // controls when accumulated data should be flushed
+    checkInterval  // interval at which the background thread checks for pending flushes
+);
+----
+
+The `controller` parameter is a `BatchStorer.Controller` that determines when a flush should be triggered.
+The `checkInterval` is a `Duration` that defines how often the background thread evaluates the controller's flush condition.
+
+== Controller
+
+The `BatchStorer.Controller` interface controls when accumulated data gets flushed.
+There are three built-in factory methods:
+
+=== Time-based
+
+Triggers a flush after a specified duration has elapsed since the last flush:
+
+[source, java]
+----
+BatchStorer.Controller controller = BatchStorer.Controller(
+    Duration.ofSeconds(1)
+);
+----
+
+=== Size-based
+
+Triggers a flush when the number of accumulated objects reaches a threshold:
+
+[source, java]
+----
+BatchStorer.Controller controller = BatchStorer.Controller(
+    10_000L // max number of accumulated objects
+);
+----
+
+=== Combined (Size and Time)
+
+Triggers a flush when either the size threshold is reached or the time interval has elapsed, whichever comes first:
+
+[source, java]
+----
+BatchStorer.Controller controller = BatchStorer.Controller(
+    10_000L,                  // max number of accumulated objects
+    Duration.ofSeconds(1)     // max time between flushes
+);
+----
+
+== Usage
+
+The recommended pattern is to use a try-with-resources block.
+This ensures that any remaining data is flushed and resources are released when the block exits:
+
+[source, java]
+----
+ArrayList<String> data = new ArrayList<>();
+
+try (EmbeddedStorageManager storage = EmbeddedStorage.start(data, storageDir))
+{
+    try (BatchStorer storer = storage.createBatchStorer(
+        BatchStorer.Controller(Duration.ofMillis(500)),
+        Duration.ofMillis(200)
+    ))
+    {
+        for (int i = 0; i < 1_000; i++)
+        {
+            String s = "String " + i;
+            data.add(s);
+            storer.store(data);
+        }
+        storer.commit();
+    }
+}
+----
+
+In this example a time-based controller is used with a flush cycle of 500 milliseconds and a check interval of 200 milliseconds.
+The `BatchStorer` accumulates the store operations and periodically flushes them, rather than writing each individual store call to the storage immediately.
+
+== Manual Flushing
+
+In addition to the automatic controller-based flushing, data can be flushed explicitly at any time:
+
+[source, java]
+----
+storer.flush();
+----
+
+To check whether there is unflushed data:
+
+[source, java]
+----
+if (storer.hasPendingData())
+{
+    storer.flush();
+}
+----
+
+Calling `commit()` also flushes all pending data.
+
+== When to Use
+
+The `BatchStorer` is particularly useful when:
+
+* Ingesting large amounts of data in a loop
+* Processing event streams or message queues where objects arrive in rapid succession
+* Performing bulk imports or migrations
+
+For single or infrequent store operations, the standard `store()` methods on the `EmbeddedStorageManager` or a regular `Storer` are sufficient.
