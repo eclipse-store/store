@@ -14,18 +14,14 @@ package org.eclipse.store.storage.types;
  * #L%
  */
 
-import static org.eclipse.serializer.util.X.coalesce;
-import static org.eclipse.serializer.util.X.notNull;
+import org.eclipse.serializer.afs.types.*;
+import org.eclipse.serializer.chars.*;
+import org.eclipse.serializer.persistence.types.*;
 
-import java.text.SimpleDateFormat;
-import java.util.function.Consumer;
+import java.text.*;
+import java.util.function.*;
 
-import org.eclipse.serializer.afs.types.ADirectory;
-import org.eclipse.serializer.afs.types.AFile;
-import org.eclipse.serializer.afs.types.AFileSystem;
-import org.eclipse.serializer.chars.VarString;
-import org.eclipse.serializer.persistence.types.PersistenceTypeDictionaryFileHandler;
-import org.eclipse.serializer.persistence.types.PersistenceTypeDictionaryIoHandler;
+import static org.eclipse.serializer.util.X.*;
 
 
 public interface StorageFileProvider extends PersistenceTypeDictionaryIoHandler.Provider
@@ -493,6 +489,11 @@ public interface StorageFileProvider extends PersistenceTypeDictionaryIoHandler.
 			C collector,
 			int channelIndex)
 		{
+			if(this.deletionDirectory == null)
+			{
+				return collector;
+			}
+
 			this.deletionDirectory.inventorize();
 			final ADirectory directory = this.deletionDirectory.getDirectory(
 				fileNameProvider.provideChannelDirectoryName(channelIndex));
