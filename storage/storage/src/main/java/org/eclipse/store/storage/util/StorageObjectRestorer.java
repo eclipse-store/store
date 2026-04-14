@@ -450,7 +450,7 @@ public interface StorageObjectRestorer
                         f -> channelFiles.put(f.number(), f.size()),
                         i);
 
-                dataFilesSizes[i] = channelFiles.firstEntry().getValue().intValue();
+                dataFilesSizes[i] = Math.toIntExact(channelFiles.firstEntry().getValue());
             }
         }
 
