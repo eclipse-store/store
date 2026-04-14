@@ -569,14 +569,17 @@ public interface StorageObjectRestorer
 
                 final int length = Math.toIntExact(entry.rawLength());
                 final ByteBuffer bb = XMemory.allocateDirectNative(length);
+                try
+                {
+                    rFile.readBytes(bb, entry.entryPosition, length);
+                    bb.flip();
 
-                rFile.readBytes(bb, entry.entryPosition, length);
-                bb.flip();
-
-                final byte[] blob = XMemory.toArray(bb);
-
-                XMemory.deallocateDirectByteBuffer(bb);
-                return blob;
+                    return XMemory.toArray(bb);
+                }
+                finally
+                {
+                    XMemory.deallocateDirectByteBuffer(bb);
+                }
             }
             finally
             {
