@@ -14,22 +14,16 @@ package org.eclipse.store.storage.util;
  * #L%
  */
 
-import org.eclipse.serializer.afs.types.ADirectory;
-import org.eclipse.serializer.afs.types.AFile;
-import org.eclipse.serializer.afs.types.AReadableFile;
-import org.eclipse.serializer.afs.types.AWritableFile;
-import org.eclipse.serializer.memory.XMemory;
-import org.eclipse.serializer.persistence.binary.types.Binary;
-import org.eclipse.serializer.util.logging.Logging;
-import org.eclipse.store.storage.exceptions.StorageException;
+import org.eclipse.serializer.afs.types.*;
+import org.eclipse.serializer.memory.*;
+import org.eclipse.serializer.persistence.binary.types.*;
+import org.eclipse.serializer.util.logging.*;
+import org.eclipse.store.storage.exceptions.*;
 import org.eclipse.store.storage.types.*;
-import org.slf4j.Logger;
+import org.slf4j.*;
 
-import java.nio.ByteBuffer;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.TreeMap;
+import java.nio.*;
+import java.util.*;
 
 /**
  * Strategy for restoring a previously persisted object by object id.
@@ -234,7 +228,7 @@ public interface StorageObjectRestorer
                 storageFileProvider.collectDataFiles(StorageDataInventoryFile::New, f -> channelFiles.put(f.number(), f), channelIndex);
 
                 final long lastFileNumber = channelFiles.isEmpty()
-                    ? 0L
+                    ? 1L
                     : channelFiles.firstKey() + 1;
 
                 final AFile storageFile = storageFileProvider.provideDataFile(channelIndex, lastFileNumber);
