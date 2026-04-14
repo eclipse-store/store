@@ -17,11 +17,13 @@ package org.eclipse.store.storage.types;
 import static org.eclipse.serializer.util.X.notNull;
 
 import java.nio.ByteBuffer;
+import java.time.Duration;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.function.Predicate;
 
 import org.eclipse.serializer.afs.types.ADirectory;
+import org.eclipse.serializer.persistence.types.BatchStorer;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.collections.types.XGettingEnum;
 import org.eclipse.serializer.persistence.binary.types.Binary;
@@ -456,6 +458,18 @@ public interface StorageConnection extends UsageMarkable, Persister
 	public default Storer createEagerStorer()
 	{
 		return this.persistenceManager().createEagerStorer();
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public default BatchStorer createBatchStorer(
+		final BatchStorer.Controller controller   ,
+		final Duration               checkInterval
+	)
+	{
+		return this.persistenceManager().createBatchStorer(controller, checkInterval);
 	}
 
 	/**

@@ -15,7 +15,10 @@ package org.eclipse.store.examples.extensionwrapper;
  * #L%
  */
 
+import java.time.Duration;
+
 import org.eclipse.serializer.persistence.binary.types.Binary;
+import org.eclipse.serializer.persistence.types.BatchStorer;
 import org.eclipse.serializer.persistence.types.PersistenceObjectManager;
 import org.eclipse.serializer.persistence.types.PersistenceStorer;
 import org.eclipse.serializer.persistence.types.PersistenceTarget;
@@ -110,8 +113,23 @@ public class PersistenceStorerExtension extends PersistenceStorerWrapper
 				this.delegate.createEagerStorer(typeManager, objectManager, objectRetriever, target, bufferSizeProvider, persister)
 			);
 		}
-		
-		
+
+		@Override
+		public PersistenceStorer createBatchStorer(
+			final PersistenceTypeHandlerManager<Binary> typeManager       ,
+			final PersistenceObjectManager<Binary>      objectManager     ,
+			final ObjectSwizzling                       objectRetriever   ,
+			final PersistenceTarget<Binary>             target            ,
+			final BufferSizeProviderIncremental         bufferSizeProvider,
+			final Persister                             persister         ,
+			final BatchStorer.Controller                controller        ,
+			final Duration                              checkInterval
+		)
+		{
+			throw new UnsupportedOperationException("Batch storer creation is not supported by this extension.");
+		}
+
+
 	}
-	
+
 }
