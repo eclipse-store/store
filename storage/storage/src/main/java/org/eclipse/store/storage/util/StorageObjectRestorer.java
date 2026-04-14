@@ -269,6 +269,7 @@ public interface StorageObjectRestorer
                 catch (final StorageException e)
                 {
                     logger.warn("Failed to get last timestamp from storage file, no transaction log entry written!", e);
+                    return false;
                 }
 
                 return true;
