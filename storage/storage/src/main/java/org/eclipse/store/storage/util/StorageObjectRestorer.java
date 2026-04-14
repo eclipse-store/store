@@ -270,7 +270,7 @@ public interface StorageObjectRestorer
             }
             catch (final Throwable t)
             {
-                logger.warn("Failed to append blob to storage for channel {}: {}", channelIndex, t.getMessage());
+                logger.warn("Failed to append blob to storage for channel {}", channelIndex, t);
                 return false;
             }
         }
