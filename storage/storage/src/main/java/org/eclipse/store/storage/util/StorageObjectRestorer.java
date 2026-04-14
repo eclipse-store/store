@@ -204,6 +204,11 @@ public interface StorageObjectRestorer
                 return false;
             }
 
+            if (this.channelCount < 1)
+            {
+               logger.error("Channel count {} must be greater than zero", channelCount);
+            }
+
             return true;
         }
 
