@@ -279,13 +279,16 @@ public interface EntityIdMatcher extends GigaMap.SubQuery
 	}
 
 	/**
-	 * An {@link EntityIdMatcher} composed of multiple delegate matchers.
+	 * An {@link EntityIdMatcher} composed of multiple delegate matchers with logical AND
+	 * semantics — an entity id must be accepted by <i>every</i> delegate to be considered a
+	 * match.
 	 * <p>
-	 * {@link #matchEntityId(long)} queries all delegates and returns the maximum of their
-	 * individual results. This preserves the "next candidate id" semantics (case #3 of
-	 * {@link EntityIdMatcher#matchEntityId(long)}) when combining multiple ordered matchers:
-	 * the maximum reported next-id is the id at which <i>all</i> delegates can again produce
-	 * a match.
+	 * {@link #matchEntityId(long)} shortcircuits on the first delegate returning a negative
+	 * value (case #1, "not contained"). If no delegate rejects the id, the return is the
+	 * maximum of all delegate return values. For ordered delegates this preserves the "next
+	 * candidate id" semantics (case #3): the maximum reported next-id is the earliest id at
+	 * which <i>all</i> delegates can again produce a match, allowing the caller to gap-skip
+	 * without losing correctness.
 	 */
 	public static final class Multiple implements EntityIdMatcher
 	{
@@ -300,10 +303,15 @@ public interface EntityIdMatcher extends GigaMap.SubQuery
 		@Override
 		public final long matchEntityId(final long entityId)
 		{
-			long maxReturnValue = -1;
+			long maxReturnValue = entityId;
 			for(final EntityIdMatcher matcher : this.matchers)
 			{
 				final long returnValue = matcher.matchEntityId(entityId);
+				if(returnValue < 0)
+				{
+					// Any delegate rejecting the id means AND fails, regardless of the others.
+					return -1L;
+				}
 				if(returnValue > maxReturnValue)
 				{
 					maxReturnValue = returnValue;
