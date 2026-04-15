@@ -30,6 +30,7 @@ import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.store.gigamap.types.AbstractStateChangeFlagged;
 import org.eclipse.store.gigamap.types.GigaIndex;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -1821,12 +1822,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             final GigaMap<E> parentMap = this.parentMap();
             final SearchResult.NodeScore[] nodes = result.getNodes();
-            final BulkList<VectorSearchResult.Entry<E>> entries = BulkList.New(nodes.length);
+            final BulkList<ScoredSearchResult.Entry<E>> entries = BulkList.New(nodes.length);
             for(final SearchResult.NodeScore node : nodes)
             {
                 // Ordinals (node) ARE entity IDs, so direct conversion
                 // Pass parentMap for lazy entity access
-                entries.add(new VectorSearchResult.Entry.Default<>(node.node, node.score, parentMap));
+                entries.add(new ScoredSearchResult.Entry.Default<>(node.node, node.score, parentMap));
             }
             return new VectorSearchResult.Default<>(entries);
         }
