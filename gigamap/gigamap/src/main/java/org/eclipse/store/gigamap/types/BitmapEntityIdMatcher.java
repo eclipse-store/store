@@ -38,7 +38,7 @@ public final class BitmapEntityIdMatcher<E> extends AbstractBitmapIterating<E> i
 	// instance fields //
 	////////////////////
 
-	// parent must be referenced seperately because resolver might not use/reference it at all.
+	// parent must be referenced separately because resolver might not use/reference it at all.
 	private final GigaMap.Default<E> parent;
 
 	private boolean isActive = true;
@@ -136,7 +136,7 @@ public final class BitmapEntityIdMatcher<E> extends AbstractBitmapIterating<E> i
 	@Override
 	public final void setInactive()
 	{
-		// these values make #hasNext and #next disfunctional forever.
+		// these values make #hasNext and #next dysfunctional forever.
 		this.currentBitmapValue = -1L;            // these two will cause #hasNext to skip state progressing logic
 		this.setCurrentBitPosition(0);            // these two will cause #hasNext to skip state progressing logic
 		this.bitValBaseId       = Long.MIN_VALUE; // will always cause an exception when calling #next

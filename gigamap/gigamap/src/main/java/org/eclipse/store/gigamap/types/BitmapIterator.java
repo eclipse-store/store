@@ -187,7 +187,7 @@ public final class BitmapIterator<E> extends AbstractBitmapIterating<E> implemen
 	@Override
 	public final void setInactive()
 	{
-		// these values make #hasNext and #next disfunctional forever.
+		// these values make #hasNext and #next dysfunctional forever.
 		this.currentBitmapValue = -1L;            // these two will cause #hasNext to skip state progressing logic
 		this.setCurrentBitPosition(0);            // these two will cause #hasNext to skip state progressing logic
 		this.bitValBaseId       = Long.MIN_VALUE; // will always cause an exception when calling #next
