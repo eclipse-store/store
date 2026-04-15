@@ -15,6 +15,7 @@ package org.eclipse.store.gigamap.jvector;
  */
 
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Tag;
@@ -183,7 +184,7 @@ class VectorIndexDiskTest
 
                 // Search and record expected results
                 final VectorSearchResult<Document> result = index.search(queryVector, 10);
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     expectedIds.add(entry.entityId());
                 }
@@ -214,7 +215,7 @@ class VectorIndexDiskTest
                 // Search and compare results
                 final VectorSearchResult<Document> result = index.search(queryVector, 10);
                 final List<Long> actualIds = new ArrayList<>();
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     actualIds.add(entry.entityId());
                 }
@@ -356,7 +357,7 @@ class VectorIndexDiskTest
         final VectorSearchResult<Document> result = index.search(needleVector, 5);
 
         assertEquals(5, result.size());
-        final VectorSearchResult.Entry<Document> firstResult = result.iterator().next();
+        final ScoredSearchResult.Entry<Document> firstResult = result.iterator().next();
         assertEquals("needle", firstResult.entity().content(), "Exact match should be first result");
         assertTrue(firstResult.score() > 0.99f, "Exact match should have score close to 1.0");
     }
@@ -496,7 +497,7 @@ class VectorIndexDiskTest
         final VectorSearchResult<Document> result = index.search(needleVector, 5);
 
         assertEquals(5, result.size());
-        final VectorSearchResult.Entry<Document> firstResult = result.iterator().next();
+        final ScoredSearchResult.Entry<Document> firstResult = result.iterator().next();
         assertEquals("needle", firstResult.entity().content(),
             "Exact match should be first result even with PQ compression");
         assertTrue(firstResult.score() > 0.99f,
@@ -504,7 +505,7 @@ class VectorIndexDiskTest
 
         // Verify results are ordered by score
         float prevScore = Float.MAX_VALUE;
-        for(final VectorSearchResult.Entry<Document> entry : result)
+        for(final ScoredSearchResult.Entry<Document> entry : result)
         {
             assertTrue(entry.score() <= prevScore, "Results should be ordered by score");
             prevScore = entry.score();
@@ -568,7 +569,7 @@ class VectorIndexDiskTest
                 ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
 
                 final VectorSearchResult<Document> result = index.search(queryVector, 10);
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     expectedIds.add(entry.entityId());
                 }
@@ -600,7 +601,7 @@ class VectorIndexDiskTest
                 assertEquals(10, result.size());
 
                 final List<Long> actualIds = new ArrayList<>();
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     actualIds.add(entry.entityId());
                 }
@@ -790,7 +791,7 @@ class VectorIndexDiskTest
         final VectorSearchResult<Document> result = index.search(randomVector(random, dimension), 10);
         assertEquals(10, result.size());
 
-        for(final VectorSearchResult.Entry<Document> entry : result)
+        for(final ScoredSearchResult.Entry<Document> entry : result)
         {
             assertNotNull(entry.entity());
             final String content = entry.entity().content();
@@ -929,7 +930,7 @@ class VectorIndexDiskTest
         final VectorSearchResult<Document> resultAfter = index.search(queryVector, 10);
         assertEquals(10, resultAfter.size());
 
-        for(final VectorSearchResult.Entry<Document> entry : resultAfter)
+        for(final ScoredSearchResult.Entry<Document> entry : resultAfter)
         {
             assertNotNull(entry.entity());
         }
@@ -2128,7 +2129,7 @@ class VectorIndexDiskTest
 
                 final VectorSearchResult<Document> result = index.search(queryVector, k);
                 assertEquals(k, result.size());
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     parallelIds.add(entry.entityId());
                     parallelScores.add(entry.score());
@@ -2152,7 +2153,7 @@ class VectorIndexDiskTest
 
                 final VectorSearchResult<Document> result = index.search(queryVector, k);
                 assertEquals(k, result.size());
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     sequentialIds.add(entry.entityId());
                     sequentialScores.add(entry.score());
@@ -2407,14 +2408,14 @@ class VectorIndexDiskTest
 
         //parallel
         final VectorSearchResult<Document> result = index.search(queryVector, k);
-        for (final VectorSearchResult.Entry<Document> entry : result) {
+        for (final ScoredSearchResult.Entry<Document> entry : result) {
             parallelIds.add(entry.entityId());
             parallelScores.add(entry.score());
         }
 
         //sequential
         final VectorSearchResult<Document> resultSequential = indexSequential.search(queryVector, k);
-        for (final VectorSearchResult.Entry<Document> entry : resultSequential) {
+        for (final ScoredSearchResult.Entry<Document> entry : resultSequential) {
             sequentialIds.add(entry.entityId());
             sequentialScores.add(entry.score());
         }
@@ -2501,14 +2502,14 @@ class VectorIndexDiskTest
 
                 // Search for old needle — should be found from disk graph
                 final VectorSearchResult<Document> oldResult = index.search(oldNeedleVector, 5);
-                final VectorSearchResult.Entry<Document> oldFirst = oldResult.iterator().next();
+                final ScoredSearchResult.Entry<Document> oldFirst = oldResult.iterator().next();
                 assertEquals("original_needle", oldFirst.entity().content(),
                     "Old needle should be found from disk graph");
                 assertTrue(oldFirst.score() > 0.99f, "Exact match should have score close to 1.0");
 
                 // Search for new needle — should be found from in-memory builder
                 final VectorSearchResult<Document> newResult = index.search(newNeedleVector, 5);
-                final VectorSearchResult.Entry<Document> newFirst = newResult.iterator().next();
+                final ScoredSearchResult.Entry<Document> newFirst = newResult.iterator().next();
                 assertEquals("new_needle", newFirst.entity().content(),
                     "New needle should be found from in-memory builder");
                 assertTrue(newFirst.score() > 0.99f, "Exact match should have score close to 1.0");
@@ -2559,7 +2560,7 @@ class VectorIndexDiskTest
                 // Verify needle is found
                 final VectorIndex<Document> index = vectorIndices.get("embeddings");
                 final VectorSearchResult<Document> result = index.search(needleVector, 5);
-                final VectorSearchResult.Entry<Document> firstEntry = result.iterator().next();
+                final ScoredSearchResult.Entry<Document> firstEntry = result.iterator().next();
                 assertEquals("needle", firstEntry.entity().content());
                 needleEntityId = firstEntry.entityId();
 
@@ -2585,7 +2586,7 @@ class VectorIndexDiskTest
                 // Search for needle vector — it should NOT be the first result anymore
                 final VectorSearchResult<Document> result = index.search(needleVector, 5);
                 assertEquals(5, result.size());
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     assertNotEquals("needle", entry.entity().content(),
                         "Deleted needle should not appear in search results");
@@ -2661,7 +2662,7 @@ class VectorIndexDiskTest
 
                 // Search for original needle direction — updated entity should not be top result
                 final VectorSearchResult<Document> result = index.search(needleVector, 5);
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     assertNotEquals("updated_needle", entry.entity().content(),
                         "Updated needle with opposite vector should not appear in original direction search");
@@ -2670,7 +2671,7 @@ class VectorIndexDiskTest
                 // Search for opposite direction — updated entity should be found
                 final VectorSearchResult<Document> oppositeResult = index.search(oppositeVector, 5);
                 boolean foundUpdated = false;
-                for(final VectorSearchResult.Entry<Document> entry : oppositeResult)
+                for(final ScoredSearchResult.Entry<Document> entry : oppositeResult)
                 {
                     if("updated_needle".equals(entry.entity().content()))
                     {
@@ -2698,7 +2699,7 @@ class VectorIndexDiskTest
                 final VectorSearchResult<Document> builderResult = index.search(oppositeVector, 102);
                 boolean foundBuilderUpdated = false;
                 boolean foundStaleBuilderNode = false;
-                for(final VectorSearchResult.Entry<Document> entry : builderResult)
+                for(final ScoredSearchResult.Entry<Document> entry : builderResult)
                 {
                     if("builder_node_updated".equals(entry.entity().content()))
                     {
@@ -2770,7 +2771,7 @@ class VectorIndexDiskTest
                 // Verify needle is searchable before persist
                 final VectorSearchResult<Document> preResult = index.search(needleVector, 5);
                 boolean preFoundNeedle = false;
-                for(final VectorSearchResult.Entry<Document> entry : preResult)
+                for(final ScoredSearchResult.Entry<Document> entry : preResult)
                 {
                     if("needle".equals(entry.entity().content()))
                     {
@@ -2800,7 +2801,7 @@ class VectorIndexDiskTest
                 final VectorSearchResult<Document> result = index.search(needleVector, 10);
                 assertTrue(result.size() > 0, "Search should return results");
                 boolean foundNeedle = false;
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     if("needle".equals(entry.entity().content()))
                     {
@@ -2816,7 +2817,7 @@ class VectorIndexDiskTest
                 );
                 boolean hasOriginal = false;
                 boolean hasAdded = false;
-                for(final VectorSearchResult.Entry<Document> entry : allResult)
+                for(final ScoredSearchResult.Entry<Document> entry : allResult)
                 {
                     if(entry.entity().content().startsWith("original_")) hasOriginal = true;
                     if(entry.entity().content().startsWith("added_"))    hasAdded = true;
@@ -2949,7 +2950,7 @@ class VectorIndexDiskTest
                     randomVector(random, dimension), 10
                 );
                 assertEquals(10, result.size());
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     assertTrue(entry.entity().content().startsWith("new_"),
                         "After removeAll, only new documents should be found");

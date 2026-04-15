@@ -706,7 +706,7 @@ springdoc.swagger-ui.url=<span class="st">/v3/api-docs</span></code></pre>
         <span class="kw">final</span> <span class="ty">VectorSearchResult</span>&lt;<span class="ty">Product</span>&gt; result = <span class="kw">this</span>.vectorIndex.<span class="fn">search</span>(queryVector, k);
 
         <span class="kw">final</span> <span class="ty">List</span>&lt;<span class="ty">SearchResult</span>&gt; results = <span class="kw">new</span> <span class="ty">ArrayList</span>&lt;&gt;();
-        <span class="kw">for</span>(<span class="kw">final</span> <span class="ty">VectorSearchResult.Entry</span>&lt;<span class="ty">Product</span>&gt; entry : result)
+        <span class="kw">for</span>(<span class="kw">final</span> <span class="ty">ScoredSearchResult.Entry</span>&lt;<span class="ty">Product</span>&gt; entry : result)
         {
             results.<span class="fn">add</span>(<span class="kw">new</span> <span class="ty">SearchResult</span>(entry.<span class="fn">entity</span>(), entry.<span class="fn">score</span>()));
         }
@@ -763,7 +763,7 @@ springdoc.swagger-ui.url=<span class="st">/v3/api-docs</span></code></pre>
                 converts the user's natural-language query into the same 384-dimensional vector space as the products</li>
             <li><strong>Search the index:</strong> <code>vectorIndex.search(queryVector, k)</code> performs
                 approximate nearest-neighbor search, returning the top-k most similar products</li>
-            <li><strong>Map results:</strong> Each <code>VectorSearchResult.Entry</code> contains the matched
+            <li><strong>Map results:</strong> Each <code>ScoredSearchResult.Entry</code> contains the matched
                 entity and its cosine similarity score (0.0 to 1.0)</li>
         </ol>
     </div>

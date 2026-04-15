@@ -16,6 +16,7 @@ package org.eclipse.store.gigamap.jvector;
 
 import org.eclipse.serializer.util.X;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Tag;
@@ -180,7 +181,7 @@ class VectorIndexTest
         assertEquals(2, result.size(), "Should return 2 nearest neighbors");
 
         // The first result should be the most similar (doc1 with exact match)
-        final List<VectorSearchResult.Entry<Document>> entries = result.toList();
+        final List<ScoredSearchResult.Entry<Document>> entries = result.toList();
         assertTrue(entries.get(0).score() >= entries.get(1).score(), "Results should be ordered by score");
 
         // Verify lazy entity access
@@ -223,10 +224,10 @@ class VectorIndexTest
         gigaMap.add(new Document("Third", new float[]{0.0f, 0.0f, 1.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
@@ -234,7 +235,7 @@ class VectorIndexTest
         assertEquals(3, result.size());
         assertFalse(result.isEmpty());
 
-        final List<VectorSearchResult.Entry<Document>> resultEntries = result.toList();
+        final List<ScoredSearchResult.Entry<Document>> resultEntries = result.toList();
         // Test lazy entity access
         assertEquals("First", resultEntries.get(0).entity().content());
         assertEquals("Second", resultEntries.get(1).entity().content());
@@ -242,7 +243,7 @@ class VectorIndexTest
 
         // Test iteration
         int count = 0;
-        for(final VectorSearchResult.Entry<Document> score : result)
+        for(final ScoredSearchResult.Entry<Document> score : result)
         {
             assertNotNull(score.entity(), "Entity should be accessible lazily");
             count++;
@@ -396,7 +397,7 @@ class VectorIndexTest
         assertEquals(2, result.size(), "Should return 2 nearest neighbors");
 
         // The first result should be the most similar (doc1 with exact match)
-        final List<VectorSearchResult.Entry<Document>> entries = result.toList();
+        final List<ScoredSearchResult.Entry<Document>> entries = result.toList();
         assertTrue(entries.get(0).score() >= entries.get(1).score(), "Results should be ordered by score");
 
         // Verify lazy entity access
@@ -530,7 +531,7 @@ class VectorIndexTest
 
         // Verify results are ordered by score (descending)
         float prevScore = Float.MAX_VALUE;
-        for(final VectorSearchResult.Entry<Document> entry : result)
+        for(final ScoredSearchResult.Entry<Document> entry : result)
         {
             assertTrue(entry.score() <= prevScore, "Results should be ordered by score");
             prevScore = entry.score();
@@ -632,7 +633,7 @@ class VectorIndexTest
 
                 // Search and record expected results
                 final VectorSearchResult<Document> result = index.search(queryVector, 10);
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     expectedIds.add(entry.entityId());
                 }
@@ -654,7 +655,7 @@ class VectorIndexTest
 
                 final VectorSearchResult<Document> result = index.search(queryVector, 10);
                 final List<Long> actualIds = new ArrayList<>();
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     actualIds.add(entry.entityId());
                 }
@@ -706,7 +707,7 @@ class VectorIndexTest
         assertEquals(15, result.size());
 
         // Verify all entities are accessible
-        for(final VectorSearchResult.Entry<Document> entry : result)
+        for(final ScoredSearchResult.Entry<Document> entry : result)
         {
             assertNotNull(entry.entity());
             assertTrue(entry.entity().content().startsWith("doc_"));
@@ -756,7 +757,7 @@ class VectorIndexTest
         final VectorSearchResult<Document> result = index.search(needleVector, 5);
 
         assertEquals(5, result.size());
-        final VectorSearchResult.Entry<Document> firstResult = result.iterator().next();
+        final ScoredSearchResult.Entry<Document> firstResult = result.iterator().next();
         assertEquals("needle", firstResult.entity().content(), "Exact match should be first result");
         assertTrue(firstResult.score() > 0.99f, "Exact match should have score close to 1.0");
     }
@@ -872,7 +873,7 @@ class VectorIndexTest
 
                 // Verify we can find documents from each phase
                 boolean foundPhase1 = false, foundPhase2 = false, foundPhase3 = false;
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     final String content = entry.entity().content();
                     if(content.startsWith("phase1_")) foundPhase1 = true;
@@ -1124,7 +1125,7 @@ class VectorIndexTest
                 assertEquals(5, result.size());
 
                 // First result should be the exact match
-                final VectorSearchResult.Entry<Document> firstResult = result.iterator().next();
+                final ScoredSearchResult.Entry<Document> firstResult = result.iterator().next();
                 assertEquals("doc_42", firstResult.entity().content());
                 assertTrue(firstResult.score() > 0.99f);
             }
@@ -1145,7 +1146,7 @@ class VectorIndexTest
                 assertEquals(5, result.size());
 
                 // First result should be the exact match
-                final VectorSearchResult.Entry<Document> firstResult = result.iterator().next();
+                final ScoredSearchResult.Entry<Document> firstResult = result.iterator().next();
                 assertEquals("doc_100", firstResult.entity().content());
             }
         }
@@ -1228,7 +1229,7 @@ class VectorIndexTest
 
                 // Verify documents from different cycles exist
                 boolean foundInitial = false, foundCycle1 = false, foundCycle10 = false;
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     final String content = entry.entity().content();
                     if(content.startsWith("initial_")) foundInitial = true;
@@ -1256,10 +1257,10 @@ class VectorIndexTest
         gigaMap.add(new Document("Third", new float[]{0.0f, 0.0f, 1.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
@@ -1279,16 +1280,16 @@ class VectorIndexTest
         gigaMap.add(new Document("Third", new float[]{0.0f, 0.0f, 1.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
 
         final List<Float> scores = result.stream()
-            .map(VectorSearchResult.Entry::score)
+            .map(ScoredSearchResult.Entry::score)
             .collect(Collectors.toList());
 
         assertEquals(List.of(0.95f, 0.85f, 0.75f), scores, "Stream should preserve order");
@@ -1306,16 +1307,16 @@ class VectorIndexTest
         gigaMap.add(new Document("Third", new float[]{0.0f, 0.0f, 1.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
 
         // Filter entries with score >= 0.80
-        final List<VectorSearchResult.Entry<Document>> highScores = result.stream()
+        final List<ScoredSearchResult.Entry<Document>> highScores = result.stream()
             .filter(e -> e.score() >= 0.80f)
             .collect(Collectors.toList());
 
@@ -1336,10 +1337,10 @@ class VectorIndexTest
         gigaMap.add(new Document("Third", new float[]{0.0f, 0.0f, 1.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
@@ -1363,14 +1364,14 @@ class VectorIndexTest
         gigaMap.add(new Document("Second", new float[]{0.0f, 1.0f, 0.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
 
-        final Optional<VectorSearchResult.Entry<Document>> first = result.stream().findFirst();
+        final Optional<ScoredSearchResult.Entry<Document>> first = result.stream().findFirst();
 
         assertTrue(first.isPresent(), "Should find first element");
         assertEquals(0.95f, first.get().score(), "First element should have highest score");
@@ -1384,7 +1385,7 @@ class VectorIndexTest
     void testStreamOnEmptyResult()
     {
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[0];
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[0];
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
 
@@ -1405,9 +1406,9 @@ class VectorIndexTest
         gigaMap.add(new Document("Second", new float[]{0.0f, 1.0f, 0.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
@@ -1419,7 +1420,7 @@ class VectorIndexTest
         final long count2 = result.stream().count();
 
         // Third stream call - collect to list
-        final List<VectorSearchResult.Entry<Document>> list = result.stream().toList();
+        final List<ScoredSearchResult.Entry<Document>> list = result.stream().toList();
 
         assertEquals(2, count1, "First stream should have 2 elements");
         assertEquals(2, count2, "Second stream should also have 2 elements");
@@ -1438,15 +1439,15 @@ class VectorIndexTest
         gigaMap.add(new Document("Third", new float[]{0.0f, 0.0f, 1.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
 
-        final List<VectorSearchResult.Entry<Document>> list = result.toList();
+        final List<ScoredSearchResult.Entry<Document>> list = result.toList();
 
         assertEquals(3, list.size(), "List should have 3 entries");
         assertEquals(0.95f, list.get(0).score());
@@ -1465,14 +1466,14 @@ class VectorIndexTest
         gigaMap.add(new Document("Second", new float[]{0.0f, 1.0f, 0.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
 
-        final Spliterator<VectorSearchResult.Entry<Document>> spliterator = result.stream().spliterator();
+        final Spliterator<ScoredSearchResult.Entry<Document>> spliterator = result.stream().spliterator();
 
         // Verify characteristics
         assertTrue(spliterator.hasCharacteristics(Spliterator.SIZED), "Should be SIZED");
@@ -1535,7 +1536,7 @@ class VectorIndexTest
 
         // Verify order is preserved (descending by score)
         final List<Float> scores = result.stream()
-            .map(VectorSearchResult.Entry::score)
+            .map(ScoredSearchResult.Entry::score)
             .toList();
         for(int i = 0; i < scores.size() - 1; i++)
         {
@@ -1556,10 +1557,10 @@ class VectorIndexTest
         gigaMap.add(new Document("Third", new float[]{0.0f, 0.0f, 1.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
@@ -1589,24 +1590,24 @@ class VectorIndexTest
         gigaMap.add(new Document("Third", new float[]{0.0f, 0.0f, 1.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
 
         // Sum of all scores
         final float sumOfScores = result.stream()
-            .map(VectorSearchResult.Entry::score)
+            .map(ScoredSearchResult.Entry::score)
             .reduce(0f, Float::sum);
 
         assertEquals(2.55f, sumOfScores, 0.001f, "Sum of scores should be 2.55");
 
         // Max score
         final Optional<Float> maxScore = result.stream()
-            .map(VectorSearchResult.Entry::score)
+            .map(ScoredSearchResult.Entry::score)
             .max(Float::compareTo);
 
         assertTrue(maxScore.isPresent());
@@ -2004,7 +2005,7 @@ class VectorIndexTest
         assertEquals(10, result.size(), "Should still find 10 nearest neighbors among remaining entities");
 
         // Verify all returned entities are non-removed ones (odd IDs)
-        for(final VectorSearchResult.Entry<Document> entry : result)
+        for(final ScoredSearchResult.Entry<Document> entry : result)
         {
             assertNotNull(entry.entity(), "Entity should be accessible");
             final String content = entry.entity().content();
@@ -2063,7 +2064,7 @@ class VectorIndexTest
         final VectorSearchResult<Document> result = indexAfter.search(randomVector(random, dimension), 20);
         assertEquals(20, result.size());
 
-        for(final VectorSearchResult.Entry<Document> entry : result)
+        for(final ScoredSearchResult.Entry<Document> entry : result)
         {
             assertTrue(entry.entity().content().startsWith("new_"),
                 "All results should be from new population");
@@ -2133,7 +2134,7 @@ class VectorIndexTest
                 final VectorSearchResult<Document> result = index.search(vectors.get(0), 10);
                 assertEquals(10, result.size());
 
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     final String content = entry.entity().content();
                     final int docNum = Integer.parseInt(content.replace("doc_", ""));
@@ -2206,7 +2207,7 @@ class VectorIndexTest
                 final VectorSearchResult<Document> result = index.search(vectors.get(55), 10);
                 assertEquals(10, result.size());
 
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     final String content = entry.entity().content();
                     final int docNum = Integer.parseInt(content.replace("doc_", ""));
@@ -2278,7 +2279,7 @@ class VectorIndexTest
                 final VectorSearchResult<Document> result = index.search(randomVector(random, dimension), 10);
                 assertEquals(10, result.size());
 
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     assertTrue(entry.entity().content().startsWith("new_"),
                         "Only new documents should exist after restart");

@@ -92,7 +92,7 @@ import java.util.stream.IntStream;
  * float[] queryVector = computeEmbedding("Hello");
  * VectorSearchResult<Document> results = index.search(queryVector, 10);
  *
- * for (VectorSearchResult.Entry<Document> entry : results) {
+ * for (ScoredSearchResult.Entry<Document> entry : results) {
  *     Document doc = entry.entity();      // Lazy lookup via GigaMap
  *     float similarity = entry.score();   // Similarity score
  *     System.out.println(doc.content() + " (score: " + similarity + ")");
@@ -222,7 +222,7 @@ import java.util.stream.IntStream;
  * VectorSearchResult<Document> results = index.search(queryVector, 10);
  *
  * // Iterate
- * for (VectorSearchResult.Entry<Document> entry : results) {
+ * for (ScoredSearchResult.Entry<Document> entry : results) {
  *     System.out.println(entry.entity().content());
  * }
  *
@@ -233,7 +233,7 @@ import java.util.stream.IntStream;
  *     .toList();
  *
  * // Convert to list
- * List<VectorSearchResult.Entry<Document>> list = results.toList();
+ * List<ScoredSearchResult.Entry<Document>> list = results.toList();
  * }</pre>
  *
  * <h2>Persistence with EclipseStore</h2>
@@ -327,7 +327,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * float[] queryVector = embeddingService.embed("search query");
      * VectorSearchResult<Document> results = index.search(queryVector, 10);
      *
-     * for (VectorSearchResult.Entry<Document> entry : results) {
+     * for (ScoredSearchResult.Entry<Document> entry : results) {
      *     System.out.printf("Score: %.4f - %s%n",
      *         entry.score(),
      *         entry.entity().title()
