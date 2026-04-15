@@ -837,12 +837,19 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 				return EntityIdMatcher.NoOp();
 			}
 
-			final EntityIdMatcher[] idMatchers = new EntityIdMatcher[this.subQueries.intSize()];
+			final int size = this.subQueries.intSize();
+			if(size == 1)
+			{
+				// Single sub-query — no Multiple wrapper needed.
+				return this.subQueries.first().provideEntityIdMatcher();
+			}
 
-			final int i = 0;
+			final EntityIdMatcher[] idMatchers = new EntityIdMatcher[size];
+
+			int i = 0;
 			for(final GigaMap.SubQuery q : this.subQueries)
 			{
-				idMatchers[i] = q.provideEntityIdMatcher();
+				idMatchers[i++] = q.provideEntityIdMatcher();
 			}
 
 			return new EntityIdMatcher.Multiple(idMatchers);
@@ -851,7 +858,9 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 		public GigaIterator<E> iterator(final EntityResolver<E> resolver)
 		{
 			final EntityIdMatcher idMatcher = this.buildEntityIdMatcher();
-			return this.parent.createIterator(this.condition, idMatcher, resolver, this.threadProvider);
+			return this.parent.createIterator(
+				this.condition, this.idStart, this.idBound, idMatcher, resolver, this.threadProvider
+			);
 		}
 				
 		@Override
