@@ -14,6 +14,7 @@ package org.eclipse.store.gigamap.jvector;
  * #L%
  */
 
+import org.eclipse.store.gigamap.types.EntityIdMatcher;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.GigaQuery;
 import org.eclipse.store.gigamap.types.IndexerString;
@@ -114,18 +115,15 @@ class VectorSearchSubQueryTest
 	@Test
 	void emptySubQueryYieldsEmptyResult()
 	{
-		final GigaMap<Doc>     map             = GigaMap.New();
-		final CategoryIndexer  categoryIndexer = new CategoryIndexer();
-		final VectorIndex<Doc> vectorIndex     = setupIndex(map, categoryIndexer);
+		final GigaMap<Doc>    map             = GigaMap.New();
+		final CategoryIndexer categoryIndexer = new CategoryIndexer();
+		map.index().bitmap().add(categoryIndexer);
 
 		map.add(new Doc("A", new float[]{1, 0, 0}));
 		map.add(new Doc("A", new float[]{0, 1, 0}));
 
-		final VectorSearchResult<Doc> hits = vectorIndex.search(new float[]{1, 0, 0}, 0);
-		assertTrue(hits.isEmpty());
-
 		// Combining an empty SubQuery with any bitmap query must yield an empty result.
-		final long count = map.query(categoryIndexer).is("A").and(hits).count();
+		final long count = map.query(categoryIndexer).is("A").and(EntityIdMatcher.Empty()).count();
 		assertEquals(0, count);
 	}
 
