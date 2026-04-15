@@ -1,5 +1,19 @@
 package org.eclipse.store.gigamap.types;
 
+/*-
+ * #%L
+ * EclipseStore GigaMap
+ * %%
+ * Copyright (C) 2023 - 2026 MicroStream Software
+ * %%
+ * This program and the accompanying materials are made
+ * available under the terms of the Eclipse Public License 2.0
+ * which is available at https://www.eclipse.org/legal/epl-2.0/
+ * 
+ * SPDX-License-Identifier: EPL-2.0
+ * #L%
+ */
+
 /**
  * An {@link EntityIdMatcher} that exposes the result of a bitmap-based query as a matcher,
  * so that the query can participate as a {@link GigaMap.SubQuery} in another query.
