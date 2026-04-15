@@ -291,6 +291,7 @@ starts a web server on port `8080` the Client GUI will be available at: http://l
 in your browser, select from the dropdown list the endpoint of the Spring REST Service (http://localhost:8080/store-data/)
 and click connect.
 
+
 == Spring Dev Tools
 
 If you are using Spring Dev Tools, it is recommended to exclude the {product-name} classes from the classpath. Spring Dev Tools use their own restart classloader, which dynamically reloads classes. This can cause issues with the {product-name} classes, as they are not designed to be reloaded on the fly.
