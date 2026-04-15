@@ -164,7 +164,6 @@ public interface EntityResolver<E>
 
 	}
 
-	// (26.01.2024 TM)XXX: what is the difference between Peeking and Default?
 
 	/**
 	 * Peeking {@link EntityResolver}. For every successfully resolved (non-{@code null}) entity,
