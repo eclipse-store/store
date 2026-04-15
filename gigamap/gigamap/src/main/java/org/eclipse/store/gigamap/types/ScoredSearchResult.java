@@ -294,13 +294,26 @@ public interface ScoredSearchResult<E> extends Iterable<ScoredSearchResult.Entry
 			}
 			Arrays.sort(sortedIds);
 
-			// 2. Probe the matcher. Honor case #3 of matchEntityId ("next candidate id") for gap-skipping.
+			// 2. Probe the matcher, honoring the ordered-matcher contract:
+			//    - matchEntityId must be called with monotonically increasing ids.
+			//    - When a call returns V > entityId ("next candidate id"), V is already confirmed
+			//      as a match and the matcher is positioned at V. We must NOT re-query
+			//      matchEntityId(V) — doing so would advance the cursor past V on some
+			//      implementations (e.g. BitmapEntityIdMatcher) and lose the match.
 			final Set<Long> kept = new HashSet<>();
 			long nextValid = -1L;
 			for(final long id : sortedIds)
 			{
 				if(id < nextValid)
 				{
+					// Known "not contained" range below the matcher's next candidate.
+					continue;
+				}
+				if(id == nextValid)
+				{
+					// The matcher already confirmed this id in a previous case-#3 return.
+					kept.add(id);
+					nextValid = -1L;
 					continue;
 				}
 				final long result = matcher.matchEntityId(id);
