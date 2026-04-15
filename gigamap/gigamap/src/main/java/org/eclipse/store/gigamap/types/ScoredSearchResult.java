@@ -14,11 +14,15 @@ package org.eclipse.store.gigamap.types;
  * #L%
  */
 
+import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.types.XGettingList;
 import org.eclipse.serializer.collections.types.XIterable;
 
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.function.Consumer;
@@ -105,6 +109,25 @@ public interface ScoredSearchResult<E> extends Iterable<ScoredSearchResult.Entry
 	}
 
 	/**
+	 * Narrows this result by intersecting it with the given {@link GigaMap.SubQuery}. Only
+	 * entries whose entity id is also reported by the sub-query's
+	 * {@link EntityIdMatcher} are retained; all scores and the original iteration order
+	 * (by decreasing score) are preserved.
+	 * <p>
+	 * This is the scored-side counterpart of {@link GigaQuery#and(GigaMap.SubQuery)} and
+	 * allows the caller to keep using the result as an iterable of scored entries after the
+	 * narrowing, for example:
+	 * <pre>{@code
+	 *     ScoredSearchResult<Article> top = luceneIndex.search("eclipse", 100)
+	 *         .and(gigaMap.query(status.is("PUBLISHED")));
+	 * }</pre>
+	 *
+	 * @param other the sub-query to intersect with
+	 * @return a new {@link ScoredSearchResult} containing only the surviving entries
+	 */
+	public ScoredSearchResult<E> and(GigaMap.SubQuery other);
+
+	/**
 	 * A single scored search-result entry exposing the entity id, the score, and lazy access
 	 * to the entity itself.
 	 *
@@ -186,9 +209,10 @@ public interface ScoredSearchResult<E> extends Iterable<ScoredSearchResult.Entry
 
 	/**
 	 * Default {@link ScoredSearchResult} implementation backed by an immutable
-	 * {@link XGettingList} of entries. Caches the {@link EntityIdMatcher} produced by
-	 * {@link #provideEntityIdMatcher()} on first demand, useful when the same result is
-	 * reused across multiple composed queries.
+	 * {@link XGettingList} of entries. Caches the sorted entity ids produced on first
+	 * {@link #provideEntityIdMatcher()} call; each invocation returns a fresh
+	 * {@link EntityIdMatcher.AscendingListWrapper} over the cached ids, so the cursor
+	 * state of one consumer does not leak into another.
 	 *
 	 * @param <E> the entity type
 	 */
@@ -196,7 +220,7 @@ public interface ScoredSearchResult<E> extends Iterable<ScoredSearchResult.Entry
 	{
 		protected final XGettingList<Entry<E>> entries;
 
-		private EntityIdMatcher cachedIdMatcher;
+		private long[] cachedSortedIds;
 
 		public Default(final XGettingList<Entry<E>> entries)
 		{
@@ -230,15 +254,17 @@ public interface ScoredSearchResult<E> extends Iterable<ScoredSearchResult.Entry
 		}
 
 		/**
-		 * Returns an ordered {@link EntityIdMatcher} built from the entity ids of this result.
-		 * The ids are collected eagerly, sorted ascending and wrapped via
-		 * {@link EntityIdMatcher#Ascending(long...)}; scores are dropped. Cached on first call
-		 * so subsequent invocations return the same matcher instance.
+		 * Returns an ordered {@link EntityIdMatcher} built from the entity ids of this
+		 * result. The ids are collected and sorted ascending on first call and cached as
+		 * a plain {@code long[]}. Each call returns a <b>fresh</b>
+		 * {@link EntityIdMatcher.AscendingListWrapper} over the cached ids, so the
+		 * matcher's cursor state is never shared across consumers. Scores are dropped in
+		 * the conversion.
 		 */
 		@Override
 		public synchronized EntityIdMatcher provideEntityIdMatcher()
 		{
-			if(this.cachedIdMatcher == null)
+			if(this.cachedSortedIds == null)
 			{
 				final long[] ids = new long[this.size()];
 				int i = 0;
@@ -246,9 +272,59 @@ public interface ScoredSearchResult<E> extends Iterable<ScoredSearchResult.Entry
 				{
 					ids[i++] = entry.entityId();
 				}
-				this.cachedIdMatcher = EntityIdMatcher.Ascending(ids);
+				Arrays.sort(ids);
+				this.cachedSortedIds = ids;
 			}
-			return this.cachedIdMatcher;
+			return this.cachedSortedIds.length == 0
+				? EntityIdMatcher.Empty()
+				: new EntityIdMatcher.AscendingListWrapper(this.cachedSortedIds);
+		}
+
+		@Override
+		public ScoredSearchResult<E> and(final GigaMap.SubQuery other)
+		{
+			final EntityIdMatcher matcher = other.provideEntityIdMatcher();
+
+			// 1. Collect entity ids in ascending order — required by the ordered-matcher call contract.
+			final long[] sortedIds = new long[this.size()];
+			int i = 0;
+			for(final Entry<E> entry : this.entries)
+			{
+				sortedIds[i++] = entry.entityId();
+			}
+			Arrays.sort(sortedIds);
+
+			// 2. Probe the matcher. Honor case #3 of matchEntityId ("next candidate id") for gap-skipping.
+			final Set<Long> kept = new HashSet<>();
+			long nextValid = -1L;
+			for(final long id : sortedIds)
+			{
+				if(id < nextValid)
+				{
+					continue;
+				}
+				final long result = matcher.matchEntityId(id);
+				if(result == id)
+				{
+					kept.add(id);
+				}
+				else if(result > id)
+				{
+					nextValid = result;
+				}
+				// result < 0: not contained, skip
+			}
+
+			// 3. Rebuild the entry list, preserving original score-descending order.
+			final BulkList<Entry<E>> filtered = BulkList.New(kept.size());
+			for(final Entry<E> entry : this.entries)
+			{
+				if(kept.contains(entry.entityId()))
+				{
+					filtered.add(entry);
+				}
+			}
+			return new ScoredSearchResult.Default<>(filtered);
 		}
 
 		@Override

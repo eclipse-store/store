@@ -200,4 +200,102 @@ public class LuceneSearchSubQueryTest
 			assertEquals("Title_1", entry.entity().title);
 		}
 	}
+
+	@Test
+	void andIntersectsPreservingScoreOrder()
+	{
+		final GigaMap<Article> map           = GigaMap.New();
+		final StatusIndexer    statusIndexer = new StatusIndexer();
+		map.index().bitmap().add(statusIndexer);
+		try(final LuceneIndex<Article> luceneIndex = map.index().register(LuceneIndex.Category(newContext())))
+		{
+			final long idPub1 = map.add(new Article("PUBLISHED", "eclipse eclipse eclipse", "eclipse"));
+			final long idPub2 = map.add(new Article("PUBLISHED", "eclipse",                 "eclipse"));
+			map.add(new Article("DRAFT", "eclipse", "eclipse"));
+
+			final LuceneSearchResult<Article> hits = luceneIndex.search("title:eclipse", 10);
+			assertEquals(3, hits.size());
+
+			// Narrow the hits to PUBLISHED from the scored side; retain score order.
+			final ScoredSearchResult<Article> narrowed = hits.and(map.query(statusIndexer).is("PUBLISHED"));
+
+			final List<ScoredSearchResult.Entry<Article>> entries = narrowed.toList();
+			assertEquals(2, entries.size());
+
+			final Set<Long> ids = new HashSet<>();
+			for(final ScoredSearchResult.Entry<Article> entry : entries)
+			{
+				ids.add(entry.entityId());
+			}
+			assertEquals(Set.of(idPub1, idPub2), ids);
+			assertTrue(entries.get(0).score() >= entries.get(1).score());
+		}
+	}
+
+	@Test
+	void andReturnsScoredResultThatIsStillComposable()
+	{
+		final GigaMap<Article> map           = GigaMap.New();
+		final StatusIndexer    statusIndexer = new StatusIndexer();
+		map.index().bitmap().add(statusIndexer);
+		try(final LuceneIndex<Article> luceneIndex = map.index().register(LuceneIndex.Category(newContext())))
+		{
+			map.add(new Article("PUBLISHED", "Title_1", "eclipse"));
+			map.add(new Article("PUBLISHED", "Title_2", "eclipse"));
+			map.add(new Article("DRAFT", "Title_3", "eclipse"));
+
+			final LuceneSearchResult<Article> hits = luceneIndex.search("content:eclipse", 10);
+
+			// The narrowed result is itself a SubQuery — chainable into a GigaQuery.
+			final ScoredSearchResult<Article> narrowed = hits.and(map.query(statusIndexer).is("PUBLISHED"));
+			final long count = map.query(statusIndexer).is("PUBLISHED").and(narrowed).count();
+			assertEquals(2, count);
+		}
+	}
+
+	@Test
+	void andCanBeReusedAcrossIndependentIntersections()
+	{
+		final GigaMap<Article> map           = GigaMap.New();
+		final StatusIndexer    statusIndexer = new StatusIndexer();
+		map.index().bitmap().add(statusIndexer);
+		try(final LuceneIndex<Article> luceneIndex = map.index().register(LuceneIndex.Category(newContext())))
+		{
+			final long idPub = map.add(new Article("PUBLISHED", "Title_1", "eclipse"));
+			final long idDrf = map.add(new Article("DRAFT",     "Title_2", "eclipse"));
+
+			final LuceneSearchResult<Article> hits = luceneIndex.search("content:eclipse", 10);
+
+			// Two independent narrowings of the same hits; the second must not see a stale cursor.
+			final ScoredSearchResult<Article> onlyPub = hits.and(map.query(statusIndexer).is("PUBLISHED"));
+			final ScoredSearchResult<Article> onlyDrf = hits.and(map.query(statusIndexer).is("DRAFT"));
+
+			assertEquals(1, onlyPub.size());
+			assertEquals(idPub, onlyPub.iterator().next().entityId());
+
+			assertEquals(1, onlyDrf.size());
+			assertEquals(idDrf, onlyDrf.iterator().next().entityId());
+		}
+	}
+
+	@Test
+	void andWithEmptySubQueryReturnsEmpty()
+	{
+		final GigaMap<Article> map           = GigaMap.New();
+		final StatusIndexer    statusIndexer = new StatusIndexer();
+		map.index().bitmap().add(statusIndexer);
+		try(final LuceneIndex<Article> luceneIndex = map.index().register(LuceneIndex.Category(newContext())))
+		{
+			map.add(new Article("PUBLISHED", "Title_1", "eclipse"));
+			map.add(new Article("PUBLISHED", "Title_2", "eclipse"));
+
+			final LuceneSearchResult<Article> hits = luceneIndex.search("content:eclipse", 10);
+			assertEquals(2, hits.size());
+
+			// No entity has status "REMOVED" — the intersection is empty.
+			final ScoredSearchResult<Article> narrowed = hits.and(map.query(statusIndexer).is("REMOVED"));
+			assertTrue(narrowed.isEmpty());
+			assertEquals(0, narrowed.size());
+		}
+	}
 }

@@ -152,4 +152,92 @@ class VectorSearchSubQueryTest
 		assertTrue(entries.get(1).score() >= entries.get(2).score());
 	}
 
+	@Test
+	void andIntersectsPreservingScoreOrder()
+	{
+		final GigaMap<Doc>     map             = GigaMap.New();
+		final CategoryIndexer  categoryIndexer = new CategoryIndexer();
+		final VectorIndex<Doc> vectorIndex     = setupIndex(map, categoryIndexer);
+
+		final long idA1 = map.add(new Doc("A", new float[]{1, 0, 0}));         // closest
+		final long idA2 = map.add(new Doc("A", new float[]{0.9f, 0.1f, 0}));   // 2nd closest
+		map.add(new Doc("B", new float[]{0.8f, 0.2f, 0}));                     // 3rd closest but wrong category
+		map.add(new Doc("A", new float[]{0, 0, 1}));                           // far
+
+		final VectorSearchResult<Doc> hits = vectorIndex.search(new float[]{1, 0, 0}, 3);
+		assertEquals(3, hits.size());
+
+		// Narrow the hits to category A from the scored side.
+		final ScoredSearchResult<Doc> narrowed = hits.and(map.query(categoryIndexer).is("A"));
+
+		// Exactly the two A-entries, and score order preserved (idA1 before idA2).
+		final List<ScoredSearchResult.Entry<Doc>> entries = narrowed.toList();
+		assertEquals(2, entries.size());
+		assertEquals(idA1, entries.get(0).entityId());
+		assertEquals(idA2, entries.get(1).entityId());
+		assertTrue(entries.get(0).score() >= entries.get(1).score());
+	}
+
+	@Test
+	void andReturnsScoredResultThatIsStillComposable()
+	{
+		final GigaMap<Doc>     map             = GigaMap.New();
+		final CategoryIndexer  categoryIndexer = new CategoryIndexer();
+		final VectorIndex<Doc> vectorIndex     = setupIndex(map, categoryIndexer);
+
+		map.add(new Doc("A", new float[]{1, 0, 0}));
+		map.add(new Doc("A", new float[]{0.9f, 0.1f, 0}));
+		map.add(new Doc("B", new float[]{0.8f, 0.2f, 0}));
+
+		final VectorSearchResult<Doc> hits = vectorIndex.search(new float[]{1, 0, 0}, 3);
+
+		// The narrowed result is itself a SubQuery — chainable into a GigaQuery.
+		final ScoredSearchResult<Doc> narrowed = hits.and(map.query(categoryIndexer).is("A"));
+		final long count = map.query(categoryIndexer).is("A").and(narrowed).count();
+		assertEquals(2, count);
+	}
+
+	@Test
+	void andCanBeReusedAcrossIndependentIntersections()
+	{
+		final GigaMap<Doc>     map             = GigaMap.New();
+		final CategoryIndexer  categoryIndexer = new CategoryIndexer();
+		final VectorIndex<Doc> vectorIndex     = setupIndex(map, categoryIndexer);
+
+		final long idA = map.add(new Doc("A", new float[]{1, 0, 0}));
+		final long idB = map.add(new Doc("B", new float[]{0.9f, 0.1f, 0}));
+		map.add(new Doc("C", new float[]{0.8f, 0.2f, 0}));
+
+		final VectorSearchResult<Doc> hits = vectorIndex.search(new float[]{1, 0, 0}, 3);
+
+		// Two independent narrowings of the same hits — the second must not see a stale matcher cursor.
+		final ScoredSearchResult<Doc> onlyA = hits.and(map.query(categoryIndexer).is("A"));
+		final ScoredSearchResult<Doc> onlyB = hits.and(map.query(categoryIndexer).is("B"));
+
+		assertEquals(1, onlyA.size());
+		assertEquals(idA, onlyA.iterator().next().entityId());
+
+		assertEquals(1, onlyB.size());
+		assertEquals(idB, onlyB.iterator().next().entityId());
+	}
+
+	@Test
+	void andWithEmptySubQueryReturnsEmpty()
+	{
+		final GigaMap<Doc>     map             = GigaMap.New();
+		final CategoryIndexer  categoryIndexer = new CategoryIndexer();
+		final VectorIndex<Doc> vectorIndex     = setupIndex(map, categoryIndexer);
+
+		map.add(new Doc("A", new float[]{1, 0, 0}));
+		map.add(new Doc("A", new float[]{0, 1, 0}));
+
+		final VectorSearchResult<Doc> hits = vectorIndex.search(new float[]{1, 0, 0}, 2);
+		assertEquals(2, hits.size());
+
+		// No entity in category Z — the intersection is empty.
+		final ScoredSearchResult<Doc> narrowed = hits.and(map.query(categoryIndexer).is("Z"));
+		assertTrue(narrowed.isEmpty());
+		assertEquals(0, narrowed.size());
+	}
+
 }
