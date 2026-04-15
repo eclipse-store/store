@@ -1100,7 +1100,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		
 	// Unpersistable to force a custom type handler due to required initialization call.
 	public class Default<E>
-	implements   Internal<E>, BitmapResult.Resolver<E>, Unpersistable, PersistenceCommitListener
+	implements   Internal<E>, EntityResolver<E>, Unpersistable, PersistenceCommitListener
 	{
 		static BinaryTypeHandler<GigaMap.Default<?>> provideTypeHandler()
 		{
@@ -1160,8 +1160,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		private transient BulkList<WeakReference<E>> pendingEntityStores;
 		
 		private transient int readOnlyCount;
-		private transient int activeIteratorCount;
-		private final transient BulkList<Reading> activeIterators;
+		private transient int activeReaderCount;
+		private final transient BulkList<Reading> activeReaders;
 							
 		
 		
@@ -1222,8 +1222,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			this.initializeConfiguration();
 			
 			this.readOnlyCount       = 0;
-			this.activeIteratorCount = 0;
-			this.activeIterators     = BulkList.New();
+			this.activeReaderCount = 0;
+			this.activeReaders = BulkList.New();
 
 			if(createInstances)
 			{
@@ -1536,8 +1536,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			this.initializeConfiguration();
 			
 			this.readOnlyCount       = 0;
-			this.activeIteratorCount = 0;
-			this.activeIterators.clear();
+			this.activeReaderCount = 0;
+			this.activeReaders.clear();
 			
 			for(final Lazy<?> e : this.level3.segments)
 			{
@@ -1624,7 +1624,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			return resolver.foundEntityId;
 		}
 						
-		class EntityIdResolver implements BitmapResult.Resolver<E>
+		class EntityIdResolver implements EntityResolver<E>
 		{
 			///////////////////////////////////////////////////////////////////////////
 			// instance fields //
@@ -1866,8 +1866,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			this.initializeConfiguration();
 			
 			this.readOnlyCount       = 0;
-			this.activeIteratorCount = 0;
-			this.activeIterators.clear();
+			this.activeReaderCount = 0;
+			this.activeReaders.clear();
 		}
 		
 		private void ensureAddingStateSetup()
@@ -2233,11 +2233,12 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			return new GigaQuery.Default<>(this, threadProvider);
 		}
-						
+
 		final synchronized GigaIterator<E> createIterator(
-			final Condition<E>             condition     ,
-			final BitmapResult.Resolver<E> resolver      ,
-			final IterationThreadProvider  threadProvider
+			final Condition<E>            condition     ,
+			final EntityIdMatcher         idMatcher     ,
+			final EntityResolver<E>       resolver      ,
+			final IterationThreadProvider threadProvider
 		)
 		{
 			final BitmapResult   result  = condition.evaluate(this.indices.bitmap());
@@ -2255,8 +2256,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			if(threadCount <= 0)
 			{
 				@SuppressWarnings("resource") // has to be closed by caller
-				final GigaIterator.Default<E> singleThreaded =
-					new GigaIterator.Default<>(this, resolver, 0, this.nextFreeId(), results)
+				final BitmapIterator<E> singleThreaded =
+					new BitmapIterator<>(this, idMatcher, resolver, 0, this.nextFreeId(), results)
 				;
 				iterator = singleThreaded;
 				reading  = singleThreaded;
@@ -2276,11 +2277,38 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				reading  = wrapper;
 			}
 
-			this.activeIterators.add(reading);
-			this.activeIteratorCount++;
+			this.activeReaders.add(reading);
+			this.activeReaderCount++;
 			this.markReadOnly();
 
 			return iterator;
+		}
+
+		final synchronized EntityIdMatcher createEntityIdMatcher(
+			final Condition<E>    condition,
+			final long            idStart  ,
+			final long            idBound  ,
+			final EntityIdMatcher idMatcher
+		)
+		{
+			final long effStart = Math.max(idStart, 0);
+			final long effBound = Math.min(Math.max(idBound, effStart), this.nextFreeId());
+
+			final BitmapResult   result  = condition.evaluate(this.indices.bitmap());
+			final BitmapResult[] results = result.andOptimize();
+
+			if(isNoResult(results))
+			{
+				return EntityIdMatcher.Empty();
+			}
+
+			final BitmapEntityIdMatcher<E> bmEIdM = new BitmapEntityIdMatcher<>(this, idMatcher, effStart, effBound, results);
+
+			this.activeReaders.add(bmEIdM);
+			this.activeReaderCount++;
+			this.markReadOnly();
+
+			return bmEIdM;
 		}
 		
 		static boolean isNoResult(final BitmapResult[] results)
@@ -2301,35 +2329,35 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			return true;
 		}
 		
-		final synchronized void closeIterator(final Reading iterator)
+		final synchronized void closeReader(final Reading reader)
 		{
-			if(iterator.parent() != this)
+			if(reader.parent() != this)
 			{
-				throw new IllegalArgumentException("Passed iterator does not belong to this " + GigaMap.class.getSimpleName());
+				throw new IllegalArgumentException("Passed reader does not belong to this " + GigaMap.class.getSimpleName());
 			}
-			if(iterator.isClosed())
+			if(reader.isClosed())
 			{
 				return;
 			}
-			if(this.activeIteratorCount == 0)
+			if(this.activeReaderCount == 0)
 			{
-				throw new IllegalStateException("No active iterators.");
+				throw new IllegalStateException("No active readers.");
 			}
 			
-			final boolean removed = this.activeIterators.removeOne(iterator);
+			final boolean removed = this.activeReaders.removeOne(reader);
 			if(!removed)
 			{
-				throw new IllegalArgumentException("Iterator was not registered as active.");
+				throw new IllegalArgumentException("Reader was not registered as active.");
 			}
 			
-//			iterator.clearIterationState(); // should be unnecessary since the instances will never be read again.
-			iterator.setInactive();
+//			reader.clearIterationState(); // should be unnecessary since the instances will never be read again.
+			reader.setInactive();
 			
 			try
 			{
-				if(--this.activeIteratorCount == 0)
+				if(--this.activeReaderCount == 0)
 				{
-					this.activeIterators.truncate();
+					this.activeReaders.truncate();
 				}
 			}
 			finally
@@ -2345,7 +2373,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				return false;
 			}
 			
-			if(this.readOnlyCount > this.activeIteratorCount)
+			if(this.readOnlyCount > this.activeReaderCount)
 			{
 				throw new IllegalStateException(XChars.systemString(this) + " is in read only mode.");
 			}
@@ -2378,23 +2406,24 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		@Override
 		public final synchronized boolean clearReadOnlyMarks()
 		{
-			final boolean result = this.readOnlyCount > this.activeIteratorCount;
-			this.readOnlyCount = this.activeIteratorCount;
+			final boolean result = this.readOnlyCount > this.activeReaderCount;
+			this.readOnlyCount = this.activeReaderCount;
 			
 			return result;
 		}
-		
+
 		final void executeInReadOnlyMode(
 			final Condition<E>        condition,
 			final long                idStart  ,
 			final long                idBound  ,
+			final EntityIdMatcher     idMatcher,
 			final Consumer<? super E> consumer
 		)
 		{
 			try
 			{
 				this.markReadOnly();
-				this.executeReadOnly(condition, idStart, idBound, consumer);
+				this.executeReadOnly(condition, idStart, idBound, idMatcher, consumer);
 			}
 			finally
 			{
@@ -2406,6 +2435,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			final Condition<E>        condition,
 			final long                idStart  ,
 			final long                idBound  ,
+			final EntityIdMatcher     idMatcher,
 			final Consumer<? super E> consumer
 		)
 		{
@@ -2430,30 +2460,32 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			final long         effBound = Math.min(Math.max(idBound, effStart), this.nextFreeId());
 			final BitmapResult result   = condition.evaluate(this.indices.bitmap());
 			
-			execute(this, result.andOptimize(), effStart, effBound, consumer);
+			execute(idMatcher,this, result.andOptimize(), effStart, effBound, consumer);
 		}
-		
+
 		static <E> void execute(
-			final BitmapResult.Resolver<E> resolver,
-			final BitmapResult[]           results ,
-			final long                     startId ,
-			final long                     boundId ,
-			final Consumer<? super E>      consumer
+			final EntityIdMatcher     idMatcher,
+			final EntityResolver<E>   resolver ,
+			final BitmapResult[]      results  ,
+			final long                startId  ,
+			final long                boundId  ,
+			final Consumer<? super E> consumer
 		)
 		{
 			if(isNoResult(results))
 			{
 				return;
 			}
-			
-			final GigaIteration<E> iteration = new GigaIteration<>(resolver, startId, boundId, results);
-			iteration.execute(consumer);
+
+			final BitmapIteration<E> iteration = new BitmapIteration<>(idMatcher, resolver, startId, boundId, results, consumer);
+			iteration.execute();
 		}
 		
 		final void executeReadOnly(
 			final Condition<E>            condition     ,
 			final long                    idStart       ,
 			final long                    idBound       ,
+			final EntityIdMatcher         idMatcher     ,
 			final Consumer<? super E>[]   consumers     ,
 			final IterationThreadProvider threadProvider
 		)
@@ -2466,7 +2498,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			
 			if(consumers.length == 1 || threadProvider == null)
 			{
-				this.executeReadOnly(condition, idStart, idBound, consumers[0]);
+				this.executeReadOnly(condition, idStart, idBound, idMatcher, consumers[0]);
 				return;
 			}
 			
@@ -2555,6 +2587,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				final BitmapResult[] resultsThreadIterationCopy = BitmapResult.createIterationCopy(this.results);
 				return () ->
 					execute(
+						EntityIdMatcher.NoOp(),
 						this.gigaMap,
 						resultsThreadIterationCopy,
 						threadStartId,
@@ -2569,8 +2602,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		public synchronized GigaIterator<E> iterator()
 		{
 			final Itr<E> iterator = new Itr<>(this);
-			this.activeIterators.add(iterator);
-			this.activeIteratorCount++;
+			this.activeReaders.add(iterator);
+			this.activeReaderCount++;
 			
 			this.markReadOnly();
 			
@@ -2853,7 +2886,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		@Override
 		public final void close()
 		{
-			this.parent.closeIterator(this);
+			this.parent.closeReader(this);
 		}
 		
 		@SuppressWarnings("deprecation")
@@ -2899,6 +2932,33 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		 * @return the parent GigaMap to which this component belongs
 		 */
 		public GigaMap<E> parentMap();
+	}
+
+	/**
+	 * Represents a sub-query that can be combined with a {@link GigaQuery} to further restrict its result.
+	 * <p>
+	 * A sub-query contributes an {@link EntityIdMatcher} that is consulted during query execution to
+	 * decide whether a candidate entity id is part of the overall result. This allows arbitrary external
+	 * id sources (e.g. pre-computed id sets, custom id ranges, or nested queries) to participate in
+	 * query evaluation without being tied to a concrete index.
+	 * <p>
+	 * Use {@link GigaQuery#and(SubQuery)} to combine a sub-query with an existing query using logical AND.
+	 *
+	 * @see EntityIdMatcher
+	 * @see GigaQuery#and(SubQuery)
+	 */
+	@FunctionalInterface
+	public interface SubQuery
+	{
+		/**
+		 * Provides the {@link EntityIdMatcher} backing this sub-query.
+		 * <p>
+		 * The returned matcher is used during query execution to test whether candidate entity ids
+		 * should be part of the overall query result.
+		 *
+		 * @return the {@link EntityIdMatcher} of this sub-query; must not be {@code null}
+		 */
+		public EntityIdMatcher provideEntityIdMatcher();
 	}
 
 }

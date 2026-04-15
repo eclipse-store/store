@@ -14,6 +14,7 @@ package org.eclipse.store.gigamap.types;
  * #L%
  */
 
+import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.XArrays;
 import org.eclipse.serializer.collections.types.XIterable;
 
@@ -32,7 +33,7 @@ import java.util.stream.StreamSupport;
  * 
  * @param <E> the type of entities in this query
  */
-public interface GigaQuery<E> extends Predicate<E>, XIterable<E>, Iterable<E>, GigaMap.Component<E>
+public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Component<E>, GigaMap.SubQuery
 {
 	/**
 	 * Returns an iterator over the results of this query.
@@ -298,8 +299,20 @@ public interface GigaQuery<E> extends Predicate<E>, XIterable<E>, Iterable<E>, G
 	 * @return the given acceptor
 	 */
 	public <A extends EntryConsumer<? super E>> A executeWithId(A entryConsumer);
-	
-	public <R extends BitmapResult.Resolver<E>> R resolve(R resolver);
+
+
+	/**
+	 * Executes this query handing over the results to the specified {@link EntityResolver}.
+	 * The resolver is invoked for every matching entity id and is responsible for resolving
+	 * each id to its entity. This allows callers to plug in custom resolving logic, e.g. for
+	 * collecting or transforming the results.
+	 *
+	 * @param <R> the resolver type
+	 * @param resolver the resolver that receives the matching entity ids; must belong to the same {@link GigaMap}
+	 * @return the given resolver
+	 * @throws IllegalArgumentException if the resolver's parent is not the parent of this query
+	 */
+	public <R extends EntityResolver<E>> R resolve(R resolver);
 	
 	/**
 	 * Executes this query handing over the results to an entity consumer.
@@ -319,7 +332,23 @@ public interface GigaQuery<E> extends Predicate<E>, XIterable<E>, Iterable<E>, G
 	 */
 	@SuppressWarnings("unchecked")
 	public void execute(final Consumer<? super E>... consumers);
-	
+
+	// may NOT implement Predicate or passing a query to #and will be ambiguous.
+	/**
+	 * Tests whether the given entity matches the condition currently associated with this query.
+	 * <p>
+	 * Note: This is a local, in-memory evaluation of the query's {@link Condition} against a single entity;
+	 * it does not execute the query against the underlying {@link GigaMap} and is therefore independent of
+	 * any id range or sub-query configured on this query.
+	 * <p>
+	 * Note: {@link GigaQuery} intentionally does not implement {@link Predicate} to avoid ambiguity
+	 * with the various {@code and(...)} overloads.
+	 *
+	 * @param entity the entity to test against this query's condition
+	 * @return {@code true} if the entity matches the condition, {@code false} otherwise
+	 */
+	public boolean test(E entity);
+
 	/**
 	 * Constructs a condition builder for adding a condition to the query
 	 * using the specified string index name. The returned builder allows
@@ -356,7 +385,16 @@ public interface GigaQuery<E> extends Predicate<E>, XIterable<E>, Iterable<E>, G
 	 * @return a condition builder configured with the specified index and key type
 	 */
 	public <K> ConditionBuilder<E, K> and(IndexIdentifier<E, K> indexIdentifier);
-	
+
+	/**
+	 * Combines the current query with the given {@link GigaMap.SubQuery} using a logical AND operator.
+	 * The sub-query contributes an {@link EntityIdMatcher} that further restricts the matching entity ids.
+	 *
+	 * @param subQuery the sub-query to combine with the current query
+	 * @return the current {@link GigaQuery} instance with the added sub-query
+	 */
+	public GigaQuery<E> and(GigaMap.SubQuery subQuery);
+
 	/**
 	 * Sets the starting ID for the query. This method is used to specify a lower boundary
 	 * for filtering the results based on the ID of the entities.
@@ -678,6 +716,8 @@ public interface GigaQuery<E> extends Predicate<E>, XIterable<E>, Iterable<E>, G
 
 		private final GigaMap.Default<E>      parent        ;
 		private final IterationThreadProvider threadProvider;
+
+		private BulkList<GigaMap.SubQuery> subQueries;
 		
 		private Condition<E> condition;
 		private long         idStart  ;
@@ -711,6 +751,18 @@ public interface GigaQuery<E> extends Predicate<E>, XIterable<E>, Iterable<E>, G
 		public final GigaMap<E> parentMap()
 		{
 			return this.parent;
+		}
+
+		@Override
+		public GigaQuery<E> and(final GigaMap.SubQuery subQuery)
+		{
+			if(this.subQueries == null)
+			{
+				this.subQueries = BulkList.New();
+			}
+			this.subQueries.add(subQuery);
+
+			return this;
 		}
 		
 		@Override
@@ -762,6 +814,8 @@ public interface GigaQuery<E> extends Predicate<E>, XIterable<E>, Iterable<E>, G
 			
 			return entryConsumer;
 		}
+
+
 		
 		@Override
 		public GigaIterator<E> iterator()
@@ -775,14 +829,33 @@ public interface GigaQuery<E> extends Predicate<E>, XIterable<E>, Iterable<E>, G
 			// by default, the parent GigaMap does resolving on its own.
 			return this.iterator(this.parent);
 		}
-		
-		public GigaIterator<E> iterator(final BitmapResult.Resolver<E> resolver)
+
+		protected EntityIdMatcher buildEntityIdMatcher()
 		{
-			return this.parent.createIterator(this.condition, resolver, this.threadProvider);
+			if(this.subQueries == null || this.subQueries.isEmpty())
+			{
+				return EntityIdMatcher.NoOp();
+			}
+
+			final EntityIdMatcher[] idMatchers = new EntityIdMatcher[this.subQueries.intSize()];
+
+			final int i = 0;
+			for(final GigaMap.SubQuery q : this.subQueries)
+			{
+				idMatchers[i] = q.provideEntityIdMatcher();
+			}
+
+			return new EntityIdMatcher.Multiple(idMatchers);
+		}
+
+		public GigaIterator<E> iterator(final EntityResolver<E> resolver)
+		{
+			final EntityIdMatcher idMatcher = this.buildEntityIdMatcher();
+			return this.parent.createIterator(this.condition, idMatcher, resolver, this.threadProvider);
 		}
 				
 		@Override
-		public <R extends BitmapResult.Resolver<E>> R resolve(final R resolver)
+		public <R extends EntityResolver<E>> R resolve(final R resolver)
 		{
 			if(resolver.parent() != this.parent)
 			{
@@ -796,11 +869,18 @@ public interface GigaQuery<E> extends Predicate<E>, XIterable<E>, Iterable<E>, G
 		@Override
 		public <C extends Consumer<? super E>> C execute(final C consumer)
 		{
-			this.parent.executeInReadOnlyMode(this.condition, this.idStart, this.idBound, consumer);
+			final EntityIdMatcher idMatcher = this.buildEntityIdMatcher();
+			this.parent.executeInReadOnlyMode(this.condition, this.idStart, this.idBound, idMatcher, consumer);
 			
 			return consumer;
 		}
-		
+
+		@Override
+		public EntityIdMatcher provideEntityIdMatcher()
+		{
+			final EntityIdMatcher idMatcher = this.buildEntityIdMatcher();
+			return this.parent.createEntityIdMatcher(this.condition, this.idStart, this.idBound, idMatcher);
+		}
 
 		@Override
 		@SuppressWarnings("unchecked")
@@ -810,10 +890,12 @@ public interface GigaQuery<E> extends Predicate<E>, XIterable<E>, Iterable<E>, G
 			{
 				throw new IllegalArgumentException();
 			}
-			this.parent.executeReadOnly(this.condition, this.idStart, this.idBound, consumers, this.threadProvider);
+
+			final EntityIdMatcher idMatcher = this.buildEntityIdMatcher();
+			this.parent.executeReadOnly(this.condition, this.idStart, this.idBound, idMatcher, consumers, this.threadProvider);
 		}
 		
-		private void internalExecute(final BitmapResult.Resolver<E> resolver)
+		private void internalExecute(final EntityResolver<E> resolver)
 		{
 			synchronized(this.parentMap())
 			{
