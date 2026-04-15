@@ -5,8 +5,8 @@ This can significantly improve throughput when many objects need to be stored in
 
 == How It Works
 
-Unlike a regular `Storer`, which commits data on each explicit `commit()` call, the `BatchStorer` accumulates store operations and flushes them to the backing storage based on a configurable `Controller`.
-A background daemon thread periodically checks whether the controller's flush condition is met.
+Unlike a regular `Storer`, which commits data on each explicit `commit()` call, the `BatchStorer` accumulates store operations and flushes them to the backing storage when configured size and/or time thresholds are reached.
+A background daemon thread periodically checks whether the flush condition is met.
 
 Each `store()` call always re-serializes explicitly passed root instances, even if they have already been registered in the current storer lifecycle.
 This ensures that mutable objects (e.g. collections whose content changes between calls) always capture their current state.
@@ -17,23 +17,24 @@ On close, it flushes any remaining pending data and releases resources.
 
 == Creating a BatchStorer
 
-A `BatchStorer` is created from the `EmbeddedStorageManager`:
+A `BatchStorer` is created using the fluent builder obtained from the `EmbeddedStorageManager`:
 
 [source, java]
 ----
-BatchStorer storer = storageManager.createBatchStorer(
-    controller,    // controls when accumulated data should be flushed
-    checkInterval  // interval at which the background thread checks for pending flushes
-);
+BatchStorer storer = storageManager.batchStorerBuilder()
+    .maxSize(10_000L)                       // flush when 10,000 objects accumulate
+    .flushCycle(Duration.ofSeconds(1))      // or when 1 second has elapsed
+    .checkInterval(Duration.ofMillis(200))  // background check interval (default: 1s)
+    .build();
 ----
 
-The `controller` parameter is a `BatchStorer.Controller` that determines when a flush should be triggered.
-The `checkInterval` is a `Duration` that defines how often the background thread evaluates the controller's flush condition.
+At least one of `maxSize` or `flushCycle` must be configured, otherwise `build()` throws an `IllegalStateException`.
+If both are set, a flush is triggered whenever either threshold is reached first.
+The `checkInterval` is optional and defaults to `Duration.ofSeconds(1)`.
 
-== Controller
+== Flush Configuration
 
-The `BatchStorer.Controller` interface controls when accumulated data gets flushed.
-There are three built-in factory methods:
+The builder supports three flush strategies, depending on which of `maxSize` and `flushCycle` are configured:
 
 === Time-based
 
@@ -41,9 +42,9 @@ Triggers a flush after a specified duration has elapsed since the last flush:
 
 [source, java]
 ----
-BatchStorer.Controller controller = BatchStorer.Controller(
-    Duration.ofSeconds(1)
-);
+BatchStorer storer = storageManager.batchStorerBuilder()
+    .flushCycle(Duration.ofSeconds(1))
+    .build();
 ----
 
 === Size-based
@@ -52,9 +53,9 @@ Triggers a flush when the number of accumulated objects reaches a threshold:
 
 [source, java]
 ----
-BatchStorer.Controller controller = BatchStorer.Controller(
-    10_000L // max number of accumulated objects
-);
+BatchStorer storer = storageManager.batchStorerBuilder()
+    .maxSize(10_000L)
+    .build();
 ----
 
 === Combined (Size and Time)
@@ -63,10 +64,10 @@ Triggers a flush when either the size threshold is reached or the time interval 
 
 [source, java]
 ----
-BatchStorer.Controller controller = BatchStorer.Controller(
-    10_000L,                  // max number of accumulated objects
-    Duration.ofSeconds(1)     // max time between flushes
-);
+BatchStorer storer = storageManager.batchStorerBuilder()
+    .maxSize(10_000L)
+    .flushCycle(Duration.ofSeconds(1))
+    .build();
 ----
 
 == Usage
@@ -80,10 +81,10 @@ ArrayList<String> data = new ArrayList<>();
 
 try (EmbeddedStorageManager storage = EmbeddedStorage.start(data, storageDir))
 {
-    try (BatchStorer storer = storage.createBatchStorer(
-        BatchStorer.Controller(Duration.ofMillis(500)),
-        Duration.ofMillis(200)
-    ))
+    try (BatchStorer storer = storage.batchStorerBuilder()
+        .flushCycle(Duration.ofMillis(500))
+        .checkInterval(Duration.ofMillis(200))
+        .build())
     {
         for (int i = 0; i < 1_000; i++)
         {
@@ -96,12 +97,12 @@ try (EmbeddedStorageManager storage = EmbeddedStorage.start(data, storageDir))
 }
 ----
 
-In this example a time-based controller is used with a flush cycle of 500 milliseconds and a check interval of 200 milliseconds.
+In this example a time-based flush cycle of 500 milliseconds is configured with a check interval of 200 milliseconds.
 The `BatchStorer` accumulates the store operations and periodically flushes them, rather than writing each individual store call to the storage immediately.
 
 == Manual Flushing
 
-In addition to the automatic controller-based flushing, data can be flushed explicitly at any time:
+In addition to the automatic threshold-based flushing, data can be flushed explicitly at any time:
 
 [source, java]
 ----
