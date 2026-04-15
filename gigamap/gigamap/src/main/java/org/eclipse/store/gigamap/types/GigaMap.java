@@ -2236,6 +2236,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 
 		final synchronized GigaIterator<E> createIterator(
 			final Condition<E>            condition     ,
+			final long                    idStart       ,
+			final long                    idBound       ,
 			final EntityIdMatcher         idMatcher     ,
 			final EntityResolver<E>       resolver      ,
 			final IterationThreadProvider threadProvider
@@ -2243,21 +2245,27 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			final BitmapResult   result  = condition.evaluate(this.indices.bitmap());
 			final BitmapResult[] results = result.andOptimize();
-			
+
 			if(isNoResult(results))
 			{
 				return GigaIterator.Empty(this);
 			}
-			
+
+			final long effStart = Math.max(idStart, 0);
+			final long effBound = Math.min(Math.max(idBound, effStart), this.nextFreeId());
+
 			final GigaIterator<E> iterator;
 			final Reading         reading ;
 
-			final int threadCount = threadProvider.provideThreadCount(this, results);
+			// The threaded iterator cannot apply an idMatcher — stateful matchers are not
+			// thread-safe. Fall back to single-threaded whenever sub-queries are in play.
+			final boolean canThread  = idMatcher == EntityIdMatcher.NoOp();
+			final int     threadCount = canThread ? threadProvider.provideThreadCount(this, results) : 0;
 			if(threadCount <= 0)
 			{
 				@SuppressWarnings("resource") // has to be closed by caller
 				final BitmapIterator<E> singleThreaded =
-					new BitmapIterator<>(this, idMatcher, resolver, 0, this.nextFreeId(), results)
+					new BitmapIterator<>(this, idMatcher, resolver, effStart, effBound, results)
 				;
 				iterator = singleThreaded;
 				reading  = singleThreaded;
@@ -2272,7 +2280,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				final GigaIterator.Wrapping<E> wrapper =
 					new GigaIterator.Wrapping<>(this, multiThreaded, resolver)
 				;
-				
+
 				iterator = wrapper;
 				reading  = wrapper;
 			}
@@ -2302,13 +2310,46 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				return EntityIdMatcher.Empty();
 			}
 
-			final BitmapEntityIdMatcher<E> bmEIdM = new BitmapEntityIdMatcher<>(this, idMatcher, effStart, effBound, results);
+			/*
+			 * Eagerly materialize all matching entity ids while the GigaMap lock is held
+			 * (this method is synchronized on `this`). The returned matcher is a stateless
+			 * snapshot backed by a private long[] — it holds no references to the GigaMap's
+			 * mutable state, needs no read-lock, and is safe to reuse across threads and
+			 * queries (each call to matchEntityId sees a fresh cursor via a new wrapper).
+			 */
+			final long[] ids = this.materializeEntityIds(results, idMatcher, effStart, effBound);
+			return ids.length == 0
+				? EntityIdMatcher.Empty()
+				: new EntityIdMatcher.AscendingListWrapper(ids);
+		}
 
-			this.activeReaders.add(bmEIdM);
-			this.activeReaderCount++;
-			this.markReadOnly();
-
-			return bmEIdM;
+		private long[] materializeEntityIds(
+			final BitmapResult[]  results  ,
+			final EntityIdMatcher idMatcher,
+			final long            idStart  ,
+			final long            idBound
+		)
+		{
+			final long[][] idsRef  = { new long[16] };
+			final int[]    sizeRef = { 0 };
+			final AbstractBitmapIterating<E> collector =
+				new AbstractBitmapIterating<E>(idMatcher, idStart, idBound, results, -1)
+				{
+					@Override
+					protected boolean handleEntityId(final long entityId)
+					{
+						long[] ids = idsRef[0];
+						if(sizeRef[0] == ids.length)
+						{
+							idsRef[0] = ids = java.util.Arrays.copyOf(ids, ids.length << 1);
+						}
+						ids[sizeRef[0]++] = entityId;
+						return false; // keep iterating
+					}
+				}
+			;
+			collector.execute();
+			return java.util.Arrays.copyOf(idsRef[0], sizeRef[0]);
 		}
 		
 		static boolean isNoResult(final BitmapResult[] results)
@@ -2495,19 +2536,38 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				// it is perfectly valid to execute a query without a condition
 				return;
 			}
-			
-			if(consumers.length == 1 || threadProvider == null)
+
+			if(consumers.length == 1)
 			{
 				this.executeReadOnly(condition, idStart, idBound, idMatcher, consumers[0]);
 				return;
 			}
-			
-			final long         effStart = Math.max(idStart, 0);
-			final long         effBound = Math.min(Math.max(idBound, effStart), this.nextFreeId());
-			final BitmapResult result   = condition.evaluate(this.indices.bitmap());
-			
+
+			final long           effStart = Math.max(idStart, 0);
+			final long           effBound = Math.min(Math.max(idBound, effStart), this.nextFreeId());
+			final BitmapResult[] results  = condition.evaluate(this.indices.bitmap()).andOptimize();
+
+			// Threaded execution cannot apply a stateful idMatcher safely across partitions.
+			// When an idMatcher is present, partition the id range sequentially on a single
+			// thread so matchEntityId keeps receiving ids in monotonically ascending order
+			// (slice i fully precedes slice i+1).
+			if(threadProvider == null || idMatcher != EntityIdMatcher.NoOp())
+			{
+				final long idsPerSlice = (effBound - effStart) / consumers.length;
+				for(int i = 0; i < consumers.length; i++)
+				{
+					final long sliceStart = effStart + i * idsPerSlice;
+					final long sliceBound = i == consumers.length - 1
+						? effBound
+						: sliceStart + idsPerSlice
+					;
+					execute(idMatcher, this, BitmapResult.createIterationCopy(results), sliceStart, sliceBound, consumers[i]);
+				}
+				return;
+			}
+
 			final LogicProvider<E> logicProvider =
-				new LogicProvider<>(this, effStart, effBound, result.andOptimize(), consumers)
+				new LogicProvider<>(this, effStart, effBound, results, consumers)
 			;
 			threadProvider.executeThreaded(this, consumers.length, logicProvider);
 		}
