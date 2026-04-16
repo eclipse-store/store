@@ -1,5 +1,28 @@
 = Changelog
 
+
+== 4.1.0-beta1
+
+=== Features
+
+* Batch Storer for batched persistence https://github.com/eclipse-serializer/serializer/pull/254[[254]] https://github.com/eclipse-store/store/pull/638[[638]]
+* Storage object recovery https://github.com/eclipse-store/store/pull/634[[634]]
+* Enhanced root initialization and retrieval in StorageManager https://github.com/eclipse-store/store/pull/631[[631]] https://github.com/eclipse-store/store/pull/632[[632]]
+* Add OffHeapLongHashSet and utility methods https://github.com/eclipse-serializer/serializer/pull/255[[255]]
+
+=== Bugfixes
+
+* Fix element count calculation issue https://github.com/eclipse-serializer/serializer/pull/252[[252]]
+* GigaMap fixes
+** Fix composite key updates and index exception handling https://github.com/eclipse-store/store/pull/635[[635]]
+** Fix race condition in LuceneIndex GraphDirectory during store https://github.com/eclipse-store/store/pull/628[[628]]
+
+=== Other changes
+
+* Implemented cleanUp in ConstantSizedBufferProvider https://github.com/eclipse-store/store/pull/636[[636]]
+* Add demo projects https://github.com/eclipse-store/store/pull/630[[630]]
+
+
 == 4.0.1
 
 === Bugfixes
