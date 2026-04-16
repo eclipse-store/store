@@ -251,7 +251,6 @@ public class SubQueryCompositionTest
 	 * category to verify that the composite index returns exactly the expected set of IDs.
 	 */
 	@Test
-	@Disabled("muss be checked before merge")
 	void largeDatasetCompositeIndexFindsAllRelevantEntities()
 	{
 		final GigaMap<Entity>   map           = GigaMap.New();
