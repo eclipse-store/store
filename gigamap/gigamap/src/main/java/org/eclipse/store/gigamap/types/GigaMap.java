@@ -596,7 +596,21 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * @see PersistenceStoring#store(Object)
 	 */
 	public long store();
-	
+
+
+	/**
+	 * Stores this {@link GigaMap} instance and all its modified data using the provided {@link Persister}.
+	 * <p>
+	 * Unlike {@link #store()}, which requires a previously linked storing context,
+	 * this method allows explicitly passing the {@link Persister} to use for storing.
+	 *
+	 * @param persister the {@link Persister} to use for storing this instance
+	 * @return the objectId of this instance
+	 * @see #store()
+	 * @see Persister#store(Object)
+	 */
+	public long store(Persister persister);
+
 	/**
 	 * Provides this set {@link Equalator} instance of this {@link GigaMap}.
 	 *
@@ -2485,7 +2499,13 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			return this.storeContext().store(this);
 		}
-		
+
+		@Override
+		public final synchronized long store(final Persister persister)
+		{
+			return persister.store(this);
+		}
+
 		private Persister storeContext()
 		{
 			if(this.storeContext == null)

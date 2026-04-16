@@ -15,9 +15,11 @@ package org.eclipse.store.storage.restadapter.types;
  */
 
 import java.nio.ByteOrder;
+import java.time.Duration;
 import java.util.function.Consumer;
 
 import org.eclipse.serializer.collections.Set_long;
+import org.eclipse.serializer.persistence.types.BatchStorer;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.binary.types.BinaryLoader;
 import org.eclipse.serializer.persistence.types.Persistence;
@@ -228,6 +230,15 @@ public interface ViewerBinaryPersistenceManager extends PersistenceManager<Binar
 		public PersistenceStorer createEagerStorer()
 		{
 			return this.persistenceManager.createEagerStorer();
+		}
+
+		@Override
+		public BatchStorer createBatchStorer(
+			final BatchStorer.Controller controller   ,
+			final Duration               checkInterval
+		)
+		{
+			return this.persistenceManager.createBatchStorer(controller, checkInterval);
 		}
 
 		@Override
