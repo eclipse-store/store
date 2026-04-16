@@ -219,23 +219,21 @@ VectorIndex<Document> contentIndex = vectorIndices.add("content", contentConfig,
 
 == Hybrid Search
 
-Combine vector similarity search with traditional bitmap index filtering.
+Combine vector similarity search with traditional bitmap index filtering. `VectorIndex.search(...)` returns a `VectorSearchResult` that is itself a xref:queries/defining.adoc#_sub_queries[`GigaMap.SubQuery`], so the two can be intersected directly — no manual id filtering required.
 
 [source, java]
 ----
-// First, filter by category using bitmap index
-List<Long> categoryIds = bitmapIndex.query(
-    categoryIndexer.is("technology")
-).toList();
+VectorSearchResult<Document> hits = vectorIndex.search(queryVector, 10);
 
-// Then search within filtered results
-VectorSearchResult<Document> result = vectorIndex.search(queryVector, 10);
-
-// Combine results
-List<Document> hybridResults = result.stream()
-    .filter(e -> categoryIds.contains(e.entityId()))
-    .map(VectorSearchResult.Entry::entity)
+// From the bitmap side — scores dropped
+List<Document> hybridResults = gigaMap.query(categoryIndexer.is("technology"))
+    .and(hits)
     .toList();
+
+// From the scored side — keep iterating with similarity scores
+ScoredSearchResult<Document> ranked = hits.and(
+    gigaMap.query(categoryIndexer.is("technology"))
+);
 ----
 
 == Vectorizer Implementations

@@ -22,6 +22,7 @@ import org.eclipse.store.demo.recommendations.model.Product;
 import org.eclipse.store.gigamap.jvector.VectorIndex;
 import org.eclipse.store.gigamap.jvector.VectorSearchResult;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ClassPathResource;
@@ -183,7 +184,7 @@ public class ProductService
 		final VectorSearchResult<Product> result = this.vectorIndex.search(queryVector, k);
 
 		final List<SearchResult> results = new ArrayList<>();
-		for(final VectorSearchResult.Entry<Product> entry : result)
+		for(final ScoredSearchResult.Entry<Product> entry : result)
 		{
 			results.add(new SearchResult(entry.entity(), entry.score()));
 		}

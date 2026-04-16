@@ -71,199 +71,7 @@ public interface GigaIterator<E> extends Iterator<E>, AutoCloseable
 	public <I extends EntryConsumer<? super E>> void nextIndexed(final I consumer);
 	
 	
-	
-	public final class Default<E> extends AbstractGigaIterating<E> implements GigaIterator<E>, GigaMap.Reading
-	{
-		final static class Entry<E>
-		{
-			final E    entity;
-			final long id;
-			
-			Entry(final E entity, final long id)
-			{
-				super();
-				this.entity = entity;
-				this.id     = id;
-			}
-		}
-		
-		
-		///////////////////////////////////////////////////////////////////////////
-		// instance fields //
-		////////////////////
-		
-		// parent must be referenced separately because resolver might not use/reference it at all.
-		private final GigaMap.Default<E> parent;
-		
-		private boolean isActive = true;
-		private int currentBitPosition = -1; // must be -1 due to pre-increment logic
-		
-		private Entry<E> next = null;
-		
-		
-		
-		///////////////////////////////////////////////////////////////////////////
-		// constructors //
-		/////////////////
 
-		Default(
-			final GigaMap.Default<E>       parent  ,
-			final BitmapResult.Resolver<E> resolver,
-			final long                     idStart ,
-			final long                     idBound ,
-			final BitmapResult[]           results
-		)
-		{
-			super(resolver, idStart, idBound, results);
-			this.parent = parent;
-		}
-		
-		
-		
-		///////////////////////////////////////////////////////////////////////////
-		// methods //
-		////////////
-		
-		@Override
-		public final GigaMap.Default<E> parent()
-		{
-			return this.parent;
-		}
-		
-		@Override
-		public final boolean hasNext()
-		{
-			synchronized(this.parent())
-			{
-				// must close in any and all cases where next is null. Including no elements and any throwable.
-				try
-				{
-					if(this.next != null || (this.next = this.scrollToNextNonNullElement()) != null)
-					{
-						return true;
-					}
-					
-					this.close();
-					return false;
-				}
-				catch(final Throwable t)
-				{
-					this.close();
-					throw t;
-				}
-			}
-		}
-		
-		@Override
-		public final E next()
-		{
-			return this.nextEntry().entity;
-		}
-		
-		@Override
-		public <I extends EntryConsumer<? super E>> void nextIndexed(final I consumer)
-		{
-			final Entry<E> entry = this.nextEntry();
-			consumer.accept(entry.id, entry.entity);
-		}
-		
-		private Entry<E> nextEntry()
-		{
-			synchronized(this.parent())
-			{
-				final Entry<E> next;
-				if(this.next != null)
-				{
-					// #hasNext already had the next element prepared, so just consume it.
-					next = this.next;
-					this.next = null;
-				}
-				else if((next = this.scrollToNextNonNullElement()) == null)
-				{
-					// no element and no more data to get the next one, hence exception
-					throw new NoSuchElementException();
-				}
-				return next;
-			}
-		}
-		
-		private Entry<E> scrollToNextNonNullElement()
-		{
-			// Copied from GigaIteration#execute and adjusted for Iterator principle (iteration devided betweeen two methods)
-			while(this.isActive)
-			{
-				long bitmapValue = this.currentBitmapValue;
-				long valueBaseId = this.bitValBaseId;
-				for(int bitPosition = this.currentBitPosition;;)
-				{
-					do
-					{
-						if(++bitPosition >= Long.SIZE)
-						{
-							if(!this.scrollToNextBitmapValue())
-							{
-								// scrolling logic reached end of data and did already setup the internal state to abort.
-								return null;
-							}
-							bitmapValue = this.currentBitmapValue;
-							valueBaseId = this.bitValBaseId;
-							bitPosition = 0;
-						}
-					}
-					while((bitmapValue & 1L<<bitPosition) == 0L);
-					this.currentBitPosition = bitPosition;
-					
-					// Null check filters out null entries when using a top-level not condition. No performance impact.
-					final long entityId = valueBaseId + bitPosition;
-					final E    entity   = this.resolver.get(entityId);
-					if(entity == null)
-					{
-						continue;
-					}
-					
-					// keep the next non-null entity ready for #next.
-					return this.next = new Entry<>(entity, entityId);
-				}
-			}
-			
-			// iterator has been closed/deactivated. No more elements.
-			return null;
-		}
-			
-		@Override
-		public void close()
-		{
-			this.parent.closeIterator(this);
-		}
-		
-		@Override
-		public final boolean isClosed()
-		{
-			return !this.isActive;
-		}
-		
-		@Override
-		public final void setInactive()
-		{
-			// these values make #hasNext and #next dysfunctional forever.
-			this.currentBitmapValue = -1L; // these two will cause #hasNext to skip state progressing logic
-			this.currentBitPosition =   0; // these two will cause #hasNext to skip state progressing logic
-			this.bitValBaseId       = Long.MIN_VALUE; // will always cause an exception when calling #next
-			this.isActive           = false; // makes #hasNext return false
-		}
-		
-		public void clearIterationState()
-		{
-			if(!this.isActive)
-			{
-				// iteration state has already been cleared and will not be set up again.
-				return;
-			}
-			
-			this.clearResultsIterationState();
-		}
-		
-	}
 	
 	public final class Wrapping<E> implements GigaIterator<E>, GigaMap.Reading
 	{
@@ -285,9 +93,9 @@ public interface GigaIterator<E> extends Iterator<E>, AutoCloseable
 		////////////////////
 		
 		// parent must be referenced separately because resolver might not use/reference it at all.
-		private final GigaMap.Default<E>       parent    ;
-		private final ResultIdIterator         idIterator;
-		private final BitmapResult.Resolver<E> resolver  ;
+		private final GigaMap.Default<E> parent    ;
+		private final ResultIdIterator   idIterator;
+		private final EntityResolver<E>  resolver  ;
 
 		private Entry<E> next = null;
 		
@@ -298,9 +106,9 @@ public interface GigaIterator<E> extends Iterator<E>, AutoCloseable
 		/////////////////
 
 		Wrapping(
-			final GigaMap.Default<E>       parent    ,
-			final ResultIdIterator         idIterator,
-			final BitmapResult.Resolver<E> resolver
+			final GigaMap.Default<E> parent    ,
+			final ResultIdIterator   idIterator,
+			final EntityResolver<E>  resolver
 		)
 		{
 			super();
@@ -387,7 +195,7 @@ public interface GigaIterator<E> extends Iterator<E>, AutoCloseable
 		@Override
 		public void close()
 		{
-			this.parent.closeIterator(this);
+			this.parent.closeReader(this);
 			this.idIterator.close();
 		}
 
