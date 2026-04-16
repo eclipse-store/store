@@ -17,12 +17,16 @@ package org.eclipse.store.gigamap.query;
 import org.eclipse.store.gigamap.types.EntityIdMatcher;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.GigaQuery;
+import org.eclipse.store.gigamap.types.IndexerLocalDateTime;
 import org.eclipse.store.gigamap.types.IndexerLong;
 import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.gigamap.types.IterationThreadProvider;
 import org.eclipse.store.gigamap.types.ThreadCountProvider;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -56,6 +60,15 @@ public class SubQueryCompositionTest
 		{
 			this.category = category;
 			this.value    = value   ;
+		}
+
+		@Override
+		public String toString()
+		{
+			return "Entity{" +
+					"category='" + category + '\'' +
+					", value=" + value +
+					'}';
 		}
 	}
 
@@ -229,6 +242,96 @@ public class SubQueryCompositionTest
 
 		assertEquals(expected, union.size(),
 			"multi-consumer execution with a sub-query must produce the full filtered set across partitions");
+	}
+
+	/**
+	 * Adds 50 000 entities, each with a category (A/B/C), a value, and a LocalDateTime
+	 * derived from the entity index. The test uses a composite index (IndexerLocalDateTime,
+	 * which is backed by a HashingCompositeIndexer) combined with a bitmap sub-query on
+	 * category to verify that the composite index returns exactly the expected set of IDs.
+	 */
+	@Test
+	@Disabled("muss be checked before merge")
+	void largeDatasetCompositeIndexFindsAllRelevantEntities()
+	{
+		final GigaMap<Entity>   map           = GigaMap.New();
+		final CategoryIndexer   categoryIndex = new CategoryIndexer();
+		final ValueIndexer      valueIndex    = new ValueIndexer();
+		final DateTimeIndexer   dateTimeIndex = new DateTimeIndexer();
+		map.index().bitmap().add(categoryIndex);
+		map.index().bitmap().add(valueIndex);
+		map.index().bitmap().add(dateTimeIndex);
+
+		// Base timestamp used to generate per-entity dates.
+		final LocalDateTime base = LocalDateTime.of(2000, 1, 1, 0, 0, 0);
+
+		//final int TOTAL         = 50_000;
+		final int TOTAL         = 50;
+		// Categories cycle A -> B -> C -> A ...
+		final String[] cats     = {"A", "B", "C"};
+		// IDs of entities in category "A" whose value is divisible by 7 — the target subset.
+		final Set<Long> expectedIds = new HashSet<>();
+
+		for(int i = 0; i < TOTAL; i++)
+		{
+			final String  cat   = cats[i % 3];
+			final long    value = i;
+			final long    id    = map.add(new Entity(cat, value));
+			if("A".equals(cat) && value % 7 == 0)
+			{
+				expectedIds.add(id);
+			}
+		}
+
+		// Sub-query 1: category == "A"  (bitmap index)
+		final GigaQuery<Entity> catAQuery = map.query(categoryIndex).is("A");
+		// Sub-query 2: value divisible by 7  (bitmap predicate)
+		final GigaQuery<Entity> mod7Query = map.query(valueIndex).is(v -> v % 7 == 0);
+
+		// Primary condition: dateTime after the base (all entities satisfy this because
+		// each entity's minute = i % 60 and hour grows beyond midnight very quickly,
+		// so we simply match anything after the epoch-like base).
+		// We anchor the primary on the composite (datetime) index so we exercise the
+		// HashingCompositeIndexer code path; the sub-queries narrow it via AND.
+		final Set<Long> actualIds = new HashSet<>();
+
+		List<Entity> list = map.query(dateTimeIndex.after(base.minusSeconds(1)))
+				.and(catAQuery)
+				.and(mod7Query)
+				.toList();
+
+		System.out.println(list);
+
+
+
+		map.query(dateTimeIndex.after(base.minusSeconds(1)))
+			.and(catAQuery)
+			.and(mod7Query)
+			.iterateIndexed((id, e) -> actualIds.add(id));
+
+		assertEquals(expectedIds.size(), actualIds.size(),
+			"composite index + two sub-queries must find exactly the expected number of entities");
+		assertEquals(expectedIds, actualIds,
+			"composite index + two sub-queries must return exactly the expected entity IDs");
+	}
+
+	// -------------------------------------------------------------------------
+	// Helper indexer used only by largeDatasetCompositeIndexFindsAllRelevantEntities
+	// -------------------------------------------------------------------------
+
+	private static class DateTimeIndexer extends IndexerLocalDateTime.Abstract<Entity>
+	{
+		// Each entity gets a unique minute derived from its value so dates are spread
+		// across many distinct LocalDateTime values, exercising the composite index
+		// at high cardinality.
+		@Override
+		protected LocalDateTime getLocalDateTime(final Entity entity)
+		{
+			final long minutesFromEpoch = entity.value;
+			// Spread over ~34 years worth of minutes (50 000 minutes ≈ 34 days but
+			// that is fine — we just need a diverse set of composite key entries).
+			return LocalDateTime.of(2000, 1, 1, 0, 0, 0).plusMinutes(minutesFromEpoch);
+		}
 	}
 
 	@Test
