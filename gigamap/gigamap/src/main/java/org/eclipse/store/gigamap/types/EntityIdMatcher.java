@@ -303,21 +303,35 @@ public interface EntityIdMatcher extends GigaMap.SubQuery
 		@Override
 		public final long matchEntityId(final long entityId)
 		{
-			long maxReturnValue = entityId;
-			for(final EntityIdMatcher matcher : this.matchers)
+			// Iteratively converge on a candidate that ALL matchers accept.
+			// A single pass taking the max is incorrect: matcher A might report
+			// "next is 3" while matcher B reports "next is 7", but 7 may not be
+			// in A. We must re-probe until every matcher returns the same candidate.
+			long candidateId = entityId;
+
+			for(boolean converged = false; !converged;)
 			{
-				final long returnValue = matcher.matchEntityId(entityId);
-				if(returnValue < 0)
+				converged = true;
+				for(final EntityIdMatcher matcher : this.matchers)
 				{
-					// Any delegate rejecting the id means AND fails, regardless of the others.
-					return -1L;
-				}
-				if(returnValue > maxReturnValue)
-				{
-					maxReturnValue = returnValue;
+					final long returnValue = matcher.matchEntityId(candidateId);
+					if(returnValue < 0)
+					{
+						// Any delegate rejecting the id means AND fails, regardless of the others.
+						return -1L;
+					}
+					if(returnValue > candidateId)
+					{
+						// This matcher doesn't have candidateId but has a higher one.
+						// Restart with the new candidate so all matchers are re-checked.
+						candidateId = returnValue;
+						converged   = false;
+						break;
+					}
 				}
 			}
-			return maxReturnValue;
+
+			return candidateId;
 		}
 
 	}
