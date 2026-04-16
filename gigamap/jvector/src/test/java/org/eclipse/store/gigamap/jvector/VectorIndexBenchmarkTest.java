@@ -15,6 +15,7 @@ package org.eclipse.store.gigamap.jvector;
  */
 
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
@@ -406,7 +407,7 @@ class VectorIndexBenchmarkTest
         // Print search results
         System.out.println("VectorIndex search results:");
         int rank = 0;
-        for (final VectorSearchResult.Entry<VectorEntity> entry : result)
+        for (final ScoredSearchResult.Entry<VectorEntity> entry : result)
         {
             final int id = entry.entity().id();
             final double dist = euclideanDistance(query, baseVectors.get(id));
@@ -764,7 +765,7 @@ class VectorIndexBenchmarkTest
 
             // Extract retrieved IDs
             final Set<Integer> retrieved = new HashSet<>();
-            for (final VectorSearchResult.Entry<VectorEntity> entry : result)
+            for (final ScoredSearchResult.Entry<VectorEntity> entry : result)
             {
                 retrieved.add(entry.entity().id());
             }

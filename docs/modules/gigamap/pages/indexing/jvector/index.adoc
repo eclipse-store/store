@@ -169,7 +169,7 @@ gigaMap.add(new Document("Hello world", embedding));
 // Search for similar vectors (returns top 10 results)
 VectorSearchResult<Document> result = index.search(queryVector, 10);
 
-for (VectorSearchResult.Entry<Document> entry : result)
+for (ScoredSearchResult.Entry<Document> entry : result)
 {
     Document doc = entry.entity();    // Lazy entity access
     float score = entry.score();      // Similarity score
@@ -183,7 +183,7 @@ The search results support the Java Stream API for convenient filtering and tran
 ----
 List<Document> topDocs = result.stream()
     .filter(e -> e.score() > 0.8f)
-    .map(VectorSearchResult.Entry::entity)
+    .map(ScoredSearchResult.Entry::entity)
     .toList();
 ----
 

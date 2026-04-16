@@ -131,7 +131,7 @@ gigaMap.add(new Document("Hello world", embedding));
 
 // Search for similar vectors
 VectorSearchResult<Document> result = index.search(queryVector, 10);
-for (VectorSearchResult.Entry<Document> entry : result) {
+for (ScoredSearchResult.Entry<Document> entry : result) {
     Document doc = entry.entity();    // Lazy entity access
     float score = entry.score();      // Similarity score
     long id = entry.entityId();       // Entity ID
@@ -140,7 +140,7 @@ for (VectorSearchResult.Entry<Document> entry : result) {
 // Stream API
 List<Document> topDocs = result.stream()
     .filter(e -> e.score() > 0.8f)
-    .map(VectorSearchResult.Entry::entity)
+    .map(ScoredSearchResult.Entry::entity)
     .toList();
 ```
 

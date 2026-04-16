@@ -26,10 +26,12 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.*;
+import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.serializer.math.XMath;
 import org.eclipse.serializer.persistence.binary.types.BinaryTypeHandler;
 import org.eclipse.serializer.persistence.types.Storer;
+import org.eclipse.serializer.util.X;
 import org.eclipse.store.gigamap.types.*;
 
 import java.io.Closeable;
@@ -186,6 +188,52 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		this.query(queryText, maxResults, (entityId, entity, score) -> result.add(entity));
 		return result;
 	}
+
+	/**
+	 * Executes a query against the Lucene index and returns a {@link LuceneSearchResult}
+	 * carrying the matching entity ids, entities and relevance scores.
+	 * <p>
+	 * The returned result is also a {@link GigaMap.SubQuery} and can therefore be combined
+	 * with other {@link GigaQuery} conditions via {@link GigaQuery#and(GigaMap.SubQuery)}.
+	 *
+	 * @param query the {@link Query} representing the search criteria
+	 * @param maxResults the maximum number of search results to be returned
+	 * @return a {@link LuceneSearchResult} with the matching entries
+	 */
+	public LuceneSearchResult<E> search(Query query, int maxResults);
+
+	/**
+	 * Executes a query against the Lucene index and returns a {@link LuceneSearchResult}
+	 * carrying the matching entity ids, entities and relevance scores.
+	 * <p>
+	 * The returned result is also a {@link GigaMap.SubQuery} and can therefore be combined
+	 * with other {@link GigaQuery} conditions via {@link GigaQuery#and(GigaMap.SubQuery)}.
+	 *
+	 * @param queryText the text representation of the query to be executed
+	 * @param maxResults the maximum number of search results to be returned
+	 * @return a {@link LuceneSearchResult} with the matching entries
+	 */
+	public LuceneSearchResult<E> search(String queryText, int maxResults);
+
+	/**
+	 * Executes a query against the Lucene index and returns a {@link LuceneSearchResult}
+	 * carrying the matching entity ids, entities and relevance scores. Uses the current
+	 * {@link GigaMap} size as the default result limit.
+	 *
+	 * @param query the {@link Query} representing the search criteria
+	 * @return a {@link LuceneSearchResult} with the matching entries
+	 */
+	public LuceneSearchResult<E> search(Query query);
+
+	/**
+	 * Executes a query against the Lucene index using the specified query text and returns
+	 * a {@link LuceneSearchResult} carrying the matching entity ids, entities and relevance
+	 * scores. Uses the current {@link GigaMap} size as the default result limit.
+	 *
+	 * @param queryText the text representation of the query to be executed
+	 * @return a {@link LuceneSearchResult} with the matching entries
+	 */
+	public LuceneSearchResult<E> search(String queryText);
 
     /**
      * Commits any pending changes to the Lucene index, ensuring that all modifications
@@ -515,6 +563,88 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 					searchResultAcceptor.accept(entityId, entity, scoreDoc.score);
 				}
 			}
+		}
+
+		@Override
+		public LuceneSearchResult<E> search(final Query query)
+		{
+			return this.search(notNull(query), this.defaultMaxResults());
+		}
+
+		@Override
+		public LuceneSearchResult<E> search(final String queryText)
+		{
+			return this.search(notNull(queryText), this.defaultMaxResults());
+		}
+
+		@Override
+		public LuceneSearchResult<E> search(final Query query, final int maxResults)
+		{
+			notNull(query);
+			if(maxResults <= 0)
+			{
+				return new LuceneSearchResult.Default<>(X.empty());
+			}
+			try
+			{
+				synchronized(this.gigaMap)
+				{
+					this.lazyInit();
+					return this.syncInternalSearch(query, maxResults);
+				}
+			}
+			catch(final IOException e)
+			{
+				throw new IORuntimeException(e);
+			}
+		}
+
+		@Override
+		public LuceneSearchResult<E> search(final String queryText, final int maxResults)
+		{
+			notNull(queryText);
+			if(maxResults <= 0)
+			{
+				return new LuceneSearchResult.Default<>(X.empty());
+			}
+			try
+			{
+				synchronized(this.gigaMap)
+				{
+					this.lazyInit();
+
+					final StandardQueryParser queryParser = new StandardQueryParser(this.analyzer);
+					queryParser.setAllowLeadingWildcard(true);
+					final Query query = queryParser.parse(queryText, ENTITY_ID_FIELD);
+					return this.syncInternalSearch(query, maxResults);
+				}
+			}
+			catch(final IOException e)
+			{
+				throw new IORuntimeException(e);
+			}
+			catch(final QueryNodeException e)
+			{
+				throw new RuntimeException(e);
+			}
+		}
+
+		private LuceneSearchResult<E> syncInternalSearch(final Query query, final int maxResults)
+		throws IOException
+		{
+			final StoredFields                          storedFields = this.searcher.storedFields();
+			final Set<String>                           idOnly       = new HashSet<>(List.of(ENTITY_ID_FIELD));
+			final TopDocs                               topDocs      = this.searcher.search(query, maxResults);
+			final BulkList<ScoredSearchResult.Entry<E>> entries      = BulkList.New(topDocs.scoreDocs.length);
+			for(final ScoreDoc scoreDoc : topDocs.scoreDocs)
+			{
+				final long entityId = storedFields
+					.document(scoreDoc.doc, idOnly)
+					.getField(ENTITY_ID_FIELD).numericValue().longValue()
+				;
+				entries.add(new ScoredSearchResult.Entry.Default<>(entityId, scoreDoc.score, this.gigaMap));
+			}
+			return new LuceneSearchResult.Default<>(entries);
 		}
 		
 		@Override

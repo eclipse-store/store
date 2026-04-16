@@ -265,6 +265,29 @@ luceneIndex.query("title:Python", 10, (entityId, article, score) -> {
 });
 ----
 
+=== Composable Search Result
+
+`search(...)` returns a `LuceneSearchResult` — an iterable of `(entityId, entity, score)` entries that is also a xref:queries/defining.adoc#_sub_queries[`GigaMap.SubQuery`].
+
+[source, java]
+----
+LuceneSearchResult<Article> hits = luceneIndex.search("title:Python", 50);
+
+// Iterate with scores
+for(ScoredSearchResult.Entry<Article> entry : hits)
+{
+    System.out.println(entry.entity().getTitle() + " (" + entry.score() + ")");
+}
+
+// Narrow by a bitmap condition; keep scores on the result
+ScoredSearchResult<Article> published = hits.and(gigaMap.query(status.is("PUBLISHED")));
+
+// Or start from the bitmap side
+List<Article> publishedList = gigaMap.query(status.is("PUBLISHED"))
+    .and(hits)
+    .toList();
+----
+
 == Persistence
 
 The Lucene index supports three storage options:

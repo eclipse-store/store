@@ -15,6 +15,7 @@ package org.eclipse.store.gigamap.jvector;
  */
 
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
@@ -199,8 +200,8 @@ class VectorIndexBatchTest
 
         // Search both and compare
         final float[] query = new float[]{1.0f, 0.0f, 0.0f};
-        final List<VectorSearchResult.Entry<Document>> resultsIndividual = indexIndividual.search(query, 3).toList();
-        final List<VectorSearchResult.Entry<Document>> resultsBatch = indexBatch.search(query, 3).toList();
+        final List<ScoredSearchResult.Entry<Document>> resultsIndividual = indexIndividual.search(query, 3).toList();
+        final List<ScoredSearchResult.Entry<Document>> resultsBatch = indexBatch.search(query, 3).toList();
 
         assertEquals(resultsIndividual.size(), resultsBatch.size());
         for(int i = 0; i < resultsIndividual.size(); i++)

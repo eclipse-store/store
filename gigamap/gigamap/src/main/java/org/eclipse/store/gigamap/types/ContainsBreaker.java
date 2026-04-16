@@ -18,13 +18,13 @@ import org.eclipse.serializer.util.X;
 
 
 /**
- * The ContainsBreaker class is an implementation of the {@link BitmapResult.Resolver} interface.
+ * The ContainsBreaker class is an implementation of the {@link EntityResolver} interface.
  * This class is designed to efficiently terminate a "contains" query as soon as a match
  * for the specified entity ID is found.
  *
  * @param <E> The type of elements stored in the {@code GigaMap}.
  */
-public final class ContainsBreaker<E> implements BitmapResult.Resolver<E>
+public final class ContainsBreaker<E> implements EntityResolver<E>
 {
 	@Override
 	public final GigaMap<E> parent()

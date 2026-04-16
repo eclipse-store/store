@@ -18,7 +18,7 @@ import org.eclipse.serializer.typing.XTypes;
 
 
 /**
- * AbstractGigaIterating serves as an abstract base class designed for iteration over data represented
+ * AbstractBitmapIterating serves as an abstract base class designed for iteration over data represented
  * in a hierarchical bitmap structure. The class provides a framework for iterating through multiple levels
  * of bitmap results and encapsulates the logic for handling transitions between different levels and indices.
  * <p>
@@ -43,14 +43,14 @@ import org.eclipse.serializer.typing.XTypes;
  *
  * @param <E> The type of elements being resolved or iterated through within the bitmap structure.
  */
-public abstract class AbstractGigaIterating<E>
+public abstract class AbstractBitmapIterating<E>
 {
 	///////////////////////////////////////////////////////////////////////////
 	// instance fields //
 	////////////////////
 	
 	// parent must be referenced separately because resolver might not use/reference it at all.
-	final BitmapResult.Resolver<E> resolver;
+	final EntityIdMatcher idMatcher;
 	
 	/*
 	 * Tricky little optimization:
@@ -77,24 +77,26 @@ public abstract class AbstractGigaIterating<E>
 	
 	private int currentLevel3Index, currentLevel2Index, currentLevel1Index;
 	long currentBitmapValue, bitValBaseId;
-	
-	
+
+	private int currentBitPosition;
+
 	
 	///////////////////////////////////////////////////////////////////////////
 	// constructors //
 	/////////////////
 
-	AbstractGigaIterating(
-		final BitmapResult.Resolver<E> resolver,
-		final long                     idStart ,
-		final long                     idBound ,
-		final BitmapResult[]           results
+	AbstractBitmapIterating(
+		final EntityIdMatcher idMatcher,
+		final long            idStart  ,
+		final long            idBound  ,
+		final BitmapResult[]  results  ,
+		final int             currentBitPosition
 	)
 	{
 		super();
-		this.resolver = resolver;
-		this.idBound  = idBound ;
-		this.results  = results ;
+		this.idMatcher = idMatcher;
+		this.idBound   = idBound ;
+		this.results   = results ;
 		
 		// Bounds for L1 and L2 get adjusted for the trailing segment. Bit position bounds get baked into the value.
 		this.level3IndexBound = XTypes.to_int(this.idBound >>> BitmapLevel3.LEVEL_2_TOTAL_SIZE_EXP) + 1;
@@ -105,6 +107,8 @@ public abstract class AbstractGigaIterating<E>
 		this.level2TrailingBaseId = this.idBound & ~BitmapLevel3.LEVEL_2_ID_MASK;
 		this.level1TrailingBaseId = this.idBound & ~BitmapLevel3.LEVEL_1_ID_MASK;
 		this.bitValTrailingBaseId = this.idBound & ~BitmapLevel3.VALUE_ID_MASK;
+
+		this.currentBitPosition = currentBitPosition;
 				
 		this.initializeLevelIndices(idStart);
 		this.initializeCurrentBitmapValue(idStart);
@@ -177,7 +181,84 @@ public abstract class AbstractGigaIterating<E>
 	///////////////////////////////////////////////////////////////////////////
 	// methods //
 	////////////
-						
+
+	protected int getCurrentBitPosition()
+	{
+		return this.currentBitPosition;
+	}
+
+	protected void setCurrentBitPosition(final int currentBitPosition)
+	{
+		this.currentBitPosition = currentBitPosition;
+	}
+
+	protected abstract boolean handleEntityId(long entityId);
+
+	protected void terminateLoop()
+	{
+		// no-op by default
+	}
+
+	protected void execute()
+	{
+		final EntityIdMatcher idMatcher = this.idMatcher;
+
+		long nextValidEntityId = -1;
+		long bitmapValue = this.currentBitmapValue;
+		long valueBaseId = this.bitValBaseId;
+		for(int bitPosition = this.getCurrentBitPosition();;)
+		{
+			do
+			{
+				if(++bitPosition >= Long.SIZE)
+				{
+					if(!this.scrollToNextBitmapValue())
+					{
+						// scrolling logic reached end of data and did already setup the internal state to abort.
+						this.terminateLoop();
+						return;
+					}
+					bitmapValue = this.currentBitmapValue;
+					valueBaseId = this.bitValBaseId;
+					bitPosition = 0;
+				}
+			}
+			while((bitmapValue & 1L<<bitPosition) == 0L);
+			this.setCurrentBitPosition(bitPosition);
+
+			final long entityId = valueBaseId + bitPosition;
+
+			// Invalidly low entityIds are skipped. Initially irrelevant. After that, see check below.
+			if(entityId < nextValidEntityId)
+			{
+				continue;
+			}
+
+			/*
+			 * Note: entityId == nextValidEntityId is already known to be valid and must not cause another matcher check.
+			 *
+			 * After that:
+			 * The idMatcher gets asked whether it has the current entityId and thus validating it.
+			 * It can answer in one of three kinds:
+			 * 1.) -1, meaning simply "no, ask again for the next EntityId".
+			 * 2.) The passed entityId, meaning "yes. And ask again for the next EntityId".
+			 * 3.) An entityId higher than the passed one, meaning "No to ALL until the returned entityId."
+			 *
+			 * #3 requires the idMatcher to have an ascending list of entityIds.
+			 * If it does not (e.g. only has an unordered set of entityIds), it can only answer with #1 or #2.
+			 */
+			if(entityId != nextValidEntityId && (nextValidEntityId = idMatcher.matchEntityId(entityId)) != entityId)
+			{
+				continue;
+			}
+
+			if(this.handleEntityId(entityId))
+			{
+				return;
+			}
+		}
+	}
+
 	protected boolean scrollToNextBitmapValue()
 	{
 		final int level1IndexBound = this.level1IndexBound;

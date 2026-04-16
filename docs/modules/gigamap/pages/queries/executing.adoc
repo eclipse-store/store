@@ -60,6 +60,32 @@ try(GigaIterator<Person> iterator = query.iterator())
 }
 ----
 
+=== Indexed Iteration
+
+To process each result together with its entity id, use `iterateIndexed`. The consumer receives the id and the entity for every match.
+
+[source, java]
+----
+GigaQuery<Person> query = gigaMap.query(...);
+
+query.iterateIndexed((id, person) -> {
+    log.info("hit {} -> {}", id, person);
+});
+----
+
+At the iterator level, the same is available via `GigaIterator.nextIndexed(EntryConsumer)`.
+
+[source, java]
+----
+try(GigaIterator<Person> iterator = query.iterator())
+{
+    while(iterator.hasNext())
+    {
+        iterator.nextIndexed((id, person) -> ...);
+    }
+}
+----
+
 == Streams
 
 Java's powerful Streams API offers a lot of methods for further filtering, mapping, aggregating, and collecting after the query is executed.

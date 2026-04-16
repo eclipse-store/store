@@ -385,7 +385,7 @@ public interface ResultIdIterator
 		@Override
 		public void close()
 		{
-			this.parent.closeIterator(this);
+			this.parent.closeReader(this);
 		}
 		
 		@Override

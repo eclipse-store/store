@@ -30,6 +30,7 @@ import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.store.gigamap.types.AbstractStateChangeFlagged;
 import org.eclipse.store.gigamap.types.GigaIndex;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -91,7 +92,7 @@ import java.util.stream.IntStream;
  * float[] queryVector = computeEmbedding("Hello");
  * VectorSearchResult<Document> results = index.search(queryVector, 10);
  *
- * for (VectorSearchResult.Entry<Document> entry : results) {
+ * for (ScoredSearchResult.Entry<Document> entry : results) {
  *     Document doc = entry.entity();      // Lazy lookup via GigaMap
  *     float similarity = entry.score();   // Similarity score
  *     System.out.println(doc.content() + " (score: " + similarity + ")");
@@ -221,7 +222,7 @@ import java.util.stream.IntStream;
  * VectorSearchResult<Document> results = index.search(queryVector, 10);
  *
  * // Iterate
- * for (VectorSearchResult.Entry<Document> entry : results) {
+ * for (ScoredSearchResult.Entry<Document> entry : results) {
  *     System.out.println(entry.entity().content());
  * }
  *
@@ -232,7 +233,7 @@ import java.util.stream.IntStream;
  *     .toList();
  *
  * // Convert to list
- * List<VectorSearchResult.Entry<Document>> list = results.toList();
+ * List<ScoredSearchResult.Entry<Document>> list = results.toList();
  * }</pre>
  *
  * <h2>Persistence with EclipseStore</h2>
@@ -326,7 +327,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * float[] queryVector = embeddingService.embed("search query");
      * VectorSearchResult<Document> results = index.search(queryVector, 10);
      *
-     * for (VectorSearchResult.Entry<Document> entry : results) {
+     * for (ScoredSearchResult.Entry<Document> entry : results) {
      *     System.out.printf("Score: %.4f - %s%n",
      *         entry.score(),
      *         entry.entity().title()
@@ -1821,12 +1822,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             final GigaMap<E> parentMap = this.parentMap();
             final SearchResult.NodeScore[] nodes = result.getNodes();
-            final BulkList<VectorSearchResult.Entry<E>> entries = BulkList.New(nodes.length);
+            final BulkList<ScoredSearchResult.Entry<E>> entries = BulkList.New(nodes.length);
             for(final SearchResult.NodeScore node : nodes)
             {
                 // Ordinals (node) ARE entity IDs, so direct conversion
                 // Pass parentMap for lazy entity access
-                entries.add(new VectorSearchResult.Entry.Default<>(node.node, node.score, parentMap));
+                entries.add(new ScoredSearchResult.Entry.Default<>(node.node, node.score, parentMap));
             }
             return new VectorSearchResult.Default<>(entries);
         }
