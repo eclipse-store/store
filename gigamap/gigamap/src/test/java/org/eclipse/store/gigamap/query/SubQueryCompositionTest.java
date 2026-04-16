@@ -264,8 +264,7 @@ public class SubQueryCompositionTest
 		// Base timestamp used to generate per-entity dates.
 		final LocalDateTime base = LocalDateTime.of(2000, 1, 1, 0, 0, 0);
 
-		//final int TOTAL         = 50_000;
-		final int TOTAL         = 50;
+		final int TOTAL         = 5_000;
 		// Categories cycle A -> B -> C -> A ...
 		final String[] cats     = {"A", "B", "C"};
 		// IDs of entities in category "A" whose value is divisible by 7 — the target subset.
@@ -293,15 +292,6 @@ public class SubQueryCompositionTest
 		// We anchor the primary on the composite (datetime) index so we exercise the
 		// HashingCompositeIndexer code path; the sub-queries narrow it via AND.
 		final Set<Long> actualIds = new HashSet<>();
-
-		List<Entity> list = map.query(dateTimeIndex.after(base.minusSeconds(1)))
-				.and(catAQuery)
-				.and(mod7Query)
-				.toList();
-
-		System.out.println(list);
-
-
 
 		map.query(dateTimeIndex.after(base.minusSeconds(1)))
 			.and(catAQuery)
