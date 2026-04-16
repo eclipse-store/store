@@ -857,6 +857,11 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 
 		public GigaIterator<E> iterator(final EntityResolver<E> resolver)
 		{
+			if(this.condition == null)
+			{
+				return this.parent.iterator();
+			}
+
 			final EntityIdMatcher idMatcher = this.buildEntityIdMatcher();
 			return this.parent.createIterator(
 				this.condition, this.idStart, this.idBound, idMatcher, resolver, this.threadProvider
@@ -887,6 +892,13 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 		@Override
 		public EntityIdMatcher provideEntityIdMatcher()
 		{
+			if(this.condition == null)
+			{
+				// No condition means this query matches all entities.
+				// Only sub-query matchers (if any) need to apply.
+				return this.buildEntityIdMatcher();
+			}
+
 			final EntityIdMatcher idMatcher = this.buildEntityIdMatcher();
 			return this.parent.createEntityIdMatcher(this.condition, this.idStart, this.idBound, idMatcher);
 		}
@@ -932,7 +944,8 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 		@Override
 		public boolean test(final E entity)
 		{
-			return this.condition.test(entity);
+			// No condition means everything matches.
+			return this.condition == null || this.condition.test(entity);
 		}
 		
 		@Override
