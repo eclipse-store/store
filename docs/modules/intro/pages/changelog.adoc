@@ -8,7 +8,7 @@
 * xref:storage:storing-data/batch-storer.adoc[Batch Storer] for batched persistence https://github.com/eclipse-serializer/serializer/pull/254[[254]] https://github.com/eclipse-store/store/pull/638[[638]]
 * GigaMap xref:gigamap:queries/defining.adoc#_sub_queries[sub-queries] across all index types https://github.com/eclipse-store/store/pull/637[[637]]
 * Storage object recovery https://github.com/eclipse-store/store/pull/634[[634]]
-* Enhanced root initialization and retrieval in StorageManager https://github.com/eclipse-store/store/pull/631[[631]] https://github.com/eclipse-store/store/pull/632[[632]]
+* Enhanced root initialization and retrieval in StorageManager https://github.com/eclipse-store/store/pull/632[[632]]
 
 === Bugfixes
 
