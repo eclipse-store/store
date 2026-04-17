@@ -189,7 +189,7 @@ try (EmbeddedStorageManager storage = EmbeddedStorage.start(gigaMap, storageDir)
 // After restart, spatial queries work immediately
 try (EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
 {
-    GigaMap<Location> loaded = (GigaMap<Location>) storage.root();
+    GigaMap<Location> loaded = storage.root();
     loaded.query(locationIndex.near(52.5200, 13.4050, 50.0));
 }
 ----

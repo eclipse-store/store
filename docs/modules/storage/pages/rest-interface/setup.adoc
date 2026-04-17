@@ -121,15 +121,11 @@ Now use the resolver to connect the REST service to the storage, start it, and y
 [source, java]
 ----
 EmbeddedStorageManager storage = EmbeddedStorage.start();
-if (storage.root() == null)
-{
-   storage.setRoot(new Object[] {
-      LocalDate.now(),
-      X.List("a", "b", "c"),
-      1337
-   });
-   storage.storeRoot();
-}
+storage.ensureRoot(() -> new Object[] {
+   LocalDate.now(),
+   X.List("a", "b", "c"),
+   1337
+});
 
 // create the REST service
 StorageRestService service = StorageRestServiceResolver.resolve(storage);

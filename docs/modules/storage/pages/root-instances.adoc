@@ -137,7 +137,49 @@ storageManager.customRoot();
 ----
 
 The simplified method `storageManager.root();` automatically chooses the variant that is used.
-Since neither of those three methods can know the concrete type of the root instance (and adding a type parameter just for that would have been a complication overkill), they all can only be typed to return Object.
-So, to avoid annoying and dangerous casts, it is best to keep a direct reference to a custom root instance as shown in the code snippet above.
+Both `root()` and `setRoot()` use a generic type parameter `<R>`, so the concrete type is inferred automatically from the usage context.
+No cast is required:
+
+[source, java]
+----
+MyApplicationRoot root = storageManager.root();
+----
 
 Likewise, `storageManager.storeRoot();` works for both variants, so there is no need to worry about how to store which one.
+
+== Convenient Root Initialization with ensureRoot()
+
+A common pattern when starting a database is to check whether a root object already exists and, if not, create and store a new one:
+
+[source, java]
+----
+EmbeddedStorageManager storage = EmbeddedStorage.start();
+if (storage.root() == null)
+{
+    storage.setRoot(new MyApplicationRoot());
+    storage.storeRoot();
+}
+MyApplicationRoot root = storage.root();
+----
+
+The `ensureRoot()` method simplifies this into a single call:
+
+[source, java]
+----
+EmbeddedStorageManager storage = EmbeddedStorage.Foundation()
+    .createEmbeddedStorageManager();
+MyApplicationRoot root = storage.ensureRoot(MyApplicationRoot::new);
+----
+
+`ensureRoot(Supplier<R>)` performs the following steps:
+
+. Starts the storage if it is not yet running.
+. If the root is `null`, invokes the supplier to create a new root instance, sets it, and stores it.
+. Returns the root object, typed to `R`.
+
+The supplier is only invoked if the root is not already set.
+
+[NOTE]
+====
+`ensureRoot()` throws a `NullPointerException` if the supplier is `null`, and an `IllegalArgumentException` if the supplier returns `null`.
+====
