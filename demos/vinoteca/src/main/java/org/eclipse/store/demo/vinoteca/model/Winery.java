@@ -17,6 +17,7 @@ package org.eclipse.store.demo.vinoteca.model;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.eclipse.serializer.reference.Lazy;
 
 /**
@@ -175,6 +176,7 @@ public class Winery
 	 *
 	 * @return the (possibly empty) wine list
 	 */
+	@JsonIgnore
 	public List<Wine> getWines()
 	{
 		return Lazy.get(this.wines);
