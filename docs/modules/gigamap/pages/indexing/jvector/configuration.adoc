@@ -95,7 +95,11 @@ NOTE: The `jdk.incubator.vector` module is an incubator feature in Java 17-21. S
 
 |`beamWidth`
 |100
-|Search beam width during index construction. Higher values improve recall during construction.
+|Beam width during index construction (HNSW _efConstruction_). Higher values improve graph quality but slow down construction. Has no effect at query time.
+
+|`minSearchBeamWidth`
+|100
+|Minimum beam width during search (HNSW _efSearch_ floor). The effective beam width is `max(k, minSearchBeamWidth)`. Keeps the top-k stable across different `k` values; set to `1` to disable the floor and make the beam width equal to the requested `k`. Independent of `beamWidth`. Can be overridden per query via `search(query, k, searchBeamWidth)`.
 
 |`neighborOverflow`
 |1.2

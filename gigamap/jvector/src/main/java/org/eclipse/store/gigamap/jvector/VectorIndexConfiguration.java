@@ -201,6 +201,37 @@ public interface VectorIndexConfiguration
     public int beamWidth();
 
     /**
+     * Returns the minimum beam width used during search (HNSW <i>efSearch</i> floor).
+     * <p>
+     * This parameter controls the minimum number of candidate nodes the HNSW graph traversal
+     * explores when answering a query, independent of the requested {@code k}. The effective
+     * search beam width is {@code max(k, minSearchBeamWidth())}.
+     * <p>
+     * <b>Difference from {@link #beamWidth()}:</b> the existing {@code beamWidth()} controls
+     * <i>construction</i> effort (HNSW <i>efConstruction</i>) and has no effect at query time.
+     * {@code minSearchBeamWidth()} controls <i>search</i> effort (HNSW <i>efSearch</i>) and has
+     * no effect during construction. They are orthogonal.
+     * <p>
+     * <b>Why a floor matters:</b> when the beam width equals a small {@code k}, the traversal
+     * explores too few candidates and the resulting top-k can vary depending on the requested
+     * {@code k} (e.g. {@code search(q, 5)} and the first 5 results of {@code search(q, 50)}
+     * may differ). Enforcing a floor keeps the top-k stable regardless of the requested {@code k}.
+     * <p>
+     * <b>Tuning:</b>
+     * <ul>
+     *   <li><b>Higher values (200-500):</b> better recall and more consistent results,
+     *       at the cost of query latency.</li>
+     *   <li><b>Lower values (down to 1):</b> faster queries at small {@code k}. A value of
+     *       {@code 1} effectively disables the floor — the beam width equals the requested {@code k}.</li>
+     * </ul>
+     * <p>
+     * For per-query overrides, see {@link VectorIndex#search(float[], int, int)}.
+     *
+     * @return the minimum search beam width (default: 100)
+     */
+    public int minSearchBeamWidth();
+
+    /**
      * Returns the neighbor overflow factor for temporary neighbor storage during construction.
      * <p>
      * During index construction, HNSW temporarily stores more neighbors than {@link #maxDegree()}
@@ -771,6 +802,7 @@ public interface VectorIndexConfiguration
      *   <li>{@code similarityFunction}: {@link VectorSimilarityFunction#COSINE}</li>
      *   <li>{@code maxDegree}: 16</li>
      *   <li>{@code beamWidth}: 100</li>
+     *   <li>{@code minSearchBeamWidth}: 100</li>
      *   <li>{@code neighborOverflow}: 1.2</li>
      *   <li>{@code alpha}: 1.2</li>
      * </ul>
@@ -816,6 +848,18 @@ public interface VectorIndexConfiguration
          * @see VectorIndexConfiguration#beamWidth()
          */
         public Builder beamWidth(int beamWidth);
+
+        /**
+         * Sets the minimum search beam width (HNSW <i>efSearch</i> floor).
+         * <p>
+         * Pass {@code 1} to disable the floor so the beam width equals the requested {@code k}.
+         *
+         * @param minSearchBeamWidth the minimum search beam width (must be positive)
+         * @return this builder for method chaining
+         * @throws IllegalArgumentException if minSearchBeamWidth is not positive
+         * @see VectorIndexConfiguration#minSearchBeamWidth()
+         */
+        public Builder minSearchBeamWidth(int minSearchBeamWidth);
 
         /**
          * Sets the neighbor overflow factor for construction.
@@ -990,6 +1034,7 @@ public interface VectorIndexConfiguration
             private VectorSimilarityFunction similarityFunction           ;
             private int                      maxDegree                    ;
             private int                      beamWidth                    ;
+            private int                      minSearchBeamWidth           ;
             private float                    neighborOverflow             ;
             private float                    alpha                        ;
             private boolean                  onDisk                       ;
@@ -1011,6 +1056,7 @@ public interface VectorIndexConfiguration
                 this.similarityFunction            = VectorSimilarityFunction.COSINE;
                 this.maxDegree                     = 16;
                 this.beamWidth                     = 100;
+                this.minSearchBeamWidth            = 100;
                 this.neighborOverflow              = 1.2f;
                 this.alpha                         = 1.2f;
                 this.onDisk                        = false;
@@ -1052,6 +1098,13 @@ public interface VectorIndexConfiguration
             public Builder beamWidth(final int beamWidth)
             {
                 this.beamWidth = positive(beamWidth);
+                return this;
+            }
+
+            @Override
+            public Builder minSearchBeamWidth(final int minSearchBeamWidth)
+            {
+                this.minSearchBeamWidth = positive(minSearchBeamWidth);
                 return this;
             }
 
@@ -1209,6 +1262,7 @@ public interface VectorIndexConfiguration
                     this.similarityFunction,
                     this.maxDegree,
                     this.beamWidth,
+                    this.minSearchBeamWidth,
                     this.neighborOverflow,
                     this.alpha,
                     this.onDisk,
@@ -1240,6 +1294,7 @@ public interface VectorIndexConfiguration
         private final VectorSimilarityFunction similarityFunction            ;
         private final int                      maxDegree                     ;
         private final int                      beamWidth                     ;
+        private final int                      minSearchBeamWidth            ;
         private final float                    neighborOverflow              ;
         private final float                    alpha                         ;
         private final boolean                  onDisk                        ;
@@ -1260,6 +1315,7 @@ public interface VectorIndexConfiguration
             final VectorSimilarityFunction similarityFunction             ,
             final int                      maxDegree                      ,
             final int                      beamWidth                      ,
+            final int                      minSearchBeamWidth             ,
             final float                    neighborOverflow               ,
             final float                    alpha                          ,
             final boolean                  onDisk                         ,
@@ -1280,6 +1336,7 @@ public interface VectorIndexConfiguration
             this.similarityFunction             = similarityFunction                                       ;
             this.maxDegree                      = maxDegree                                                ;
             this.beamWidth                      = beamWidth                                                ;
+            this.minSearchBeamWidth             = minSearchBeamWidth                                       ;
             this.neighborOverflow               = neighborOverflow                                         ;
             this.alpha                          = alpha                                                    ;
             this.onDisk                         = onDisk                                                   ;
@@ -1318,6 +1375,12 @@ public interface VectorIndexConfiguration
         public int beamWidth()
         {
             return this.beamWidth;
+        }
+
+        @Override
+        public int minSearchBeamWidth()
+        {
+            return this.minSearchBeamWidth;
         }
 
         @Override
