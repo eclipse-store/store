@@ -21,8 +21,10 @@ import org.eclipse.store.demo.vinoteca.dto.ReviewInput;
 import org.eclipse.store.demo.vinoteca.dto.SimilarWineResult;
 import org.eclipse.store.demo.vinoteca.dto.WineInput;
 import org.eclipse.store.demo.vinoteca.dto.WineStatsResult;
+import org.eclipse.store.demo.vinoteca.model.GrapeVariety;
 import org.eclipse.store.demo.vinoteca.model.Review;
 import org.eclipse.store.demo.vinoteca.model.Wine;
+import org.eclipse.store.demo.vinoteca.model.WineType;
 import org.eclipse.store.demo.vinoteca.service.WineService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -127,13 +129,13 @@ public class WineRestController
 
 	/**
 	 * {@code GET /api/v1/wines/by-type/{type}} — wines of a given {@link org.eclipse.store.demo.vinoteca.model.WineType WineType}
-	 * (bitmap-index lookup, case-insensitive).
+	 * (bitmap-index lookup).
 	 *
-	 * @param type the wine type name
+	 * @param type the wine type
 	 * @return matching wines
 	 */
 	@GetMapping("/by-type/{type}")
-	public List<Wine> byType(@PathVariable final String type)
+	public List<Wine> byType(@PathVariable final WineType type)
 	{
 		return this.wineService.byType(type);
 	}
@@ -166,13 +168,13 @@ public class WineRestController
 
 	/**
 	 * {@code GET /api/v1/wines/by-grape/{grape}} — wines made from a given grape variety
-	 * (bitmap-index lookup, case-insensitive).
+	 * (bitmap-index lookup).
 	 *
-	 * @param grape the grape variety enum name
+	 * @param grape the grape variety enum
 	 * @return matching wines
 	 */
 	@GetMapping("/by-grape/{grape}")
-	public List<Wine> byGrape(@PathVariable final String grape)
+	public List<Wine> byGrape(@PathVariable final GrapeVariety grape)
 	{
 		return this.wineService.byGrape(grape);
 	}

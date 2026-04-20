@@ -14,6 +14,8 @@ package org.eclipse.store.demo.vinoteca.ui.view;
  * #L%
  */
 
+import java.util.List;
+
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.grid.Grid;
@@ -123,23 +125,8 @@ public class WineCatalogView extends VerticalLayout
 		final String country, final String region
 	)
 	{
-		if (type != null)
-		{
-			this.grid.setItems(this.wineService.byType(type.name()));
-		}
-		else if (country != null && !country.isBlank())
-		{
-			this.grid.setItems(this.wineService.byCountry(country));
-		}
-		else if (region != null && !region.isBlank())
-		{
-			this.grid.setItems(this.wineService.byRegion(region));
-		}
-		else
-		{
-			this.loadData();
-		}
-
-		Notification.show("Filter applied");
+		final List<Wine> filtered = this.wineService.filter(name, type, country, region);
+		this.grid.setItems(filtered);
+		Notification.show("Found " + filtered.size() + " wines");
 	}
 }

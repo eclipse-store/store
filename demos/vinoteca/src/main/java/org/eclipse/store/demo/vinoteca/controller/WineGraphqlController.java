@@ -23,8 +23,10 @@ import org.eclipse.store.demo.vinoteca.dto.ReviewInput;
 import org.eclipse.store.demo.vinoteca.dto.SimilarWineResult;
 import org.eclipse.store.demo.vinoteca.dto.WineInput;
 import org.eclipse.store.demo.vinoteca.dto.WineStatsResult;
+import org.eclipse.store.demo.vinoteca.model.GrapeVariety;
 import org.eclipse.store.demo.vinoteca.model.Review;
 import org.eclipse.store.demo.vinoteca.model.Wine;
+import org.eclipse.store.demo.vinoteca.model.WineType;
 import org.eclipse.store.demo.vinoteca.service.WineService;
 import org.springframework.graphql.data.method.annotation.Argument;
 import org.springframework.graphql.data.method.annotation.MutationMapping;
@@ -93,7 +95,7 @@ public class WineGraphqlController
 	 * @return matching wines
 	 */
 	@QueryMapping
-	public List<Wine> winesByType(@Argument final String type)
+	public List<Wine> winesByType(@Argument final WineType type)
 	{
 		return this.wineService.byType(type);
 	}
@@ -129,7 +131,7 @@ public class WineGraphqlController
 	 * @return matching wines
 	 */
 	@QueryMapping
-	public List<Wine> winesByGrape(@Argument final String grape)
+	public List<Wine> winesByGrape(@Argument final GrapeVariety grape)
 	{
 		return this.wineService.byGrape(grape);
 	}

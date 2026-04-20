@@ -14,7 +14,10 @@ package org.eclipse.store.demo.vinoteca.index;
  * #L%
  */
 
+import org.eclipse.store.demo.vinoteca.model.GrapeVariety;
 import org.eclipse.store.demo.vinoteca.model.Wine;
+import org.eclipse.store.demo.vinoteca.model.WineType;
+import org.eclipse.store.gigamap.types.Indexer;
 import org.eclipse.store.gigamap.types.IndexerString;
 
 /**
@@ -47,7 +50,7 @@ public final class WineIndices
 	};
 
 	/** Indexer over the wine type (e.g. {@code "RED"}, {@code "WHITE"}). */
-	public static final IndexerString<Wine> TYPE = new IndexerString.Abstract<>()
+	public static final Indexer<Wine, WineType> TYPE = new Indexer.Abstract<>()
 	{
 		@Override
 		public String name()
@@ -56,14 +59,20 @@ public final class WineIndices
 		}
 
 		@Override
-		protected String getString(final Wine wine)
+		public Class<WineType> keyType()
 		{
-			return wine.getType().name();
+			return WineType.class;
+		}
+
+		@Override
+		public WineType index(Wine wine)
+		{
+			return wine.getType();
 		}
 	};
 
 	/** Indexer over the grape variety enum constant name. */
-	public static final IndexerString<Wine> GRAPE_VARIETY = new IndexerString.Abstract<>()
+	public static final Indexer<Wine, GrapeVariety> GRAPE_VARIETY = new Indexer.Abstract<>()
 	{
 		@Override
 		public String name()
@@ -72,9 +81,15 @@ public final class WineIndices
 		}
 
 		@Override
-		protected String getString(final Wine wine)
+		public Class<GrapeVariety> keyType()
 		{
-			return wine.getGrapeVariety().name();
+			return GrapeVariety.class;
+		}
+
+		@Override
+		public GrapeVariety index(Wine wine)
+		{
+			return wine.getGrapeVariety();
 		}
 	};
 

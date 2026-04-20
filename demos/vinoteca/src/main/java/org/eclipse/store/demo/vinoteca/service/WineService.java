@@ -22,6 +22,7 @@ import org.eclipse.store.gigamap.jvector.VectorIndices;
 import org.eclipse.store.gigamap.jvector.VectorSearchResult;
 import org.eclipse.store.gigamap.lucene.LuceneIndex;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.GigaQuery;
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Mutex;
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Read;
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Write;
@@ -247,13 +248,13 @@ public class WineService
 	/**
 	 * Returns all wines of the given type, served by the {@link WineIndices#TYPE} bitmap index.
 	 *
-	 * @param type the wine type name (case-insensitive, e.g. {@code "red"} or {@code "WHITE"})
+	 * @param type the wine type
 	 * @return name-sorted matching wines
 	 */
 	@Read
-	public List<Wine> byType(final String type)
+	public List<Wine> byType(final WineType type)
 	{
-		return this.wineGigaMap.query(WineIndices.TYPE.is(type.toUpperCase()))
+		return this.wineGigaMap.query(WineIndices.TYPE.is(type))
 			.stream()
 			.sorted(Comparator.comparing(Wine::getName))
 			.toList();
@@ -295,13 +296,13 @@ public class WineService
 	 * Returns all wines made from the given grape variety, served by the
 	 * {@link WineIndices#GRAPE_VARIETY} bitmap index.
 	 *
-	 * @param grape the grape variety enum name (case-insensitive, e.g. {@code "merlot"})
+	 * @param grape the grape variety enum
 	 * @return name-sorted matching wines
 	 */
 	@Read
-	public List<Wine> byGrape(final String grape)
+	public List<Wine> byGrape(final GrapeVariety grape)
 	{
-		return this.wineGigaMap.query(WineIndices.GRAPE_VARIETY.is(grape.toUpperCase()))
+		return this.wineGigaMap.query(WineIndices.GRAPE_VARIETY.is(grape))
 			.stream()
 			.sorted(Comparator.comparing(Wine::getName))
 			.toList();
@@ -321,6 +322,43 @@ public class WineService
 			.stream()
 			.sorted(Comparator.comparing(Wine::getName))
 			.toList();
+	}
+
+	/**
+	 * Filters wines by combining the bitmap indices for type, country and region into a single
+	 * {@link GigaQuery}. Each non-{@code null} / non-blank parameter adds an AND condition to
+	 * the query; if all parameters are empty, every wine is returned. The name parameter uses
+	 * the name bitmap index with a case-insensitive contains predicate.
+	 *
+	 * @param name    substring to match against the wine name (case-insensitive), or {@code null}/blank to skip
+	 * @param type    the wine type, or {@code null} to skip
+	 * @param country the country, or {@code null}/blank to skip
+	 * @param region  the region, or {@code null}/blank to skip
+	 * @return name-sorted matching wines
+	 */
+	@Read
+	public List<Wine> filter(final String name, final WineType type, final String country, final String region)
+	{
+		final GigaQuery<Wine> query = this.wineGigaMap.query();
+		if (name != null && !name.isBlank())
+		{
+			query.and(WineIndices.NAME.containsIgnoreCase(name));
+		}
+		if (type != null)
+		{
+			query.and(WineIndices.TYPE.is(type));
+		}
+		if (country != null && !country.isBlank())
+		{
+			query.and(WineIndices.COUNTRY.is(country));
+		}
+		if (region != null && !region.isBlank())
+		{
+			query.and(WineIndices.REGION.is(region));
+		}
+		final List<Wine> result = query.toList();
+		result.sort(Comparator.comparing(Wine::getName));
+		return result;
 	}
 
 	/**
