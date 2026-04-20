@@ -1,0 +1,132 @@
+= Batch Storer
+
+The `BatchStorer` is designed for write-heavy operations that accumulate store operations and commit them in batches rather than individually.
+This can significantly improve throughput when many objects need to be stored in rapid succession.
+
+== How It Works
+
+Unlike a regular `Storer`, which commits data on each explicit `commit()` call, the `BatchStorer` accumulates store operations and flushes them to the backing storage when configured size and/or time thresholds are reached.
+A background daemon thread periodically checks whether the flush condition is met.
+
+Each `store()` call always re-serializes explicitly passed root instances, even if they have already been registered in the current storer lifecycle.
+This ensures that mutable objects (e.g. collections whose content changes between calls) always capture their current state.
+Child objects encountered during graph traversal use lazy semantics and are only stored if they are not yet known to the persistence context.
+
+`BatchStorer` implements `AutoCloseable`.
+On close, it flushes any remaining pending data and releases resources.
+
+== Creating a BatchStorer
+
+A `BatchStorer` is created using the fluent builder obtained from the `EmbeddedStorageManager`:
+
+[source, java]
+----
+BatchStorer storer = storageManager.batchStorerBuilder()
+    .maxSize(10_000L)                       // flush when 10,000 objects accumulate
+    .flushCycle(Duration.ofSeconds(1))      // or when 1 second has elapsed
+    .checkInterval(Duration.ofMillis(200))  // background check interval (default: 1s)
+    .build();
+----
+
+At least one of `maxSize` or `flushCycle` must be configured, otherwise `build()` throws an `IllegalStateException`.
+If both are set, a flush is triggered whenever either threshold is reached first.
+The `checkInterval` is optional and defaults to `Duration.ofSeconds(1)`.
+
+== Flush Configuration
+
+The builder supports three flush strategies, depending on which of `maxSize` and `flushCycle` are configured:
+
+=== Time-based
+
+Triggers a flush after a specified duration has elapsed since the last flush:
+
+[source, java]
+----
+BatchStorer storer = storageManager.batchStorerBuilder()
+    .flushCycle(Duration.ofSeconds(1))
+    .build();
+----
+
+=== Size-based
+
+Triggers a flush when the number of accumulated objects reaches a threshold:
+
+[source, java]
+----
+BatchStorer storer = storageManager.batchStorerBuilder()
+    .maxSize(10_000L)
+    .build();
+----
+
+=== Combined (Size and Time)
+
+Triggers a flush when either the size threshold is reached or the time interval has elapsed, whichever comes first:
+
+[source, java]
+----
+BatchStorer storer = storageManager.batchStorerBuilder()
+    .maxSize(10_000L)
+    .flushCycle(Duration.ofSeconds(1))
+    .build();
+----
+
+== Usage
+
+The recommended pattern is to use a try-with-resources block.
+This ensures that any remaining data is flushed and resources are released when the block exits:
+
+[source, java]
+----
+ArrayList<String> data = new ArrayList<>();
+
+try (EmbeddedStorageManager storage = EmbeddedStorage.start(data, storageDir))
+{
+    try (BatchStorer storer = storage.batchStorerBuilder()
+        .flushCycle(Duration.ofMillis(500))
+        .checkInterval(Duration.ofMillis(200))
+        .build())
+    {
+        for (int i = 0; i < 1_000; i++)
+        {
+            String s = "String " + i;
+            data.add(s);
+            storer.store(data);
+        }
+        storer.commit();
+    }
+}
+----
+
+In this example a time-based flush cycle of 500 milliseconds is configured with a check interval of 200 milliseconds.
+The `BatchStorer` accumulates the store operations and periodically flushes them, rather than writing each individual store call to the storage immediately.
+
+== Manual Flushing
+
+In addition to the automatic threshold-based flushing, data can be flushed explicitly at any time:
+
+[source, java]
+----
+storer.flush();
+----
+
+To check whether there is unflushed data:
+
+[source, java]
+----
+if (storer.hasPendingData())
+{
+    storer.flush();
+}
+----
+
+Calling `commit()` also flushes all pending data.
+
+== When to Use
+
+The `BatchStorer` is particularly useful when:
+
+* Ingesting large amounts of data in a loop
+* Processing event streams or message queues where objects arrive in rapid succession
+* Performing bulk imports or migrations
+
+For single or infrequent store operations, the standard `store()` methods on the `EmbeddedStorageManager` or a regular `Storer` are sufficient.

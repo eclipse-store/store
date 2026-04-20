@@ -63,6 +63,14 @@ If you are working with {product-name} technology in a multi-threaded environmen
 ==== Synchronize access to shared mutable data
 When using standard frameworks, you often work in a multi-threaded environment. If you are using the older JDBC approach, you create a copy of your data that you work with within a single thread, modify the data, and then save it back in a database trace. {product-name} works with data directly, allowing it to achieve significantly better performance parameters. However, for developers, this means that any reading and writing to this shared object graph must be synchronized.
 
+[IMPORTANT]
+====
+Modifying the object graph and storing the changes *must be done under the same lock*.
+{product-name} cannot provide this synchronization on the application level — it is the application's responsibility to ensure that the mutation and the corresponding `store()` call are executed atomically with respect to other threads.
+If they are not protected by the same lock, other threads may observe a partially modified object graph, or the stored data may not reflect the intended change.
+See xref:misc:locking/index.adoc[Locking] for details.
+====
+
 To make it easier to use within your application, we have prepared a simple way for you to do so.
 [source, java]
 ----
@@ -72,11 +80,13 @@ XThreads.executeSynchronized(() -> {
 });
 ----
 
+Note that both the modification (`changeData()`) and the `store()` call are inside the same synchronized block. This is essential — *never* modify the object graph outside the lock or defer the `store()` to a later, unsynchronized point.
+
 This approach will immediately provide you with several benefits:
 
 . Any changes to your object graph will be synchronized, every other thread will see the current value.
 . Avoid Deadlocks
-. In principle, you prevent the object graph from being modified at the same time it is saved.
+. The object graph cannot be modified by another thread while it is being saved.
 
 [TIP]
 ====

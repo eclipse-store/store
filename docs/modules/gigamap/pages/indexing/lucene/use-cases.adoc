@@ -322,7 +322,7 @@ For content in multiple languages, consider:
 
 == Combining with Bitmap Index
 
-Use Lucene for full-text search and Bitmap for exact filtering.
+Use Lucene for full-text search and Bitmap for exact filtering. `LuceneIndex.search(...)` returns a `LuceneSearchResult` that is itself a xref:queries/defining.adoc#_sub_queries[`GigaMap.SubQuery`], so the two can be intersected directly.
 
 [source, java]
 ----
@@ -335,18 +335,23 @@ LuceneIndex<Product> textSearch = products.index().register(
 );
 
 // Bitmap for exact filtering
-IndexerString<Product> categoryIndexer = new IndexerString<>()
+IndexerString<Product> categoryIndexer = new IndexerString.Abstract<>()
 {
     @Override
     protected String getString(Product p) { return p.getCategory(); }
 };
 products.index().bitmap().add(categoryIndexer);
 
-// Query: Full-text search + category filter
-List<Product> textResults = textSearch.query("name:wireless");
+// Full-text search intersected with category filter — scores dropped
+LuceneSearchResult<Product> textHits = textSearch.search("name:wireless", 100);
 List<Product> filtered = products.query(categoryIndexer.is("Electronics"))
-    .filter(textResults::contains)
+    .and(textHits)
     .toList();
+
+// Or from the scored side — keep iterating with relevance scores
+ScoredSearchResult<Product> ranked = textHits.and(
+    products.query(categoryIndexer.is("Electronics"))
+);
 ----
 
 == Search-as-You-Type

@@ -15,6 +15,7 @@ package org.eclipse.store.gigamap.jvector;
  */
 
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -257,7 +258,7 @@ class VectorIndexInterleavingTest
         // Search should not find the removed document
         final VectorSearchResult<Document> result = index.search(new float[]{0.0f, 1.0f, 0.0f}, 4);
         assertNotNull(result);
-        for(final VectorSearchResult.Entry<Document> entry : result)
+        for(final ScoredSearchResult.Entry<Document> entry : result)
         {
             assertNotEquals("doc1", entry.entity().content(), "Removed document should not appear in results");
         }
@@ -354,7 +355,7 @@ class VectorIndexInterleavingTest
 
         final VectorSearchResult<Document> result = index.search(new float[]{1.0f, 0.0f, 0.0f}, 2);
         assertNotNull(result);
-        for(final VectorSearchResult.Entry<Document> entry : result)
+        for(final ScoredSearchResult.Entry<Document> entry : result)
         {
             assertNotEquals("doc0", entry.entity().content(), "Removed document should not appear in results");
         }
@@ -404,7 +405,7 @@ class VectorIndexInterleavingTest
         assertEquals(4, result.size());
 
         // doc1 was removed — should not appear
-        for(final VectorSearchResult.Entry<Document> entry : result)
+        for(final ScoredSearchResult.Entry<Document> entry : result)
         {
             assertNotEquals("doc1", entry.entity().content());
         }
@@ -1363,7 +1364,7 @@ class VectorIndexInterleavingTest
 
         final VectorSearchResult<Document> result = index.search(new float[]{1.0f, 0.0f, 0.0f}, 2);
         assertNotNull(result);
-        for(final VectorSearchResult.Entry<Document> entry : result)
+        for(final ScoredSearchResult.Entry<Document> entry : result)
         {
             assertNotEquals("doc0", entry.entity().content(), "Removed document should not appear");
         }

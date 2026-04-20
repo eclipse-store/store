@@ -15,8 +15,10 @@ package org.eclipse.store.storage.types;
  */
 
 import java.lang.ref.WeakReference;
+import java.time.Duration;
 
 import org.eclipse.serializer.chars.XChars;
+import org.eclipse.serializer.persistence.types.BatchStorer;
 import org.eclipse.serializer.persistence.types.Persister;
 import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
@@ -206,7 +208,18 @@ public interface Database extends DatabasePart, Persister
 
 			return storage.createEagerStorer();
 		}
-		
+
+		@Override
+		public final BatchStorer createBatchStorer(
+			final BatchStorer.Controller controller   ,
+			final Duration               checkInterval
+		)
+		{
+			final StorageManager storage = this.guaranteeActiveStorage();
+
+			return storage.createBatchStorer(controller, checkInterval);
+		}
+
 	}
-	
+
 }

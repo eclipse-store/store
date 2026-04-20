@@ -37,6 +37,7 @@
 *** xref:storage:storing-data/lazy-eager-full.adoc[Lazy and Eager Storing]
 *** xref:storage:storing-data/transient-fields.adoc[Transient Fields]
 *** xref:storage:storing-data/best-practice.adoc[Best Practice]
+*** xref:storage:storing-data/batch-storer.adoc[Batch Storer]
 *** xref:storage:storing-data/deep-copy.adoc[Deep Copy Utility]
 *** xref:storage:storing-data/reloader.adoc[Reloading]
 ** xref:storage:loading-data/index.adoc[Loading Data]

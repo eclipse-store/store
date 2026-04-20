@@ -139,6 +139,11 @@ public interface StorageDataFileItemIterator
 				return this.buffer;
 			}
 
+			@Override
+			public void cleanUp()
+			{
+				XMemory.deallocateDirectByteBuffer(this.buffer);
+			}
 		}
 
 	}

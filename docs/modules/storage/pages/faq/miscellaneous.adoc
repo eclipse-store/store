@@ -10,8 +10,17 @@ Any problem during the IO-operation causes the whole block to be deleted (rolled
 == Is {product-name} multi-threaded?
 
 Yes.
-The storing and loading process can be parallelized by using multiple threads and thus be strongly accelerated.
-There is no limitation on how many threads can be used, apart from the mathematical constraint that the thread count must be a power of 2 (1, 2, 4, 8, 16, etc.).
+Internally, {product-name} uses multiple threads (called _channels_) to parallelize its own storing and loading operations, which can strongly accelerate IO performance.
+The number of channels must be a power of 2 (1, 2, 4, 8, 16, etc.).
+See xref:configuration/using-channels.adoc[Using Channels] for configuration details.
+
+[IMPORTANT]
+====
+This internal multi-threading does *not* protect your application's access to the shared object graph.
+In a multi-threaded application, modifying the object graph and storing the changes *must be done under the same lock*.
+{product-name} cannot provide this synchronization on the application level — it is the application's responsibility.
+See xref:misc:locking/index.adoc[Locking] for details.
+====
 
 == Does {product-name} support a backup strategy?
 

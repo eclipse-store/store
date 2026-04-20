@@ -45,3 +45,12 @@ If the store call is successful all data is written to the storage.
 Otherwise no data is persisted.
 Partially persisted data will be reverted.
 ====
+
+[IMPORTANT]
+====
+While each `store()` call is atomic at the persistence level, {product-name} does *not* synchronize the in-memory object graph for you.
+In a multi-threaded application, the modification of the object graph and the corresponding `store()` call *must be done under the same lock*.
+This is the application's responsibility.
+Without this guarantee, another thread could read or modify the object graph between your mutation and the `store()`, leading to inconsistent in-memory or persisted state.
+See xref:misc:locking/index.adoc[Locking] for details.
+====

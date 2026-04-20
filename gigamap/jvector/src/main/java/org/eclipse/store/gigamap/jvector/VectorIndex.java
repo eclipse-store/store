@@ -30,6 +30,7 @@ import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.store.gigamap.types.AbstractStateChangeFlagged;
 import org.eclipse.store.gigamap.types.GigaIndex;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -91,7 +92,7 @@ import java.util.stream.IntStream;
  * float[] queryVector = computeEmbedding("Hello");
  * VectorSearchResult<Document> results = index.search(queryVector, 10);
  *
- * for (VectorSearchResult.Entry<Document> entry : results) {
+ * for (ScoredSearchResult.Entry<Document> entry : results) {
  *     Document doc = entry.entity();      // Lazy lookup via GigaMap
  *     float similarity = entry.score();   // Similarity score
  *     System.out.println(doc.content() + " (score: " + similarity + ")");
@@ -221,7 +222,7 @@ import java.util.stream.IntStream;
  * VectorSearchResult<Document> results = index.search(queryVector, 10);
  *
  * // Iterate
- * for (VectorSearchResult.Entry<Document> entry : results) {
+ * for (ScoredSearchResult.Entry<Document> entry : results) {
  *     System.out.println(entry.entity().content());
  * }
  *
@@ -232,7 +233,7 @@ import java.util.stream.IntStream;
  *     .toList();
  *
  * // Convert to list
- * List<VectorSearchResult.Entry<Document>> list = results.toList();
+ * List<ScoredSearchResult.Entry<Document>> list = results.toList();
  * }</pre>
  *
  * <h2>Persistence with EclipseStore</h2>
@@ -326,7 +327,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * float[] queryVector = embeddingService.embed("search query");
      * VectorSearchResult<Document> results = index.search(queryVector, 10);
      *
-     * for (VectorSearchResult.Entry<Document> entry : results) {
+     * for (ScoredSearchResult.Entry<Document> entry : results) {
      *     System.out.printf("Score: %.4f - %s%n",
      *         entry.score(),
      *         entry.entity().title()
@@ -660,6 +661,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                DiskIndexManager.IndexStateProvider
     {
         private static final Logger LOG = LoggerFactory.getLogger(Default.class);
+
+        /**
+         * Minimum number of candidates to explore during HNSW graph search (beam width at layer 0).
+         * Ensures consistent search quality regardless of the requested k value, preventing the
+         * top-k results from changing when a different k is requested.
+         */
+        private static final int MIN_SEARCH_BEAM_WIDTH = 100;
 
         static BinaryTypeHandler<Default<?>> provideTypeHandler()
         {
@@ -1557,6 +1565,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
+         * Computes the search beam width (rerankK), ensuring a minimum exploration effort
+         * regardless of how small k is. This prevents the HNSW search from returning
+         * different top-k results depending on the requested k value.
+         */
+        private int computeRerankK(final int k)
+        {
+            return Math.max(k, MIN_SEARCH_BEAM_WIDTH);
+        }
+
+        /**
          * Searches the in-memory index using a pooled GraphSearcher.
          */
         private SearchResult searchInMemoryIndex(final VectorFloat<?> query, final int k)
@@ -1577,7 +1595,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 searcher.setView(view);
             }
             final Bits acceptBits = view != null ? view.liveNodes() : Bits.ALL;
-            return searcher.search(scoreProvider, k, acceptBits);
+            final int rerankK = this.computeRerankK(k);
+            return searcher.search(scoreProvider, k, rerankK, 0f, 0f, acceptBits);
         }
 
         /**
@@ -1585,6 +1604,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private SearchResult searchDiskIndex(final VectorFloat<?> query, final int k)
         {
+            final int rerankK = this.computeRerankK(k);
+
             // If PQ is available, use compressed scoring with reranking
             if(this.pqManager != null && this.pqManager.isTrained() && this.pqManager.getCompressedVectors() != null)
             {
@@ -1592,6 +1613,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return this.pqManager.searchWithRerank(
                     query,
                     k,
+                    rerankK,
                     searcher,
                     this.createCachingVectorValues(),
                     this.jvectorSimilarityFunction()
@@ -1606,7 +1628,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             );
 
             final GraphSearcher searcher = this.inMemorySearcherPool.get();
-            return searcher.search(scoreProvider, k, Bits.ALL);
+            return searcher.search(scoreProvider, k, rerankK, 0f, 0f, Bits.ALL);
         }
 
         /**
@@ -1615,6 +1637,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private SearchResult searchIncremental(final VectorFloat<?> query, final int k)
         {
+            final int rerankK = this.computeRerankK(k);
+
             final SearchScoreProvider scoreProvider = DefaultSearchScoreProvider.exact(
                 query,
                 this.jvectorSimilarityFunction(),
@@ -1622,12 +1646,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             );
 
             // 1. Search disk graph (excluding deleted/updated ordinals)
+            // Use rerankK as topK to give the merge a richer candidate pool
             SearchResult diskResult = null;
             if(this.diskSearcherPool != null)
             {
                 final GraphSearcher diskSearcher = this.diskSearcherPool.get();
                 final Bits acceptBits = this.createDiskAcceptBits();
-                diskResult = diskSearcher.search(scoreProvider, k, acceptBits);
+                diskResult = diskSearcher.search(scoreProvider, rerankK, rerankK, 0f, 0f, acceptBits);
             }
 
             // 2. Search in-memory graph (new mutations only)
@@ -1637,21 +1662,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 final GraphSearcher memSearcher = this.inMemorySearcherPool.get();
                 // Refresh view so the searcher sees nodes added since pool initialization
                 memSearcher.setView(this.index.getView());
-                memResult = memSearcher.search(scoreProvider, k, this.index.getView().liveNodes());
+                memResult = memSearcher.search(scoreProvider, rerankK, rerankK, 0f, 0f, this.index.getView().liveNodes());
             }
 
-            // 3. Merge results
+            // 3. Merge results — truncate single-source results to k since sub-graphs
+            // over-fetch to provide the merge with a richer candidate pool
             if(diskResult == null && memResult == null)
             {
                 return new SearchResult(new SearchResult.NodeScore[0], 0, 0, 0, 0, 0f);
             }
             if(diskResult == null)
             {
-                return memResult;
+                return this.truncateResult(memResult, k);
             }
             if(memResult == null)
             {
-                return diskResult;
+                return this.truncateResult(diskResult, k);
             }
 
             return this.mergeSearchResults(diskResult, memResult, k);
@@ -1704,6 +1730,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
 
             return i -> i < 0 || i >= deletedMask.length || !deletedMask[i];
+        }
+
+        /**
+         * Truncates a SearchResult to at most k entries. Used when a single sub-graph
+         * provided all results and the over-fetched candidate pool needs trimming.
+         */
+        private SearchResult truncateResult(final SearchResult result, final int k)
+        {
+            final SearchResult.NodeScore[] nodes = result.getNodes();
+            if(nodes.length <= k)
+            {
+                return result;
+            }
+            return new SearchResult(
+                Arrays.copyOf(nodes, k),
+                result.getVisitedCount(), 0, 0, 0, 0f
+            );
         }
 
         /**
@@ -1821,12 +1864,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             final GigaMap<E> parentMap = this.parentMap();
             final SearchResult.NodeScore[] nodes = result.getNodes();
-            final BulkList<VectorSearchResult.Entry<E>> entries = BulkList.New(nodes.length);
+            final BulkList<ScoredSearchResult.Entry<E>> entries = BulkList.New(nodes.length);
             for(final SearchResult.NodeScore node : nodes)
             {
                 // Ordinals (node) ARE entity IDs, so direct conversion
                 // Pass parentMap for lazy entity access
-                entries.add(new VectorSearchResult.Entry.Default<>(node.node, node.score, parentMap));
+                entries.add(new ScoredSearchResult.Entry.Default<>(node.node, node.score, parentMap));
             }
             return new VectorSearchResult.Default<>(entries);
         }

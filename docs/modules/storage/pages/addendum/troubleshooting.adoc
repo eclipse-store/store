@@ -89,6 +89,93 @@ If the application runs out of memory:
 * Increase the JVM heap size (`-Xmx`)
 * Monitor memory usage via xref:misc:monitoring/index.adoc[JMX monitoring]
 
+== Restoring a Deleted Object with StorageObjectRestorer
+
+If an object was deleted from the storage (e.g. through garbage collection) and a deletion directory is configured, it may be possible to recover the object using `StorageObjectRestorer`.
+
+[WARNING]
+====
+`StorageObjectRestorer` reads and writes the storage files directly.
+*The storage must be shut down* before running the restorer. Using it against a running storage will corrupt data.
+====
+
+=== Prerequisites
+
+* A deletion directory must have been configured *before* the object was deleted:
++
+[source, java]
+----
+EmbeddedStorage.Foundation()
+    .onConnectionFoundation(f -> f.getStorageFoundation()
+        .getFileProvider()
+        .setDeletionDirectory(deletionDir));
+----
++
+Without a deletion directory, superseded data files are permanently deleted and cannot be recovered.
+
+* You need to know the *persistence object id* of the object to restore.
+
+=== Basic Usage
+
+[source, java]
+----
+import org.eclipse.store.afs.nio.types.NioFileSystem;
+import org.eclipse.store.storage.types.StorageLiveFileProvider;
+import org.eclipse.store.storage.util.StorageObjectRestorer;
+
+import java.nio.file.Paths;
+
+// 1. Shut down the storage first!
+
+final NioFileSystem nioFs = NioFileSystem.New();
+
+final StorageLiveFileProvider fileProvider = StorageLiveFileProvider.Builder(nioFs)
+    .setDirectory(nioFs.ensureDirectoryPath(Paths.get("/path/to/storage").toString()))
+    .setDeletionDirectory(nioFs.ensureDirectoryPath(Paths.get("/path/to/deletions").toString()))
+    .createFileProvider();
+
+// channel count must match the value used when the storage was created (default: 1)
+final int channelCount = 1;
+
+final StorageObjectRestorer restorer =
+    new StorageObjectRestorer.Default(fileProvider, channelCount);
+
+final long objectId = 1000000000000068341L;
+final boolean restored = restorer.restoreObject(objectId);
+
+if (restored)
+{
+    System.out.println("Object " + objectId + " restored – restart storage to use it.");
+}
+else
+{
+    System.out.println("Object " + objectId + " not found in deletion directory.");
+}
+----
+
+Alternatively, if you have a `StorageConfiguration` available:
+
+[source, java]
+----
+final StorageConfiguration configuration = ...; // your existing configuration
+final StorageObjectRestorer restorer = new StorageObjectRestorer.Default(configuration);
+restorer.restoreObject(objectId);
+----
+
+=== How It Works
+
+1. The restorer scans the deletion directory for data files belonging to the channel that owns the given object id (`objectId % channelCount`).
+2. It parses every deleted data file and locates the most recent binary entity blob for the requested object id.
+3. The blob is appended as a new data file in the live storage directory of that channel.
+4. A matching entry is written to the channel's transactions log so the storage engine recognises the new file on the next startup.
+
+=== Limitations
+
+* The object can only be restored if its binary blob is still present in the deletion directory.
+  If no deletion directory was configured, or if the deletion directory was cleaned up, recovery is not possible.
+* Only the *object itself* is restored. If the object references other missing objects, those must be restored separately or handled with `StorageEntityCollector.Creator.Unchecked()` (see above).
+* The restorer does not verify type compatibility. Ensure the class definition still matches the stored binary layout.
+
 == Storage Recovery Steps
 
 If your storage becomes corrupted or is in an inconsistent state:

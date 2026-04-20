@@ -10,7 +10,7 @@ package org.eclipse.store.examples.extensionwrapper;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -35,28 +35,28 @@ public class PersistenceStorerExtension extends PersistenceStorerWrapper
 	{
 		super(delegate);
 	}
-	
+
 	private void beforeStoreObject(final Object instance)
 	{
 		System.out.println("Storing " + instance.getClass().getName() + "@" + System.identityHashCode(instance));
 	}
-	
+
 	@Override
 	public long store(final Object instance)
 	{
 		this.beforeStoreObject(instance);
-		
+
 		return super.store(instance);
 	}
-	
+
 	@Override
 	public void storeAll(final Iterable<?> instances)
 	{
 		instances.forEach(this::beforeStoreObject);
-		
+
 		super.storeAll(instances);
 	}
-	
+
 	@Override
 	public long[] storeAll(final Object... instances)
 	{
@@ -64,13 +64,13 @@ public class PersistenceStorerExtension extends PersistenceStorerWrapper
 		{
 			this.beforeStoreObject(instance);
 		}
-		
+
 		return super.storeAll(instances);
 	}
-	
-	
-	
-	
+
+
+
+
 	public static class Creator implements PersistenceStorer.Creator<Binary>
 	{
 		private final PersistenceStorer.Creator<Binary> delegate;
@@ -80,7 +80,7 @@ public class PersistenceStorerExtension extends PersistenceStorerWrapper
 			super();
 			this.delegate = delegate;
 		}
-		
+
 		@Override
 		public PersistenceStorer createLazyStorer(
 			final PersistenceTypeHandlerManager<Binary> typeManager       ,
@@ -110,8 +110,8 @@ public class PersistenceStorerExtension extends PersistenceStorerWrapper
 				this.delegate.createEagerStorer(typeManager, objectManager, objectRetriever, target, bufferSizeProvider, persister)
 			);
 		}
-		
-		
+
+
 	}
-	
+
 }

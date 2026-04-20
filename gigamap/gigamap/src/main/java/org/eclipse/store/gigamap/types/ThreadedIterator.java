@@ -414,7 +414,7 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 	@Override
 	protected void finalize() throws Throwable
 	{
-		this.parent.closeIterator(this);
+		this.parent.closeReader(this);
 		this.deallocateSegments();
 	}
 	
