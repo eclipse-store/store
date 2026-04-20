@@ -59,19 +59,40 @@ public class WineRestController
 	}
 
 	/**
-	 * {@code GET /api/v1/wines} — paged listing of all wines.
+	 * {@code GET /api/v1/wines} — paged listing of wines with optional filters.
+	 * <p>
+	 * When no filter parameters are supplied this returns a simple paged listing of all wines.
+	 * When one or more filters are present the bitmap indices are combined into a single
+	 * {@link org.eclipse.store.gigamap.types.GigaQuery GigaQuery} (via
+	 * {@link WineService#filter}) and the result is paged.
 	 *
-	 * @param page zero-based page number (default {@code 0})
-	 * @param size page size (default {@code 20})
-	 * @return a page of wines
+	 * @param page    zero-based page number (default {@code 0})
+	 * @param size    page size (default {@code 20})
+	 * @param name    substring filter on wine name (case-insensitive), or {@code null} to skip
+	 * @param type    wine type filter (e.g. {@code RED}), or {@code null} to skip
+	 * @param grape   grape variety filter (e.g. {@code MERLOT}), or {@code null} to skip
+	 * @param vintage vintage year filter, or {@code null} to skip
+	 * @param country country filter, or {@code null} to skip
+	 * @param region  region filter, or {@code null} to skip
+	 * @return a page of (filtered) wines
 	 */
 	@GetMapping
 	public PageResult<Wine> list(
 		@RequestParam(defaultValue = "0") final int page,
-		@RequestParam(defaultValue = "20") final int size
+		@RequestParam(defaultValue = "20") final int size,
+		@RequestParam(required = false) final String name,
+		@RequestParam(required = false) final WineType type,
+		@RequestParam(required = false) final GrapeVariety grape,
+		@RequestParam(required = false) final Integer vintage,
+		@RequestParam(required = false) final String country,
+		@RequestParam(required = false) final String region
 	)
 	{
-		return this.wineService.list(page, size);
+		if (name == null && type == null && grape == null && vintage == null && country == null && region == null)
+		{
+			return this.wineService.list(page, size);
+		}
+		return this.wineService.filter(name, type, grape, vintage, country, region, page, size);
 	}
 
 	/**

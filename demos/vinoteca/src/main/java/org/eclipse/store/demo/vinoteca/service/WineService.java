@@ -362,6 +362,31 @@ public class WineService
 	}
 
 	/**
+	 * Paged variant of {@link #filter} — applies the same bitmap index predicates and then
+	 * slices the sorted result into a {@link PageResult}.
+	 *
+	 * @param name    substring to match against the wine name (case-insensitive), or {@code null}/blank to skip
+	 * @param type    the wine type, or {@code null} to skip
+	 * @param grape   the grape variety, or {@code null} to skip
+	 * @param vintage the vintage year, or {@code null} to skip
+	 * @param country the country, or {@code null}/blank to skip
+	 * @param region  the region, or {@code null}/blank to skip
+	 * @param page    the zero-based page number
+	 * @param size    the page size
+	 * @return a page wrapping the filtered wines and the total match count
+	 */
+	@Read
+	public PageResult<Wine> filter(final String name, final WineType type, final GrapeVariety grape, final Integer vintage, final String country, final String region, final int page, final int size)
+	{
+		final List<Wine> all = this.filter(name, type, grape, vintage, country, region);
+		final List<Wine> paged = all.stream()
+			.skip((long) page * size)
+			.limit(size)
+			.toList();
+		return new PageResult<>(paged, all.size(), page, size);
+	}
+
+	/**
 	 * Returns the distinct set of vintage years across all wines, taken directly from the bitmap
 	 * index keys (no full scan).
 	 *
