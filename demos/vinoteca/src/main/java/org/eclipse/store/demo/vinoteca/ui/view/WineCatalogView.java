@@ -73,10 +73,12 @@ public class WineCatalogView extends VerticalLayout
 		grapeFilter.setItemLabelGenerator(g -> g.name().replace('_', ' '));
 		grapeFilter.setClearButtonVisible(true);
 
-		final TextField countryFilter = new TextField("Country");
+		final ComboBox<String> countryFilter = new ComboBox<>("Country");
+		countryFilter.setItems(wineService.countries().stream().sorted().toList());
 		countryFilter.setClearButtonVisible(true);
 
-		final TextField regionFilter = new TextField("Region");
+		final ComboBox<String> regionFilter = new ComboBox<>("Region");
+		regionFilter.setItems(wineService.regions().stream().sorted().toList());
 		regionFilter.setClearButtonVisible(true);
 
 		final Button searchBtn = new Button("Search", e -> this.applyFilters(

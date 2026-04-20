@@ -367,6 +367,30 @@ public class WineService
 	}
 
 	/**
+	 * Returns the distinct set of countries across all wines, taken directly from the bitmap
+	 * index keys (no full scan).
+	 *
+	 * @return the distinct country list
+	 */
+	@Read
+	public List<String> countries()
+	{
+		return WineIndices.COUNTRY.resolveKeys(this.wineGigaMap);
+	}
+
+	/**
+	 * Returns the distinct set of regions across all wines, taken directly from the bitmap
+	 * index keys (no full scan).
+	 *
+	 * @return the distinct region list
+	 */
+	@Read
+	public List<String> regions()
+	{
+		return WineIndices.REGION.resolveKeys(this.wineGigaMap);
+	}
+
+	/**
 	 * Returns all wines of a given vintage. Performed as a full scan + filter (no dedicated index
 	 * exists for the vintage attribute).
 	 *
