@@ -2386,4 +2386,53 @@ class VectorIndexTest
         gigaMap.set(0, new Document("doc1-updated", new float[]{0.0f, 1.0f, 0.0f}));
         assertArrayEquals(new float[]{0.0f, 1.0f, 0.0f}, index.getVector(0));
     }
+
+    /**
+     * Verifies that the top-k results are consistent regardless of the requested k value.
+     * Previously, searching with k=5 and k=50 could produce different top-5 results because
+     * the HNSW beam width was coupled to k, causing insufficient exploration for small k.
+     */
+    @Test
+    void searchTopKConsistentRegardlessOfRequestedK()
+    {
+        final int dimension = 32;
+        final int vectorCount = 200;
+        final Random random = new Random(42);
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+        vectorIndices.add("embeddings",
+            VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .maxDegree(16)
+                .beamWidth(100)
+                .build(),
+            new DocumentVectorizer32()
+        );
+
+        for(int i = 0; i < vectorCount; i++)
+        {
+            gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
+        }
+
+        final VectorIndex<Document> index = vectorIndices.get("embeddings");
+        final float[] queryVector = randomVector(new Random(99), dimension);
+
+        // Search with different k values
+        final VectorSearchResult<Document> result5  = index.search(queryVector, 5);
+        final VectorSearchResult<Document> result50 = index.search(queryVector, 50);
+
+        // Extract top-5 entity IDs from each
+        final List<Long> top5from5  = result5.stream()
+            .map(VectorSearchResult.Entry::entityId)
+            .toList();
+        final List<Long> top5from50 = result50.stream()
+            .limit(5)
+            .map(VectorSearchResult.Entry::entityId)
+            .toList();
+
+        assertEquals(top5from5, top5from50,
+            "Top-5 results should be identical regardless of k parameter");
+    }
 }
