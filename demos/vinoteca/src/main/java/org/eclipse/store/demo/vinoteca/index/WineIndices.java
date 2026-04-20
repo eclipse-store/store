@@ -18,6 +18,7 @@ import org.eclipse.store.demo.vinoteca.model.GrapeVariety;
 import org.eclipse.store.demo.vinoteca.model.Wine;
 import org.eclipse.store.demo.vinoteca.model.WineType;
 import org.eclipse.store.gigamap.types.Indexer;
+import org.eclipse.store.gigamap.types.IndexerInteger;
 import org.eclipse.store.gigamap.types.IndexerString;
 
 /**
@@ -106,6 +107,22 @@ public final class WineIndices
 		protected String getString(final Wine wine)
 		{
 			return wine.getWinery().getName();
+		}
+	};
+
+	/** Indexer over the wine vintage year. */
+	public static final IndexerInteger<Wine> VINTAGE = new IndexerInteger.Abstract<>()
+	{
+		@Override
+		public String name()
+		{
+			return "vintage";
+		}
+
+		@Override
+		protected Integer getInteger(final Wine wine)
+		{
+			return wine.getVintage();
 		}
 	};
 

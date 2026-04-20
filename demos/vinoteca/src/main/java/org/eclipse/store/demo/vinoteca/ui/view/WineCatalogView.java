@@ -73,6 +73,10 @@ public class WineCatalogView extends VerticalLayout
 		grapeFilter.setItemLabelGenerator(g -> g.name().replace('_', ' '));
 		grapeFilter.setClearButtonVisible(true);
 
+		final ComboBox<Integer> vintageFilter = new ComboBox<>("Vintage");
+		vintageFilter.setItems(wineService.vintages().stream().sorted().toList());
+		vintageFilter.setClearButtonVisible(true);
+
 		final ComboBox<String> countryFilter = new ComboBox<>("Country");
 		countryFilter.setItems(wineService.countries().stream().sorted().toList());
 		countryFilter.setClearButtonVisible(true);
@@ -83,20 +87,21 @@ public class WineCatalogView extends VerticalLayout
 
 		final Button searchBtn = new Button("Search", e -> this.applyFilters(
 			nameFilter.getValue(), typeFilter.getValue(), grapeFilter.getValue(),
-			countryFilter.getValue(), regionFilter.getValue()
+			vintageFilter.getValue(), countryFilter.getValue(), regionFilter.getValue()
 		));
 
 		final Button resetBtn = new Button("Reset", e -> {
 			nameFilter.clear();
 			typeFilter.clear();
 			grapeFilter.clear();
+			vintageFilter.clear();
 			countryFilter.clear();
 			regionFilter.clear();
 			this.loadData();
 		});
 
 		final HorizontalLayout filters = new HorizontalLayout(
-			nameFilter, typeFilter, grapeFilter, countryFilter, regionFilter, searchBtn, resetBtn
+			nameFilter, typeFilter, grapeFilter, vintageFilter, countryFilter, regionFilter, searchBtn, resetBtn
 		);
 		filters.setDefaultVerticalComponentAlignment(Alignment.END);
 
@@ -131,10 +136,10 @@ public class WineCatalogView extends VerticalLayout
 
 	private void applyFilters(
 		final String name, final WineType type, final GrapeVariety grape,
-		final String country, final String region
+		final Integer vintage, final String country, final String region
 	)
 	{
-		final List<Wine> filtered = this.wineService.filter(name, type, grape, country, region);
+		final List<Wine> filtered = this.wineService.filter(name, type, grape, vintage, country, region);
 		this.grid.setItems(filtered);
 		Notification.show("Found " + filtered.size() + " wines");
 	}

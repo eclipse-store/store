@@ -62,7 +62,7 @@ public class DataRoot
 	/**
 	 * Builds a fresh, empty data root with all GigaMap indices configured:
 	 * <ul>
-	 *   <li>Bitmap indices on wine name/type/grape/winery/country/region;</li>
+	 *   <li>Bitmap indices on wine name/type/grape/vintage/winery/country/region;</li>
 	 *   <li>A Lucene full-text index over wine name, tasting notes, aroma and food pairing;</li>
 	 *   <li>A JVector vector index ({@code "wine-embeddings"}, 384-dim cosine) backed by a
 	 *       LangChain4j Ollama embedding model running locally on
@@ -79,6 +79,7 @@ public class DataRoot
 			WineIndices.NAME,
 			WineIndices.TYPE,
 			WineIndices.GRAPE_VARIETY,
+			WineIndices.VINTAGE,
 			WineIndices.WINERY_NAME,
 			WineIndices.COUNTRY,
 			WineIndices.REGION

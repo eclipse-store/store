@@ -325,20 +325,21 @@ public class WineService
 	}
 
 	/**
-	 * Filters wines by combining the bitmap indices for type, grape variety, country and region
-	 * into a single {@link GigaQuery}. Each non-{@code null} / non-blank parameter adds an AND
-	 * condition to the query; if all parameters are empty, every wine is returned. The name
-	 * parameter uses the name bitmap index with a case-insensitive contains predicate.
+	 * Filters wines by combining the bitmap indices for type, grape variety, vintage, country and
+	 * region into a single {@link GigaQuery}. Each non-{@code null} / non-blank parameter adds
+	 * an AND condition to the query; if all parameters are empty, every wine is returned. The
+	 * name parameter uses the name bitmap index with a case-insensitive contains predicate.
 	 *
 	 * @param name    substring to match against the wine name (case-insensitive), or {@code null}/blank to skip
 	 * @param type    the wine type, or {@code null} to skip
 	 * @param grape   the grape variety, or {@code null} to skip
+	 * @param vintage the vintage year, or {@code null} to skip
 	 * @param country the country, or {@code null}/blank to skip
 	 * @param region  the region, or {@code null}/blank to skip
 	 * @return name-sorted matching wines
 	 */
 	@Read
-	public List<Wine> filter(final String name, final WineType type, final GrapeVariety grape, final String country, final String region)
+	public List<Wine> filter(final String name, final WineType type, final GrapeVariety grape, final Integer vintage, final String country, final String region)
 	{
 		final GigaQuery<Wine> query = this.wineGigaMap.query();
 		if (name != null && !name.isBlank())
@@ -353,6 +354,10 @@ public class WineService
 		{
 			query.and(WineIndices.GRAPE_VARIETY.is(grape));
 		}
+		if (vintage != null)
+		{
+			query.and(WineIndices.VINTAGE.is(vintage));
+		}
 		if (country != null && !country.isBlank())
 		{
 			query.and(WineIndices.COUNTRY.is(country));
@@ -364,6 +369,18 @@ public class WineService
 		final List<Wine> result = query.toList();
 		result.sort(Comparator.comparing(Wine::getName));
 		return result;
+	}
+
+	/**
+	 * Returns the distinct set of vintage years across all wines, taken directly from the bitmap
+	 * index keys (no full scan).
+	 *
+	 * @return the distinct vintage list
+	 */
+	@Read
+	public List<Integer> vintages()
+	{
+		return WineIndices.VINTAGE.resolveKeys(this.wineGigaMap);
 	}
 
 	/**
@@ -391,8 +408,7 @@ public class WineService
 	}
 
 	/**
-	 * Returns all wines of a given vintage. Performed as a full scan + filter (no dedicated index
-	 * exists for the vintage attribute).
+	 * Returns all wines of a given vintage, served by the {@link WineIndices#VINTAGE} bitmap index.
 	 *
 	 * @param year the vintage year
 	 * @return name-sorted matching wines
@@ -400,9 +416,8 @@ public class WineService
 	@Read
 	public List<Wine> byVintage(final int year)
 	{
-		return this.wineGigaMap.query()
+		return this.wineGigaMap.query(WineIndices.VINTAGE.is(year))
 			.stream()
-			.filter(w -> w.getVintage() == year)
 			.sorted(Comparator.comparing(Wine::getName))
 			.toList();
 	}
