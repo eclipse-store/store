@@ -242,7 +242,7 @@ public class DataGeneratorService
 	/**
 	 * Generates a complete dataset on top of whatever is already persisted: a fresh batch of
 	 * wineries (one per region), {@code wineCount} wines distributed across them, 50 customers,
-	 * 200 orders and 100 reviews. All generated data is appended to the existing graph and
+	 * 200 orders and reviews (at least 3 per wine). All generated data is appended to the existing graph and
 	 * persisted before this method returns.
 	 *
 	 * @param wineCount the target number of wines to generate
@@ -256,7 +256,7 @@ public class DataGeneratorService
 		final List<Customer> customers = this.generateCustomers(50);
 		final List<Order>    orders    = this.generateOrders(customers, wines, 200);
 
-		this.generateReviews(customers, wines, 100);
+		this.generateReviews(customers, wines, wineCount * 5);
 
 		// Persist all generated data
 		this.dataRoot.getWines().store();
@@ -439,33 +439,150 @@ public class DataGeneratorService
 		final int            count
 	)
 	{
-		for (int i = 0; i < count; i++)
+		final int minPerWine = 3;
+
+		// First, ensure every wine gets at least 3 reviews
+		for (final Wine wine : wines)
 		{
-			final Wine     wine     = wines.get(this.random.nextInt(wines.size()));
-			final Customer customer = customers.get(this.random.nextInt(customers.size()));
-			final double   rating   = Math.max(1, Math.min(100, 80 + this.random.nextGaussian() * 12));
-
-			final Review review = new Review(
-				customer,
-				Math.round(rating * 10.0) / 10.0,
-				this.faker.lorem().sentence(10),
-				LocalDateTime.of(
-					2020 + this.random.nextInt(6),
-					1 + this.random.nextInt(12),
-					1 + this.random.nextInt(28),
-					this.random.nextInt(24),
-					this.random.nextInt(60)
-				)
-			);
-			wine.getReviews().add(review);
-
-			final double newAvg = wine.getReviews().stream()
-				.mapToDouble(Review::getRating)
-				.average()
-				.orElse(0);
-			wine.setRating(Math.round(newAvg * 10.0) / 10.0);
-			wine.setRatingCount(wine.getReviews().size());
+			for (int r = 0; r < minPerWine; r++)
+			{
+				this.addReview(customers, wine);
+			}
 		}
+
+		// Distribute additional random reviews
+		final int additional = Math.max(0, count - wines.size() * minPerWine);
+		for (int i = 0; i < additional; i++)
+		{
+			final Wine wine = wines.get(this.random.nextInt(wines.size()));
+			this.addReview(customers, wine);
+		}
+	}
+
+	private void addReview(final List<Customer> customers, final Wine wine)
+	{
+		final Customer customer = customers.get(this.random.nextInt(customers.size()));
+		final double   rating   = Math.max(1, Math.min(100, 80 + this.random.nextGaussian() * 12));
+
+		final Review review = new Review(
+			customer,
+			Math.round(rating * 10.0) / 10.0,
+			this.generateReviewText(wine, rating),
+			LocalDateTime.of(
+				2020 + this.random.nextInt(6),
+				1 + this.random.nextInt(12),
+				1 + this.random.nextInt(28),
+				this.random.nextInt(24),
+				this.random.nextInt(60)
+			)
+		);
+		wine.getReviews().add(review);
+
+		final double newAvg = wine.getReviews().stream()
+			.mapToDouble(Review::getRating)
+			.average()
+			.orElse(0);
+		wine.setRating(Math.round(newAvg * 10.0) / 10.0);
+		wine.setRatingCount(wine.getReviews().size());
+	}
+
+	private String generateReviewText(final Wine wine, final double rating)
+	{
+		final String grape   = toTitleCase(wine.getGrapeVariety().name());
+		final String region  = wine.getWinery().getRegion();
+		final String aroma   = wine.getAroma();
+		final String food    = wine.getFoodPairing();
+		final int    vintage = wine.getVintage();
+
+		final StringBuilder sb = new StringBuilder();
+
+		if (rating >= 85)
+		{
+			final String[] openers = {
+				"Excellent " + grape + " from " + region + ".",
+				"A beautiful " + vintage + " vintage from " + region + ".",
+				"Outstanding wine. One of the best " + grape + " I've tasted.",
+				"This " + grape + " is a superb expression of " + region + " terroir.",
+				"Truly impressive " + vintage + " " + grape + ".",
+				"What a find! This " + region + " " + grape + " is top-notch.",
+				"Stunning " + grape + " that showcases everything great about " + region + ".",
+			};
+			sb.append(openers[this.random.nextInt(openers.length)]);
+
+			final String[] middles = {
+				" Lovely aromas of " + aroma + ".",
+				" The nose offers wonderful " + aroma + " notes.",
+				" Beautiful " + aroma + " on the palate.",
+				" Rich and complex with " + aroma + ".",
+				" Layers of " + aroma + " unfold with every sip.",
+			};
+			sb.append(middles[this.random.nextInt(middles.length)]);
+
+			final String[] closers = {
+				" Pairs wonderfully with " + food + ".",
+				" Enjoyed it with " + food + ".",
+				" Highly recommended alongside " + food + ".",
+				" A perfect match for " + food + ".",
+				" Will definitely buy again.",
+			};
+			sb.append(closers[this.random.nextInt(closers.length)]);
+		}
+		else if (rating >= 65)
+		{
+			final String[] openers = {
+				"Decent " + grape + " from " + region + ".",
+				"A solid " + vintage + " vintage, though not exceptional.",
+				"Reasonable " + region + " " + grape + " for the price.",
+				"This " + grape + " is a fair representation of " + region + ".",
+				"An everyday " + grape + " from " + region + ".",
+			};
+			sb.append(openers[this.random.nextInt(openers.length)]);
+
+			final String[] middles = {
+				" Some " + aroma + " on the nose, but nothing remarkable.",
+				" Hints of " + aroma + ", though a bit muted.",
+				" The " + aroma + " notes are pleasant enough.",
+				" Moderate " + aroma + " character.",
+			};
+			sb.append(middles[this.random.nextInt(middles.length)]);
+
+			final String[] closers = {
+				" Works with " + food + ".",
+				" Tried it with " + food + ", it was fine.",
+				" Acceptable pairing with " + food + ".",
+				" Nothing special, but gets the job done.",
+			};
+			sb.append(closers[this.random.nextInt(closers.length)]);
+		}
+		else
+		{
+			final String[] openers = {
+				"Disappointing " + grape + " from " + region + ".",
+				"Expected more from this " + vintage + " " + grape + ".",
+				"Underwhelming " + region + " wine.",
+				"This " + grape + " falls short of " + region + " standards.",
+				"Not what I hoped for from a " + region + " " + grape + ".",
+			};
+			sb.append(openers[this.random.nextInt(openers.length)]);
+
+			final String[] middles = {
+				" The " + aroma + " was barely noticeable.",
+				" Lacked the expected " + aroma + " character.",
+				" Flat on the nose, missing the " + aroma + " I anticipated.",
+				" Thin and one-dimensional, no real " + aroma + " complexity.",
+			};
+			sb.append(middles[this.random.nextInt(middles.length)]);
+
+			final String[] closers = {
+				" Did not pair well with " + food + ".",
+				" Even " + food + " couldn't save this one.",
+				" Would not recommend.",
+				" There are better options at this price point.",
+			};
+			sb.append(closers[this.random.nextInt(closers.length)]);
+		}
+
+		return sb.toString();
 	}
 
 	/**
