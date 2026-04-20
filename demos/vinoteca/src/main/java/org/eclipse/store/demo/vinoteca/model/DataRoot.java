@@ -64,9 +64,9 @@ public class DataRoot
 	 * <ul>
 	 *   <li>Bitmap indices on wine name/type/grape/vintage/winery/country/region;</li>
 	 *   <li>A Lucene full-text index over wine name, tasting notes, aroma and food pairing;</li>
-	 *   <li>A JVector vector index ({@code "wine-embeddings"}, 384-dim cosine) backed by a
+	 *   <li>A JVector vector index ({@code "wine-embeddings"}, 768-dim cosine) backed by a
 	 *       LangChain4j Ollama embedding model running locally on
-	 *       {@code http://localhost:11434} with model {@code all-minilm};</li>
+	 *       {@code http://localhost:11434} with model {@code nomic-embed-text};</li>
 	 *   <li>Bitmap and spatial indices on wineries.</li>
 	 * </ul>
 	 * Used only when no persisted root exists yet — subsequent application starts deserialize the
@@ -90,10 +90,10 @@ public class DataRoot
 		final VectorIndices<Wine> vectorIndices = this.wines.index().register(VectorIndices.Category());
 		vectorIndices.add("wine-embeddings",
 			VectorIndexConfiguration.builder()
-				.dimension(384)
+				.dimension(768)
 				.similarityFunction(VectorSimilarityFunction.COSINE)
 				.build(),
-			new WineVectorizer("http://localhost:11434", "all-minilm")
+			new WineVectorizer("http://localhost:11434", "nomic-embed-text")
 		);
 
 		this.wineries = GigaMap.New();

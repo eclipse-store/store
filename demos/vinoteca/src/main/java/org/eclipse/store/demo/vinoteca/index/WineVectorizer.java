@@ -32,7 +32,7 @@ import org.eclipse.store.gigamap.jvector.Vectorizer;
  * sentence and forwards
  * that to a LangChain4j {@link OllamaEmbeddingModel} configured against a locally running
  * <a href="https://ollama.com">Ollama</a> instance. The default model used by the demo is
- * {@code all-minilm}, which produces 384-dimensional vectors — the same dimensionality the index
+ * {@code nomic-embed-text}, which produces 768-dimensional vectors — the same dimensionality the index
  * is configured for in {@link org.eclipse.store.demo.vinoteca.model.DataRoot DataRoot}.
  * <p>
  * The {@link EmbeddingModel} is held in a {@code transient} field and lazily created via
@@ -50,7 +50,7 @@ public class WineVectorizer extends Vectorizer<Wine>
 	 * Creates a vectorizer that talks to an Ollama instance.
 	 *
 	 * @param baseUrl   the base URL of the Ollama server (e.g. {@code "http://localhost:11434"})
-	 * @param modelName the embedding model name to use (e.g. {@code "all-minilm"})
+	 * @param modelName the embedding model name to use (e.g. {@code "nomic-embed-text"})
 	 */
 	public WineVectorizer(final String baseUrl, final String modelName)
 	{

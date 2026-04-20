@@ -7,7 +7,7 @@ A comprehensive wine cellar and vineyard management platform showcasing the **fu
 - **GigaMap with four index types** working side by side on the same dataset:
   - **Bitmap indices** for exact-match filters (wine type, grape variety, country, region, …)
   - **Spatial index** for geographic winery proximity queries
-  - **Vector index** (JVector / HNSW, cosine similarity, 384 dim) for semantic "find similar wines" search
+  - **Vector index** (JVector / HNSW, cosine similarity, 768 dim) for semantic "find similar wines" search
   - **Lucene index** for full-text search across wine names, tasting notes, aroma, and food pairings
 - **Three API layers** over the same data: Vaadin UI, GraphQL, and REST (OpenAPI)
 - **Embedded persistence** via EclipseStore — no external database required
@@ -18,7 +18,7 @@ A comprehensive wine cellar and vineyard management platform showcasing the **fu
 - [Ollama](https://ollama.com/) running locally (used to compute wine embeddings for the vector index)
 - Pull the embedding model:
   ```
-  ollama pull all-minilm
+  ollama pull nomic-embed-text
   ```
 
 ## Run
@@ -43,7 +43,7 @@ The application starts on `http://localhost:8082` and, on first launch, generate
 |------------|------------|----------------------------------------------------------|
 | `wines`    | Bitmap     | Filter by name, type, grape, winery, country, region     |
 | `wines`    | Lucene     | Full-text search over name, notes, aroma, food pairing   |
-| `wines`    | Vector     | Semantic similarity ("wine-embeddings", 384-dim cosine)  |
+| `wines`    | Vector     | Semantic similarity ("wine-embeddings", 768-dim cosine)  |
 | `wineries` | Bitmap     | Filter by name, region, country                          |
 | `wineries` | Spatial    | Proximity / radius queries on lat/lon                    |
 
@@ -107,7 +107,7 @@ org.eclipse.store.storage-directory=demos/vinoteca/data
 vinoteca.initial-data-count=300
 ```
 
-The vector index targets a local Ollama instance at `http://localhost:11434` using the `all-minilm` model (see `DataRoot`).
+The vector index targets a local Ollama instance at `http://localhost:11434` using the `nomic-embed-text` model (see `DataRoot`).
 
 ## Architecture
 

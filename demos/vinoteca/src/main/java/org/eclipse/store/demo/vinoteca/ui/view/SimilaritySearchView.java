@@ -92,7 +92,7 @@ public class SimilaritySearchView extends VerticalLayout
 				grid.setItems(results);
 				if (results.isEmpty())
 				{
-					Notification.show("No results. Is Ollama running with the all-minilm model?");
+					Notification.show("No results. Is Ollama running with the nomic-embed-text model?");
 				}
 			}
 		});
