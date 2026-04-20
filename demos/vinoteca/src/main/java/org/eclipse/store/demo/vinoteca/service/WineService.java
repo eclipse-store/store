@@ -325,19 +325,20 @@ public class WineService
 	}
 
 	/**
-	 * Filters wines by combining the bitmap indices for type, country and region into a single
-	 * {@link GigaQuery}. Each non-{@code null} / non-blank parameter adds an AND condition to
-	 * the query; if all parameters are empty, every wine is returned. The name parameter uses
-	 * the name bitmap index with a case-insensitive contains predicate.
+	 * Filters wines by combining the bitmap indices for type, grape variety, country and region
+	 * into a single {@link GigaQuery}. Each non-{@code null} / non-blank parameter adds an AND
+	 * condition to the query; if all parameters are empty, every wine is returned. The name
+	 * parameter uses the name bitmap index with a case-insensitive contains predicate.
 	 *
 	 * @param name    substring to match against the wine name (case-insensitive), or {@code null}/blank to skip
 	 * @param type    the wine type, or {@code null} to skip
+	 * @param grape   the grape variety, or {@code null} to skip
 	 * @param country the country, or {@code null}/blank to skip
 	 * @param region  the region, or {@code null}/blank to skip
 	 * @return name-sorted matching wines
 	 */
 	@Read
-	public List<Wine> filter(final String name, final WineType type, final String country, final String region)
+	public List<Wine> filter(final String name, final WineType type, final GrapeVariety grape, final String country, final String region)
 	{
 		final GigaQuery<Wine> query = this.wineGigaMap.query();
 		if (name != null && !name.isBlank())
@@ -347,6 +348,10 @@ public class WineService
 		if (type != null)
 		{
 			query.and(WineIndices.TYPE.is(type));
+		}
+		if (grape != null)
+		{
+			query.and(WineIndices.GRAPE_VARIETY.is(grape));
 		}
 		if (country != null && !country.isBlank())
 		{

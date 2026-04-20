@@ -26,6 +26,7 @@ import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.router.RouteAlias;
+import org.eclipse.store.demo.vinoteca.model.GrapeVariety;
 import org.eclipse.store.demo.vinoteca.model.Wine;
 import org.eclipse.store.demo.vinoteca.model.WineType;
 import org.eclipse.store.demo.vinoteca.service.CustomerService;
@@ -67,6 +68,11 @@ public class WineCatalogView extends VerticalLayout
 		typeFilter.setItems(WineType.values());
 		typeFilter.setClearButtonVisible(true);
 
+		final ComboBox<GrapeVariety> grapeFilter = new ComboBox<>("Grape Variety");
+		grapeFilter.setItems(GrapeVariety.values());
+		grapeFilter.setItemLabelGenerator(g -> g.name().replace('_', ' '));
+		grapeFilter.setClearButtonVisible(true);
+
 		final TextField countryFilter = new TextField("Country");
 		countryFilter.setClearButtonVisible(true);
 
@@ -74,20 +80,21 @@ public class WineCatalogView extends VerticalLayout
 		regionFilter.setClearButtonVisible(true);
 
 		final Button searchBtn = new Button("Search", e -> this.applyFilters(
-			nameFilter.getValue(), typeFilter.getValue(),
+			nameFilter.getValue(), typeFilter.getValue(), grapeFilter.getValue(),
 			countryFilter.getValue(), regionFilter.getValue()
 		));
 
 		final Button resetBtn = new Button("Reset", e -> {
 			nameFilter.clear();
 			typeFilter.clear();
+			grapeFilter.clear();
 			countryFilter.clear();
 			regionFilter.clear();
 			this.loadData();
 		});
 
 		final HorizontalLayout filters = new HorizontalLayout(
-			nameFilter, typeFilter, countryFilter, regionFilter, searchBtn, resetBtn
+			nameFilter, typeFilter, grapeFilter, countryFilter, regionFilter, searchBtn, resetBtn
 		);
 		filters.setDefaultVerticalComponentAlignment(Alignment.END);
 
@@ -121,11 +128,11 @@ public class WineCatalogView extends VerticalLayout
 	}
 
 	private void applyFilters(
-		final String name, final WineType type,
+		final String name, final WineType type, final GrapeVariety grape,
 		final String country, final String region
 	)
 	{
-		final List<Wine> filtered = this.wineService.filter(name, type, country, region);
+		final List<Wine> filtered = this.wineService.filter(name, type, grape, country, region);
 		this.grid.setItems(filtered);
 		Notification.show("Found " + filtered.size() + " wines");
 	}
