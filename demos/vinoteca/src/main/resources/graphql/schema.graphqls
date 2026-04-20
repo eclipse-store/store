@@ -186,7 +186,7 @@ type Query {
     winesByWinery(wineryName: String!): [Wine!]!
     topRatedWines(limit: Int = 10): [Wine!]!
     fulltextSearch(query: String!, maxResults: Int = 20): [Wine!]!
-    similarWines(query: String!, k: Int = 5): [SimilarWineResult!]!
+    similarWines(query: String!, k: Int = 50): [SimilarWineResult!]!
     wineReviews(wineId: ID!): [Review!]!
 
     wineries(page: Int = 0, size: Int = 20): WineryPage!

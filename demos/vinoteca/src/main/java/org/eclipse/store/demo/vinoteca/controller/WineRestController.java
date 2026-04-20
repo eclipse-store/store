@@ -258,7 +258,7 @@ public class WineRestController
 	@GetMapping("/similar")
 	public List<SimilarWineResult> similar(
 		@RequestParam final String query,
-		@RequestParam(defaultValue = "5") final int k
+		@RequestParam(defaultValue = "50") final int k
 	)
 	{
 		return this.wineService.similar(query, k);
@@ -275,7 +275,7 @@ public class WineRestController
 	@GetMapping("/similar/{id}")
 	public List<SimilarWineResult> similarTo(
 		@PathVariable final long id,
-		@RequestParam(defaultValue = "5") final int k
+		@RequestParam(defaultValue = "50") final int k
 	)
 	{
 		return this.wineService.similarTo(id, k);

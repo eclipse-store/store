@@ -54,7 +54,7 @@ public class SimilaritySearchView extends VerticalLayout
 		queryField.setPlaceholder("e.g., fruity red wine with cherry and spice notes");
 
 		final IntegerField kField = new IntegerField("Number of results");
-		kField.setValue(5);
+		kField.setValue(50);
 		kField.setMin(1);
 		kField.setMax(50);
 
