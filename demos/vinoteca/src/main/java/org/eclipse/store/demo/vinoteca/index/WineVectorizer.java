@@ -28,7 +28,8 @@ import org.eclipse.store.gigamap.jvector.Vectorizer;
  * on the wines GigaMap.
  * <p>
  * The vectorizer concatenates a wine's name, grape variety (with underscores translated back into
- * spaces), tasting notes, aroma and food pairing into a single descriptive sentence and forwards
+ * spaces), tasting notes, aroma, food pairing and customer review texts into a single descriptive
+ * sentence and forwards
  * that to a LangChain4j {@link OllamaEmbeddingModel} configured against a locally running
  * <a href="https://ollama.com">Ollama</a> instance. The default model used by the demo is
  * {@code all-minilm}, which produces 384-dimensional vectors — the same dimensionality the index
@@ -132,6 +133,16 @@ public class WineVectorizer extends Vectorizer<Wine>
 		if (wine.getFoodPairing() != null)
 		{
 			sb.append(' ').append(wine.getFoodPairing());
+		}
+		if (wine.getReviews() != null)
+		{
+			for (final var review : wine.getReviews())
+			{
+				if (review.getText() != null)
+				{
+					sb.append(' ').append(review.getText());
+				}
+			}
 		}
 		return sb.toString();
 	}
