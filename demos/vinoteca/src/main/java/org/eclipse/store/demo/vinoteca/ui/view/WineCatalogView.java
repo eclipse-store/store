@@ -19,10 +19,10 @@ import java.util.List;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.grid.Grid;
-import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.TextField;
+import com.vaadin.flow.data.value.ValueChangeMode;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.router.RouteAlias;
@@ -44,9 +44,15 @@ import org.eclipse.store.demo.vinoteca.ui.MainLayout;
 @PageTitle("Wine Catalog | Vinoteca")
 public class WineCatalogView extends VerticalLayout
 {
-	private final WineService     wineService;
-	private final CustomerService customerService;
-	private final Grid<Wine>      grid;
+	private final WineService              wineService;
+	private final CustomerService          customerService;
+	private final Grid<Wine>               grid;
+	private final TextField                nameFilter;
+	private final ComboBox<WineType>       typeFilter;
+	private final ComboBox<GrapeVariety>   grapeFilter;
+	private final ComboBox<Integer>        vintageFilter;
+	private final ComboBox<String>         countryFilter;
+	private final ComboBox<String>         regionFilter;
 
 	/**
 	 * @param wineService     the wine application service (provides listing and filter queries)
@@ -60,48 +66,50 @@ public class WineCatalogView extends VerticalLayout
 
 		setSizeFull();
 
-		final TextField nameFilter = new TextField("Search by name");
-		nameFilter.setPlaceholder("Type to filter...");
-		nameFilter.setClearButtonVisible(true);
+		this.nameFilter = new TextField("Search by name");
+		this.nameFilter.setPlaceholder("Type to filter...");
+		this.nameFilter.setClearButtonVisible(true);
+		this.nameFilter.setValueChangeMode(ValueChangeMode.LAZY);
+		this.nameFilter.addValueChangeListener(e -> this.applyFilters());
 
-		final ComboBox<WineType> typeFilter = new ComboBox<>("Wine Type");
-		typeFilter.setItems(WineType.values());
-		typeFilter.setClearButtonVisible(true);
+		this.typeFilter = new ComboBox<>("Wine Type");
+		this.typeFilter.setItems(WineType.values());
+		this.typeFilter.setClearButtonVisible(true);
+		this.typeFilter.addValueChangeListener(e -> this.applyFilters());
 
-		final ComboBox<GrapeVariety> grapeFilter = new ComboBox<>("Grape Variety");
-		grapeFilter.setItems(GrapeVariety.values());
-		grapeFilter.setItemLabelGenerator(g -> g.name().replace('_', ' '));
-		grapeFilter.setClearButtonVisible(true);
+		this.grapeFilter = new ComboBox<>("Grape Variety");
+		this.grapeFilter.setItems(GrapeVariety.values());
+		this.grapeFilter.setItemLabelGenerator(g -> g.name().replace('_', ' '));
+		this.grapeFilter.setClearButtonVisible(true);
+		this.grapeFilter.addValueChangeListener(e -> this.applyFilters());
 
-		final ComboBox<Integer> vintageFilter = new ComboBox<>("Vintage");
-		vintageFilter.setItems(wineService.vintages().stream().sorted().toList());
-		vintageFilter.setClearButtonVisible(true);
+		this.vintageFilter = new ComboBox<>("Vintage");
+		this.vintageFilter.setItems(wineService.vintages().stream().sorted().toList());
+		this.vintageFilter.setClearButtonVisible(true);
+		this.vintageFilter.addValueChangeListener(e -> this.applyFilters());
 
-		final ComboBox<String> countryFilter = new ComboBox<>("Country");
-		countryFilter.setItems(wineService.countries().stream().sorted().toList());
-		countryFilter.setClearButtonVisible(true);
+		this.countryFilter = new ComboBox<>("Country");
+		this.countryFilter.setItems(wineService.countries().stream().sorted().toList());
+		this.countryFilter.setClearButtonVisible(true);
+		this.countryFilter.addValueChangeListener(e -> this.applyFilters());
 
-		final ComboBox<String> regionFilter = new ComboBox<>("Region");
-		regionFilter.setItems(wineService.regions().stream().sorted().toList());
-		regionFilter.setClearButtonVisible(true);
-
-		final Button searchBtn = new Button("Search", e -> this.applyFilters(
-			nameFilter.getValue(), typeFilter.getValue(), grapeFilter.getValue(),
-			vintageFilter.getValue(), countryFilter.getValue(), regionFilter.getValue()
-		));
+		this.regionFilter = new ComboBox<>("Region");
+		this.regionFilter.setItems(wineService.regions().stream().sorted().toList());
+		this.regionFilter.setClearButtonVisible(true);
+		this.regionFilter.addValueChangeListener(e -> this.applyFilters());
 
 		final Button resetBtn = new Button("Reset", e -> {
-			nameFilter.clear();
-			typeFilter.clear();
-			grapeFilter.clear();
-			vintageFilter.clear();
-			countryFilter.clear();
-			regionFilter.clear();
-			this.loadData();
+			this.nameFilter.clear();
+			this.typeFilter.clear();
+			this.grapeFilter.clear();
+			this.vintageFilter.clear();
+			this.countryFilter.clear();
+			this.regionFilter.clear();
 		});
 
 		final HorizontalLayout filters = new HorizontalLayout(
-			nameFilter, typeFilter, grapeFilter, vintageFilter, countryFilter, regionFilter, searchBtn, resetBtn
+			this.nameFilter, this.typeFilter, this.grapeFilter, this.vintageFilter,
+			this.countryFilter, this.regionFilter, resetBtn
 		);
 		filters.setDefaultVerticalComponentAlignment(Alignment.END);
 
@@ -126,21 +134,19 @@ public class WineCatalogView extends VerticalLayout
 		});
 
 		add(filters, this.grid);
-		this.loadData();
+		this.applyFilters();
 	}
 
-	private void loadData()
+	private void applyFilters()
 	{
-		this.grid.setItems(this.wineService.list(0, 1000).content());
-	}
-
-	private void applyFilters(
-		final String name, final WineType type, final GrapeVariety grape,
-		final Integer vintage, final String country, final String region
-	)
-	{
-		final List<Wine> filtered = this.wineService.filter(name, type, grape, vintage, country, region);
+		final List<Wine> filtered = this.wineService.filter(
+			this.nameFilter.getValue(),
+			this.typeFilter.getValue(),
+			this.grapeFilter.getValue(),
+			this.vintageFilter.getValue(),
+			this.countryFilter.getValue(),
+			this.regionFilter.getValue()
+		);
 		this.grid.setItems(filtered);
-		Notification.show("Found " + filtered.size() + " wines");
 	}
 }
