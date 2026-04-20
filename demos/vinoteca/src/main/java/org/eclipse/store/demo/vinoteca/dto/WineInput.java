@@ -23,8 +23,7 @@ import org.eclipse.store.demo.vinoteca.model.WineType;
  * <p>
  * The {@link #wineryId()} references the producing winery by its position inside the wineries
  * {@link org.eclipse.store.gigamap.types.GigaMap GigaMap}; price is transmitted as a plain
- * {@code double} together with an ISO 4217 {@link #currency()} code (defaulting to {@code "EUR"}
- * when omitted) and assembled into a {@link javax.money.MonetaryAmount} server-side.
+ * {@code double} (in EUR).
  *
  * @param name           the commercial name of the wine
  * @param wineryId       the GigaMap entity id of the producing winery

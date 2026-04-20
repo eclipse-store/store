@@ -17,8 +17,6 @@ package org.eclipse.store.demo.vinoteca.model;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import javax.money.MonetaryAmount;
-
 /**
  * Domain entity representing a customer order placed in the Vinoteca shop.
  * <p>
@@ -101,12 +99,11 @@ public class Order
 	 *
 	 * @return the order total, or {@code null} if the order has no items
 	 */
-	public MonetaryAmount getTotal()
+	public double getTotal()
 	{
 		return this.items.stream()
-			.map(OrderItem::getSubtotal)
-			.reduce(MonetaryAmount::add)
-			.orElse(null);
+			.mapToDouble(OrderItem::getSubtotal)
+			.sum();
 	}
 
 	@Override

@@ -24,7 +24,6 @@
         <vaadin.version>24.10.0</vaadin.version>
         <langchain4j.version>1.11.0</langchain4j.version>
         <lucene.version>9.8.0</lucene.version>
-        <moneta.version>1.4.4</moneta.version>
     </properties>
 
     <dependencyManagement>
@@ -113,14 +112,6 @@
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-ollama</artifactId>
             <version>${langchain4j.version}</version>
-        </dependency>
-
-        <!-- JavaMoney Moneta -->
-        <dependency>
-            <groupId>org.javamoney</groupId>
-            <artifactId>moneta</artifactId>
-            <version>${moneta.version}</version>
-            <type>pom</type>
         </dependency>
 
         <!-- DataFaker (managed in parent as test scope, override to compile) -->

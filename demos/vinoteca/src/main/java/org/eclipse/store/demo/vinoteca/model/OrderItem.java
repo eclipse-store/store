@@ -14,8 +14,6 @@ package org.eclipse.store.demo.vinoteca.model;
  * #L%
  */
 
-import javax.money.MonetaryAmount;
-
 /**
  * A single line item inside an {@link Order}.
  * <p>
@@ -30,7 +28,7 @@ public class OrderItem
 {
 	private Wine           wine;
 	private int            quantity;
-	private MonetaryAmount priceAtPurchase;
+	private double priceAtPurchase;
 
 	/**
 	 * No-arg constructor required by EclipseStore for object reconstruction during loading.
@@ -50,7 +48,7 @@ public class OrderItem
 	public OrderItem(
 		final Wine           wine,
 		final int            quantity,
-		final MonetaryAmount priceAtPurchase
+		final double         priceAtPurchase
 	)
 	{
 		this.wine            = wine;
@@ -71,7 +69,7 @@ public class OrderItem
 	}
 
 	/** @return the unit price at the time of purchase */
-	public MonetaryAmount getPriceAtPurchase()
+	public double getPriceAtPurchase()
 	{
 		return this.priceAtPurchase;
 	}
@@ -81,9 +79,9 @@ public class OrderItem
 	 *
 	 * @return the line subtotal
 	 */
-	public MonetaryAmount getSubtotal()
+	public double getSubtotal()
 	{
-		return this.priceAtPurchase.multiply(this.quantity);
+		return this.priceAtPurchase * this.quantity;
 	}
 
 	@Override

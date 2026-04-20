@@ -121,7 +121,7 @@ public class WineCatalogView extends VerticalLayout
 		this.grid.addColumn(w -> w.getWinery().getName()).setHeader("Winery").setSortable(true);
 		this.grid.addColumn(w -> w.getWinery().getCountry()).setHeader("Country").setSortable(true);
 		this.grid.addColumn(w -> w.getWinery().getRegion()).setHeader("Region").setSortable(true);
-		this.grid.addColumn(w -> String.format("%.2f EUR", w.getPriceAsDouble())).setHeader("Price").setSortable(true);
+		this.grid.addColumn(w -> String.format("%.2f EUR", w.getPrice())).setHeader("Price").setSortable(true);
 		this.grid.addColumn(Wine::getRating).setHeader("Rating").setSortable(true);
 		this.grid.addColumn(Wine::getBottlesInStock).setHeader("Stock").setSortable(true);
 		this.grid.setSizeFull();

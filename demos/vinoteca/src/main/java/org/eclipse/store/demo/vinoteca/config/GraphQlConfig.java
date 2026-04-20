@@ -30,9 +30,8 @@ import org.springframework.graphql.execution.RuntimeWiringConfigurer;
  * <p>
  * The schema (see {@code src/main/resources/graphql/schema.graphqls}) exposes flattened scalar
  * fields for several derived attributes that have no direct getter on the underlying domain types:
- * for example {@code Wine.wineryName}, {@code Order.customerName}, {@code OrderItem.subtotal} or
- * {@code Wine.price} (which has to flatten {@link javax.money.MonetaryAmount MonetaryAmount} into
- * a plain {@code double}). This configuration registers the corresponding
+ * for example {@code Wine.wineryName}, {@code Order.customerName} or {@code OrderItem.subtotal}.
+ * This configuration registers the corresponding
  * {@link DataFetcher data fetchers} so that those schema fields can be resolved from the domain
  * objects without polluting the model with presentation-only accessors.
  */
@@ -56,12 +55,9 @@ public class GraphQlConfig
 				})
 				.dataFetcher("price", env -> {
 					final Wine wine = env.getSource();
-					return wine.getPrice() != null ? wine.getPrice().getNumber().doubleValue() : 0.0;
+					return wine.getPrice();
 				})
-				.dataFetcher("currency", env -> {
-					final Wine wine = env.getSource();
-					return wine.getPrice() != null ? wine.getPrice().getCurrency().getCurrencyCode() : "EUR";
-				})
+				.dataFetcher("currency", env -> "EUR")
 			)
 			.type("Order", builder -> builder
 				.dataFetcher("customerName", env -> {
@@ -74,8 +70,7 @@ public class GraphQlConfig
 				})
 				.dataFetcher("total", env -> {
 					final Order order = env.getSource();
-					final var total = order.getTotal();
-					return total != null ? total.getNumber().doubleValue() : null;
+					return order.getTotal();
 				})
 			)
 			.type("OrderItem", builder -> builder
@@ -85,11 +80,11 @@ public class GraphQlConfig
 				})
 				.dataFetcher("priceAtPurchase", env -> {
 					final OrderItem item = env.getSource();
-					return item.getPriceAtPurchase() != null ? item.getPriceAtPurchase().getNumber().doubleValue() : 0.0;
+					return item.getPriceAtPurchase();
 				})
 				.dataFetcher("subtotal", env -> {
 					final OrderItem item = env.getSource();
-					return item.getSubtotal() != null ? item.getSubtotal().getNumber().doubleValue() : 0.0;
+					return item.getSubtotal();
 				})
 			)
 			.type("Review", builder -> builder

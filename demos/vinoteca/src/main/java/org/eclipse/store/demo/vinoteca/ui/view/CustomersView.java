@@ -52,10 +52,7 @@ public class CustomersView extends VerticalLayout
 		orderGrid.addColumn(o -> o.getOrderDate().toString()).setHeader("Date").setSortable(true);
 		orderGrid.addColumn(o -> o.getStatus().name()).setHeader("Status");
 		orderGrid.addColumn(o -> o.getItems().size()).setHeader("Items");
-		orderGrid.addColumn(o -> {
-			final var total = o.getTotal();
-			return total != null ? String.format("%.2f EUR", total.getNumber().doubleValue()) : "N/A";
-		}).setHeader("Total");
+		orderGrid.addColumn(o -> String.format("%.2f EUR", o.getTotal())).setHeader("Total");
 		orderGrid.setHeight("50%");
 
 		customerGrid.addSelectionListener(event ->

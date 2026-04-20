@@ -76,18 +76,15 @@ public class OrdersView extends VerticalLayout
 		this.orderGrid.addColumn(o -> o.getOrderDate().toString()).setHeader("Date").setSortable(true);
 		this.orderGrid.addColumn(o -> o.getStatus().name()).setHeader("Status").setSortable(true);
 		this.orderGrid.addColumn(o -> o.getItems().size()).setHeader("Items");
-		this.orderGrid.addColumn(o -> {
-			final var total = o.getTotal();
-			return total != null ? String.format("%.2f EUR", total.getNumber().doubleValue()) : "N/A";
-		}).setHeader("Total");
+		this.orderGrid.addColumn(o -> String.format("%.2f EUR", o.getTotal())).setHeader("Total");
 		this.orderGrid.setHeight("50%");
 
 		final Grid<OrderItem> itemGrid = new Grid<>(OrderItem.class, false);
 		itemGrid.addColumn(i -> i.getWine().getName()).setHeader("Wine").setAutoWidth(true);
 		itemGrid.addColumn(OrderItem::getQuantity).setHeader("Qty");
-		itemGrid.addColumn(i -> String.format("%.2f EUR", i.getPriceAtPurchase().getNumber().doubleValue()))
+		itemGrid.addColumn(i -> String.format("%.2f EUR", i.getPriceAtPurchase()))
 			.setHeader("Price");
-		itemGrid.addColumn(i -> String.format("%.2f EUR", i.getSubtotal().getNumber().doubleValue()))
+		itemGrid.addColumn(i -> String.format("%.2f EUR", i.getSubtotal()))
 			.setHeader("Subtotal");
 		itemGrid.setHeight("50%");
 

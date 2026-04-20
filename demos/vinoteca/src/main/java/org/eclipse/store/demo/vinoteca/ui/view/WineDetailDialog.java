@@ -117,7 +117,7 @@ public class WineDetailDialog extends Dialog
 		form.addFormItem(new Span(this.wine.getWinery() != null ? this.wine.getWinery().getCountry() : "-"), "Country");
 		form.addFormItem(new Span(this.wine.getType().name()), "Type");
 		form.addFormItem(new Span(this.wine.getGrapeVariety().name().replace('_', ' ')), "Grape Variety");
-		form.addFormItem(new Span(String.format("%.2f EUR", this.wine.getPriceAsDouble())), "Price");
+		form.addFormItem(new Span(String.format("%.2f EUR", this.wine.getPrice())), "Price");
 
 		this.updateRatingLabel();
 		form.addFormItem(this.ratingLabel, "Rating");

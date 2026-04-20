@@ -19,9 +19,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
-import javax.money.Monetary;
-import javax.money.MonetaryAmount;
-
 import jakarta.annotation.PostConstruct;
 import net.datafaker.Faker;
 import org.eclipse.store.demo.vinoteca.dto.DataMetrics;
@@ -375,10 +372,7 @@ public class DataGeneratorService
 							grape,
 							type,
 							vintage,
-							Monetary.getDefaultAmountFactory()
-								.setCurrency("EUR")
-								.setNumber(Math.round(price * 100.0) / 100.0)
-								.create(),
+							Math.round(price * 100.0) / 100.0,
 							Math.round(rating * 10.0) / 10.0,
 							0,
 							TASTING_NOTES[noteIdx][0],

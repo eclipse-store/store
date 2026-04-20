@@ -17,8 +17,6 @@ package org.eclipse.store.demo.vinoteca.model;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.money.MonetaryAmount;
-
 import org.eclipse.serializer.reference.Lazy;
 
 /**
@@ -47,7 +45,7 @@ public class Wine
 	private GrapeVariety   grapeVariety;
 	private WineType       type;
 	private int            vintage;
-	private MonetaryAmount price;
+	private double         price;
 	private double         rating;
 	private int            ratingCount;
 	private String         tastingNotes;
@@ -75,7 +73,7 @@ public class Wine
 	 * @param grapeVariety   the dominant {@link GrapeVariety}
 	 * @param type           the {@link WineType} (red, white, rose, …)
 	 * @param vintage        the year of harvest
-	 * @param price          the bottle price as a {@link MonetaryAmount}
+	 * @param price          the bottle price in EUR
 	 * @param rating         the current average customer rating (0.0 – 5.0)
 	 * @param ratingCount    the number of ratings that contributed to {@code rating}
 	 * @param tastingNotes   free-form tasting notes (indexed for full-text search)
@@ -91,7 +89,7 @@ public class Wine
 		final GrapeVariety   grapeVariety,
 		final WineType       type,
 		final int            vintage,
-		final MonetaryAmount price,
+		final double         price,
 		final double         rating,
 		final int            ratingCount,
 		final String         tastingNotes,
@@ -179,14 +177,14 @@ public class Wine
 		this.vintage = vintage;
 	}
 
-	/** @return the bottle price as a {@link MonetaryAmount} */
-	public MonetaryAmount getPrice()
+	/** @return the bottle price in EUR */
+	public double getPrice()
 	{
 		return this.price;
 	}
 
 	/** @param price the new bottle price */
-	public void setPrice(final MonetaryAmount price)
+	public void setPrice(final double price)
 	{
 		this.price = price;
 	}
@@ -306,17 +304,6 @@ public class Wine
 	public Lazy<List<Review>> reviews()
 	{
 		return this.reviews;
-	}
-
-	/**
-	 * Convenience accessor that flattens the {@link MonetaryAmount} price to a plain {@code double},
-	 * primarily used by the Vaadin grid columns and analytics computations.
-	 *
-	 * @return the price as a {@code double}, or {@code 0.0} if no price is set
-	 */
-	public double getPriceAsDouble()
-	{
-		return this.price != null ? this.price.getNumber().doubleValue() : 0.0;
 	}
 
 	@Override

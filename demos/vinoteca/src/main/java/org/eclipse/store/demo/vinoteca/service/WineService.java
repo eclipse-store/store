@@ -29,8 +29,6 @@ import org.eclipse.store.integrations.spring.boot.types.concurrent.Write;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.springframework.stereotype.Service;
 
-import javax.money.Monetary;
-import javax.money.MonetaryAmount;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
@@ -140,18 +138,13 @@ public class WineService
 			throw new IllegalArgumentException("Winery not found: " + input.wineryId());
 		}
 
-		final MonetaryAmount price = Monetary.getDefaultAmountFactory()
-			.setCurrency(input.currency() != null ? input.currency() : "EUR")
-			.setNumber(input.price())
-			.create();
-
 		final Wine wine = new Wine(
 			input.name(),
 			winery,
 			input.grapeVariety(),
 			input.type(),
 			input.vintage(),
-			price,
+			input.price(),
 			0,
 			0,
 			input.tastingNotes(),
@@ -204,10 +197,7 @@ public class WineService
 			if (input.vintage() > 0)           w.setVintage(input.vintage());
 			if (input.price() > 0)
 			{
-				w.setPrice(Monetary.getDefaultAmountFactory()
-					.setCurrency(input.currency() != null ? input.currency() : "EUR")
-					.setNumber(input.price())
-					.create());
+				w.setPrice(input.price());
 			}
 			if (input.tastingNotes() != null)  w.setTastingNotes(input.tastingNotes());
 			if (input.aroma() != null)         w.setAroma(input.aroma());
@@ -451,8 +441,8 @@ public class WineService
 	{
 		return this.wineGigaMap.query()
 			.stream()
-			.filter(w -> w.getPriceAsDouble() >= minPrice && w.getPriceAsDouble() <= maxPrice)
-			.sorted(Comparator.comparingDouble(Wine::getPriceAsDouble))
+			.filter(w -> w.getPrice() >= minPrice && w.getPrice() <= maxPrice)
+			.sorted(Comparator.comparingDouble(Wine::getPrice))
 			.toList();
 	}
 
@@ -490,7 +480,7 @@ public class WineService
 		return this.vectorIndex
 			.map(index -> {
 				final float[] queryVector = index.vectorizer().vectorize(
-					new Wine(query, null, null, null, 0, null, 0, 0, query, null, null, 0, 0, false)
+					new Wine(query, null, null, null, 0, 0, 0, 0, query, null, null, 0, 0, false)
 				);
 				final VectorSearchResult<Wine> results = index.search(queryVector, k);
 				return results.stream()
@@ -630,7 +620,7 @@ public class WineService
 		final double avgRating = this.wineGigaMap.query().stream()
 			.mapToDouble(Wine::getRating).average().orElse(0);
 		final double avgPrice = this.wineGigaMap.query().stream()
-			.mapToDouble(Wine::getPriceAsDouble).average().orElse(0);
+			.mapToDouble(Wine::getPrice).average().orElse(0);
 		final Map<String, Long> typeDist = this.wineGigaMap.query().stream()
 			.collect(Collectors.groupingBy(w -> w.getType().name(), Collectors.counting()));
 		final Map<String, Long> countryDist = this.wineGigaMap.query().stream()
