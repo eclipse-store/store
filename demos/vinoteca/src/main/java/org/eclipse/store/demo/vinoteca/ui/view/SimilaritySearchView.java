@@ -16,6 +16,7 @@ package org.eclipse.store.demo.vinoteca.ui.view;
 
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.grid.Grid;
+import com.vaadin.flow.component.html.Paragraph;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
@@ -49,9 +50,23 @@ public class SimilaritySearchView extends VerticalLayout
 	{
 		setSizeFull();
 
+		final Paragraph help = new Paragraph(
+			"Describe a wine in natural language — the query is encoded with the same embedding " +
+			"model used to index the wine catalog, and the nearest neighbours are returned with " +
+			"their cosine similarity scores."
+		);
+		help.getStyle().set("color", "var(--lumo-secondary-text-color)");
+
 		final TextField queryField = new TextField("Describe a wine you're looking for");
 		queryField.setWidthFull();
 		queryField.setPlaceholder("e.g., fruity red wine with cherry and spice notes");
+
+		final HorizontalLayout chips = new HorizontalLayout();
+		addChip(chips, queryField, "fruity red wine with cherry and spice notes");
+		addChip(chips, queryField, "crisp white wine with citrus and mineral finish");
+		addChip(chips, queryField, "bold full-bodied wine good with grilled meat");
+		addChip(chips, queryField, "light aromatic wine with floral and honey aromas");
+		addChip(chips, queryField, "dry sparkling wine for celebration");
 
 		final IntegerField kField = new IntegerField("Number of results");
 		kField.setValue(50);
@@ -87,6 +102,14 @@ public class SimilaritySearchView extends VerticalLayout
 		controls.setWidthFull();
 		controls.setFlexGrow(1, queryField);
 
-		add(controls, grid);
+		add(help, chips, controls, grid);
+	}
+
+	private void addChip(final HorizontalLayout container, final TextField target, final String expression)
+	{
+		final Button chip = new Button(expression);
+		chip.getStyle().set("font-size", "var(--lumo-font-size-xs)");
+		chip.addClickListener(e -> target.setValue(expression));
+		container.add(chip);
 	}
 }
