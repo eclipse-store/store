@@ -197,6 +197,38 @@ public class DataGeneratorService
 		{"dark chocolate", "berry desserts", "soft cheese"},
 	};
 
+	private static final String[] RED_BODY = {
+		"full-bodied", "medium-bodied", "robust", "velvety", "silky",
+		"rich", "bold", "structured", "muscular", "round"
+	};
+
+	private static final String[] WHITE_BODY = {
+		"crisp", "light-bodied", "refreshing", "bright", "elegant",
+		"delicate", "mineral-driven", "lean", "zesty", "vibrant"
+	};
+
+	private static final String[] POSITIVE_FINISH = {
+		"long, lingering finish", "persistent, elegant finish",
+		"smooth, velvety finish", "complex, layered finish",
+		"beautifully balanced finish", "opulent, satisfying finish"
+	};
+
+	private static final String[] NEUTRAL_FINISH = {
+		"moderate finish", "clean finish", "straightforward finish",
+		"adequate finish", "simple but pleasant finish"
+	};
+
+	private static final String[] NEGATIVE_FINISH = {
+		"short, abrupt finish", "thin finish", "harsh finish",
+		"flat, forgettable finish", "somewhat bitter finish"
+	};
+
+	private static final String[] WINEMAKING_STYLES = {
+		"Oak-aged", "Barrel-fermented", "Estate-bottled", "Small-batch",
+		"Hand-harvested", "Old-vine", "Single-vineyard", "Reserve",
+		"Late-harvest", "Classically styled", "Traditionally crafted"
+	};
+
 	/**
 	 * @param dataRoot       the persistent root that will receive the generated entities
 	 * @param storageManager the EclipseStore storage manager, used to {@code store} the customers
@@ -490,99 +522,157 @@ public class DataGeneratorService
 	{
 		final String grape   = toTitleCase(wine.getGrapeVariety().name());
 		final String region  = wine.getWinery().getRegion();
-		final String aroma   = wine.getAroma();
-		final String food    = wine.getFoodPairing();
 		final int    vintage = wine.getVintage();
+		final String body    = wine.getType() == WineType.RED
+			? pick(RED_BODY) : pick(WHITE_BODY);
 
-		final StringBuilder sb = new StringBuilder();
+		final String[] flavors = grapeFlavorDescriptors(wine.getGrapeVariety());
+		final int idx1 = this.random.nextInt(flavors.length);
+		int idx2 = this.random.nextInt(flavors.length);
+		if (flavors.length > 1)
+		{
+			while (idx2 == idx1)
+			{
+				idx2 = this.random.nextInt(flavors.length);
+			}
+		}
+		final String f1 = flavors[idx1];
+		final String f2 = flavors[idx2];
 
 		if (rating >= 85)
 		{
-			final String[] openers = {
-				"Excellent " + grape + " from " + region + ".",
-				"A beautiful " + vintage + " vintage from " + region + ".",
-				"Outstanding wine. One of the best " + grape + " I've tasted.",
-				"This " + grape + " is a superb expression of " + region + " terroir.",
-				"Truly impressive " + vintage + " " + grape + ".",
-				"What a find! This " + region + " " + grape + " is top-notch.",
-				"Stunning " + grape + " that showcases everything great about " + region + ".",
-			};
-			sb.append(openers[this.random.nextInt(openers.length)]);
-
-			final String[] middles = {
-				" Lovely aromas of " + aroma + ".",
-				" The nose offers wonderful " + aroma + " notes.",
-				" Beautiful " + aroma + " on the palate.",
-				" Rich and complex with " + aroma + ".",
-				" Layers of " + aroma + " unfold with every sip.",
-			};
-			sb.append(middles[this.random.nextInt(middles.length)]);
-
-			final String[] closers = {
-				" Pairs wonderfully with " + food + ".",
-				" Enjoyed it with " + food + ".",
-				" Highly recommended alongside " + food + ".",
-				" A perfect match for " + food + ".",
-				" Will definitely buy again.",
-			};
-			sb.append(closers[this.random.nextInt(closers.length)]);
+			final String finish = pick(POSITIVE_FINISH);
+			final String style  = pick(WINEMAKING_STYLES);
+			return pick(new String[]{
+				capitalize(body) + " " + grape + " with " + f1 + " and " + f2 + ". "
+					+ style + " with a " + finish + ". A standout from " + region + ".",
+				"Luscious " + vintage + " " + grape + ", " + f1 + " on the nose. "
+					+ capitalize(body) + " and expressive, " + finish + ". " + region + " at its finest.",
+				style + " " + grape + " from " + region + ". "
+					+ capitalize(f1) + " and " + f2 + ", beautifully " + body + ". " + capitalize(finish) + ".",
+				"A stunning " + body + " " + grape + ", " + f1 + " layered with " + f2 + ". "
+					+ style + " character, " + finish + ". Pure " + region + " elegance.",
+				capitalize(body) + " and opulent. This " + vintage + " " + grape + " bursts with " + f1 + ". "
+					+ "Polished " + f2 + " undertones and a " + finish + ".",
+				"Gorgeous " + region + " " + grape + ". " + capitalize(f1) + " meets " + f2
+					+ " in this " + body + " gem. " + style + ", " + finish + ".",
+				capitalize(f1) + " and " + f2 + " define this " + body + " " + grape + " from " + region + ". "
+					+ style + ". " + capitalize(finish) + ". Highly recommended.",
+				"Sweet " + grape + " with " + f1 + " and " + f2 + " finish. "
+					+ capitalize(body) + ", " + style.toLowerCase() + ". " + capitalize(finish) + ".",
+			});
 		}
 		else if (rating >= 65)
 		{
-			final String[] openers = {
-				"Decent " + grape + " from " + region + ".",
-				"A solid " + vintage + " vintage, though not exceptional.",
-				"Reasonable " + region + " " + grape + " for the price.",
-				"This " + grape + " is a fair representation of " + region + ".",
-				"An everyday " + grape + " from " + region + ".",
-			};
-			sb.append(openers[this.random.nextInt(openers.length)]);
-
-			final String[] middles = {
-				" Some " + aroma + " on the nose, but nothing remarkable.",
-				" Hints of " + aroma + ", though a bit muted.",
-				" The " + aroma + " notes are pleasant enough.",
-				" Moderate " + aroma + " character.",
-			};
-			sb.append(middles[this.random.nextInt(middles.length)]);
-
-			final String[] closers = {
-				" Works with " + food + ".",
-				" Tried it with " + food + ", it was fine.",
-				" Acceptable pairing with " + food + ".",
-				" Nothing special, but gets the job done.",
-			};
-			sb.append(closers[this.random.nextInt(closers.length)]);
+			final String finish = pick(NEUTRAL_FINISH);
+			return pick(new String[]{
+				"Decent " + body + " " + grape + ". Some " + f1 + " on the palate, " + finish + ". "
+					+ "Fair " + region + " expression.",
+				grape + " with some " + f1 + " and " + f2 + ". " + capitalize(body) + " but "
+					+ finish + ". Straightforward " + region + " wine.",
+				"An acceptable " + vintage + " " + grape + ". " + capitalize(f1) + " comes through, "
+					+ "though the " + f2 + " is muted. " + capitalize(finish) + ".",
+				"Middle-of-the-road " + region + " " + grape + ". " + capitalize(body) + " with glimpses of "
+					+ f1 + ". " + capitalize(finish) + ".",
+				capitalize(body) + " enough, but lacks complexity. Some " + f1 + " and " + f2 + ". "
+					+ capitalize(finish) + ". Everyday " + grape + ".",
+				"Drinkable " + grape + " from " + region + ". Faint " + f1 + ", " + body
+					+ " texture. " + capitalize(finish) + ". Fair value.",
+			});
 		}
 		else
 		{
-			final String[] openers = {
-				"Disappointing " + grape + " from " + region + ".",
-				"Expected more from this " + vintage + " " + grape + ".",
-				"Underwhelming " + region + " wine.",
-				"This " + grape + " falls short of " + region + " standards.",
-				"Not what I hoped for from a " + region + " " + grape + ".",
-			};
-			sb.append(openers[this.random.nextInt(openers.length)]);
-
-			final String[] middles = {
-				" The " + aroma + " was barely noticeable.",
-				" Lacked the expected " + aroma + " character.",
-				" Flat on the nose, missing the " + aroma + " I anticipated.",
-				" Thin and one-dimensional, no real " + aroma + " complexity.",
-			};
-			sb.append(middles[this.random.nextInt(middles.length)]);
-
-			final String[] closers = {
-				" Did not pair well with " + food + ".",
-				" Even " + food + " couldn't save this one.",
-				" Would not recommend.",
-				" There are better options at this price point.",
-			};
-			sb.append(closers[this.random.nextInt(closers.length)]);
+			final String finish = pick(NEGATIVE_FINISH);
+			return pick(new String[]{
+				"Thin " + grape + " lacking depth. Faint " + f1 + ", " + finish + ". "
+					+ region + " can do better.",
+				"Disappointing " + vintage + " " + grape + ". Expected " + f1 + " but got a "
+					+ finish + ". Not up to " + region + " standards.",
+				"Watered-down " + grape + " from " + region + ". Hardly any " + f1 + " or " + f2 + ". "
+					+ capitalize(finish) + ".",
+				"Flat and uninteresting. This " + grape + " shows none of the " + f1 + " character I expected. "
+					+ capitalize(finish) + ". Pass.",
+				"A letdown from " + region + ". Neither " + body + " nor flavorful. "
+					+ capitalize(finish) + " with barely a trace of " + f1 + ".",
+			});
 		}
+	}
 
-		return sb.toString();
+	private String pick(final String[] options)
+	{
+		return options[this.random.nextInt(options.length)];
+	}
+
+	private static String capitalize(final String s)
+	{
+		return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+	}
+
+	private static String[] grapeFlavorDescriptors(final GrapeVariety grape)
+	{
+		return switch (grape)
+		{
+			case CABERNET_SAUVIGNON -> new String[]{
+				"cassis", "graphite", "pencil shavings", "dark chocolate",
+				"eucalyptus", "black olive", "cigar box", "espresso"
+			};
+			case MERLOT -> new String[]{
+				"plush plum", "cocoa", "velvet cherry", "mocha",
+				"fig", "soft spice", "toffee", "damson"
+			};
+			case PINOT_NOIR -> new String[]{
+				"wild strawberry", "forest floor", "dried rose petal", "cola",
+				"blood orange", "wet stone", "cranberry", "potpourri"
+			};
+			case SYRAH -> new String[]{
+				"cracked pepper", "smoked meat", "blueberry compote", "garrigue",
+				"iron", "violet ink", "bramble", "charred oak"
+			};
+			case TEMPRANILLO -> new String[]{
+				"dried fig", "sweet tobacco", "dusty earth", "warm brick",
+				"baking spice", "tanned leather", "dried cranberry", "tomato leaf"
+			};
+			case SANGIOVESE -> new String[]{
+				"sour cherry", "dried oregano", "terracotta", "sun-dried tomato",
+				"almond skin", "sage", "blood orange", "dried thyme"
+			};
+			case NEBBIOLO -> new String[]{
+				"tar and roses", "dried cherry", "anise", "truffle",
+				"autumn leaves", "camphor", "licorice root", "potpourri"
+			};
+			case MALBEC -> new String[]{
+				"blackberry preserve", "dark plum", "milk chocolate", "grilled meat",
+				"sweet spice", "violet", "mesquite", "cocoa powder"
+			};
+			case GRENACHE -> new String[]{
+				"raspberry coulis", "white pepper", "dried lavender", "kirsch",
+				"candied orange", "cinnamon", "garrigue", "strawberry jam"
+			};
+			case ZINFANDEL -> new String[]{
+				"boysenberry", "black pepper", "cinnamon stick", "briar",
+				"baked fruit", "brown sugar", "clove", "jammy fruit"
+			};
+			case CHARDONNAY -> new String[]{
+				"golden apple", "brioche", "lemon curd", "toasted hazelnut",
+				"beeswax", "white peach", "creme brulee", "butterscotch"
+			};
+			case SAUVIGNON_BLANC -> new String[]{
+				"passion fruit", "cut grass", "green bell pepper", "chalky mineral",
+				"white grapefruit", "elderflower", "flint", "nettles"
+			};
+			case RIESLING -> new String[]{
+				"petrol", "lime zest", "white blossom", "wet slate",
+				"quince", "jasmine", "green apple", "lanolin"
+			};
+			case PINOT_GRIGIO -> new String[]{
+				"asian pear", "white almond", "sea breeze", "fresh linen",
+				"green melon", "chalk", "white flowers", "wet stone"
+			};
+			case GEWURZTRAMINER -> new String[]{
+				"turkish delight", "lychee", "rose water", "mango",
+				"candied ginger", "star anise", "marmalade", "exotic spice"
+			};
+		};
 	}
 
 	/**
