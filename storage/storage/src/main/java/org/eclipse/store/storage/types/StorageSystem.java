@@ -22,7 +22,6 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.eclipse.serializer.afs.types.AFileSystem;
 import org.eclipse.serializer.monitoring.MonitoringManager;
-import org.eclipse.serializer.persistence.types.ObjectIdsSelector;
 import org.eclipse.serializer.persistence.types.Persistence;
 import org.eclipse.serializer.persistence.types.PersistenceLiveStorerRegistry;
 import org.eclipse.serializer.persistence.types.Unpersistable;
@@ -184,7 +183,7 @@ public interface StorageSystem extends StorageController
 		private final StorageLockFileSetup                       lockFileSetup                 ;
 		private final StorageLockFileManager.Creator             lockFileManagerCreator        ;
 		private final StorageEventLogger                         eventLogger                   ;
-		private final ObjectIdsSelector                          liveObjectIdChecker           ;
+		private final LiveObjectIdsHandler                       liveObjectIdsHandler          ;
 		private final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry             ;
 		private final boolean                                    switchByteOrder               ;
 		private final StorageStructureValidator                  storageStructureValidator     ;
@@ -244,7 +243,7 @@ public interface StorageSystem extends StorageController
 			final StorageLockFileManager.Creator             lockFileManagerCreator        ,
 			final StorageExceptionHandler                    exceptionHandler              ,
 			final StorageEventLogger                         eventLogger                   ,
-			final ObjectIdsSelector                          liveObjectIdChecker           ,
+			final LiveObjectIdsHandler                       liveObjectIdsHandler          ,
 			final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry             ,
 			final StorageStructureValidator                  storageStructureValidator     ,
 			final MonitoringManager                          monitorManager                ,
@@ -291,7 +290,7 @@ public interface StorageSystem extends StorageController
 			this.backupSetup                    = mayNull(storageConfiguration.backupSetup())  ;
 			this.backupDataFileValidatorCreator = notNull(backupDataFileValidatorCreator)      ;
 			this.eventLogger                    = notNull(eventLogger)                         ;
-			this.liveObjectIdChecker            = notNull(liveObjectIdChecker)                 ;
+			this.liveObjectIdsHandler           = notNull(liveObjectIdsHandler)                ;
 			this.refStorerRegistry              = notNull(refStorerRegistry)                   ;
 			this.switchByteOrder                =         switchByteOrder                      ;
 			this.storageStructureValidator      = notNull(storageStructureValidator)           ;
@@ -553,7 +552,7 @@ public interface StorageSystem extends StorageController
 				this.entityMarkMonitorCreator              ,
 				this.provideBackupHandler()                ,
 				this.eventLogger                           ,
-				this.liveObjectIdChecker                   ,
+				this.liveObjectIdsHandler                  ,
 				this.refStorerRegistry                     ,
 				this.switchByteOrder                       ,
 				this.rootTypeIdProvider.provideRootTypeId(),

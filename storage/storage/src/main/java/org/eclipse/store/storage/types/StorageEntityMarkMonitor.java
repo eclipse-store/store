@@ -54,9 +54,10 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 	public boolean isPendingSweep(StorageEntityCache<?> channel);
 
 	public void completeSweep(
-		StorageEntityCache<?>  channel             ,
-		StorageRootOidSelector rootObjectIdSelector,
-		long                   channelRootObjectId
+		StorageEntityCache<?>  channel                ,
+		StorageRootOidSelector rootObjectIdSelector   ,
+		long                   channelRootObjectId    ,
+		LiveObjectIdsIterator  liveObjectIdsIterator
 	);
 
 	public boolean isMarkingComplete();
@@ -527,9 +528,10 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 
 		@Override
 		public final synchronized void completeSweep(
-			final StorageEntityCache<?>  channel        ,
-			final StorageRootOidSelector rootOidSelector,
-			final long                   channelRootOid
+			final StorageEntityCache<?>  channel              ,
+			final StorageRootOidSelector rootOidSelector      ,
+			final long                   channelRootOid       ,
+			final LiveObjectIdsIterator  liveObjectIdsIterator
 		)
 		{
 			// register the channel's current valid root Oid after the performed sweep (potentially 0).
@@ -537,7 +539,7 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 
 			// mark this channel as having completed the sweep
 			this.needsSweep[channel.channelIndex()] = false;
-			
+
 			logger.debug("StorageChannel#{} completed sweeping", channel.channelIndex());
 			this.eventLogger.logGarbageCollectorSweepingComplete(channel);
 
@@ -548,7 +550,25 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 				this.incrementSweepGeneration();
 				this.advanceGcCompletion();
 				this.determineAndEnqueueRootOid(rootOidSelector);
+				this.enqueueLiveApplicationOids(liveObjectIdsIterator);
 			}
+		}
+
+		/**
+		 * Seed the upcoming mark cycle with every currently live application-held object id so that
+		 * entities kept alive only by the registry safety net still get their binary references
+		 * transitively marked. Without this, an entity that survives sweep solely because its Java
+		 * instance is registered can retain stale binary references to entities that were swept in
+		 * the same cycle, producing zombie OIDs on the next mark phase and persistent data corruption.
+		 */
+		final synchronized void enqueueLiveApplicationOids(final LiveObjectIdsIterator liveObjectIdsIterator)
+		{
+			if(liveObjectIdsIterator == null)
+			{
+				return;
+			}
+
+			liveObjectIdsIterator.iterateLiveObjectIds(this);
 		}
 		
 		private void incrementSweepGeneration()

@@ -16,7 +16,6 @@ package org.eclipse.store.storage.types;
 
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.monitoring.MonitoringManager;
-import org.eclipse.serializer.persistence.types.ObjectIdsSelector;
 import org.eclipse.serializer.persistence.types.PersistenceLiveStorerRegistry;
 import org.eclipse.serializer.reference.Referencing;
 import org.eclipse.serializer.util.BufferSizeProvider;
@@ -48,7 +47,7 @@ public interface StorageChannelsCreator
 		StorageEntityMarkMonitor.Creator           entityMarkMonitorCreator     ,
 		StorageBackupHandler                       backupHandler                ,
 		StorageEventLogger                         eventLogger                  ,
-		ObjectIdsSelector liveObjectIdChecker                                   ,
+		LiveObjectIdsHandler                       liveObjectIdsHandler         ,
 		Referencing<PersistenceLiveStorerRegistry> refStorerRegistry            ,
 		boolean                                    switchByteOrder              ,
 		long                                       rootTypeId                   ,
@@ -87,7 +86,7 @@ public interface StorageChannelsCreator
 			final StorageEntityMarkMonitor.Creator           entityMarkMonitorCreator     ,
 			final StorageBackupHandler                       backupHandler                ,
 			final StorageEventLogger                         eventLogger                  ,
-			final ObjectIdsSelector                          liveObjectIdChecker          ,
+			final LiveObjectIdsHandler                       liveObjectIdsHandler         ,
 			final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry            ,
 			final boolean                                    switchByteOrder              ,
 			final long                                       rootTypeId                   ,
@@ -134,7 +133,7 @@ public interface StorageChannelsCreator
 					rootTypeId                                       ,
 					markQueues[i]                                    ,
 					eventLogger                                      ,
-					liveObjectIdChecker                              ,
+					liveObjectIdsHandler                             ,
 					markingWaitTimeMs                                ,
 					markBufferLength
 				);

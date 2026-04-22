@@ -15,10 +15,12 @@ package org.eclipse.store.storage.embedded.types;
  */
 
 import org.eclipse.serializer.persistence.types.ObjectIdsProcessor;
-import org.eclipse.serializer.persistence.types.ObjectIdsSelector;
+import org.eclipse.serializer.persistence.types.Persistence;
+import org.eclipse.serializer.persistence.types.PersistenceObjectIdAcceptor;
 import org.eclipse.serializer.persistence.types.PersistenceObjectRegistry;
+import org.eclipse.store.storage.types.LiveObjectIdsHandler;
 
-public interface EmbeddedStorageObjectRegistryCallback extends ObjectIdsSelector
+public interface EmbeddedStorageObjectRegistryCallback extends LiveObjectIdsHandler
 {
 	public void initializeObjectRegistry(PersistenceObjectRegistry objectRegistry);
 
@@ -83,6 +85,27 @@ public interface EmbeddedStorageObjectRegistryCallback extends ObjectIdsSelector
 
 			// efficient for embedded mode, but server mode should use #selectLiveObjectIds instead.
 			return this.objectRegistry.processLiveObjectIds(processor);
+		}
+
+		@Override
+		public synchronized void iterateLiveObjectIds(final PersistenceObjectIdAcceptor acceptor)
+		{
+			if(this.objectRegistry == null)
+			{
+				return;
+			}
+
+			this.objectRegistry.iterateEntries((objectId, instance) ->
+			{
+				// only emit live data OIDs:
+				// - skip cleared WeakReferences (instance == null)
+				// - skip TypeIds and ConstantIds: they are intentionally unresolvable in the persistent form
+				//   and feeding them into the mark queue would cause the zombie handler to see them as zombies.
+				if(instance != null && Persistence.IdType.OID.isInRange(objectId))
+				{
+					acceptor.acceptObjectId(objectId);
+				}
+			});
 		}
 
 	}

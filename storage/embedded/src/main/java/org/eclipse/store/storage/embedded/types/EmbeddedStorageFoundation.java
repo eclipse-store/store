@@ -720,7 +720,7 @@ extends StorageFoundation<F>, PersistenceTypeHandlerRegistration.Executor<Binary
 		}
 		
 		@Override
-		protected EmbeddedStorageObjectRegistryCallback ensureObjectIdsSelector()
+		protected EmbeddedStorageObjectRegistryCallback ensureLiveObjectIdsHandler()
 		{
 			return this.getConnectionFoundation().getObjectRegistryCallback();
 		}
@@ -801,7 +801,7 @@ extends StorageFoundation<F>, PersistenceTypeHandlerRegistration.Executor<Binary
 			initializeTypeDictionary(stm, ecf);
 			
 			// setup callback link from storage to object registry for the GC to check for unexpected live objectIds.
-			this.setLiveObjectIdChecker(ecf.getObjectRegistryCallback());
+			this.setLiveObjectIdsHandler(ecf.getObjectRegistryCallback());
 
 			// resolve root types to root type ids after types have been initialized
 			this.initializeEmbeddedStorageRootTypeIdProvider(this.getRootTypeIdProvider(), thm);
