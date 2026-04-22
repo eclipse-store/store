@@ -1,6 +1,6 @@
 # Storage Garbage Collection
 
-This document describes the EclipseStore storage garbage collector (storage GC), how it cooperates with the JVM's garbage collector, and the subtle interactions that underlie the *registry safety net* and the *zombie OID* failure mode.
+This document describes the EclipseStore storage garbage collector (storage GC), how it cooperates with the JVM's garbage collector, and the two-role *registry safety net* that keeps the persistent graph consistent when the application holds entities the persistent root no longer references.
 
 ---
 
@@ -73,7 +73,7 @@ Two things can rescue an entity:
 1. It was gc-marked in the preceding mark phase — reachable from the persistent root (or a mark seed).
 2. The predicate `isReachableInApplication` returned true — the **registry safety net**.
 
-When the last channel finishes its sweep, `StorageEntityMarkMonitor.Default.completeSweep` runs `determineAndEnqueueRootOid` to seed the next mark cycle, and — since the registry-safety-net fix — also `enqueueLiveApplicationOids` (see §9).
+When the last channel finishes its sweep, `StorageEntityMarkMonitor.Default.completeSweep` seeds the next mark cycle with two complementary sets of roots: `determineAndEnqueueRootOid` enqueues the persistent root, and `enqueueLiveApplicationOids` enqueues every object id the application currently holds (see §9).
 
 ### Flowcharts by phase
 
@@ -147,7 +147,7 @@ flowchart TD
 
 #### 3.5. Sweep completion and re-seeding the next mark cycle
 
-The transition point between waves. Only the last channel to call `completeSweep` advances the hot/cold flags and reseeds the mark queue — first the persistent root, then every live registry OID (the safety-net fix, highlighted in green).
+The transition point between waves. Only the last channel to call `completeSweep` advances the hot/cold flags and reseeds the mark queue with two complementary root sets — first the persistent root, then every live registry OID (the application-state roots, highlighted in green).
 
 ```mermaid
 flowchart TD
@@ -159,11 +159,11 @@ flowchart TD
     H -->|yes: second sweep,<br/>no stores since| SC["gcColdPhaseComplete = true<br/>GC will idle after this"]
     SH --> Seed1["determineAndEnqueueRootOid<br/>enqueue persistent root"]
     SC --> Seed1
-    Seed1 --> Seed2["enqueueLiveApplicationOids<br/>iterate registry, push every<br/>live OID — the safety-net fix"]
+    Seed1 --> Seed2["enqueueLiveApplicationOids<br/>iterate registry, push every<br/>live OID as a mark root"]
     Seed2 --> N(["next GC tick"])
 
-    classDef fix fill:#e5f6d9,stroke:#3d8b1e,stroke-width:2px
-    class Seed2 fix
+    classDef appRoots fill:#e5f6d9,stroke:#3d8b1e,stroke-width:2px
+    class Seed2 appRoots
 ```
 
 ### Reading the diagrams together
@@ -173,7 +173,7 @@ flowchart TD
 - **A tick either marks (3.3) or sweeps (3.4), not both.** The sweep check gates the branch.
 - **Zombie detection (3.3, red)** sits inside the mark loop at `getEntry(oid) == null`. TIDs/CIDs are filtered by the default handler; everything else is a zombie.
 - **The sweep keep-alive predicate (3.4)** is the OR of `isGcMarked()` and `isReachableInApplication(oid)` — that OR is the registry safety net (see §7, §8).
-- **Completion + re-seeding (3.5)** is where the fix lives: after `determineAndEnqueueRootOid` seeds the persistent root, `enqueueLiveApplicationOids` pushes every live registry OID into the mark queue so the *next* mark phase transitively marks everything reachable from app-held entities — closing the zombie gap.
+- **Completion + re-seeding (3.5)** establishes the two root sets for the next wave: after `determineAndEnqueueRootOid` seeds the persistent root, `enqueueLiveApplicationOids` pushes every live registry OID into the mark queue so the *next* mark phase transitively marks everything reachable from application state as well as everything reachable from the persistent root.
 
 ### Phase state diagram (hot / cold)
 
@@ -193,7 +193,7 @@ stateDiagram-v2
 - `HotComplete` = one full mark+sweep has happened since the last store. Unreachable entities from that store are gone, but a second confirmation pass is still owed.
 - `ColdComplete` = the confirmation pass has run with no new stores. GC ticks are no-ops until a store reopens work.
 
-The fix's `enqueueLiveApplicationOids` runs on **every** transition out of sweep (both `Dirty → HotComplete` and `HotComplete → ColdComplete`), so the registry-seeded mark roots are re-established for every subsequent mark cycle, not just the first.
+`enqueueLiveApplicationOids` runs on **every** transition out of sweep (both `Dirty → HotComplete` and `HotComplete → ColdComplete`), so the application-state mark roots are re-established for every subsequent mark cycle, not just the first one in a wave.
 
 ---
 
@@ -203,7 +203,7 @@ The starting set of the mark phase consists of:
 
 - **The persistent root OID** — determined per channel via `StorageRootOidSelector` and unified in `determineAndEnqueueRootOid`. This is what makes the persistent graph traversable at all.
 - **Entities marked as "changed"** — when the application stores something, `markEntityForChangedData` gray-marks the stored entity and enqueues its OID. This is how newly-stored or updated data enters the mark cycle.
-- **Live application-held OIDs** — added by the registry-safety-net fix: at the end of every sweep, `enqueueLiveApplicationOids` iterates the `PersistenceObjectRegistry` and enqueues every live OID into the mark queues for the next cycle. See §7-§9.
+- **Live application-held OIDs** — at the end of every sweep, `enqueueLiveApplicationOids` iterates the `PersistenceObjectRegistry` and enqueues every live OID into the mark queues for the next cycle. This makes every entity the application currently holds a mark root, so the graph reachable from application state is traversed alongside the graph reachable from the persistent root. See §7–§9.
 
 ---
 
@@ -218,7 +218,7 @@ Not every long id in the system maps to a storage entity. `Persistence.IdType` d
 | OID | Regular object id (data entity) | **Yes** — this is what the storage GC actually tracks. |
 | NULL / UNDEFINED | sentinel / invalid | No. |
 
-This matters for mark-time: `StorageGCZombieOidHandler.Default` returns `true` (i.e. "this is an expected null lookup") for TIDs and CIDs, suppressing the zombie warning. The fix's `LiveObjectIdsIterator` implementation (`EmbeddedStorageObjectRegistryCallback.iterateLiveObjectIds`) filters to `Persistence.IdType.OID` so non-data ids are never fed to the mark queue in the first place.
+This matters for mark-time: `StorageGCZombieOidHandler.Default` returns `true` (i.e. "this is an expected null lookup") for TIDs and CIDs, suppressing the zombie warning. The `LiveObjectIdsIterator` implementation (`EmbeddedStorageObjectRegistryCallback.iterateLiveObjectIds`) filters to `Persistence.IdType.OID` so non-data ids are never fed to the mark queue in the first place.
 
 ---
 
@@ -231,7 +231,7 @@ The mark monitor tracks two completion flags:
 
 Only cold completion shuts the GC off until the next store. Stores (via `resetCompletion`) reset both flags, kicking the GC back into work.
 
-The reason for two phases: the first sweep after a store cleans up the now-unreachable predecessors; the second sweep confirms the steady state. This two-pass pattern interacts with the registry safety net — which is why the fix seeds registry OIDs at **every** sweep boundary, not just the first.
+The reason for two phases: the first sweep after a store cleans up the now-unreachable predecessors; the second sweep confirms the steady state. This two-pass pattern interacts with the registry safety net — which is why application-state OIDs are seeded at **every** sweep boundary, not just the first.
 
 ---
 
@@ -305,8 +305,6 @@ Case (b) is exactly the JDK window between stages 2 and 3.
 
 `DefaultObjectRegistry.cleanUp()` drains the `ReferenceQueue` and calls `synchRemoveEntry` for each cleared reference. `cleanUp()` is invoked automatically on every storer merge path (via `PersistenceObjectManager.synchInternalMergeEntries`). In steady state, a sweep observes the registry right after a store has just run cleanup, so case (b) collapses and "survives sweep ↔ app still holds the Java instance" is true in practice. That is the design intent of the safety net.
 
-`RegistrySafetyNetZombieDemo` exploits the cleanup mechanism in Phase 3: `storage.store("trigger-cleanup-via-store")` is literally the call that reaps `Payload`'s cleared entry from the registry.
-
 ### Sources
 
 - JDK class javadoc of `java.lang.ref.WeakReference`, `java.lang.ref.Reference`, `java.lang.ref.ReferenceQueue` — spells out that the GC clears and enqueues but does not remove from user containers.
@@ -315,53 +313,57 @@ Case (b) is exactly the JDK window between stages 2 and 3.
 
 ---
 
-## 9. Why the safety net alone isn't enough: zombie OIDs
+## 9. Design rationale: why two registry roles
 
-The safety net protects an entity but not the entities its binary references. Consider:
+The two registry-access roles in §7 are not redundant; each targets a distinct class of reachability that the other cannot cover.
+
+- `ObjectIdsSelector` answers **"is this entity still needed?"** at sweep time. It protects an individual entity whose Java instance is currently held, even when the persistent graph no longer reaches it.
+- `LiveObjectIdsIterator` answers **"what is reachable from application state?"** at mark time. It promotes every app-held entity to a mark root, so the mark phase walks the entity's binary references transitively.
+
+### Why the sweep-time role alone would be insufficient
+
+A sweep-time keep-alive check is *shallow*: it rescues the asked-about entity but not the entities that entity's binary record points to. The following scenario walks through what would happen with only the sweep-time role active:
 
 1. Application stores `root → Holder → Payload`. All three entities exist in the cache and registry.
 2. Application removes `Holder` from root's graph (`root.holder = null; storeRoot()`). Root's binary no longer references Holder. Holder's Java object is still alive in the app, so its registry entry stays. Holder's stored binary still references Payload's OID.
-3. Application drops its Java reference to Payload. JVM GC clears Payload's `WeakReference`. A subsequent store triggers `cleanUp()`, which removes Payload's entry from the registry.
+3. Application drops its Java reference to Payload. JVM GC clears Payload's `WeakReference`. A subsequent store triggers `cleanUp()`, which reaps Payload's entry from the registry.
 4. Storage GC cycle runs.
-   - Mark: starts from root. Root doesn't reference Holder, so neither Holder nor Payload is marked.
-   - Sweep: Holder is not marked but *is* in the registry → safety net keeps it. Payload is not marked and *not* in the registry → **Payload is deleted**. Holder's stored binary still references Payload's OID.
-5. Application re-attaches Holder to root (`root.holder = holderRef; storeRoot()`). The lazy storer notices Holder is already registered and **skips re-serializing it** (`BinaryStorer.Default.internalStore`: if `lookupOid(root) != notFound` return early). So Holder's binary record is not rewritten — it still references the now-deleted Payload OID.
+   - Mark: starts from the persistent root. Root doesn't reference Holder, so without the iterator role neither Holder nor Payload would be marked.
+   - Sweep: Holder is not marked but *is* in the registry → sweep-time safety net keeps it. Payload is not marked and *not* in the registry → Payload is deleted. Holder's stored binary still references Payload's OID.
+5. Application re-attaches Holder to root (`root.holder = holderRef; storeRoot()`). The lazy storer notices Holder is already registered and **skips re-serializing it** (`BinaryStorer.Default.internalStore`: if `lookupOid(root) != notFound` return early). Holder's binary record is not rewritten — it still references the now-deleted Payload OID.
 6. Next storage GC cycle.
-   - Mark: root → Holder → iterate Holder's refs → `getEntry(payloadOid)` returns `null` → **zombie OID**.
-   - Shutdown + reload fails: `StorageExceptionConsistency: No entity found for objectId N`.
+   - Mark: root → Holder → iterate Holder's refs → `getEntry(payloadOid)` returns `null` → zombie OID, and on shutdown + reload `StorageExceptionConsistency: No entity found for objectId N`.
 
-The mechanism has three co-operating causes: the safety net is shallow (keeps the entity but not its binary references), the lazy storer skips already-registered objects (so Holder's stale binary is never rewritten), and JVM GC drains the registry entry for Payload between the two storage-GC cycles.
+Three properties conspire to make this possible: the sweep-time safety net is shallow (keeps the entity but not its references), the lazy storer skips already-registered objects (so Holder's binary is never rewritten), and the JVM reaps Payload's registry entry between the two storage-GC cycles.
+
+### How the mark-time role resolves it
+
+`LiveObjectIdsIterator` promotes Holder to a mark root in step 4's mark phase. The marker then walks Holder's binary references and marks Payload — so Payload survives the sweep, Holder's binary stays valid, and no zombie ever arises. The two roles together cover both classes of reachability: the persistent-graph roots via `determineAndEnqueueRootOid`, and the application-state roots via `enqueueLiveApplicationOids`.
+
+The sweep-time role remains as defense in depth for the narrow race of an OID entering the registry between mark and sweep of the same cycle.
 
 ---
 
-## 10. The fix: seed live registry OIDs as mark roots
+## 10. Implementation of mark-time registry seeding
 
-The fix closes the gap at mark time. At the end of every sweep (`StorageEntityMarkMonitor.Default.completeSweep`), right after `determineAndEnqueueRootOid` seeds the persistent root, we also call `enqueueLiveApplicationOids` which pushes every currently-live registry OID into the mark queues:
+At the end of every sweep (`StorageEntityMarkMonitor.Default.completeSweep`), immediately after `determineAndEnqueueRootOid` seeds the persistent root, `enqueueLiveApplicationOids` pushes every currently-live registry OID into the mark queues:
 
 ```java
-// Simplified, see StorageEntityMarkMonitor.Default#completeSweep / enqueueLiveApplicationOids
+// StorageEntityMarkMonitor.Default#completeSweep (simplified)
 this.determineAndEnqueueRootOid(rootOidSelector);
 this.enqueueLiveApplicationOids(liveObjectIdsIterator);
 ```
 
-The iterator (`EmbeddedStorageObjectRegistryCallback.iterateLiveObjectIds`) walks the registry's `iterateEntries`, skips cleared `WeakReference`s (`instance != null`), and filters to data OIDs (`Persistence.IdType.OID.isInRange(objectId)`) so TIDs/CIDs aren't wasted through the zombie handler.
-
-The consequence: every app-held entity is a mark root in the next cycle. The marker walks its binary references transitively, which means any referenced entity is marked *before* the next sweep runs — so the previously-dangling pointer now keeps its target alive and cannot become a zombie.
-
-The original sweep-time safety net is left in place as a defense-in-depth: it still covers the narrow race of an OID being added to the registry between mark and sweep of the same cycle.
+The iterator (`EmbeddedStorageObjectRegistryCallback.iterateLiveObjectIds`) walks the registry's `iterateEntries`, skips cleared `WeakReference`s (`instance != null`), and filters to data OIDs (`Persistence.IdType.OID.isInRange(objectId)`) so TIDs and CIDs are never fed to the mark queue and therefore never reach the zombie handler.
 
 ### Interface layering
 
-- `ObjectIdsSelector` (serializer) — unchanged sweep-time filter protocol.
-- `LiveObjectIdsIterator` (this module) — new, mark-time enumeration protocol.
-- `LiveObjectIdsHandler extends ObjectIdsSelector, LiveObjectIdsIterator` (this module) — combined interface the storage GC plumbing actually handles.
-- `EmbeddedStorageObjectRegistryCallback extends LiveObjectIdsHandler` — the embedded-mode implementation, backed by `PersistenceObjectRegistry`.
+- `ObjectIdsSelector` (serializer) — sweep-time filter protocol.
+- `LiveObjectIdsIterator` (this module) — mark-time enumeration protocol.
+- `LiveObjectIdsHandler extends ObjectIdsSelector, LiveObjectIdsIterator` (this module) — combined interface the storage GC plumbing uses.
+- `EmbeddedStorageObjectRegistryCallback extends LiveObjectIdsHandler` — embedded-mode implementation, backed by `PersistenceObjectRegistry`.
 
-Internal wiring (`StorageFoundation`, `StorageSystem`, `StorageChannelsCreator`, `StorageEntityCache`) carries `LiveObjectIdsHandler` end to end, so the GC has both capabilities in one typed reference.
-
-### Regression test
-
-`storage/embedded/.../RegistrySafetyNetZombieDemo` reproduces the full corruption scenario before the fix and verifies zero zombies + successful reload after it.
+Internal wiring (`StorageFoundation`, `StorageSystem`, `StorageChannelsCreator`, `StorageEntityCache`) carries `LiveObjectIdsHandler` end to end, so the GC holds both capabilities in one typed reference.
 
 ---
 
@@ -374,5 +376,5 @@ Read these together to see the full picture:
 - `LiveObjectIdsHandler` — class-level javadoc giving the role-by-role comparison.
 - `EmbeddedStorageObjectRegistryCallback.Default` — `processSelected` (sweep filter) and `iterateLiveObjectIds` (mark seeding).
 - `DefaultObjectRegistry` (serializer) — `Entry extends WeakReference`, `synchContainsObjectId` vs `synchContainsLiveObject`, `processLiveObjectIds`, `cleanUp`.
-- `StorageGCZombieOidHandler.Default` — filters TID/CID lookups, flags everything else as a bug.
+- `StorageGCZombieOidHandler.Default` — expected-null filter for TID/CID lookups, reporting path for any other null lookup.
 - `Persistence.IdType` (serializer) — TID / OID / CID range predicates.
