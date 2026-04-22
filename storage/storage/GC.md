@@ -114,7 +114,7 @@ flowchart TD
     Pop -->|got OID| Get["getEntry oid"]
     Get --> Null{"entry == null?"}
     Null -->|yes| Z["zombieOidHandler<br/>.handleZombieOid"]
-    Z --> T{"TID or CID?"}
+    Z --> T{"constant ID<br/>(CID)?"}
     T -->|yes: expected| Pop
     T -->|no: data OID| ZF["ZOMBIE OID detected"]
     ZF --> Pop
@@ -171,7 +171,7 @@ flowchart TD
 - **Stores (3.1) are what reset the GC into "work pending" state** — three side effects: enqueue the stored entity, clear completion flags, drain the `ReferenceQueue`.
 - **Every tick (3.2) first checks `gcColdPhaseComplete`.** If true, the GC is idle until a store reopens work.
 - **A tick either marks (3.3) or sweeps (3.4), not both.** The sweep check gates the branch.
-- **Zombie detection (3.3, red)** sits inside the mark loop at `getEntry(oid) == null`. TIDs/CIDs are filtered by the default handler; everything else is a zombie.
+- **Zombie detection (3.3, red)** sits inside the mark loop at `getEntry(oid) == null`. In the mark phase the only expected null lookup is a constant id (CID) — constants are resolved at runtime rather than stored as entities. The default handler silently accepts CIDs and flags anything else as a zombie. (Type ids (TIDs) don't appear in binary references, so they cannot enter the mark queue in practice, but the default handler accepts them too as a defensive catch-all.)
 - **The sweep keep-alive predicate (3.4)** is the OR of `isGcMarked()` and `isReachableInApplication(oid)` — that OR is the registry safety net (see §7, §8).
 - **Completion + re-seeding (3.5)** establishes the two root sets for the next wave: after `determineAndEnqueueRootOid` seeds the persistent root, `enqueueLiveApplicationOids` pushes every live registry OID into the mark queue so the *next* mark phase transitively marks everything reachable from application state as well as everything reachable from the persistent root.
 
@@ -218,7 +218,7 @@ Not every long id in the system maps to a storage entity. `Persistence.IdType` d
 | OID | Regular object id (data entity) | **Yes** — this is what the storage GC actually tracks. |
 | NULL / UNDEFINED | sentinel / invalid | No. |
 
-This matters for mark-time: `StorageGCZombieOidHandler.Default` returns `true` (i.e. "this is an expected null lookup") for TIDs and CIDs, suppressing the zombie warning. The `LiveObjectIdsIterator` implementation (`EmbeddedStorageObjectRegistryCallback.iterateLiveObjectIds`) filters to `Persistence.IdType.OID` so non-data ids are never fed to the mark queue in the first place.
+This matters for mark-time. At mark time, the only realistic "null but expected" case is a **CID**: entity binaries reference constants by id, constants have no storage entity, so `getEntry` returns `null` but this is not a zombie. **TIDs** don't appear in binary references at all (they identify the entity's own type, stored separately in the record header), so they should never enter the mark queue in practice. `StorageGCZombieOidHandler.Default` returns `true` for both as a defensive catch-all, and `EmbeddedStorageObjectRegistryCallback.iterateLiveObjectIds` filters its seed set to `Persistence.IdType.OID` so non-data ids are never fed to the mark queue via the application-state root path.
 
 ---
 
