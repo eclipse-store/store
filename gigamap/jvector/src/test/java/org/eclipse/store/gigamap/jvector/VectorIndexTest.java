@@ -2435,4 +2435,99 @@ class VectorIndexTest
         assertEquals(top5from5, top5from50,
             "Top-5 results should be identical regardless of k parameter");
     }
+
+    /**
+     * Verifies that configuring a low minSearchBeamWidth is respected — i.e. the search beam
+     * width floor does not silently override a lower user setting. Confirms the fix for the
+     * issue that the previous hardcoded MIN_SEARCH_BEAM_WIDTH=100 caused.
+     */
+    @Test
+    void minSearchBeamWidthRespectsLowerUserSetting()
+    {
+        final int dimension = 32;
+        final int vectorCount = 500;
+        final Random random = new Random(42);
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+        vectorIndices.add("embeddings",
+            VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .maxDegree(16)
+                .beamWidth(100)
+                .minSearchBeamWidth(1)  // disable the floor
+                .build(),
+            new DocumentVectorizer32()
+        );
+
+        for(int i = 0; i < vectorCount; i++)
+        {
+            gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
+        }
+
+        final VectorIndex<Document> index = vectorIndices.get("embeddings");
+        final float[] queryVector = randomVector(new Random(99), dimension);
+
+        // With the floor disabled, search(k=5) explores only 5 candidates whereas the
+        // per-query override at 500 explores the whole dataset. The two should disagree on at
+        // least one element of the top-5 — otherwise the floor is being silently applied.
+        final List<Long> top5floorDisabled = index.search(queryVector, 5).stream()
+            .map(VectorSearchResult.Entry::entityId)
+            .toList();
+        final List<Long> top5exhaustive = index.search(queryVector, 5, 500).stream()
+            .map(VectorSearchResult.Entry::entityId)
+            .toList();
+
+        assertNotEquals(top5exhaustive, top5floorDisabled,
+            "With minSearchBeamWidth=1 the small-k search must explore less than the override, "
+            + "proving the user setting is respected (not silently overridden by a 100 floor)");
+    }
+
+    /**
+     * Verifies that the per-query searchBeamWidth overload overrides the configured floor.
+     * Compares search(q, k, N) against search(q, N).limit(k) — both should explore N candidates
+     * and produce the same top-k.
+     */
+    @Test
+    void perQuerySearchBeamWidthOverridesConfig()
+    {
+        final int dimension = 32;
+        final int vectorCount = 500;
+        final Random random = new Random(42);
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+        vectorIndices.add("embeddings",
+            VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .maxDegree(16)
+                .beamWidth(100)
+                // default minSearchBeamWidth = 100
+                .build(),
+            new DocumentVectorizer32()
+        );
+
+        for(int i = 0; i < vectorCount; i++)
+        {
+            gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
+        }
+
+        final VectorIndex<Document> index = vectorIndices.get("embeddings");
+        final float[] queryVector = randomVector(new Random(99), dimension);
+
+        // search(q, 5, 500) should explore 500 candidates and return the same top-5 as
+        // search(q, 500).limit(5), because both effectively run an HNSW search with rerankK=500.
+        final List<Long> top5override = index.search(queryVector, 5, 500).stream()
+            .map(VectorSearchResult.Entry::entityId)
+            .toList();
+        final List<Long> top5fromFull = index.search(queryVector, 500).stream()
+            .limit(5)
+            .map(VectorSearchResult.Entry::entityId)
+            .toList();
+
+        assertEquals(top5fromFull, top5override,
+            "Per-query searchBeamWidth=500 must widen exploration beyond the default floor of 100");
+    }
 }

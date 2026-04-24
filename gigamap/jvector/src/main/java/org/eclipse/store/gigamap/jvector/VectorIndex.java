@@ -46,6 +46,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.IntStream;
 
+import static org.eclipse.serializer.math.XMath.positive;
+
 /**
  * A vector index that enables k-nearest-neighbor (k-NN) similarity search on entities.
  * <p>
@@ -367,6 +369,31 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     public VectorSearchResult<E> search(float[] queryVector, int k);
 
     /**
+     * Searches for the k nearest neighbors with an explicit per-query search beam width
+     * (HNSW <i>efSearch</i>).
+     * <p>
+     * This overload overrides the configured floor from
+     * {@link VectorIndexConfiguration#minSearchBeamWidth()} for a single call. The effective
+     * beam width is {@code max(k, searchBeamWidth)} because jvector requires the beam width
+     * to be at least as large as the requested {@code k}.
+     * <p>
+     * Use this to widen exploration (e.g. {@code searchBeamWidth=500} for higher recall) or
+     * to narrow it (e.g. {@code searchBeamWidth=k} for minimum latency when reproducibility
+     * across different {@code k} values is not required).
+     *
+     * @param queryVector      the query vector; must have exactly
+     *                         {@link VectorIndexConfiguration#dimension()} elements
+     * @param k                the number of nearest neighbors to return; must be positive
+     * @param searchBeamWidth  the beam width to use for this query; must be positive
+     * @return the search result
+     * @throws IllegalArgumentException if queryVector is null, has wrong dimension, or
+     *                                  {@code k} / {@code searchBeamWidth} are not positive
+     * @see #search(float[], int)
+     * @see VectorIndexConfiguration#minSearchBeamWidth()
+     */
+    public VectorSearchResult<E> search(float[] queryVector, int k, int searchBeamWidth);
+
+    /**
      * Searches for the k nearest neighbors to the given entity's vector.
      * <p>
      * This is a convenience method that extracts the vector from the query entity using
@@ -403,6 +430,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     public default VectorSearchResult<E> search(final E queryEntity, final int k)
     {
         return this.search(this.vectorizer().vectorize(queryEntity), k);
+    }
+
+    /**
+     * Searches for the k nearest neighbors to the given entity's vector with an explicit
+     * per-query search beam width.
+     *
+     * @param queryEntity     the query entity whose vector will be extracted via the vectorizer
+     * @param k               the number of nearest neighbors to return; must be positive
+     * @param searchBeamWidth the beam width to use for this query; must be positive
+     * @return the search result
+     * @see #search(float[], int, int)
+     */
+    public default VectorSearchResult<E> search(final E queryEntity, final int k, final int searchBeamWidth)
+    {
+        return this.search(this.vectorizer().vectorize(queryEntity), k, searchBeamWidth);
     }
 
     /**
@@ -661,13 +703,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                DiskIndexManager.IndexStateProvider
     {
         private static final Logger LOG = LoggerFactory.getLogger(Default.class);
-
-        /**
-         * Minimum number of candidates to explore during HNSW graph search (beam width at layer 0).
-         * Ensures consistent search quality regardless of the requested k value, preventing the
-         * top-k results from changing when a different k is requested.
-         */
-        private static final int MIN_SEARCH_BEAM_WIDTH = 100;
 
         static BinaryTypeHandler<Default<?>> provideTypeHandler()
         {
@@ -1528,6 +1563,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public VectorSearchResult<E> search(final float[] queryVector, final int k)
         {
+            return this.doSearch(queryVector, k, this.computeRerankK(k));
+        }
+
+        @Override
+        public VectorSearchResult<E> search(final float[] queryVector, final int k, final int searchBeamWidth)
+        {
+            return this.doSearch(queryVector, k, Math.max(k, positive(searchBeamWidth)));
+        }
+
+        private VectorSearchResult<E> doSearch(final float[] queryVector, final int k, final int rerankK)
+        {
             this.validateDimension(queryVector);
 
             // Acquire read lock — blocks during cleanup/persistence/removeAll/close,
@@ -1545,15 +1591,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 final SearchResult result;
                 if (this.incrementalMode)
                 {
-                    result = this.searchIncremental(query, k);
+                    result = this.searchIncremental(query, k, rerankK);
                 }
                 else if (this.diskManager != null && this.diskManager.isLoaded() && this.diskManager.getDiskIndex() != null)
                 {
-                    result = this.searchDiskIndex(query, k);
+                    result = this.searchDiskIndex(query, k, rerankK);
                 }
                 else
                 {
-                    result = this.searchInMemoryIndex(query, k);
+                    result = this.searchInMemoryIndex(query, k, rerankK);
                 }
 
                 return this.convertSearchResult(result);
@@ -1571,13 +1617,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private int computeRerankK(final int k)
         {
-            return Math.max(k, MIN_SEARCH_BEAM_WIDTH);
+            return Math.max(k, this.configuration.minSearchBeamWidth());
         }
 
         /**
          * Searches the in-memory index using a pooled GraphSearcher.
          */
-        private SearchResult searchInMemoryIndex(final VectorFloat<?> query, final int k)
+        private SearchResult searchInMemoryIndex(final VectorFloat<?> query, final int k, final int rerankK)
         {
             final SearchScoreProvider scoreProvider = DefaultSearchScoreProvider.exact(
                 query,
@@ -1595,17 +1641,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 searcher.setView(view);
             }
             final Bits acceptBits = view != null ? view.liveNodes() : Bits.ALL;
-            final int rerankK = this.computeRerankK(k);
             return searcher.search(scoreProvider, k, rerankK, 0f, 0f, acceptBits);
         }
 
         /**
          * Searches the on-disk index using a pooled GraphSearcher, with optional PQ-based approximate search and reranking.
          */
-        private SearchResult searchDiskIndex(final VectorFloat<?> query, final int k)
+        private SearchResult searchDiskIndex(final VectorFloat<?> query, final int k, final int rerankK)
         {
-            final int rerankK = this.computeRerankK(k);
-
             // If PQ is available, use compressed scoring with reranking
             if(this.pqManager != null && this.pqManager.isTrained() && this.pqManager.getCompressedVectors() != null)
             {
@@ -1635,10 +1678,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * Searches in incremental mode: queries both the disk graph (for existing data)
          * and the in-memory builder graph (for new mutations), then merges results.
          */
-        private SearchResult searchIncremental(final VectorFloat<?> query, final int k)
+        private SearchResult searchIncremental(final VectorFloat<?> query, final int k, final int rerankK)
         {
-            final int rerankK = this.computeRerankK(k);
-
             final SearchScoreProvider scoreProvider = DefaultSearchScoreProvider.exact(
                 query,
                 this.jvectorSimilarityFunction(),
