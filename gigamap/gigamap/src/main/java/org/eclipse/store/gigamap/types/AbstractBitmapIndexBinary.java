@@ -36,7 +36,8 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 	// constants //
 	//////////////
 	
-	private static final BitmapResult[] EMPTY_RESULT = new BitmapResult[0];
+	private static final BitmapResult[] EMPTY_RESULT       = new BitmapResult[0];
+	private static final BitmapResult   EMPTY_RESULT_SINGLE = new BitmapResult.Empty();
 	
 	
 	
@@ -324,7 +325,14 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 	
 	public BitmapResult internalQuery(final long key)
 	{
-		return new BitmapResult.ChainAnd(this.internalQueryResults(key));
+		final BitmapResult[] results = this.internalQueryResults(key);
+		if(results == EMPTY_RESULT)
+		{
+			// key cannot be contained (required bit positions have no entries), so the result must be the Empty singleton,
+			// not a ChainAnd wrapping an empty array (which would vacuously match every id via its -1L bitmap value).
+			return EMPTY_RESULT_SINGLE;
+		}
+		return new BitmapResult.ChainAnd(results);
 	}
 	
 	public final BitmapResult[] internalQueryResults(final long keys)
