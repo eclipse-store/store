@@ -36,8 +36,7 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 	// constants //
 	//////////////
 	
-	private static final BitmapResult[] EMPTY_RESULT       = new BitmapResult[0];
-	private static final BitmapResult   EMPTY_RESULT_SINGLE = new BitmapResult.Empty();
+	private static final BitmapResult[] NO_MATCH = new BitmapResult[0];
 	
 	
 	
@@ -326,11 +325,11 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 	public BitmapResult internalQuery(final long key)
 	{
 		final BitmapResult[] results = this.internalQueryResults(key);
-		if(results == EMPTY_RESULT)
+		if(results == NO_MATCH)
 		{
 			// key cannot be contained (required bit positions have no entries), so the result must be the Empty singleton,
 			// not a ChainAnd wrapping an empty array (which would vacuously match every id via its -1L bitmap value).
-			return EMPTY_RESULT_SINGLE;
+			return EMPTY_RESULT;
 		}
 		return new BitmapResult.ChainAnd(results);
 	}
@@ -340,7 +339,7 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 		if(!this.fitsInEntries(keys))
 		{
 			// if the keys value's 1-bits don't fit in the entry range, the key cannot be contained.
-			return EMPTY_RESULT;
+			return NO_MATCH;
 		}
 		
 		final BitmapResult[] results = new BitmapResult[this.entriesCount];
@@ -353,7 +352,7 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 				// if the key demands a 1 bit at index i, but the index doesn't even have an entry for i, the key CANNOT be contained.
 				if(this.entries[i] == null)
 				{
-					return EMPTY_RESULT;
+					return NO_MATCH;
 				}
 				
 				// add condition for index i to filter for 1-bits.
@@ -375,7 +374,7 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 		// never return null since it is perfectly valid to query for a key that does not exist.
 		if(r == 0)
 		{
-			return EMPTY_RESULT;
+			return NO_MATCH;
 		}
 		
 		XSort.insertionsort(results, BitmapResult::andOptimize, 0, r);
@@ -416,7 +415,7 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 		}
 		
 		final BitmapResult[] results = this.internalQueryResults(keys);
-		if(results == EMPTY_RESULT)
+		if(results == NO_MATCH)
 		{
 			return false;
 		}
