@@ -16,7 +16,7 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <spring.boot.version>3.5.6</spring.boot.version>
+        <spring.boot.version>3.5.13</spring.boot.version>
     </properties>
 
 
