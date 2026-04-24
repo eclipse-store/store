@@ -1701,9 +1701,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(this.inMemorySearcherPool != null && this.index != null && this.index.size(0) > 0)
             {
                 final GraphSearcher memSearcher = this.inMemorySearcherPool.get();
-                // Refresh view so the searcher sees nodes added since pool initialization
-                memSearcher.setView(this.index.getView());
-                memResult = memSearcher.search(scoreProvider, rerankK, rerankK, 0f, 0f, this.index.getView().liveNodes());
+                // Capture the view once so setView(...) and liveNodes() agree on the same
+                // snapshot (ConcurrentGraphIndexView uses snapshot isolation — two separate
+                // getView() calls could return different snapshots).
+                final var view = this.index.getView();
+                memSearcher.setView(view);
+                memResult = memSearcher.search(scoreProvider, rerankK, rerankK, 0f, 0f, view.liveNodes());
             }
 
             // 3. Merge results — truncate single-source results to k since sub-graphs
