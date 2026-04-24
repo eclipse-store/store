@@ -84,6 +84,7 @@ interface PQCompressionManager
      *
      * @param query              the query vector
      * @param k                  the number of results to return
+     * @param rerankK            minimum beam width (search effort) for the HNSW search
      * @param searcher           the graph searcher to use
      * @param ravv               random access vector values for exact reranking
      * @param similarityFunction the similarity function to use
@@ -92,6 +93,7 @@ interface PQCompressionManager
     public SearchResult searchWithRerank(
         VectorFloat<?>           query             ,
         int                      k                 ,
+        int                      rerankK           ,
         GraphSearcher            searcher          ,
         RandomAccessVectorValues ravv              ,
         VectorSimilarityFunction similarityFunction
@@ -238,13 +240,14 @@ interface PQCompressionManager
         public SearchResult searchWithRerank(
             final VectorFloat<?>           query             ,
             final int                      k                 ,
+            final int                      rerankK           ,
             final GraphSearcher            searcher          ,
             final RandomAccessVectorValues ravv              ,
             final VectorSimilarityFunction similarityFunction
         )
         {
             // Search with PQ for approximate results (fetch more candidates for reranking)
-            final int candidateCount = k * PQ_RERANK_MULTIPLIER;
+            final int candidateCount = Math.max(k * PQ_RERANK_MULTIPLIER, rerankK);
 
             // Use exact vectors for search but rerank with exact vectors
             final SearchScoreProvider ssp = DefaultSearchScoreProvider.exact(
@@ -253,7 +256,7 @@ interface PQCompressionManager
                 ravv
             );
 
-            final SearchResult result = searcher.search(ssp, candidateCount, Bits.ALL);
+            final SearchResult result = searcher.search(ssp, candidateCount, candidateCount, 0f, 0f, Bits.ALL);
 
             // Rerank with exact vectors to get the best k
             final List<NodeScoreEntry> reranked = new ArrayList<>();

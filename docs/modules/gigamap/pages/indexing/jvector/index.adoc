@@ -187,6 +187,19 @@ List<Document> topDocs = result.stream()
     .toList();
 ----
 
+=== Tuning search effort per query
+
+Every call uses a minimum beam width (HNSW _efSearch_) configured via `minSearchBeamWidth` (default 100). The effective beam width is `max(k, minSearchBeamWidth)` and keeps the top-k stable regardless of the requested `k`. A per-query overload lets you override this floor for a single call — useful to widen exploration for higher recall, or narrow it for lower latency when reproducibility across different `k` values is not required.
+
+[source, java]
+----
+// Widen exploration for this query (higher recall, higher latency)
+VectorSearchResult<Document> highRecall = index.search(queryVector, 10, 500);
+
+// Narrow exploration for this query (lower latency, may differ from higher-k results)
+VectorSearchResult<Document> fast = index.search(queryVector, 10, 10);
+----
+
 == Similarity Functions
 
 The following similarity functions are available:

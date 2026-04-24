@@ -102,9 +102,9 @@ The FusedPQ implementation requires exactly `maxDegree=32`. This is a fixed cons
 
 When PQ compression is active, searches use a **two-phase approach** to balance speed and accuracy:
 
-**Phase 1 -- Approximate candidate retrieval:** The HNSW graph is traversed using the FusedPQ-compressed vectors for fast approximate distance computation. This phase fetches `2 * k` candidates (twice the requested result count) to ensure the true top-k results are captured despite the approximation error introduced by quantization.
+**Phase 1 -- Approximate candidate retrieval:** The HNSW graph is traversed using the FusedPQ-compressed vectors for fast approximate distance computation. This phase fetches `max(2 * k, minSearchBeamWidth)` candidates — at least twice the requested result count to absorb quantization error, and never less than the configured search beam width (see xref:indexing/jvector/configuration.adoc#_basic_hnsw_parameters[`minSearchBeamWidth`]) so the top-k stays stable across different `k` values. The per-query `search(query, k, searchBeamWidth)` overload raises this floor for a single call when higher recall is needed.
 
-**Phase 2 -- Exact reranking:** The `2 * k` approximate candidates are then re-scored using the full-precision inline vectors stored in the graph file. The exact scores are sorted and the best _k_ results are returned.
+**Phase 2 -- Exact reranking:** The approximate candidates are then re-scored using the full-precision inline vectors stored in the graph file. The exact scores are sorted and the best _k_ results are returned.
 
 This two-phase approach achieves nearly the same recall as an uncompressed search while benefiting from the speed and memory advantages of PQ during graph traversal.
 
