@@ -2469,19 +2469,21 @@ class VectorIndexTest
         final VectorIndex<Document> index = vectorIndices.get("embeddings");
         final float[] queryVector = randomVector(new Random(99), dimension);
 
-        // With the floor disabled, search(k=5) explores only 5 candidates whereas the
-        // per-query override at 500 explores the whole dataset. The two should disagree on at
-        // least one element of the top-5 — otherwise the floor is being silently applied.
+        // With the floor disabled, the default search(q, k) must behave exactly like the
+        // explicit overload search(q, k, k) — both use the same effective beam width (k).
+        // Deterministic: if a silent floor of 100 were still being applied, search(q, 5)
+        // would explore 100 candidates while search(q, 5, 5) would explore 5, and the
+        // top-5 would diverge.
         final List<Long> top5floorDisabled = index.search(queryVector, 5).stream()
             .map(VectorSearchResult.Entry::entityId)
             .toList();
-        final List<Long> top5exhaustive = index.search(queryVector, 5, 500).stream()
+        final List<Long> top5explicitBeamWidth = index.search(queryVector, 5, 5).stream()
             .map(VectorSearchResult.Entry::entityId)
             .toList();
 
-        assertNotEquals(top5exhaustive, top5floorDisabled,
-            "With minSearchBeamWidth=1 the small-k search must explore less than the override, "
-            + "proving the user setting is respected (not silently overridden by a 100 floor)");
+        assertEquals(top5explicitBeamWidth, top5floorDisabled,
+            "With minSearchBeamWidth=1, search(q, k) must match search(q, k, k) rather than "
+            + "silently applying a larger configured floor");
     }
 
     /**
