@@ -57,6 +57,8 @@ This is the same principle as the classic problem with synchronized JDK collecti
 
 == Concurrency
 
+TIP: See xref:intro:concurrent-access.adoc[Concurrent Access] for the full conceptual treatment.
+
 As with any {product-name} application, modifying the object graph and storing the changes *must be done under the same lock*.
 The `gigaMap.store()` method handles this for you by acquiring the GigaMap's internal lock.
 

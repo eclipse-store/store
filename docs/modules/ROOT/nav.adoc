@@ -1,5 +1,6 @@
 * xref:intro:welcome.adoc[Welcome]
 * xref:intro:architecture.adoc[Architecture Overview]
+* xref:intro:concurrent-access.adoc[Concurrent Access]
 * xref:intro:system-requirements.adoc[System Requirements]
 * xref:intro:changelog.adoc[Changelog]
 * xref:intro:installation.adoc[Installation]

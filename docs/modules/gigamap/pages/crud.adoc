@@ -22,6 +22,8 @@ GigaMap<Entity> gigaMap = GigaMap.New(
 
 == Locking
 
+TIP: See xref:intro:concurrent-access.adoc[Concurrent Access] for the full conceptual treatment.
+
 The GigaMap employs internal read-write locking, making it thread-safe for its own operations (`add`, `remove`, `update`, `get`, etc.).
 
 However, all reading operations must be closed at the end to determine when the read locks should be released.

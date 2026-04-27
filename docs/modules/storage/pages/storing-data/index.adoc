@@ -16,6 +16,8 @@ Without this guarantee, other threads may observe inconsistent in-memory state o
 See xref:misc:locking/index.adoc[Locking] for details.
 ====
 
+TIP: See xref:intro:concurrent-access.adoc[Concurrent Access] for the full conceptual treatment.
+
 Storing objects that are not part of an object graph is most likely pointless.
 
 == Storing Root Instances
