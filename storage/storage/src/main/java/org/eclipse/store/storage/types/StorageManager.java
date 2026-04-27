@@ -101,14 +101,29 @@ public interface StorageManager extends StorageController, StorageConnection, Da
 	public <R> R setRoot(R newRoot);
 	
 	/**
-	 * Stores the registered root instance (as returned by {@link #root()}) by using the default storing logic
-	 * by calling {@link #createStorer()} to create the {@link Storer} to be used.<br>
-	 * Depending on the storer logic, storing the root instance can cause many other object to be stored, as well.
-	 * For example for the default behavior (as implemented in {@link #createLazyStorer()}, all recursively referenced
-	 * instances that are not yet known to the persistent context (i.e. have an associated objectId registered in the
-	 * context's {@link PersistenceObjectRegistry}) are stored as well.
-	 * 
+	 * Stores the registered root instance (as returned by {@link #root()}) using the default storing logic
+	 * by calling {@link #createStorer()} to create the {@link Storer} to be used.
+	 * <p>
+	 * <b>Intended use cases.</b> This method is only meaningful in two situations:
+	 * <ul>
+	 *   <li>The root reference itself has been replaced via {@link #setRoot(Object)}.</li>
+	 *   <li>The root is being stored for the first time on an otherwise empty storage.</li>
+	 * </ul>
+	 * <p>
+	 * <b>Common pitfall.</b> {@code storeRoot()} is <i>not</i> a "save everything" operation. It does
+	 * <b>not</b> persist arbitrary modifications made somewhere deep in the object graph. The default
+	 * storer (see {@link #createLazyStorer()}) only stores instances that are not yet known to the
+	 * persistent context (i.e. that do not yet have an objectId registered in the
+	 * {@link PersistenceObjectRegistry}). Already-persisted objects whose fields have been mutated are
+	 * therefore skipped, and such changes will silently not be reflected in the storage. To persist
+	 * modifications to an existing object, call {@code store(Object)} on the actually modified
+	 * instance (or a suitable ancestor that owns the changed reference) instead.
+	 *
 	 * @return the root instance's objectId.
+	 *
+	 * @see #setRoot(Object)
+	 * @see #createStorer()
+	 * @see #createLazyStorer()
 	 */
 	public long storeRoot();
 
