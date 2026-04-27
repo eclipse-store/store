@@ -1,0 +1,229 @@
+= Best Practices: Dev / Test / Prod
+
+{product-name} ships with conservative, frictionless defaults so that getting started is a one-liner.
+A number of features are intentionally *off by default* — turning them on globally would be a breaking change for existing applications, and most of them carry a small operational cost (extra disk space, extra setup, slower startup) that is only worth paying once you leave a developer's machine.
+
+This page lists those features and gives a recommendation per environment.
+Each section links to the canonical configuration page that documents *how* to enable the feature; this page only documents *whether* and *why* you should.
+
+NOTE: Recommendations are guidelines, not rules.
+The right setting depends on your workload, your tolerance for downtime, and your operational constraints.
+When in doubt, prefer the safer setting in production and the more convenient one in development.
+
+== Summary
+
+[options="header",cols="2,1,1,2"]
+|===
+| Feature | Dev | Test | Prod
+
+| <<lock-file,Lock file>>
+| off
+| off
+| on, if multiple processes may share the storage
+
+| <<deletion-directory,Deletion directory>>
+| off
+| off
+| *on*
+
+| <<truncation-directory,Truncation directory>>
+| off
+| off
+| optional
+
+| <<continuous-backup,Continuous backup>>
+| off
+| off
+| *on*
+
+| <<full-backup,Full backup>>
+| ad-hoc
+| ad-hoc
+| scheduled (e.g. nightly)
+
+| <<adaptive-housekeeping,Adaptive housekeeping>>
+| off
+| off
+| on for write-heavy workloads
+
+| <<channel-count,Channel count>>
+| 1
+| 1
+| tuned up-front to CPU/IO
+
+| <<read-only-mode,Read-only mode>>
+| n/a
+| optional
+| on for read replicas / snapshot inspection
+
+| <<jmx-monitoring,JMX monitoring>>
+| auth/SSL off
+| auth/SSL off
+| *auth and SSL on*
+
+| <<rest-interface,REST interface>>
+| optional
+| optional
+| off by default, otherwise behind auth and network isolation
+|===
+
+== Per-Feature Recommendations
+
+[#lock-file]
+=== Lock file
+
+*Default:* off. *See:* xref:configuration/lock-file.adoc[Lock File].
+
+{product-name}'s proprietary lock file prevents two {product-name} processes from operating on the same storage concurrently, which would corrupt the data files.
+The OS-level file lock is sufficient for the common case of a single application owning the storage; the proprietary lock file is only needed when more than one {product-name} application may try to access the same files.
+
+[cols="1,3"]
+|===
+| Dev | Off. Quick restarts from an IDE produce stale-lock waits with no benefit when only one process accesses the storage.
+| Test | Off. Same as dev. Enable only in tests that deliberately exercise multi-process access.
+| Prod | On if more than one JVM may share the storage (for example blue/green deployments, an accidental double-start during a rolling restart, or a sidecar process). Off is safe if a single application owns the storage exclusively.
+|===
+
+[#deletion-directory]
+=== Deletion directory
+
+*Default:* off. *See:* xref:configuration/storage-files-and-directories.adoc[Storage Files and Directories].
+
+When configured, the housekeeping process moves data files into the deletion directory instead of erasing them.
+Recovering an object that was incorrectly garbage-collected (for example because a root reference was unintentionally dropped before a `store()`) is impossible after a normal delete, but trivial as long as the file still exists in the deletion directory.
+
+[cols="1,3"]
+|===
+| Dev | Off. Disk usage and operational complexity outweigh the benefit on a developer machine where the storage can be recreated.
+| Test | Off. Recreate fixtures rather than recover them.
+| Prod | *On.* Cheap insurance against operator error and against bugs in storing logic. Pair with a periodic cleanup job (or a generous disk allocation).
+|===
+
+[#truncation-directory]
+=== Truncation directory
+
+*Default:* off. *See:* xref:configuration/storage-files-and-directories.adoc[Storage Files and Directories].
+
+Files that get truncated during housekeeping (for example when a file's used-ratio drops below the configured threshold and it is rewritten in compacted form) are copied to this directory before truncation.
+Useful for forensics if you suspect housekeeping is removing live data, but rarely needed in healthy operation.
+
+[cols="1,3"]
+|===
+| Dev | Off.
+| Test | Off, unless the test under investigation specifically exercises file truncation.
+| Prod | Optional. Enable temporarily during incident investigation; leave off by default to control disk usage.
+|===
+
+[#continuous-backup]
+=== Continuous backup
+
+*Default:* off. *See:* xref:configuration/backup/continuous-backup.adoc[Continuous Backup].
+
+When enabled, every change written to the primary storage is mirrored to a backup directory in real time.
+The backup is byte-identical to the primary and can be used directly as a storage if the primary is lost.
+Overhead is modest because writes go to two targets in parallel rather than being copied after the fact.
+
+[cols="1,3"]
+|===
+| Dev | Off. The primary storage is disposable.
+| Test | Off, unless the test specifically exercises backup/restore behaviour.
+| Prod | *On.* The single most effective protection against disk failure or accidental deletion of the primary storage. Place the backup on a separate physical disk, host, or xref:storage-targets/index.adoc[storage target].
+|===
+
+[#full-backup]
+=== Full backup
+
+*Default:* not applicable (manual operation). *See:* xref:configuration/backup/full-backup.adoc[Full Backup].
+
+A full backup is a one-shot snapshot triggered via `EmbeddedStorageManager.issueFullBackup(...)`.
+It is a *blocking* operation: store operations are paused for the duration, which can be significant for large storages.
+
+[cols="1,3"]
+|===
+| Dev | Ad-hoc. Use to capture interesting fixtures or before destructive experiments.
+| Test | Ad-hoc. Useful for seeding integration-test environments from a known state.
+| Prod | Schedule during off-peak hours (for example a nightly cron) as a periodic safety net on top of <<continuous-backup,continuous backup>>. Also recommended before major migrations or schema changes.
+|===
+
+[#adaptive-housekeeping]
+=== Adaptive housekeeping
+
+*Default:* off (fixed time budget of 10 ms per 1-second interval). *See:* xref:configuration/housekeeping.adoc[Housekeeping].
+
+Adaptive housekeeping increases the time budget when the housekeeping process cannot keep up with incoming writes.
+Without it, write-heavy workloads can leave files uncollected and cause disk usage to grow well past what the data warrants.
+
+[cols="1,3"]
+|===
+| Dev | Off. The fixed default keeps housekeeping unobtrusive on a developer machine.
+| Test | Off. Predictable, repeatable behaviour is more valuable in tests than throughput.
+| Prod | On for write-heavy workloads. The fixed default is sufficient for read-heavy or low-write applications; switch to adaptive when you observe disk usage growing faster than the underlying data.
+|===
+
+[#channel-count]
+=== Channel count
+
+*Default:* 1. *See:* xref:configuration/using-channels.adoc[Using Channels].
+
+Channels are the IO threads (and corresponding storage subdirectories) that {product-name} uses in parallel.
+The channel count must be a power of two and is fixed for the lifetime of a storage — changing it later requires migration.
+Pick the right number up front.
+
+[cols="1,3"]
+|===
+| Dev | 1. Simplest setup, easiest to inspect on disk.
+| Test | 1, unless the test specifically exercises multi-channel parallelism.
+| Prod | Tune to your workload and hardware. More channels mean higher write parallelism but more files and more memory; a single channel is often fine for read-heavy or moderate-write applications.
+|===
+
+[#read-only-mode]
+=== Read-only mode
+
+*Default:* off. *See:* xref:configuration/readonly.adoc[Read-only Manager].
+
+A read-only storage manager rejects all writes and disables housekeeping, which lets it coexist with another writing manager — the only supported way to have two managers on the same storage.
+Useful for read replicas, ad-hoc inspection of a backup, or analytics workloads that should not mutate data.
+
+[cols="1,3"]
+|===
+| Dev | Not applicable.
+| Test | Optional. Useful for tests that load a fixture and assert against it without ever mutating.
+| Prod | On for read-replica or snapshot-inspection deployments. Keep the read-only manager short-lived: it does not see writes from the primary manager and will eventually be invalidated by housekeeping there.
+|===
+
+[#jmx-monitoring]
+=== JMX monitoring
+
+*Default:* JMX beans are always exposed; remote JMX is configured at the JVM level and is off by default. *See:* xref:misc:monitoring/index.adoc[Monitoring].
+
+{product-name} publishes JMX beans for storage growth, entity cache, lazy references, object registry, and per-channel metrics.
+The beans themselves are free to expose; the operational risk is in how the JVM exposes the JMX port.
+
+[cols="1,3"]
+|===
+| Dev | Auth and SSL off (typical local-only JMX setup) is fine.
+| Test | Auth and SSL off is fine in isolated test infrastructure.
+| Prod | *Authentication and SSL must be on.* Restrict the JMX port to a monitoring network or block it at the firewall. An unauthenticated JMX port is remote code execution.
+|===
+
+[#rest-interface]
+=== REST interface
+
+*Default:* off (`org.eclipse.store.rest.enabled=false` in the Spring Boot integration). *See:* xref:rest-interface/setup.adoc[REST Interface Setup].
+
+The REST interface exposes the object graph for inspection and is invaluable during development and debugging.
+It is read-only at the protocol level, but the data it returns is your application's data, so the same access controls that govern the application as a whole must govern the REST endpoint.
+
+[cols="1,3"]
+|===
+| Dev | On. Useful for inspecting the live object graph from a browser or the client GUI.
+| Test | Optional. Convenient for diagnosing test failures.
+| Prod | Off by default. If you need it for operations, place it behind authentication (Spring Security or equivalent) and restrict it to an internal network. The bundled Client GUI is a development tool and should not be exposed publicly.
+|===
+
+== See Also
+
+* xref:configuration/index.adoc[Configuration overview]
+* xref:configuration/properties.adoc[Configuration properties reference]
+* xref:storage-targets/index.adoc[Storage Targets]
+* xref:misc:monitoring/index.adoc[Monitoring]

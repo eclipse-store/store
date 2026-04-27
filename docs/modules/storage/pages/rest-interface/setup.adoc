@@ -1,5 +1,7 @@
 = Setup
 
+TIP: See xref:configuration/best-practices.adoc[Best Practices: Dev / Test / Prod] for environment-specific recommendations on exposing the REST interface in production.
+
 An application that will expose the REST endpoints needs one of the provided implementations by {product-name} or you need to implement the provided interfaces.
 
 Currently, two implementations are available:

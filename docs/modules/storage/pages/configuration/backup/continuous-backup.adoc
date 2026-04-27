@@ -1,5 +1,7 @@
 = Continuous Backup
 
+TIP: See xref:configuration/best-practices.adoc[Best Practices: Dev / Test / Prod] for environment-specific recommendations.
+
 By default, the continuous backup is disabled.
 If enabled the {product-name} instance will clone all changes to another directory.
 The backup is identical to the primary {product-name} storage.

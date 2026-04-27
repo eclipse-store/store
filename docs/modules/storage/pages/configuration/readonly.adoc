@@ -1,5 +1,7 @@
 = Read-Only Storage Manager
 
+TIP: See xref:configuration/best-practices.adoc[Best Practices: Dev / Test / Prod] for environment-specific recommendations.
+
 It is possible to have a _Storage Manager_ which operates in a read-only mode. Since there is a limitation in {product-name} that you can have only one manager that is connected to one data storage, you can bypass this restriction with this read-only mode.  But there are limitations, such as:
 
 - In read-only mode, you cannot write to a data storage. This means calls to `.store()` and other methods resulting in a write will throw an exception.
