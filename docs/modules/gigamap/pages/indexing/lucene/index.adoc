@@ -330,7 +330,7 @@ LuceneContext<Article> context = LuceneContext.New(
 );
 ----
 
-== Integration with EclipseStore
+== Integration with {product-name}
 
 [source, java]
 ----

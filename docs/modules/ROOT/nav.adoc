@@ -101,6 +101,7 @@
 ** xref:gigamap:queries/index.adoc[Queries]
 *** xref:gigamap:queries/defining.adoc[Defining Queries]
 *** xref:gigamap:queries/executing.adoc[Executing Queries]
+** xref:gigamap:constraints.adoc[Constraints]
 ** xref:gigamap:crud.adoc[CRUD]
 ** xref:gigamap:persistence.adoc[Persistence]
 * xref:cache:index.adoc[Cache]

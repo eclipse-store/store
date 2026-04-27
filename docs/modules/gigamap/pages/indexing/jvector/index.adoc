@@ -218,9 +218,9 @@ The following similarity functions are available:
 |Euclidean distance. Best for geometric or spatial data.
 |===
 
-== Persistence with EclipseStore
+== Persistence with {product-name}
 
-Binary type handlers are registered automatically when using EclipseStore.
+Binary type handlers are registered automatically when using {product-name}.
 
 [source, java]
 ----
