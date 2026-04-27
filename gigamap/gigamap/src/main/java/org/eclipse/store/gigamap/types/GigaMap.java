@@ -283,11 +283,25 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * <p>
 	 * To get the best performance for this operation is the use of an identity index.
 	 * See {@link BitmapIndices#setIdentityIndices(IndexIdentifier...)}.
+	 * <p>
+	 * <b>Behavior on constraint violation (potential data loss):</b> if the post-update state of the
+	 * entity violates a registered constraint, a
+	 * {@link ConstraintViolationException ConstraintViolationException}
+	 * is thrown <em>and the entity is removed from this GigaMap</em>. Because {@code logic} mutates the
+	 * entity in place, the previous state is no longer available and cannot be restored — removing the
+	 * entry is the only way to keep the map consistent. This differs from {@link #set(long, Object) set}
+	 * and {@link #replace(Object, Object) replace}, which check constraints before mutating and therefore
+	 * leave the map unchanged on violation. The thrown exception carries the offending entity and its id
+	 * (via {@code violatingEntity} and {@code entityId}); callers that need to recover can re-add the
+	 * entity after correcting the violation, or use {@code set} / {@code replace} instead when
+	 * non-destructive semantics are required.
 	 *
 	 * @param current the entity to be updated
 	 * @param logic the update logic to be executed
 	 * @return the updated entity
 	 * @throws IllegalStateException if no bitmap index is present
+	 * @throws ConstraintViolationException if the post-update state
+	 *         violates a registered constraint; the entity is removed from the map before this is thrown
 	 */
 	public default E update(final E current, final Consumer<? super E> logic)
 	{
@@ -311,11 +325,26 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * <p>
 	 * To get the best performance for this operation is the use of an identity index.
 	 * See {@link BitmapIndices#setIdentityIndices(IndexIdentifier...)}.
+	 * <p>
+	 * <b>Behavior on constraint violation (potential data loss):</b> if the post-application state of the
+	 * entity violates a registered constraint, a
+	 * {@link ConstraintViolationException ConstraintViolationException}
+	 * is thrown <em>and the entity is removed from this GigaMap</em>. Because {@code logic} mutates the
+	 * entity in place, the previous state is no longer available and cannot be restored — removing the
+	 * entry is the only way to keep the map consistent. This differs from {@link #set(long, Object) set}
+	 * and {@link #replace(Object, Object) replace}, which check constraints before mutating and therefore
+	 * leave the map unchanged on violation. The thrown exception carries the offending entity and its id
+	 * (via {@code violatingEntity} and {@code entityId}); callers that need to recover can re-add the
+	 * entity after correcting the violation, or use {@code set} / {@code replace} instead when
+	 * non-destructive semantics are required.
 	 *
 	 * @param current the entity to be updated
 	 * @param logic the logic to be executed
 	 * @return the result of the given logic
 	 * @throws IllegalStateException if no bitmap index is present
+	 * @throws ConstraintViolationException if the post-application
+	 *         state violates a registered constraint; the entity is removed from the map before this is
+	 *         thrown
 	 */
 	public <R> R apply(E current, Function<? super E, R> logic);
 	
