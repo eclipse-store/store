@@ -79,3 +79,5 @@ gigaMap.update(person, p -> {
 ----
 
 Entities modified through `update` (or `apply`) are automatically persisted when calling `store()`. See xref:persistence.adoc[] for details.
+
+WARNING: Because `update` / `apply` mutate the entity in place, a constraint violation triggered by the new state cannot be rolled back. The GigaMap therefore **removes** the offending entity from the map and rethrows the `ConstraintViolationException`. See xref:constraints.adoc#_constraint_violations[Constraints — Constraint Violations] for the full rollback semantics across CRUD operations.
