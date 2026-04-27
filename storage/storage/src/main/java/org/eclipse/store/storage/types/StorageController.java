@@ -21,7 +21,7 @@ import org.eclipse.store.storage.exceptions.StorageExceptionShutdown;
  * The StorageController interface defines the contract for managing and controlling a storage system.
  * It provides methods to initialize, start, monitor, and shut down the storage operations, ensuring
  * appropriate handling of state transitions and task processing capabilities.
- *
+ * <p>
  * This interface extends both StorageActivePart and AutoCloseable, combining functionalities for
  * active storage management and resource cleanup during lifecycle management.
  */
@@ -31,16 +31,32 @@ public interface StorageController extends StorageActivePart, AutoCloseable
 	 * "Starts" the storage controlled by this {@link StorageController} instance, with "starting" meaning:<br>
 	 * <ul>
 	 * <li>Reading, indexing and potentially caching all the persisted data in the storage.</li>
+	 * <li>Recovering from a previous unclean shutdown by truncating any partially written tail of the
+	 *     last store, so that the in-memory state matches the last fully persisted state.</li>
 	 * <li>Starting storage managing threads to execute requests like storing, loading and issued utility functions.</li>
 	 * </ul>
-	 * 
+	 * After this method returns successfully, the storage is ready to accept tasks (see
+	 * {@link #isAcceptingTasks()}) and the registered root reference (if any) has been resolved.
+	 *
 	 * @return this to allow writing of fluent code.
 	 */
 	public StorageController start();
 
 	/**
 	 * Issues a command to shut down all active threads managing the storage.
-	 * 
+	 * <p>
+	 * <b>Calling {@code shutdown()} is not required for data integrity.</b> The storage is designed so
+	 * that every successful {@code store(...)} call physically commits its data before returning;
+	 * a process crash, kill, or {@code System.exit(0)} therefore cannot corrupt the persisted data, and
+	 * the next {@link #start()} will resume from the last fully persisted state.
+	 * <p>
+	 * An explicit shutdown is meaningful only when:
+	 * <ul>
+	 *   <li>The application keeps running but wants to stop the storage threads (e.g. to change
+	 *       configuration, copy or back up the storage files, then call {@link #start()} again).</li>
+	 *   <li>The application uses {@link AutoCloseable} / try-with-resources purely for hygiene reasons.</li>
+	 * </ul>
+	 *
 	 * @return <code>true</code> after a successful shutdown or <code>false</code>
 	 *         if an internal {@link InterruptedException} happened.
 	 */
@@ -83,7 +99,7 @@ public interface StorageController extends StorageActivePart, AutoCloseable
 	
 	/**
 	 * Checks whether the storage controlled by this instance has been shut down.
-	 *
+	 * <p>
 	 * This method determines the shutdown state by checking if the storage is no longer running.
 	 *
 	 * @return true if the storage is shut down, false otherwise.
@@ -97,7 +113,7 @@ public interface StorageController extends StorageActivePart, AutoCloseable
 	 * Ensures that the storage is accepting tasks by internally checking its state.
 	 * This method verifies the ability of the storage to process new tasks and may
 	 * throw an exception if the storage is not in a state to accept tasks.
-	 *
+	 * <p>
 	 * Depending on the internal implementation, it could check conditions like whether
 	 * the storage is running, not shutting down, and has not encountered critical errors.
 	 *
@@ -144,7 +160,7 @@ public interface StorageController extends StorageActivePart, AutoCloseable
 	 * Closes the storage controller by shutting down all associated resources and
 	 * threads managing the storage. This method ensures that the storage is properly
 	 * terminated and no background processes are left running.
-	 *
+	 * <p>
 	 * If the shutdown process fails, a {@link StorageExceptionShutdown} is thrown with
 	 * an appropriate error message and cause if available.
 	 *
@@ -153,7 +169,7 @@ public interface StorageController extends StorageActivePart, AutoCloseable
 	@Override
 	public default void close() throws StorageExceptionShutdown
 	{
-		boolean success;
+		final boolean success;
 		try
 		{
 			success = this.shutdown();
