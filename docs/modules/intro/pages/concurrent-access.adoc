@@ -64,6 +64,12 @@ The persisted state diverges from what either thread "intended".
 
 If you call `storageManager.store(gigaMap)` while another thread is mutating the GigaMap, the serializer walks a structure that is changing under it and the store fails.
 This is a special case of the previous failure mode that {product-name} can detect, because the GigaMap's internal state becomes inconsistent with what the serializer actually traverses.
+
+Note that this covers only the GigaMap's own structure.
+Stored *elements* (the values held in the GigaMap, and any objects they reference) can still be mutated by another thread during the store walk — the GigaMap's internal lock does not extend to them.
+The GigaMap itself remains fine, but the persisted element graph may be inconsistent.
+Application-level synchronization is still required around mutation and storing of those objects.
+
 Always prefer `gigaMap.store()` — see <<gigamap-concurrency>>.
 
 == What is already thread-safe — and what is not
@@ -88,7 +94,8 @@ They are *not* an application-level concurrency primitive — they do not synchr
 | `EmbeddedStorageManager.store(...)`
 | yes (atomic at the persistence level)
 | Each `store()` call is an atomic all-or-nothing operation on disk: either everything is written or nothing is.
-This atomicity is a property of *persistence*, not of the in-memory graph. See xref:storage:storing-data/transactions.adoc[Transactions].
+"Atomic" here means *durability* atomicity — not a CPU-level atomic operation, and not isolation in RAM.
+The in-memory graph the store traverses is *not* protected from concurrent mutation; the application must still serialize access to it. See xref:storage:storing-data/transactions.adoc[Transactions].
 
 | `GigaMap` operations (`add`, `remove`, `update`, `get`)
 | yes
@@ -111,6 +118,11 @@ Iterators must be closed (use try-with-resources) so that read locks are release
 | no
 | Serializer instances must be confined to a single thread.
 The `SerializerFoundation` is safe to share. See xref:serializer:performance.adoc[Serializer — Performance and Thread Safety].
+
+| `Storer` instances (`createStorer()`, `createLazyStorer()`, `createEagerStorer()`)
+| no
+| A `Storer` is a per-thread unit of work: register objects with `store(...)`, then call `commit()`.
+Each thread that wants to store concurrently must obtain its own `Storer` from the storage manager — they must not be shared across threads. See xref:storage:storing-data/lazy-eager-full.adoc[Lazy and Eager Storing].
 
 | The application's object graph
 | no
