@@ -7,6 +7,7 @@ Storing an object will also store all instances referenced by this objects that 
 While storing your data most of the work {product-name} performs for you.
 You only need to call the store method on the correct object.
 The rule is: "The Object that has been modified has to be stored!".
+The reason for this rule is that {product-name} traverses the object graph *lazily* by default — already-persisted objects are skipped during the walk. See xref:storing-data/lazy-eager-full.adoc[Lazy and Eager Storing] for the details and when to override this behavior.
 
 [IMPORTANT]
 ====
