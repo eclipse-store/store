@@ -15,7 +15,9 @@ package org.eclipse.store.gigamap.indexer;
  */
 
 import org.eclipse.store.gigamap.types.BitmapIndices;
+import org.eclipse.store.gigamap.types.Condition;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.gigamap.types.SpatialIndexer;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
@@ -354,6 +356,65 @@ public class SpatialIndexerTest
 	}
 
 
+	/**
+	 * Regression test for issue #653 / #654: composing a {@link SpatialIndexer} range
+	 * condition via {@link Condition#and(Condition)} (i) with another range condition and
+	 * (ii) with a condition from a different indexer type must produce the same result as
+	 * composing via {@link org.eclipse.store.gigamap.types.GigaQuery#and(Condition)}.
+	 * Also covers (iii) latitudeBetween().and(longitudeBetween()) — 2D box composition where
+	 * the two operands are themselves AND-of-Term, exercising And.linkCondition flattening.
+	 */
+	@Test
+	void rangeCompositionViaConditionAnd()
+	{
+		final NameIndex          nameIdx = new NameIndex();
+		final GigaMap<Location>  map     = GigaMap.<Location>Builder()
+			.withBitmapIndex(this.locationIndex)
+			.withBitmapIndex(nameIdx)
+			.build();
+		map.addAll(
+			new Location("New York",   40.7128,  -74.0060),
+			new Location("London",     51.5074,   -0.1278),
+			new Location("Tokyo",      35.6762,  139.6503),
+			new Location("Sydney",    -33.8688,  151.2093),
+			new Location("Cape Town", -33.9249,   18.4241),
+			new Location("Fiji",      -17.7134,  178.065 )
+		);
+
+		// (i) range AND range — northern hemisphere AND latitude < 45 → New York, Tokyo
+		final Condition<Location> above = this.locationIndex.latitudeAbove(0.0);
+		final Condition<Location> below = this.locationIndex.latitudeBelow(45.0);
+
+		final List<Location> rangeAnd = map.query(above.and(below)).toList();
+		final List<Location> rangeQ   = map.query().and(above).and(below).toList();
+
+		assertEquals(2, rangeAnd.size(), "Condition.and() must respect both bounds");
+		assertEquals(rangeQ.size(), rangeAnd.size(), "Condition.and() and GigaQuery.and() must agree");
+		rangeAnd.forEach(l -> assertNotEquals("London", l.name));
+
+		// (ii) range AND condition from a different indexer
+		final Condition<Location> tokyoMatch = nameIdx.is("Tokyo");
+
+		final List<Location> mixedAnd = map.query(above.and(tokyoMatch)).toList();
+		final List<Location> mixedQ   = map.query().and(above).and(tokyoMatch).toList();
+
+		assertEquals(1, mixedAnd.size(), "range AND non-range condition must intersect correctly");
+		assertEquals("Tokyo", mixedAnd.get(0).name);
+		assertEquals(mixedQ.size(), mixedAnd.size());
+
+		// (iii) latitudeBetween AND longitudeBetween — both operands are And, not Or
+		final Condition<Location> latBox = this.locationIndex.latitudeBetween(0.0, 45.0);
+		final Condition<Location> lonBox = this.locationIndex.longitudeBetween(100.0, 180.0);
+
+		final List<Location> boxAnd = map.query(latBox.and(lonBox)).toList();
+		final List<Location> boxQ   = map.query().and(latBox).and(lonBox).toList();
+
+		assertEquals(1, boxAnd.size(), "2D box composition must intersect correctly");
+		assertEquals("Tokyo", boxAnd.get(0).name);
+		assertEquals(boxQ.size(), boxAnd.size());
+	}
+
+
 	// ---- test infrastructure ----
 
 	private GigaMap<Location> prepareGigaMap()
@@ -388,6 +449,16 @@ public class SpatialIndexerTest
 		protected Double getLongitude(final Location entity)
 		{
 			return entity.longitude;
+		}
+	}
+
+
+	private static class NameIndex extends IndexerString.Abstract<Location>
+	{
+		@Override
+		protected String getString(final Location entity)
+		{
+			return entity.name;
 		}
 	}
 

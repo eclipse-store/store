@@ -15,7 +15,9 @@ package org.eclipse.store.gigamap.indexer.byte_;
  */
 
 import org.eclipse.store.gigamap.types.ByteIndexerLong;
+import org.eclipse.store.gigamap.types.Condition;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
@@ -25,6 +27,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 public class ByteIndexerLongTest
 {
@@ -121,6 +124,54 @@ public class ByteIndexerLongTest
     }
 
 
+    /**
+     * Regression test for issue #653 / #654: composing a {@link ByteIndexerLong} numeric
+     * range condition via {@link Condition#and(Condition)} (i) with another range condition
+     * and (ii) with a condition from a different indexer type must produce the same result
+     * as composing via {@link org.eclipse.store.gigamap.types.GigaQuery#and(Condition)}.
+     * <p>
+     * Representative coverage for {@link org.eclipse.store.gigamap.types.ByteIndexerNumber};
+     * all numeric subclasses share the same abstract greaterThan/lessThan implementation.
+     */
+    @Test
+    void numberRangeCompositionViaConditionAnd()
+    {
+        final NamedLongValueIndexer valueIdx = new NamedLongValueIndexer();
+        final NameIndex             nameIdx  = new NameIndex();
+
+        final GigaMap<NamedLongPojo> map = GigaMap.<NamedLongPojo>Builder()
+            .withBitmapIndex(valueIdx)
+            .withBitmapIndex(nameIdx)
+            .build();
+        map.add(new NamedLongPojo("Alice",   10L));
+        map.add(new NamedLongPojo("Bob",     20L));
+        map.add(new NamedLongPojo("Charlie", 30L));
+        map.add(new NamedLongPojo("Dave",    40L));
+
+        // (i) range AND range
+        final Condition<NamedLongPojo> greater = valueIdx.greaterThan(15L);
+        final Condition<NamedLongPojo> less    = valueIdx.lessThan(35L);
+
+        final List<NamedLongPojo> rangeAnd = map.query(greater.and(less)).toList();
+        final List<NamedLongPojo> rangeQ   = map.query().and(greater).and(less).toList();
+
+        assertEquals(2, rangeAnd.size(), "Condition.and() must respect both bounds");
+        assertEquals(rangeQ.size(), rangeAnd.size(), "Condition.and() and GigaQuery.and() must agree");
+        rangeAnd.forEach(e -> assertNotEquals("Alice", e.name()));
+        rangeAnd.forEach(e -> assertNotEquals("Dave",  e.name()));
+
+        // (ii) range AND condition from a different indexer
+        final Condition<NamedLongPojo> bobMatch = nameIdx.is("Bob");
+
+        final List<NamedLongPojo> mixedAnd = map.query(greater.and(bobMatch)).toList();
+        final List<NamedLongPojo> mixedQ   = map.query().and(greater).and(bobMatch).toList();
+
+        assertEquals(1, mixedAnd.size(), "range AND non-range condition must intersect correctly");
+        assertEquals("Bob", mixedAnd.get(0).name());
+        assertEquals(mixedQ.size(), mixedAnd.size());
+    }
+
+
     static class LongValueIndexer extends ByteIndexerLong.Abstract<LongPojo>
     {
         @Override
@@ -140,6 +191,46 @@ public class ByteIndexerLongTest
         }
 
         public Long getValue()
+        {
+            return this.value;
+        }
+    }
+
+    static class NamedLongValueIndexer extends ByteIndexerLong.Abstract<NamedLongPojo>
+    {
+        @Override
+        protected Long getLong(final NamedLongPojo entity)
+        {
+            return entity.value();
+        }
+    }
+
+    static class NameIndex extends IndexerString.Abstract<NamedLongPojo>
+    {
+        @Override
+        protected String getString(final NamedLongPojo entity)
+        {
+            return entity.name();
+        }
+    }
+
+    static class NamedLongPojo
+    {
+        private final String name;
+        private final Long   value;
+
+        NamedLongPojo(final String name, final Long value)
+        {
+            this.name  = name;
+            this.value = value;
+        }
+
+        String name()
+        {
+            return this.name;
+        }
+
+        Long value()
         {
             return this.value;
         }

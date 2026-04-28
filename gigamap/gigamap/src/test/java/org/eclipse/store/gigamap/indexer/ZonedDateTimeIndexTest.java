@@ -15,7 +15,9 @@ package org.eclipse.store.gigamap.indexer;
  */
 
 import org.eclipse.store.gigamap.types.BitmapIndices;
+import org.eclipse.store.gigamap.types.Condition;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.gigamap.types.IndexerZonedDateTime;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
@@ -395,6 +397,53 @@ public class ZonedDateTimeIndexTest
         assertEquals(1, count2);
     }
 
+    /**
+     * Regression test for issue #653 / #654: composing an {@link IndexerZonedDateTime} range
+     * condition via {@link Condition#and(Condition)} (i) with another range condition and
+     * (ii) with a condition from a different indexer type must produce the same result as
+     * composing via {@link org.eclipse.store.gigamap.types.GigaQuery#and(Condition)}.
+     */
+    @Test
+    void rangeCompositionViaConditionAnd()
+    {
+        final ZonedDateTimePersonIndex zdtIdx  = new ZonedDateTimePersonIndex();
+        final NameIndex                nameIdx = new NameIndex();
+
+        final GigaMap<ZonedDateTimePerson> map = GigaMap.<ZonedDateTimePerson>Builder()
+            .withBitmapIndex(zdtIdx)
+            .withBitmapIndex(nameIdx)
+            .build();
+        map.add(new ZonedDateTimePerson("Alice",   toUTC(2021, 1, 1, 12, 0, 0)));
+        map.add(new ZonedDateTimePerson("Bob",     toUTC(2021, 1, 1, 13, 0, 0)));
+        map.add(new ZonedDateTimePerson("Charlie", toUTC(2021, 1, 1, 14, 0, 0)));
+        map.add(new ZonedDateTimePerson("Dave",    toUTC(2021, 1, 1, 15, 0, 0)));
+
+        final ZonedDateTime lower = toUTC(2021, 1, 1, 12, 30, 0); // exclusive
+        final ZonedDateTime upper = toUTC(2021, 1, 1, 14, 30, 0); // exclusive
+
+        // (i) range AND range
+        final Condition<ZonedDateTimePerson> after  = zdtIdx.after(lower);
+        final Condition<ZonedDateTimePerson> before = zdtIdx.before(upper);
+
+        final List<ZonedDateTimePerson> rangeAnd = map.query(after.and(before)).toList();
+        final List<ZonedDateTimePerson> rangeQ   = map.query().and(after).and(before).toList();
+
+        assertEquals(2, rangeAnd.size(), "Condition.and() must respect both bounds");
+        assertEquals(rangeQ.size(), rangeAnd.size(), "Condition.and() and GigaQuery.and() must agree");
+        rangeAnd.forEach(p -> assertNotEquals("Alice", p.name()));
+        rangeAnd.forEach(p -> assertNotEquals("Dave",  p.name()));
+
+        // (ii) range AND condition from a different indexer
+        final Condition<ZonedDateTimePerson> bobMatch = nameIdx.is("Bob");
+
+        final List<ZonedDateTimePerson> mixedAnd = map.query(after.and(bobMatch)).toList();
+        final List<ZonedDateTimePerson> mixedQ   = map.query().and(after).and(bobMatch).toList();
+
+        assertEquals(1, mixedAnd.size(), "range AND non-range condition must intersect correctly");
+        assertEquals("Bob", mixedAnd.get(0).name());
+        assertEquals(mixedQ.size(), mixedAnd.size());
+    }
+
     private GigaMap<ZonedDateTimePerson> prepageGigaMap()
     {
         GigaMap<ZonedDateTimePerson> map = GigaMap.New();
@@ -431,6 +480,15 @@ public class ZonedDateTimeIndexTest
         protected ZonedDateTime getZonedDateTime(ZonedDateTimePerson entity)
         {
             return entity.getTimestamp();
+        }
+    }
+
+    private static class NameIndex extends IndexerString.Abstract<ZonedDateTimePerson>
+    {
+        @Override
+        protected String getString(final ZonedDateTimePerson entity)
+        {
+            return entity.name();
         }
     }
 

@@ -15,8 +15,10 @@ package org.eclipse.store.gigamap.indexer;
  */
 
 import org.eclipse.store.gigamap.types.BitmapIndices;
+import org.eclipse.store.gigamap.types.Condition;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.IndexerLocalDateTime;
+import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
@@ -369,6 +371,53 @@ public class LocalDateTimeIndexTest
         }
     }
 
+    /**
+     * Regression test for issue #653 / #654: composing an {@link IndexerLocalDateTime} range
+     * condition via {@link Condition#and(Condition)} (i) with another range condition and
+     * (ii) with a condition from a different indexer type must produce the same result as
+     * composing via {@link org.eclipse.store.gigamap.types.GigaQuery#and(Condition)}.
+     */
+    @Test
+    void rangeCompositionViaConditionAnd()
+    {
+        final LocalDateTimePersonIndex dateIdx = new LocalDateTimePersonIndex();
+        final NameIndex                nameIdx = new NameIndex();
+
+        final GigaMap<LocalDateTimePerson> map = GigaMap.<LocalDateTimePerson>Builder()
+            .withBitmapIndex(dateIdx)
+            .withBitmapIndex(nameIdx)
+            .build();
+        map.add(new LocalDateTimePerson("Alice",   LocalDateTime.of(2021, 1, 1, 12, 0)));
+        map.add(new LocalDateTimePerson("Bob",     LocalDateTime.of(2021, 1, 1, 13, 0)));
+        map.add(new LocalDateTimePerson("Charlie", LocalDateTime.of(2021, 1, 1, 14, 0)));
+        map.add(new LocalDateTimePerson("Dave",    LocalDateTime.of(2021, 1, 1, 15, 0)));
+
+        final LocalDateTime lower = LocalDateTime.of(2021, 1, 1, 12, 30); // exclusive
+        final LocalDateTime upper = LocalDateTime.of(2021, 1, 1, 14, 30); // exclusive
+
+        // (i) range AND range
+        final Condition<LocalDateTimePerson> after  = dateIdx.after(lower);
+        final Condition<LocalDateTimePerson> before = dateIdx.before(upper);
+
+        final List<LocalDateTimePerson> rangeAnd = map.query(after.and(before)).toList();
+        final List<LocalDateTimePerson> rangeQ   = map.query().and(after).and(before).toList();
+
+        assertEquals(2, rangeAnd.size(), "Condition.and() must respect both bounds");
+        assertEquals(rangeQ.size(), rangeAnd.size(), "Condition.and() and GigaQuery.and() must agree");
+        rangeAnd.forEach(p -> assertNotEquals("Alice", p.name()));
+        rangeAnd.forEach(p -> assertNotEquals("Dave",  p.name()));
+
+        // (ii) range AND condition from a different indexer
+        final Condition<LocalDateTimePerson> bobMatch = nameIdx.is("Bob");
+
+        final List<LocalDateTimePerson> mixedAnd = map.query(after.and(bobMatch)).toList();
+        final List<LocalDateTimePerson> mixedQ   = map.query().and(after).and(bobMatch).toList();
+
+        assertEquals(1, mixedAnd.size(), "range AND non-range condition must intersect correctly");
+        assertEquals("Bob", mixedAnd.get(0).name());
+        assertEquals(mixedQ.size(), mixedAnd.size());
+    }
+
     private GigaMap<LocalDateTimePerson> prepageGigaMap()
     {
         GigaMap<LocalDateTimePerson> map = GigaMap.New();
@@ -400,6 +449,15 @@ public class LocalDateTimeIndexTest
         protected LocalDateTime getLocalDateTime(LocalDateTimePerson entity)
         {
             return entity.getBirthday();
+        }
+    }
+
+    private static class NameIndex extends IndexerString.Abstract<LocalDateTimePerson>
+    {
+        @Override
+        protected String getString(final LocalDateTimePerson entity)
+        {
+            return entity.name();
         }
     }
 
