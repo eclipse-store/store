@@ -1,4 +1,4 @@
-= Best Practices: Dev / Test / Prod
+= Best Practices: Dev / Test / Staging / Prod
 
 {product-name} ships with conservative, frictionless defaults so that getting started is a one-liner.
 A number of features are intentionally *off by default* — turning them on globally would be a breaking change for existing applications, and most of them carry a small operational cost (extra disk space, extra setup, slower startup) that is only worth paying once you leave a developer's machine.
@@ -10,60 +10,80 @@ NOTE: Recommendations are guidelines, not rules.
 The right setting depends on your workload, your tolerance for downtime, and your operational constraints.
 When in doubt, prefer the safer setting in production and the more convenient one in development.
 
+[IMPORTANT]
+====
+Keep the *goal* of each test type in mind when picking settings.
+A unit test exercising business logic gets nothing from a real lock file, continuous backup, or production channel count — those are noise that slow the test down and obscure failures.
+A staging run validating a release, by contrast, exists *precisely* to exercise those operational features end-to-end; turning them off there defeats the point of staging.
+
+The `Test` column covers tests whose target is application logic; the `Staging` column covers tests whose target is the production deployment itself.
+If a single test suite mixes both goals, split it — or pick the column whose target dominates and accept that the other goal is being checked elsewhere.
+====
+
 == Summary
 
-[options="header",cols="2,1,1,2"]
+[options="header",cols="2,1,1,1,2"]
 |===
-| Feature | Dev | Test | Prod
+| Feature | Dev | Test | Staging | Prod
 
 | <<lock-file,Lock file>>
 | off
 | off
+| on, if multiple processes may share the storage
 | on, if multiple processes may share the storage
 
 | <<deletion-directory,Deletion directory>>
 | off
 | off
 | *on*
+| *on*
 
 | <<truncation-directory,Truncation directory>>
 | off
 | off
+| optional
 | optional
 
 | <<continuous-backup,Continuous backup>>
 | off
 | off
 | *on*
+| *on*
 
 | <<full-backup,Full backup>>
 | ad-hoc
 | ad-hoc
+| scheduled (e.g. nightly)
 | scheduled (e.g. nightly)
 
 | <<adaptive-housekeeping,Adaptive housekeeping>>
 | off
 | off
 | on for write-heavy workloads
+| on for write-heavy workloads
 
 | <<channel-count,Channel count>>
 | 1
 | 1
+| tuned to match production
 | tuned up-front to CPU/IO
 
 | <<read-only-mode,Read-only mode>>
 | n/a
 | optional
 | on for read replicas / snapshot inspection
+| on for read replicas / snapshot inspection
 
 | <<jmx-monitoring,JMX monitoring>>
 | auth/SSL off
 | auth/SSL off
 | *auth and SSL on*
+| *auth and SSL on*
 
 | <<rest-interface,REST interface>>
 | optional
 | optional
+| off by default, otherwise behind auth and network isolation
 | off by default, otherwise behind auth and network isolation
 |===
 
@@ -81,6 +101,7 @@ The OS-level file lock is sufficient for the common case of a single application
 |===
 | Dev | Off. Quick restarts from an IDE produce stale-lock waits with no benefit when only one process accesses the storage.
 | Test | Off. Same as dev. Enable only in tests that deliberately exercise multi-process access.
+| Staging | Match prod. If prod runs with the lock file on, staging must too — otherwise staging is not exercising the same startup and restart paths as prod.
 | Prod | On if more than one JVM may share the storage (for example blue/green deployments, an accidental double-start during a rolling restart, or a sidecar process). Off is safe if a single application owns the storage exclusively.
 |===
 
@@ -96,6 +117,7 @@ Recovering an object that was incorrectly garbage-collected (for example because
 |===
 | Dev | Off. Disk usage and operational complexity outweigh the benefit on a developer machine where the storage can be recreated.
 | Test | Off. Recreate fixtures rather than recover them.
+| Staging | *On.* Mirror prod so the cleanup job, disk allocation, and any recovery procedures are exercised before they matter.
 | Prod | *On.* Cheap insurance against operator error and against bugs in storing logic. Pair with a periodic cleanup job (or a generous disk allocation).
 |===
 
@@ -111,6 +133,7 @@ Useful for forensics if you suspect housekeeping is removing live data, but rare
 |===
 | Dev | Off.
 | Test | Off, unless the test under investigation specifically exercises file truncation.
+| Staging | Optional. Same default as prod — leave off unless reproducing a housekeeping-related incident.
 | Prod | Optional. Enable temporarily during incident investigation; leave off by default to control disk usage.
 |===
 
@@ -127,6 +150,7 @@ Overhead is modest because writes go to two targets in parallel rather than bein
 |===
 | Dev | Off. The primary storage is disposable.
 | Test | Off, unless the test specifically exercises backup/restore behaviour.
+| Staging | *On.* The backup pipeline itself is part of what staging validates — running staging without it leaves a hole in the dress rehearsal.
 | Prod | *On.* The single most effective protection against disk failure or accidental deletion of the primary storage. Place the backup on a separate physical disk, host, or xref:storage-targets/index.adoc[storage target].
 |===
 
@@ -142,6 +166,7 @@ It is a *blocking* operation: store operations are paused for the duration, whic
 |===
 | Dev | Ad-hoc. Use to capture interesting fixtures or before destructive experiments.
 | Test | Ad-hoc. Useful for seeding integration-test environments from a known state.
+| Staging | Scheduled, on the same cadence as prod. The blocking pause is itself a load-test signal — if it disrupts staging it will disrupt prod.
 | Prod | Schedule during off-peak hours (for example a nightly cron) as a periodic safety net on top of <<continuous-backup,continuous backup>>. Also recommended before major migrations or schema changes.
 |===
 
@@ -157,6 +182,7 @@ Without it, write-heavy workloads can leave files uncollected and cause disk usa
 |===
 | Dev | Off. The fixed default keeps housekeeping unobtrusive on a developer machine.
 | Test | Off. Predictable, repeatable behaviour is more valuable in tests than throughput.
+| Staging | Match prod. If prod runs adaptive housekeeping, staging must too — otherwise staging's disk usage and pause behaviour diverge from production under load.
 | Prod | On for write-heavy workloads. The fixed default is sufficient for read-heavy or low-write applications; switch to adaptive when you observe disk usage growing faster than the underlying data.
 |===
 
@@ -173,6 +199,7 @@ Pick the right number up front.
 |===
 | Dev | 1. Simplest setup, easiest to inspect on disk.
 | Test | 1, unless the test specifically exercises multi-channel parallelism.
+| Staging | Use the same channel count you intend for prod. Channel count cannot be changed without migration, so staging is where you confirm the choice on representative hardware and workload.
 | Prod | Tune to your workload and hardware. More channels mean higher write parallelism but more files and more memory; a single channel is often fine for read-heavy or moderate-write applications.
 |===
 
@@ -188,6 +215,7 @@ Useful for read replicas, ad-hoc inspection of a backup, or analytics workloads 
 |===
 | Dev | Not applicable.
 | Test | Optional. Useful for tests that load a fixture and assert against it without ever mutating.
+| Staging | On for replica or snapshot-inspection deployments — the same scenarios as prod, exercised against staging data so the read-only manager's lifecycle is validated before it runs against production data.
 | Prod | On for read-replica or snapshot-inspection deployments. Keep the read-only manager short-lived: it does not see writes from the primary manager and will eventually be invalidated by housekeeping there.
 |===
 
@@ -203,6 +231,7 @@ The beans themselves are free to expose; the operational risk is in how the JVM 
 |===
 | Dev | Auth and SSL off (typical local-only JMX setup) is fine.
 | Test | Auth and SSL off is fine in isolated test infrastructure.
+| Staging | *Auth and SSL on*, configured exactly like prod. Staging is reachable from more than just a developer's laptop, and the JMX hardening recipe needs to be exercised end-to-end before it's relied on in prod.
 | Prod | *Authentication and SSL must be on.* Restrict the JMX port to a monitoring network or block it at the firewall. An unauthenticated JMX port is remote code execution.
 |===
 
@@ -218,6 +247,7 @@ It is read-only at the protocol level, but the data it returns is your applicati
 |===
 | Dev | On. Useful for inspecting the live object graph from a browser or the client GUI.
 | Test | Optional. Convenient for diagnosing test failures.
+| Staging | Off by default, or behind the same auth and network isolation as prod. The point of staging is to confirm those controls work — leaving the REST interface wide open in staging defeats it.
 | Prod | Off by default. If you need it for operations, place it behind authentication (Spring Security or equivalent) and restrict it to an internal network. The bundled Client GUI is a development tool and should not be exposed publicly.
 |===
 
