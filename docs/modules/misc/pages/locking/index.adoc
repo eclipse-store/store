@@ -1,5 +1,7 @@
 = Locking
 
+TIP: This page documents the locking helpers and patterns. For the conceptual treatment of concurrent access in {product-name}, see xref:intro:concurrent-access.adoc[Concurrent Access].
+
 {product-name} applications are the source of truth and work on a shared object graph, not defensive copies like other frameworks do.
 
 Therefore, the application must handle concurrency if it is multi-threaded.

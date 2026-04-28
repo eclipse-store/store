@@ -10,7 +10,7 @@ A background daemon thread periodically checks whether the flush condition is me
 
 Each `store()` call always re-serializes explicitly passed root instances, even if they have already been registered in the current storer lifecycle.
 This ensures that mutable objects (e.g. collections whose content changes between calls) always capture their current state.
-Child objects encountered during graph traversal use lazy semantics and are only stored if they are not yet known to the persistence context.
+Child objects encountered during graph traversal use xref:storing-data/lazy-eager-full.adoc[lazy semantics] and are only stored if they are not yet known to the persistence context.
 
 `BatchStorer` implements `AutoCloseable`.
 On close, it flushes any remaining pending data and releases resources.

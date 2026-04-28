@@ -1,5 +1,11 @@
 = Lazy Loading
 
+[NOTE]
+====
+*Lazy loading* (this page) defers reading objects from storage into RAM until they are accessed.
+It is unrelated to xref:storage:storing-data/lazy-eager-full.adoc[*lazy storing*], a separate concept that controls how `store()` traverses the object graph when writing.
+====
+
 In this chapter it is explained how https://en.wikipedia.org/wiki/Lazy_loading[Lazy Loading] is done with {product-name}.
 
 Of course, it's not really about the technical implementation of procrastination, but about efficiency: why bloat the limited RAM with stuff before you even need it?

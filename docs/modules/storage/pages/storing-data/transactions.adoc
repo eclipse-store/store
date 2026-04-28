@@ -54,3 +54,5 @@ This is the application's responsibility.
 Without this guarantee, another thread could read or modify the object graph between your mutation and the `store()`, leading to inconsistent in-memory or persisted state.
 See xref:misc:locking/index.adoc[Locking] for details.
 ====
+
+TIP: See xref:intro:concurrent-access.adoc[Concurrent Access] for the full conceptual treatment.

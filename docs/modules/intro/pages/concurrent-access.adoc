@@ -1,0 +1,283 @@
+= Concurrent Access
+
+Most applications that use {product-name} are multi-threaded — web request handlers, scheduled jobs, background processors, UI events, and so on, all running concurrently against the same data.
+Because {product-name} loads the application's object graph directly into memory and does not interpose defensive copies, the developer is responsible for synchronizing concurrent access.
+This page is the canonical treatment of that responsibility: what it means, why {product-name} cannot do it for you, what already is and is not thread-safe, and which strategies and helpers are available.
+
+[IMPORTANT]
+.TL;DR
+====
+. The object graph lives in your JVM's heap and is shared between application threads.
+. The application is responsible for synchronizing concurrent access — {product-name} cannot do it for you.
+. The single invariant to respect: *modifying the object graph and storing the changes must happen under the same lock*.
+====
+
+== Why this is different from JDBC, JPA, and other ORMs
+
+Most persistence frameworks insulate the application from the data store by copying values across a boundary.
+JDBC returns a `ResultSet` of primitive values; JPA hydrates entities into a session-scoped first-level cache; ORMs hand back fresh proxies for each request.
+The application mutates a *copy*, the framework persists it, and concurrency between threads is mostly mediated by the database's transaction isolation.
+
+{product-name} works differently.
+The graph you load is the same graph you mutate, and the same graph you persist — there is no copy step.
+This is the architectural choice that makes {product-name} fast, because nothing has to be marshalled, mapped, or proxied.
+It is also the reason your application owns the concurrency story: the framework has nothing to lock around because the framework is not in the read/write path.
+
+== The core principle
+
+The single rule to remember:
+
+[IMPORTANT]
+====
+Modifying the object graph and the corresponding `store()` call *must happen under the same lock*.
+====
+
+Concretely, this means a thread that mutates the graph must hold a lock that spans:
+
+. the mutation itself (the assignment, the `add()`, the `remove()`, the field update), and
+. the call to `store(...)` that persists it.
+
+No other thread may execute either step on the same affected objects until both have completed.
+
+This is the same atomicity guarantee that any in-memory shared data structure requires in Java.
+The only difference is that with {product-name} the second step — `store()` — is part of the critical section, not an afterthought handed off to a transaction manager.
+
+== What goes wrong without it
+
+There are three concrete failure modes when the rule is broken.
+Recognising them in incident logs is half the battle.
+
+=== Partial reads
+
+Thread A is halfway through a multi-step mutation.
+Thread B reads the graph and sees an internally inconsistent intermediate state — a `Customer` whose address has been updated but whose audit log has not, an order whose line items no longer sum to its total, a tree node whose parent and child pointers disagree.
+The application appears to work most of the time and produces baffling reports occasionally.
+
+=== Persisted-graph divergence
+
+Thread A mutates the graph but has not yet called `store()`.
+Thread B grabs the lock, makes its own mutation, and calls `store()`.
+Thread A then resumes and calls its own `store()` — but the graph it persists already includes Thread B's changes, even though Thread A's logic was not designed for them.
+The persisted state diverges from what either thread "intended".
+
+=== GigaMap stored in an inconsistent state
+
+If you call `storageManager.store(gigaMap)` while another thread is mutating the GigaMap, the serializer walks a structure that is changing under it and the store fails.
+This is a special case of the previous failure mode that {product-name} can detect, because the GigaMap's internal state becomes inconsistent with what the serializer actually traverses.
+
+Note that this covers only the GigaMap's own structure.
+Stored *elements* (the values held in the GigaMap, and any objects they reference) can still be mutated by another thread during the store walk — the GigaMap's internal lock does not extend to them.
+The GigaMap itself remains fine, but the persisted element graph may be inconsistent.
+Application-level synchronization is still required around mutation and storing of those objects.
+
+Always prefer `gigaMap.store()` — see <<gigamap-concurrency>>.
+
+== What is already thread-safe — and what is not
+
+The most common source of confusion is *which* parts of {product-name} are thread-safe and which are the application's responsibility.
+The boundary is at the object graph.
+
+[options="header",cols="2,1,3"]
+|===
+| Component | Thread-safe? | Notes
+
+| `EmbeddedStorageManager` (persistence I/O)
+| yes
+| The manager handles channel I/O, housekeeping, and file locking internally.
+The application's view of the *object graph* it persists is *not* thread-safe — that is the developer's job.
+
+| Storage channels
+| yes
+| Channels are internal I/O threads that parallelize file reads and writes.
+They are *not* an application-level concurrency primitive — they do not synchronize access from your application threads. See xref:storage:configuration/using-channels.adoc[Using Channels].
+
+| `EmbeddedStorageManager.store(...)`
+| yes (atomic at the persistence level)
+| Each `store()` call is an atomic all-or-nothing operation on disk: either everything is written or nothing is.
+"Atomic" here means *durability* atomicity — not a CPU-level atomic operation, and not isolation in RAM.
+The in-memory graph the store traverses is *not* protected from concurrent mutation; the application must still serialize access to it. See xref:storage:storing-data/transactions.adoc[Transactions].
+
+| `GigaMap` operations (`add`, `remove`, `update`, `get`)
+| yes
+| The GigaMap acquires an internal read-write lock for each operation.
+Iterators must be closed (use try-with-resources) so that read locks are released. See xref:gigamap:crud.adoc#_locking[GigaMap — Locking].
+
+| `gigaMap.store()` vs. `storageManager.store(gigaMap)`
+| only `gigaMap.store()`
+| `gigaMap.store()` acquires the GigaMap's internal lock during storing. `storageManager.store(gigaMap)` does *not* — using it concurrently with mutations can leave the GigaMap in an inconsistent state and cause the store to fail. See xref:gigamap:persistence.adoc[GigaMap — Persistence].
+
+| `Lazy<T>.get()`
+| yes
+| Concurrent calls are safe. The lazy-clearing background thread uses `WeakReference` and cannot reclaim a reference still held by application code.
+
+| `Cache<K, V>` (cache module)
+| yes
+| The {product-name} JCache implementation is thread-safe by JSR-107 contract.
+
+| `Serializer` instances
+| no
+| Serializer instances must be confined to a single thread.
+The `SerializerFoundation` is safe to share. See xref:serializer:performance.adoc[Serializer — Performance and Thread Safety].
+
+| `Storer` instances (`createStorer()`, `createLazyStorer()`, `createEagerStorer()`)
+| no
+| A `Storer` is a per-thread unit of work: register objects with `store(...)`, then call `commit()`.
+Each thread that wants to store concurrently must obtain its own `Storer` from the storage manager — they must not be shared across threads. See xref:storage:storing-data/lazy-eager-full.adoc[Lazy and Eager Storing].
+
+| The application's object graph
+| no
+| Plain Java objects in the heap. Concurrent access must be synchronized by the application — see <<strategies>>.
+|===
+
+[NOTE]
+====
+The lock file (xref:storage:configuration/lock-file.adoc[Lock File]) is unrelated to application-level concurrency.
+It prevents two *processes* from opening the same storage simultaneously, not two threads in the same JVM.
+====
+
+[#strategies]
+== Strategies, from simple to advanced
+
+Several strategies are available, with different trade-offs between simplicity and concurrency.
+Pick one and apply it consistently — mixing strategies in the same application is a common source of subtle bugs.
+
+=== Coarse-grained synchronization
+
+The simplest approach is to wrap every read and every write in the same lock.
+{product-name} provides `XThreads.executeSynchronized(...)` for this; the equivalent JDK construct is `synchronized` on a shared monitor.
+
+[source, java]
+----
+XThreads.executeSynchronized(() -> {
+    root.changeData();
+    storageManager.store(root);
+});
+----
+
+This guarantees correctness at the cost of throughput: only one thread runs at a time, regardless of whether it is reading or writing.
+For applications with low contention, simple data models, or read patterns that do not dominate the workload, this is often the right choice.
+
+=== Read-write locking
+
+Most applications read far more often than they write.
+A `ReentrantReadWriteLock` (or its JDK relatives) lets multiple readers proceed in parallel while still serialising writers.
+
+This is the lowest-friction step up from coarse-grained synchronization, and it is what most {product-name} applications end up using.
+The classic acquire/release pattern is verbose but transparent; see the example in xref:misc:locking/index.adoc[Locking].
+
+=== `LockedExecutor` and `LockScope`
+
+For more concise code, {product-name} provides two helpers:
+
+* `LockedExecutor` — a wrapper that exposes `read(...)` and `write(...)` methods, which run the supplied lambda under the appropriate lock.
+* `LockScope` — a base class with `read(...)` and `write(...)` methods inherited directly into the domain class.
+
+Both encapsulate a `ReentrantReadWriteLock` and remove the manual `try`/`finally` boilerplate.
+See xref:misc:locking/index.adoc[Locking] for the full examples.
+
+=== Striped locking
+
+If your object graph naturally partitions into independent regions (for example, customer-scoped data, tenant-scoped data, shard-scoped data), striped locking lets threads operating on different regions run in parallel even when they all hold write locks.
+
+`StripeLockedExecutor` and `StripeLockScope` are the {product-name}-provided helpers; see xref:misc:locking/index.adoc[Locking].
+Striped locking is more complex than read-write locking and does not help if your hot path crosses stripes — measure before reaching for it.
+
+=== Spring Boot annotations: `@Read`, `@Write`, `@Mutex`
+
+The Spring Boot integration provides a declarative locking layer based on AOP.
+Annotate service methods with `@Read` and `@Write`, optionally with `@Mutex("name")` to partition locks across the application.
+
+[source, java]
+----
+@Component
+public class CustomerService
+{
+    @Write
+    public void register(Customer customer)
+    {
+        // Modify the object graph AND store — both inside the @Write method
+        this.root.getCustomers().add(customer);
+        this.storageManager.store(this.root.getCustomers());
+    }
+
+    @Read
+    public Customer findById(int id)
+    {
+        return this.root.getCustomers().get(id);
+    }
+}
+----
+
+This is the most concise option for Spring applications.
+See xref:misc:integrations/spring-boot.adoc#_mutex_locking[Spring Boot — Mutex Locking] for setup and the full annotation reference.
+
+[#gigamap-concurrency]
+== GigaMap concurrency
+
+GigaMap has its own concurrency story because it is itself a thread-safe data structure.
+
+. Each GigaMap operation (`add`, `remove`, `update`, `get`) acquires the GigaMap's internal read-write lock.
+You do *not* need to wrap individual GigaMap operations in your own lock for them to be atomic.
+. *Always prefer `gigaMap.store()` over `storageManager.store(gigaMap)`.*
+The former acquires the GigaMap's internal lock for the duration of the store; the latter does not, and concurrent mutations during the store can leave the GigaMap in an inconsistent state and cause the store to fail.
+. Iterators must be closed so that the underlying read lock is released.
+Use try-with-resources for any iterator returned from a GigaMap.
+. The GigaMap's internal lock covers GigaMap operations only.
+If your business operation modifies a GigaMap *and* other parts of the object graph atomically, you still need an application-level lock that spans both — the GigaMap's internal lock does not extend to non-GigaMap state.
+
+This is the classic problem that synchronized JDK collections like `Vector` cannot solve: per-method synchronization is not enough when a logical operation needs to span multiple calls.
+
+See xref:gigamap:crud.adoc#_locking[GigaMap — Locking] and xref:gigamap:persistence.adoc[GigaMap — Persistence] for the canonical reference.
+
+== Common pitfalls
+
+Even with a strategy chosen, the same handful of mistakes recur.
+
+* *Mutation in one method, `store()` in another.*
+The lock has to span both.
+A `void update()` method that mutates and returns, followed by a separate `void persist()` that calls `store()`, is broken even if both methods are individually synchronized — another thread can mutate between them.
+
+* *Holding a lock across slow operations.*
+Network calls, UI callbacks, blocking I/O, and human input must not happen inside the critical section.
+The lock should bracket the mutation and the `store()`, nothing more.
+
+* *Returning a mutable collection from inside the lock.*
+If a `@Read` method returns the live `List` of customers, the caller can mutate it after the read lock has been released.
+Return an unmodifiable view, a defensive copy, or a snapshot.
+
+* *Forgetting to close GigaMap iterators.*
+A leaked iterator holds the read lock open and starves writers.
+Always use try-with-resources.
+
+* *Using `storageManager.store(gigaMap)`.*
+This bypasses the GigaMap's internal lock; use `gigaMap.store()`. See <<gigamap-concurrency>>.
+
+* *Wrapping every method in `synchronized`.*
+Correct, but degenerates to single-threaded throughput.
+If the profiler shows lock contention everywhere, switch to read-write locking before reaching for striped locks.
+
+* *Mixing locking strategies.*
+A `synchronized` block on the root and a separate `LockedExecutor` covering the same data do not serialise against each other.
+Pick one strategy per protected region and stick with it.
+
+== Testing for concurrency correctness
+
+Concurrency bugs are notoriously hard to reproduce in single-threaded unit tests.
+A practical pattern that catches most regressions:
+
+. Spin up a fixed number of writer and reader threads against a real `EmbeddedStorageManager`.
+. Run them for tens of seconds, performing thousands of mutations and reads each.
+. After the run, assert *invariants* on the in-memory graph — totals match line items, parent/child references are consistent, no duplicate keys, etc.
+. Restart the storage and re-assert the invariants on the persisted state to confirm the lock also covers the `store()` call.
+
+Stress tests should run as part of CI, not just on a developer's machine.
+For deterministic exploration of interleavings, frameworks like https://openjdk.org/projects/code-tools/jcstress/[JCStress] are available, but the simple stress-test pattern above catches the overwhelming majority of real-world bugs.
+
+== See also
+
+* xref:misc:locking/index.adoc[Locking] — helpers reference (`LockedExecutor`, `LockScope`, `StripeLockedExecutor`, `ReentrantReadWriteLock` patterns).
+* xref:misc:integrations/spring-boot.adoc#_mutex_locking[Spring Boot — Mutex Locking] — declarative `@Read`/`@Write`/`@Mutex` annotations.
+* xref:storage:storing-data/transactions.adoc[Storing Data — Transactions] — `store()` atomicity at the persistence level.
+* xref:gigamap:crud.adoc#_locking[GigaMap — Locking] and xref:gigamap:persistence.adoc[GigaMap — Persistence] — GigaMap's internal locking and the `gigaMap.store()` rule.
+* xref:serializer:performance.adoc[Serializer — Performance and Thread Safety] — per-thread serializer pattern.
+* xref:storage:configuration/lock-file.adoc[Lock File] — *process*-level locking (unrelated to application-level concurrency).

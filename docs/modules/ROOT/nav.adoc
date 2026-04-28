@@ -1,5 +1,6 @@
 * xref:intro:welcome.adoc[Welcome]
 * xref:intro:architecture.adoc[Architecture Overview]
+* xref:intro:concurrent-access.adoc[Concurrent Access]
 * xref:intro:system-requirements.adoc[System Requirements]
 * xref:intro:changelog.adoc[Changelog]
 * xref:intro:installation.adoc[Installation]
@@ -16,6 +17,7 @@
 **** xref:storage:configuration/backup/continuous-backup.adoc[Continuous Backup]
 **** xref:storage:configuration/backup/full-backup.adoc[Full Backup]
 *** xref:storage:configuration/lock-file.adoc[Lock File]
+*** xref:storage:configuration/best-practices.adoc[Best Practices: Dev / Test / Prod]
 ** xref:storage:storage-targets/index.adoc[Storage Targets]
 *** xref:storage:storage-targets/file-system.adoc[File System]
 *** SQL Databases
