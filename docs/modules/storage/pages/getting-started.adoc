@@ -13,6 +13,14 @@
 </dependencies>
 ----
 
+== No Object Model Adaptation Required
+
+{product-name} stores almost any Java object as-is.
+Your classes do not need to implement `java.io.Serializable`, carry annotations, or provide a default constructor — plain Java objects (POJOs) work directly.
+Only types bound to JVM internals (such as `Thread` or IO streams) are excluded, since they cannot be meaningfully recreated on load.
+
+For details, see xref:faq/data-model.adoc[Data Model FAQ].
+
 == Hello World
 
 [source, java]
