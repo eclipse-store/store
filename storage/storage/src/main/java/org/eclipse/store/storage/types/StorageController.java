@@ -50,11 +50,16 @@ public interface StorageController extends StorageActivePart, AutoCloseable
 	 * a process crash, kill, or {@code System.exit(0)} therefore cannot corrupt the persisted data, and
 	 * the next {@link #start()} will resume from the last fully persisted state.
 	 * <p>
-	 * An explicit shutdown is meaningful only when:
+	 * That said, a clean shutdown is still recommended. Using {@link AutoCloseable} /
+	 * try-with-resources is the preferred idiom for shutting the storage down at the end of its
+	 * lifecycle. An explicit shutdown:
 	 * <ul>
-	 *   <li>The application keeps running but wants to stop the storage threads (e.g. to change
+	 *   <li>Releases the storage lock file promptly. After a crash the lock entry remains on disk
+	 *       and the next {@link #start()} is blocked until the lock expires; a clean shutdown
+	 *       avoids that delay.</li>
+	 *   <li>Releases held file handles and other OS resources owned by the storage threads.</li>
+	 *   <li>Allows stopping the storage while the application keeps running (e.g. to change
 	 *       configuration, copy or back up the storage files, then call {@link #start()} again).</li>
-	 *   <li>The application uses {@link AutoCloseable} / try-with-resources purely for hygiene reasons.</li>
 	 * </ul>
 	 *
 	 * @return <code>true</code> after a successful shutdown or <code>false</code>
