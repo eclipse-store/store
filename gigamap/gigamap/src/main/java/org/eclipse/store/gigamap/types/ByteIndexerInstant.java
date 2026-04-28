@@ -160,7 +160,7 @@ public interface ByteIndexerInstant<E> extends HashingCompositeIndexer<E>, Index
 					.and(this.is(new ByteFieldPredicate(pos, b -> b > boundUnsigned[pos])))
 				);
 			}
-			return (Condition<S>)result;
+			return (Condition<S>)result.complete();
 		}
 
 		@SuppressWarnings({"unchecked", "rawtypes"})
@@ -190,7 +190,7 @@ public interface ByteIndexerInstant<E> extends HashingCompositeIndexer<E>, Index
 					.and(this.is(new ByteFieldPredicate(pos, b -> b < boundUnsigned[pos])))
 				);
 			}
-			return (Condition<S>)result;
+			return (Condition<S>)result.complete();
 		}
 
 		@SuppressWarnings("unchecked")
@@ -202,7 +202,7 @@ public interface ByteIndexerInstant<E> extends HashingCompositeIndexer<E>, Index
 				throw new IllegalArgumentException("boundInclusive cannot be null");
 			}
 
-			return (Condition<S>)this.is(boundInclusive).or(this.after(boundInclusive));
+			return (Condition<S>)this.is(boundInclusive).or(this.after(boundInclusive)).complete();
 		}
 
 		@SuppressWarnings("unchecked")
@@ -214,7 +214,7 @@ public interface ByteIndexerInstant<E> extends HashingCompositeIndexer<E>, Index
 				throw new IllegalArgumentException("boundInclusive cannot be null");
 			}
 
-			return (Condition<S>)this.is(boundInclusive).or(this.before(boundInclusive));
+			return (Condition<S>)this.is(boundInclusive).or(this.before(boundInclusive)).complete();
 		}
 
 		@SuppressWarnings("unchecked")

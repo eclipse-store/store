@@ -15,8 +15,10 @@ package org.eclipse.store.gigamap.indexer;
  */
 
 import org.eclipse.store.gigamap.types.BitmapIndices;
+import org.eclipse.store.gigamap.types.Condition;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.IndexerInstant;
+import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
@@ -371,6 +373,53 @@ public class InstantIndexTest
         }
     }
 
+    /**
+     * Regression test for issue #653 / #654: composing an {@link IndexerInstant} range condition
+     * via {@link Condition#and(Condition)} (i) with another range condition and (ii) with a
+     * condition from a different indexer type must produce the same result as composing via
+     * {@link org.eclipse.store.gigamap.types.GigaQuery#and(Condition)}.
+     */
+    @Test
+    void rangeCompositionViaConditionAnd()
+    {
+        final InstantPersonIndex instantIdx = new InstantPersonIndex();
+        final NameIndex          nameIdx    = new NameIndex();
+
+        final GigaMap<InstantPerson> map = GigaMap.<InstantPerson>Builder()
+            .withBitmapIndex(instantIdx)
+            .withBitmapIndex(nameIdx)
+            .build();
+        map.add(new InstantPerson("Alice",   toInstant(2021, 1, 1, 12, 0, 0)));
+        map.add(new InstantPerson("Bob",     toInstant(2021, 1, 1, 13, 0, 0)));
+        map.add(new InstantPerson("Charlie", toInstant(2021, 1, 1, 14, 0, 0)));
+        map.add(new InstantPerson("Dave",    toInstant(2021, 1, 1, 15, 0, 0)));
+
+        final Instant lower = toInstant(2021, 1, 1, 12, 30, 0); // exclusive
+        final Instant upper = toInstant(2021, 1, 1, 14, 30, 0); // exclusive
+
+        // (i) range AND range — was broken before #653 fix (returned all "after" matches).
+        final Condition<InstantPerson> after  = instantIdx.after(lower);
+        final Condition<InstantPerson> before = instantIdx.before(upper);
+
+        final List<InstantPerson> rangeAnd = map.query(after.and(before)).toList();
+        final List<InstantPerson> rangeQ   = map.query().and(after).and(before).toList();
+
+        assertEquals(2, rangeAnd.size(), "Condition.and() must respect both bounds");
+        assertEquals(rangeQ.size(), rangeAnd.size(), "Condition.and() and GigaQuery.and() must agree");
+        rangeAnd.forEach(p -> assertNotEquals("Alice", p.name()));
+        rangeAnd.forEach(p -> assertNotEquals("Dave",  p.name()));
+
+        // (ii) range AND condition from a different indexer (issue #654's concern).
+        final Condition<InstantPerson> bobMatch = nameIdx.is("Bob");
+
+        final List<InstantPerson> mixedAnd = map.query(after.and(bobMatch)).toList();
+        final List<InstantPerson> mixedQ   = map.query().and(after).and(bobMatch).toList();
+
+        assertEquals(1, mixedAnd.size(), "range AND non-range condition must intersect correctly");
+        assertEquals("Bob", mixedAnd.get(0).name());
+        assertEquals(mixedQ.size(), mixedAnd.size());
+    }
+
     private GigaMap<InstantPerson> prepageGigaMap()
     {
         GigaMap<InstantPerson> map = GigaMap.New();
@@ -407,6 +456,15 @@ public class InstantIndexTest
         protected Instant getInstant(InstantPerson entity)
         {
             return entity.getTimestamp();
+        }
+    }
+
+    private static class NameIndex extends IndexerString.Abstract<InstantPerson>
+    {
+        @Override
+        protected String getString(final InstantPerson entity)
+        {
+            return entity.name();
         }
     }
 

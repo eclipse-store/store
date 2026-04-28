@@ -180,9 +180,9 @@ public interface IndexerYearMonth<E> extends IndexerTemporal<E, Object[], YearMo
 				).and(
 					this.is(new FieldPredicate(MONTH_INDEX, month -> month < boundExclusive.getMonthValue()))
 				)
-			);
+			).complete();
 		}
-		
+
 		@SuppressWarnings("unchecked")
 		@Override
 		public final <S extends E> Condition<S> beforeEqual(final YearMonth boundInclusive)
@@ -191,10 +191,10 @@ public interface IndexerYearMonth<E> extends IndexerTemporal<E, Object[], YearMo
 			{
 				throw new IllegalArgumentException("boundInclusive cannot be null");
 			}
-			
-			return (Condition<S>)this.is(boundInclusive).or(this.before(boundInclusive));
+
+			return (Condition<S>)this.is(boundInclusive).or(this.before(boundInclusive)).complete();
 		}
-		
+
 		@SuppressWarnings("unchecked")
 		@Override
 		public final <S extends E> Condition<S> after(final YearMonth boundExclusive)
@@ -203,7 +203,7 @@ public interface IndexerYearMonth<E> extends IndexerTemporal<E, Object[], YearMo
 			{
 				throw new IllegalArgumentException("boundExclusive cannot be null");
 			}
-			
+
 			return (Condition<S>)this.is(
 				new FieldPredicate(YEAR_INDEX, year -> year > boundExclusive.getYear())
 			).or(
@@ -212,9 +212,9 @@ public interface IndexerYearMonth<E> extends IndexerTemporal<E, Object[], YearMo
 				).and(
 					this.is(new FieldPredicate(MONTH_INDEX, month -> month > boundExclusive.getMonthValue()))
 				)
-			);
+			).complete();
 		}
-		
+
 		@SuppressWarnings("unchecked")
 		@Override
 		public final <S extends E> Condition<S> afterEqual(final YearMonth boundInclusive)
@@ -223,8 +223,8 @@ public interface IndexerYearMonth<E> extends IndexerTemporal<E, Object[], YearMo
 			{
 				throw new IllegalArgumentException("boundInclusive cannot be null");
 			}
-			
-			return (Condition<S>)this.is(boundInclusive).or(this.after(boundInclusive));
+
+			return (Condition<S>)this.is(boundInclusive).or(this.after(boundInclusive)).complete();
 		}
 		
 		@SuppressWarnings("unchecked")
