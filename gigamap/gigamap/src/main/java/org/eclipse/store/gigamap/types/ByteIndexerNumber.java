@@ -153,7 +153,7 @@ public interface ByteIndexerNumber<E, K extends Number> extends HashingComposite
 			{
 				result = result.or(this.is(keys[i]));
 			}
-			return result;
+			return keys.length > 1 ? result.complete() : result;
 		}
 
 		@SafeVarargs
@@ -191,7 +191,7 @@ public interface ByteIndexerNumber<E, K extends Number> extends HashingComposite
 					.and(this.is(new ByteFieldPredicate(pos, b -> b > boundUnsigned[pos])))
 				);
 			}
-			return (Condition<S>)result;
+			return (Condition<S>)result.complete();
 		}
 
 		@SuppressWarnings({"unchecked", "rawtypes"})
@@ -222,7 +222,7 @@ public interface ByteIndexerNumber<E, K extends Number> extends HashingComposite
 					.and(this.is(new ByteFieldPredicate(pos, b -> b < boundUnsigned[pos])))
 				);
 			}
-			return (Condition<S>)result;
+			return (Condition<S>)result.complete();
 		}
 
 		@SuppressWarnings("unchecked")
@@ -234,7 +234,7 @@ public interface ByteIndexerNumber<E, K extends Number> extends HashingComposite
 				throw new IllegalArgumentException("boundInclusive cannot be null");
 			}
 
-			return (Condition<S>)this.is(boundInclusive).or(this.greaterThan(boundInclusive));
+			return (Condition<S>)this.is(boundInclusive).or(this.greaterThan(boundInclusive)).complete();
 		}
 
 		@SuppressWarnings("unchecked")
@@ -246,7 +246,7 @@ public interface ByteIndexerNumber<E, K extends Number> extends HashingComposite
 				throw new IllegalArgumentException("boundInclusive cannot be null");
 			}
 
-			return (Condition<S>)this.is(boundInclusive).or(this.lessThan(boundInclusive));
+			return (Condition<S>)this.is(boundInclusive).or(this.lessThan(boundInclusive)).complete();
 		}
 
 		@SuppressWarnings("unchecked")
