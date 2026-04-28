@@ -133,4 +133,7 @@ It supports:
 * Type evolution (legacy type mapping) when classes change
 * Custom type handlers for types requiring special treatment
 
+Type handlers are generated automatically for almost any Java type.
+Classes do not need to implement `java.io.Serializable`, carry annotations, or provide a default constructor; only types tied to JVM internals (e.g. `Thread`, IO streams) are excluded.
+
 See xref:storage:legacy-type-mapping/index.adoc[Legacy Type Mapping] and xref:serializer:type-handling.adoc[Type Handling] for details.
