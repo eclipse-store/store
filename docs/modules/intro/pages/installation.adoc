@@ -225,9 +225,6 @@ These are the different modules that make up {product-name}.
 |storage-restservice-javalin
 |REST service implementation which utilizes Javalin and provides REST endpoints.
 
-|storage-restservice-sparkjava (deprecated)
-|REST service implementation which utilizes SparkJava and provides REST endpoints. (Deprecated, use storage-restservice-javalin instead.)
-
 |storage-restservice-springboot
 |REST service implementation for Spring Boot which provides REST endpoints.
 |===

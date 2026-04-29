@@ -22,9 +22,6 @@ implementation (see xref:storage:rest-interface/setup.adoc[Setup]):
 |`+http://<host>:<port>/store-data/<storage-name>+`
 |===
 
-NOTE: A Spark Java implementation also exists, but is deprecated and will be removed
-in a future release. New applications should use the Javalin or Spring Boot service.
-
 In the route tables below, `[instance-name]` is the placeholder for the storage
 instance segment of the URL.
 

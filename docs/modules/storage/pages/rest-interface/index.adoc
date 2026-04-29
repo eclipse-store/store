@@ -29,11 +29,11 @@ It is made up of the following modules:
 |storage-restclient
 |Abstract REST client interface, which serves as a Java wrapper for the REST API.
 
-|storage-restservice-sparkjava
-|REST service implementation which utilizes SparkJava and provides REST endpoints.
+|storage-restservice-javalin
+|REST service implementation which utilizes Javalin and provides REST endpoints. Recommended for standalone applications.
 
 |storage-restservice-springboot
-|REST service implementation which utilizes SpringBoot and Spring MVC and provides REST endpoints.
+|REST service implementation which utilizes SpringBoot and Spring MVC and provides REST endpoints. Recommended for Spring Boot applications.
 
 |storage-restclient-jersey
 |REST client implementation which utilizes Jersey as a webservice framework.
