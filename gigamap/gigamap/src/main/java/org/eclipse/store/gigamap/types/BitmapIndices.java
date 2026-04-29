@@ -48,15 +48,21 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	/**
 	 * Adds an {@link Indexer} to this group.
 	 * <p>
-	 * Shortcut for
-	 * <code>
-	 * add(indexer.name(), indexer)
-	 * </code>
+	 * The indexer's {@link Indexer#name() name()} is used as its unique registry key
+	 * within this {@code BitmapIndices}. Registering a second indexer under a name
+	 * that is already taken fails fast with a {@link RuntimeException} rather than
+	 * silently overwriting the existing one. This is mostly invisible when names come
+	 * from the default derivation (declaration-based names are naturally distinct),
+	 * but it can bite when {@link Indexer#name() name()} is overridden manually or
+	 * when anonymous {@link Indexer} instances produce colliding default names; give
+	 * each indexer an explicit, unique name in those cases.
 	 *
 	 * @param <K> the key type
 	 * @param indexer the indexing logic
 	 * @return the resuling index
-	 * @throws IllegalStateException if an indexer with the same name is already registered
+	 * @throws IllegalArgumentException if {@code indexer} or its name is {@code null}
+	 * @throws RuntimeException if an indexer with the same name is already registered
+	 * @see Indexer#name()
 	 */
 	public <K> BitmapIndex<E, K> add(final Indexer<? super E, K> indexer);
 	
