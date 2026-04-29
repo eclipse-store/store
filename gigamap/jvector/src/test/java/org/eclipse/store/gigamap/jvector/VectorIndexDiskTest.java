@@ -27,8 +27,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -1359,6 +1361,106 @@ class VectorIndexDiskTest
             "Graph file should exist after close with persistOnShutdown=true even without background features");
         assertTrue(Files.exists(indexDir.resolve("embeddings.meta")),
             "Meta file should exist after close with persistOnShutdown=true even without background features");
+    }
+
+    /**
+     * Test that the on-disk integrity check rejects a stale graph when the
+     * entity count has not changed but the entity-id high-water mark has —
+     * i.e. an equal number of additions and removals occurred between
+     * persists. Without the highestEntityId check the loader would accept
+     * the stale graph (count-collision) and serve phantom hits / silent
+     * misses; with the check it rebuilds from the current GigaMap state.
+     */
+    @Test
+    void testRecoveryRejectsCountCollision(@TempDir final Path tempDir) throws Exception
+    {
+        final int dimension = 32;
+        final int initialCount = 50;
+        final Random random = new Random(42);
+        final Path indexDir = tempDir.resolve("index");
+        final Path storageDir = tempDir.resolve("storage");
+
+        // Phase 1: build, persist, store. persistOnShutdown=false so we control
+        // exactly when the on-disk graph is updated.
+        {
+            try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+            {
+                final GigaMap<Document> gigaMap = GigaMap.New();
+                storage.setRoot(gigaMap);
+
+                final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+                final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+                    .dimension(dimension)
+                    .similarityFunction(VectorSimilarityFunction.COSINE)
+                    .onDisk(true)
+                    .indexDirectory(indexDir)
+                    .persistOnShutdown(false)
+                    .build();
+
+                final VectorIndex<Document> index = vectorIndices.add(
+                    "embeddings",
+                    config,
+                    new ComputedDocumentVectorizer()
+                );
+
+                addRandomDocuments(gigaMap, random, dimension, initialCount, "doc_");
+                index.persistToDisk();
+                storage.storeRoot();
+                index.close();
+            }
+        }
+
+        // Phase 2: simulate a crash window — remove the highest id and add a
+        // new one (so size stays the same but highestUsedId advances). Persist
+        // GigaMap state but NOT the on-disk graph.
+        {
+            try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+            {
+                final GigaMap<Document> gigaMap = storage.root();
+                final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
+                final VectorIndex<Document> index = vectorIndices.get("embeddings");
+
+                final long victim = gigaMap.highestUsedId();
+                gigaMap.removeById(victim);
+                addRandomDocuments(gigaMap, new Random(7), dimension, 1, "replacement_");
+
+                assertEquals(initialCount, gigaMap.size(),
+                    "Phase 2 should preserve the entity count (count-collision setup)");
+
+                storage.storeRoot();
+                // Deliberately skip index.persistToDisk() — leaves the on-disk
+                // graph stale but with a count that still matches.
+                index.close();
+            }
+        }
+
+        // Phase 3: reopen. The integrity check must reject the stale graph and
+        // rebuild from the current GigaMap state, so the removed entity must
+        // not appear and the replacement entity must.
+        {
+            try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+            {
+                final GigaMap<Document> gigaMap = storage.root();
+                final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
+                final VectorIndex<Document> index = vectorIndices.get("embeddings");
+
+                final long replacementId = gigaMap.highestUsedId();
+                final Document replacement = gigaMap.get(replacementId);
+                assertNotNull(replacement, "Replacement entity should be present in the GigaMap state");
+
+                final VectorSearchResult<Document> result = index.search(replacement.embedding(), initialCount);
+                final Set<Long> hitIds = new HashSet<>();
+                for(final ScoredSearchResult.Entry<Document> entry : result)
+                {
+                    hitIds.add(entry.entityId());
+                }
+
+                assertTrue(hitIds.contains(replacementId),
+                    "Replacement entity must be searchable after recovery");
+                assertEquals(initialCount, hitIds.size(),
+                    "Recovered index must expose exactly the live entity set, with no phantoms");
+            }
+        }
     }
 
     /**

@@ -2453,6 +2453,19 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
         }
 
+        @Override
+        public long getHighestEntityId()
+        {
+            if(this.isEmbedded())
+            {
+                return this.parentMap().highestUsedId();
+            }
+            else
+            {
+                return this.vectorStore != null ? this.vectorStore.highestUsedId() : -1L;
+            }
+        }
+
         // ================================================================
         // BackgroundTaskManager.Callback implementation
         // ================================================================

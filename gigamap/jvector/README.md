@@ -167,6 +167,8 @@ List<Document> topDocs = result.stream()
 | `pqSubspaces` | `0` | Number of PQ subspaces (0 = auto: dimension/4) |
 | `parallelOnDiskWrite` | `false` | Use parallel direct buffers and multiple worker threads for on-disk index writing. Speeds up persistence for large indices but uses more resources. Only applies when `onDisk=true` |
 
+> **On-disk format version:** the graph file format is at version 2. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors — no data loss, expect a one-time cold-start cost on the first restart after upgrade.
+
 ### Eventual Indexing
 
 | Parameter | Default | Description |
