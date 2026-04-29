@@ -2456,14 +2456,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public long getHighestEntityId()
         {
-            if(this.isEmbedded())
-            {
-                return this.parentMap().highestUsedId();
-            }
-            else
-            {
-                return this.vectorStore != null ? this.vectorStore.highestUsedId() : -1L;
-            }
+            // Always use the parent GigaMap's id space — that is the ordinal
+            // space the HNSW graph is keyed on (via toOrdinal(entityId)) in
+            // both embedded and computed-vector modes. The computed-mode
+            // vectorStore has its own monotonic id allocator that can drift
+            // from the parent map's (e.g. when an index is registered against
+            // a parent with deletion holes), so it is unsafe as a stand-in.
+            return this.parentMap().highestUsedId();
         }
 
         // ================================================================
