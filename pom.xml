@@ -59,6 +59,7 @@
         <module>integrations</module>
         <module>gigamap</module>
         <module>demos</module>
+        <module>ittest</module>
     </modules>
 
     <scm>
