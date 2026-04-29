@@ -179,7 +179,7 @@ List<Document> topDocs = result.stream()
 |-----------|---------|-------------|
 | `persistenceIntervalMs` | `0` | Check interval in milliseconds. A value > 0 enables background persistence, 0 disables it |
 | `minChangesBetweenPersists` | `100` | Minimum changes before persisting |
-| `persistOnShutdown` | `true` | Persist pending changes on close() |
+| `persistOnShutdown` | `true` | Persist pending changes on close() when `onDisk=true`. Applies whether or not background persistence is enabled |
 
 ### Background Optimization
 

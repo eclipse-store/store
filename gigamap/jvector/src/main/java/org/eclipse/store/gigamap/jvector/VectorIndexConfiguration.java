@@ -383,11 +383,14 @@ public interface VectorIndexConfiguration
     /**
      * Returns whether to persist pending changes on shutdown.
      * <p>
-     * When enabled and {@link #backgroundPersistence()} is true, the index will
-     * persist any pending changes when {@code close()} is called, ensuring all
-     * changes are durable before shutdown completes.
+     * When enabled and {@link #onDisk()} is true, the index will persist any
+     * pending changes when {@code close()} is called, ensuring all changes are
+     * durable before shutdown completes. This applies regardless of whether
+     * {@link #backgroundPersistence()} is enabled — on-disk indices configured
+     * without background persistence are also flushed on close.
      *
      * @return true if persist-on-shutdown is enabled (default: true)
+     * @see #onDisk()
      * @see #backgroundPersistence()
      */
     public boolean persistOnShutdown();

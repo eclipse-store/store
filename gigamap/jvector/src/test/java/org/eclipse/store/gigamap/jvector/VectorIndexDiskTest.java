@@ -1316,6 +1316,52 @@ class VectorIndexDiskTest
     }
 
     /**
+     * Test that shutdown persists pending changes when persistOnShutdown is true
+     * and no background features (eventual indexing, background optimization,
+     * background persistence) are enabled — i.e. persistenceIntervalMs=0.
+     */
+    @Test
+    void testShutdownPersistsWithoutBackgroundFeatures(@TempDir final Path tempDir) throws Exception
+    {
+        final int dimension = 32;
+        final int vectorCount = 100;
+        final Random random = new Random(42);
+        final Path indexDir = tempDir.resolve("index");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            // No background persistence (interval=0), no eventual indexing,
+            // no background optimization. persistOnShutdown alone must flush.
+            .persistenceIntervalMs(0)
+            .persistOnShutdown(true)
+            .build();
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings",
+            config,
+            new ComputedDocumentVectorizer()
+        );
+
+        addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
+
+        assertFalse(Files.exists(indexDir.resolve("embeddings.graph")),
+            "Graph file should not exist before close");
+
+        index.close();
+
+        assertTrue(Files.exists(indexDir.resolve("embeddings.graph")),
+            "Graph file should exist after close with persistOnShutdown=true even without background features");
+        assertTrue(Files.exists(indexDir.resolve("embeddings.meta")),
+            "Meta file should exist after close with persistOnShutdown=true even without background features");
+    }
+
+    /**
      * Test that shutdown does NOT persist when persistOnShutdown is false.
      */
     @Test

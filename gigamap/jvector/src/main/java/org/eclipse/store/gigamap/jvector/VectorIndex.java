@@ -2318,6 +2318,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.backgroundTaskManager.shutdown(drainPending, optimizePending, persistPending);
                 this.backgroundTaskManager = null;
             }
+            else if(persistPending && this.configuration.onDisk())
+            {
+                // Honor persistOnShutdown for on-disk indices configured without
+                // any background features (no eventual indexing, no background
+                // optimization, no background persistence).
+                try
+                {
+                    this.doPersistToDisk();
+                }
+                catch(final Exception e)
+                {
+                    LOG.error("Shutdown persistence failed for '{}': {}", this.name, e.getMessage(), e);
+                }
+            }
         }
 
         /**
