@@ -113,7 +113,8 @@ public interface StorageChannelsCreator
 				eventLogger,
 				refStorerRegistry
 			);
-			
+			markMonitor.registerLiveObjectIdsIterator(liveObjectIdsHandler);
+
 			final BufferSizeProviderIncremental loadingBufferSizeProvider = BufferSizeProviderIncremental.New(loadingBufferSize);
 			final BufferSizeProvider readingDefaultBufferSizeProvider     = BufferSizeProvider.New(readingDefaultBufferSize);
 			

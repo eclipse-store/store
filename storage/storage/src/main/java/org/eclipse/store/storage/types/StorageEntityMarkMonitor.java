@@ -67,6 +67,16 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 	public void enqueue(StorageObjectIdMarkQueue objectIdMarkQueue, long objectId);
 
 	/**
+	 * Registers the application-side live object id iterator.
+	 * This is used to seed live OIDs into the mark queue before sweep,
+	 * ensuring transitive binary references of registry-held entities
+	 * are marked and not swept prematurely.
+	 *
+	 * @param liveObjectIdsIterator the iterator providing live object ids
+	 */
+	public void registerLiveObjectIdsIterator(LiveObjectIdsIterator liveObjectIdsIterator);
+
+	/**
 	 * Reset to a clean initial state, ready to be used.
 	 */
 	public void reset();
@@ -241,6 +251,21 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 		 */
 		private boolean gcColdPhaseComplete;
 
+		/*
+		 * Application-side iterator used to seed live object ids into the mark queue
+		 * before sweep. Registered after construction via registerLiveObjectIdsIterator().
+		 */
+		private LiveObjectIdsIterator liveObjectIdsIterator;
+
+		/*
+		 * Flag indicating whether live application OIDs have already been seeded
+		 * into the mark queue for the current GC cycle. Reset on resetCompletion().
+		 * This ensures that before the first sweep of each cycle, all registry-held
+		 * entities become mark roots so their transitive binary references are
+		 * walked and protected.
+		 */
+		private boolean liveOidsSeededForCurrentCycle;
+
 
 
 		///////////////////////////////////////////////////////////////////////////
@@ -361,7 +386,13 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			// this is the only actually exclusive resetting method
 			this.synchResetReferenceMarkers();
 		}
-		
+
+		@Override
+		public final synchronized void registerLiveObjectIdsIterator(final LiveObjectIdsIterator liveObjectIdsIterator)
+		{
+			this.liveObjectIdsIterator = liveObjectIdsIterator;
+		}
+
 		private void synchResetReferenceMarkers()
 		{
 			for(int i = 0; i < this.referenceMarkers.length; i++)
@@ -478,6 +509,32 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			if(!this.isMarkingComplete())
 			{
 				return false;
+			}
+
+			/*
+			 * Before initiating the sweep, ensure that all live application OIDs have been
+			 * seeded into the mark queue for this cycle. This is critical: entities that are
+			 * only alive via the PersistenceObjectRegistry safety net (not reachable from the
+			 * persisted root) must have their transitive binary references marked before
+			 * sweep, otherwise referenced entities not in the registry will be swept,
+			 * producing zombie OIDs on the next mark phase.
+			 *
+			 * If we haven't seeded yet, enqueue all live OIDs now and return false
+			 * (not ready to sweep), allowing the mark phase to process them first.
+			 */
+			if(!this.liveOidsSeededForCurrentCycle && this.liveObjectIdsIterator != null)
+			{
+				this.liveOidsSeededForCurrentCycle = true;
+				this.enqueueLiveApplicationOids(this.liveObjectIdsIterator);
+
+				// If any OIDs were actually enqueued, marking is no longer complete.
+				// Return false so the caller continues marking before retrying sweep.
+				if(!this.isMarkingComplete())
+				{
+					return false;
+				}
+				// If no OIDs were enqueued (empty registry / all already marked),
+				// fall through to proceed with sweep normally.
 			}
 
 			this.lastSweepStart = System.currentTimeMillis();
@@ -720,7 +777,8 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 		@Override
 		public final synchronized void resetCompletion()
 		{
-			this.gcHotPhaseComplete = this.gcColdPhaseComplete = false;
+			this.gcHotPhaseComplete  = this.gcColdPhaseComplete = false;
+			this.liveOidsSeededForCurrentCycle = false;
 		}
 		
 		@Override
