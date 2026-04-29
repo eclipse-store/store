@@ -66,15 +66,6 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 
 	public void enqueue(StorageObjectIdMarkQueue objectIdMarkQueue, long objectId);
 
-	/**
-	 * Registers the application-side live object id iterator.
-	 * This is used to seed live OIDs into the mark queue before sweep,
-	 * ensuring transitive binary references of registry-held entities
-	 * are marked and not swept prematurely.
-	 *
-	 * @param liveObjectIdsIterator the iterator providing live object ids
-	 */
-	public void registerLiveObjectIdsIterator(LiveObjectIdsIterator liveObjectIdsIterator);
 
 	/**
 	 * Reset to a clean initial state, ready to be used.
@@ -104,9 +95,10 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 	public interface Creator
 	{
 		public StorageEntityMarkMonitor createEntityMarkMonitor(
-			StorageObjectIdMarkQueue[]                 oidMarkQueues    ,
-			StorageEventLogger                         eventLogger      ,
-			Referencing<PersistenceLiveStorerRegistry> refStorerRegistry
+			StorageObjectIdMarkQueue[]                 oidMarkQueues         ,
+			StorageEventLogger                         eventLogger           ,
+			Referencing<PersistenceLiveStorerRegistry> refStorerRegistry     ,
+			LiveObjectIdsIterator                      liveObjectIdsIterator
 		);
 		
 		public StorageEntityMarkMonitor cachedInstance();
@@ -166,16 +158,18 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			
 			@Override
 			public StorageEntityMarkMonitor createEntityMarkMonitor(
-				final StorageObjectIdMarkQueue[]                 objectIdMarkQueues,
-				final StorageEventLogger                         eventLogger       ,
-				final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry
+				final StorageObjectIdMarkQueue[]                 objectIdMarkQueues   ,
+				final StorageEventLogger                         eventLogger          ,
+				final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry    ,
+				final LiveObjectIdsIterator                      liveObjectIdsIterator
 			)
 			{
 				return this.cachedInstance = new StorageEntityMarkMonitor.Default(
 					objectIdMarkQueues.clone(),
 					eventLogger,
 					refStorerRegistry,
-					this.referenceCacheLength
+					this.referenceCacheLength,
+					liveObjectIdsIterator
 				);
 			}
 			
@@ -255,7 +249,7 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 		 * Application-side iterator used to seed live object ids into the mark queue
 		 * before sweep. Registered after construction via registerLiveObjectIdsIterator().
 		 */
-		private LiveObjectIdsIterator liveObjectIdsIterator;
+		private final LiveObjectIdsIterator liveObjectIdsIterator;
 
 		/*
 		 * Flag indicating whether live application OIDs have already been seeded
@@ -273,23 +267,25 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 		/////////////////
 
 		Default(
-			final StorageObjectIdMarkQueue[]                 oidMarkQueues       ,
-			final StorageEventLogger                         eventLogger         ,
-			final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry   ,
-			final int                                        referenceCacheLength
+			final StorageObjectIdMarkQueue[]                 oidMarkQueues        ,
+			final StorageEventLogger                         eventLogger          ,
+			final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry    ,
+			final int                                        referenceCacheLength ,
+			final LiveObjectIdsIterator                      liveObjectIdsIterator
 		)
 		{
 			super();
-			this.eventLogger          = eventLogger                   ;
-			this.refStorerRegistry    = refStorerRegistry             ;
-			this.oidMarkQueues        = oidMarkQueues                 ;
-			this.referenceCacheLength = referenceCacheLength          ;
-			this.channelCount         = oidMarkQueues.length          ;
-			this.channelHash          = this.channelCount - 1         ;
-			this.pendingStoreUpdates  = new boolean[this.channelCount];
-			this.needsSweep           = new boolean[this.channelCount];
-			this.channelRootOids      = new long   [this.channelCount];
-			
+			this.eventLogger             = eventLogger                   ;
+			this.refStorerRegistry       = refStorerRegistry             ;
+			this.oidMarkQueues           = oidMarkQueues                 ;
+			this.referenceCacheLength    = referenceCacheLength          ;
+			this.channelCount            = oidMarkQueues.length          ;
+			this.channelHash             = this.channelCount - 1         ;
+			this.pendingStoreUpdates     = new boolean[this.channelCount];
+			this.needsSweep              = new boolean[this.channelCount];
+			this.channelRootOids         = new long   [this.channelCount];
+			this.liveObjectIdsIterator   = liveObjectIdsIterator         ;
+
 			this.referenceMarkers = new StorageReferenceMarker[this.channelCount];
 			
 			// mostly redundant for instance initialization, but consistency is important.
@@ -387,11 +383,6 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			this.synchResetReferenceMarkers();
 		}
 
-		@Override
-		public final synchronized void registerLiveObjectIdsIterator(final LiveObjectIdsIterator liveObjectIdsIterator)
-		{
-			this.liveObjectIdsIterator = liveObjectIdsIterator;
-		}
 
 		private void synchResetReferenceMarkers()
 		{

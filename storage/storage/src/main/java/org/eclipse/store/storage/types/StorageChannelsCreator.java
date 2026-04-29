@@ -111,9 +111,9 @@ public interface StorageChannelsCreator
 			final StorageEntityMarkMonitor markMonitor = entityMarkMonitorCreator.createEntityMarkMonitor(
 				markQueues,
 				eventLogger,
-				refStorerRegistry
+				refStorerRegistry,
+				liveObjectIdsHandler
 			);
-			markMonitor.registerLiveObjectIdsIterator(liveObjectIdsHandler);
 
 			final BufferSizeProviderIncremental loadingBufferSizeProvider = BufferSizeProviderIncremental.New(loadingBufferSize);
 			final BufferSizeProvider readingDefaultBufferSizeProvider     = BufferSizeProvider.New(readingDefaultBufferSize);
