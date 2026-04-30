@@ -226,4 +226,69 @@ public class ConstraintViolationExceptionFieldsTest
 		map.update(alice, p -> p.level = 20);
 		assertEquals(20, alice.level);
 	}
+
+	@Test
+	void uniqueAndIdentityIndex_postCreation_combinedIdentityAndUnique()
+	{
+		// Mirrors uniqueAndIdentityIndex_builder_combinedIdentityAndUnique, but
+		// builds the combination through the post-creation API documented in
+		// constraints.adoc: addUniqueConstraint creates the backing bitmap index,
+		// setIdentityIndices then promotes it to identity.
+		final GigaMap<Person> map = GigaMap.New();
+		final BitmapIndices<Person> bitmap = map.index().bitmap();
+		bitmap.addUniqueConstraint(EMAIL_INDEX);
+		bitmap.setIdentityIndices(EMAIL_INDEX);
+
+		final Person alice = new Person("alice@test.com", 1);
+		map.add(alice);
+		map.add(new Person("bob@test.com", 2));
+
+		// identity: a single index serves both roles
+		assertEquals(1, bitmap.identityIndices().size());
+		assertSame(
+			bitmap.identityIndices().get(),
+			bitmap.uniqueConstraints().get(),
+			"identity and unique must share the same backing bitmap index"
+		);
+
+		// identity: update() finds the entity through the identity index
+		map.update(alice, p -> p.level = 42);
+		assertEquals(42, alice.level);
+
+		// unique: a second entity with the same email is rejected
+		assertThrows(UniqueConstraintViolationException.class,
+			() -> map.add(new Person("alice@test.com", 99)));
+	}
+
+	@Test
+	void uniqueAndIdentityIndex_postCreation_updateToTakenValueRejected()
+	{
+		// update() mutates in place via a lambda; the unique constraint must
+		// still reject mutations that collide with another entity's value.
+		// The Eclipse Store contract for update() on violation is to eject
+		// the offending entity (see update_exceptionCarriesEjectedEntityId).
+		final GigaMap<Person> map = GigaMap.New();
+		final BitmapIndices<Person> bitmap = map.index().bitmap();
+		bitmap.addUniqueConstraint(EMAIL_INDEX);
+		bitmap.setIdentityIndices(EMAIL_INDEX);
+
+		final Person alice = new Person("alice@test.com", 1);
+		final long aliceId = map.add(alice);
+		map.add(new Person("bob@test.com", 2));
+
+		final UniqueConstraintViolationException ex = assertThrows(
+			UniqueConstraintViolationException.class,
+			() -> map.update(alice, p -> p.email = "bob@test.com")
+		);
+
+		assertEquals(aliceId, ex.getEntityId(),
+			"exception must carry the ejected entity's id");
+		assertNull(map.peek(aliceId),
+			"alice must be ejected after the failed update");
+		assertEquals(1, map.size(),
+			"only bob must remain after alice is ejected");
+		// bob's slot is still uniquely occupied — re-adding the email fails
+		assertThrows(UniqueConstraintViolationException.class,
+			() -> map.add(new Person("bob@test.com", 3)));
+	}
 }
