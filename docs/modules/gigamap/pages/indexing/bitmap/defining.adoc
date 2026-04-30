@@ -56,6 +56,8 @@ Either define them directly in the entity class or separately.
 
 The `Indexer` implementations must at least override the method that extracts the key value. By default, the name of the index is derived from its declaration; for example, when written as a constant, the fully qualified name of the constant will be used. If you want to provide a name yourself, simply override the `name()` method.
 
+IMPORTANT: Indexer names must be unique within a `GigaMap`. Registering a second indexer under a name that is already taken throws a `RuntimeException` at registration time. This is rarely an issue when names come from the default derivation, since declaration-based names are naturally distinct, but it can bite when you override `name()` manually or use anonymous `Indexer` instances whose derived names collide. Give each indexer an explicit, unique `name()` in those cases.
+
 The predefined indexers are usually sufficient; just extend from their `Abstract` base type.
 
 [source, java]

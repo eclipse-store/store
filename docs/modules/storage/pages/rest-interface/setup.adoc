@@ -6,9 +6,8 @@ An application that will expose the REST endpoints needs one of the provided imp
 
 Currently, two implementations are available:
 
-- SpringBoot 3.x REST Service
-- Javalin REST Service
-- Spark Java REST Service (Deprecated, will be removed in future versions)
+- Javalin REST Service — recommended for standalone applications.
+- Spring Boot 3.x REST Service — recommended for Spring Boot applications.
 
 
 == Spring Boot REST Service
@@ -93,70 +92,3 @@ If you want to change the default port (4567) or instance name (_store-data_) it
 | `store-data`
 | Instance name used in the base URL (without leading/trailing "/").
 |===
-
-== Spark Java REST Service
-
-In this example, we will use the https://sparkjava.com/[Spark] implementation that {product-name} provides.
-This has no dependencies to other frameworks and makes no assumptions about your runtime environment, IoC container,
-dependency injection, web server or anything else.
-
-Just add the dependency to your project, the logger is optional.
-
-[source, xml, title="pom.xml", subs=attributes+]
-----
-<dependencies>
-    <dependency>
-        <groupId>org.eclipse.store</groupId>
-        <artifactId>storage-restservice-sparkjava</artifactId>
-        <version>{maven-version}</version>
-    </dependency>
-    <dependency>
-        <groupId>org.slf4j</groupId>
-        <artifactId>slf4j-simple</artifactId>
-        <version>1.7.32</version>
-    </dependency>
-</dependencies>
-----
-
-Now use the resolver to connect the REST service to the storage, start it, and you're good to go.
-
-[source, java]
-----
-EmbeddedStorageManager storage = EmbeddedStorage.start();
-if (storage.root() == null)
-{
-   storage.setRoot(new Object[] {
-      LocalDate.now(),
-      X.List("a", "b", "c"),
-      1337
-   });
-   storage.storeRoot();
-}
-
-// create the REST service
-StorageRestService service = StorageRestServiceResolver.resolve(storage);
-
-// and start it
-service.start();
-----
-
-That's all you have to do to open the REST endpoints to access the stored data.
-
-The base URL of the provided endpoints is per default: http://localhost:4567/store-data/ and you can find out all available endpoints on the root http://localhost:4567
-
-=== Additional Configuration
-
-If you want to change the default port (4567) or instance name (_store-data_) it can be done by using the rest service implementation directly, and not go through the _Resolver` as in the previous snippet.
-
-The Spark service can then be customized to your liking.
-
-[source, java]
-----
-StorageRestServiceSparkJava service = StorageRestServiceSparkJava.New(storage);
-service.setSparkService(
-   Service.ignite().port(8888)
-);
-service.setInstanceName("my-name");
-----
-
-This will change the base URL to http://localhost:8888/my-name/
