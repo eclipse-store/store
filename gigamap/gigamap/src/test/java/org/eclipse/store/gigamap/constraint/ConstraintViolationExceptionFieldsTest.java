@@ -28,8 +28,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * - {@code entityId}, {@code replacedEntity}, {@code violatingEntity}
  *
  * Also covers the identity + unique index combination:
- * - Builder API: {@code withBitmapIdentityIndex} + {@code withBitmapUniqueIndex}
- * - Post-creation API: {@code ensure} + {@code setIdentityIndices} + {@code addUniqueConstraint}
+ * - Builder API: {@code withBitmapIdentityIndex} + {@code withBitmapUniqueIndex} on the same indexer
+ * - Post-creation API: {@code addUniqueConstraint} + {@code setIdentityIndices}
  */
 public class ConstraintViolationExceptionFieldsTest
 {
@@ -145,10 +145,9 @@ public class ConstraintViolationExceptionFieldsTest
 	// ---------------------------------------------------------------
 	// Unique + identity index — builder API
 	//
-	// withBitmapIdentityIndex and withBitmapUniqueIndex cannot use the same
-	// indexer instance inside the builder (it would register the bitmap index
-	// twice). The correct builder pattern is withBitmapUniqueIndex only, then
-	// setIdentityIndices() on the built map.
+	// The builder accepts the same indexer for both withBitmapIdentityIndex
+	// and withBitmapUniqueIndex; the underlying bitmap index is registered
+	// once and is both identity and unique.
 	// ---------------------------------------------------------------
 
 	@Test
@@ -165,6 +164,27 @@ public class ConstraintViolationExceptionFieldsTest
 			() -> map.add(new Person("alice@test.com", 99)));
 
 		assertEquals(2, map.size());
+	}
+
+	@Test
+	void uniqueAndIdentityIndex_builder_combinedIdentityAndUnique()
+	{
+		final GigaMap<Person> map = GigaMap.<Person>Builder()
+			.withBitmapIdentityIndex(EMAIL_INDEX)
+			.withBitmapUniqueIndex(EMAIL_INDEX)
+			.build();
+
+		final Person alice = new Person("alice@test.com", 1);
+		map.add(alice);
+		map.add(new Person("bob@test.com", 2));
+
+		// identity: update() finds the entity through the identity index
+		map.update(alice, p -> p.level = 42);
+		assertEquals(42, alice.level);
+
+		// unique: a second entity with the same email is rejected
+		assertThrows(UniqueConstraintViolationException.class,
+			() -> map.add(new Person("alice@test.com", 99)));
 	}
 
 	@Test
