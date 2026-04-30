@@ -113,6 +113,26 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 	}
 
 	/**
+	 * The deletion directory of the backup. Files removed from the backup by
+	 * housekeeping are moved here instead of being physically deleted, mirroring
+	 * the behavior of {@link #setDeletionDirectory(String)} for the live storage.
+	 *
+	 * @param backupDeletionDirectory the deletion directory of the backup
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setBackupDeletionDirectory(String backupDeletionDirectory);
+
+	/**
+	 * The truncation directory of the backup. Truncated backup files are copied
+	 * here before being shortened, mirroring the behavior of
+	 * {@link #setTruncationDirectory(String)} for the live storage.
+	 *
+	 * @param backupTruncationDirectory the truncation directory of the backup
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setBackupTruncationDirectory(String backupTruncationDirectory);
+
+	/**
 	 * The number of threads and number of directories used by the storage
 	 * engine. Every thread has exclusive access to its directory. Default is
 	 * <code>1</code>.
@@ -467,6 +487,22 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 		)
 		{
 			return this.set(BACKUP_DIRECTORY, backupDirectory);
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setBackupDeletionDirectory(
+			final String backupDeletionDirectory
+		)
+		{
+			return this.set(BACKUP_DELETION_DIRECTORY, backupDeletionDirectory);
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setBackupTruncationDirectory(
+			final String backupTruncationDirectory
+		)
+		{
+			return this.set(BACKUP_TRUNCATION_DIRECTORY, backupTruncationDirectory);
 		}
 
 		@Override
