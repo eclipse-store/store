@@ -233,7 +233,7 @@ Setting `persistenceIntervalMs` to a value greater than 0 enables background per
 
 |`persistOnShutdown`
 |`true`
-|Persist pending changes on `close()`.
+|Persist pending changes on `close()` when `onDisk=true`. Applies whether or not background persistence is enabled.
 |===
 
 === Example

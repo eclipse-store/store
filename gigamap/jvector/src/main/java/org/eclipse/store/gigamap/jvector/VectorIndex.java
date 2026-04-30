@@ -2318,6 +2318,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.backgroundTaskManager.shutdown(drainPending, optimizePending, persistPending);
                 this.backgroundTaskManager = null;
             }
+            else if(persistPending && this.configuration.onDisk())
+            {
+                // Honor persistOnShutdown for on-disk indices configured without
+                // any background features (no eventual indexing, no background
+                // optimization, no background persistence).
+                try
+                {
+                    this.doPersistToDisk();
+                }
+                catch(final Exception e)
+                {
+                    LOG.error("Shutdown persistence failed for '{}': {}", this.name, e.getMessage(), e);
+                }
+            }
         }
 
         /**
@@ -2437,6 +2451,18 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 return this.vectorStore != null ? this.vectorStore.size() : 0;
             }
+        }
+
+        @Override
+        public long getHighestEntityId()
+        {
+            // Always use the parent GigaMap's id space — that is the ordinal
+            // space the HNSW graph is keyed on (via toOrdinal(entityId)) in
+            // both embedded and computed-vector modes. The computed-mode
+            // vectorStore has its own monotonic id allocator that can drift
+            // from the parent map's (e.g. when an index is registered against
+            // a parent with deletion holes), so it is unsafe as a stand-in.
+            return this.parentMap().highestUsedId();
         }
 
         // ================================================================

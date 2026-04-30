@@ -35,13 +35,15 @@ The graph is always **built in-memory** first. Entities are added to the graph o
 Persistence creates two files in the configured `indexDirectory`:
 
 * `{indexName}.graph` -- The full HNSW graph structure, including node connectivity (edges), and optionally embedded inline vectors and FusedPQ compressed data.
-* `{indexName}.meta` -- A small metadata file containing the file format version, the vector dimension, and the current vector count. This is used on startup to verify that the on-disk graph matches the current data.
+* `{indexName}.meta` -- A small metadata file containing the file format version, the vector dimension, the current vector count, and the highest allocated entity id. This is used on startup to verify that the on-disk graph matches the current data.
 
 ==== Loading from Disk
 
-On startup, the index first checks whether valid graph and metadata files exist. The metadata is verified: the dimension must match the configured value, and the vector count must match the number of vectors currently stored. If both checks pass, the graph is loaded directly from disk using memory-mapped I/O. This avoids rebuilding the graph from scratch, which can be expensive for large datasets.
+On startup, the index first checks whether valid graph and metadata files exist. The metadata is verified: the file format version, the dimension, the vector count, and the highest allocated entity id must all match the current state. The entity-id check closes a corruption window where equal numbers of additions and removals between persists would leave the count unchanged but the on-disk graph stale. If all checks pass, the graph is loaded directly from disk using memory-mapped I/O. This avoids rebuilding the graph from scratch, which can be expensive for large datasets.
 
 If the metadata does not match (e.g., because new entities were added while the application was offline, or the configuration changed), the on-disk files are ignored and the graph is rebuilt in-memory from the stored vectors.
+
+NOTE: The on-disk graph file format is at version 2. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors -- no data loss, but expect a one-time cold-start cost on the first restart after upgrade.
 
 ==== Memory-Mapped Access
 
