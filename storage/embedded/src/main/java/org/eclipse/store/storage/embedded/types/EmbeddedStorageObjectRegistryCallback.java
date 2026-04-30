@@ -97,11 +97,16 @@ public interface EmbeddedStorageObjectRegistryCallback extends LiveObjectIdsHand
 
 			this.objectRegistry.iterateEntries((objectId, instance) ->
 			{
-				// only emit live data OIDs:
-				// - skip cleared WeakReferences (instance == null)
-				// - skip TypeIds and ConstantIds: they are intentionally unresolvable in the persistent form
-				//   and feeding them into the mark queue would cause the zombie handler to see them as zombies.
-				if(instance != null && Persistence.IdType.OID.isInRange(objectId))
+				// Emit every data-OID entry in the hash table, regardless of whether the
+				// WeakReference is still live. The sweep keep-alive predicate
+				// (DefaultObjectRegistry#synchIsLiveObjectId -> synchContainsObjectId) is id-only and
+				// keeps cleared-but-not-yet-reaped entries alive at sweep time; if mark seeding
+				// skipped them here, their stored binary references would not be walked, and
+				// transitively-reachable entities whose own entries were already reaped could be
+				// swept while the parent stays kept — producing a zombie OID on the next mark cycle.
+				// Skip TypeIds and ConstantIds though: those are intentionally unresolvable as
+				// storage entities and would trigger the zombie handler.
+				if(Persistence.IdType.OID.isInRange(objectId))
 				{
 					acceptor.acceptObjectId(objectId);
 				}
