@@ -33,19 +33,19 @@ A unique constraint and an xref:indexing/bitmap/types.adoc#_identity_index[ident
 
 [source, java]
 ----
-// use the builder
+// use the builder — the same indexer can be passed to both methods
 final GigaMap<Person> gigaMap = GigaMap.<Person>Builder()
     .withBitmapIdentityIndex(PersonIndices.id)
     .withBitmapUniqueIndex(PersonIndices.id) // enforce uniqueness at runtime
     ...
     .build();
 
-// or register it after creating
+// or register it after creating: addUniqueConstraint creates the backing
+// bitmap index, then setIdentityIndices promotes it to identity
 GigaMap<Person> gigaMap = GigaMap.New();
-final BitmapIndices<E> bitmap = this.gigaMap.index().bitmap();
-bitmap.ensure(PersonIndices.id);             // add index first
-bitmap.setIdentityIndices(PersonIndices.id); // set as identity
-bitmap.addUniqueConstraint(PersonIndices.id); // enforce uniqueness
+final BitmapIndices<Person> bitmap = gigaMap.index().bitmap();
+bitmap.addUniqueConstraint(PersonIndices.id); // creates index + unique constraint
+bitmap.setIdentityIndices(PersonIndices.id);  // promote it to identity
 ----
 
 == Custom Constraints

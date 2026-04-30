@@ -14,9 +14,6 @@ package org.eclipse.store.gigamap.types;
  * #L%
  */
 
-import org.eclipse.store.gigamap.exceptions.ConstraintViolationException;
-import org.eclipse.store.gigamap.types.GigaQuery.ConditionBuilder;
-import org.eclipse.store.gigamap.types.IterationThreadProvider.IterationLogicProvider;
 import org.eclipse.serializer.branching.ThrowBreak;
 import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.collections.BulkList;
@@ -33,6 +30,9 @@ import org.eclipse.serializer.persistence.binary.types.BinaryTypeHandler;
 import org.eclipse.serializer.persistence.types.*;
 import org.eclipse.serializer.reference.Lazy;
 import org.eclipse.serializer.util.X;
+import org.eclipse.store.gigamap.exceptions.ConstraintViolationException;
+import org.eclipse.store.gigamap.types.GigaQuery.ConditionBuilder;
+import org.eclipse.store.gigamap.types.IterationThreadProvider.IterationLogicProvider;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -881,8 +881,17 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 					? GigaMap.New(XHashing.hashEqualityValue())
 					: GigaMap.New()
 				;
-				
+
 				final BitmapIndices<E> indices = gigaMap.index().bitmap();
+
+				// addUniqueConstraints validates strictly (throws on duplicate names), so it
+				// must run first. The subsequent ensureAll calls are idempotent and simply
+				// reuse the bitmap index already created when the same indexer was passed to
+				// more than one with...Index method.
+				if(!this.uniqueIndices.isEmpty())
+				{
+					indices.addUniqueConstraints(this.uniqueIndices);
+				}
 				if(!this.bitmapIndices.isEmpty())
 				{
 					indices.ensureAll(this.bitmapIndices);
@@ -892,15 +901,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 					indices.ensureAll(this.identityIndices);
 					indices.setIdentityIndices(this.identityIndices);
 				}
-				if(!this.uniqueIndices.isEmpty())
-				{
-					indices.addUniqueConstraints(this.uniqueIndices);
-				}
 				if(!this.customConstraints.isEmpty())
 				{
 					gigaMap.constraints().custom().addConstraints(this.customConstraints);
 				}
-				
+
 				return gigaMap;
 			}
 				
