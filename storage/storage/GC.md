@@ -159,7 +159,7 @@ flowchart TD
     H -->|yes: second sweep,<br/>no stores since| SC["gcColdPhaseComplete = true<br/>GC will idle after this"]
     SH --> Seed1["determineAndEnqueueRootOid<br/>enqueue persistent root"]
     SC --> Seed1
-    Seed1 --> Seed2["enqueueLiveApplicationOids<br/>iterate registry, push every<br/>live OID as a mark root"]
+    Seed1 --> Seed2["enqueueLiveApplicationOids<br/>iterate registry, push every<br/>registry-resident OID as a mark root"]
     Seed2 --> N(["next GC tick"])
 
     classDef appRoots fill:#e5f6d9,stroke:#3d8b1e,stroke-width:2px
@@ -173,7 +173,7 @@ flowchart TD
 - **A tick either marks (3.3) or sweeps (3.4), not both.** The sweep check gates the branch.
 - **Zombie detection (3.3, red)** sits inside the mark loop at `getEntry(oid) == null`. In the mark phase the only expected null lookup is a constant id (CID) — constants are resolved at runtime rather than stored as entities. The default handler silently accepts CIDs and flags anything else as a zombie. (Type ids (TIDs) don't appear in binary references, so they cannot enter the mark queue in practice, but the default handler accepts them too as a defensive catch-all.)
 - **The sweep keep-alive predicate (3.4)** is the OR of `isGcMarked()` and `isReachableInApplication(oid)` — that OR is the registry safety net (see §7, §8).
-- **Completion + re-seeding (3.5)** establishes the two root sets for the next wave: after `determineAndEnqueueRootOid` seeds the persistent root, `enqueueLiveApplicationOids` pushes every live registry OID into the mark queue so the *next* mark phase transitively marks everything reachable from application state as well as everything reachable from the persistent root.
+- **Completion + re-seeding (3.5)** establishes the two root sets for the next wave: after `determineAndEnqueueRootOid` seeds the persistent root, `enqueueLiveApplicationOids` pushes every registry-resident OID into the mark queue so the *next* mark phase transitively marks everything reachable from application state as well as everything reachable from the persistent root. The seed uses the same id-only criterion as the sweep predicate (3.4), so cleared-but-not-yet-reaped entries (case (b) in §8) are seeded too — see §10.1.
 
 ### Phase state diagram (hot / cold)
 
@@ -301,15 +301,21 @@ Despite the name, `synchIsLiveObjectId` delegates to the id-only `synchContainsO
 
 Case (b) is exactly the JDK window between stages 2 and 3.
 
-### Why (b) usually isn't observed
+### Why case (b) doesn't cause corruption
 
-`DefaultObjectRegistry.cleanUp()` drains the `ReferenceQueue` and calls `synchRemoveEntry` for each cleared reference. `cleanUp()` is invoked automatically on every storer merge path (via `PersistenceObjectManager.synchInternalMergeEntries`). In steady state, a sweep observes the registry right after a store has just run cleanup, so case (b) collapses and "survives sweep ↔ app still holds the Java instance" is true in practice. That is the design intent of the safety net.
+Case (b) — a cleared `WeakReference` whose `Entry` has not yet been removed from the hash table — would be dangerous if the **mark seed** and the **sweep predicate** disagreed about whether such an entry counts as live: a parent kept alive by sweep but skipped at mark would leave its stored binary references unwalked, and a transitively-reachable child whose own entry had already been reaped would be deleted while the parent retained the stale OID on disk (a zombie OID on the next mark cycle, see §10.1).
+
+Three mechanisms keep this from happening:
+
+- **Same id-only criterion at both ends.** The post-sweep / pre-sweep mark seed (§10) enumerates *every* data-OID entry in the registry's hash table — including case (b) entries — using the same id-only test (`synchContainsObjectId`) that the sweep keep-alive predicate uses. So the two paths agree on what counts as "registry-resident", and case (b) entries always get their binaries walked transitively before sweep decides what to delete.
+- **`DefaultObjectRegistry.cleanUp()` on every storer merge.** `cleanUp()` drains the `ReferenceQueue` and removes cleared entries; it is invoked automatically from `PersistenceObjectManager.synchInternalMergeEntries`. In write-heavy workloads this collapses case (b) within milliseconds of any store.
+- **`DefaultObjectRegistry.consolidate()` on the issue-API GC path.** `StorageConnection.Default#issueGarbageCollection` calls `consolidate()` before kicking off the GC; `consolidate()` walks the entire hash table and removes every cleared entry up front. This is **not** done on the housekeeping GC path — which is precisely why aligning the mark-seed criterion with the sweep predicate (the first mechanism above) matters: the housekeeping path would otherwise be the only place case (b) can be observed by the GC, and a mark/sweep disagreement there would corrupt data even if `cleanUp()` happens to run on the next store.
 
 ### Sources
 
 - JDK class javadoc of `java.lang.ref.WeakReference`, `java.lang.ref.Reference`, `java.lang.ref.ReferenceQueue` — spells out that the GC clears and enqueues but does not remove from user containers.
 - JDK source of `java.util.WeakHashMap.expungeStaleEntries()` — the canonical "poll-the-queue and unlink" idiom that `DefaultObjectRegistry.cleanUp()` mirrors.
-- Eclipse Serializer source: `DefaultObjectRegistry.java` — `Entry extends WeakReference` (class declaration), `synchContainsObjectId`, `synchContainsLiveObject`, `processLiveObjectIds`, `cleanUp`.
+- Eclipse Serializer source: `DefaultObjectRegistry.java` — `Entry extends WeakReference` (class declaration), `synchContainsObjectId`, `synchContainsLiveObject`, `processLiveObjectIds`, `cleanUp`, `consolidate`.
 
 ---
 
@@ -358,7 +364,7 @@ this.determineAndEnqueueRootOid(rootOidSelector);
 this.enqueueLiveApplicationOids(liveObjectIdsIterator);
 ```
 
-The iterator (`EmbeddedStorageObjectRegistryCallback.iterateLiveObjectIds`) walks the registry's `iterateEntries`, skips cleared `WeakReference`s (`instance != null`), and filters to data OIDs (`Persistence.IdType.OID.isInRange(objectId)`) so TIDs and CIDs are never fed to the mark queue and therefore never reach the zombie handler.
+The iterator (`EmbeddedStorageObjectRegistryCallback.iterateLiveObjectIds`) walks the registry's `iterateEntries` and emits every data-OID entry (`Persistence.IdType.OID.isInRange(objectId)`). The id-only criterion deliberately matches the sweep keep-alive predicate (`DefaultObjectRegistry#synchIsLiveObjectId` → `synchContainsObjectId`); cleared-but-not-yet-reaped entries (case (b) in §8) are seeded as mark roots even though their `WeakReference.get()` returns `null`, because the sweep predicate keeps them alive too — skipping them at mark time would leave their stored binary references unwalked and create a zombie window on the housekeeping GC path. TIDs and CIDs are excluded so they never reach the zombie handler.
 
 This seed runs on **every** transition out of sweep — both `Dirty → HotComplete` and `HotComplete → ColdComplete` — so application-state roots are re-established for every subsequent mark cycle, not just the first one in a wave.
 
@@ -399,6 +405,7 @@ The `resetMarkQueues()` invariant (which throws if any queue still has elements)
 | First sweep of a cycle (cycle 0 or post-`resetCompletion`) | pre-sweep gate (10.2) | post-sweep seed has not run yet in this cycle |
 | Every subsequent cycle | post-sweep seed (10.1) | gate flag stays set until `resetCompletion`; without 10.1 the gate-skip path would mark roots from no-one |
 | Race: OID enters registry between mark and sweep of same cycle | sweep-time `ObjectIdsSelector` predicate (shallow safety net) | per-entity, evaluated at sweep time, no transitivity needed because the entity's binary was just stored or just loaded and is consistent |
+| Case (b) entry (cleared `WeakReference`, hash-table entry not yet reaped) on the housekeeping GC path | id-only criterion shared by 10.1 / 10.2 mark seed and 3.4 sweep predicate | the housekeeping path calls neither `cleanUp()` (only fires on storer-merge) nor `consolidate()` (only fires on `issueGarbageCollection`); without the shared criterion, sweep would keep the case (b) entry while mark skipped it, leaving its stored binary references unwalked — see §8 |
 
 ### Interface layering
 
@@ -419,6 +426,6 @@ Read these together to see the full picture:
 - `StorageEntityMarkMonitor.Default` — `completeSweep`, `determineAndEnqueueRootOid`, `enqueueLiveApplicationOids`, `acceptObjectId`/`enqueue`.
 - `LiveObjectIdsHandler` — class-level javadoc giving the role-by-role comparison.
 - `EmbeddedStorageObjectRegistryCallback.Default` — `processSelected` (sweep filter) and `iterateLiveObjectIds` (mark seeding).
-- `DefaultObjectRegistry` (serializer) — `Entry extends WeakReference`, `synchContainsObjectId` vs `synchContainsLiveObject`, `processLiveObjectIds`, `cleanUp`.
+- `DefaultObjectRegistry` (serializer) — `Entry extends WeakReference`, `synchContainsObjectId` vs `synchContainsLiveObject`, `processLiveObjectIds`, `cleanUp` (drains the `ReferenceQueue`, called from `PersistenceObjectManager.synchInternalMergeEntries`), `consolidate` (walks the entire hash table and reaps every cleared entry, called from `StorageConnection.Default#issueGarbageCollection`).
 - `StorageGCZombieOidHandler.Default` — expected-null filter for TID/CID lookups, reporting path for any other null lookup.
 - `Persistence.IdType` (serializer) — TID / OID / CID range predicates.
