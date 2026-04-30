@@ -48,6 +48,16 @@ public interface EmbeddedStorageConfigurationPropertyNames
 	public final static String BACKUP_FILESYSTEM             = "backup-filesystem";
 
 	/**
+	 * @see EmbeddedStorageConfigurationBuilder#setBackupDeletionDirectory(String)
+	 */
+	public final static String BACKUP_DELETION_DIRECTORY     = "backup-deletion-directory";
+
+	/**
+	 * @see EmbeddedStorageConfigurationBuilder#setBackupTruncationDirectory(String)
+	 */
+	public final static String BACKUP_TRUNCATION_DIRECTORY   = "backup-truncation-directory";
+
+	/**
 	 * @see EmbeddedStorageConfigurationBuilder#setChannelCount(int)
 	 */
 	public final static String CHANNEL_COUNT                 = "channel-count";

@@ -16,6 +16,9 @@ package org.eclipse.store.storage.types;
 
 import static org.eclipse.serializer.util.X.notNull;
 
+import java.util.HashSet;
+
+import org.eclipse.serializer.afs.types.ADirectory;
 import org.eclipse.serializer.afs.types.AFS;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.collections.BulkList;
@@ -54,7 +57,25 @@ public interface StorageBackupHandler extends Runnable, StorageActivePart
 	public void deleteFile(
 		StorageLiveChannelFile<?> file
 	);
-	
+
+	/**
+	 * Mirrors any files that already exist in the live storage's deletion or truncation directory
+	 * to the backup's corresponding directory. Idempotent: files already present on the backup
+	 * side (matched by parsed channel/file-number) are skipped.
+	 * <p>
+	 * Has no effect for sides where the deletion / truncation directory is not configured.
+	 *
+	 * @param channelIndex the storage channel index
+	 * @param liveFileProvider the live file provider whose rescued files shall be mirrored
+	 */
+	public default void synchronizeRescuedFiles(
+		final int                 channelIndex    ,
+		final StorageFileProvider liveFileProvider
+	)
+	{
+		// default no-op for non-default implementations
+	}
+
 	public StorageBackupHandler start();
 	
 	public default StorageBackupHandler stop()
@@ -609,20 +630,114 @@ public interface StorageBackupHandler extends Runnable, StorageActivePart
 			{
 				return;
 			}
-			
+
 			final StorageBackupChannelFile backupTargetFile = file.ensureBackupFile(this);
-			
+
 			logger.debug("Deleting backup file: {}", backupTargetFile.file().toPathString());
-			
+
 			StorageFileWriter.deleteFile(
 				backupTargetFile,
 				this.writeController,
 				this.backupSetup.backupFileProvider()
 			);
-			
+
 			// no user decrement since only the identifier is required and the actual file can well have been deleted.
 		}
-		
+
+		@Override
+		public void synchronizeRescuedFiles(
+			final int                 channelIndex    ,
+			final StorageFileProvider liveFileProvider
+		)
+		{
+			final StorageBackupFileProvider backupFileProvider = this.backupSetup.backupFileProvider();
+
+			this.synchronizeRescuedDirectory(
+				channelIndex                                ,
+				liveFileProvider.deletionDirectory()        ,
+				backupFileProvider.deletionDirectory()      ,
+				liveFileProvider                            ,
+				backupFileProvider                          ,
+				true
+			);
+
+			this.synchronizeRescuedDirectory(
+				channelIndex                                ,
+				liveFileProvider.truncationDirectory()      ,
+				backupFileProvider.truncationDirectory()    ,
+				liveFileProvider                            ,
+				backupFileProvider                          ,
+				false
+			);
+		}
+
+		private void synchronizeRescuedDirectory(
+			final int                       channelIndex      ,
+			final ADirectory                liveRescueDir     ,
+			final ADirectory                backupRescueDir   ,
+			final StorageFileProvider       liveFileProvider  ,
+			final StorageBackupFileProvider backupFileProvider,
+			final boolean                   isDeletion
+		)
+		{
+			if(liveRescueDir == null || backupRescueDir == null)
+			{
+				return;
+			}
+
+			final BulkList<StorageDataInventoryFile> liveRescued   = BulkList.New();
+			final BulkList<StorageDataInventoryFile> backupRescued = BulkList.New();
+			if(isDeletion)
+			{
+				liveFileProvider  .collectDeletedDataFiles(StorageDataInventoryFile::New, liveRescued  , channelIndex);
+				backupFileProvider.collectDeletedDataFiles(StorageDataInventoryFile::New, backupRescued, channelIndex);
+			}
+			else
+			{
+				liveFileProvider  .collectTruncatedDataFiles(StorageDataInventoryFile::New, liveRescued  , channelIndex);
+				backupFileProvider.collectTruncatedDataFiles(StorageDataInventoryFile::New, backupRescued, channelIndex);
+			}
+
+			if(liveRescued.isEmpty())
+			{
+				return;
+			}
+
+			final HashSet<Long> existingNumbers = new HashSet<>();
+			for(final StorageDataInventoryFile f : backupRescued)
+			{
+				existingNumbers.add(f.number());
+			}
+
+			final String channelDirName = backupFileProvider.fileNameProvider()
+				.provideChannelDirectoryName(channelIndex)
+			;
+
+			for(final StorageDataInventoryFile liveFile : liveRescued)
+			{
+				if(existingNumbers.contains(liveFile.number()))
+				{
+					continue;
+				}
+
+				final ADirectory backupChannelDir = backupRescueDir.ensureDirectory(channelDirName);
+				backupChannelDir.ensureExists();
+				final AFile backupTarget = backupChannelDir.ensureFile(
+					liveFile.file().name(),
+					liveFile.file().type()
+				);
+
+				logger.debug(
+					"Mirroring rescued file to backup: {}",
+					backupTarget.toPathString()
+				);
+
+				AFS.executeWriting(backupTarget, wf ->
+					liveFile.copyTo(wf)
+				);
+			}
+		}
+
 		final void closeAllDataFiles()
 		{
 			final DisruptionCollectorExecuting<StorageClosableFile> closer = DisruptionCollectorExecuting.New(file ->

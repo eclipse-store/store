@@ -48,6 +48,8 @@ public class EclipseStoreConfigConverter
     protected static final String TRUNCATION_DIRECTORY = EmbeddedStorageConfigurationPropertyNames.TRUNCATION_DIRECTORY;
     protected static final String BACKUP_DIRECTORY = EmbeddedStorageConfigurationPropertyNames.BACKUP_DIRECTORY;
     protected static final String BACKUP_FILESYSTEM = EmbeddedStorageConfigurationPropertyNames.BACKUP_FILESYSTEM;
+    protected static final String BACKUP_DELETION_DIRECTORY = EmbeddedStorageConfigurationPropertyNames.BACKUP_DELETION_DIRECTORY;
+    protected static final String BACKUP_TRUNCATION_DIRECTORY = EmbeddedStorageConfigurationPropertyNames.BACKUP_TRUNCATION_DIRECTORY;
 
     // Fields for the channel configuration
     protected static final String CHANNEL_COUNT = EmbeddedStorageConfigurationPropertyNames.CHANNEL_COUNT;
@@ -108,6 +110,9 @@ public class EclipseStoreConfigConverter
         {
             configValues.putAll(this.prepareFileSystem(properties.getBackupFilesystem(), BACKUP_FILESYSTEM));
         }
+
+        configValues.put(BACKUP_DELETION_DIRECTORY, properties.getBackupDeletionDirectory());
+        configValues.put(BACKUP_TRUNCATION_DIRECTORY, properties.getBackupTruncationDirectory());
 
         configValues.put(CHANNEL_COUNT, properties.getChannelCount());
         configValues.put(CHANNEL_DIRECTORY_PREFIX, properties.getChannelDirectoryPrefix());

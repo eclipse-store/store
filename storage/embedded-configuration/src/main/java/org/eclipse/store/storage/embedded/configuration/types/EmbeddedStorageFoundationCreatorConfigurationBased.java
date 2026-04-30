@@ -30,6 +30,8 @@ import org.eclipse.store.afs.nio.types.NioFileSystem;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation;
 import org.eclipse.store.storage.types.Storage;
+import org.eclipse.store.storage.types.StorageBackupFileProvider;
+import org.eclipse.store.storage.types.StorageBackupSetup;
 import org.eclipse.store.storage.types.StorageChannelCountProvider;
 import org.eclipse.store.storage.types.StorageConfiguration;
 import org.eclipse.store.storage.types.StorageDataFileEvaluator;
@@ -118,8 +120,28 @@ public interface EmbeddedStorageFoundationCreatorConfigurationBased extends Embe
 						BACKUP_FILESYSTEM,
 						() -> fileSystem
 					);
-					configBuilder.setBackupSetup(Storage.BackupSetup(
-						backupFileSystem.ensureDirectoryPath(backupDirectory)
+
+					final StorageBackupFileProvider.Builder<?> backupBuilder =
+						Storage.BackupFileProviderBuilder(backupFileSystem)
+							.setDirectory(backupFileSystem.ensureDirectoryPath(backupDirectory))
+					;
+
+					this.configuration.opt(BACKUP_DELETION_DIRECTORY)
+						.filter(deletionDirectory -> !XChars.isEmpty(deletionDirectory))
+						.ifPresent(deletionDirectory -> backupBuilder.setDeletionDirectory(
+							backupFileSystem.ensureDirectoryPath(deletionDirectory)
+						))
+					;
+
+					this.configuration.opt(BACKUP_TRUNCATION_DIRECTORY)
+						.filter(truncationDirectory -> !XChars.isEmpty(truncationDirectory))
+						.ifPresent(truncationDirectory -> backupBuilder.setTruncationDirectory(
+							backupFileSystem.ensureDirectoryPath(truncationDirectory)
+						))
+					;
+
+					configBuilder.setBackupSetup(StorageBackupSetup.New(
+						backupBuilder.createFileProvider()
 					));
 				})
 			;

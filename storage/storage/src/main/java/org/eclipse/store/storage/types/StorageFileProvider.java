@@ -56,6 +56,12 @@ public interface StorageFileProvider extends PersistenceTypeDictionaryIoHandler.
 			C                          collector   ,
 			int                        channelIndex
 	);
+
+	public <F extends StorageDataFile, C extends Consumer<F>> C collectTruncatedDataFiles(
+			StorageDataFile.Creator<F> creator     ,
+			C                          collector   ,
+			int                        channelIndex
+	);
 	
 	public interface Builder<B extends Builder<?>>
 	{
@@ -489,13 +495,32 @@ public interface StorageFileProvider extends PersistenceTypeDictionaryIoHandler.
 			C collector,
 			int channelIndex)
 		{
-			if(this.deletionDirectory == null)
+			return this.collectRescuedDataFiles(this.deletionDirectory, creator, collector, channelIndex);
+		}
+
+		@Override
+		public <F extends StorageDataFile, C extends Consumer<F>> C collectTruncatedDataFiles(
+			StorageDataFile.Creator<F> creator,
+			C collector,
+			int channelIndex)
+		{
+			return this.collectRescuedDataFiles(this.truncationDirectory, creator, collector, channelIndex);
+		}
+
+		private <F extends StorageDataFile, C extends Consumer<F>> C collectRescuedDataFiles(
+			final ADirectory                 sourceDirectory,
+			final StorageDataFile.Creator<F> creator        ,
+			final C                          collector      ,
+			final int                        channelIndex
+		)
+		{
+			if(sourceDirectory == null)
 			{
 				return collector;
 			}
 
-			this.deletionDirectory.inventorize();
-			final ADirectory directory = this.deletionDirectory.getDirectory(
+			sourceDirectory.inventorize();
+			final ADirectory directory = sourceDirectory.getDirectory(
 				fileNameProvider.provideChannelDirectoryName(channelIndex));
 
 			if(directory != null)

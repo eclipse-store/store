@@ -65,6 +65,16 @@ public class EclipseStoreProperties
     private StorageFilesystem backupFilesystem;
 
     /**
+     * If configured, files removed from the backup will be moved to this directory instead of being physically deleted.
+     */
+    private String backupDeletionDirectory;
+
+    /**
+     * If configured, backup files that get truncated are copied into this directory.
+     */
+    private String backupTruncationDirectory;
+
+    /**
      * The number of threads and number of directories used by the storage engine. Every thread has exclusive access to its directory. Default is 1.
      */
     private String channelCount;
@@ -278,6 +288,26 @@ public class EclipseStoreProperties
     public void setBackupFilesystem(final StorageFilesystem backupFilesystem)
     {
         this.backupFilesystem = backupFilesystem;
+    }
+
+    public String getBackupDeletionDirectory()
+    {
+        return this.backupDeletionDirectory;
+    }
+
+    public void setBackupDeletionDirectory(final String backupDeletionDirectory)
+    {
+        this.backupDeletionDirectory = backupDeletionDirectory;
+    }
+
+    public String getBackupTruncationDirectory()
+    {
+        return this.backupTruncationDirectory;
+    }
+
+    public void setBackupTruncationDirectory(final String backupTruncationDirectory)
+    {
+        this.backupTruncationDirectory = backupTruncationDirectory;
     }
 
     public String getChannelCount()
