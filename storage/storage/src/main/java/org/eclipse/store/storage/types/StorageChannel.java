@@ -472,13 +472,7 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 					break;
 				}
 
-				// do a little house keeping, either after a new task or use time if no new task came in.
-				/* (29.07.2020 TM)FIXME: priv#361: An exception during housekeeping is fatal
-				 * it kills the channel thread and leaves the application thread forever waiting to be
-				 * notified.
-				 * This has to be covered by a similar mechanism as tasks are.
-				 * Or maybe some consolidation of that mechanism has to be done to cover house keeping as well.
-				 */
+				// do a little housekeeping, either after a new task or use time if no new task came in.
 				try
 				{
 					this.houseKeeping();
@@ -543,7 +537,7 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			catch(final Throwable t)
 			{
 				/*
-				 * Note that `t` could be an error or it could even be a checked exception thrown via
+				 * Note that `t` could be an error, or it could even be a checked exception thrown via
 				 * Proxy reflective tinkering or Unsafe mechanisms.
 				 * However, Throwable cannot be rethrown in Runnable#run() without cheating exception checking again.
 				 * Luckily, in this special case, reporting the cause and then dying "silently" is sufficient.
@@ -844,7 +838,7 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 	{
 		/**
 		 * Performs a housekeeping task with reference to a starting time of the current housekeeping cycle
-		 * (typically to make a best effort attempt to not exceed a certain time budget).
+		 * (typically to make the best effort attempt to not exceed a certain time budget).
 		 * Returns {@literal true} if the task was completed (e.g. currently no more work to dor)
 		 * or {@literal false} if the task execution had to be interrupted.
 		 *
