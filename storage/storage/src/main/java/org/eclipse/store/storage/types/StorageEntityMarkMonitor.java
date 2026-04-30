@@ -247,16 +247,28 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 
 		/*
 		 * Application-side iterator used to seed live object ids into the mark queue
-		 * before sweep. Registered after construction via registerLiveObjectIdsIterator().
+		 * around sweep boundaries. Constructor-injected, may be null in non-embedded
+		 * (e.g. test or REST viewer) scenarios where there is no application registry.
+		 *
+		 * Used by two complementary mechanisms:
+		 *  1. Pre-sweep gate in callToSweepRequired() - guards the very first sweep
+		 *     of a GC cycle so registry-only-kept entities are transitively marked
+		 *     before any sweep ever happens (covers cycle 0 where no prior post-sweep
+		 *     seed exists).
+		 *  2. Post-sweep seed in completeSweep() - re-establishes application-state
+		 *     mark roots after every sweep completion (both hot and cold) so the
+		 *     next mark cycle traverses everything reachable from app-held entities.
 		 */
 		private final LiveObjectIdsIterator liveObjectIdsIterator;
 
 		/*
 		 * Flag indicating whether live application OIDs have already been seeded
-		 * into the mark queue for the current GC cycle. Reset on resetCompletion().
-		 * This ensures that before the first sweep of each cycle, all registry-held
-		 * entities become mark roots so their transitive binary references are
-		 * walked and protected.
+		 * into the mark queue by the pre-sweep gate for the current GC cycle.
+		 * Reset on resetCompletion() (which is invoked on every store, arming the
+		 * gate again for the next cycle). This ensures the pre-sweep seed runs at
+		 * most once per cycle: the cold-phase pre-sweep skip is safe because the
+		 * post-sweep seed of the preceding hot phase already established the same
+		 * mark roots for the cold mark phase.
 		 */
 		private boolean liveOidsSeededForCurrentCycle;
 

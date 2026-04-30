@@ -346,6 +346,10 @@ The sweep-time role remains as defense in depth for the narrow race of an OID en
 
 ## 10. Implementation of mark-time registry seeding
 
+Application-state mark roots are seeded into the mark queues at **two** points around every sweep boundary. Together they ensure that an entity kept alive only by the registry safety net always has its transitive binary references walked **before** the next sweep decides what to delete.
+
+### 10.1. Post-sweep seed (primary, runs after every sweep)
+
 At the end of every sweep (`StorageEntityMarkMonitor.Default.completeSweep`), immediately after `determineAndEnqueueRootOid` seeds the persistent root, `enqueueLiveApplicationOids` pushes every currently-live registry OID into the mark queues:
 
 ```java
@@ -355,6 +359,46 @@ this.enqueueLiveApplicationOids(liveObjectIdsIterator);
 ```
 
 The iterator (`EmbeddedStorageObjectRegistryCallback.iterateLiveObjectIds`) walks the registry's `iterateEntries`, skips cleared `WeakReference`s (`instance != null`), and filters to data OIDs (`Persistence.IdType.OID.isInRange(objectId)`) so TIDs and CIDs are never fed to the mark queue and therefore never reach the zombie handler.
+
+This seed runs on **every** transition out of sweep — both `Dirty → HotComplete` and `HotComplete → ColdComplete` — so application-state roots are re-established for every subsequent mark cycle, not just the first one in a wave.
+
+### 10.2. Pre-sweep gate (defense in depth, runs at most once per GC cycle)
+
+`completeSweep` runs *after* a sweep has already executed. That means it cannot protect the very first sweep of a freshly-armed GC cycle, when no prior post-sweep seed exists yet (e.g. cycle 0 right after startup, or any cycle following a `resetCompletion()` triggered by a store).
+
+To close that gap, `callToSweepRequired` performs a **pre-sweep gate** the first time it observes `isMarkingComplete()` in a cycle:
+
+```java
+// StorageEntityMarkMonitor.Default#callToSweepRequired (simplified)
+if(!this.liveOidsSeededForCurrentCycle && this.liveObjectIdsIterator != null)
+{
+    this.liveOidsSeededForCurrentCycle = true;
+    this.enqueueLiveApplicationOids(this.liveObjectIdsIterator);
+
+    // If seeding raised pendingMarksCount, marking is no longer complete:
+    // tell the caller to keep marking before the sweep is initiated.
+    if(!this.isMarkingComplete())
+    {
+        return false;
+    }
+    // Otherwise (empty registry / all already marked) fall through to sweep.
+}
+```
+
+The `liveOidsSeededForCurrentCycle` flag makes this a *one-shot* gate per cycle: it is set to `true` here and cleared only by `resetCompletion()` (which runs on every store). That means:
+
+- The hot-phase pre-sweep does fire on cycle entry → registry-only-kept entities become mark roots before any sweep runs.
+- The cold-phase pre-sweep skips, because the post-hot-sweep seed (10.1) already established the same mark roots, and the subsequent cold mark phase has just drained them. Re-seeding here would only add work.
+
+The `resetMarkQueues()` invariant (which throws if any queue still has elements) is preserved: pre-sweep seeding either drains in the next mark slice (returning `false` here) or contributes zero new OIDs; only when the queues are empty does control reach `resetMarkQueues` + `initiateSweep`.
+
+### 10.3. Why both, and not just one
+
+| Boundary | Covered by | Reason the other isn't enough |
+|---|---|---|
+| First sweep of a cycle (cycle 0 or post-`resetCompletion`) | pre-sweep gate (10.2) | post-sweep seed has not run yet in this cycle |
+| Every subsequent cycle | post-sweep seed (10.1) | gate flag stays set until `resetCompletion`; without 10.1 the gate-skip path would mark roots from no-one |
+| Race: OID enters registry between mark and sweep of same cycle | sweep-time `ObjectIdsSelector` predicate (shallow safety net) | per-entity, evaluated at sweep time, no transitivity needed because the entity's binary was just stored or just loaded and is consistent |
 
 ### Interface layering
 
