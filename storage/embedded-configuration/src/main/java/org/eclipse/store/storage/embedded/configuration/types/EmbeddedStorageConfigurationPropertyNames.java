@@ -18,8 +18,13 @@ package org.eclipse.store.storage.embedded.configuration.types;
 import org.eclipse.serializer.configuration.types.ByteSize;
 
 /**
- * All supported properties for external configuration files.
- *
+ * Property name constants for all settings supported by external EclipseStore configuration files
+ * (e.g. {@code eclipsestore.properties} or the equivalent INI/XML format).
+ * <p>
+ * Each constant matches a setter in {@link EmbeddedStorageConfigurationBuilder}: when a configuration is
+ * loaded, the value of the property with the constant's name is forwarded to that setter. The constants are
+ * also used by {@link EmbeddedStorageFoundationCreatorConfigurationBased} to look the values up while
+ * assembling a {@link org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation}.
  */
 public interface EmbeddedStorageConfigurationPropertyNames
 {
@@ -28,6 +33,13 @@ public interface EmbeddedStorageConfigurationPropertyNames
 	 */
 	public final static String STORAGE_DIRECTORY             = "storage-directory";
 
+	/**
+	 * Configuration sub-tree selecting and configuring the file system to be used as the storage backend.
+	 * <p>
+	 * Used together with the optional {@code storage-filesystem.target} key to pick a specific
+	 * {@code AFileSystem} provider (e.g. NIO, S3, SQL); if no provider is configured, a NIO file system is
+	 * used by default.
+	 */
 	public final static String STORAGE_FILESYSTEM            = "storage-filesystem";
 
 	/**
@@ -45,6 +57,12 @@ public interface EmbeddedStorageConfigurationPropertyNames
 	 */
 	public final static String BACKUP_DIRECTORY              = "backup-directory";
 
+	/**
+	 * Configuration sub-tree selecting and configuring the file system to be used for the backup location.
+	 * <p>
+	 * Has the same shape as {@link #STORAGE_FILESYSTEM}. If the backup directory is configured but no backup
+	 * file system is specified, the storage file system is reused.
+	 */
 	public final static String BACKUP_FILESYSTEM             = "backup-filesystem";
 
 	/**
