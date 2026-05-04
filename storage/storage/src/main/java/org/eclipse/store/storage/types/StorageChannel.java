@@ -43,74 +43,289 @@ import org.eclipse.store.storage.types.StorageAdjacencyDataExporter.AdjacencyFil
 import org.slf4j.Logger;
 
 
+/**
+ * A single storage worker thread, responsible for a fixed slice (its {@code channelIndex}) of the
+ * total entity space.
+ * <p>
+ * The number of channels in a running storage is fixed at startup by the
+ * {@link StorageChannelCountProvider} and partitions every entity by its object id; each
+ * {@link StorageChannel} owns the data files, transaction log, entity cache and per-channel
+ * housekeeping cursor for its slice. Channels run in dedicated threads via {@link #run()} and
+ * cooperatively process tasks dispatched from a central task broker (stores, loads, garbage
+ * collection, file cleanup, etc.) while interleaving incremental housekeeping work in idle time.
+ * <p>
+ * This is a framework-internal coordination interface: applications normally interact with
+ * {@link StorageManager} / {@link StorageConnection} and never call methods on a channel directly.
+ * The interface is exposed in the public API package so that custom strategy types and tasks in the
+ * same package can refer to it.
+ *
+ * @see StorageChannelCountProvider
+ * @see StorageHousekeepingController
+ */
 public interface StorageChannel extends Runnable, StorageChannelResetablePart, StorageActivePart, Disposable
 {
+	/**
+	 * Returns the {@link StorageTypeDictionary} that this channel uses to interpret persisted
+	 * entities.
+	 *
+	 * @return the channel's {@link StorageTypeDictionary}.
+	 */
 	public StorageTypeDictionary typeDictionary();
 
+	/**
+	 * Collects the entities for the passed object ids that belong to this channel into a
+	 * {@link ChunksBuffer}, which is appended to {@code channelChunks} at this channel's slot.
+	 *
+	 * @param channelChunks the array of {@link ChunksBuffer}s, one per channel, into which the
+	 *                      collected data is written.
+	 * @param loadOids      the object ids to load; only the subset belonging to this channel is
+	 *                      processed.
+	 *
+	 * @return the {@link ChunksBuffer} this channel wrote into, completed.
+	 */
 	public ChunksBuffer collectLoadByOids(ChunksBuffer[] channelChunks, PersistenceIdSet loadOids);
 
+	/**
+	 * Collects all root entities owned by this channel into a {@link ChunksBuffer} appended to
+	 * {@code channelChunks}.
+	 *
+	 * @param channelChunks the array of {@link ChunksBuffer}s, one per channel.
+	 *
+	 * @return the {@link ChunksBuffer} this channel wrote into, completed.
+	 */
 	public ChunksBuffer collectLoadRoots(ChunksBuffer[] channelChunks);
 
+	/**
+	 * Collects every entity owned by this channel whose type-id is in {@code loadTids}, into a
+	 * {@link ChunksBuffer} appended to {@code channelChunks}.
+	 *
+	 * @param channelChunks the array of {@link ChunksBuffer}s, one per channel.
+	 * @param loadTids      the type ids to load; only entities with these type ids are collected.
+	 *
+	 * @return the {@link ChunksBuffer} this channel wrote into, completed.
+	 */
 	public ChunksBuffer collectLoadByTids(ChunksBuffer[] channelChunks, PersistenceIdSet loadTids);
 
+	/**
+	 * Writes the channel-local portion of a store chunk to disk and returns the buffers along with
+	 * their on-disk positions.
+	 * <p>
+	 * Must be paired with a subsequent {@link #commitChunkStorage()} or
+	 * {@link #rollbackChunkStorage()} call once all participating channels have finished writing,
+	 * to make the store atomically visible or to discard it.
+	 *
+	 * @param timestamp the store transaction timestamp shared across all channels.
+	 * @param chunkData the chunk data to write for this channel's slice.
+	 *
+	 * @return a key/value pair of the written buffers and their assigned on-disk storage positions.
+	 */
 	public KeyValue<ByteBuffer[], long[]> storeEntities(long timestamp, Chunk chunkData);
 
+	/**
+	 * Reverts the most recent {@link #storeEntities(long, Chunk) store} on this channel, discarding
+	 * any data that was written but not yet committed.
+	 */
 	public void rollbackChunkStorage();
 
+	/**
+	 * Commits the most recent {@link #storeEntities(long, Chunk) store} on this channel, making the
+	 * written data permanently visible.
+	 */
 	public void commitChunkStorage();
 
+	/**
+	 * Updates the live entity cache to reflect a freshly committed store, recording the new on-disk
+	 * positions of the passed chunks.
+	 *
+	 * @param chunks                 the buffers that were written.
+	 * @param chunksStoragePositions the on-disk positions returned by {@link #storeEntities}.
+	 *
+	 * @throws InterruptedException if the calling channel thread is interrupted while waiting for
+	 *                              the cache update slot.
+	 */
 	public void postStoreUpdateEntityCache(ByteBuffer[] chunks, long[] chunksStoragePositions)
 		throws InterruptedException;
 
+	/**
+	 * Reads this channel's data and transaction files from disk and returns a per-channel
+	 * {@link StorageInventory} describing them.
+	 *
+	 * @return the {@link StorageInventory} for this channel's files as currently present on disk.
+	 */
 	public StorageInventory readStorage();
 
+	/**
+	 * Issues a garbage-collection request to this channel with the passed time budget.
+	 * <p>
+	 * Returns {@code true} if the requested work could be completed within the budget,
+	 * {@code false} if the channel had to break off and the caller should re-issue the request.
+	 *
+	 * @param nanoTimeBudget the maximum amount of time, in nanoseconds, this channel is allowed to
+	 *                      spend on the GC step.
+	 *
+	 * @return whether the GC step completed within the budget.
+	 */
 	public boolean issuedGarbageCollection(long nanoTimeBudget);
 
+	/**
+	 * Issues a file-cleanup check to this channel with the passed time budget.
+	 *
+	 * @param nanoTimeBudget the maximum amount of time, in nanoseconds, this channel is allowed to
+	 *                       spend on the file-cleanup step.
+	 *
+	 * @return whether the file-cleanup step completed within the budget.
+	 */
 	public boolean issuedFileCleanupCheck(long nanoTimeBudget);
 
+	/**
+	 * Issues an entity-cache check to this channel with the passed time budget, using the passed
+	 * {@link StorageEntityCacheEvaluator} to decide which cached entities to evict.
+	 *
+	 * @param nanoTimeBudget  the maximum amount of time, in nanoseconds, this channel is allowed
+	 *                        to spend on the cache-check step.
+	 * @param entityEvaluator the eviction policy to apply for this issued check.
+	 *
+	 * @return whether the cache-check step completed within the budget.
+	 */
 	public boolean issuedEntityCacheCheck(long nanoTimeBudget, StorageEntityCacheEvaluator entityEvaluator);
 
+	/**
+	 * Issues a transactions-log cleanup pass to this channel.
+	 *
+	 * @return whether the cleanup pass completed; {@code true} if no further cleanup is currently
+	 *         required.
+	 */
 	public boolean issuedTransactionsLogCleanup();
-	
+
+	/**
+	 * Exports this channel's live data into the directory layout described by the passed
+	 * {@link StorageLiveFileProvider}, writing one set of files per channel slot.
+	 *
+	 * @param fileProvider the {@link StorageLiveFileProvider} to use as the export target layout.
+	 */
 	public void exportData(StorageLiveFileProvider fileProvider);
 
 	// (19.07.2014 TM)TODO: refactor storage typing to avoid classes in public API
+	/**
+	 * Prepares this channel to receive imported data by switching its file manager into import
+	 * mode and returning the entity cache that the importer will populate.
+	 *
+	 * @return the channel's entity cache, ready to receive imported entities.
+	 */
 	public StorageEntityCache.Default prepareImportData();
 
+	/**
+	 * Copies the data from the passed {@link StorageImportSource} into this channel's storage.
+	 *
+	 * @param importSource the source to read imported data from.
+	 */
 	public void importData(StorageImportSource importSource);
 
+	/**
+	 * Rolls back an in-progress {@link #importData(StorageImportSource) import}, restoring the
+	 * channel's state from before the import started.
+	 *
+	 * @param cause the throwable that triggered the rollback (used for diagnostic logging only).
+	 */
 	public void rollbackImportData(Throwable cause);
 
+	/**
+	 * Commits an in-progress {@link #importData(StorageImportSource) import}, making the imported
+	 * data visible under the passed transaction timestamp.
+	 *
+	 * @param taskTimestamp the timestamp that identifies the import transaction.
+	 */
 	public void commitImportData(long taskTimestamp);
 
+	/**
+	 * Exports every entity of the passed type owned by this channel into the passed file.
+	 *
+	 * @param type the type whose entities shall be exported.
+	 * @param file the target file to write the exported entities to.
+	 *
+	 * @return the number of bytes written and the number of entities exported, as a key/value pair.
+	 *
+	 * @throws IOException if writing to the target file fails.
+	 */
 	public KeyValue<Long, Long> exportTypeEntities(StorageEntityTypeHandler type, AWritableFile file)
 		throws IOException;
 
+	/**
+	 * Exports every entity of the passed type owned by this channel for which the passed predicate
+	 * returns {@code true}, into the passed file.
+	 *
+	 * @param type            the type whose entities shall be exported.
+	 * @param file            the target file to write the exported entities to.
+	 * @param predicateEntity an entity-level filter; only entities for which this predicate returns
+	 *                        {@code true} are exported.
+	 *
+	 * @return the number of bytes written and the number of entities exported, as a key/value pair.
+	 *
+	 * @throws IOException if writing to the target file fails.
+	 */
 	public KeyValue<Long, Long> exportTypeEntities(
 		StorageEntityTypeHandler         type           ,
 		AWritableFile                    file           ,
 		Predicate<? super StorageEntity> predicateEntity
 	) throws IOException;
 
+	/**
+	 * Builds the per-channel slice of the raw file statistics describing this channel's data files.
+	 *
+	 * @return a {@link StorageRawFileStatistics.ChannelStatistics} describing this channel's files.
+	 */
 	public StorageRawFileStatistics.ChannelStatistics createRawFileStatistics();
 
+	/**
+	 * Initializes this channel's storage from the passed inventory, replaying transaction logs and
+	 * computing a per-channel {@link StorageIdAnalysis}.
+	 *
+	 * @param taskTimestamp            the timestamp of the initialization task.
+	 * @param consistentStoreTimestamp the timestamp identifying the last fully-committed store.
+	 * @param storageInventory         the {@link StorageInventory} previously read by
+	 *                                 {@link #readStorage()}.
+	 *
+	 * @return the {@link StorageIdAnalysis} for this channel's slice.
+	 */
 	public StorageIdAnalysis initializeStorage(
 		long             taskTimestamp           ,
 		long             consistentStoreTimestamp,
 		StorageInventory storageInventory
 	);
 
+	/**
+	 * Signals to this channel that a complete GC sweep across all channels has finished, so that
+	 * the channel may restart its file-cleanup cursor and re-evaluate cleanup eligibility.
+	 */
 	public void signalGarbageCollectionSweepCompleted();
 
 //	public void truncateData();
 
+	/**
+	 * Clears any pending store state held by this channel after a store has been processed
+	 * (committed or rolled back).
+	 */
 	public void cleanupStore();
 
+	/**
+	 * Iterates this channel's data files and writes per-file adjacency-data exports into the
+	 * passed directory.
+	 *
+	 * @param exportDirectory the directory to write the adjacency-data files into.
+	 *
+	 * @return the {@link AdjacencyFiles} descriptor of the files this channel produced.
+	 */
 	public AdjacencyFiles collectAdjacencyData(Path exportDirectory);
 
 
 	
 
+	/**
+	 * Default {@link StorageChannel} implementation: the long-running worker that pulls tasks from a
+	 * shared {@link StorageTaskBroker} and interleaves housekeeping work in the gaps. The instance is
+	 * marked {@link Unpersistable} because its mutable runtime state is not safe to persist as a
+	 * regular entity.
+	 */
 	public final class Default implements StorageChannel, Unpersistable, StorageHousekeepingExecutor
 	{
 		private final static Logger logger = Logging.getLogger(StorageChannel.class);
@@ -833,6 +1048,14 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		}
 	}
 
+	/**
+	 * One discrete unit of incremental housekeeping work executed by a channel between application
+	 * tasks (file cleanup, garbage collection, entity-cache eviction, transaction-log cleanup).
+	 * <p>
+	 * Implementations consult the channel's current housekeeping budget and may defer work to a
+	 * future cycle by returning {@code false}, so that the channel keeps responsive to incoming
+	 * application tasks even when housekeeping is busy.
+	 */
 	@FunctionalInterface
 	public interface HousekeepingTask
 	{

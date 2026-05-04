@@ -23,6 +23,28 @@ import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.util.logging.Logging;
 import org.slf4j.Logger;
 
+/**
+ * Configures how much time each {@link StorageChannel} spends on incremental housekeeping work
+ * (garbage collection, file cleanup, entity-cache eviction, transaction-log cleanup) per
+ * housekeeping cycle.
+ * <p>
+ * A controller is built from two primary values: an interval in milliseconds at which housekeeping
+ * cycles are scheduled, and a per-cycle time budget in nanoseconds. The ratio of these two values
+ * determines, very roughly, the percentage of CPU time the storage spends on housekeeping: a 10ms
+ * budget per 1000ms interval is approximately 1% of one channel thread. The controller can also
+ * report individual budgets per task category so that, for example, garbage collection can run on
+ * a different budget than file cleanup.
+ * <p>
+ * In addition to the {@link #New() framework default} controller (constant interval and budget),
+ * this interface offers an {@link #Adaptive(long, long, long, StorageFoundation) adaptive} variant
+ * that wraps another controller and progressively increases the budgets while the garbage collector
+ * is unable to reach the sweeping phase, and shrinks them back to the wrapped values once GC
+ * completes. Use the {@link #AdaptiveBuilder(StorageFoundation) AdaptiveBuilder} for fluent
+ * configuration of the adaptive variant.
+ *
+ * @see Storage#HousekeepingController()
+ * @see StorageChannel
+ */
 public interface StorageHousekeepingController
 {
 	/**
@@ -52,6 +74,11 @@ public interface StorageHousekeepingController
 
 	
 	
+	/**
+	 * Static helpers exposing the lower bounds for {@link StorageHousekeepingController}
+	 * configuration values and a range-check that throws {@link IllegalArgumentException} on
+	 * violation.
+	 */
 	public interface Validation
 	{
 		public static long minimumHousekeepingIntervalMs()
@@ -158,13 +185,17 @@ public interface StorageHousekeepingController
 		);
 	}
 	
+	/**
+	 * Static factory for the framework default housekeeping interval and time budget used by
+	 * {@link StorageHousekeepingController#New()}.
+	 */
 	public interface Defaults
 	{
 		public static long defaultHousekeepingIntervalMs()
 		{
 			return 1_000; // ms
 		}
-		
+
 		public static long defaultHousekeepingTimeBudgetNs()
 		{
 			return 10_000_000; // ns
@@ -172,6 +203,11 @@ public interface StorageHousekeepingController
 	}
 
 
+	/**
+	 * Default {@link StorageHousekeepingController} implementation: returns the configured interval
+	 * and time budget verbatim, applying the same general budget to garbage collection, live check
+	 * and file check.
+	 */
 	public final class Default implements StorageHousekeepingController
 	{
 		///////////////////////////////////////////////////////////////////////////
@@ -548,8 +584,21 @@ public interface StorageHousekeepingController
 	}
 	
 	
+	/**
+	 * Adaptive {@link StorageHousekeepingController} that wraps a base controller and progressively
+	 * increases its time budgets while the garbage collector is making forward progress but has not
+	 * yet reached a sweeping phase. The increases are capped at a configurable maximum and reset
+	 * back to the base values once the GC reports completion or no work needed.
+	 * <p>
+	 * The instance also implements {@link StorageEventLogger}: it must be registered as an event
+	 * logger on the foundation so that GC-completion events drive the reset back to base budgets.
+	 */
 	public final class Adaptive implements StorageHousekeepingController, StorageEventLogger
 	{
+		/**
+		 * Defaults for the {@link Adaptive} controller's tuning parameters: how often to step up the
+		 * budgets, by how much per step, and the upper limit they will not exceed.
+		 */
 		public interface Defaults
 		{
 			public static long defaultAdaptiveHousekeepingIncreaseThresholdMs()

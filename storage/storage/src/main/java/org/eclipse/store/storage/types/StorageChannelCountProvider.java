@@ -20,14 +20,35 @@ import org.eclipse.serializer.math.XMath;
 import org.eclipse.serializer.persistence.binary.types.BinaryChannelCountProvider;
 
 
+/**
+ * Supplies the constant number of {@link StorageChannel}s an embedded storage runs with.
+ * <p>
+ * The channel count is fixed at storage startup and partitions the entity space by object id.
+ * Because the partitioning uses bitwise modulo, the count must be a power of two; valid values are
+ * {@code 1, 2, 4, 8, ..., 1024}, where the upper bound is a soft safety net rather than a
+ * technical limit. Use {@link Validation#validateParameters(int)} to enforce the constraints
+ * yourself or {@link #New(int)}, which validates internally.
+ *
+ * @see Storage#ChannelCountProvider()
+ * @see StorageChannel
+ */
 @FunctionalInterface
 public interface StorageChannelCountProvider extends BinaryChannelCountProvider
 {
+	/**
+	 * Returns the number of channels the storage shall run with.
+	 *
+	 * @return the channel count; always a power of two between
+	 *         {@link Validation#minimumChannelCount()} and {@link Validation#maximumChannelCount()}.
+	 */
 	@Override
 	public int getChannelCount();
 
 
 
+	/**
+	 * Static factory exposing the framework default channel count used by {@link #New()}.
+	 */
 	public interface Defaults
 	{
 		public static int defaultChannelCount()
@@ -37,6 +58,10 @@ public interface StorageChannelCountProvider extends BinaryChannelCountProvider
 		}
 	}
 
+	/**
+	 * Static helpers exposing the lower and upper bounds for the channel count and a range/power-of-two
+	 * check that throws {@link IllegalArgumentException} on violation.
+	 */
 	public interface Validation
 	{
 		/**
@@ -107,6 +132,16 @@ public interface StorageChannelCountProvider extends BinaryChannelCountProvider
 		}
 	}
 
+	/**
+	 * Validates the passed channel count via {@link Validation#validateParameters(int)} and returns
+	 * it on success, for use as a fluent guard.
+	 *
+	 * @param channelCount the channel count to validate.
+	 *
+	 * @return the same {@code channelCount} if valid.
+	 *
+	 * @throws IllegalArgumentException if the channel count is out of range or not a power of two.
+	 */
 	public static int validateChannelCount(final int channelCount) throws IllegalArgumentException
 	{
 		Validation.validateParameters(channelCount);
@@ -169,6 +204,10 @@ public interface StorageChannelCountProvider extends BinaryChannelCountProvider
 		return new StorageChannelCountProvider.Default(channelCount);
 	}
 
+	/**
+	 * Default {@link StorageChannelCountProvider} implementation: a simple value holder that returns
+	 * the channel count it was constructed with.
+	 */
 	public final class Default implements StorageChannelCountProvider
 	{
 		///////////////////////////////////////////////////////////////////////////
