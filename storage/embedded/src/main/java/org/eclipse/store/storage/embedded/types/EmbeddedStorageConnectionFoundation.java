@@ -32,40 +32,173 @@ import org.eclipse.store.storage.types.StorageRequestAcceptor;
 import org.eclipse.store.storage.types.StorageSystem;
 import org.eclipse.store.storage.types.StorageWriteController;
 
+/**
+ * Foundation for the persistence-side parts of an embedded storage setup.
+ * <p>
+ * Where {@link EmbeddedStorageFoundation} assembles the storage layer (channels, files, threads, GC),
+ * this foundation assembles everything that lives on the persistence layer: the
+ * {@link PersistenceManager}, its type handler manager and type
+ * dictionary, the binary {@link org.eclipse.serializer.persistence.types.PersistenceSource}/
+ * {@link org.eclipse.serializer.persistence.types.PersistenceTarget} pair connecting it to the storage,
+ * and the live storer/object-registry plumbing required for garbage collection and roots handling.
+ * <p>
+ * The resulting {@link StorageConnection} created via {@link #createStorageConnection()} ties both layers
+ * together so that the calling application can simply load and store object graphs.
+ * <p>
+ * Like {@link EmbeddedStorageFoundation}, this type follows the foundation pattern: every {@code set~} method
+ * is a plain setter returning {@literal this} for chaining, and every {@code get~} method either returns the
+ * currently set value or lazily creates a default one on first access.
+ *
+ * @param <F> the "self-type" of the concrete {@link EmbeddedStorageConnectionFoundation} implementation.
+ *
+ * @see EmbeddedStorageFoundation
+ * @see BinaryPersistenceFoundation
+ */
 public interface EmbeddedStorageConnectionFoundation<F extends EmbeddedStorageConnectionFoundation<?>>
 extends BinaryPersistenceFoundation<F>
 {
+	/**
+	 * Returns the {@link Supplier} currently set as a callback for lazily obtaining a {@link StorageSystem}.
+	 * <p>
+	 * Used during foundation assembly to break a circular dependency: the embedded storage foundation
+	 * registers a supplier that, when first called, creates the {@link StorageSystem}. Returns {@code null}
+	 * if no supplier has been set.
+	 *
+	 * @return the currently set {@link StorageSystem} supplier, or {@code null} if none has been set.
+	 */
 	// intentionally no "get" prefix since this is a pure pseudo-property getter and not an action.
 	public Supplier<? extends StorageSystem> storageSystemSupplier();
-	
+
+	/**
+	 * Returns the {@link StorageSystem} associated with this foundation, lazily creating it via the configured
+	 * {@link #storageSystemSupplier() storage system supplier} on first access.
+	 *
+	 * @return the {@link StorageSystem} to be used.
+	 *
+	 * @throws MissingFoundationPartException if no instance is set and none can be created via a supplier.
+	 */
 	public StorageSystem getStorageSystem();
 
+	/**
+	 * Returns the currently set {@link StorageWriteController} without creating a default if none is set.
+	 *
+	 * @return the currently set {@link StorageWriteController}, or {@code null} if none has been set.
+	 *
+	 * @see #getWriteController()
+	 */
 	public StorageWriteController writeController();
-	
+
+	/**
+	 * Returns the {@link StorageWriteController} to be used, lazily creating a default one (derived from the
+	 * storage's file system) if none has been set.
+	 *
+	 * @return the {@link StorageWriteController} to be used.
+	 */
 	public StorageWriteController getWriteController();
-	
+
+	/**
+	 * Returns the {@link EmbeddedStorageObjectRegistryCallback} bridging the storage's GC to the persistence
+	 * layer's object registry, lazily creating a default one if none has been set.
+	 *
+	 * @return the {@link EmbeddedStorageObjectRegistryCallback} to be used.
+	 */
 	public EmbeddedStorageObjectRegistryCallback getObjectRegistryCallback();
 
+	/**
+	 * Returns the {@link Reference} that holds the {@link PersistenceLiveStorerRegistry} of the currently
+	 * active storage connection. The reference is shared with the storage layer (for GC sweep coordination)
+	 * and updated whenever a new persistence manager is created.
+	 *
+	 * @return the shared {@link PersistenceLiveStorerRegistry} reference.
+	 */
 	public Reference<PersistenceLiveStorerRegistry> getLiveStorerRegistryReference();
 
+	/**
+	 * Returns the {@link PersistenceLiveStorerRegistry} used to track currently active storers, lazily
+	 * creating a default one if none has been set.
+	 *
+	 * @return the {@link PersistenceLiveStorerRegistry} to be used.
+	 */
 	public PersistenceLiveStorerRegistry getLiveStorerRegistry();
 
+	/**
+	 * Sets the {@link StorageSystem} to be used and returns {@literal this} for chaining.
+	 * Setting the storage system explicitly bypasses the lazy creation through
+	 * {@link #storageSystemSupplier()}.
+	 *
+	 * @param storageSystem the {@link StorageSystem} instance to be used.
+	 *
+	 * @return {@literal this} to allow method chaining.
+	 */
 	public F setStorageSystem(StorageSystem storageSystem);
-	
+
+	/**
+	 * Sets the {@link Supplier} used to lazily create the {@link StorageSystem} when it is first requested.
+	 *
+	 * @param storageSystemSupplier the supplier to be used.
+	 *
+	 * @return {@literal this} to allow method chaining.
+	 */
 	public F setStorageSystemSupplier(Supplier<? extends StorageSystem> storageSystemSupplier);
-	
+
+	/**
+	 * Sets the {@link StorageWriteController} that gates write requests from the persistence layer.
+	 *
+	 * @param writeController the {@link StorageWriteController} to be used.
+	 *
+	 * @return {@literal this} to allow method chaining.
+	 */
 	public F setWriteController(StorageWriteController writeController);
-	
+
+	/**
+	 * Sets the {@link EmbeddedStorageObjectRegistryCallback} that bridges the storage GC to the persistence
+	 * object registry.
+	 *
+	 * @param objectRegistryCallback the {@link EmbeddedStorageObjectRegistryCallback} to be used.
+	 *
+	 * @return {@literal this} to allow method chaining.
+	 */
 	public F setObjectRegistryCallback(EmbeddedStorageObjectRegistryCallback objectRegistryCallback);
 
+	/**
+	 * Sets the shared {@link Reference} holding the active {@link PersistenceLiveStorerRegistry}. This
+	 * reference is shared with the storage layer so that both sides observe the same registry instance.
+	 *
+	 * @param storerRegistryReference the reference to be used.
+	 *
+	 * @return {@literal this} to allow method chaining.
+	 */
 	public F setLiveStorerRegistryReference(Reference<PersistenceLiveStorerRegistry> storerRegistryReference);
 
+	/**
+	 * Sets the {@link PersistenceLiveStorerRegistry} used to track currently active storers.
+	 *
+	 * @param liveLiveStorerRegistry the registry to be used.
+	 *
+	 * @return {@literal this} to allow method chaining.
+	 */
 	public F setLiveStorerRegistry(PersistenceLiveStorerRegistry liveLiveStorerRegistry);
-	
+
+	/**
+	 * Creates a new {@link StorageConnection} that ties a freshly built persistence manager to the storage's
+	 * request acceptor.
+	 * <p>
+	 * Each call returns a separate connection. Most embedded usages share a single connection internally; an
+	 * application typically does not need to create more than one. Note that using more than one connection
+	 * in parallel can introduce GC consistency issues as documented on the implementation.
+	 *
+	 * @return a new {@link StorageConnection} instance.
+	 */
 	public StorageConnection createStorageConnection();
 
 
-	
+
+	/**
+	 * Pseudo-constructor method to create a new {@link EmbeddedStorageConnectionFoundation} instance with the
+	 * default implementation.
+	 *
+	 * @return a new {@link EmbeddedStorageConnectionFoundation} instance.
+	 */
 	public static EmbeddedStorageConnectionFoundation<?> New()
 	{
 		return new EmbeddedStorageConnectionFoundation.Default<>();
