@@ -35,6 +35,10 @@ import org.eclipse.store.storage.types.StorageConfiguration;
  */
 public class MainUtilStorageConverter
 {
+	/**
+	 * Help text printed to standard output when the program is invoked with insufficient or unreadable
+	 * arguments.
+	 */
 	public static String HELP =
 		"Convert a storage into a new one. The source and the new target storage \n"
 		+ "must be specified in storage config files provided as program arguments: \n"
@@ -47,7 +51,21 @@ public class MainUtilStorageConverter
 		+ "It is import to have the \"-c\" inside the quotation marks, "
 		+ "the converters must be specified using the full class name"
 		;
-					
+
+	/**
+	 * Command-line entry point of the storage converter utility.
+	 * <p>
+	 * Expected arguments (in order):
+	 * <ol>
+	 *   <li>path to the source storage configuration file (INI/XML/properties),</li>
+	 *   <li>path to the target storage configuration file,</li>
+	 *   <li>optional {@code -c} switch followed by one or more fully qualified
+	 *       {@link BinaryConverter} class names that should be applied during conversion.</li>
+	 * </ol>
+	 * On invalid arguments, {@link #HELP} is printed and the JVM is terminated with a non-zero exit code.
+	 *
+	 * @param args the command-line arguments.
+	 */
 	public static void main(final String[] args)
 	{
 		verifyArguments(args);

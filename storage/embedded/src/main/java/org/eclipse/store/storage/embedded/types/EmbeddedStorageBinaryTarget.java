@@ -22,13 +22,47 @@ import org.eclipse.serializer.persistence.types.PersistenceTarget;
 import org.eclipse.store.storage.types.StorageRequestAcceptor;
 import org.eclipse.store.storage.types.StorageWriteController;
 
+/**
+ * {@link PersistenceTarget} specialization that hands persisted binary data over to an embedded storage
+ * instance.
+ * <p>
+ * The target acts as the write side of the bridge between the persistence layer and the storage threads:
+ * each call to {@link #write(Binary)} is first checked against a {@link StorageWriteController} (which can,
+ * for example, deny writes during a read-only phase or backup) and then forwarded to a
+ * {@link StorageRequestAcceptor} that dispatches the data to the storage channels for persistence.
+ *
+ * @see EmbeddedStorageBinarySource
+ * @see PersistenceTarget
+ */
 public interface EmbeddedStorageBinaryTarget extends PersistenceTarget<Binary>
 {
+	/**
+	 * Persists the passed binary data.
+	 * <p>
+	 * The implementation first validates that writing is currently permitted via the associated
+	 * {@link StorageWriteController}, then forwards the data to the underlying storage threads.
+	 *
+	 * @param data the binary chunk to be stored.
+	 *
+	 * @throws PersistenceExceptionTransfer if writing is currently not permitted or if the underlying
+	 *         storage layer fails to persist the data.
+	 */
 	@Override
 	public void write(Binary data) throws PersistenceExceptionTransfer;
 
 
-	
+
+	/**
+	 * Pseudo-constructor method to create a new {@link EmbeddedStorageBinaryTarget} instance.
+	 *
+	 * @param requestAcceptor the {@link StorageRequestAcceptor} used to dispatch store requests to the
+	 *        storage threads. May not be {@code null}.
+	 *
+	 * @param writeController the {@link StorageWriteController} used to gate write requests. May not be
+	 *        {@code null}.
+	 *
+	 * @return a new {@link EmbeddedStorageBinaryTarget} instance.
+	 */
 	public static EmbeddedStorageBinaryTarget New(
 		final StorageRequestAcceptor requestAcceptor,
 		final StorageWriteController writeController
@@ -40,6 +74,11 @@ public interface EmbeddedStorageBinaryTarget extends PersistenceTarget<Binary>
 		);
 	}
 
+	/**
+	 * Default implementation of {@link EmbeddedStorageBinaryTarget} that consults its
+	 * {@link StorageWriteController} on every write and delegates the actual persistence work to a
+	 * {@link StorageRequestAcceptor}.
+	 */
 	public final class Default implements EmbeddedStorageBinaryTarget
 	{
 		///////////////////////////////////////////////////////////////////////////

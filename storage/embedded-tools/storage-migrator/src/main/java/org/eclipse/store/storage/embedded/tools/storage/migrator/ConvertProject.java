@@ -35,6 +35,20 @@ import java.util.Map;
 import static org.eclipse.serializer.util.X.coalesce;
 
 
+/**
+ * OpenRewrite recipe that migrates a project from MicroStream to EclipseStore.
+ * <p>
+ * The recipe combines several sub-recipes driven by {@link DependencyMappings} and {@link PackageMappings}:
+ * if an EclipseStore version is given (either via the {@code eclipseStoreVersion} option or the system
+ * property of the same name), it adds the new {@code org.eclipse.serializer:serializer} dependency,
+ * rewrites every known {@code groupId:artifactId} pair from MicroStream to its EclipseStore counterpart,
+ * and renames every known package; the legacy {@code one.microstream.X} class is renamed individually as a
+ * special case. If a relative path to a {@code PersistenceTypeDictionary.ptd} file is given (option or
+ * system property {@code typeDictionaryRelativeFilePath}), an {@link UpdateTypeDictionary} sub-recipe is
+ * added that rewrites the type names inside the dictionary file accordingly.
+ * <p>
+ * Sub-recipes are conditionally added: omitting both options yields an empty recipe.
+ */
 @EqualsAndHashCode(callSuper = false)
 public class ConvertProject extends Recipe
 {

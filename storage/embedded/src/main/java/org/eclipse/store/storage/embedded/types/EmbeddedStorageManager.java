@@ -65,19 +65,66 @@ import org.slf4j.Logger;
 
 
 /**
- * {@link StorageManager} sub type for usage as an embedded storage solution.<p>
+ * {@link StorageManager} sub type for usage as an embedded storage solution.
+ * <p>
  * "Embedded" is meant in the context that a database is managed in the same process that uses this database,
  * as opposed to the database being managed by a different process that the using process connects to via network
  * communication. That would be a "remote" or "standalone" storage process.
+ * <p>
+ * Compared to a generic {@link StorageManager}, an {@code EmbeddedStorageManager} additionally takes care of
+ * <ul>
+ *   <li>resolving and synchronizing the persistent root graph with the application-side root state on
+ *       {@link #start()},</li>
+ *   <li>controlling the lifecycle of the global {@link org.eclipse.serializer.reference.LazyReferenceManager}
+ *       so that lazy references can be resolved transparently while the storage is running,</li>
+ *   <li>linking back the persistence and storage layers (object registry, type dictionary, monitoring) so
+ *       that a single instance is sufficient to operate the database from application code.</li>
+ * </ul>
+ * <p>
+ * Instances are typically obtained through {@link EmbeddedStorage} or {@link EmbeddedStorageFoundation} rather
+ * than constructed directly.
  *
+ * @see EmbeddedStorage
+ * @see EmbeddedStorageFoundation
  */
 public interface EmbeddedStorageManager extends StorageManager
 {
+	/**
+	 * Starts the embedded storage and returns this instance.
+	 * <p>
+	 * On the first invocation, the storage backend is brought up, the persistent root graph is loaded
+	 * (or initialized for an empty database) and synchronized with the application-side roots, and the
+	 * {@link org.eclipse.serializer.reference.LazyReferenceManager} is enlisted with this manager as one of
+	 * its controllers. If startup fails, every part started so far is rolled back before the original error
+	 * is re-thrown.
+	 *
+	 * @return this manager, allowing fluent chaining.
+	 */
 	@Override
 	public EmbeddedStorageManager start();
 
-	
-	
+
+	/**
+	 * Pseudo-constructor method to create a new {@link EmbeddedStorageManager} default instance.
+	 * <p>
+	 * The returned manager is not started yet. Use {@link #start()} or one of the convenience entry points on
+	 * {@link EmbeddedStorage}/{@link EmbeddedStorageFoundation} to start it.
+	 *
+	 * @param database             the {@link Database} this manager belongs to. Must not be {@code null}.
+	 *
+	 * @param configuration        the active {@link StorageConfiguration}. Must not be {@code null}.
+	 *
+	 * @param connectionFoundation the {@link EmbeddedStorageConnectionFoundation} used to create new
+	 *        connections to the storage. Must not be {@code null}.
+	 *
+	 * @param rootsProvider        the {@link PersistenceRootsProvider} that provides the application-defined
+	 *        persistent roots. Must not be {@code null}.
+	 *
+	 * @param monitorManager       the {@link MonitoringManager} that receives this manager's monitoring
+	 *        registrations.
+	 *
+	 * @return a new {@link EmbeddedStorageManager.Default} instance.
+	 */
 	public static EmbeddedStorageManager.Default New(
 		final Database                               database            ,
 		final StorageConfiguration                   configuration       ,

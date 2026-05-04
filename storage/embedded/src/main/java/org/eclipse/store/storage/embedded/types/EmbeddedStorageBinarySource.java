@@ -23,17 +23,57 @@ import org.eclipse.serializer.persistence.types.PersistenceSource;
 import org.eclipse.store.storage.types.StorageRequestAcceptor;
 
 
+/**
+ * {@link PersistenceSource} specialization that supplies persisted binary data from an embedded storage instance
+ * to the persistence layer.
+ * <p>
+ * The source acts as the read side of the bridge between the persistence layer and the storage threads:
+ * it forwards every read request to a {@link StorageRequestAcceptor}, which dispatches the request to the
+ * storage channels and returns the resulting binary chunks to the calling persistence loader.
+ *
+ * @see EmbeddedStorageBinaryTarget
+ * @see PersistenceSource
+ */
 public interface EmbeddedStorageBinarySource extends PersistenceSource<Binary>
 {
+	/**
+	 * Reads the data of all root entities from the storage.
+	 * <p>
+	 * Used during startup to recall the persistent root graph; subsequent reachable entities are then
+	 * loaded on demand via {@link #readByObjectIds(PersistenceIdSet[])}.
+	 *
+	 * @return the binary chunks containing the root entities' data.
+	 *
+	 * @throws PersistenceExceptionTransfer if the read request could not be completed (e.g. due to thread
+	 *         interruption or an underlying storage error).
+	 */
 	@Override
 	public XGettingCollection<? extends Binary> read() throws PersistenceExceptionTransfer;
 
+	/**
+	 * Reads the data of the entities identified by the passed object ids.
+	 * <p>
+	 * The passed array is indexed by storage channel: each {@link PersistenceIdSet} contains the object ids
+	 * to be loaded by the channel of the same index.
+	 *
+	 * @param oids the channel-partitioned object ids to load.
+	 *
+	 * @return the binary chunks containing the requested entities' data.
+	 *
+	 * @throws PersistenceExceptionTransfer if the read request could not be completed (e.g. due to thread
+	 *         interruption or an underlying storage error).
+	 */
 	@Override
 	public XGettingCollection<? extends Binary> readByObjectIds(PersistenceIdSet[] oids)
 		throws PersistenceExceptionTransfer;
 
 
 
+	/**
+	 * Default implementation of {@link EmbeddedStorageBinarySource} that delegates each read request to a
+	 * {@link StorageRequestAcceptor} and translates any thrown {@link InterruptedException} into a
+	 * {@link PersistenceExceptionTransfer}.
+	 */
 	public final class Default implements EmbeddedStorageBinarySource
 	{
 		///////////////////////////////////////////////////////////////////////////

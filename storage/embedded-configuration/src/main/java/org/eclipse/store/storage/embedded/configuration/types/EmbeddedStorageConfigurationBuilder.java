@@ -172,8 +172,22 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 	 */
 	public EmbeddedStorageConfigurationBuilder setTypeDictionaryFileName(String typeDictionaryFileName);
 
+	/**
+	 * Suffix used to mark storage files that have been rescued during recovery from a corrupt state, instead
+	 * of being deleted. Default is <code>"bak"</code>.
+	 *
+	 * @param rescuedFileSuffix new suffix
+	 * @return this
+	 */
 	public EmbeddedStorageConfigurationBuilder setRescuedFileSuffix(String rescuedFileSuffix);
 
+	/**
+	 * Name of the storage lock file used to prevent concurrent access to the storage directory by multiple
+	 * processes. Default is <code>"used.lock"</code>.
+	 *
+	 * @param lockFileName new name
+	 * @return this
+	 */
 	public EmbeddedStorageConfigurationBuilder setLockFileName(String lockFileName);
 
 	/**
@@ -364,6 +378,11 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 	}
 
 
+	/**
+	 * Default implementation of {@link EmbeddedStorageConfigurationBuilder} that wraps a generic
+	 * {@link Configuration.Builder} and translates each typed setter into a corresponding
+	 * {@link EmbeddedStorageConfigurationPropertyNames property name}/value pair on the delegate.
+	 */
 	public static class Default implements EmbeddedStorageConfigurationBuilder, EmbeddedStorageConfigurationPropertyNames
 	{
 		private final Configuration.Builder delegate;
