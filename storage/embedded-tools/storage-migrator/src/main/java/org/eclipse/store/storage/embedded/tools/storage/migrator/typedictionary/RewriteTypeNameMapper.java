@@ -20,10 +20,25 @@ import org.eclipse.serializer.persistence.types.PersistenceTypeNameMapper;
 import org.eclipse.store.storage.embedded.tools.storage.migrator.mappings.PackageMappings;
 
 
+/**
+ * {@link PersistenceTypeNameMapper} that rewrites MicroStream package names to their EclipseStore
+ * equivalents using {@link PackageMappings}, while delegating any other lookup to a wrapped default mapper.
+ * <p>
+ * For each class or interface name encountered, the mapper looks up the package portion in
+ * {@link PackageMappings#newPackage(String)}; if a mapping exists, the simple name is recombined with the
+ * new package, otherwise the call is forwarded unchanged to the wrapped default mapper. This makes the
+ * existing type dictionary parser apply the same package renames as the source-code recipe.
+ */
 public class RewriteTypeNameMapper implements PersistenceTypeNameMapper
 {
 	private final PersistenceTypeNameMapper defaultMapper;
-	
+
+	/**
+	 * Creates a new {@link RewriteTypeNameMapper} that falls back to the supplied default mapper for type
+	 * names whose package is not covered by {@link PackageMappings}.
+	 *
+	 * @param defaultMapper the underlying mapper to delegate to for unmapped names.
+	 */
 	public RewriteTypeNameMapper(final PersistenceTypeNameMapper defaultMapper)
 	{
 		super();

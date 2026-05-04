@@ -33,16 +33,30 @@ import org.eclipse.serializer.reflect.ClassLoaderProvider;
 import org.eclipse.serializer.util.logging.Logging;
 import org.slf4j.Logger;
 
+/**
+ * In-memory representation of the source storage's persistence type dictionary as used by the
+ * {@link StorageConverter}.
+ * <p>
+ * The class parses an existing type dictionary, exposes its entries to {@link BinaryConverter}s for matching,
+ * and lets converters allocate fresh type ids and append new {@link PersistenceTypeDefinition}s for the
+ * converted binary formats. {@link #toString()} re-assembles the (possibly extended) dictionary back into the
+ * textual form expected by the target storage.
+ */
 public class ConverterTypeDictionary
 {
 	private final static Logger logger = Logging.getLogger(BinaryConverter.class);
 	private static PersistenceTypeDefinitionCreator typeDefinitionCreator;
 	private static PersistenceTypeDictionaryAssembler persistenceTypeDictionaryAssembler;
-	
+
 	private final BulkList<PersistenceTypeDescription> dictionaryEntries;
 	private long maxTypeId;
 
-	
+
+	/**
+	 * Parses the supplied textual type dictionary and seeds the running maximum type id from it.
+	 *
+	 * @param sourceTypeDictionary the source storage's persistence type dictionary as a string.
+	 */
 	public ConverterTypeDictionary(final String sourceTypeDictionary)
 	{
 		Default parser = PersistenceTypeDictionaryParser.New(
@@ -57,16 +71,42 @@ public class ConverterTypeDictionary
 		this.maxTypeId = this.initMaxTypeID();
 	}
 	
+	/**
+	 * Returns the live, mutable list of dictionary entries. Converters use this list to look up source type
+	 * descriptions and may append new {@link PersistenceTypeDefinition}s via {@link #add(PersistenceTypeDefinition)}.
+	 *
+	 * @return the dictionary entries.
+	 */
 	public BulkList<PersistenceTypeDescription> entries()
 	{
 		return this.dictionaryEntries;
 	}
-	
+
+	/**
+	 * Allocates a fresh type id by incrementing the running maximum type id and returning the new value.
+	 *
+	 * @return a previously unused type id.
+	 */
 	public long incrementAndGetMaxTypeID()
 	{
 		return ++this.maxTypeId;
 	}
-	
+
+	/**
+	 * Creates a new {@link PersistenceTypeDefinition} for the given class with the supplied member layout.
+	 * <p>
+	 * The created definition is not automatically added to the dictionary; converters typically pass it back
+	 * via {@link BinaryConverter#getTypeDefinition()} so that {@link BinaryConverterSelector} can decide
+	 * whether to register it.
+	 *
+	 * @param newTypeId             the type id to assign to the new definition; must not be {@code 0}.
+	 * @param clazz                 the fully qualified class name the definition stands for.
+	 * @param typeDefinitionMembers the members making up the new binary layout, in declaration order.
+	 *
+	 * @return the newly assembled {@link PersistenceTypeDefinition}.
+	 *
+	 * @throws RuntimeException if {@code newTypeId} is {@code 0}.
+	 */
 	public PersistenceTypeDefinition createTypeDictionaryEntry(
 		final long newTypeId,
 		final String clazz,
@@ -106,11 +146,22 @@ public class ConverterTypeDictionary
 		return maxId;
 	}
 
+	/**
+	 * Appends the given {@link PersistenceTypeDefinition} to the dictionary entries so that subsequent calls
+	 * to {@link #toString()} include it in the assembled output.
+	 *
+	 * @param typeDefinition the definition to append.
+	 */
 	public void add(final PersistenceTypeDefinition typeDefinition)
 	{
 		this.entries().add(typeDefinition);
 	}
 
+	/**
+	 * Assembles the current dictionary entries back into the textual form expected by the storage layer.
+	 *
+	 * @return the assembled type dictionary string.
+	 */
 	@Override
 	public String toString()
 	{
