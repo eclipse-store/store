@@ -109,7 +109,13 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 		{
 			final long timeBudgetBound = System.currentTimeMillis() + timeoutMs;
 			final long waitInterval    = timeoutMs / 16;
-			
+
+			final Item itemToBeProcessed;
+
+			// queue lock is a leaf: only structural mutation happens here. Processing and the
+			// file-monitor work in unregisterUsageClosing must run outside it, otherwise the
+			// queue lock and a StorageLiveFile monitor can be acquired in opposite orders by
+			// the housekeeping channel and the backup handler, causing a deadlock.
 			synchronized(this.head)
 			{
 				while(this.head.next == null)
@@ -118,30 +124,30 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 					{
 						return true;
 					}
-					
+
 					if(System.currentTimeMillis() >= timeBudgetBound)
 					{
 						return false;
 					}
-					
+
 					this.head.wait(waitInterval);
 				}
-				
-				final Item itemToBeProcessed = this.head.next;
-				
-				itemToBeProcessed.processBy(handler);
-				
-				// the backup thread can be the last active part of an already shutdown storage, so it has to clean up.
-				itemToBeProcessed.sourceFile.unregisterUsageClosing(this, null);
-				
+
+				itemToBeProcessed = this.head.next;
+
 				if((this.head.next = itemToBeProcessed.next) == null)
 				{
 					// queue has been processed completely, reset to initial state of appending directly to the head.
 					this.tail = this.head;
 				}
-				
-				return true;
 			}
+
+			itemToBeProcessed.processBy(handler);
+
+			// the backup thread can be the last active part of an already shutdown storage, so it has to clean up.
+			itemToBeProcessed.sourceFile.unregisterUsageClosing(this, null);
+
+			return true;
 		}
 		
 		static class Item
