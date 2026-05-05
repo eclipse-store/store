@@ -233,3 +233,7 @@ BitmapIndices<Person> bitmapIndices = gigaMap.index().bitmap();
 IndexerString<Person> firstNameIndex = bitmapIndices.getStringIndex("firstName");
 // ...
 ----
+
+== Persistence
+
+Indexer instances are part of the GigaMap's persistent object graph: when storage is reopened, each registered indexer is restored alongside its bitmap data and remains attached. Plain field-accessor indexers — the common case — need no special treatment. If a custom indexer holds non-configuration state such as a cache, a derived equator, or a service handle, mark those fields `transient` and reinitialize them lazily on first use, the same way xref:../jvector/index.adoc#_computed_vectorizers_and_lazy_initialization[computed vectorizers] handle their embedding models.

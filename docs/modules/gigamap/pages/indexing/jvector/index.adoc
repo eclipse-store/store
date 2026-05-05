@@ -238,6 +238,51 @@ try (EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
 }
 ----
 
+== Computed Vectorizers and Lazy Initialization
+
+A vectorizer instance is part of the GigaMap's persistent object graph: when storage is reopened, the vectorizer is restored alongside the index data and reused — its fields are loaded back exactly as they were when the GigaMap was last stored.
+
+For computed vectorizers — those that derive embeddings on the fly, e.g. by calling an embedding model over HTTP — this means any heavy field on the vectorizer (HTTP clients, embedding-model handles, tokenizers) would otherwise be serialized along with the cheap configuration. Mark heavy fields `transient` and create them on first use; persist only the cheap configuration that identifies which model or endpoint to talk to.
+
+[source, java]
+----
+public class MyVectorizer extends Vectorizer<Entity>
+{
+    private final String baseUrl ;
+    private final String modelName;
+
+    private transient EmbeddingModel embeddingModel;
+
+    public MyVectorizer(final String baseUrl, final String modelName)
+    {
+        this.baseUrl   = baseUrl  ;
+        this.modelName = modelName;
+    }
+
+    private EmbeddingModel embeddingModel()
+    {
+        if(this.embeddingModel == null)
+        {
+            this.embeddingModel = OllamaEmbeddingModel.builder()
+                .baseUrl(this.baseUrl)
+                .modelName(this.modelName)
+                .build();
+        }
+        return this.embeddingModel;
+    }
+
+    @Override
+    public float[] vectorize(final Entity entity)
+    {
+        return this.embeddingModel().embed(toText(entity))
+            .content().vector();
+    }
+}
+----
+
+When the GigaMap is loaded from existing storage, the vectorizer is restored from the persistent graph with its `baseUrl` and `modelName` intact. The transient `embeddingModel` field is `null` after deserialization and is recreated on the first `vectorize` call.
+
+
 == Limitations
 
 * *Null vectors are not accepted*: The `Vectorizer.vectorize()` method must never return `null`. If it does, an `IllegalStateException` is thrown. Ensure that every entity added to the GigaMap can produce a valid vector.
