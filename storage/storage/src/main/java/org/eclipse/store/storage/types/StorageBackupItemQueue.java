@@ -142,10 +142,15 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 				}
 			}
 
-			itemToBeProcessed.processBy(handler);
-
-			// the backup thread can be the last active part of an already shutdown storage, so it has to clean up.
-			itemToBeProcessed.sourceFile.unregisterUsageClosing(this, null);
+			try
+			{
+				itemToBeProcessed.processBy(handler);
+			}
+			finally
+			{
+				// the backup thread can be the last active part of an already shutdown storage, so it has to clean up.
+				itemToBeProcessed.sourceFile.unregisterUsageClosing(this, null);
+			}
 
 			return true;
 		}
