@@ -282,6 +282,19 @@ public class MyVectorizer extends Vectorizer<Entity>
 
 When the GigaMap is loaded from existing storage, the vectorizer is restored from the persistent graph with its `baseUrl` and `modelName` intact. The transient `embeddingModel` field is `null` after deserialization and is recreated on the first `vectorize` call.
 
+=== Looking up a vector index after load
+
+The first argument to `vectorIndices.add(name, configuration, vectorizer)` is the index's handle. GigaMap stores the index under that name and uses it as the on-disk filename prefix (`{name}.graph`, `{name}.meta`) when on-disk storage is enabled, so pick a stable string that is also a valid filename. Avoid path separators and keep it short.
+
+After the GigaMap is loaded from existing storage, the index is owned and managed by GigaMap — you do not re-add it. Retrieve a reference by name:
+
+[source, java]
+----
+VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
+VectorIndex<Document> index = vectorIndices.get("embeddings");
+----
+
+`vectorIndices.get(name)` returns `null` if no index with that name is registered. If you want a single call site that creates the index on first run and reuses it on subsequent loads, use `ensure(name, configuration, vectorizer)` instead of `add(...)`.
 
 == Limitations
 

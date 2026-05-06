@@ -237,3 +237,33 @@ IndexerString<Person> firstNameIndex = bitmapIndices.getStringIndex("firstName")
 == Persistence
 
 Indexer instances are part of the GigaMap's persistent object graph: when storage is reopened, each registered indexer is restored alongside its bitmap data and remains attached. Plain field-accessor indexers — the common case — need no special treatment. If a custom indexer holds non-configuration state such as a cache, a derived equator, or a service handle, mark those fields `transient` and reinitialize them lazily on first use, the same way xref:../jvector/index.adoc#_computed_vectorizers_and_lazy_initialization[computed vectorizers] handle their embedding models.
+
+=== Determining the index name
+
+Each indexer is stored under a unique name. By default the name is derived from the declaring `static` field — `{outer class FQCN}.{fieldName}` — so an indexer like `PersonIndices.maritalStatus` is registered as `org.example.PersonIndices.maritalStatus`. The same name is reproduced reliably across JVM runs, which is what makes the index findable after reload. For indexers that are *not* assigned to a `static` field (anonymous inner classes created inline, instances created in a method) the fallback name is class-based and may collide with other anonymous instances of the same indexer type.
+
+You can always take full control of the name by overriding the `name()` method on the indexer itself. This works for any indexer regardless of how it is declared, and is the way to decouple the persisted index name from the Java identifier — useful when refactoring (you can rename or move the constant without invalidating persisted indices), or when you need a name shorter / friendlier than the auto-derived FQCN, or to ensure stability for anonymous instances:
+
+[source, java]
+----
+public final static Indexer<Person, MaritalStatus> maritalStatus = new Indexer.Abstract<>()
+{
+    @Override public String name() { return "person.maritalStatus"; }
+    // ...
+};
+----
+
+For annotation-based indexers, the name is the annotated property — `@Index` on `firstName` registers the index as `firstName`.
+
+=== Looking up an index after load
+
+After the GigaMap is loaded from existing storage, indexers are owned and managed by GigaMap — you do not re-register them. If you kept your indexers as `static` constants you can keep referring to them directly in queries (`gigaMap.query(PersonIndices.maritalStatus.is(MARRIED))`); GigaMap matches the constant to its persisted index by name. Otherwise, look the index up via `BitmapIndices`:
+
+[source, java]
+----
+BitmapIndices<Person> bitmapIndices = gigaMap.index().bitmap();
+BitmapIndex<Person, MaritalStatus> idx = bitmapIndices.get(MaritalStatus.class, "person.maritalStatus");
+IndexerString<Person>              firstNameIndex = bitmapIndices.getStringIndex("firstName");
+----
+
+`get(...)` returns `null` if no index with that name is registered.
