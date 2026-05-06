@@ -30,7 +30,6 @@ import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.binary.types.ChunksBuffer;
 import org.eclipse.serializer.persistence.types.ObjectIdsProcessor;
-import org.eclipse.serializer.persistence.types.ObjectIdsSelector;
 import org.eclipse.serializer.persistence.types.Persistence;
 import org.eclipse.serializer.persistence.types.Unpersistable;
 import org.eclipse.serializer.util.X;
@@ -109,7 +108,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		private final StorageObjectIdMarkQueue  oidMarkQueue   ; // resetting handled by markMonitor
 		private final StorageReferenceMarker    referenceMarker; // resetting must be handled here.
 		
-		private final ObjectIdsSelector liveObjectIdChecker;
+		private final LiveObjectIdsHandler liveObjectIdsHandler;
 
 		
 		// state 3.0: mutable fields. Must be cleared on reset.
@@ -144,18 +143,18 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		/////////////////
 
 		Default(
-			final int                         channelIndex       ,
-			final int                         channelCount       ,
-			final StorageEntityCacheEvaluator cacheEvaluator     ,
-			final StorageTypeDictionary       typeDictionary     ,
-			final StorageEntityMarkMonitor    markMonitor        ,
-			final StorageGCZombieOidHandler   zombieOidHandler   ,
-			final StorageRootOidSelector      rootOidSelector    ,
-			final long                        rootTypeId         ,
-			final StorageObjectIdMarkQueue    oidMarkQueue       ,
-			final StorageEventLogger          eventLogger        ,
-			final ObjectIdsSelector           liveObjectIdChecker,
-			final long                        markingWaitTimeMs  ,
+			final int                         channelIndex        ,
+			final int                         channelCount        ,
+			final StorageEntityCacheEvaluator cacheEvaluator      ,
+			final StorageTypeDictionary       typeDictionary      ,
+			final StorageEntityMarkMonitor    markMonitor         ,
+			final StorageGCZombieOidHandler   zombieOidHandler    ,
+			final StorageRootOidSelector      rootOidSelector     ,
+			final long                        rootTypeId          ,
+			final StorageObjectIdMarkQueue    oidMarkQueue        ,
+			final StorageEventLogger          eventLogger         ,
+			final LiveObjectIdsHandler        liveObjectIdsHandler,
+			final long                        markingWaitTimeMs   ,
 			final int                         markingBufferLength
 		)
 		{
@@ -185,7 +184,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			// create reference marker at the very end to have all state properly initialized beforehand.
 			this.referenceMarker = markMonitor.provideReferenceMarker(this);
 			
-			this.liveObjectIdChecker = notNull(liveObjectIdChecker);
+			this.liveObjectIdsHandler = notNull(liveObjectIdsHandler);
 		}
 
 
@@ -969,12 +968,12 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 
 			// signal mark monitor that the sweep is complete and provide this channel's valid rootOid
 			final long channelRootOid = this.queryRootObjectId();
-			this.markMonitor.completeSweep(this, this.rootOidSelector, channelRootOid);
+			this.markMonitor.completeSweep(this, this.rootOidSelector, channelRootOid, this.liveObjectIdsHandler);
 		}
 		
 		private boolean sweep()
 		{
-			return this.liveObjectIdChecker.processSelected(new ApplicationCallback(this.typeHead));
+			return this.liveObjectIdsHandler.processSelected(new ApplicationCallback(this.typeHead));
 		}
 
 		final class ApplicationCallback implements ObjectIdsProcessor
