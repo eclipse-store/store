@@ -38,6 +38,14 @@ public interface StorageTask
 
 	public long timestamp();
 
+	/**
+	 * Wakes every thread currently parked in {@link #awaitNext(long)} on this task and prevents
+	 * any further call to {@code awaitNext} on this instance from blocking. Used by the shutdown
+	 * sequence to make channel threads observe a deactivated operation controller immediately
+	 * instead of waiting out the housekeeping interval.
+	 */
+	public void endAwaitNext();
+
 
 
 	public abstract class Abstract implements StorageTask
@@ -47,6 +55,7 @@ public interface StorageTask
 		////////////////////
 
 		private volatile StorageTask next;
+		private volatile boolean     awaitNextEnded;
 
 		private final long timestamp;
 
@@ -74,12 +83,20 @@ public interface StorageTask
 			final long targetTime = System.currentTimeMillis() + ms;
 
 			long waitTime;
-			// if no immediate next task is available, wait for it a little, but then switch back to do housekeeping
-			while(this.next == null && (waitTime = targetTime - System.currentTimeMillis()) > 0)
+			// if no immediate next task is available, wait for it a little, but then switch back to do housekeeping.
+			// endAwaitNext() short-circuits the wait so shutdown does not have to outlast the housekeeping interval.
+			while(this.next == null && !this.awaitNextEnded && (waitTime = targetTime - System.currentTimeMillis()) > 0)
 			{
 				this.wait(waitTime);
 			}
 			return this.next;
+		}
+
+		@Override
+		public final synchronized void endAwaitNext()
+		{
+			this.awaitNextEnded = true;
+			this.notifyAll();
 		}
 
 		@Override

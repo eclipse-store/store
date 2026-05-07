@@ -19,9 +19,9 @@ import java.time.Duration;
 import java.util.function.Consumer;
 
 import org.eclipse.serializer.collections.Set_long;
-import org.eclipse.serializer.persistence.types.BatchStorer;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.binary.types.BinaryLoader;
+import org.eclipse.serializer.persistence.types.BatchStorer;
 import org.eclipse.serializer.persistence.types.Persistence;
 import org.eclipse.serializer.persistence.types.PersistenceContextDispatcher;
 import org.eclipse.serializer.persistence.types.PersistenceLoader;
@@ -315,12 +315,6 @@ public interface ViewerBinaryPersistenceManager extends PersistenceManager<Binar
 		public void mergeEntries(final PersistenceLocalObjectIdRegistry<Binary> localRegistry)
 		{
 			this.persistenceManager.mergeEntries(localRegistry);
-		}
-
-		@Override
-		public Object objectRegistryMonitor()
-		{
-			return null;
 		}
 
 		@Override

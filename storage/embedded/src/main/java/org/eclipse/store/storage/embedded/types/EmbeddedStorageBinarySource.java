@@ -14,6 +14,8 @@ package org.eclipse.store.storage.embedded.types;
  * #L%
  */
 
+import java.util.function.Supplier;
+
 import org.eclipse.serializer.collections.ArrayView;
 import org.eclipse.serializer.collections.types.XGettingCollection;
 import org.eclipse.serializer.persistence.binary.types.Binary;
@@ -80,7 +82,13 @@ public interface EmbeddedStorageBinarySource extends PersistenceSource<Binary>
 		// instance fields //
 		////////////////////
 
-		private final StorageRequestAcceptor requestAcceptor;
+		/*
+		 * Holds the current {@link StorageRequestAcceptor} via a {@link Supplier} rather than a
+		 * direct reference, so a {@code shutdown()/start()} cycle (which replaces the storage
+		 * system's task broker and therefore the acceptor) is observed automatically on the
+		 * next call. No update method, no rebind step, no explicit shutdown hook required.
+		 */
+		private final Supplier<StorageRequestAcceptor> requestAcceptorSupplier;
 
 
 
@@ -88,10 +96,17 @@ public interface EmbeddedStorageBinarySource extends PersistenceSource<Binary>
 		// constructors //
 		/////////////////
 
-		public Default(final StorageRequestAcceptor requestAcceptor)
+		/**
+		 * Constructs a Source that resolves the current {@link StorageRequestAcceptor} from the
+		 * given supplier on every read. The supplier is expected to return the storage's
+		 * currently active acceptor, so the Source self-heals across shutdown/start cycles.
+		 *
+		 * @param requestAcceptorSupplier supplier of the currently-active request acceptor.
+		 */
+		public Default(final Supplier<StorageRequestAcceptor> requestAcceptorSupplier)
 		{
 			super();
-			this.requestAcceptor = requestAcceptor;
+			this.requestAcceptorSupplier = requestAcceptorSupplier;
 		}
 
 
@@ -105,7 +120,7 @@ public interface EmbeddedStorageBinarySource extends PersistenceSource<Binary>
 		{
 			try
 			{
-				return new ArrayView<>(this.requestAcceptor.recallRoots());
+				return new ArrayView<>(this.requestAcceptorSupplier.get().recallRoots());
 			}
 			catch(final InterruptedException e)
 			{
@@ -135,7 +150,7 @@ public interface EmbeddedStorageBinarySource extends PersistenceSource<Binary>
 		{
 			try
 			{
-				return new ArrayView<>(this.requestAcceptor.queryByObjectIds(oids));
+				return new ArrayView<>(this.requestAcceptorSupplier.get().queryByObjectIds(oids));
 			}
 			catch(final InterruptedException e)
 			{

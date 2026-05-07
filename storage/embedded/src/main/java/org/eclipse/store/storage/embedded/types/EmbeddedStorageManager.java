@@ -31,6 +31,7 @@ import org.eclipse.serializer.monitoring.MonitoringManager;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.types.Persistence;
 import org.eclipse.serializer.persistence.types.PersistenceManager;
+import org.eclipse.serializer.persistence.types.PersistenceObjectRegistry;
 import org.eclipse.serializer.persistence.types.PersistenceRootReference;
 import org.eclipse.serializer.persistence.types.PersistenceRoots;
 import org.eclipse.serializer.persistence.types.PersistenceRootsProvider;
@@ -291,7 +292,7 @@ public interface EmbeddedStorageManager extends StorageManager
 		}
 
 		@Override
-		public final EmbeddedStorageManager.Default start()
+		public final synchronized EmbeddedStorageManager.Default start()
 		{
 			logger.info("Starting embedded storage manager");
 			
@@ -453,10 +454,28 @@ public interface EmbeddedStorageManager extends StorageManager
 		}
 		
 		@Override
-		public final boolean shutdown()
+		public final synchronized boolean shutdown()
 		{
 			LazyReferenceManager.get().removeController(this);
-			return this.storageSystem.shutdown();
+			final boolean result = this.storageSystem.shutdown();
+			if(!result)
+			{
+				// shutdown was interrupted; storage may still be partially running, so don't
+				// invalidate cached connection/registry state on top of an indeterminate storage.
+				return result;
+			}
+			// drop cached connection so a subsequent start() rebuilds it against the new task broker
+			this.singletonConnection = null;
+			// reset cached PersistenceRoots so the next start() builds a fresh one (with rootIdMapping
+			// populated via create()) tied to the same root resolver (preserving setRoot() values)
+			this.rootsProvider.updateRuntimeRoots(null);
+			// drop loaded-data registrations from the object registry so the next start() can re-load
+			// without instance-identity conflicts (e.g. enum holder arrays). Java framework constants
+			// are re-registered immediately to keep their stable OIDs.
+			final PersistenceObjectRegistry registry = this.connectionFoundation.getObjectRegistry();
+			registry.truncateAll();
+			Persistence.registerJavaConstants(registry);
+			return result;
 		}
 
 		@Override
