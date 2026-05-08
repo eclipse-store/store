@@ -23,6 +23,7 @@ import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.serializer.persistence.types.Unpersistable;
 import org.eclipse.serializer.typing.XTypes;
 
+import java.lang.ref.Cleaner;
 import java.util.function.Consumer;
 
 
@@ -504,21 +505,33 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 		
 	
 	///////////////////////////////////////////////////////////////////////////
+	// Static Fields //
+	///////////////////
+
+	// Cleaner-based off-heap release; replaces deprecated Object.finalize().
+	// One Cleaner per class is fine — the JDK shares a small thread pool internally.
+	private static final Cleaner CLEANER = Cleaner.create();
+
+
+
+	///////////////////////////////////////////////////////////////////////////
 	// Static Constructors //
 	////////////////////////
-	
+
 	public static BitmapLevel2 New(final int level3Index)
 	{
 		return new BitmapLevel2(level3Index);
 	}
-		
-	
-	
+
+
+
 	///////////////////////////////////////////////////////////////////////////
 	// Instance Fields //
 	////////////////////
 
-	long level2Address;
+	long                            level2Address;
+	private final Cleanup           cleanup     ;
+	private final Cleaner.Cleanable cleanable   ;
 	
 	
 	
@@ -537,6 +550,8 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 	{
 		super(isNew);
 		this.level2Address = level2Address;
+		this.cleanup       = new Cleanup(level2Address);
+		this.cleanable     = CLEANER.register(this, this.cleanup);
 	}
 	
 	
@@ -580,39 +595,48 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 	{
 		return isCompressed(this.level2Address);
 	}
-	
+
+	// Updates both the field and the Cleaner state so the auto-release tracks
+	// the current address. Must be used by every reassignment of level2Address,
+	// including BinaryHandlerBitmapLevel2.updateState (deserialization path).
+	final void setLevel2Address(final long newAddress)
+	{
+		this.level2Address  = newAddress;
+		this.cleanup.address = newAddress;
+	}
+
 	final void ensureCompressed()
 	{
 		if(isCompressed(this.level2Address))
 		{
 			return;
 		}
-		
+
 		// consolidate all segments into a newly allocated memory block
 		final long newAddress = compress(this.level2Address);
-		
+
 		// current level2 structure gets cleaned up
 		deallocate(this.level2Address);
-			
+
 		// address to the new memory block replaces the old (and now invalid) one.
-		this.level2Address = newAddress;
+		this.setLevel2Address(newAddress);
 	}
-	
+
 	final void ensureDecompressed()
 	{
 		if(isFullyDecompressed(this.level2Address))
 		{
 			return;
 		}
-		
+
 		// decompress ALL level1 segments into standalone segments with uncompressed data
 		final long newAddress = decompress(this.level2Address);
-		
+
 		// current level2 structure gets cleaned up
 		deallocate(this.level2Address);
-			
+
 		// address to the new memory block replaces the old (and now invalid) one.
-		this.level2Address = newAddress;
+		this.setLevel2Address(newAddress);
 	}
 	
 
@@ -622,17 +646,37 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 		return ensureAddableLevel1SegmentForEntityId(this.level2Address, entityId, level3);
 	}
 	
-	@SuppressWarnings("deprecation")
-	@Override
-	protected void finalize() throws Throwable
+	// Holds the off-heap address for Cleaner-based release.
+	//
+	// MUST be a static nested class — it must not capture the enclosing
+	// BitmapLevel2 instance (directly or via a non-static inner class or an
+	// instance method reference). If it did, the wrapper would never become
+	// unreachable and the Cleaner would never fire, defeating the whole point.
+	//
+	// `address` is mutable so the Cleaner can follow the level2Address through
+	// compress/decompress and binary-handler updateState reassignments via
+	// setLevel2Address. The action is idempotent (zeros the address after free)
+	// so accidental re-invocation cannot double-free.
+	private static final class Cleanup implements Runnable
 	{
-		if(this.level2Address > 0)
+		long address;
+
+		Cleanup(final long address)
 		{
-			deallocate(this.level2Address);
+			this.address = address;
+		}
+
+		@Override
+		public void run()
+		{
+			final long address = this.address;
+			if(address > 0L)
+			{
+				this.address = 0L;
+				deallocate(address);
+			}
 		}
 	}
-
-
 
 
 	///////////////////////////////////////////////////////////////////////////
