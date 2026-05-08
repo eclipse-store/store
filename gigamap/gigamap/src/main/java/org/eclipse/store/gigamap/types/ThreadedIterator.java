@@ -574,49 +574,49 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 		{
 			try
 			{
-			final BitmapResult[] results = this.results;
+				final BitmapResult[] results = this.results;
 
-			final long startAddress    = registryIterationStartAddress(this.registryAddress);
-			final long boundAddress    = registryIterationBoundAddress(this.registryAddress, this.registrySegmentCount);
-			final long lastItemAddress = registryIterationBoundAddress(this.registryAddress, this.registrySegmentCount - 1);
+				final long startAddress    = registryIterationStartAddress(this.registryAddress);
+				final long boundAddress    = registryIterationBoundAddress(this.registryAddress, this.registrySegmentCount);
+				final long lastItemAddress = registryIterationBoundAddress(this.registryAddress, this.registrySegmentCount - 1);
 
-			int currentLevel1SegmentIndex = 0;
-			long newSegmentAddress = createRegistrySegment();
+				int currentLevel1SegmentIndex = 0;
+				long newSegmentAddress = createRegistrySegment();
 
-			// rea = registryEntryAddress
-			for(long rea = startAddress; rea < boundAddress; rea += Long.BYTES, currentLevel1SegmentIndex += REGISTRY_SEGMENT_SIZE)
-			{
-				// check for a yet unprocessed registry segment
-				if(XMemory.volatileGet_long(null, rea) != 0L)
+				// rea = registryEntryAddress
+				for(long rea = startAddress; rea < boundAddress; rea += Long.BYTES, currentLevel1SegmentIndex += REGISTRY_SEGMENT_SIZE)
 				{
-					continue;
+					// check for a yet unprocessed registry segment
+					if(XMemory.volatileGet_long(null, rea) != 0L)
+					{
+						continue;
+					}
+
+					// try to reserve unprocessed coordinate (competing with other threads)
+					if(!XMemory.compareAndSwap_long(null, rea, 0L, -1L))
+					{
+						continue;
+					}
+
+					// process reserved coordinate and register the address to the value groups segment.
+					if(process(results, currentLevel1SegmentIndex, newSegmentAddress))
+					{
+						XMemory.volatileSet_long(null, rea, newSegmentAddress);
+						newSegmentAddress = rea < lastItemAddress
+							? createRegistrySegment()
+							: 0L
+						;
+					}
+					else
+					{
+						XMemory.volatileSet_long(null, rea, SKIP_LEVEL1_SEGMENT_MARKER);
+					}
 				}
 
-				// try to reserve unprocessed coordinate (competing with other threads)
-				if(!XMemory.compareAndSwap_long(null, rea, 0L, -1L))
+				if(newSegmentAddress != 0L)
 				{
-					continue;
+					XMemory.free(newSegmentAddress);
 				}
-
-				// process reserved coordinate and register the address to the value groups segment.
-				if(process(results, currentLevel1SegmentIndex, newSegmentAddress))
-				{
-					XMemory.volatileSet_long(null, rea, newSegmentAddress);
-					newSegmentAddress = rea < lastItemAddress
-						? createRegistrySegment()
-						: 0L
-					;
-				}
-				else
-				{
-					XMemory.volatileSet_long(null, rea, SKIP_LEVEL1_SEGMENT_MARKER);
-				}
-			}
-
-			if(newSegmentAddress != 0L)
-			{
-				XMemory.free(newSegmentAddress);
-			}
 			}
 			finally
 			{
