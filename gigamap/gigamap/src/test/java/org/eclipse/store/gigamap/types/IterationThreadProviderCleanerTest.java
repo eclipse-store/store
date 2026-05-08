@@ -85,9 +85,10 @@ class IterationThreadProviderCleanerTest
 		provider.shutdown();
 
 		assertFalse(isRunningField.getBoolean(sentinel),
-			"shutdown() must deactivate PoolThreads synchronously via cleanable.clean()");
+			"shutdown() must deactivate PoolThreads synchronously");
 
-		// Idempotent: cleanable.clean() runs at most once, second call is a no-op.
+		// Idempotent: shutdown() truncates reservedThreads on first call, so
+		// subsequent calls iterate an empty list and are no-ops.
 		provider.shutdown();
 	}
 
