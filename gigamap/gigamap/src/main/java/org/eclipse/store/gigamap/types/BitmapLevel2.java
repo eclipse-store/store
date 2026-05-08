@@ -505,16 +505,6 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 		
 	
 	///////////////////////////////////////////////////////////////////////////
-	// Static Fields //
-	///////////////////
-
-	// Cleaner-based off-heap release; replaces deprecated Object.finalize().
-	// One Cleaner per class is fine — the JDK shares a small thread pool internally.
-	private static final Cleaner CLEANER = Cleaner.create();
-
-
-
-	///////////////////////////////////////////////////////////////////////////
 	// Static Constructors //
 	////////////////////////
 
@@ -551,7 +541,7 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 		super(isNew);
 		this.level2Address = level2Address;
 		this.cleanup       = new Cleanup(level2Address);
-		this.cleanable     = CLEANER.register(this, this.cleanup);
+		this.cleanable     = Cleaners.SHARED.register(this, this.cleanup);
 	}
 	
 	
@@ -659,7 +649,11 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 	// so accidental re-invocation cannot double-free.
 	private static final class Cleanup implements Runnable
 	{
-		long address;
+		// volatile because the cleanup runs on the Cleaner thread while writes
+		// to address happen on the mutating thread (constructor, setLevel2Address).
+		// java.lang.ref.Cleaner has no JLS-specified happens-before, so explicit
+		// publication is required to avoid stale-address reads.
+		volatile long address;
 
 		Cleanup(final long address)
 		{

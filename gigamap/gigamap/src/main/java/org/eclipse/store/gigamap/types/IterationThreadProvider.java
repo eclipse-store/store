@@ -228,15 +228,6 @@ public interface IterationThreadProvider extends ThreadCountProvider
 	public final class Pooling extends Abstract
 	{
 		///////////////////////////////////////////////////////////////////////////
-		// static fields //
-		///////////////////
-
-		// Cleaner-based daemon-thread shutdown; replaces deprecated Object.finalize().
-		private static final Cleaner CLEANER = Cleaner.create();
-
-
-
-		///////////////////////////////////////////////////////////////////////////
 		// instance fields //
 		////////////////////
 
@@ -255,7 +246,7 @@ public interface IterationThreadProvider extends ThreadCountProvider
 			super(threadCountProvider);
 			this.reservedThreads  = BulkList.New(reservedThreadCount);
 			this.allocatedThreads = BulkList.New();
-			this.cleanable        = CLEANER.register(this, new Cleanup(this.reservedThreads));
+			this.cleanable        = Cleaners.SHARED.register(this, new Cleanup(this.reservedThreads));
 		}
 		
 		

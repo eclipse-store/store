@@ -61,15 +61,6 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 
 
 	///////////////////////////////////////////////////////////////////////////
-	// static fields //
-	///////////////////
-
-	// Cleaner-based off-heap release; replaces deprecated Object.finalize().
-	private static final Cleaner CLEANER = Cleaner.create();
-
-
-
-	///////////////////////////////////////////////////////////////////////////
 	// static methods //
 	///////////////////
 	
@@ -163,7 +154,7 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 
 		// Register Cleaner BEFORE threads start so a thread-startup failure still releases the registry.
 		this.cleanup   = new Cleanup(this.registryAddress, this.registrySegmentCount);
-		this.cleanable = CLEANER.register(this, this.cleanup);
+		this.cleanable = Cleaners.SHARED.register(this, this.cleanup);
 
 		this.currentRegistryIndex   = -1; // must be -1 because of pre-increment logic
 		this.currentRegistrySegmentIndex = REGISTRY_SEGMENT_SIZE;
@@ -396,8 +387,10 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 	@Override
 	public void close()
 	{
-		// release segments synchronously (idempotent — at most once via Cleaner.Cleanable contract)
-		this.cleanable.clean();
+		// Native segments are released by the Cleaner once the iterator becomes
+		// phantom-reachable. Releasing them synchronously here would race with
+		// worker threads that are still executing ThreadLogic against the
+		// registry (e.g., on early break-out from a try-with-resources loop).
 		this.threadProvider.disposeIterationThreads(this.threads);
 		this.threadProvider.completeIteration();
 	}
@@ -484,7 +477,11 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 	// re-invocation (Cleaner.Cleanable.clean() itself is at-most-once).
 	private static final class Cleanup implements Runnable
 	{
-		long address;
+		// volatile because the cleanup runs on the Cleaner thread while the
+		// initial write happens on the constructor thread. java.lang.ref.Cleaner
+		// has no JLS-specified happens-before, so explicit publication is
+		// required to avoid stale-address reads.
+		volatile long address;
 		final int registrySegmentCount;
 
 		Cleanup(final long registryAddress, final int registrySegmentCount)
