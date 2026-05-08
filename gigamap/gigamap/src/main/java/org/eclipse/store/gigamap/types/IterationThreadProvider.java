@@ -18,6 +18,8 @@ import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.LimitList;
 import org.eclipse.serializer.collections.types.XGettingCollection;
 
+import java.lang.ref.Cleaner;
+
 import static org.eclipse.serializer.math.XMath.notNegative;
 import static org.eclipse.serializer.util.X.notNull;
 
@@ -226,23 +228,34 @@ public interface IterationThreadProvider extends ThreadCountProvider
 	public final class Pooling extends Abstract
 	{
 		///////////////////////////////////////////////////////////////////////////
+		// static fields //
+		///////////////////
+
+		// Cleaner-based daemon-thread shutdown; replaces deprecated Object.finalize().
+		private static final Cleaner CLEANER = Cleaner.create();
+
+
+
+		///////////////////////////////////////////////////////////////////////////
 		// instance fields //
 		////////////////////
-				
+
 		private final BulkList<PoolThread>            reservedThreads ;
 		private final BulkList<LimitList<PoolThread>> allocatedThreads;
-			
-			
-		
+		private final Cleaner.Cleanable               cleanable       ;
+
+
+
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
 		/////////////////
-		
+
 		Pooling(final int reservedThreadCount, final ThreadCountProvider threadCountProvider)
 		{
 			super(threadCountProvider);
 			this.reservedThreads  = BulkList.New(reservedThreadCount);
 			this.allocatedThreads = BulkList.New();
+			this.cleanable        = CLEANER.register(this, new Cleanup(this.reservedThreads));
 		}
 		
 		
@@ -336,29 +349,40 @@ public interface IterationThreadProvider extends ThreadCountProvider
 		@Override
 		public void shutdown()
 		{
-			this.internalShutdown();
+			// runs Cleanup.run() exactly once and cancels the post-GC clean (Cleaner.Cleanable contract)
+			this.cleanable.clean();
 		}
-		
-		private void internalShutdown()
+
+		// Holds the reserved-thread list for Cleaner-based shutdown.
+		//
+		// MUST be a static nested class — capturing the enclosing Pooling
+		// would keep it strongly reachable and prevent the Cleaner from firing.
+		// PoolThread is `static final` and holds no back-reference to Pooling,
+		// so Pooling can be reclaimed independently of its threads.
+		private static final class Cleanup implements Runnable
 		{
-			this.reservedThreads.iterate(t ->
+			private final BulkList<PoolThread> reservedThreads;
+
+			Cleanup(final BulkList<PoolThread> reservedThreads)
 			{
-				synchronized(t)
+				this.reservedThreads = reservedThreads;
+			}
+
+			@Override
+			public void run()
+			{
+				this.reservedThreads.iterate(t ->
 				{
-					t.deactivate();
-					t.notifyAll(); // must notify to wake up inactive thread from waiting for work.
-				}
-			});
-			this.reservedThreads.truncate();
+					synchronized(t)
+					{
+						t.deactivate();
+						t.notifyAll(); // must notify to wake up inactive thread from waiting for work.
+					}
+				});
+				this.reservedThreads.truncate();
+			}
 		}
-		
-		@SuppressWarnings("deprecation")
-		@Override
-		protected void finalize() throws Throwable
-		{
-			this.internalShutdown();
-		}
-		
+
 	}
 	
 	

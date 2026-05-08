@@ -3002,14 +3002,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			this.parent.closeReader(this);
 		}
-		
-		@SuppressWarnings("deprecation")
-		@Override
-		protected void finalize() throws Throwable
-		{
-			this.close();
-		}
-		
+
 	}
 	
 	
