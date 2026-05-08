@@ -18,8 +18,6 @@ import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.LimitList;
 import org.eclipse.serializer.collections.types.XGettingCollection;
 
-import java.lang.ref.Cleaner;
-
 import static org.eclipse.serializer.math.XMath.notNegative;
 import static org.eclipse.serializer.util.X.notNull;
 
@@ -233,7 +231,6 @@ public interface IterationThreadProvider extends ThreadCountProvider
 
 		private final BulkList<PoolThread>            reservedThreads ;
 		private final BulkList<LimitList<PoolThread>> allocatedThreads;
-		private final Cleaner.Cleanable               cleanable       ;
 
 
 
@@ -246,7 +243,7 @@ public interface IterationThreadProvider extends ThreadCountProvider
 			super(threadCountProvider);
 			this.reservedThreads  = BulkList.New(reservedThreadCount);
 			this.allocatedThreads = BulkList.New();
-			this.cleanable        = Cleaners.SHARED.register(this, new Cleanup(this.reservedThreads));
+			Cleaners.SHARED.register(this, new Cleanup(this.reservedThreads));
 		}
 		
 		
@@ -340,8 +337,23 @@ public interface IterationThreadProvider extends ThreadCountProvider
 		@Override
 		public void shutdown()
 		{
-			// runs Cleanup.run() exactly once and cancels the post-GC clean (Cleaner.Cleanable contract)
-			this.cleanable.clean();
+			// Synchronous deactivation. Does NOT cancel the registered Cleaner —
+			// if the pool is reused after shutdown, threads added later will
+			// still be deactivated on GC of this Pooling instance.
+			deactivateAllReservedThreads(this.reservedThreads);
+		}
+
+		private static void deactivateAllReservedThreads(final BulkList<PoolThread> reservedThreads)
+		{
+			reservedThreads.iterate(t ->
+			{
+				synchronized(t)
+				{
+					t.deactivate();
+					t.notifyAll(); // must notify to wake up inactive thread from waiting for work.
+				}
+			});
+			reservedThreads.truncate();
 		}
 
 		// Holds the reserved-thread list for Cleaner-based shutdown.
@@ -362,15 +374,7 @@ public interface IterationThreadProvider extends ThreadCountProvider
 			@Override
 			public void run()
 			{
-				this.reservedThreads.iterate(t ->
-				{
-					synchronized(t)
-					{
-						t.deactivate();
-						t.notifyAll(); // must notify to wake up inactive thread from waiting for work.
-					}
-				});
-				this.reservedThreads.truncate();
+				deactivateAllReservedThreads(this.reservedThreads);
 			}
 		}
 

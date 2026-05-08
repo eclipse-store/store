@@ -1,4 +1,3 @@
-
 package org.eclipse.store.gigamap.types;
 
 /*-

@@ -23,7 +23,6 @@ import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.serializer.persistence.types.Unpersistable;
 import org.eclipse.serializer.typing.XTypes;
 
-import java.lang.ref.Cleaner;
 import java.util.function.Consumer;
 
 
@@ -519,9 +518,8 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 	// Instance Fields //
 	////////////////////
 
-	long                            level2Address;
-	private final Cleanup           cleanup     ;
-	private final Cleaner.Cleanable cleanable   ;
+	long                  level2Address;
+	private final Cleanup cleanup     ;
 	
 	
 	
@@ -540,8 +538,8 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 	{
 		super(isNew);
 		this.level2Address = level2Address;
-		this.cleanup       = new Cleanup(level2Address);
-		this.cleanable     = Cleaners.SHARED.register(this, this.cleanup);
+		this.cleanup = new Cleanup(level2Address);
+		Cleaners.SHARED.register(this, this.cleanup);
 	}
 	
 	
