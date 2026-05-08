@@ -335,11 +335,13 @@ public interface IterationThreadProvider extends ThreadCountProvider
 		}
 		
 		@Override
-		public void shutdown()
+		public synchronized void shutdown()
 		{
 			// Synchronous deactivation. Does NOT cancel the registered Cleaner —
 			// if the pool is reused after shutdown, threads added later will
 			// still be deactivated on GC of this Pooling instance.
+			// `synchronized` matches startIterationThreads/disposeIterationThreads
+			// so concurrent shutdown does not race with reservedThreads mutation.
 			deactivateAllReservedThreads(this.reservedThreads);
 		}
 

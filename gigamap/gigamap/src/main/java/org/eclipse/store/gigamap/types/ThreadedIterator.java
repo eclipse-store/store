@@ -420,7 +420,6 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 		// registry concurrently with native reads/writes.
 		return new ThreadLogic(
 			resultsThreadIterationCopy,
-			this.level1SegmentCount   ,
 			this.registryAddress      ,
 			this.registrySegmentCount ,
 			this
@@ -552,7 +551,6 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 
 		ThreadLogic(
 			final BitmapResult[]   results             ,
-			final int              level1SegmentCount  ,
 			final long             registryAddress     ,
 			final int              registrySegmentCount,
 			final ThreadedIterator owner
