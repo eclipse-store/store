@@ -56,7 +56,7 @@ public class BinaryHandlerBitmapEntry extends AbstractBinaryHandlerStateChangeFl
 		BINARY_OFFSET_level3   = 0                                                   ,
 		BINARY_OFFSET_position = BINARY_OFFSET_level3   + Binary.objectIdByteLength(),
 		BINARY_LENGTH          = BINARY_OFFSET_position + Integer.BYTES,
-		
+
 		MEMORY_OFFSET_level3   = getClassDeclaredFieldOffset(genericType(), "level3")
 	;
 	
@@ -138,6 +138,9 @@ public class BinaryHandlerBitmapEntry extends AbstractBinaryHandlerStateChangeFl
 		XMemory.setObject(instance, MEMORY_OFFSET_level3, getLevel3(data, handler));
 	}
 	
+	// Provided only for PersistenceTypeHandler contract conformity. The standard store path
+	// registers child references via Binary#storeReference(s) inside internalStore, so this
+	// iterator is exercised only by niche traversals such as PersistenceRegisterer.
 	@Override
 	public void iterateInstanceReferences(final BitmapEntry<?, ?, ?> instance, final PersistenceFunction iterator)
 	{

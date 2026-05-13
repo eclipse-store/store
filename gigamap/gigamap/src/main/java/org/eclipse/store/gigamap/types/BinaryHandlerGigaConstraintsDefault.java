@@ -16,6 +16,7 @@ package org.eclipse.store.gigamap.types;
 
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.persistence.binary.types.Binary;
+import org.eclipse.serializer.persistence.types.PersistenceFunction;
 import org.eclipse.serializer.persistence.types.PersistenceLoadHandler;
 import org.eclipse.serializer.persistence.types.PersistenceReferenceLoader;
 import org.eclipse.serializer.persistence.types.PersistenceStoreHandler;
@@ -143,6 +144,16 @@ public class BinaryHandlerGigaConstraintsDefault extends AbstractBinaryHandlerSt
 	{
 		XMemory.setObject(instance, MEMORY_OFFSET_uniqueConstraints, getUniqueConstraints(data, handler));
 		XMemory.setObject(instance, MEMORY_OFFSET_customConstraints, getCustomConstraints(data, handler));
+	}
+
+	// Provided only for PersistenceTypeHandler contract conformity. The standard store path
+	// registers child references via Binary#storeReference(s) inside internalStore, so this
+	// iterator is exercised only by niche traversals such as PersistenceRegisterer.
+	@Override
+	public void iterateInstanceReferences(final GigaConstraints.Default<?> instance, final PersistenceFunction iterator)
+	{
+		iterator.apply(XMemory.getObject(instance, MEMORY_OFFSET_uniqueConstraints));
+		iterator.apply(XMemory.getObject(instance, MEMORY_OFFSET_customConstraints));
 	}
 
 	@Override

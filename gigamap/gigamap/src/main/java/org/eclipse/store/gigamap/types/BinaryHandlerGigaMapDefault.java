@@ -18,6 +18,7 @@ import org.eclipse.serializer.equality.Equalator;
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.persistence.binary.types.AbstractBinaryHandlerCustom;
 import org.eclipse.serializer.persistence.binary.types.Binary;
+import org.eclipse.serializer.persistence.types.PersistenceFunction;
 import org.eclipse.serializer.persistence.types.PersistenceLoadHandler;
 import org.eclipse.serializer.persistence.types.PersistenceReferenceLoader;
 import org.eclipse.serializer.persistence.types.PersistenceStoreHandler;
@@ -231,6 +232,18 @@ public class BinaryHandlerGigaMapDefault extends AbstractBinaryHandlerCustom<Gig
 		XMemory.set_long(instance, MEMORY_OFFSET_baseAddingId, currentId);
 	}
 	
+	// Provided only for PersistenceTypeHandler contract conformity. The standard store path
+	// registers child references via Binary#storeReference(s) inside store/internalStore, so this
+	// iterator is exercised only by niche traversals such as PersistenceRegisterer.
+	@Override
+	public void iterateInstanceReferences(final GigaMap.Default<?> instance, final PersistenceFunction iterator)
+	{
+		iterator.apply(instance.level3()     );
+		iterator.apply(instance.index()      );
+		iterator.apply(instance.constraints());
+		iterator.apply(instance.equalator()  );
+	}
+
 	@Override
 	public void iterateLoadableReferences(final Binary data, final PersistenceReferenceLoader iterator)
 	{

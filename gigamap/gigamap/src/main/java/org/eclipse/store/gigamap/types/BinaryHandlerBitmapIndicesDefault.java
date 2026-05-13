@@ -191,6 +191,9 @@ public class BinaryHandlerBitmapIndicesDefault extends AbstractBinaryHandlerStat
 		instance.rebuildCache();
 	}
 	
+	// Provided only for PersistenceTypeHandler contract conformity. The standard store path
+	// registers child references via Binary#storeReference(s) inside internalStore, so this
+	// iterator is exercised only by niche traversals such as PersistenceRegisterer.
 	@Override
 	public void iterateInstanceReferences(final BitmapIndices.Default<?> instance, final PersistenceFunction iterator)
 	{
