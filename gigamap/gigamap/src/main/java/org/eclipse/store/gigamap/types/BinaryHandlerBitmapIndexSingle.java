@@ -145,6 +145,10 @@ public class BinaryHandlerBitmapIndexSingle extends AbstractBinaryHandlerBitmapI
 		XMemory.setObject(instance, MEMORY_OFFSET_indexer, indexer);
 	}
 	
+	// Provided only for PersistenceTypeHandler contract conformity. The standard store path
+	// registers child references through handler.apply(...) callbacks while writing the
+	// binary form, so this iterator is exercised only by niche traversals such as
+	// PersistenceRegisterer.
 	@Override
 	public void iterateInstanceReferences(final SingleBitmapIndex<?> instance, final PersistenceFunction iterator)
 	{
