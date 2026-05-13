@@ -15,7 +15,6 @@ package org.eclipse.store.gigamap.types;
  */
 
 import org.eclipse.serializer.collections.BulkList;
-import org.eclipse.store.gigamap.annotations.Index;
 
 /**
  * Indexing logic for multi-value keys, like collections or arrays.
@@ -25,10 +24,19 @@ import org.eclipse.store.gigamap.annotations.Index;
  */
 public interface IndexerMultiValue<E, K> extends Indexer<E, K>
 {
-	/**	 * Extract the value of the entity which is stored in the {@link Index}.
+	/**
+	 * Extracts the key components from the entity, one entry per value to be indexed.
+	 * <p>
+	 * The entity is registered under every returned key, so a query matching any
+	 * of those keys will find it. An empty {@link Iterable} leaves the entity
+	 * unindexed for this indexer; {@code null} entries are not permitted.
+	 * <p>
+	 * This is the multi-value counterpart to {@link Indexer#index(Object)} and
+	 * is typically used when the indexed property is a collection, an array,
+	 * or any other source that yields multiple keys per entity.
 	 *
 	 * @param entity the source entity
-	 * @return the indexed value
+	 * @return the keys to index this entity under
 	 */
 	public Iterable<? extends K> indexEntityMultiValue(final E entity);
 	
