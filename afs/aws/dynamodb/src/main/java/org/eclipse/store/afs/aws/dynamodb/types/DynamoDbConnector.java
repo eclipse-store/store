@@ -50,8 +50,8 @@ import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
 import software.amazon.awssdk.services.dynamodb.model.ResourceNotFoundException;
 import software.amazon.awssdk.services.dynamodb.model.ScalarAttributeType;
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
+import software.amazon.awssdk.services.dynamodb.model.ScanResponse;
 import software.amazon.awssdk.services.dynamodb.paginators.QueryIterable;
-import software.amazon.awssdk.services.dynamodb.paginators.ScanIterable;
 import software.amazon.awssdk.services.dynamodb.model.Select;
 import software.amazon.awssdk.services.dynamodb.model.TableDescription;
 import software.amazon.awssdk.services.dynamodb.model.TableStatus;
@@ -327,14 +327,33 @@ public interface DynamoDbConnector extends BlobStoreConnector
 				 * the first page would silently hide files from {@link
 				 * org.eclipse.store.storage.types.StorageFileManager}'s startup
 				 * inventory and cause "Non-deleted non-empty data file not found".
+				 *
+				 * We drain the paginator into a list here, inside the try block, so
+				 * a {@link ResourceNotFoundException} thrown on any page is caught
+				 * consistently with {@link #blobs(BlobStorePath, boolean)} regardless
+				 * of whether the AWS SDK paginator fetches eagerly or lazily — the
+				 * earlier version that returned a lazy stream straight out of the
+				 * try/catch relied on the SDK's current (eager) page-fetch behavior
+				 * and would silently leak the exception if that ever changed.
 				 */
 				final Pattern pattern = Pattern.compile(childKeysRegexWithContainer(directory));
-				final ScanIterable pages = this.client.scanPaginator(request);
-				return pages.items().stream()
-					.map(item -> item.get(FIELD_KEY).s())
-					.filter(key -> pattern.matcher(key).matches())
-					.distinct()
-				;
+				final List<String> keys = new ArrayList<>();
+				for(final ScanResponse page : this.client.scanPaginator(request))
+				{
+					if(!page.hasItems())
+					{
+						continue;
+					}
+					for(final Map<String, AttributeValue> item : page.items())
+					{
+						final String key = item.get(FIELD_KEY).s();
+						if(pattern.matcher(key).matches())
+						{
+							keys.add(key);
+						}
+					}
+				}
+				return keys.stream().distinct();
 			}
 			catch(final ResourceNotFoundException e)
 			{
