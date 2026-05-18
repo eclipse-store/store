@@ -318,6 +318,12 @@ public interface ViewerBinaryPersistenceManager extends PersistenceManager<Binar
 		}
 
 		@Override
+		public Object objectRegistryMonitor()
+		{
+			return null;
+		}
+
+		@Override
 		public ObjectDescription getStorageObject(final long objectId)
 		{
 			return (ObjectDescription)this.createViewerLoader().getObject(objectId);
