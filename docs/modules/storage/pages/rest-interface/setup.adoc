@@ -92,20 +92,3 @@ If you want to change the default port (4567) or instance name (_store-data_) it
 | `store-data`
 | Instance name used in the base URL (without leading/trailing "/").
 |===
-
-=== Additional Configuration
-
-If you want to change the default port (4567) or instance name (_store-data_) it can be done by using the rest service implementation directly, and not go through the _Resolver` as in the previous snippet.
-
-The Spark service can then be customized to your liking.
-
-[source, java]
-----
-StorageRestServiceSparkJava service = StorageRestServiceSparkJava.New(storage);
-service.setSparkService(
-   Service.ignite().port(8888)
-);
-service.setInstanceName("my-name");
-----
-
-This will change the base URL to http://localhost:8888/my-name/
