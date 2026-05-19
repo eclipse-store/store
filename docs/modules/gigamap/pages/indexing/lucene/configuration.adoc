@@ -42,7 +42,7 @@ The `DirectoryCreator` controls where index data is stored.
 
 === Embedded Storage
 
-When no directory creator is specified, the index data is stored inside the GigaMap's object graph. This means the index is automatically persisted when the GigaMap is stored with EclipseStore.
+When no directory creator is specified, the index data is stored inside the GigaMap's object graph. This means the index is automatically persisted when the GigaMap is stored with {product-name}.
 
 [source, java]
 ----

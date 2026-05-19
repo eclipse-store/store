@@ -131,6 +131,10 @@ extends AbstractBinaryHandlerStateChangeFlagged<I>
 		XMemory.setObject(instance, MEMORY_OFFSET_name  , getName  (data, handler));
 	}
 	
+	// Provided only for PersistenceTypeHandler contract conformity. The standard store path
+	// registers child references through handler.apply(...) callbacks while writing the
+	// binary form, so this iterator is exercised only by niche traversals such as
+	// PersistenceRegisterer.
 	@Override
 	public void iterateInstanceReferences(final I instance, final PersistenceFunction iterator)
 	{

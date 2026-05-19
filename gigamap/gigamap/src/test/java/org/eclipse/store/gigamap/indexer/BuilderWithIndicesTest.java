@@ -15,6 +15,7 @@ package org.eclipse.store.gigamap.indexer;
  */
 
 import org.eclipse.serializer.collections.ConstHashEnum;
+import org.eclipse.store.gigamap.exceptions.UniqueConstraintViolationException;
 import org.eclipse.store.gigamap.types.BinaryIndexerNumber;
 import org.eclipse.store.gigamap.types.BinaryIndexerString;
 import org.eclipse.store.gigamap.types.GigaMap;
@@ -30,6 +31,8 @@ import java.util.List;
 import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 
 public class BuilderWithIndicesTest
@@ -271,6 +274,131 @@ public class BuilderWithIndicesTest
         assertEquals(0, gigaMap.size());
     }
 
+    // ---------------------------------------------------------------
+    // Same indexer passed to multiple with...Index methods.
+    //
+    // build() must register the underlying bitmap index only once and
+    // apply every requested role (plain bitmap / identity / unique).
+    // ---------------------------------------------------------------
+
+    @Test
+    void sameIndexer_bitmapPlusIdentity()
+    {
+        final StringIndexer stringIndexer = new StringIndexer();
+
+        final GigaMap<Entity> gigaMap = GigaMap.<Entity>Builder()
+            .withBitmapIndex(stringIndexer)
+            .withBitmapIdentityIndex(stringIndexer)
+            .build();
+
+        gigaMap.add(new Entity("1000", 1));
+        gigaMap.add(new Entity("2000", 2));
+
+        // bitmap behavior: query works
+        assertEquals("1000", gigaMap.query(stringIndexer.is("1000")).findFirst().get().value);
+        // identity is registered (single index, same name as the plain bitmap)
+        assertEquals(1, gigaMap.index().bitmap().identityIndices().size());
+        assertSame(
+            gigaMap.index().bitmap().get(stringIndexer.keyType(), stringIndexer.name()),
+            gigaMap.index().bitmap().identityIndices().get()
+        );
+    }
+
+    @Test
+    void sameIndexer_bitmapPlusUnique()
+    {
+        final StringIndexer stringIndexer = new StringIndexer();
+
+        final GigaMap<Entity> gigaMap = GigaMap.<Entity>Builder()
+            .withBitmapIndex(stringIndexer)
+            .withBitmapUniqueIndex(stringIndexer)
+            .build();
+
+        gigaMap.add(new Entity("1000", 1));
+
+        // bitmap behavior: query works
+        assertEquals("1000", gigaMap.query(stringIndexer.is("1000")).findFirst().get().value);
+        // unique behavior: duplicate is rejected
+        assertThrows(UniqueConstraintViolationException.class,
+            () -> gigaMap.add(new Entity("1000", 2)));
+    }
+
+    @Test
+    void sameIndexer_identityPlusUnique()
+    {
+        final StringIndexer stringIndexer = new StringIndexer();
+
+        final GigaMap<Entity> gigaMap = GigaMap.<Entity>Builder()
+            .withBitmapIdentityIndex(stringIndexer)
+            .withBitmapUniqueIndex(stringIndexer)
+            .build();
+
+        gigaMap.add(new Entity("1000", 1));
+
+        // identity is registered, points to the same backing index as the unique constraint
+        assertEquals(1, gigaMap.index().bitmap().identityIndices().size());
+        assertSame(
+            gigaMap.index().bitmap().identityIndices().get(),
+            gigaMap.index().bitmap().uniqueConstraints().get()
+        );
+        // unique behavior: duplicate is rejected
+        assertThrows(UniqueConstraintViolationException.class,
+            () -> gigaMap.add(new Entity("1000", 2)));
+    }
+
+    @Test
+    void sameIndexer_bitmapPlusIdentityPlusUnique()
+    {
+        final StringIndexer stringIndexer = new StringIndexer();
+
+        final GigaMap<Entity> gigaMap = GigaMap.<Entity>Builder()
+            .withBitmapIndex(stringIndexer)
+            .withBitmapIdentityIndex(stringIndexer)
+            .withBitmapUniqueIndex(stringIndexer)
+            .build();
+
+        gigaMap.add(new Entity("1000", 1));
+
+        // a single underlying index serves all three roles
+        assertEquals(1, gigaMap.index().bitmap().identityIndices().size());
+        assertEquals(1, gigaMap.index().bitmap().uniqueConstraints().size());
+        assertSame(
+            gigaMap.index().bitmap().identityIndices().get(),
+            gigaMap.index().bitmap().uniqueConstraints().get()
+        );
+        // bitmap query works
+        assertEquals("1000", gigaMap.query(stringIndexer.is("1000")).findFirst().get().value);
+        // unique behavior is enforced
+        assertThrows(UniqueConstraintViolationException.class,
+            () -> gigaMap.add(new Entity("1000", 2)));
+    }
+
+    @Test
+    void distinctIndexers_acrossAllThreeMethods()
+    {
+        // regression check: distinct indexers in different methods still produce
+        // three separate bitmap indices with the right roles.
+        final StringIndexer plainIndexer    = new StringIndexer();
+        final IdIndexer     identityIndexer = new IdIndexer();
+        final UniqueIdIndexer uniqueIndexer = new UniqueIdIndexer();
+
+        final GigaMap<Entity> gigaMap = GigaMap.<Entity>Builder()
+            .withBitmapIndex(plainIndexer)
+            .withBitmapIdentityIndex(identityIndexer)
+            .withBitmapUniqueIndex(uniqueIndexer)
+            .build();
+
+        gigaMap.add(new Entity("1000", 1));
+
+        assertEquals(1, gigaMap.index().bitmap().identityIndices().size());
+        assertEquals(1, gigaMap.index().bitmap().uniqueConstraints().size());
+        // unique constraint is the uniqueIndexer, not the identity one
+        assertEquals(uniqueIndexer.name(),
+            gigaMap.index().bitmap().uniqueConstraints().get().name());
+        assertEquals(identityIndexer.name(),
+            gigaMap.index().bitmap().identityIndices().get().name());
+    }
+
     private static class StringIndexer extends BinaryIndexerString.Abstract<Entity>
     {
     	@Override
@@ -281,6 +409,16 @@ public class BuilderWithIndicesTest
     }
 
     private static class IdIndexer extends BinaryIndexerNumber.Abstract<Entity, Integer>
+    {
+        @Override
+        protected Integer getNumber(final Entity entity)
+        {
+            return entity.id;
+        }
+    }
+
+    // a second number indexer with a distinct name, for the distinct-indexers test
+    private static class UniqueIdIndexer extends BinaryIndexerNumber.Abstract<Entity, Integer>
     {
         @Override
         protected Integer getNumber(final Entity entity)

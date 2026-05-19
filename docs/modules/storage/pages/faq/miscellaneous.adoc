@@ -9,6 +9,8 @@ Any problem during the IO-operation causes the whole block to be deleted (rolled
 
 == Is {product-name} multi-threaded?
 
+TIP: See xref:intro:concurrent-access.adoc[Concurrent Access] for the full conceptual treatment.
+
 Yes.
 Internally, {product-name} uses multiple threads (called _channels_) to parallelize its own storing and loading operations, which can strongly accelerate IO performance.
 The number of channels must be a power of 2 (1, 2, 4, 8, 16, etc.).

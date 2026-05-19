@@ -176,7 +176,7 @@ gigaMap.query(locationIndex.isNull());
 
 == Persistence
 
-The spatial indexer works with EclipseStore persistence out of the box.
+The spatial indexer works with {product-name} persistence out of the box.
 
 [source, java]
 ----

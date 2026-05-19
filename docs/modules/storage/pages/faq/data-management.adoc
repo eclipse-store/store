@@ -29,6 +29,8 @@ You can monitor storage growth through the xref:misc:monitoring/index.adoc[monit
 
 == How do I handle concurrent access?
 
+TIP: See xref:intro:concurrent-access.adoc[Concurrent Access] for the full conceptual treatment.
+
 {product-name} is designed for single-process access.
 The storage manager itself handles the internal persistence operations (reading and writing storage files) in a thread-safe manner.
 

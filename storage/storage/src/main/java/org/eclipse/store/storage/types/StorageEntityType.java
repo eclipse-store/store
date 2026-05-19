@@ -22,36 +22,131 @@ import org.eclipse.serializer.persistence.types.Persistence;
 import org.eclipse.serializer.persistence.types.PersistenceObjectIdAcceptor;
 
 
+/**
+ * Per-channel, per-type view over the entities stored in a {@link StorageChannel}.
+ * <p>
+ * Each channel maintains one {@link StorageEntityType} instance per persistent type it has seen.
+ * The instance bundles the type's {@link StorageEntityTypeHandler} (which describes the binary
+ * layout) with the live list of entities of that type, providing a way to iterate every entity of
+ * a given type that this channel currently holds. This is the primary entry point for custom
+ * exporters and analyzers that need to walk a storage type by type.
+ *
+ * @param <E> the concrete {@link StorageEntity} subtype iterated by this view.
+ *
+ * @see StorageEntity
+ * @see StorageEntityTypeHandler
+ */
 public interface StorageEntityType<E extends StorageEntity>
 {
+	/**
+	 * Returns the {@link StorageEntityTypeHandler} describing the binary layout of this type.
+	 *
+	 * @return the {@link StorageEntityTypeHandler} for this type.
+	 */
 	public StorageEntityTypeHandler typeHandler();
 
+	/**
+	 * Returns the number of live entities of this type currently held by the owning channel.
+	 *
+	 * @return the live entity count.
+	 */
 	public long entityCount();
-	
+
+	/**
+	 * Convenience query: returns {@code true} if {@link #entityCount()} is zero.
+	 *
+	 * @return {@code true} if this view holds no entities.
+	 */
 	public default boolean isEmpty()
 	{
 		return this.entityCount() == 0;
 	}
 
+	/**
+	 * Calls the passed procedure once for every live entity of this type, in iteration order, and
+	 * returns the same procedure instance.
+	 * <p>
+	 * The procedure may throw a checked exception of type {@code T}; this exception is propagated
+	 * out of this method without being wrapped. The iteration is short-circuited when the procedure
+	 * throws.
+	 *
+	 * @param <T>       the type of throwable the procedure may raise.
+	 * @param <P>       the procedure type.
+	 * @param procedure the procedure to invoke for every entity.
+	 *
+	 * @return the same {@code procedure} instance, for fluent collection of accumulated state.
+	 *
+	 * @throws T if the procedure raises a {@code T} during iteration.
+	 */
 	public <T extends Throwable, P extends ThrowingProcedure<? super E, T>> P iterateEntities(P procedure) throws T;
 
+	/**
+	 * Returns whether entities of this type contain any object references that the storage layer has
+	 * to track for garbage collection.
+	 *
+	 * @return {@code true} if this type has at least one reference field.
+	 */
 	public boolean hasReferences();
 
+	/**
+	 * Returns the number of "simple" reference slots in entities of this type, i.e. references
+	 * stored directly in the entity's binary form rather than via inlined collections.
+	 *
+	 * @return the number of simple reference slots per entity of this type.
+	 */
 	public long simpleReferenceDataCount();
 
+	/**
+	 * Calls the passed acceptor once for every reference object id stored in the passed entity.
+	 *
+	 * @param entity   the entity whose references shall be iterated.
+	 * @param iterator the acceptor to receive each reference object id.
+	 */
 	public void iterateEntityReferenceIds(E entity, PersistenceObjectIdAcceptor iterator);
 
+	/**
+	 * Validates every live entity of this type and returns the per-type id analysis (highest object
+	 * id and constant id observed).
+	 * <p>
+	 * Throws a {@link StorageException} if an entity carries an invalid object id or violates the
+	 * type's expected binary layout.
+	 *
+	 * @return a per-type {@link StorageIdAnalysis} reflecting the validated entities.
+	 *
+	 * @throws StorageException if entity validation fails.
+	 */
 	public StorageIdAnalysis validateEntities();
 
 
 
+	/**
+	 * Default {@link StorageEntityType} implementation backed by an internal singly-linked list of
+	 * {@link StorageEntity.Default} entries. Used by the entity cache; not intended for direct
+	 * construction by application code.
+	 */
 	public final class Default implements StorageEntityType<StorageEntity.Default>
 	{
+		/**
+		 * Two-stage callback used by {@link Default#removeAll(EntityDeleter)} to delete entities
+		 * during iteration: {@link #test(StorageEntity.Default)} decides whether the entity should
+		 * be removed; {@link #delete(StorageEntity.Default, StorageEntityType.Default, StorageEntity.Default)}
+		 * unlinks the entity from the type's internal list and applies any side-effects the deleter
+		 * needs to perform.
+		 */
 		public interface EntityDeleter extends Predicate<StorageEntity.Default>
 		{
 			@Override
 			public boolean test(StorageEntity.Default entity);
 
+			/**
+			 * Removes the passed entity from its type's internal list and applies any deleter
+			 * side-effects.
+			 *
+			 * @param entity         the entity to delete.
+			 * @param type           the {@link StorageEntityType.Default} the entity is being removed from.
+			 * @param previousInType the entity that immediately precedes {@code entity} in the type's
+			 *                       internal list, required because the list is singly-linked.
+			 */
 			public void delete(
 				StorageEntity.Default     entity        ,
 				StorageEntityType.Default type          ,

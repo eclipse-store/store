@@ -52,8 +52,18 @@ interface DiskIndexManager extends Closeable
 {
     /**
      * Graph file format version for compatibility checking.
+     * <p>
+     * History:
+     * <ul>
+     *   <li>{@code 1} — version, dimension, vectorCount.</li>
+     *   <li>{@code 2} — adds highestEntityId to detect count-collision corruption
+     *       (equal numbers of additions and removals between persists).</li>
+     * </ul>
+     * Bumping this constant invalidates existing on-disk indices; they are
+     * rebuilt from the GigaMap-stored source vectors on first load — no data
+     * loss, but a one-time cold-start cost.
      */
-    final static int GRAPH_FILE_VERSION = 1;
+    final static int GRAPH_FILE_VERSION = 2;
 
     /**
      * File extension for graph files.
@@ -117,6 +127,21 @@ interface DiskIndexManager extends Closeable
          * @return the expected vector count
          */
         public long getExpectedVectorCount();
+
+        /**
+         * Returns the highest entity id currently allocated by the underlying
+         * {@code GigaMap}. Combined with {@link #getExpectedVectorCount()},
+         * this catches the count-collision corruption window where equal
+         * numbers of additions and removals would otherwise leave the count
+         * unchanged between persists.
+         * <p>
+         * GigaMap allocates entity ids monotonically, so any addition strictly
+         * increases this value; removals do not decrement it. Together with
+         * the count, this forms a cheap O(1) integrity check.
+         *
+         * @return the highest allocated entity id, or {@code -1} if no entities exist
+         */
+        public long getHighestEntityId();
     }
 
 
@@ -240,6 +265,14 @@ interface DiskIndexManager extends Closeable
                     return false;
                 }
 
+                final long highestEntityId = dis.readLong();
+                final long expectedHighestEntityId = this.provider.getHighestEntityId();
+                if(highestEntityId != expectedHighestEntityId)
+                {
+                    LOG.debug("Highest entity id mismatch: expected {}, got {}", expectedHighestEntityId, highestEntityId);
+                    return false;
+                }
+
                 return true;
             }
         }
@@ -343,6 +376,7 @@ interface DiskIndexManager extends Closeable
                 dos.writeInt(GRAPH_FILE_VERSION);
                 dos.writeInt(this.dimension);
                 dos.writeLong(this.provider.getExpectedVectorCount());
+                dos.writeLong(this.provider.getHighestEntityId());
             }
         }
 

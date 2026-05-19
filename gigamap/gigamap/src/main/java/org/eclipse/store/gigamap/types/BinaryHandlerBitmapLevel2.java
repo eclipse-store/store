@@ -112,7 +112,9 @@ public class BinaryHandlerBitmapLevel2 extends AbstractBinaryHandlerCustom<Bitma
 		// required to prevent JVM crashes caused by misinterpreted off-heap data.
 		BitmapLevel2.validateLevel2SegmentType(level2Address);
 
-		instance.level2Address = level2Address;
+		// must go through the setter so the Cleaner state tracks the new address;
+		// otherwise a deserialized-then-discarded BitmapLevel2 would leak its region.
+		instance.setLevel2Address(level2Address);
 
 		// deallocate old off-heap memory to prevent leaks when updating an existing instance
 		if(oldAddress > 0)

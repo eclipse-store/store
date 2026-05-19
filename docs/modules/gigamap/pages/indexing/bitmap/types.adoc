@@ -22,31 +22,13 @@ gigaMap.index().bitmap().ensure(PersonIndices.lastName);
 ...
 ----
 
-== Unique Index
-
-Index with a unique constraint.
-
-[source, java]
-----
-// use the builder
-final GigaMap<Person> gigaMap = GigaMap.<Person>Builder()
-    .withBitmapUniqueIndex(PersonIndices.id)
-    ...
-    .build();
-
-// or register it after creating
-GigaMap<Person> gigaMap = GigaMap.New();
-gigaMap.index().bitmap().addUniqueConstraint(PersonIndices.id);
-...
-----
-
 == Identity Index
 
 An identity index is used exclusively to identify an entity within the GigaMap. It can consist of one or more indexers.
 
 When looking up or removing entities, the GigaMap doesn't traverse all data, as that would be too inefficient. Instead, it creates an internal query based on the identity index definitions to look up entries. If no identity index is provided, a compound one will be created using all standard indices.
 
-IMPORTANT: An identity index is **not** a unique index. It only defines which fields are used to identify entities — it does not enforce uniqueness. If you need to ensure that no two entities share the same identity value, you must add a unique constraint separately.
+IMPORTANT: An identity index is **not** a unique index. It only defines which fields are used to identify entities — it does not enforce uniqueness. To enforce uniqueness, add a unique constraint as described in xref:constraints.adoc#_unique_constraints[Constraints].
 
 [source, java]
 ----
@@ -56,21 +38,15 @@ final GigaMap<Person> gigaMap = GigaMap.<Person>Builder()
     ...
     .build();
 
-// identity index with unique constraint
-final GigaMap<Person> gigaMap = GigaMap.<Person>Builder()
-    .withBitmapIdentityIndex(PersonIndices.id)
-    .withBitmapUniqueIndex(PersonIndices.id) // enforce uniqueness at runtime
-    ...
-    .build();
-
 // or register it after creating
 GigaMap<Person> gigaMap = GigaMap.New();
 final BitmapIndices<E> bitmap = this.gigaMap.index().bitmap();
-bitmap.ensure(PersonIndices.id); // add index first
+bitmap.ensure(PersonIndices.id);             // add index first
 bitmap.setIdentityIndices(PersonIndices.id); // set as identity
-bitmap.addUniqueConstraint(PersonIndices.id); // enforce uniqueness
 ...
 ----
+
+To make an identity index also enforce uniqueness, see xref:constraints.adoc#_unique_constraints[Unique Constraints].
 
 == Binary Index
 

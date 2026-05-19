@@ -1,5 +1,7 @@
 = Storage Files and Directories
 
+TIP: See xref:configuration/best-practices.adoc[Best Practices: Dev / Test / Prod] for environment-specific recommendations on the deletion and truncation directories.
+
 Using a Storage Live File Provider (`org.eclipse.store.storage.types.StorageLiveFileProvider`) allows to specify the location and naming rules for all storage related files.
 
 Available properties are:

@@ -1,49 +1,263 @@
 = Lazy and Eager Storing
 
-The {product-name} engine supports two general storing strategies: lazy and eager storing.
-By default, {product-name} uses the lazy storing strategy.
+When you call `store(...)`, {product-name} walks the object graph reachable from the passed instance and writes objects to disk.
+*How* it walks — specifically, what it does when it encounters an object that is already known to the persistent context — is the *storing strategy*.
+{product-name} ships two: *lazy* and *eager*.
+The default is lazy.
 
-These storing strategies differ in the way how objects, referenced by the object to be stored are handled if those referenced objects had already been stored.
+[IMPORTANT]
+.TL;DR
+====
+. The object you pass to `store(...)` is *always re-written*, regardless of strategy. The lazy/eager distinction only governs how *referenced child* objects are handled.
+. *Lazy storing* (default) — for child references, skip any object that is already registered in storage. Fast and minimal I/O, but modified-but-not-explicitly-stored sub-objects are silently *not* re-written.
+. *Eager storing* — for child references, re-traverse and re-write *every* reachable object, whether already registered or not. Safe by default, more bytes per commit.
+. The strategy is chosen *per `Storer` instance*, not globally. The convenience methods on `EmbeddedStorageManager` (`store`, `storeAll`, `storeRoot`) all use the lazy strategy.
+====
 
-== Lazy Storing
+== How {product-name} decides what to write
 
-Lazy storing is the default storing mode of the {product-name} engine.
+Every object that {product-name} has ever persisted is assigned an `objectId` and tracked in the *persistent context* (a `PersistenceObjectRegistry`).
+A `Storer` carries out one logical store as follows:
 
-Referenced instances are stored only if they have not been stored yet.
-If a referenced instance has been stored previously it is not stored again even if it has been modified.
+. The application calls `storer.store(instance)`, where `instance` is any object — typically a sub-graph entry point, not necessarily the storage root.
+. The storer *always re-serializes the explicitly passed `instance`*, regardless of whether it is already registered. This is true for both lazy and eager storers.
+. The storer then walks references reachable from `instance` and consults the registry for each *referenced child* object. If the child has *no* `objectId` (never persisted), it is always written and assigned a new id. If the child *does* have an `objectId`, the lazy and eager strategies diverge — see below.
+. The application calls `storer.commit()`. Up until this call, the serialized bytes are buffered in memory; `commit()` flushes them to the storage targets and makes the change durable.
 
-TIP: That's why modified objects must be stored explicitly.
+[NOTE]
+====
+A `Storer` is *not* `AutoCloseable`. Do not wrap it in try-with-resources.
+If `commit()` is never called, the buffered data is discarded — the store had no effect on disk.
+The exception is xref:storing-data/batch-storer.adoc[BatchStorer], which is `AutoCloseable` and flushes on close.
+====
 
-[#eager-storing]
-== Eager Storing
+== Lazy storing — the default
 
-In eager storing mode referenced instances are stored even if they had been stored before.
-Contrary to Lazy storing this will also store modified child objects at the cost of performance.
-
-== Usage
-
-To use lazy or eager storing explicitly, get an instance of the required `Storer` and use it's store methods:
+The lazy storer always re-writes the object you pass to `store(...)`.
+What it skips are *child references* into objects that storage already knows about: it records the reference itself, but does not descend into that child's fields.
 
 [source, java]
 ----
-Storer storer = storage.createEagerStorer();
-storer.store(myData);
-storer.commit();
+// One-time setup: store creates the initial graph
+Customer alice = new Customer("Alice", new Address("1 Main St"));
+root.customers.add(alice);
+storageManager.store(root.customers);
+
+// Later: mutate Alice's address in place
+alice.address().setStreet("2 Main St");
+
+// The list itself IS re-written (it is the explicit argument), but Alice and
+// her address are skipped — both are already registered, and the lazy walk
+// stops at Alice. The mutation to the address is therefore NOT persisted.
+storageManager.store(root.customers);
+
+// To persist the change, you have to store the object you actually changed:
+storageManager.store(alice.address());
 ----
 
-Available ``Storer``s are:
+This is the rule of thumb: *with lazy storing, you must explicitly store the object whose state actually changed.*
+Storing a parent does not implicitly re-store its already-known children.
 
-`storage.createLazyStorer()`
+The pay-off is throughput.
+Subsequent stores write only the deltas, which is why {product-name} can keep large object graphs in memory and persist incremental changes cheaply.
 
-`storage.createEagerStorer()`
+=== Collections — only new elements are written
 
-Standard storing:
+The most common place this rule pays off is collections.
+Re-storing a collection after appending an element does *not* re-write every element — only the collection's own state (its internal reference array, size, etc.) and any *new* elements it now contains.
 
-`storage.createStorer()`
+[source, java]
+----
+// Initial state: list with three already-stored customers
+List<Customer> customers = root.customers;          // size = 3, all registered
+storageManager.store(customers);                    // baseline
 
-will provide corresponding `Storer` instances.
+// Add one new customer
+Customer dave = new Customer("Dave");
+customers.add(dave);
 
-== Custom Handling
+// Lazy walk:
+//   - the list itself is re-written (explicit argument), so the new size and
+//     the updated reference array hit disk;
+//   - the three existing customers are skipped (already in the registry);
+//   - dave is written (newly encountered).
+//
+// Bytes written: list shell + dave. NOT all four customers.
+storageManager.store(customers);
+----
 
-Beside the 'global' lazy or eager storing strategies {product-name} allows to implement an individual handling for the storing behavior.
-See xref:customizing/custom-storing-behavior.adoc[PersistenceEagerStoringFieldEvaluator] for details.
+This is what makes lazy storing scale: a list of one million customers with one new element costs roughly one customer's worth of payload per store, not one million.
+
+The same logic applies to mutating an element's reference (e.g. `customers.set(0, newAlice)`) — the list is re-written so the new reference is recorded, the *new* `newAlice` is written, and the other existing customers are skipped.
+
+[NOTE]
+====
+Mutating an element's *fields* in place (e.g. `customers.get(0).setName("Bob")`) is the case the lazy walk does *not* catch — see the example above. Store the mutated element directly, not the list.
+====
+
+[TIP]
+.GigaMap goes one step further
+====
+If your large dataset lives in a xref:gigamap:persistence.adoc[GigaMap] instead of a plain collection, you do not even need to remember which entities changed.
+GigaMap tracks modifications internally, and `gigaMap.store()` writes only the modified parts — including entities you mutated via `gigaMap.update(...)` or `gigaMap.apply(...)`.
+It also acquires its own internal lock during the store, so the GigaMap itself does not need application-level synchronization (other parts of the object graph still do).
+
+The one case GigaMap cannot track is a field mutation made *outside* `update`/`apply` — for those, you must store the entity yourself, just as with a plain collection.
+====
+
+== Eager storing
+
+The eager storer re-traverses every reference and re-writes every reachable object, registered or not.
+
+[source, java]
+----
+Storer eager = storageManager.createEagerStorer();
+eager.store(root.customers);
+eager.commit();
+
+// Same scenario as above:
+alice.address().setStreet("2 Main St");
+
+// The eager storer re-writes Alice, her address, every other Customer, and
+// every Address — whether they changed or not.
+Storer eager2 = storageManager.createEagerStorer();
+eager2.store(root.customers);
+eager2.commit();
+----
+
+Eager storing is correct by construction: you cannot forget to store a child, because the walk does not skip anything reachable.
+The cost is paid in bytes-per-commit: every reachable object is re-serialized and re-written, even if its state is identical to what is on disk.
+
+Use it when one of the following applies:
+
+* You cannot reliably enumerate which sub-objects changed (for example, the data model exposes only a coarse-grained root and you do not have getters for the modified internals — see xref:storing-data/best-practice.adoc[Best Practice — Storing Hidden Encapsulated Objects]).
+* You are storing an immutable sub-graph that must be persisted as a coherent snapshot — see xref:storing-data/best-practice.adoc[Best Practice — Use Immutable data models].
+* You are doing a one-shot bulk write where correctness matters more than I/O cost.
+
+== How the walk differs — visual
+
+Given an entry point passed to `storer.store(...)` that references two customers, where Customer A and her address are already registered (`objectId` assigned), and Customer B has just been added in memory:
+
+[literal]
+....
+                      Root  <-- explicit arg to store(...)
+                       |
+              +--------+--------+
+              |                 |
+          Customer A         Customer B
+        (in registry,       (NEW — not in
+         objectId=42)        registry)
+              |                 |
+           Address           Address
+        (in registry)         (NEW)
+
+
+  Lazy walk:   Root             ALWAYS written (explicit argument)
+                \-> Customer A   STOP (child, already in registry)
+                \-> Customer B   write B (child, new)
+                                  \-> Address(B)  write Address(B)
+
+               Bytes written: Root + Customer B + Address(B).
+
+
+  Eager walk:  Root             ALWAYS written (explicit argument)
+                \-> Customer A   re-write A (child, in registry)
+                                  \-> Address(A)  re-write Address(A)
+                \-> Customer B   write B (child, new)
+                                  \-> Address(B)  write Address(B)
+
+               Bytes written: every reachable object.
+....
+
+If Customer A's address was mutated in place, the lazy walk above persists nothing for it.
+The eager walk persists the new value as a side effect of re-writing everything.
+
+== Choosing between them
+
+[options="header",cols="2,1,3"]
+|===
+| Scenario | Pick | Why
+
+| Mutate one object, store *that* object
+| lazy
+| The default convenience methods do this. Fast, minimal I/O, correct because you stored exactly what changed.
+
+| Mutate a deeply nested object you cannot reach with a clean accessor
+| eager (or per-field — see below)
+| The lazy walk would skip the change. Eager storing or per-field eager evaluation guarantees the write.
+
+| Re-attach a freshly-built immutable sub-graph to an existing root
+| eager
+| The sub-graph contains a mix of new and reused references. Eager storing makes the snapshot atomic and unambiguous.
+
+| Bulk import or migration
+| eager
+| Correctness over I/O cost; you do not want to debug a missed lazy edge case in a one-shot job.
+|===
+
+== Convenience methods always use lazy
+
+Every `store(...)` and `storeAll(...)` method on `EmbeddedStorageManager`, including `storeRoot()`, internally creates a default (lazy) storer and commits it for you.
+There is no flag to make these methods eager.
+
+[source, java]
+----
+// Lazy: convenience method
+storageManager.store(root.customers);
+
+// Eager: explicit storer + commit
+Storer eager = storageManager.createEagerStorer();
+eager.store(root.customers);
+eager.commit();
+----
+
+If you need eager semantics for a single store, you must create the storer explicitly.
+There is no eager equivalent to `storeAll(...)` on the manager.
+
+== Per-field control — the escape hatch
+
+Switching the *whole* application to eager storing is a heavy hammer.
+If only a few fields are problematic — for example, a hidden collection that mutates in place but is not externally accessible — you can mark *those fields* as eager and leave the rest of the graph on lazy.
+
+This is configured globally on the foundation by registering a `PersistenceEagerStoringFieldEvaluator`, typically annotation-driven:
+
+[source, java]
+----
+EmbeddedStorageManager storage = EmbeddedStorage.Foundation()
+    .onConnectionFoundation(cf ->
+        cf.setReferenceFieldEagerEvaluator(new MyEagerEvaluator()))
+    .createEmbeddedStorageManager()
+    .start();
+----
+
+The evaluator is consulted once per field during traversal.
+Returning `true` for a given `(declaringClass, field)` forces eager traversal through that field even when the rest of the storer is lazy.
+
+For the full implementation pattern (interface, custom annotation, evaluator class) see xref:../customizing/custom-storing-behavior.adoc[Custom Storing Behavior].
+
+== Common pitfalls
+
+* *"I changed a deeply-nested object, but the next load shows the old value."* +
+You stored an ancestor of the changed object. The ancestor itself was re-written (the explicit argument always is), but the lazy walk did not descend into the changed child because the child is already in the registry. Either store the changed object directly, or use eager / per-field eager for that subtree.
+
+* *"`store()` ran and nothing was persisted."* +
+You created a `Storer` explicitly but forgot to call `commit()`. The data sat in the storer's buffer and was discarded. Convenience methods (`storageManager.store(...)`) commit for you; explicit storers do not.
+
+* *"My eager storer's commits are slow and the file keeps growing."* +
+Eager storing re-writes the entire reachable graph on every commit. If only a couple of fields are the actual problem, switch back to lazy and use a `PersistenceEagerStoringFieldEvaluator` to mark only those fields.
+
+* *"Lazy loading is broken."* +
+Lazy *loading* is unrelated to lazy *storing*. Loading defers reading objects from disk into RAM; storing controls how `store()` walks the graph when writing. See xref:loading-data/lazy-loading/index.adoc[Lazy Loading] for the loading concept.
+
+* *Sharing a `Storer` across threads.* +
+A `Storer` is single-threaded state — it must be confined to the thread that created it. See xref:intro:concurrent-access.adoc[Concurrent Access].
+
+== See also
+
+* xref:storing-data/transactions.adoc[Convenience Methods and Explicit Storing (Transactions)] — how `store()`/`storeAll()` map to a single durable transaction.
+* xref:storing-data/batch-storer.adoc[Batch Storer] — accumulates many stores and flushes in batches; uses lazy traversal semantics for child objects.
+* xref:gigamap:persistence.adoc[GigaMap — Persistence] — tracks modifications internally so `gigaMap.store()` writes only the changed parts; preferred over `storageManager.store(gigaMap)`.
+* xref:../customizing/custom-storing-behavior.adoc[Custom Storing Behavior] — `PersistenceEagerStoringFieldEvaluator` reference.
+* xref:storing-data/best-practice.adoc[Best Practice] — *Storing Hidden Encapsulated Objects* and *Use Immutable data models* both depend on this page.
+* xref:intro:concurrent-access.adoc[Concurrent Access] — `Storer` instances are not thread-safe.
+* xref:loading-data/lazy-loading/index.adoc[Lazy Loading] — the unrelated *loading* concept that is often confused with lazy storing.

@@ -1,4 +1,17 @@
-sparkjava# Storage Viewer HowTo:
+# Storage Viewer HowTo (Spark Java)
+
+> ## ⚠️ Deprecated
+>
+> The Spark Java REST service implementation is **deprecated** and will be **removed in a future release**.
+>
+> New applications should use one of the supported implementations instead:
+>
+> - **`storage-restservice-javalin`** — recommended for standalone applications.
+> - **`storage-restservice-springboot`** — recommended for Spring Boot applications.
+>
+> See the [REST Interface documentation](https://docs.eclipsestore.io/manual/storage/rest-interface/index.html) for setup instructions.
+>
+> The content below is kept for reference only and no longer receives feature updates.
 
 # Content
 - [Setup](#1-setup)

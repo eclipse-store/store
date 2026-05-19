@@ -138,6 +138,15 @@ public interface Indexer<E, K> extends IndexIdentifier<E, K>
 	 * This class provides a default behavior for obtaining a name, which can be either
 	 * explicitly set or derived dynamically using reflection if not available. The name
 	 * is used as a unique identifier for indexing operations.
+	 * <p>
+	 * The default name derivation prefers the fully qualified name of the {@code static}
+	 * field that declares the indexer instance, which makes names naturally unique when
+	 * indexers are declared as constants. For instances that are <em>not</em> assigned to
+	 * a {@code static} field (for example, anonymous classes created inline), the name
+	 * falls back to a class-based identifier that may collide with other anonymous
+	 * instances of the same indexer type. Override {@link #name()} to provide an explicit,
+	 * unique name in those cases. Indexer names must be unique within a
+	 * {@link BitmapIndices}; duplicates are rejected at registration time.
 	 *
 	 * @param <E> the entity type
 	 * @param <K> the key type

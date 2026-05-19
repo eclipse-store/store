@@ -6,6 +6,8 @@ This behavior is comparable to Java's garbage collector.
 
 NOTE: In a multi-threaded application, removing references and calling `store()` *must be done under the same lock* to prevent other threads from observing inconsistent state. This is the application's responsibility. See xref:misc:locking/index.adoc[Locking] for details.
 
+TIP: See xref:intro:concurrent-access.adoc[Concurrent Access] for the full conceptual treatment.
+
 == Basic Deletion
 
 Remove the reference to the object and store the parent:

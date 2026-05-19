@@ -187,6 +187,19 @@ List<Document> topDocs = result.stream()
     .toList();
 ----
 
+=== Tuning search effort per query
+
+Every call uses a minimum beam width (HNSW _efSearch_) configured via `minSearchBeamWidth` (default 100). The effective beam width is `max(k, minSearchBeamWidth)` and keeps the top-k stable regardless of the requested `k`. A per-query overload lets you override this floor for a single call — useful to widen exploration for higher recall, or narrow it for lower latency when reproducibility across different `k` values is not required.
+
+[source, java]
+----
+// Widen exploration for this query (higher recall, higher latency)
+VectorSearchResult<Document> highRecall = index.search(queryVector, 10, 500);
+
+// Narrow exploration for this query (lower latency, may differ from higher-k results)
+VectorSearchResult<Document> fast = index.search(queryVector, 10, 10);
+----
+
 == Similarity Functions
 
 The following similarity functions are available:
@@ -205,9 +218,9 @@ The following similarity functions are available:
 |Euclidean distance. Best for geometric or spatial data.
 |===
 
-== Persistence with EclipseStore
+== Persistence with {product-name}
 
-Binary type handlers are registered automatically when using EclipseStore.
+Binary type handlers are registered automatically when using {product-name}.
 
 [source, java]
 ----
@@ -224,6 +237,64 @@ try (EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
     storage.storeRoot();
 }
 ----
+
+== Computed Vectorizers and Lazy Initialization
+
+A vectorizer instance is part of the GigaMap's persistent object graph: when storage is reopened, the vectorizer is restored alongside the index data and reused — its fields are loaded back exactly as they were when the GigaMap was last stored.
+
+For computed vectorizers — those that derive embeddings on the fly, e.g. by calling an embedding model over HTTP — this means any heavy field on the vectorizer (HTTP clients, embedding-model handles, tokenizers) would otherwise be serialized along with the cheap configuration. Mark heavy fields `transient` and create them on first use; persist only the cheap configuration that identifies which model or endpoint to talk to.
+
+[source, java]
+----
+public class MyVectorizer extends Vectorizer<Entity>
+{
+    private final String baseUrl ;
+    private final String modelName;
+
+    private transient EmbeddingModel embeddingModel;
+
+    public MyVectorizer(final String baseUrl, final String modelName)
+    {
+        this.baseUrl   = baseUrl  ;
+        this.modelName = modelName;
+    }
+
+    private EmbeddingModel embeddingModel()
+    {
+        if(this.embeddingModel == null)
+        {
+            this.embeddingModel = OllamaEmbeddingModel.builder()
+                .baseUrl(this.baseUrl)
+                .modelName(this.modelName)
+                .build();
+        }
+        return this.embeddingModel;
+    }
+
+    @Override
+    public float[] vectorize(final Entity entity)
+    {
+        return this.embeddingModel().embed(toText(entity))
+            .content().vector();
+    }
+}
+----
+
+When the GigaMap is loaded from existing storage, the vectorizer is restored from the persistent graph with its `baseUrl` and `modelName` intact. The transient `embeddingModel` field is `null` after deserialization and is recreated on the first `vectorize` call.
+
+=== Looking up a vector index after load
+
+The first argument to `vectorIndices.add(name, configuration, vectorizer)` is the index's handle. GigaMap stores the index under that name and uses it as the on-disk filename prefix (`{name}.graph`, `{name}.meta`) when on-disk storage is enabled, so pick a stable string that is also a valid filename. Avoid path separators and keep it short.
+
+After the GigaMap is loaded from existing storage, the index is owned and managed by GigaMap — you do not re-add it. Retrieve a reference by name:
+
+[source, java]
+----
+VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
+VectorIndex<Document> index = vectorIndices.get("embeddings");
+----
+
+`vectorIndices.get(name)` returns `null` if no index with that name is registered. If you want a single call site that creates the index on first run and reuses it on subsequent loads, use `ensure(name, configuration, vectorizer)` instead of `add(...)`.
 
 == Limitations
 

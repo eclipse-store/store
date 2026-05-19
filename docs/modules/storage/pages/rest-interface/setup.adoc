@@ -1,12 +1,13 @@
 = Setup
 
+TIP: See xref:configuration/best-practices.adoc[Best Practices: Dev / Test / Prod] for environment-specific recommendations on exposing the REST interface in production.
+
 An application that will expose the REST endpoints needs one of the provided implementations by {product-name} or you need to implement the provided interfaces.
 
 Currently, two implementations are available:
 
-- SpringBoot 3.x REST Service
-- Javalin REST Service
-- Spark Java REST Service (Deprecated, will be removed in future versions)
+- Javalin REST Service — recommended for standalone applications.
+- Spring Boot 3.x REST Service — recommended for Spring Boot applications.
 
 
 == Spring Boot REST Service
@@ -91,52 +92,6 @@ If you want to change the default port (4567) or instance name (_store-data_) it
 | `store-data`
 | Instance name used in the base URL (without leading/trailing "/").
 |===
-
-== Spark Java REST Service
-
-In this example, we will use the https://sparkjava.com/[Spark] implementation that {product-name} provides.
-This has no dependencies to other frameworks and makes no assumptions about your runtime environment, IoC container,
-dependency injection, web server or anything else.
-
-Just add the dependency to your project, the logger is optional.
-
-[source, xml, title="pom.xml", subs=attributes+]
-----
-<dependencies>
-    <dependency>
-        <groupId>org.eclipse.store</groupId>
-        <artifactId>storage-restservice-sparkjava</artifactId>
-        <version>{maven-version}</version>
-    </dependency>
-    <dependency>
-        <groupId>org.slf4j</groupId>
-        <artifactId>slf4j-simple</artifactId>
-        <version>1.7.32</version>
-    </dependency>
-</dependencies>
-----
-
-Now use the resolver to connect the REST service to the storage, start it, and you're good to go.
-
-[source, java]
-----
-EmbeddedStorageManager storage = EmbeddedStorage.start();
-storage.ensureRoot(() -> new Object[] {
-   LocalDate.now(),
-   X.List("a", "b", "c"),
-   1337
-});
-
-// create the REST service
-StorageRestService service = StorageRestServiceResolver.resolve(storage);
-
-// and start it
-service.start();
-----
-
-That's all you have to do to open the REST endpoints to access the stored data.
-
-The base URL of the provided endpoints is per default: http://localhost:4567/store-data/ and you can find out all available endpoints on the root http://localhost:4567
 
 === Additional Configuration
 

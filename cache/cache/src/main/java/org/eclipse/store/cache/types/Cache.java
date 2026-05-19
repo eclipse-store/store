@@ -323,6 +323,20 @@ public interface Cache<K, V> extends javax.cache.Cache<K, V>, Unwrappable
 			throw new IllegalArgumentException("Unsupported configuration type: " + clazz.getName());
 		}
 
+		@Override
+		public <T> T unwrap(final Class<T> clazz)
+		{
+			if(clazz.isInstance(this.cacheStatisticsMXBean))
+			{
+				return clazz.cast(this.cacheStatisticsMXBean);
+			}
+			if(clazz.isInstance(this.cacheConfigurationMXBean))
+			{
+				return clazz.cast(this.cacheConfigurationMXBean);
+			}
+			return Unwrappable.Static.unwrap(this, clazz);
+		}
+
 		@SuppressWarnings("unchecked")
 		private void updateConfiguration(final Consumer<MutableConfiguration<K, V>> c)
 		{

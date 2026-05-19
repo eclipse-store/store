@@ -40,9 +40,19 @@ import org.eclipse.store.storage.types.StorageLiveFileProvider;
 
 
 /**
- * Creator for a storage foundation, based on a configuration.
+ * {@link EmbeddedStorageFoundation.Creator} implementation that builds an
+ * {@link EmbeddedStorageFoundation} from a generic {@link Configuration}.
+ * <p>
+ * Each call to {@link #createEmbeddedStorageFoundation()} reads the property names defined in
+ * {@link EmbeddedStorageConfigurationPropertyNames} from the configuration and translates them into the
+ * matching parts of a {@link StorageConfiguration} (file provider, channel count provider, housekeeping
+ * controller, data file evaluator, entity cache evaluator, optional backup setup, and the underlying
+ * {@link AFileSystem} for both the storage and the backup directory). Unset properties fall back to the
+ * defaults of the respective storage component.
  *
- *
+ * @see EmbeddedStorageConfiguration
+ * @see EmbeddedStorageConfigurationBuilder
+ * @see EmbeddedStorageConfigurationPropertyNames
  */
 public interface EmbeddedStorageFoundationCreatorConfigurationBased extends EmbeddedStorageFoundation.Creator
 {
@@ -60,6 +70,14 @@ public interface EmbeddedStorageFoundationCreatorConfigurationBased extends Embe
 		);
 	}
 	
+	/**
+	 * Default implementation that wraps a {@link Configuration} and assembles an
+	 * {@link EmbeddedStorageFoundation} from it on each call to
+	 * {@link #createEmbeddedStorageFoundation()}.
+	 * <p>
+	 * Any non-{@link ConfigurationException} thrown during assembly is wrapped in a
+	 * {@link ConfigurationException} that carries the offending {@link Configuration} as context.
+	 */
 	public static class Default implements
 	EmbeddedStorageFoundationCreatorConfigurationBased,
 	EmbeddedStorageConfigurationPropertyNames

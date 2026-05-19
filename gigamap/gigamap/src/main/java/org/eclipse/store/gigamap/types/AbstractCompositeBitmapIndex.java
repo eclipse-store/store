@@ -376,7 +376,7 @@ implements BitmapIndex.TopLevel<E, KS>
 		try
 		{
 			// contains function throws a Break on the first encounter of a match (aka entity is contained)
-			GigaMap.Default.execute(EntityIdMatcher.NoOp(), this.contains, results, 0, parentMap.size(), null);
+			GigaMap.Default.execute(EntityIdMatcher.NoOp(), this.contains, results, 0, parentMap.highestUsedId() + 1, null);
 		}
 		catch(final ThrowBreak b)
 		{

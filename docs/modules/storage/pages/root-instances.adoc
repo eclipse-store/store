@@ -58,6 +58,9 @@ storageManager.storeRoot();
 ----
 
 === Shared Mutable Data
+
+TIP: See xref:intro:concurrent-access.adoc[Concurrent Access] for the full conceptual treatment.
+
 If you are working with {product-name} technology in a multi-threaded environment, there are a few things you need to pay extra attention to.
 
 ==== Synchronize access to shared mutable data

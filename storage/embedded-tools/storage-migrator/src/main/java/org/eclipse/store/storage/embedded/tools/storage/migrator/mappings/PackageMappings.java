@@ -23,22 +23,41 @@ import java.util.Map;
 import java.util.Map.Entry;
 
 
+/**
+ * Singleton table of MicroStream-to-EclipseStore package renames, loaded from the bundled
+ * {@code /META-INF/mappings/package.mappings} resource.
+ * <p>
+ * Each non-empty line of the resource has the form {@code old.package.name = new.package.name} and is
+ * stored in declaration order. Use {@link #INSTANCE} to access the table; {@link #newPackage(String)}
+ * looks up a single mapping, while iterating yields all mappings as map entries.
+ */
 public class PackageMappings implements Iterable<Map.Entry<String, String>>
 {
+	/**
+	 * The singleton instance, eagerly initialized from the bundled mapping resource.
+	 */
 	public final static PackageMappings INSTANCE = new PackageMappings();
-	
+
 	private final Map<String, String> mappings;
-	
+
 	private PackageMappings()
 	{
 		this.mappings = this.loadMappings();
 	}
-	
+
+	/**
+	 * Returns the EclipseStore replacement for the given legacy package name, or {@code null} if no mapping
+	 * exists.
+	 *
+	 * @param oldPackage the legacy package name.
+	 *
+	 * @return the new package name, or {@code null} if {@code oldPackage} is not mapped.
+	 */
 	public String newPackage(final String oldPackage)
 	{
 		return this.mappings.get(oldPackage);
 	}
-	
+
 	@Override
 	public Iterator<Entry<String, String>> iterator()
 	{

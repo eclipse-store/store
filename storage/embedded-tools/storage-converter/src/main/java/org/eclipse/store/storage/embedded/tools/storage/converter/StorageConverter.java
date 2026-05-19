@@ -33,9 +33,21 @@ import org.eclipse.store.storage.types.StorageLiveFileProvider;
 import org.slf4j.Logger;
 
 /**
- * 
- * Converts a EmbeddedStorage into another one.
+ * Offline copying utility that rewrites the contents of an EmbeddedStorage into a freshly laid-out target
+ * storage.
+ * <p>
+ * Operation: the converter walks the data files of every channel in the source storage in reverse file
+ * order, registers the latest version of every encountered entity, and writes those entities (optionally
+ * after running them through a chain of {@link BinaryConverter}s) into the target storage's channels chosen
+ * by {@code oid % targetChannelCount}. The target storage's data files are filled up to the configured
+ * data-file maximum size and then rolled over.
+ * <p>
+ * Typical use cases are changing the channel count, switching to a new on-disk binary format, or migrating
+ * to a different file-name layout. Backups of the source storage are not converted; only the live data
+ * files and the persistence type dictionary are processed.
  *
+ * @see MainUtilStorageConverter
+ * @see BinaryConverter
  */
 public class StorageConverter
 {

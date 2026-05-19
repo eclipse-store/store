@@ -20,6 +20,7 @@ import org.eclipse.serializer.concurrency.XThreads;
 import org.eclipse.serializer.math.XMath;
 import org.eclipse.serializer.memory.XMemory;
 
+import java.lang.ref.Reference;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
@@ -56,8 +57,9 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 	
 	// this is used for a pointer value, but address 1 is never valid, so it can be used as a meta value.
 	static final long SKIP_LEVEL1_SEGMENT_MARKER = 1L;
-	
-	
+
+
+
 	///////////////////////////////////////////////////////////////////////////
 	// static methods //
 	///////////////////
@@ -100,15 +102,16 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 	// instance fields //
 	////////////////////
 
-	private final GigaMap.Default<?>                   parent            ;
-	private final BitmapResult[]                       results           ;
-	private final IterationThreadProvider              threadProvider    ;
-	private final XGettingCollection<? extends Thread> threads           ;
-	private final int                                  level1SegmentCount;
+	private final GigaMap.Default<?>                   parent              ;
+	private final BitmapResult[]                       results             ;
+	private final IterationThreadProvider              threadProvider      ;
+	private final XGettingCollection<? extends Thread> threads             ;
+	private final int                                  level1SegmentCount  ;
 	private final int                                  registrySegmentCount;
-	private final long                                 registryAddress   ;
-	private final int                                  waitTimeNs        ;
-		
+	private final long                                 registryAddress     ;
+	private final int                                  waitTimeNs          ;
+	private final Cleanup                              cleanup             ;
+
 	private long currentRegistrySegmentAddress;
 	private long currentValueGroupAddress;
 	private int  currentRegistryIndex;   // points to a level1segment (a valueGroupsSegment) in the result registry.
@@ -147,15 +150,19 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 		final long registryLength = this.calculateIdListsRegistryLength();
 		this.registryAddress      = allocateEmptyMemory(registryLength);
 		this.registrySegmentCount = this.calculateRegistrySegmentCount();
-		
+
+		// Register Cleaner BEFORE threads start so a thread-startup failure still releases the registry.
+		this.cleanup = new Cleanup(this.registryAddress, this.registrySegmentCount);
+		Cleaners.SHARED.register(this, this.cleanup);
+
 		this.currentRegistryIndex   = -1; // must be -1 because of pre-increment logic
 		this.currentRegistrySegmentIndex = REGISTRY_SEGMENT_SIZE;
 		this.currentLevel1Index      = LEVEL_1_VALUE_COUNT;
 		this.currentBitmapValue     = 0L;
 		this.currentBitPosition     = Long.SIZE; // required to force efficient initialization.
-		
+
 		this.isActive = true;
-		
+
 		// create and start threads NOT before everything is setup, hence down here at the end.
 		this.threads = threadProvider.startIterationThreads(parent, threadCount, this);
 	}
@@ -379,6 +386,10 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 	@Override
 	public void close()
 	{
+		// Native segments are released by the Cleaner once the iterator becomes
+		// phantom-reachable. Releasing them synchronously here would race with
+		// worker threads that are still executing ThreadLogic against the
+		// registry (e.g., on early break-out from a try-with-resources loop).
 		this.threadProvider.disposeIterationThreads(this.threads);
 		this.threadProvider.completeIteration();
 	}
@@ -401,44 +412,41 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 	public Runnable provideIterationLogic()
 	{
 		final BitmapResult[] resultsThreadIterationCopy = BitmapResult.createIterationCopy(this.results);
-				
+
+		// `this` is passed as `owner` so the iterator stays strongly reachable
+		// for as long as the worker thread holds the ThreadLogic in PoolThread.logic.
+		// Without this, the iterator could become phantom-reachable while the
+		// worker is still using registryAddress, letting the Cleaner free the
+		// registry concurrently with native reads/writes.
 		return new ThreadLogic(
 			resultsThreadIterationCopy,
-			this.level1SegmentCount   ,
 			this.registryAddress      ,
-			this.registrySegmentCount
+			this.registrySegmentCount ,
+			this
 		);
 	}
 	
-	@SuppressWarnings("deprecation")
-	@Override
-	protected void finalize() throws Throwable
-	{
-		this.parent.closeReader(this);
-		this.deallocateSegments();
-	}
-	
-	private void deallocateSegments()
+	private static void deallocateSegments(final long registryAddress, final int registrySegmentCount)
 	{
 		/*
 		 * - the registry consists purely of a list of pointer long values pointing to a registrySegment.
 		 * - each pointer value can be a dummy.
 		 * - registrySegments consist purely of a list of pointer long values pointing to a valueGroup.
 		 * - valueGroups contain no pointer, only bitmap values.
-		 * 
+		 *
 		 * So deallocating requires:
 		 * - Iterate the registry
 		 * - For each entry, resolve the registrySegmentAddress
 		 * - Iterate the registrySegment
 		 * - Deallocate each valueGroup (pointer in the registrySegment)
 		 * - AFTERWARDS, deallocate the registrySegment (pointer in the registry)
-		 * - At the very end, deallocate the registry itself (this.registryAddress)
-		 * 
+		 * - At the very end, deallocate the registry itself
+		 *
 		 * (quite a work without a garbage collector ... ^^)
 		 */
 
-		final long startAddress = registryIterationStartAddress(this.registryAddress);
-		final long boundAddress = registryIterationBoundAddress(this.registryAddress, this.registrySegmentCount);
+		final long startAddress = registryIterationStartAddress(registryAddress);
+		final long boundAddress = registryIterationBoundAddress(registryAddress, registrySegmentCount);
 
 		for(long registryEntryAddress = startAddress; registryEntryAddress < boundAddress; registryEntryAddress += Long.BYTES)
 		{
@@ -459,7 +467,43 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 			}
 			XMemory.free(registrySegmentAddress);
 		}
-		XMemory.free(this.registryAddress);
+		XMemory.free(registryAddress);
+	}
+
+	// Holds the registry address for Cleaner-based release.
+	//
+	// MUST be a static nested class — it must not capture the enclosing
+	// ThreadedIterator (directly or via a non-static inner class or an
+	// instance method reference). If it did, the wrapper would never become
+	// unreachable and the Cleaner would never fire.
+	//
+	// `address` is mutable + zero-on-clean for idempotency against accidental
+	// re-invocation (Cleaner.Cleanable.clean() itself is at-most-once).
+	private static final class Cleanup implements Runnable
+	{
+		// volatile because the cleanup runs on the Cleaner thread while the
+		// initial write happens on the constructor thread. java.lang.ref.Cleaner
+		// has no JLS-specified happens-before, so explicit publication is
+		// required to avoid stale-address reads.
+		volatile long address;
+		final int registrySegmentCount;
+
+		Cleanup(final long registryAddress, final int registrySegmentCount)
+		{
+			this.address              = registryAddress;
+			this.registrySegmentCount = registrySegmentCount;
+		}
+
+		@Override
+		public void run()
+		{
+			final long address = this.address;
+			if(address > 0L)
+			{
+				this.address = 0L;
+				deallocateSegments(address, this.registrySegmentCount);
+			}
+		}
 	}
 	
 	
@@ -490,28 +534,33 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 		// instance fields //
 		////////////////////
 		
-		private final BitmapResult[] results             ;
-		private final long           registryAddress     ;
-		private final int            registrySegmentCount;
-		
-		
-		
-		
+		private final BitmapResult[]   results             ;
+		private final long             registryAddress     ;
+		private final int              registrySegmentCount;
+		// Strong reference to the owning iterator. Held only to keep the iterator
+		// alive while this logic is reachable (PoolThread.logic). Read by the
+		// reachabilityFence in run() so the JIT cannot elide the field.
+		private final ThreadedIterator owner               ;
+
+
+
+
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
 		/////////////////
-		
+
 		ThreadLogic(
-			final BitmapResult[] results             ,
-			final int            level1SegmentCount  ,
-			final long           registryAddress     ,
-			final int            registrySegmentCount
+			final BitmapResult[]   results             ,
+			final long             registryAddress     ,
+			final int              registrySegmentCount,
+			final ThreadedIterator owner
 		)
 		{
 			super();
 			this.results              = results             ;
 			this.registryAddress      = registryAddress     ;
 			this.registrySegmentCount = registrySegmentCount;
+			this.owner                = owner               ;
 		}
 		
 		
@@ -523,51 +572,60 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 		@Override
 		public void run()
 		{
-			final BitmapResult[] results = this.results;
-
-			final long startAddress    = registryIterationStartAddress(this.registryAddress);
-			final long boundAddress    = registryIterationBoundAddress(this.registryAddress, this.registrySegmentCount);
-			final long lastItemAddress = registryIterationBoundAddress(this.registryAddress, this.registrySegmentCount - 1);
-
-			int currentLevel1SegmentIndex = 0;
-			long newSegmentAddress = createRegistrySegment();
-
-			// rea = registryEntryAddress
-			for(long rea = startAddress; rea < boundAddress; rea += Long.BYTES, currentLevel1SegmentIndex += REGISTRY_SEGMENT_SIZE)
+			try
 			{
-				// check for a yet unprocessed registry segment
-				if(XMemory.volatileGet_long(null, rea) != 0L)
+				final BitmapResult[] results = this.results;
+
+				final long startAddress    = registryIterationStartAddress(this.registryAddress);
+				final long boundAddress    = registryIterationBoundAddress(this.registryAddress, this.registrySegmentCount);
+				final long lastItemAddress = registryIterationBoundAddress(this.registryAddress, this.registrySegmentCount - 1);
+
+				int currentLevel1SegmentIndex = 0;
+				long newSegmentAddress = createRegistrySegment();
+
+				// rea = registryEntryAddress
+				for(long rea = startAddress; rea < boundAddress; rea += Long.BYTES, currentLevel1SegmentIndex += REGISTRY_SEGMENT_SIZE)
 				{
-					continue;
+					// check for a yet unprocessed registry segment
+					if(XMemory.volatileGet_long(null, rea) != 0L)
+					{
+						continue;
+					}
+
+					// try to reserve unprocessed coordinate (competing with other threads)
+					if(!XMemory.compareAndSwap_long(null, rea, 0L, -1L))
+					{
+						continue;
+					}
+
+					// process reserved coordinate and register the address to the value groups segment.
+					if(process(results, currentLevel1SegmentIndex, newSegmentAddress))
+					{
+						XMemory.volatileSet_long(null, rea, newSegmentAddress);
+						newSegmentAddress = rea < lastItemAddress
+							? createRegistrySegment()
+							: 0L
+						;
+					}
+					else
+					{
+						XMemory.volatileSet_long(null, rea, SKIP_LEVEL1_SEGMENT_MARKER);
+					}
 				}
 
-				// try to reserve unprocessed coordinate (competing with other threads)
-				if(!XMemory.compareAndSwap_long(null, rea, 0L, -1L))
+				if(newSegmentAddress != 0L)
 				{
-					continue;
-				}
-
-				// process reserved coordinate and register the address to the value groups segment.
-				if(process(results, currentLevel1SegmentIndex, newSegmentAddress))
-				{
-					XMemory.volatileSet_long(null, rea, newSegmentAddress);
-					newSegmentAddress = rea < lastItemAddress
-						? createRegistrySegment()
-						: 0L
-					;
-				}
-				else
-				{
-					XMemory.volatileSet_long(null, rea, SKIP_LEVEL1_SEGMENT_MARKER);
+					XMemory.free(newSegmentAddress);
 				}
 			}
-
-			if(newSegmentAddress != 0L)
+			finally
 			{
-				XMemory.free(newSegmentAddress);
+				// Pin the owning iterator past the last native read/write so the
+				// Cleaner cannot fire and free the registry while this logic runs.
+				Reference.reachabilityFence(this.owner);
 			}
 		}
-				
+
 		private static boolean process(
 			final BitmapResult[] results               ,
 			final int            level1SegmentIndex    ,

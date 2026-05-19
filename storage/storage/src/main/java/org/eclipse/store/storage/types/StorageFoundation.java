@@ -21,7 +21,6 @@ import java.nio.ByteOrder;
 import org.eclipse.serializer.exceptions.MissingFoundationPartException;
 import org.eclipse.serializer.monitoring.MonitoringManager;
 import org.eclipse.serializer.persistence.binary.types.BinaryEntityRawDataIterator;
-import org.eclipse.serializer.persistence.types.ObjectIdsSelector;
 import org.eclipse.serializer.persistence.types.Persistence;
 import org.eclipse.serializer.persistence.types.PersistenceLiveStorerRegistry;
 import org.eclipse.serializer.persistence.types.Unpersistable;
@@ -506,7 +505,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 	
 	public StorageHousekeepingBroker getHousekeepingBroker();
 	
-	public ObjectIdsSelector getLiveObjectIdChecker();
+	public LiveObjectIdsHandler getLiveObjectIdsHandler();
 
 	public Reference<PersistenceLiveStorerRegistry> getLiveStorerRegistryReference();
 
@@ -851,7 +850,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 
 	public F setHousekeepingBroker(StorageHousekeepingBroker housekeepingBroker);
 	
-	public F setLiveObjectIdChecker(ObjectIdsSelector liveObjectIdChecker);
+	public F setLiveObjectIdsHandler(LiveObjectIdsHandler liveObjectIdsHandler);
 
 	public F setLiveStorerRegistryReference(Reference<PersistenceLiveStorerRegistry> LiveStorerRegistryReference);
 	
@@ -944,7 +943,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		private StorageEventLogger                       eventLogger                          ;
 		private StorageWriteController                   writeController                      ;
 		private StorageHousekeepingBroker                housekeepingBroker                   ;
-		private ObjectIdsSelector                        liveObjectIdChecker                  ;
+		private LiveObjectIdsHandler                     liveObjectIdsHandler                 ;
 		private Reference<PersistenceLiveStorerRegistry> storerRegistryReference              ;
 		private StorageStructureValidator                storageStructureValidator            ;
 		private MonitoringManager                        storageMonitorManager                ;
@@ -1181,9 +1180,9 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 			return StorageHousekeepingBroker.New();
 		}
 		
-		protected ObjectIdsSelector ensureObjectIdsSelector()
+		protected LiveObjectIdsHandler ensureLiveObjectIdsHandler()
 		{
-			throw new MissingFoundationPartException(ObjectIdsSelector.class);
+			throw new MissingFoundationPartException(LiveObjectIdsHandler.class);
 		}
 
 		protected Reference<PersistenceLiveStorerRegistry> ensureLiveStorerRegistryReference()
@@ -1566,13 +1565,13 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		}
 		
 		@Override
-		public final ObjectIdsSelector getLiveObjectIdChecker()
+		public final LiveObjectIdsHandler getLiveObjectIdsHandler()
 		{
-			if(this.liveObjectIdChecker == null)
+			if(this.liveObjectIdsHandler == null)
 			{
-				this.liveObjectIdChecker = this.dispatch(this.ensureObjectIdsSelector());
+				this.liveObjectIdsHandler = this.dispatch(this.ensureLiveObjectIdsHandler());
 			}
-			return this.liveObjectIdChecker;
+			return this.liveObjectIdsHandler;
 		}
 
 		@Override
@@ -1905,9 +1904,9 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		}
 		
 		@Override
-		public F setLiveObjectIdChecker(final ObjectIdsSelector liveObjectIdChecker)
+		public F setLiveObjectIdsHandler(final LiveObjectIdsHandler liveObjectIdsHandler)
 		{
-			this.liveObjectIdChecker = liveObjectIdChecker;
+			this.liveObjectIdsHandler = liveObjectIdsHandler;
 			return this.$();
 		}
 
@@ -1995,7 +1994,7 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 				this.getLockFileManagerCreator()               ,
 				this.getExceptionHandler()                     ,
 				this.getEventLogger()                          ,
-				this.getLiveObjectIdChecker()                  ,
+				this.getLiveObjectIdsHandler()                 ,
 				this.getLiveStorerRegistryReference()          ,
 				this.getStorageStructureValidator()            ,
 				this.getStorageMonitorManager()                ,

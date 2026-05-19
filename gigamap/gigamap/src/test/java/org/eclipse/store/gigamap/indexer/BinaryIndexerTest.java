@@ -529,6 +529,7 @@ public class BinaryIndexerTest
             assertEquals(3, list.size());
 
             map2.add(new LongEntity(Long.MAX_VALUE));
+            map2.store();
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(gigaMap, storagePath)) {
@@ -537,11 +538,8 @@ public class BinaryIndexerTest
 
             assertEquals(5000L, map2.query(index.is(5_000L)).findFirst().get().value);
 
-            // enable after fix: https://github.com/microstream-one/gigamap/issues/230
-            //LongEntity longEntityMax = map2.query(index.is(Long.MAX_VALUE)).findFirst().get();
-            //assertEquals(Long.MAX_VALUE, longEntityMax.value);
-
-
+            LongEntity longEntityMax = map2.query(index.is(Long.MAX_VALUE)).findFirst().get();
+            assertEquals(Long.MAX_VALUE, longEntityMax.value);
         }
 
     }

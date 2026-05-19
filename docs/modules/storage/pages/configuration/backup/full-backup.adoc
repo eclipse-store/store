@@ -1,5 +1,7 @@
 = Full Backup
 
+TIP: See xref:configuration/best-practices.adoc[Best Practices: Dev / Test / Prod] for environment-specific recommendations.
+
 A full backup copies the entire storage to a specified target directory or storage target.
 The `EmbeddedStorageManager` provides the `issueFullBackup` method for this purpose.
 
