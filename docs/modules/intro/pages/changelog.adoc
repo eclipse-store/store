@@ -8,7 +8,6 @@
 * xref:storage:storing-data/batch-storer.adoc[Batch Storer] for batched persistence https://github.com/eclipse-serializer/serializer/pull/254[[254]] https://github.com/eclipse-store/store/pull/638[[638]]
 * Storage object recovery https://github.com/eclipse-store/store/pull/634[[634]]
 * Enhanced root initialization and retrieval in StorageManager https://github.com/eclipse-store/store/pull/631[[631]] https://github.com/eclipse-store/store/pull/632[[632]]
-* JCache: support `Cache.unwrap` to JCache management MXBeans https://github.com/eclipse-store/store/pull/672[[672]]
 * GigaMap
 ** xref:gigamap:queries/defining.adoc#_sub_queries[Sub-queries] across all index types https://github.com/eclipse-store/store/pull/637[[637]]
 ** Harden JVector on-disk persistence and add internal architecture doc https://github.com/eclipse-store/store/pull/657[[657]]
@@ -39,6 +38,7 @@
 * Add OffHeapLongHashSet and utility methods https://github.com/eclipse-serializer/serializer/pull/255[[255]]
 * Improve clear method in LazyHashMap for better segment unloading https://github.com/eclipse-serializer/serializer/pull/257[[257]]
 * Add demo projects https://github.com/eclipse-store/store/pull/630[[630]]
+* JCache: support `Cache.unwrap` to JCache management MXBeans https://github.com/eclipse-store/store/pull/672[[672]]
 
 
 == 4.0.1
