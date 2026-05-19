@@ -238,6 +238,7 @@ try (EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
 }
 ----
 
+[#computed-vectorizers-and-lazy-initialization]
 == Computed Vectorizers and Lazy Initialization
 
 A vectorizer instance is part of the GigaMap's persistent object graph: when storage is reopened, the vectorizer is restored alongside the index data and reused — its fields are loaded back exactly as they were when the GigaMap was last stored.
