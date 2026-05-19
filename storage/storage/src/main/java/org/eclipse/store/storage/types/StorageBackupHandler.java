@@ -174,9 +174,15 @@ public interface StorageBackupHandler extends Runnable, StorageActivePart
 		}
 		
 		@Override
-		public final StorageBackupHandler start()
+		public final synchronized StorageBackupHandler start()
 		{
 			this.ensureTypeDictionaryBackup();
+			// Clear any leftover shutdown state from a prior cycle. Without this,
+			// a same-instance restart of the storage manager would see shutdown == true
+			// and the new backup thread would exit immediately via isRunning() == false,
+			// leaving subsequent writes' BackupItemQueue registrations on live files
+			// undrained and the AFS exclusive lease unreleased.
+			this.shutdown = false;
 			this.setRunning(true);
 			return this;
 		}
