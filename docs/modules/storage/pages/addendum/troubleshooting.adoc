@@ -1,4 +1,4 @@
-== Troubleshooting
+= Troubleshooting
 
 == Starting a Storage with Missing Objects
 
