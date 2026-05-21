@@ -439,11 +439,18 @@ public interface EmbeddedStorageManager extends StorageManager
 						return;
 					}
 				}
-				
-				logger.debug("Storing required root objects and constants");
-				
-				// any other case than a perfectly synchronous loaded roots instance needs to store
-				initConnection.store(loadedRoots);
+
+				if(this.connectionFoundation.writeController().isWritable())
+				{
+					logger.debug("Storing required root objects and constants");
+					// any other case than a perfectly synchronous loaded roots instance needs to store
+					initConnection.store(loadedRoots);
+				}
+				else
+				{
+					logger.warn("Updated root objects and constants can't be stored because storage is opened read only!");
+				}
+
 			}
 			catch(final Exception e)
 			{
