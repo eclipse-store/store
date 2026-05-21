@@ -372,14 +372,14 @@ public interface EmbeddedStorageManager extends StorageManager
 		{
 			final EqHashTable<String, Object> loadedEntries  = normalize(loadedRoots.entries());
 			final EqHashTable<String, Object> definedEntries = normalize(this.rootsProvider.provideRoots().entries());
-			
+
 			final boolean match = loadedEntries.equalsContent(definedEntries, EmbeddedStorageManager.Default::isEqualRootEntry);
 			if(!match)
 			{
 				// change detected. Entries of loadedRoots must be updated/replaced
 				loadedRoots.updateEntries(definedEntries);
 			}
-			
+
 			/*
 			 * If the loaded roots had to change in any way to match the runtime state of the application,
 			 * it means that it has to be stored to update the persistent state to the current (changed) one.
@@ -469,20 +469,14 @@ public interface EmbeddedStorageManager extends StorageManager
 			{
 				// shutdown was interrupted; storage may still be partially running, so don't
 				// invalidate cached connection/registry state on top of an indeterminate storage.
-				return result;
+				return false;
 			}
 			// drop cached connection so a subsequent start() rebuilds it against the new task broker
 			this.singletonConnection = null;
-			// reset cached PersistenceRoots so the next start() builds a fresh one (with rootIdMapping
-			// populated via create()) tied to the same root resolver (preserving setRoot() values)
-			this.rootsProvider.updateRuntimeRoots(null);
-			// drop loaded-data registrations from the object registry so the next start() can re-load
-			// without instance-identity conflicts (e.g. enum holder arrays). Java framework constants
-			// are re-registered immediately to keep their stable OIDs.
 			final PersistenceObjectRegistry registry = this.connectionFoundation.getObjectRegistry();
 			registry.truncateAll();
 			Persistence.registerJavaConstants(registry);
-			return result;
+			return true;
 		}
 
 		@Override
