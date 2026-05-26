@@ -133,6 +133,38 @@ public interface StorageConnection extends UsageMarkable, Persister
 	public boolean issueFileCheck(long nanoTimeBudget);
 
 	/**
+	 * Issues a full on-demand storage integrity check: re-verifies every channel's chunk-checksum records
+	 * against freshly recomputed checksums and returns all detected anomalies without throwing. Runs to
+	 * completion in a single call (stores are blocked for its duration) and sees a consistent, complete set of
+	 * files. Honors the configured {@link StorageChunkChecksumPolicy} ({@code IGNORE} anomalies are not
+	 * reported; a non-verifying policy reports nothing); each head file is verified up to its committed length.
+	 *
+	 * @return the complete result; {@link StorageIntegrityCheckResult#isClean()} is {@code true} if no
+	 *         anomalies were found.
+	 *
+	 * @see #issueIntegrityCheck(long)
+	 */
+	public default StorageIntegrityCheckResult issueFullIntegrityCheck()
+	{
+		return this.issueIntegrityCheck(Long.MAX_VALUE);
+	}
+
+	/**
+	 * Issues an on-demand storage integrity check limited to the given time budget in nanoseconds. When the
+	 * budget runs out the scan keeps its progress (resume granularity is one data file) and continues on the
+	 * next call; the scope is snapshotted at the start, so a data file dissolved by housekeeping between calls
+	 * is skipped (coverage is best-effort). Repeat until {@link StorageIntegrityCheckResult#isComplete()},
+	 * unioning the results; for a complete, consistent snapshot in one call use {@link #issueFullIntegrityCheck()}.
+	 *
+	 * @param nanoTimeBudget the time budget in nanoseconds to be used to perform the integrity check.
+	 *
+	 * @return this call's findings and whether the scan has completed.
+	 *
+	 * @see #issueFullIntegrityCheck()
+	 */
+	public StorageIntegrityCheckResult issueIntegrityCheck(long nanoTimeBudget);
+
+	/**
 	 * Issues a full storage cache check to be executed. Depending on the size of the database,
 	 * the available cache, used hardware, etc., this can take any amount of time.
 	 * <p>
@@ -504,6 +536,9 @@ public interface StorageConnection extends UsageMarkable, Persister
 		private final PersistenceManager<Binary> persistenceManager       ;
 		private final StorageRequestAcceptor     connectionRequestAcceptor;
 
+		// whether a budgeted integrity-check scan is mid-flight (so the next call resumes rather than restarts).
+		private boolean integrityCheckInProgress;
+
 
 
 		///////////////////////////////////////////////////////////////////////////
@@ -560,6 +595,32 @@ public interface StorageConnection extends UsageMarkable, Persister
 			{
 				// thread interrupted, task aborted, return
 				return false;
+			}
+		}
+
+		@Override
+		public final StorageIntegrityCheckResult issueIntegrityCheck(final long nanoTimeBudget)
+		{
+			try
+			{
+				// Fresh scan for a full check, or when no scan is in progress; otherwise resume the in-flight one.
+				// Deciding this once (channels can't see each other) lets a budgeted scan across uneven channels
+				// finish without finished channels re-scanning. Not safe to run concurrently on one connection.
+				final boolean freshScan = nanoTimeBudget == Long.MAX_VALUE || !this.integrityCheckInProgress;
+
+				final StorageIntegrityCheckResult result =
+					this.connectionRequestAcceptor.issueIntegrityCheck(nanoTimeBudget, freshScan);
+
+				this.integrityCheckInProgress = !result.isComplete();
+				return result;
+			}
+			catch(final InterruptedException e)
+			{
+				// thread interrupted, task aborted: drop scan state and return an empty, incomplete result.
+				this.integrityCheckInProgress = false;
+				final StorageIntegrityCheckResult.Default result = StorageIntegrityCheckResult.New();
+				result.setComplete(false);
+				return result;
 			}
 		}
 

@@ -86,7 +86,8 @@ This is useful for:
 
 * Changing the number of storage channels
 * Moving storage from local disk to a cloud storage target or vice-versa
-* Converting 
+* Converting the on-disk binary representation of persisted objects
+* Adding, changing, or removing chunk-checksum protection (see <<Chunk checksums>>)
 
 === Prerequisites
 
@@ -155,6 +156,98 @@ To move from local file system to a cloud storage target, configure the target `
 ====
 
 For more information see the https://github.com/eclipse-store/store/tree/main/storage/embedded-tools/storage-converter[readme file].
+
+
+=== Chunk checksums
+
+The converter is chunk-checksum aware. What it *writes* is governed by the **target** configuration's chunk-checksum provider, and what it *verifies* while reading is governed by the **source** configuration's provider — independently. A single conversion can therefore add, change, remove, or re-establish chunk-checksum protection.
+
+==== Output protection (target configuration)
+
+By default a converted storage is chunk-checksum-protected just like a storage freshly written by the engine: every target data file is written with a file header and covering chunk-checksum records, honoring the target `StorageDataFileEvaluator` (its file-maximum-size drives file rollover, its coalesce-chunk-target-size drives how often a checksum record is written).
+
+To produce an *unprotected* target (byte-shaped like a pre-feature storage), configure the target with the "none" provider:
+
+[source, java]
+----
+StorageConfiguration target = StorageConfiguration.Builder()
+	.setStorageFileProvider(...)
+	.setChunkChecksumProvider(StorageChunkChecksumProvider.NewNone()) // no checksums emitted
+	.createConfiguration();
+----
+
+A protected target reopens under any policy, including the strict one:
+
+[source, java]
+----
+foundation.setConfiguration(
+	StorageConfiguration.Builder()
+		.setStorageFileProvider(...)
+		.setChunkChecksumProvider(
+			StorageChunkChecksumProvider.NewSha256Chained(StorageChunkChecksumPolicy.NewStrict()))
+		.createConfiguration()
+);
+----
+
+==== Source verification
+
+When the source configuration's policy verifies, the converter recomputes and checks every chunk-checksum record in the source *as it reads*, before writing the target. Corruption is caught up front rather than being silently copied through: a verifying policy aborts the conversion on a mismatch, an observe (log) policy reports it and continues. A source without checksums (a legacy storage) simply has nothing to verify.
+
+==== Changing the checksum (re-keying)
+
+Because the source and target providers are independent, one conversion can:
+
+[cols="1,1,2", options="header"]
+|===
+|Source on disk |Target provider |Effect
+
+|none (legacy)      |an emitting provider   |*add* checksum protection
+|protected          |`NewNone()`            |*remove* protection
+|one algorithm      |a different algorithm  |*change* the algorithm
+|one algorithm      |the same algorithm     |*re-establish* full coverage
+|===
+
+For example, to switch a chained-SHA-256 store to CRC32C, verify the input with a chained-SHA-256 source provider and emit CRC32C on the target:
+
+[source, java]
+----
+StorageConfiguration source = StorageConfiguration.Builder()
+	.setStorageFileProvider(...)
+	.setChunkChecksumProvider(StorageChunkChecksumProvider.NewSha256Chained()) // verify the chained-SHA-256 input
+	.createConfiguration();
+
+StorageConfiguration target = StorageConfiguration.Builder()
+	.setStorageFileProvider(...)
+	.setChunkChecksumProvider(StorageChunkChecksumProvider.NewCrc32c()) // emit CRC32C
+	.createConfiguration();
+
+new StorageConverter(source, target).start();
+----
+
+To add protection to a legacy (unprotected) storage, use `NewNone()` for the source (nothing to verify) and an emitting provider for the target.
+
+==== Verify-only
+
+Construct the converter with a *single* source configuration (no target) to scan and verify a storage's chunk checksums without writing anything:
+
+[source, java]
+----
+new StorageConverter(source).start(); // verifies the source per its policy; writes nothing
+----
+
+On the command line, pass a single configuration file:
+
+[source, bash, subs=attributes+]
+----
+java -jar storage-embedded-tools-storage-converter-<version>-standalone.jar sourceConfig.xml
+----
+
+A verifying source policy exits with a non-zero status on the first mismatch; an observe policy reports and completes successfully.
+
+[NOTE]
+====
+The external configuration files do not (yet) carry a chunk-checksum setting. A conversion driven entirely by configuration files therefore uses the framework-default provider for both source and target — i.e. it is protected by default, but cannot be re-keyed from the command line. To choose a different target algorithm, the "none" provider, or an explicit source/target policy, use the `StorageConverter` Java API with hand-built `StorageConfiguration` instances.
+====
 
 
 === Converting binary data

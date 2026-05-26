@@ -422,6 +422,34 @@ public final class Storage
 	}
 
 	/**
+	 * Creates a new default {@link StorageChunkChecksumPolicy} (the lenient {@code New()} default: emit + verify).
+	 * <p>
+	 * For a detailed explanation see {@link StorageChunkChecksumPolicy#New()}.
+	 *
+	 * @return a new {@link StorageChunkChecksumPolicy} instance.
+	 *
+	 * @see StorageChunkChecksumPolicy#New()
+	 */
+	public static final StorageChunkChecksumPolicy ChunkChecksumPolicy()
+	{
+		return StorageChunkChecksumPolicy.New();
+	}
+
+	/**
+	 * Creates a new default {@link StorageChunkChecksumProvider}: no checksum (the feature is off by default).
+	 * <p>
+	 * For a detailed explanation see {@link StorageChunkChecksumProvider#New()}.
+	 *
+	 * @return a new {@link StorageChunkChecksumProvider} instance.
+	 *
+	 * @see StorageChunkChecksumProvider#New()
+	 */
+	public static final StorageChunkChecksumProvider ChunkChecksumProvider()
+	{
+		return StorageChunkChecksumProvider.New();
+	}
+
+	/**
 	 * Creates a new {@link StorageDataFileEvaluator}.
 	 * <p>
 	 * For a detailed explanation see {@link StorageDataFileEvaluator#New(int, int)}.
@@ -578,7 +606,54 @@ public final class Storage
 			transactionFileMaximumSize
 		);
 	}
-	
+
+	/**
+	 * Creates a new {@link StorageDataFileEvaluator}.
+	 * <p>
+	 * For a detailed explanation see {@link StorageDataFileEvaluator#New(int, int, double, boolean, int, long)}.
+	 *
+	 * @param fileMinimumSize the minimum file size in bytes that a single storage file must have. Smaller files
+	 *        will be dissolved.
+	 *
+	 * @param fileMaximumSize the maximum file size in bytes that a single storage file may have. Larger files
+	 *        will be dissolved.<br>
+	 *        Note that a file can exceed this limit if it contains a single entity that already exceeds the limit.
+	 *
+	 * @param minimumUseRatio the ratio (value in ]0.0;1.0]) of non-gap data contained in a storage file to prevent
+	 *        the file from being dissolved.
+	 *
+	 * @param cleanUpHeadFile a flag defining whether the current head file (the only file actively written to)
+	 *        shall be subjected to file cleanups as well.
+	 *
+	 * @param transactionFileMaximumSize the maximum file size for transaction files. Lager files will
+	 *        be deleted and a new one will be created.
+	 *
+	 * @param coalesceChunkTargetBytes the soft target size in bytes for a single coalesced chunk produced by
+	 *        the dissolution transfer. See {@link StorageDataFileEvaluator#coalesceChunkTargetBytes()}.
+	 *
+	 * @return a new {@link StorageDataFileEvaluator} instance.
+	 *
+	 * @see StorageDataFileEvaluator#New(int, int, double, boolean, int, long)
+	 */
+	public static final StorageDataFileEvaluator DataFileEvaluator(
+		final int     fileMinimumSize           ,
+		final int     fileMaximumSize           ,
+		final double  minimumUseRatio           ,
+		final boolean cleanUpHeadFile           ,
+		final int     transactionFileMaximumSize,
+		final long    coalesceChunkTargetBytes
+	)
+	{
+		return StorageDataFileEvaluator.New(
+			fileMinimumSize,
+			fileMaximumSize,
+			minimumUseRatio,
+			cleanUpHeadFile,
+			transactionFileMaximumSize,
+			coalesceChunkTargetBytes
+		);
+	}
+
 	/**
 	 * Creates a new {@link StorageBackupSetup}.
 	 * <p>

@@ -93,6 +93,13 @@ public interface StorageRequestTaskCreator
 		StorageOperationController  operationController
 	);
 
+	public StorageRequestTaskIntegrityCheck createIntegrityCheckTask(
+		int                        channelCount       ,
+		long                       nanoTimeBudget     ,
+		boolean                    freshScan          ,
+		StorageOperationController operationController
+	);
+
 	public StorageRequestTaskTransactionsLogCleanup CreateTransactionsLogCleanupTask(
 		int                        channelCount       ,
 		StorageOperationController operationController
@@ -307,6 +314,23 @@ public interface StorageRequestTaskCreator
 				channelCount,
 				nanoTimeBudget,
 				entityEvaluator,
+				operationController
+			);
+		}
+
+		@Override
+		public StorageRequestTaskIntegrityCheck createIntegrityCheckTask(
+			final int                        channelCount       ,
+			final long                       nanoTimeBudget     ,
+			final boolean                    freshScan          ,
+			final StorageOperationController operationController
+		)
+		{
+			return new StorageRequestTaskIntegrityCheck.Default(
+				this.timestampProvider.currentNanoTimestamp(),
+				channelCount,
+				nanoTimeBudget,
+				freshScan,
 				operationController
 			);
 		}

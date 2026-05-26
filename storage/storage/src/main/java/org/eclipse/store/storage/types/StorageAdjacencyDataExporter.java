@@ -159,6 +159,24 @@ public interface StorageAdjacencyDataExporter
 			{
 				address = startAddress + offset;
 				size = XMemory.get_long(address);
+
+				if(size < 0)
+				{
+					//skip metadata or gap
+					offset -= size;
+					continue;
+				}
+				else if(size == 0)
+				{
+					// zero-length entry: end of valid content (or a zeroed tail). Stop here;
+					// advancing by 0 would otherwise spin forever on the same offset.
+					break;
+				}
+				else
+				{
+					offset += size;
+				}
+
 				typeID = XMemory.get_long(address + 8);
 				objectID = XMemory.get_long(address + 16);
 								
@@ -171,7 +189,7 @@ public interface StorageAdjacencyDataExporter
 					refCount+=references.length;
 				}
 				
-				offset += size;
+
 			}
 										
 			XMemory.deallocateDirectByteBuffer(buffer);

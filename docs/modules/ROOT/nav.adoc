@@ -54,6 +54,7 @@
 *** xref:storage:legacy-type-mapping/user-interaction.adoc[User Interaction]
 ** xref:storage:import-export.adoc[Import / Export]
 ** xref:storage:housekeeping.adoc[Housekeeping]
+** xref:storage:data-integrity.adoc[Data Integrity]
 ** Customizing
 *** xref:storage:customizing/custom-type-handler.adoc[Custom Type Handler]
 *** xref:storage:customizing/custom-legacy-type-handler.adoc[Custom Legacy Type Handler]

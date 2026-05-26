@@ -64,6 +64,12 @@ public interface StorageObjectRestorer
         private final HashMap<Integer, TreeMap<Long, StorageDataInventoryFile>> dataFiles      = new HashMap<>();
         private final int[]                                                      dataFilesSizes;
 
+        // The chunk-checksum provider from the StorageConfiguration, or null when constructed from a bare
+        // StorageLiveFileProvider. Supplies the primary write algorithm so a restored file carries a
+        // FileHeaderV1 + covering record matching the store's on-disk kind. null + a checksummed store:
+        // resolvePrimaryAlgorithm throws rather than silently writing an unprotected, header-less file.
+        private final StorageChunkChecksumProvider                               chunkChecksumProvider;
+
 
         /**
          * Immutable descriptor of a stored entity occurrence inside a data file.
@@ -90,9 +96,10 @@ public interface StorageObjectRestorer
         public Default(final StorageLiveFileProvider storageFileProvider, final int channelCount)
         {
             super();
-            this.storageFileProvider = storageFileProvider;
-            this.channelCount = channelCount;
-            this.dataFilesSizes = new int[channelCount];
+            this.storageFileProvider   = storageFileProvider;
+            this.channelCount          = channelCount;
+            this.dataFilesSizes        = new int[channelCount];
+            this.chunkChecksumProvider = null; // no configuration: checksummed targets are refused.
         }
 
         /**
@@ -106,9 +113,13 @@ public interface StorageObjectRestorer
         public Default(final StorageConfiguration configuration)
         {
             super();
-            this.storageFileProvider = configuration.fileProvider();
-            this.channelCount = configuration.channelCountProvider().getChannelCount();
-            this.dataFilesSizes = new int[channelCount];
+            this.storageFileProvider   = configuration.fileProvider();
+            this.channelCount          = configuration.channelCountProvider().getChannelCount();
+            this.dataFilesSizes        = new int[channelCount];
+            // chunkChecksumProvider() is a default method that never returns null (falls back to the
+            // framework default provider); the on-disk kind probe, not this provider, decides whether
+            // coverage is actually required.
+            this.chunkChecksumProvider = configuration.chunkChecksumProvider();
         }
 
 
@@ -236,26 +247,26 @@ public interface StorageObjectRestorer
                     ? 1L
                     : channelFiles.firstKey() + 1;
 
+                // Decide how to cover the recovery file from the store's ON-DISK checksum kind (the disk is
+                // truth; the config is only intent). resolvePrimaryAlgorithm throws when the store is
+                // checksummed but no matching algorithm is available — that must stay loud (below).
+                final long                                     onDiskKind = probeOnDiskChecksumKind(channelFiles);
+                final StorageChunkChecksumCalculator.Algorithm algorithm  = resolvePrimaryAlgorithm(onDiskKind);
+
                 final AFile storageFile = storageFileProvider.provideDataFile(channelIndex, lastFileNumber);
                 storageFile.ensureExists();
 
-                final ByteBuffer writeBuf = XMemory.toDirectByteBuffer(blob);
-                final AWritableFile wFile = storageFile.useWriting();
-                try
-                {
-                    wFile.writeBytes(writeBuf);
-                }
-                finally
-                {
-                    wFile.release();
-                    XMemory.deallocateDirectByteBuffer(writeBuf);
-                }
+                // Total content length of the recovery file — logged in the Store entry so the transaction
+                // log length matches the bytes on disk, whether or not a checksum was emitted.
+                final long contentLength = algorithm == null
+                    ? writeRawBlob(storageFile, blob)
+                    : writeCheckedBlob(storageFile, blob, algorithm);
 
                 try
                 {
                     final long fileTimeStamp = getLastTimeStamp(storageFileProvider) + 1;
                     writeTransactionLogCreate(channelIndex, lastFileNumber, fileTimeStamp);
-                    writeTransactionLogStore(channelIndex, fileTimeStamp, blob.length);
+                    writeTransactionLogStore(channelIndex, fileTimeStamp, Math.toIntExact(contentLength));
 
                     //write other channels transaction log zero store
                     for(int channel = 0; channel < channelCount; channel++)
@@ -274,10 +285,217 @@ public interface StorageObjectRestorer
 
                 return true;
             }
+            catch (final StorageExceptionChunkChecksumUnavailable e)
+            {
+                // Guard: checksum-protected store but no compliant algorithm. Surface loudly and
+                // actionably rather than swallowing into a silent, unprotected header-less append.
+                throw e;
+            }
             catch (final Throwable t)
             {
                 logger.warn("Failed to append blob to storage for channel {}", channelIndex, t);
                 return false;
+            }
+        }
+
+        /**
+         * Determines the target store's on-disk chunk-checksum kind by reading the {@code FileHeaderV1} of
+         * its existing data files (highest-numbered first, returning the first header found). Returns
+         * {@code 0} when no data file carries a {@code FileHeaderV1} — i.e. the store is not checksum-protected.
+         *
+         * @param channelFiles the channel's current data files (reverse-ordered: highest number first)
+         * @return the on-disk chunk-checksum kind, or {@code 0} if the store is not checksummed
+         */
+        private static long probeOnDiskChecksumKind(final TreeMap<Long, StorageDataInventoryFile> channelFiles)
+        {
+            for (final StorageDataInventoryFile inventoryFile : channelFiles.values())
+            {
+                final long kind = readFileHeaderKind(inventoryFile.file());
+                if (kind != 0L)
+                {
+                    return kind;
+                }
+            }
+            return 0L;
+        }
+
+        /**
+         * Reads the chunk-checksum kind from the {@code FileHeaderV1} at offset 0 of {@code file}, or
+         * {@code 0} if the file has no {@code FileHeaderV1} (too short, positive-length first entry, or a
+         * non-header meta record) — i.e. a legacy / unchecksummed file.
+         */
+        private static long readFileHeaderKind(final AFile file)
+        {
+            if (file.size() < StorageMetaRecord.LENGTH_FILEHEADERV1)
+            {
+                return 0L;
+            }
+            final ByteBuffer buffer = XMemory.allocateDirectNative(StorageMetaRecord.LENGTH_FILEHEADERV1);
+            final AReadableFile rFile = file.useReading();
+            try
+            {
+                rFile.open();
+                rFile.readBytes(buffer, 0, StorageMetaRecord.LENGTH_FILEHEADERV1);
+                final long address = XMemory.getDirectByteBufferAddress(buffer);
+
+                // a FileHeaderV1 is the file's first entry: a negative-length meta record of that kind.
+                if (Binary.getEntityLengthRawValue(address) >= 0L
+                    || !StorageMetaRecord.isMetaRecord(address)
+                    || StorageMetaRecord.kindOf(address) != StorageMetaRecord.KIND_FileHeaderV1)
+                {
+                    return 0L;
+                }
+                return StorageMetaRecord.readFileHeaderV1(address).chunkChecksumKind();
+            }
+            finally
+            {
+                rFile.release();
+                XMemory.deallocateDirectByteBuffer(buffer);
+            }
+        }
+
+        /**
+         * Resolves the primary write algorithm for the probed on-disk kind, applying the guard:
+         * <ul>
+         *   <li>{@code onDiskKind == 0} (store not checksummed) → {@code null}: append the raw blob as before;</li>
+         *   <li>checksummed store but no provider (bare constructor) → throw;</li>
+         *   <li>checksummed store but the configured provider writes a different kind → throw;</li>
+         *   <li>checksummed store and the configured provider's kind matches → a fresh primary algorithm.</li>
+         * </ul>
+         */
+        private StorageChunkChecksumCalculator.Algorithm resolvePrimaryAlgorithm(final long onDiskKind)
+        {
+            if (onDiskKind == 0L)
+            {
+                return null; // store not checksum-protected → no regression, append raw blob
+            }
+            if (this.chunkChecksumProvider == null)
+            {
+                throw new StorageExceptionChunkChecksumUnavailable(onDiskKind, -1L);
+            }
+            final long configuredKind = this.chunkChecksumProvider.chunkChecksumKind();
+            if (configuredKind != onDiskKind)
+            {
+                // the provider can verify any kind but only WRITES its primary; a mismatched write would
+                // manufacture a mixed store. Refuse rather than guess.
+                throw new StorageExceptionChunkChecksumUnavailable(onDiskKind, configuredKind);
+            }
+            return this.chunkChecksumProvider.createPrimaryAlgorithm();
+        }
+
+        /**
+         * Appends the raw blob to a fresh recovery file (pre-feature behavior, for unchecksummed stores).
+         *
+         * @return the recovery file's content length (== blob length)
+         */
+        private static long writeRawBlob(final AFile storageFile, final byte[] blob)
+        {
+            final ByteBuffer writeBuf = XMemory.toDirectByteBuffer(blob);
+            final AWritableFile wFile = storageFile.useWriting();
+            boolean complete = false;
+            try
+            {
+                wFile.writeBytes(writeBuf);
+                complete = true;
+            }
+            finally
+            {
+                rollbackOnFailure(wFile, complete);
+                wFile.release();
+                XMemory.deallocateDirectByteBuffer(writeBuf);
+            }
+            return blob.length;
+        }
+
+        /**
+         * Writes a covered recovery file: {@code [FileHeaderV1][blob][covering record]} for the store's
+         * on-disk kind, using the algorithm's file-free primitives ({@code writeRecord} + the chain-tip
+         * accessors) and {@link StorageMetaRecord#writeFileHeaderV1}, so the restored object is
+         * checksum-protected and the file (now the head) does not pause coverage for later writes. For
+         * chained kinds the new file starts a fresh sub-chain seeded by the algorithm's initial seed; it
+         * still verifies self-contained from its own header.
+         *
+         * @return the recovery file's content length (header + blob + covering record)
+         */
+        private static long writeCheckedBlob(
+            final AFile                                    storageFile,
+            final byte[]                                   blob       ,
+            final StorageChunkChecksumCalculator.Algorithm algorithm
+        )
+        {
+            final byte[] chainRoot = algorithm.isChained()
+                ? algorithm.initialSeed()
+                : new byte[StorageMetaRecord.LENGTH_HASH_SHA256];
+            if (algorithm.isChained())
+            {
+                algorithm.setChainTip(chainRoot);
+            }
+
+            final int        headerLength = StorageMetaRecord.LENGTH_FILEHEADERV1;
+            final int        recordLength = (int)algorithm.recordLength();
+            final ByteBuffer headerBuffer = XMemory.allocateDirectNative(headerLength);
+            final ByteBuffer blobBuffer   = XMemory.toDirectByteBuffer(blob); // position 0, limit == blob.length
+            final ByteBuffer recordBuffer = XMemory.allocateDirectNative(recordLength);
+
+            final AWritableFile wFile = storageFile.useWriting();
+            boolean complete = false;
+            try
+            {
+                StorageMetaRecord.writeFileHeaderV1(headerBuffer, algorithm.kind(), chainRoot);
+                headerBuffer.flip();
+
+                // the covering record hashes exactly the blob bytes (read non-destructively); for chained kinds
+                // this folds + advances the tip seeded above. The blob follows the FileHeaderV1, so headerLength
+                // is the chunk start the record stores.
+                algorithm.writeRecord(recordBuffer, headerLength, blobBuffer);
+                recordBuffer.flip();
+
+                // header first, then the entity blob, then its covering record — the layout the load walk
+                // expects ([chunkStart, recordAddress) == the blob bytes).
+                wFile.writeBytes(headerBuffer);
+                wFile.writeBytes(blobBuffer);
+                wFile.writeBytes(recordBuffer);
+                complete = true;
+            }
+            finally
+            {
+                rollbackOnFailure(wFile, complete);
+                wFile.release();
+                XMemory.deallocateDirectByteBuffer(headerBuffer);
+                XMemory.deallocateDirectByteBuffer(blobBuffer);
+                XMemory.deallocateDirectByteBuffer(recordBuffer);
+            }
+            return (long)headerLength + blob.length + recordLength;
+        }
+
+        /**
+         * Rolls a partially-written recovery file back by deleting it when a write sequence did not complete.
+         * The three {@code writeBytes} calls of {@link #writeCheckedBlob} (and the single one of
+         * {@link #writeRawBlob}) are not atomic: an I/O failure mid-sequence would otherwise leave a torn file
+         * on disk &mdash; for a checksummed store a {@code [FileHeaderV1][blob]} body with no covering record,
+         * which the load walk reports as {@code UNCOVERED_DATA} and a strict policy refuses to open. The file
+         * was freshly created by the caller ({@code storageFile.ensureExists()}) and has no transaction-log
+         * entry yet, so deleting it restores the pre-write state. Best-effort: a rollback failure is logged but
+         * never masks the original write failure propagating out of the {@code finally}.
+         */
+        private static void rollbackOnFailure(final AWritableFile wFile, final boolean complete)
+        {
+            if(complete)
+            {
+                return;
+            }
+            final String path = wFile.toPathString();
+            try
+            {
+                final boolean deleted = wFile.delete();
+                logger.warn(
+                    "Recovery-file write did not complete; rolled back by deleting the partial recovery file {} (deleted={}).",
+                    path, deleted
+                );
+            }
+            catch(final Throwable suppressed)
+            {
+                logger.warn("Failed to delete the partially-written recovery file {} during rollback", path, suppressed);
             }
         }
 

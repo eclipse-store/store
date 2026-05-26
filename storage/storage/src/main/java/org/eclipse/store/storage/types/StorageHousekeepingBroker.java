@@ -31,8 +31,14 @@ public interface StorageHousekeepingBroker
 		long                        nanoTimeBudget ,
 		StorageEntityCacheEvaluator entityEvaluator
 	);
-	
-	
+
+	public StorageIntegrityCheckResult performIssuedIntegrityCheck(
+		StorageHousekeepingExecutor executor      ,
+		long                        nanoTimeBudget,
+		boolean                     freshScan
+	);
+
+
 	public boolean performFileCleanupCheck(
 		StorageHousekeepingExecutor executor      ,
 		long                        nanoTimeBudget
@@ -102,7 +108,17 @@ public interface StorageHousekeepingBroker
 		{
 			return executor.performIssuedEntityCacheCheck(nanoTimeBudget, evaluator);
 		}
-		
+
+		@Override
+		public StorageIntegrityCheckResult performIssuedIntegrityCheck(
+			final StorageHousekeepingExecutor executor      ,
+			final long                        nanoTimeBudget,
+			final boolean                     freshScan
+		)
+		{
+			return executor.performIssuedIntegrityCheck(nanoTimeBudget, freshScan);
+		}
+
 
 		@Override
 		public boolean performFileCleanupCheck(

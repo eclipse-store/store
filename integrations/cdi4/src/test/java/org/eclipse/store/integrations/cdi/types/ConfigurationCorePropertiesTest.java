@@ -164,6 +164,27 @@ class ConfigurationCorePropertiesTest
 	}
 
 	@Test
+	void shouldMapChunkChecksumAlgorithm()
+	{
+		final String keyMicroProfile = PREFIX + "chunk.checksum.algorithm";
+		final Optional<ConfigurationCoreProperties> property = ConfigurationCoreProperties.get(keyMicroProfile);
+		Assertions.assertTrue(property.isPresent());
+		Assertions.assertEquals(ConfigurationCoreProperties.CHUNK_CHECKSUM_ALGORITHM, property.get());
+		Assertions.assertEquals("chunk-checksum-algorithm", property.get().getEclipseStore(keyMicroProfile));
+	}
+
+	@Test
+	void shouldMapChunkChecksumReactionKey()
+	{
+		// a dotted reaction key must translate to the flat kebab-case core key
+		final String keyMicroProfile = PREFIX + "chunk.checksum.on.checksum.mismatch";
+		final Optional<ConfigurationCoreProperties> property = ConfigurationCoreProperties.get(keyMicroProfile);
+		Assertions.assertTrue(property.isPresent());
+		Assertions.assertEquals(ConfigurationCoreProperties.CHUNK_CHECKSUM_ON_CHECKSUM_MISMATCH, property.get());
+		Assertions.assertEquals("chunk-checksum-on-checksum-mismatch", property.get().getEclipseStore(keyMicroProfile));
+	}
+
+	@Test
 	void findEnumValue()
 	{
 		// Not using CDI

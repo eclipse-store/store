@@ -93,6 +93,21 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 	public boolean issuedFileCleanupCheck(long nanoTimeBudgetBound);
 
+	/**
+	 * Re-verifies this channel's data-file chunk checksums for the on-demand integrity check, collecting
+	 * anomalies into the returned per-channel result without throwing. {@code freshScan} starts a new scan
+	 * (snapshotting the scope: every file's number and length, the head file bounded to its committed length);
+	 * otherwise the in-progress snapshot is resumed until the whole scope is covered
+	 * ({@link StorageIntegrityCheckResult#isComplete()}), skipping any file dissolved by housekeeping in between.
+	 * A channel that already finished its scope returns a complete, empty result on a resume call (it does not
+	 * re-scan), so a budgeted scan across uneven channels terminates without duplicating findings.
+	 *
+	 * @param nanoTimeBudgetBound the {@link System#nanoTime()} bound to stop at (resume granularity is one file).
+	 * @param freshScan           whether to start a new scan (vs resume the in-progress one).
+	 * @return this channel's findings and completion state.
+	 */
+	public StorageIntegrityCheckResult verifyChunkChecksums(long nanoTimeBudgetBound, boolean freshScan);
+
 	public void exportData(StorageLiveFileProvider fileProvider);
 
 	public StorageRawFileStatistics.ChannelStatistics createRawFileStatistics();
@@ -148,6 +163,8 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		private final StorageTimestampProvider               timestampProvider            ;
 		private final StorageLiveFileProvider                fileProvider                 ;
 		private final StorageDataFileEvaluator               dataFileEvaluator            ;
+		private final StorageChunkChecksumCalculator         chunkChecksumCalculator      ;
+		private final StorageMetaRecordRegistry              metaRecordRegistry           ;
 		private final StorageEntityCache.Default             entityCache                  ;
 		private final StorageWriteController                 writeController              ;
 		private final StorageFileWriter                      writer                       ;
@@ -200,6 +217,17 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 		// cleared by clearStandardByteBuffer() / reset().
 		private final ByteBuffer standardByteBuffer;
+
+		// Reusable fixed-size chunk-checksum meta buffers (single-threaded channel use, like the entry
+		// buffers above). Sized from the calculator, so allocated in the constructor rather than as field
+		// initializers (chunkChecksumCalculator is not yet assigned at field-init time). Cleared before
+		// each use and freed in deleteBuffers(). Safe to reuse immediately after a write returns: the
+		// bytes are already in the data file, and a backup copy item re-reads them from the file.
+		// chunkChecksumBuffer is shared by storeChunks / dissolution-transfer / import (never concurrent).
+		private final ByteBuffer chunkChecksumBuffer;
+		private final ByteBuffer fileHeaderBuffer   ;
+		private final Iterable<? extends ByteBuffer> chunkChecksumBufferWrap;
+		private final Iterable<? extends ByteBuffer> fileHeaderBufferWrap   ;
 		
 		
 		// state 3.0: mutable fields. Must be cleared on reset.
@@ -210,8 +238,14 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		// cleared and nulled by clearRegisteredFiles() / reset()
 		private StorageLiveDataFile.Default fileCleanupCursor;
 
-		// cleared by clearUncommittedDataLength() / reset()
+		// cleared by clearUncommittedDataLength() / reset().
+		// uncommittedDataLength = bytes of positive-length entity records pending commit
+		//                         (will contribute to BOTH fileTotalLength and fileDataLength).
+		// uncommittedMetaLength = bytes of negative-length meta records pending commit
+		//                         (will contribute to fileTotalLength only — matches load-side
+		//                         gap-length semantics in StorageEntityInitializer).
 		private long uncommittedDataLength;
+		private long uncommittedMetaLength;
 
 		// cleared in reset() directly, but kind of irrelevant.
 		private int pendingFileDeletes;
@@ -221,6 +255,14 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 		// cleared and nulled by clearRegisteredFiles() / reset()
 		private StorageLiveDataFile.Default headFile;
+
+		// On-demand integrity-check scan state spanning the budgeted resume calls of one scan: the scope (file
+		// numbers + lengths, head bounded to its committed length) is snapshotted when a fresh scan starts.
+		// null arrays == no scan in progress; cleared on reset via clearRegisteredFiles().
+		private long[]  integrityScopeNumbers   ;
+		private long[]  integrityScopeLengths   ;
+		private int     integrityScopeCursor    ;
+		private long    integrityScopeHeadNumber; // the file that was head at snapshot (exempt from size-change)
 
 
 		private StorageTransactionsFileCleaner transactionFileCleaner;
@@ -236,6 +278,8 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			final StorageTimestampProvider               timestampProvider            ,
 			final StorageLiveFileProvider                fileProvider                 ,
 			final StorageDataFileEvaluator               dataFileEvaluator            ,
+			final StorageChunkChecksumCalculator         chunkChecksumCalculator      ,
+			final StorageMetaRecordRegistry              metaRecordRegistry           ,
 			final StorageEntityCache.Default             entityCache                  ,
 			final StorageWriteController                 writeController              ,
 			final StorageFileWriter                      writer                       ,
@@ -249,6 +293,8 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			this.initialDataFileNumberProvider =     notNull(initialDataFileNumberProvider);
 			this.timestampProvider             =     notNull(timestampProvider)            ;
 			this.dataFileEvaluator             =     notNull(dataFileEvaluator)            ;
+			this.chunkChecksumCalculator       =     notNull(chunkChecksumCalculator)      ;
+			this.metaRecordRegistry            =     notNull(metaRecordRegistry)           ;
 			this.fileProvider                  =     notNull(fileProvider)                 ;
 			this.entityCache                   =     notNull(entityCache)                  ;
 			this.writeController               =     notNull(writeController)              ;
@@ -259,6 +305,11 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			this.standardByteBuffer = XMemory.allocateDirectNative(
 				standardBufferSizeProvider.provideBufferSize()
 			);
+
+			this.chunkChecksumBuffer     = XMemory.allocateDirectNative(X.checkArrayRange(chunkChecksumCalculator.chunkChecksumRecordLength()));
+			this.fileHeaderBuffer        = XMemory.allocateDirectNative(X.checkArrayRange(chunkChecksumCalculator.fileHeaderRecordLength())   );
+			this.chunkChecksumBufferWrap = X.ArrayView(this.chunkChecksumBuffer);
+			this.fileHeaderBufferWrap    = X.ArrayView(this.fileHeaderBuffer)   ;
 		}
 
 
@@ -330,6 +381,9 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			 */
 			this.clearTransactionsFile();
 
+			// drop any in-flight integrity-check scan state; it refers to the file generation being cleared.
+			this.clearIntegrityScope();
+
 			if(this.headFile == null)
 			{
 				return; // already cleared or no files in the first place
@@ -375,103 +429,224 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			      StorageEntity.Default   last     = null                    ;
 			      StorageEntity.Default   current  = first                   ;
 
-			final long copyStart                = first.storagePosition                     ;
-			final long targetFileOldTotalLength = headFile.totalLength()                    ;
-			final long maximumFileSize          = this.dataFileEvaluator.fileMaximumSize()  ;
-			final long freeSpace                = maximumFileSize - targetFileOldTotalLength;
-			      long copyLength               = 0                                         ;
+			// Reserve room for the trailing ChunkChecksumV1 that appendBytesToHeadFile will emit when the
+			// destination head file carries a FileHeaderV1. Without it the dissolution write overshoots
+			// fileMaximumSize by the checksum-record length and dissolution loops forever producing
+			// identically oversized successors.
+			final long checksumReserve         = this.chunkChecksumCalculator.reservedLengthFor(headFile);
+			final long firstSourceOffset        = first.storagePosition                                  ;
+			final long targetFileOldTotalLength = headFile.totalLength()                                 ;
+			final long maximumFileSize          = this.dataFileEvaluator.fileMaximumSize()               ;
+			// Clamp to 0: if the target file is already at/above max (legacy/imported head, or future
+			// bug) freeSpace would otherwise go negative; the loop is correct with 0 too (any positive
+			// entity triggers the "won't fit" branch) but the explicit clamp documents intent.
+			final long freeSpace = Math.max(0L, maximumFileSize - targetFileOldTotalLength - checksumReserve);
+
+			// A covering ChunkChecksumV1 hashes one contiguous block, so when a checksum is emitted the
+			// transfer may COALESCE several live sub-runs into one compacted chunk, skipping the gaps
+			// between them. When no checksum is emitted the relocation uses the zero-copy file-to-file
+			// transfer, which can only move one contiguous range, so the chain breaks at the first gap.
+			final boolean coalesce = checksumReserve != 0L;
+
+			// Soft cap on a coalesced chunk's size: once the collected live bytes reach this target the
+			// run is closed and the chunk emitted, keeping the transient transfer buffer (sized to
+			// totalLive) bounded. Only the coalescing path buffers and is capped.
+			final long coalesceChunkTargetBytes = this.dataFileEvaluator.coalesceChunkTargetBytes();
+
+			// Live sub-runs to relocate, as physical {sourceStart, length} ranges in the source file.
+			// One entry unless coalescing across gaps; their lengths sum to totalLive.
+			final BulkList<long[]> subRanges = BulkList.New();
+			      long runStart  = firstSourceOffset;
+			      long runLen    = 0L               ;
+			      long totalLive = 0L               ;
 
 			/*
 			 * Collecting the transfer chain has 2 abort conditions:
-			 * 1.) a gap between entities is detected (next entity's position is not the expected position)
-			 * 2.) the current entity's length would not fit in the target file's remaining space
-			 * Note:
-			 * As the method is guaranteed to be called on a non-empty file,
-			 * point 1) automatically recognizes the tail entry or file end.
+			 * 1.) the current entity's length would not fit in the target file's remaining space
+			 * 2.) the source file's tail is reached (the whole live chain has been collected)
+			 * A gap between entities (next entity's position is not the expected position) no longer
+			 * aborts the collection when coalescing; it merely closes the current sub-run and opens a
+			 * new one after the gap. As the method is guaranteed to be called on a non-empty file, the
+			 * first entity is never the tail.
 			 */
-			do
+			while(current != sourceFile.tail)
 			{
 				// check for enough free space
-				if(copyLength + current.length > freeSpace)
+				if(totalLive + current.length > freeSpace)
 				{
 					// if there is already something to transfer, break and copy it
-					if(copyLength != 0)
+					if(totalLive != 0L)
 					{
 						break;
 					}
 
-					// nothing to transfer yet, so create next storage file and try again in next round.
-					if(targetFileOldTotalLength != 0)
+					// Nothing to transfer yet. Roll over to the next head file ONLY if the current head
+					// already holds reclaimable entity bytes; rolling over a head that has only protocol
+					// overhead (FileHeaderV1 / ChunkChecksumV1) produces an identically-shaped successor
+					// and loops forever. dataLength(), not totalLength(), because the latter is non-zero
+					// once a FileHeaderV1 is emitted.
+					if(headFile.dataLength() != 0L)
 					{
 						this.createNextStorageFile();
 						return;
 					}
 
-					// nothing to transfer yet and empty target file, transfer singleton oversized entity anyway
+					// nothing to transfer yet and head has no entity content — singleton oversized
+					// entity falls through and is written into this head file as the only option.
+				}
+
+				// gap (intervening checksum record or dead-entity gap): the next live entity is not
+				// physically adjacent to the current sub-run.
+				if(current.storagePosition != runStart + runLen)
+				{
+					if(!coalesce)
+					{
+						// no coalescing: stop at the first gap so the relocation stays one contiguous range.
+						break;
+					}
+					// close the current sub-run and start a new one after the gap.
+					subRanges.add(new long[]{runStart, runLen});
+					runStart = current.storagePosition;
+					runLen   = 0L                     ;
 				}
 
 				// set new file. Enqueuing in the file's item chain is done for the whole sub chain
 				current.typeInFile      = headFile.typeInFile(current.typeInFile.type);
-								
-				// update position to the one in the target file (old length plus current copy length)
-				current.storagePosition = XTypes.to_int(targetFileOldTotalLength + copyLength);
 
-				// advance to next entity and add current entity's length to the total copy length
-				copyLength += current.length;
+				// update position to the COMPACTED layout in the target file (old length plus live bytes so far)
+				current.storagePosition = XTypes.to_int(targetFileOldTotalLength + totalLive);
+
+				// advance to next entity and add current entity's length to the running totals
+				runLen    += current.length;
+				totalLive += current.length;
 				current = (last = current).fileNext;
+
+				// soft size cap: emit the coalesced chunk once it reaches the target. The current entity
+				// was already added, so a single entity larger than the target still forms its own chunk.
+				if(coalesce && totalLive >= coalesceChunkTargetBytes)
+				{
+					break;
+				}
 			}
-			while(current.storagePosition == copyStart + copyLength);
+			// close the trailing sub-run.
+			if(runLen != 0L)
+			{
+				subRanges.add(new long[]{runStart, runLen});
+			}
 
 			// can only reach here if there is at least one entity to transfer
 
 			// update source file to keep consistency as it might not be cleared completely
-			sourceFile.removeHeadBoundChain(current, copyLength);
+			sourceFile.removeHeadBoundChain(current, totalLive);
 
 			// update target file's content length. Must be done here as next transfer depends on updated length
 			headFile.addChainToTail(first, last);
 
-			this.appendBytesToHeadFile(sourceFile, copyStart, copyLength);
+			this.appendBytesToHeadFile(sourceFile, subRanges, firstSourceOffset, totalLive, checksumReserve);
 
 			// derive fullness state of target file. Can happen on exact fit or oversized single entity.
-			if(copyLength >= freeSpace)
+			if(totalLive >= freeSpace)
 			{
 				this.createNextStorageFile();
 			}
 		}
 
 		private void appendBytesToHeadFile(
-			final StorageLiveDataFile.Default sourceFile,
-			final long                           copyStart ,
-			final long                           copyLength
+			final StorageLiveDataFile.Default sourceFile     ,
+			final BulkList<long[]>            subRanges      ,
+			final long                        firstSourceOffset,
+			final long                        totalLive      ,
+			final long                        checksumReserve
 		)
 		{
 
 			final StorageLiveDataFile.Default headFile = this.headFile;
 
-			long headFileLength = headFile.totalLength();
-			
-			// do the actual file-level copying in one go at the end and validate the byte count to be sure
-			long bytes = this.writer.writeTransfer(sourceFile, copyStart, copyLength, headFile);
-			if(copyLength != bytes) {
-				
-				logger.error("Data transfer error! Expected {} bytes transferred to head file but only {} bytes had been transferred! Trying again.", copyLength, bytes);
-				headFile.truncate(headFileLength);
-				
-				bytes = this.writer.writeTransfer(sourceFile, copyStart, copyLength, headFile);
-				if(copyLength != bytes) {
-					logger.error("Data transfer retry error! Expected {} bytes transferred to head file but only {} bytes had been transferred! Aborting!", copyLength, bytes);
-					throw new StorageExceptionIoWriting("Transfer to head file failed, only " + bytes + " of " + copyLength + " bytes transferred.");
+			final long    headFileLength = headFile.totalLength()                       ;
+			final long    timestamp      = this.timestampProvider.currentNanoTimestamp();
+			final boolean emitChecksum   = checksumReserve != 0L                        ;
+
+			if(emitChecksum)
+			{
+				/*
+				 * The relocated chain must carry its own covering ChunkChecksumV1, otherwise the next
+				 * normal commit's ChunkChecksumV1 would implicitly cover these un-hashed bytes and fail
+				 * verification at the next load. The bytes are not otherwise in memory, so read the live
+				 * sub-runs out of the source file (skipping the gaps) into one compacted block, hash it,
+				 * and write the block plus a single covering record as one gathering write. writeStore
+				 * (not the bare write) so the backup mirrors the relocated bytes and their checksum.
+				 */
+				final int        totalLiveInt = X.checkArrayRange(totalLive)              ;
+				final ByteBuffer dataBuffer    = XMemory.allocateDirectNative(totalLiveInt);
+				final ByteBuffer metaBuffer    = this.chunkChecksumBuffer; // reused; cleared before each use
+				metaBuffer.clear();
+				try
+				{
+					// concatenate every live sub-run into the compacted block (gaps are skipped).
+					// readBytes fills at the buffer's current position and advances it, so successive
+					// sub-runs append; the lengths sum to totalLive, exactly filling the buffer. Each
+					// readBytes pins the buffer's limit to position+length, so the full limit must be
+					// restored before the next read or its remaining-space guard would see zero.
+					for(final long[] subRange : subRanges)
+					{
+						dataBuffer.limit(totalLiveInt);
+						sourceFile.readBytes(dataBuffer, subRange[0], subRange[1]);
+					}
+					dataBuffer.flip();
+					// the compacted block is appended at headFileLength, so that is the chunk start the record stores.
+					this.chunkChecksumCalculator.writeChunkChecksumRecord(headFile, headFileLength, metaBuffer, dataBuffer);
+					metaBuffer.flip();
+
+					final ByteBuffer[] gather   = {dataBuffer, metaBuffer}                                            ;
+					final long         expected = totalLive + this.chunkChecksumCalculator.chunkChecksumRecordLength();
+
+					this.writeStoreExactOrTruncate(headFile, X.ArrayView(gather), expected, headFileLength, "Data transfer");
 				}
+				finally
+				{
+					// metaBuffer is the reused chunkChecksumBuffer field — not freed here.
+					XMemory.deallocateDirectByteBuffer(dataBuffer);
+				}
+
+				// the gather write succeeded (otherwise an exception propagated above): commit the chained-tip
+				// advance for this coalesced chunk so the next coalesced chunk chains from it.
+				this.chunkChecksumCalculator.commitChunkWrite(headFile);
+
+				// chain entity bytes contribute to both fileTotalLength and fileDataLength;
+				// the covering ChunkChecksumV1 entry is a negative-length record and contributes only
+				// to fileTotalLength (gap-length semantics — matches load-side accounting).
+				headFile.increaseContentLength(totalLive);
+				headFile.registerMetaLength(this.chunkChecksumCalculator.chunkChecksumRecordLength());
+			}
+			else
+			{
+				// No checksum to emit: the chain was collected as a single contiguous run starting at
+				// firstSourceOffset, so relocate it with the zero-copy, backup-aware file-to-file
+				// transfer (no in-memory buffering, relocated bytes stay mirrored to the backup).
+				long bytes = this.writer.writeTransfer(sourceFile, firstSourceOffset, totalLive, headFile);
+				if(totalLive != bytes)
+				{
+					logger.error("Data transfer error! Expected {} bytes transferred to head file but only {} bytes had been transferred! Trying again.", totalLive, bytes);
+					headFile.truncate(headFileLength);
+
+					bytes = this.writer.writeTransfer(sourceFile, firstSourceOffset, totalLive, headFile);
+					if(totalLive != bytes)
+					{
+						logger.error("Data transfer retry error! Expected {} bytes transferred to head file but only {} bytes had been transferred! Aborting!", totalLive, bytes);
+						throw new StorageExceptionIoWriting("Transfer to head file failed, only " + bytes + " of " + totalLive + " bytes transferred.");
+					}
+				}
+
+				// (15.02.2019 TM)NOTE: changed from arithmetic inside #addChainToTail to directly using copyLength in here.
+				headFile.increaseContentLength(totalLive);
 			}
 
-			// increase content length by length of chain
-			// (15.02.2019 TM)NOTE: changed from arithmetic inside #addChainToTail to directly using copyLength in here.
-			headFile.increaseContentLength(copyLength);
-
 			final long newHeadFileLength = headFile.totalLength();
-			final long timestamp         = this.timestampProvider.currentNanoTimestamp();
-			this.writeTransactionsEntryTransfer(sourceFile, copyStart, copyLength, timestamp, newHeadFileLength);
-			
+			// One transfer entry suffices for a coalesced (or single-run) write: init validates only
+			// the monotonic head-file length; the source number/offset are informational. The offset
+			// records the first sub-run's start.
+			this.writeTransactionsEntryTransfer(sourceFile, firstSourceOffset, totalLive, timestamp, newHeadFileLength);
+
 			/*
 			 * Note:
 			 * It can happen that a transfer is written completely but the process terminates right before the
@@ -518,10 +693,71 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 				throw new StorageExceptionIoWriting("New storage file is not empty: " + file);
 			}
 
+			// capture the current head as the chain predecessor BEFORE registerStorageHeadFile reassigns
+			// this.headFile; null for the first file (chain seeds from the configured initial seed).
+			final StorageLiveDataFile.Default predecessor = this.headFile;
+
 			// create and register StorageFile instance with an attached channel
 			final StorageLiveDataFile.Default dataFile = this.createLiveDataFile(file, this.channelIndex(), fileNumber);
 			this.registerStorageHeadFile(dataFile);
-			this.writeTransactionsEntryFileCreation(0, this.timestampProvider.currentNanoTimestamp(), fileNumber);
+
+			// Emit FileHeaderV1 as the new file's first content (only when the policy emits). The
+			// transaction-log entry below records the initial length so load-time consistency checks
+			// see physical-size == expected-size. When the policy does not emit, no FileHeaderV1 is
+			// written, the file's chunkChecksumKind stays 0 (indistinguishable from a legacy file), the
+			// chunk-checksum gates in storeChunks/dissolution/import emit nothing, and the initial
+			// length is 0.
+			final long initialFileLength = this.chunkChecksumCalculator.isWriting()
+				? this.chunkChecksumCalculator.fileHeaderRecordLength()
+				: 0L
+			;
+			if(initialFileLength != 0L)
+			{
+				this.writeFileHeaderRecord(dataFile, predecessor);
+			}
+
+			this.writeTransactionsEntryFileCreation(
+				initialFileLength                                    ,
+				this.timestampProvider.currentNanoTimestamp()        ,
+				fileNumber
+			);
+		}
+
+		/**
+		 * Writes the file-header meta record (as produced by the {@link StorageChunkChecksumCalculator})
+		 * as the new file's first negative-length entry, registers it as gap length and caches the
+		 * header state in memory. Only called when the calculator is writing (see
+		 * {@link #createNewStorageFile(long)}).
+		 */
+		private void writeFileHeaderRecord(
+			final StorageLiveDataFile.Default file       ,
+			final StorageLiveDataFile.Default predecessor
+		)
+		{
+			// chain root stamped into the header: predecessor's tip (chained) / all-zero (non-chained).
+			final byte[]     chainRoot    = this.chunkChecksumCalculator.nextChainRoot(predecessor);
+			final long       headerLength = this.chunkChecksumCalculator.fileHeaderRecordLength();
+			final ByteBuffer headerBuffer = this.fileHeaderBuffer; // reused; cleared before each use
+			headerBuffer.clear();
+			this.chunkChecksumCalculator.writeFileHeaderRecord(headerBuffer, chainRoot);
+			headerBuffer.flip();
+
+			// writeStore (not the bare write) so the backup mirrors the FileHeaderV1 record.
+			final long bytesWritten = this.writer.writeStore(file, this.fileHeaderBufferWrap);
+			if(bytesWritten != headerLength)
+			{
+				throw new StorageExceptionIoWriting(
+					"Expected " + headerLength
+					+ " bytes for file-header meta record but wrote " + bytesWritten
+				);
+			}
+
+			// Update file accounting and cache the header state in memory so the rest of the session
+			// sees the same state a re-load would produce. The file-header meta record is a negative-
+			// length entry: it counts toward fileTotalLength but NOT fileDataLength (matches load-side
+			// semantics in StorageEntityInitializer).
+			file.registerMetaLength(headerLength);
+			this.chunkChecksumCalculator.cacheFileHeaderOn(file, chainRoot);
 		}
 		
 		private void registerStorageHeadFile(final StorageLiveDataFile.Default storageFile)
@@ -599,29 +835,54 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			return physicalLength;
 		}
 		
-		private void ensureHeadFileLoadableSize(final ByteBuffer[] dataBuffers)
+		/**
+		 * Two-stage pre-write rollover for the upcoming gather chunk:
+		 * <ol>
+		 *   <li>The total commit size must fit in an int (single-buffer load constraint, 2 GiB cap);
+		 *       if the cumulative would push the head past 2^31, rotate the head before writing.</li>
+		 *   <li>The chunk plus the trailing {@code ChunkChecksumV1} (when applicable) must not push
+		 *       the head past {@code fileMaximumSize}. {@link #checkForNewFile()} only retires a head
+		 *       that is ALREADY at/above max; without this second guard the last store before
+		 *       retirement overshoots by exactly {@code entityBytes + checksumReserve}.
+		 *       If the head has no entity bytes yet (only protocol envelope, e.g. just a
+		 *       {@code FileHeaderV1}), rolling over cannot help — keep the overshoot rather than
+		 *       create an empty successor file (mirrors the singleton fall-through in
+		 *       {@link #transferOneChainToHeadFile}).</li>
+		 * </ol>
+		 */
+		private void ensureHeadFitsUpcomingChunk(final ByteBuffer[] dataBuffers)
 		{
-			//Must ensure that a file size never exceeds 2^31 bytes size.
-			//If that size is exceeded the storage is corrupted and can't be loaded any more because
-			//the current implementation use only one byte buffer to load a file.
-			//This buffer size is limited to an Integer.MAX_VALUE value.
-			
-			long commitSize = 0;
+			long chunkSize = 0;
 			for(int i = 0; i < dataBuffers.length; i++)
 			{
-				commitSize += dataBuffers[i].limit();
-				if(commitSize > Integer.MAX_VALUE)
-				{
-					//Should never be reached, this case should be already handled by
-					//org.eclipse.store.storage.types.StorageDataChunkValidator.MaxFileSize.
-					//But keep exception to have second guard as the validator might be replaced.
-					throw new StorageExceptionCommitSizeExceeded(this.channelIndex(), commitSize);
-				}
-				if(commitSize + this.headFile.totalLength() > Integer.MAX_VALUE)
-				{
-					logger.debug("creating new storage file because appending would exceed the file size limit of 2^31 bytes");
-					this.createNextStorageFile();
-				}
+				chunkSize += dataBuffers[i].limit();
+			}
+			if(chunkSize > Integer.MAX_VALUE)
+			{
+				// Should never be reached — handled by StorageDataChunkValidator.MaxFileSize.
+				// Kept as a second guard in case the validator is replaced.
+				throw new StorageExceptionCommitSizeExceeded(this.channelIndex(), chunkSize);
+			}
+			if(chunkSize + this.headFile.totalLength() > Integer.MAX_VALUE)
+			{
+				logger.debug("creating new storage file because appending would exceed the file size limit of 2^31 bytes");
+				this.createNextStorageFile();
+			}
+
+			final long checksumReserve = this.chunkChecksumCalculator.reservedLengthFor(this.headFile);
+			final long maximumFileSize = this.dataFileEvaluator.fileMaximumSize();
+			final long projectedTotal  = this.headFile.totalLength() + chunkSize + checksumReserve;
+			// Defence in depth: even on a fresh head (dataLength == 0) we refuse to produce a file
+			// that the load path can no longer read back into a single 2 GiB direct buffer. This
+			// guards against a user wiring a no-op validator that bypasses MaxFileSize.
+			if(projectedTotal > Integer.MAX_VALUE)
+			{
+				throw new StorageExceptionCommitSizeExceeded(this.channelIndex(), projectedTotal);
+			}
+			if(projectedTotal > maximumFileSize
+				&& this.headFile.dataLength() != 0L)
+			{
+				this.createNextStorageFile();
 			}
 		}
 
@@ -631,24 +892,70 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		{
 			if(dataBuffers.length == 0)
 			{
-				return new long[0]; // nothing to write (empty chunk, only header for consistency)
+				// nothing to write (empty chunk, only header for consistency). Clear any pending lengths so a
+				// prior rolled-back store's stale values cannot be applied by this store's commitWrite.
+				this.uncommittedDataLength = 0L;
+				this.uncommittedMetaLength = 0L;
+				return new long[0];
 			}
-			
+
 			this.checkForNewFile();
-			this.ensureHeadFileLoadableSize(dataBuffers);
-				
+			this.ensureHeadFitsUpcomingChunk(dataBuffers); // 2 GiB / fileMaximumSize check + possible head rollover
+
 			final long   oldTotalLength   = this.ensureHeadFileTotalLength();
 			final long[] storagePositions = allChunksStoragePositions(dataBuffers, oldTotalLength);
-			final long   writeCount       = this.writer.writeStore(this.headFile, X.ArrayView(dataBuffers));
-			final long   newTotalLength   = oldTotalLength + writeCount;
-			
+
+			// Single-write contract: compute the checksum over dataBuffers, build the ChunkChecksumV1
+			// meta-record buffer, and submit the entity buffers plus the meta buffer as one gathering
+			// write (no separate write, no intermediate fsync).
+			//
+			// Emit the ChunkChecksumV1 only when the policy emits AND the head file carries a
+			// FileHeaderV1 (chunkChecksumKind() != 0; no automatic upgrade of legacy files). A legacy
+			// head file has none, so emitting a checksum there would make the load walker hash from
+			// file offset 0 across un-covered bytes and throw; such files accumulate unprotected writes
+			// until they roll over to a fresh FileHeaderV1 file. ensureHeadFitsUpcomingChunk above may
+			// have rolled the head over, so the gate re-checks coversChunkWrites against the new head.
+			final long writeCount;
+			if(this.chunkChecksumCalculator.coversChunkWrites(this.headFile))
+			{
+				final long       metaLength = this.chunkChecksumCalculator.chunkChecksumRecordLength();
+				final ByteBuffer metaBuffer = this.chunkChecksumBuffer; // reused; cleared before each use
+				metaBuffer.clear();
+				// the checksum write computes the chained tip but does NOT advance the file tip; that happens
+				// in commitWrite() via commitChunkWrite(). A rolled-back/failed store thus never advances it.
+				// the chunk's data is appended at oldTotalLength (the head file's length before this write), so
+				// that is the in-file chunk start the covering record records for the load-walk cross-check.
+				this.chunkChecksumCalculator.writeChunkChecksumRecord(this.headFile, oldTotalLength, metaBuffer, dataBuffers);
+				metaBuffer.flip();
+
+				final ByteBuffer[] gather = new ByteBuffer[dataBuffers.length + 1];
+				System.arraycopy(dataBuffers, 0, gather, 0, dataBuffers.length);
+				gather[dataBuffers.length] = metaBuffer;
+
+				writeCount = this.writer.writeStore(this.headFile, X.ArrayView(gather));
+
+				// Split the writeCount: entity bytes go to fileDataLength via increaseContentLength
+				// at commit time; meta-record bytes go to fileTotalLength via registerGapLength
+				// (matches load-side semantics). The two fields are accumulated here and consumed
+				// by commitWrite()/rollbackWrite().
+				this.uncommittedDataLength = writeCount - metaLength;
+				this.uncommittedMetaLength = metaLength;
+			}
+			else
+			{
+				// Legacy head file: write entity buffers only, exactly as the pre-feature engine did.
+				writeCount = this.writer.writeStore(this.headFile, X.ArrayView(dataBuffers));
+				this.uncommittedDataLength = writeCount;
+				this.uncommittedMetaLength = 0L;
+			}
+
+			final long newTotalLength = oldTotalLength + writeCount;
+
 			if(newTotalLength != this.headFile.size())
 			{
 				throwImpossibleStoreLengthException(timestamp, oldTotalLength, writeCount, dataBuffers);
 			}
-			
-			this.uncommittedDataLength = writeCount;
-			
+
 			this.writeTransactionsEntryStore(this.headFile, oldTotalLength, writeCount, timestamp, newTotalLength);
 
 			this.restartFileCleanupCursor();
@@ -659,33 +966,52 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		@Override
 		public final void rollbackWrite()
 		{
-			// only roll back if an uncommitted write actually happened (size grew past the committed length).
-			// channels that wrote nothing (e.g. empty chunk) must not accrue a spurious truncation entry.
-			if(this.headFile.totalLength() != this.headFile.size())
-			{
-				final long timestamp = this.timestampProvider.currentNanoTimestamp();
+				// The chained tip is advanced only by commitWrite, so the file tip is already correct here
+				// and left as-is. Only roll back the on-disk bytes if an uncommitted write actually happened
+				// (size grew past the committed length). Channels that wrote nothing (e.g. empty chunk) must
+				// not accrue a spurious truncation entry.
+				if(this.headFile.totalLength() != this.headFile.size())
+				{
+						final long timestamp = this.timestampProvider.currentNanoTimestamp();
 
-				// write truncation entry (BEFORE the actual truncate), mirroring handleLastFile, so the
-				// transaction log and the data file stay consistent after a rolled-back partial store.
-				this.writeTransactionsEntryFileTruncation(this.headFile, timestamp, this.headFile.totalLength());
+						// write truncation entry (BEFORE the actual truncate), mirroring handleLastFile, so the
+						// transaction log and the data file stay consistent after a rolled-back partial store.
+						this.writeTransactionsEntryFileTruncation(this.headFile, timestamp, this.headFile.totalLength());
 
-				this.writer.truncate(this.headFile, this.headFile.totalLength(), this.fileProvider);
-			}
+						this.writer.truncate(this.headFile, this.headFile.totalLength(), this.fileProvider);
+				}
+
+				// The store is abandoned: discard its pending length contributions so a later commitWrite
+				// (e.g. a subsequent empty-chunk store that returns early without re-setting these) cannot
+				// apply the stale values and spuriously advance the chained tip for a chunk never written.
+				this.clearUncommittedDataLength();
 		}
+
 
 		@Override
 		public final void commitWrite()
 		{
-			// commit data length
+			// commit length: entity bytes contribute to both fileTotalLength and fileDataLength,
+			// meta-record bytes contribute to fileTotalLength and fileMetaLength (so dataFillRatio
+			// treats them as useful overhead rather than reclaimable gap — matches load-side
+			// accounting in StorageEntityInitializer).
 			this.headFile.increaseContentLength(this.uncommittedDataLength);
+			if(this.uncommittedMetaLength != 0L)
+			{
+				this.headFile.registerMetaLength(this.uncommittedMetaLength);
+				// a covering chunk checksum was written this store: now that it is committed, advance the
+				// chained tip on the head file (no-op for non-chained kinds).
+				this.chunkChecksumCalculator.commitChunkWrite(this.headFile);
+			}
 
-			// reset the length change helper field
+			// reset the length change helper fields
 			this.clearUncommittedDataLength();
 		}
-		
+
 		final void clearUncommittedDataLength()
 		{
-			this.uncommittedDataLength = 0;
+			this.uncommittedDataLength     = 0;
+			this.uncommittedMetaLength     = 0;
 		}
 		
 		final void loadData(
@@ -1039,7 +1365,8 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			// register items (gaps and entities, with latest version of each entity replacing all previous)
 			final StorageEntityInitializer<StorageLiveDataFile.Default> initializer =
 				StorageEntityInitializer.New(this.entityCache, f ->
-					StorageLiveDataFile.New(this, f)
+					StorageLiveDataFile.New(this, f),
+					this.metaRecordRegistry
 				)
 			;
 			this.headFile = initializer.registerEntities(files, lastFileLength);
@@ -1055,6 +1382,15 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 			// check if last file is over-sized and should be retired right away.
 			this.checkForNewFile();
+
+			// continuousCoverage: if emit is on but the head file is not covered by the primary kind (a
+			// legacy file, or one written by a different algorithm), roll over now so new writes land in a
+			// covered file instead of extending an unprotected tail. A no-op once the head is already covered.
+			if(this.chunkChecksumCalculator.policy().continuousCoverage()
+				&& !this.chunkChecksumCalculator.coversChunkWrites(this.headFile))
+			{
+				this.createNextStorageFile();
+			}
 
 			return idAnalysis;
 		}
@@ -1327,6 +1663,8 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			XMemory.deallocateDirectByteBuffer(this.entryBufferFileDeletion);
 			XMemory.deallocateDirectByteBuffer(this.entryBufferFileTruncation);
 			XMemory.deallocateDirectByteBuffer(this.standardByteBuffer);
+			XMemory.deallocateDirectByteBuffer(this.chunkChecksumBuffer);
+			XMemory.deallocateDirectByteBuffer(this.fileHeaderBuffer);
 		}
 
 		final void handleLastFile(
@@ -1421,6 +1759,172 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		public final boolean issuedFileCleanupCheck(final long nanoTimeBudgetBound)
 		{
 			return this.internalCheckForCleanup(nanoTimeBudgetBound, this.dataFileEvaluator);
+		}
+
+		@Override
+		public final StorageIntegrityCheckResult verifyChunkChecksums(final long nanoTimeBudgetBound, final boolean freshScan)
+		{
+			final StorageIntegrityCheckResult.Default result = StorageIntegrityCheckResult.New();
+
+			// Honor the configured policy: a non-verifying policy (None / verify-off) checks nothing.
+			if(!this.chunkChecksumCalculator.isVerifying() || this.headFile == null)
+			{
+				return result; // complete + clean
+			}
+
+			if(freshScan)
+			{
+				this.snapshotIntegrityScope();
+			}
+			else if(this.integrityScopeNumbers == null)
+			{
+				// already finished this scan: return complete+empty rather than re-snapshotting, so a budgeted
+				// scan across uneven channels terminates without re-hashing or duplicating findings.
+				return result;
+			}
+
+			// O(files) number->file lookup for this pass; a snapshotted file no longer present was dissolved.
+			final EqHashTable<Long, StorageLiveDataFile.Default> filesByNumber = this.currentFilesByNumber();
+
+			final StorageChecksumAnomalyReporter reporter = StorageChecksumAnomalyReporter.NewCollecting(
+				this.chunkChecksumCalculator.policy(),
+				this.channelIndex()                  ,
+				result
+			);
+
+			ByteBuffer buffer = null;
+			try
+			{
+				while(this.integrityScopeCursor < this.integrityScopeNumbers.length)
+				{
+					final long                        number = this.integrityScopeNumbers[this.integrityScopeCursor];
+					final long                        length = this.integrityScopeLengths[this.integrityScopeCursor];
+					final StorageLiveDataFile.Default file   = filesByNumber.get(number);
+
+					// file == null => dissolved by housekeeping between resume calls => skip (no false positive).
+					if(file != null && length > 0L)
+					{
+						// A sealed (non-head) file is immutable: a size change since the snapshot is corruption /
+						// tampering — always an error. The snapshot head is exempt (it legitimately grows) and is
+						// verified only up to its snapshot committed length.
+						final long currentSize = file.size();
+						final long verifyLength;
+						if(number == this.integrityScopeHeadNumber)
+						{
+							verifyLength = length;
+						}
+						else
+						{
+							if(currentSize != length)
+							{
+								result.add(new StorageIntegrityCheckResult.Finding(
+									this.channelIndex(), number, currentSize,
+									StorageIntegrityCheckResult.Anomaly.FILE_SIZE_CHANGED, 0L, null, null
+								));
+							}
+							// verify the surviving region; clamp so a shrunk file is not read past its end.
+							verifyLength = Math.min(length, currentSize);
+						}
+
+						if(verifyLength > 0L)
+						{
+							final int len = X.checkArrayRange(verifyLength);
+							if(buffer == null || buffer.capacity() < len)
+							{
+								if(buffer != null)
+								{
+									XMemory.deallocateDirectByteBuffer(buffer);
+								}
+								buffer = XMemory.allocateDirectNative(Math.max(len, XMemory.defaultBufferSize()));
+							}
+							buffer.clear();
+							buffer.limit(len);
+							file.readBytes(buffer, 0, verifyLength);
+
+							this.chunkChecksumCalculator.verifyDataFile(file, buffer, reporter);
+						}
+					}
+
+					this.integrityScopeCursor++;
+
+					// resume granularity is one whole file (chained files must be walked from their header), and
+					// the budget is checked AFTER a file so each call makes progress even with a tiny budget.
+					if(this.integrityScopeCursor < this.integrityScopeNumbers.length
+						&& System.nanoTime() >= nanoTimeBudgetBound)
+					{
+						result.setComplete(false);
+						return result;
+					}
+				}
+
+				// whole scope covered: this channel is done. Clear the scope so resume calls (freshScan == false)
+				// from siblings still working return complete+empty instead of re-scanning.
+				result.setComplete(true);
+				this.clearIntegrityScope();
+				return result;
+			}
+			finally
+			{
+				if(buffer != null)
+				{
+					XMemory.deallocateDirectByteBuffer(buffer);
+				}
+			}
+		}
+
+		private void snapshotIntegrityScope()
+		{
+			// snapshot every file's (number, length); the head file is bounded to its current committed length.
+			final StorageLiveDataFile.Default headFile = this.headFile;
+
+			int count = 0;
+			StorageLiveDataFile.Default file = headFile;
+			do
+			{
+				file = file.next;
+				count++;
+			}
+			while(file != headFile);
+
+			final long[] numbers = new long[count];
+			final long[] lengths = new long[count];
+			int i = 0;
+			file = headFile;
+			do
+			{
+				file = file.next;
+				numbers[i] = file.number()     ;
+				lengths[i] = file.totalLength(); // head file: current committed length L (immutable in [0, L)).
+				i++;
+			}
+			while(file != headFile);
+
+			this.integrityScopeNumbers    = numbers          ;
+			this.integrityScopeLengths    = lengths          ;
+			this.integrityScopeCursor     = 0                ;
+			this.integrityScopeHeadNumber = headFile.number();
+		}
+
+		private void clearIntegrityScope()
+		{
+			this.integrityScopeNumbers = null;
+			this.integrityScopeLengths = null;
+			this.integrityScopeCursor  = 0   ;
+		}
+
+		private EqHashTable<Long, StorageLiveDataFile.Default> currentFilesByNumber()
+		{
+			final EqHashTable<Long, StorageLiveDataFile.Default> table = EqHashTable.New();
+			final StorageLiveDataFile.Default headFile = this.headFile;
+			StorageLiveDataFile.Default file = headFile;
+			do
+			{
+				file = file.next;
+				table.put(file.number(), file);
+			}
+			while(file != headFile);
+
+			return table;
 		}
 
 		public boolean issuedTransactionFileCheck(final boolean checkSize)
@@ -1647,6 +2151,10 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 				this.importHelper = null;
 				throw new StorageException(e);
 			}
+			// base of the 2 GiB guard: the fresh import file's FileHeaderV1 (0 when the policy does
+			// not emit). totalLength() stays frozen at this value during import (it is only raised in
+			// commitImport), so importBatch tracks the projected run length itself.
+			this.importHelper.importHeadFileLength = this.headFile.totalLength();
 		}
 
 		public void copyData(final StorageImportSource importSource)
@@ -1679,9 +2187,128 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 			final long copyLength = loopFileLength - oldTotalLength;
 			headFile.increaseContentLength(copyLength);
+
+			// The imported entity bytes were appended contiguously (zero-copy transfer) with no covering
+			// ChunkChecksumV1. Emit one now over the whole imported run [oldTotalLength, loopFileLength)
+			// so the load-time walker has an authoritative hash and a later store's ChunkChecksumV1 does
+			// not fold this un-hashed run into its own chunk hash. Mirrors appendBytesToHeadFile.
+			final long metaLength = this.appendImportChunkChecksum(headFile, oldTotalLength, copyLength);
+
 			this.cleanupImportHelper();
 
-			this.writeTransactionsEntryStore(this.headFile, oldTotalLength, copyLength, taskTimestamp, loopFileLength);
+			this.writeTransactionsEntryStore(
+				this.headFile          ,
+				oldTotalLength         ,
+				copyLength + metaLength,
+				taskTimestamp          ,
+				loopFileLength + metaLength
+			);
+		}
+
+		/**
+		 * Gathering-writes {@code buffers} to {@code headFile}, asserting exactly {@code expected} bytes land. On a
+		 * short write it logs, truncates back to {@code truncateBackTo}, rewinds the buffers and retries once; a
+		 * second short write throws {@link StorageExceptionIoWriting}. Shared by the dissolution-transfer and
+		 * import covering-record writes.
+		 *
+		 * @param headFile       the head file being appended to.
+		 * @param buffers        the buffers to write (and rewind before the retry).
+		 * @param expected       the exact byte count the write must produce.
+		 * @param truncateBackTo the file length to truncate back to before retrying.
+		 * @param what           a short label for the operation, used in the log/exception messages.
+		 */
+		private void writeStoreExactOrTruncate(
+			final StorageLiveDataFile.Default    headFile      ,
+			final Iterable<? extends ByteBuffer> buffers       ,
+			final long                           expected      ,
+			final long                           truncateBackTo,
+			final String                         what
+		)
+		{
+			long bytes = this.writer.writeStore(headFile, buffers);
+			if(bytes == expected)
+			{
+				return;
+			}
+
+			logger.error("{} error! Expected {} bytes written to head file but only {} bytes had been written! Trying again.", what, expected, bytes);
+			headFile.truncate(truncateBackTo);
+			for(final ByteBuffer buffer : buffers)
+			{
+				buffer.rewind();
+			}
+
+			bytes = this.writer.writeStore(headFile, buffers);
+			if(bytes != expected)
+			{
+				logger.error("{} retry error! Expected {} bytes written to head file but only {} bytes had been written! Aborting!", what, expected, bytes);
+				throw new StorageExceptionIoWriting(what + " to head file failed, only " + bytes + " of " + expected + " bytes written.");
+			}
+		}
+
+		/**
+		 * Writes a single covering {@code ChunkChecksumV1} meta record over the contiguous
+		 * imported entity run {@code [chunkStart, chunkStart + chunkLength)} that {@link #importBatch}
+		 * appended to the head file. The bytes were transferred zero-copy and are not otherwise in
+		 * memory, so they are read back from the head file to compute the checksum. The meta
+		 * record is then appended and registered as gap length (negative-length record &mdash; counts
+		 * toward {@code fileTotalLength} only, matching load-side accounting). Returns the number of
+		 * meta bytes written, or {@code 0} for an empty import (no checksum emitted).
+		 *
+		 * @param headFile    the import head file the entity run was written to
+		 * @param chunkStart  file offset of the first imported entity byte (== old head total length)
+		 * @param chunkLength total length of the contiguous imported entity run
+		 * @return the meta-record byte count appended, or {@code 0} if {@code chunkLength == 0}
+		 */
+		private long appendImportChunkChecksum(
+			final StorageLiveDataFile.Default headFile   ,
+			final long                        chunkStart ,
+			final long                        chunkLength
+		)
+		{
+			// chunkLength == 0: empty import, nothing to cover. Otherwise emit only when the policy emits
+			// AND the head file carries a FileHeaderV1, as in storeChunks. In practice the import
+			// destination is always a fresh FileHeaderV1 file, so the second guard is defensive and keeps
+			// the three emission sites (storeChunks, dissolution, import) consistent.
+			if(chunkLength == 0L || !this.chunkChecksumCalculator.coversChunkWrites(headFile))
+			{
+				return 0L;
+			}
+
+			final long       headFileLength = headFile.totalLength()                                       ;
+			final int        chunkLengthInt = X.checkArrayRange(chunkLength)                                ;
+			final long       metaLength     = this.chunkChecksumCalculator.chunkChecksumRecordLength()        ;
+			final ByteBuffer dataBuffer     = XMemory.allocateDirectNative(chunkLengthInt)                  ;
+			final ByteBuffer metaBuffer     = this.chunkChecksumBuffer; // reused; cleared before each use
+			metaBuffer.clear();
+			try
+			{
+				headFile.readBytes(dataBuffer, chunkStart, chunkLength);
+				dataBuffer.flip();
+
+				// chunkStart is the imported run's in-file offset — the chunk start the record stores.
+				this.chunkChecksumCalculator.writeChunkChecksumRecord(headFile, chunkStart, metaBuffer, dataBuffer);
+				metaBuffer.flip();
+
+				// writeStore (not the bare write) so the backup mirrors the import-covering checksum.
+				this.writeStoreExactOrTruncate(
+					headFile, this.chunkChecksumBufferWrap, metaLength, headFileLength, "Import checksum write");
+			}
+			finally
+			{
+				// metaBuffer is the reused chunkChecksumBuffer field — not freed here.
+				XMemory.deallocateDirectByteBuffer(dataBuffer);
+			}
+
+			// the import-covering write succeeded (otherwise an exception propagated above): commit the
+			// chained-tip advance for this imported chunk.
+			this.chunkChecksumCalculator.commitChunkWrite(headFile);
+
+			// negative-length meta record: contributes to fileTotalLength and fileMetaLength (so
+			// dataFillRatio treats it as useful overhead rather than reclaimable gap).
+			headFile.registerMetaLength(metaLength);
+
+			return metaLength;
 		}
 
 		final void cleanupImportHelper()
@@ -1697,8 +2324,22 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 				return;
 			}
 
+			// 2 GiB loadability guard: the whole per-channel import run is written contiguously into a
+			// single head file (no mid-run rollover), and commitImport appends one covering
+			// ChunkChecksumV1 at the end. The resulting file must stay loadable into a single direct
+			// ByteBuffer, i.e. within Integer.MAX_VALUE bytes. The trailing-checksum reserve is the
+			// configured chunk-checksum record length (0 when the policy does not emit). Failing fast
+			// here turns a silently-unloadable oversized file into a clean, rolled-back import error.
+			final long checksumReserve = this.chunkChecksumCalculator.reservedLengthFor(this.headFile);
+			final long projectedLength = this.importHelper.importHeadFileLength + length + checksumReserve;
+			if(projectedLength > Integer.MAX_VALUE)
+			{
+				throw new StorageExceptionCommitSizeExceeded(this.channelIndex(), projectedLength);
+			}
+
 			this.checkForNewFile();
 			this.writer.writeImport(source, position, length, this.headFile);
+			this.importHelper.importHeadFileLength += length;
 		}
 
 		final void rollbackImport()
@@ -1747,6 +2388,11 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			final StorageLiveDataFile.Default         preImportHeadFile;
 			final BulkList<StorageChannelImportBatch> importBatches     = BulkList.New(1000);
 			StorageImportSource                       source           ;
+
+			// Running projected length of the single import head file. Initialized to the fresh import
+			// file's totalLength (its FileHeaderV1) and grown per batch so importBatch can guard the
+			// 2 GiB load limit.
+			long importHeadFileLength;
 
 
 			ImportHelper(final StorageLiveDataFile.Default preImportHeadFile)

@@ -32,6 +32,13 @@ extends StorageDataFile, StorageLiveChannelFile<StorageLiveDataFile>, StorageCre
 
 	public long dataLength();
 
+	/**
+	 * @return bytes contributed by protocol meta records ({@code FileHeaderV1},
+	 *         {@code ChunkChecksumV1}, ...). Counted into {@link #totalLength()} but kept separate
+	 *         from legacy gap bytes so sizing decisions can treat them as unreclaimable overhead.
+	 */
+	public long metaLength();
+
 	public double dataFillRatio();
 
 	public boolean isHeadFile();
@@ -92,6 +99,19 @@ extends StorageDataFile, StorageLiveChannelFile<StorageLiveDataFile>, StorageCre
 		
 		private long fileTotalLength;
 		private long fileDataLength ;
+		// Bytes contributed by meta records (FileHeaderV1, ChunkChecksumV1...). Counted into
+		// fileTotalLength but kept separate from legacy gap so dataFillRatio() treats protocol
+		// overhead as unreclaimable rather than dissolvable space.
+		private long fileMetaLength ;
+
+		// Cached from the FileHeaderV1 meta record. 0L kind / null chainRoot mean "no FileHeaderV1
+		// seen" (legacy file). The KIND constants in StorageMetaRecord cannot collide with 0L.
+		private long   chunkChecksumKind;
+		private byte[] chainRoot        ;
+		// Running chain tip for chained chunk-checksum kinds: the stored hash of this file's last
+		// chunk, or chainRoot when the file has no chunks yet. Seeded in setFileHeaderV1, advanced
+		// per chunk on write and re-derived on load. null for legacy files; unused by non-chained kinds.
+		private byte[] chainTip         ;
 
 		StorageLiveDataFile.Default next, prev;
 
@@ -163,6 +183,35 @@ extends StorageDataFile, StorageLiveChannelFile<StorageLiveDataFile>, StorageCre
 			super.truncate(newLength);
 		}
 
+		// FileHeaderV1 cached state. 0L / null means no FileHeaderV1 was parsed for this file.
+
+		final long chunkChecksumKind()
+		{
+			return this.chunkChecksumKind;
+		}
+
+		final byte[] chainRoot()
+		{
+			return this.chainRoot;
+		}
+
+		final void setFileHeaderV1(final long chunkChecksumKind, final byte[] chainRoot)
+		{
+			this.chunkChecksumKind = chunkChecksumKind;
+			this.chainRoot         = chainRoot        ;
+			this.chainTip          = chainRoot        ; // seed the running tip; chunks advance it
+		}
+
+		final byte[] chainTip()
+		{
+			return this.chainTip;
+		}
+
+		final void setChainTip(final byte[] chainTip)
+		{
+			this.chainTip = chainTip;
+		}
+
 		final TypeInFile typeInFile(final StorageEntityType.Default type)
 		{
 			// identity equality is enough as every type has a unique instance per channel
@@ -216,6 +265,18 @@ extends StorageDataFile, StorageLiveChannelFile<StorageLiveDataFile>, StorageCre
 		final void registerGapLength(final long length)
 		{
 			this.fileTotalLength += length;
+		}
+
+		final void registerMetaLength(final long length)
+		{
+			this.fileTotalLength += length;
+			this.fileMetaLength  += length;
+		}
+
+		@Override
+		public final long metaLength()
+		{
+			return this.fileMetaLength;
 		}
 
 		final boolean needsRetirement(final StorageDataFileEvaluator configuration)
@@ -300,7 +361,10 @@ extends StorageDataFile, StorageLiveChannelFile<StorageLiveDataFile>, StorageCre
 		@Override
 		public final double dataFillRatio()
 		{
-			return (double)this.fileDataLength / this.fileTotalLength;
+			// Treat meta-record bytes as useful overhead, not gap: they are protocol envelope
+			// (FileHeaderV1, ChunkChecksumV1...) that re-appears on every new file and cannot
+			// be reclaimed by dissolution. Only legacy gap from removed entities is reclaimable.
+			return (double)(this.fileDataLength + this.fileMetaLength) / this.fileTotalLength;
 		}
 
 		@Override

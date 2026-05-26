@@ -91,7 +91,23 @@ public interface StorageConfiguration
 	 */
 	public StorageBackupSetup backupSetup();
 
-	
+	/**
+	 * Returns the {@link StorageChunkChecksumProvider} governing per-chunk checksum meta records
+	 * (the hash algorithm plus whether {@code FileHeaderV1} / {@code ChunkChecksumV1} entries are
+	 * written and verified).
+	 * <p>
+	 * Defined as a default method returning {@link StorageChunkChecksumProvider#New()} (the no-checksum
+	 * default, i.e. the feature off) so that pre-existing {@link StorageConfiguration}
+	 * implementations remain source- and binary-compatible.
+	 *
+	 * @return the configured {@link StorageChunkChecksumProvider}; never {@code null}.
+	 */
+	public default StorageChunkChecksumProvider chunkChecksumProvider()
+	{
+		return StorageChunkChecksumProvider.New();
+	}
+
+
 	/**
 	 * Pseudo-constructor method to create a new {@link StorageConfiguration} instance
 	 * using {@code null} as the {@link StorageBackupSetup} part and default instances for everything else.
@@ -159,13 +175,49 @@ public interface StorageConfiguration
 		final StorageBackupSetup            backupSetup
 	)
 	{
+		return New(
+			channelCountProvider  ,
+			housekeepingController,
+			fileProvider          ,
+			dataFileEvaluator     ,
+			entityCacheEvaluator  ,
+			backupSetup           ,
+			StorageChunkChecksumProvider.New()
+		);
+	}
+
+	/**
+	 * Pseudo-constructor method to create a new {@link StorageConfiguration} instance from the
+	 * passed strategy parts, including an explicit {@link StorageChunkChecksumProvider}.
+	 *
+	 * @param channelCountProvider   the {@link StorageChannelCountProvider} to use; must be non-{@code null}.
+	 * @param housekeepingController the {@link StorageHousekeepingController} to use; must be non-{@code null}.
+	 * @param fileProvider           the {@link StorageLiveFileProvider} to use; must be non-{@code null}.
+	 * @param dataFileEvaluator      the {@link StorageDataFileEvaluator} to use; must be non-{@code null}.
+	 * @param entityCacheEvaluator   the {@link StorageEntityCacheEvaluator} to use; must be non-{@code null}.
+	 * @param backupSetup            the {@link StorageBackupSetup} to use, or {@code null} to disable backup.
+	 * @param chunkChecksumProvider  the {@link StorageChunkChecksumProvider} to use; must be non-{@code null}.
+	 *
+	 * @return a new {@link StorageConfiguration} instance with the passed parts.
+	 */
+	public static StorageConfiguration New(
+		final StorageChannelCountProvider   channelCountProvider  ,
+		final StorageHousekeepingController housekeepingController,
+		final StorageLiveFileProvider           fileProvider          ,
+		final StorageDataFileEvaluator      dataFileEvaluator     ,
+		final StorageEntityCacheEvaluator   entityCacheEvaluator  ,
+		final StorageBackupSetup            backupSetup           ,
+		final StorageChunkChecksumProvider  chunkChecksumProvider
+	)
+	{
 		return new StorageConfiguration.Default(
 			notNull(channelCountProvider)  ,
 			notNull(housekeepingController),
 			notNull(fileProvider)          ,
 			notNull(dataFileEvaluator)     ,
 			notNull(entityCacheEvaluator)  ,
-			mayNull(backupSetup)
+			mayNull(backupSetup)           ,
+			notNull(chunkChecksumProvider)
 		);
 	}
 
@@ -185,6 +237,7 @@ public interface StorageConfiguration
 		private final StorageDataFileEvaluator      dataFileEvaluator     ;
 		private final StorageEntityCacheEvaluator   entityCacheEvaluator  ;
 		private final StorageBackupSetup            backupSetup           ;
+		private final StorageChunkChecksumProvider  chunkChecksumProvider ;
 
 
 
@@ -198,7 +251,8 @@ public interface StorageConfiguration
 			final StorageLiveFileProvider           fileProvider          ,
 			final StorageDataFileEvaluator      dataFileEvaluator     ,
 			final StorageEntityCacheEvaluator   entityCacheEvaluator  ,
-			final StorageBackupSetup            backupSetup
+			final StorageBackupSetup            backupSetup           ,
+			final StorageChunkChecksumProvider  chunkChecksumProvider
 		)
 		{
 			super();
@@ -208,6 +262,7 @@ public interface StorageConfiguration
 			this.fileProvider           = fileProvider          ;
 			this.dataFileEvaluator      = dataFileEvaluator     ;
 			this.backupSetup            = backupSetup           ;
+			this.chunkChecksumProvider  = chunkChecksumProvider ;
 		}
 
 
@@ -253,6 +308,12 @@ public interface StorageConfiguration
 		}
 
 		@Override
+		public StorageChunkChecksumProvider chunkChecksumProvider()
+		{
+			return this.chunkChecksumProvider;
+		}
+
+		@Override
 		public String toString()
 		{
 			return VarString.New()
@@ -263,6 +324,7 @@ public interface StorageConfiguration
 				.add(this.entityCacheEvaluator  ).lf()
 				.add(this.dataFileEvaluator     ).lf()
 				.add(this.backupSetup == null ? StorageBackupSetup.class.getName() + ": null": this.backupSetup).lf()
+				.add(this.chunkChecksumProvider ).lf()
 				.toString()
 			;
 		}
@@ -404,6 +466,23 @@ public interface StorageConfiguration
 		public B setEntityCacheEvaluator(StorageEntityCacheEvaluator entityCacheEvaluator);
 
 		/**
+		 * Returns the currently configured {@link StorageChunkChecksumProvider}.
+		 *
+		 * @return the current {@link StorageChunkChecksumProvider}.
+		 */
+		public StorageChunkChecksumProvider chunkChecksumProvider();
+
+		/**
+		 * Sets the {@link StorageChunkChecksumProvider} to be used by the resulting configuration.
+		 * Passing {@code null} resets the value to the framework default (SHA-256, emit + verify).
+		 *
+		 * @param chunkChecksumProvider the new {@link StorageChunkChecksumProvider}, or {@code null} to reset.
+		 *
+		 * @return this builder, for fluent chaining.
+		 */
+		public B setChunkChecksumProvider(StorageChunkChecksumProvider chunkChecksumProvider);
+
+		/**
 		 * Builds a new {@link StorageConfiguration} from the strategy parts currently held by this
 		 * builder.
 		 * <p>
@@ -434,6 +513,7 @@ public interface StorageConfiguration
 			private StorageLiveFileProvider       storageFileProvider    = this.initializeLiveFileProvider();
 			private StorageDataFileEvaluator      dataFileEvaluator      = this.initializeDataFileEvaluator();
 			private StorageEntityCacheEvaluator   entityCacheEvaluator   = this.initializeEntityCacheEvaluator();
+			private StorageChunkChecksumProvider  chunkChecksumProvider  = this.initializeChunkChecksumProvider();
 			private StorageBackupSetup            backupSetup           ; // optional
 			
 			
@@ -476,6 +556,11 @@ public interface StorageConfiguration
 			protected StorageEntityCacheEvaluator initializeEntityCacheEvaluator()
 			{
 				return Storage.EntityCacheEvaluator();
+			}
+
+			protected StorageChunkChecksumProvider initializeChunkChecksumProvider()
+			{
+				return Storage.ChunkChecksumProvider();
 			}
 			
 			@SuppressWarnings("unchecked")
@@ -578,7 +663,23 @@ public interface StorageConfiguration
 				;
 				return this.$();
 			}
-			
+
+			@Override
+			public StorageChunkChecksumProvider chunkChecksumProvider()
+			{
+				return this.chunkChecksumProvider;
+			}
+
+			@Override
+			public B setChunkChecksumProvider(final StorageChunkChecksumProvider chunkChecksumProvider)
+			{
+				this.chunkChecksumProvider = chunkChecksumProvider == null
+					? this.initializeChunkChecksumProvider()
+					: chunkChecksumProvider
+				;
+				return this.$();
+			}
+
 			@Override
 			public StorageConfiguration createConfiguration()
 			{
@@ -588,7 +689,8 @@ public interface StorageConfiguration
 					this.storageFileProvider   ,
 					this.dataFileEvaluator     ,
 					this.entityCacheEvaluator  ,
-					this.backupSetup
+					this.backupSetup           ,
+					this.chunkChecksumProvider
 				);
 			}
 			

@@ -35,39 +35,44 @@ public interface StorageEntityInitializer<D extends StorageLiveDataFile>
 	
 	
 	static StorageEntityInitializer<StorageLiveDataFile.Default> New(
-		final StorageEntityCache.Default                                      entityCache    ,
-		final Function<StorageDataInventoryFile, StorageLiveDataFile.Default> dataFileCreator
+		final StorageEntityCache.Default                                      entityCache       ,
+		final Function<StorageDataInventoryFile, StorageLiveDataFile.Default> dataFileCreator   ,
+		final StorageMetaRecordRegistry                                       metaRecordRegistry
 	)
 	{
 		return new StorageEntityInitializer.Default(
-			notNull(dataFileCreator),
-			notNull(entityCache)
+			notNull(dataFileCreator)   ,
+			notNull(entityCache)       ,
+			notNull(metaRecordRegistry)
 		);
 	}
-	
+
 	final class Default implements StorageEntityInitializer<StorageLiveDataFile.Default>
 	{
 		///////////////////////////////////////////////////////////////////////////
 		// instance fields //
 		////////////////////
 
-		private final Function<StorageDataInventoryFile, StorageLiveDataFile.Default> dataFileCreator;
-		private final StorageEntityCache.Default                                      entityCache    ;
-		
-		
-		
+		private final Function<StorageDataInventoryFile, StorageLiveDataFile.Default> dataFileCreator        ;
+		private final StorageEntityCache.Default                                      entityCache            ;
+		private final StorageMetaRecordRegistry                                       metaRecordRegistry     ;
+
+
+
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
 		/////////////////
 
 		Default(
-			final Function<StorageDataInventoryFile, StorageLiveDataFile.Default> dataFileCreator,
-			final StorageEntityCache.Default                                      entityCache
+			final Function<StorageDataInventoryFile, StorageLiveDataFile.Default> dataFileCreator        ,
+			final StorageEntityCache.Default                                      entityCache            ,
+			final StorageMetaRecordRegistry                                       metaRecordRegistry
 		)
 		{
 			super();
-			this.dataFileCreator = dataFileCreator;
-			this.entityCache     = entityCache    ;
+			this.dataFileCreator         = dataFileCreator        ;
+			this.entityCache             = entityCache            ;
+			this.metaRecordRegistry      = metaRecordRegistry     ;
 		}
 		
 		
@@ -82,49 +87,51 @@ public interface StorageEntityInitializer<D extends StorageLiveDataFile>
 			final long                                             lastFileLength
 		)
 		{
-			return registerEntities(this.dataFileCreator, this.entityCache, files.toReversed(), lastFileLength);
+			return registerEntities(this.dataFileCreator, this.entityCache, files.toReversed(), lastFileLength, this.metaRecordRegistry);
 		}
-		
+
 		private static StorageLiveDataFile.Default registerEntities(
-			final Function<StorageDataInventoryFile, StorageLiveDataFile.Default> fileCreator    ,
-			final StorageEntityCache.Default                                      entityCache    ,
-			final XGettingSequence<? extends StorageDataInventoryFile>            reversedFiles  ,
-			final long                                                            lastFileLength
+			final Function<StorageDataInventoryFile, StorageLiveDataFile.Default> fileCreator            ,
+			final StorageEntityCache.Default                                      entityCache            ,
+			final XGettingSequence<? extends StorageDataInventoryFile>            reversedFiles          ,
+			final long                                                            lastFileLength         ,
+			final StorageMetaRecordRegistry                                       metaRecordRegistry
 		)
 		{
 			final ByteBuffer                               buffer   = allocateInitializationBuffer(reversedFiles);
 			final Iterator<? extends StorageDataInventoryFile> iterator = reversedFiles.iterator();
 			final int[] entityOffsets = createAllFilesOffsetsArray(buffer.capacity());
-			
+
 			final long initTime = System.currentTimeMillis();
-			
+
 			// special case handling for last/head file
 			final StorageLiveDataFile.Default headFile = setupHeadFile(fileCreator.apply(iterator.next()));
-			registerFileEntities(entityCache, initTime, headFile, lastFileLength, buffer, entityOffsets);
-			
+			registerFileEntities(entityCache, initTime, headFile, lastFileLength, buffer, entityOffsets, metaRecordRegistry);
+
 			// simple tail file adding iteration for all remaining (previous!) storage files
 			for(StorageLiveDataFile.Default dataFile = headFile; iterator.hasNext();)
 			{
 				dataFile = linkTailFile(dataFile, fileCreator.apply(iterator.next()));
-				registerFileEntities(entityCache, initTime, dataFile, dataFile.size(), buffer, entityOffsets);
+				registerFileEntities(entityCache, initTime, dataFile, dataFile.size(), buffer, entityOffsets, metaRecordRegistry);
 			}
-			
+
 			XMemory.deallocateDirectByteBuffer(buffer);
-			
+
 			return headFile;
 		}
-		
+
 		final static void registerFileEntities(
-			final StorageEntityCache.Default  entityCache       ,
-			final long                        initializationTime,
-			final StorageLiveDataFile.Default file              ,
-			final long                        fileActualLength  ,
-			final ByteBuffer                  buffer            ,
-			final int[]                       entityOffsets
+			final StorageEntityCache.Default     entityCache            ,
+			final long                           initializationTime     ,
+			final StorageLiveDataFile.Default    file                   ,
+			final long                           fileActualLength       ,
+			final ByteBuffer                     buffer                 ,
+			final int[]                          entityOffsets          ,
+			final StorageMetaRecordRegistry      metaRecordRegistry
 		)
 		{
 			// entities must be indexed first to allow reverse iteration.
-			final int                         entityCount = indexEntities(file, fileActualLength, buffer, entityOffsets);
+			final int                         entityCount = indexEntities(file, fileActualLength, buffer, entityOffsets, metaRecordRegistry);
 			final StorageEntityCacheEvaluator entityCacheEvaluator = entityCache.entityCacheEvaluator;
 			final long                        bufferStartAddress   = XMemory.getDirectByteBufferAddress(buffer);
 			
@@ -160,9 +167,10 @@ public interface StorageEntityInitializer<D extends StorageLiveDataFile>
 
 			// the total length of all actually registered entities is the file's content length. The rest is gaps.
 			file.increaseContentLength(totalFileContentLength);
-			
-			// the buffer is currently limited to exactly the file size. So gapLength = limit - contentLength.
-			file.registerGapLength(buffer.limit() - totalFileContentLength);
+
+			// indexEntities already registered meta-record bytes via registerMetaLength as the walker
+			// recognized them. The remainder is the legacy gap from removed entities.
+			file.registerGapLength(buffer.limit() - totalFileContentLength - file.metaLength());
 		}
 				
 		/**
@@ -170,25 +178,30 @@ public interface StorageEntityInitializer<D extends StorageLiveDataFile>
 		 * @return the entity count.
 		 */
 		private static int indexEntities(
-			final StorageLiveDataFile.Default file            ,
-			final long                        fileActualLength,
-			final ByteBuffer                  buffer          ,
-			final int[]                       entityOffsets
+			final StorageLiveDataFile.Default    file                   ,
+			final long                           fileActualLength       ,
+			final ByteBuffer                     buffer                 ,
+			final int[]                          entityOffsets          ,
+			final StorageMetaRecordRegistry      metaRecordRegistry
 		)
 		{
 			int lastEntityIndex = -1;
-			
+
 			fillBuffer(buffer, file, fileActualLength);
-			
+
 			final long bufferStartAddress = XMemory.getDirectByteBufferAddress(buffer);
 			final long bufferBoundAddress = bufferStartAddress + buffer.limit();
-			
+
 			long currentItemLength;
-			
+
+			// Start address of the current chunk's hashed bytes. Advances past the FileHeaderV1 (which
+			// is not itself part of any chunk's hash) and past each successfully-verified ChunkChecksumV1.
+			long chunkStart = bufferStartAddress;
+
 			for(long address = bufferStartAddress; address < bufferBoundAddress;)
 			{
 				currentItemLength = Binary.getEntityLengthRawValue(address);
-				
+
 				if(currentItemLength > 0)
 				{
 					// handle actual entity
@@ -197,8 +210,10 @@ public interface StorageEntityInitializer<D extends StorageLiveDataFile>
 				}
 				else if(currentItemLength < 0)
 				{
-					// comments (indicated by negative length) just get skipped.
-					// note that gap length gets registered for the file at the end arithmetically
+					// negative-length entry: either a legacy opaque gap (skip) or a structured
+					// meta record (recognize, verify, dispatch). May throw on checksum mismatch.
+					// Returns the updated chunkStart for the next chunk.
+					chunkStart = metaRecordRegistry.dispatch(file, buffer, address, chunkStart);
 					address -= currentItemLength;
 				}
 				else
@@ -207,16 +222,26 @@ public interface StorageEntityInitializer<D extends StorageLiveDataFile>
 					throw new StorageExceptionConsistency("Zero length data item.");
 				}
 			}
-			
+
+			// after the walk, let the registry raise MISSING_HEADER / UNCOVERED_DATA via the reporter
+			// (inert unless verifying with coverage required) and flush per-file log dedupe. chunkStart
+			// is the start of the last chunk not followed by a covering checksum record.
+			metaRecordRegistry.onFileComplete(
+				file                            ,
+				chunkStart - bufferStartAddress ,
+				buffer.limit()                  ,
+				lastEntityIndex >= 0
+			);
+
 			return lastEntityIndex + 1;
 		}
-		
-		
-		
+
+
+
 		///////////////////////////////////////////////////////////////////////////
 		// utility methods //
 		////////////////////
-		
+
 		private static StorageLiveDataFile.Default setupHeadFile(
 			final StorageLiveDataFile.Default storageFile
 		)

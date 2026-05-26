@@ -1,0 +1,303 @@
+= Data Integrity (Chunk Checksums)
+
+{product-name} can protect the data in its storage files with per-chunk integrity checksums.
+Each time a batch of data (a "chunk") is written, a checksum covering those bytes is stored alongside it.
+When the storage is started, every data file is walked and its checksums are recomputed and compared against the stored values, so silent on-disk corruption (bit-rot, a corrupted block, a damaged backup file) is detected before the data is used.
+
+By default this protection is *off*: no checksums are written, and data files stay byte-compatible with a pre-feature engine.
+Enable it by configuring a `StorageChunkChecksumProvider` (see <<_configuration>>) — for example chained SHA-256 or CRC32C.
+
+== How It Works
+
+Checksums are written into the regular `.dat` storage files, not into a side file:
+
+* Each data file begins with a small *file header* record that records which checksum algorithm the file uses.
+* Every committed chunk is followed by a *checksum record* covering the bytes that precede it.
+
+The checksum record is written in the same atomic write as the chunk it covers, so a chunk and its checksum can never get out of sync; the file header is written once, as a file's first entry, when the file is created.
+The records are encoded as storage "gaps", which means older {product-name} versions (and the housekeeping/garbage-collection logic) simply skip over them — a checksummed storage remains readable by an engine that does not know about the feature.
+
+Verification happens *once, at startup*, while the storage initializes and walks its files.
+It is not repeated for individual lazy or cache loads during normal operation.
+
+[NOTE]
+====
+Checksums protect the *data files on disk*. They detect corruption of persisted bytes; they are not a substitute for application-level validation of the objects themselves.
+====
+
+== Algorithms
+
+The algorithm used for *writing* is called the _primary_ algorithm.
+Alongside it, the engine keeps a set of _additional_ algorithms so that a file written by one algorithm can still be verified after the configured primary changes between runs.
+
+[cols="1,3"]
+|===
+| Algorithm | Description
+
+| `CRC32C`
+| Fast integrity checksum. Hardware-accelerated and zero-copy on direct buffers; detects accidental corruption such as bit-rot or a damaged block.
+
+| chained `SHA-256`
+| A 32-byte hash per chunk. Each chunk's hash folds in the previous chunk's hash, so within a file it detects not only single-chunk corruption but also reordering, insertion or deletion of whole chunks.
+
+| `None`
+| No checksum at all. Produces data files indistinguishable from those of a pre-feature engine. This is the sanctioned way to switch the feature *off*.
+|===
+
+[TIP]
+====
+Chaining is designed to detect accidental or partial corruption. What it can detect is bounded by housekeeping (see <<_chained_checksums_and_housekeeping>>).
+====
+
+== Policies and Profiles
+
+A _policy_ decides two things independently: whether to *emit* checksums on write, and whether to *verify* them on load.
+When verifying, each kind of anomaly the load walk can encounter is answered by a _reaction_:
+
+[cols="1,3"]
+|===
+| Reaction | Effect
+
+| `IGNORE` | Skip silently.
+| `LOG`    | Log a warning and continue.
+| `FAIL`   | Throw and abort the start.
+|===
+
+The anomaly categories are: a *checksum mismatch* (the stored bytes no longer match their recorded checksum), a *chunk-boundary mismatch* (a framing desync, where a corrupted entity length rerouted the load walk past a covering record), an *unknown record kind* (a removed or future algorithm), a *missing file header*, and *uncovered data* (data with no covering checksum where coverage was expected).
+
+Rather than assemble these by hand, pick a profile from `StorageChunkChecksumPolicy`:
+
+[cols="1,3"]
+|===
+| Profile | Behavior
+
+| `New()` (lenient)
+| The default *policy* once the feature is enabled: emit + verify, `FAIL` on a checksum mismatch, everything else `IGNORE`. Forward-compatible — unknown kinds and pre-existing legacy files are tolerated.
+
+| `NewOff()`
+| Emit nothing, verify nothing. Files are indistinguishable from a pre-feature engine.
+
+| `NewObserve()`
+| Emit + verify, every anomaly `LOG` (never fails). Learn about corruption, unknown kinds and coverage gaps from the log without risking a storage that refuses to start.
+
+| `NewStrict()`
+| Emit + verify, every anomaly `FAIL`, full and continuous coverage required. Zero-tolerance — use once a storage is fully migrated.
+
+| `NewStrictTolerateLegacy()`
+| Like `NewStrict()`, but pre-existing legacy coverage gaps are logged instead of fatal. The migrating-to-strict profile.
+
+| `NewCustom(...)`
+| Full control over both axes and all five reactions, with fail-early validation against contradictory combinations.
+|===
+
+== Configuration
+
+The feature is configured through a `StorageChunkChecksumProvider`, which carries the primary algorithm and the policy.
+Set it on the `StorageConfiguration`:
+
+[source, java]
+----
+NioFileSystem          fileSystem     = NioFileSystem.New();
+EmbeddedStorageManager storageManager = EmbeddedStorageFoundation.New()
+    .setConfiguration(
+        StorageConfiguration.Builder()
+            .setStorageFileProvider(
+                Storage.FileProviderBuilder(fileSystem)
+                    .setDirectory(fileSystem.ensureDirectoryPath("data"))
+                    .createFileProvider()
+            )
+            // chained SHA-256, emit + verify, fail on every anomaly, require full coverage
+            .setChunkChecksumProvider(
+                StorageChunkChecksumProvider.NewSha256Chained(StorageChunkChecksumPolicy.NewStrict())
+            )
+            .createConfiguration()
+    )
+    .createEmbeddedStorageManager();
+----
+
+`StorageChunkChecksumProvider` offers ready-made factories:
+
+[source, java]
+----
+// framework default: no checksum (the feature off) — identical to NewNone()
+StorageChunkChecksumProvider.New();
+
+// chained SHA-256, optionally with a chosen policy and initial chain seed
+StorageChunkChecksumProvider.NewSha256Chained();
+StorageChunkChecksumProvider.NewSha256Chained(StorageChunkChecksumPolicy.NewObserve());
+
+// CRC32C primary (still verifies chained-SHA-256 files written earlier)
+StorageChunkChecksumProvider.NewCrc32c();
+
+// switch the feature off explicitly
+StorageChunkChecksumProvider.NewNone();
+----
+
+The feature is off unless configured; `StorageChunkChecksumProvider.NewNone()` (or simply `New()`) expresses that explicitly.
+
+=== External Configuration
+
+The feature can also be configured declaratively — through external `.properties` / INI / XML files, Spring Boot, or CDI / MicroProfile — without writing foundation code.
+Setting any `chunk-checksum-*` key activates external configuration of the feature; leaving them all unset keeps the framework default (no checksum — the feature off).
+
+Almost all users need only the *simple* tier — pick an algorithm and a profile:
+
+[cols="2,3,1"]
+|===
+| Key | Values | Default
+
+| `chunk-checksum-algorithm`
+| `none` \| `crc32c` \| `sha256-chained`
+| `sha256-chained`
+
+| `chunk-checksum-profile`
+| `default` \| `off` \| `observe` \| `strict` \| `strict-tolerate-legacy`
+| `default`
+
+| `chunk-checksum-seed`
+| 64 hex chars (32 bytes), `sha256-chained` only
+| none
+|===
+
+.INI / properties
+[source, properties]
+----
+chunk-checksum-algorithm=crc32c
+chunk-checksum-profile=strict
+----
+
+.Spring Boot (`application.properties`)
+[source, properties]
+----
+org.eclipse.store.chunk-checksum.algorithm=crc32c
+org.eclipse.store.chunk-checksum.profile=strict
+----
+
+.MicroProfile / CDI
+[source, properties]
+----
+org.eclipse.store.chunk.checksum.algorithm=crc32c
+org.eclipse.store.chunk.checksum.profile=strict
+----
+
+[TIP]
+====
+*Expert tier.* The profile supplies a complete, coherent base policy; for fine-grained control each policy axis can be overridden individually with the keys below (each defaults to the profile's value when unset):
+`chunk-checksum-emit`, `chunk-checksum-verify`, `chunk-checksum-on-checksum-mismatch`, `chunk-checksum-on-boundary-mismatch`, `chunk-checksum-on-unknown-kind`, `chunk-checksum-on-missing-header`, `chunk-checksum-on-uncovered-data` (each `ignore` \| `log` \| `fail`), `chunk-checksum-require-coverage`, `chunk-checksum-continuous-coverage`.
+
+There is no separate sanity layer on the expert tier: the resulting policy is validated by `NewCustom(...)`, so a contradictory combination (for example `chunk-checksum-verify=false` together with a non-`ignore` reaction) is rejected. Two rules apply silently: `chunk-checksum-algorithm=none` forces the feature off (profile and overrides are ignored), and `chunk-checksum-seed` is used only by `sha256-chained`. The `sha256-chained` + emit + no-verify combination is not rejected at parse time — it surfaces when the storage starts.
+====
+
+Custom `Algorithm` implementations and custom verify sets remain Java-API only — there is no configuration token for them.
+
+== Existing Storages
+
+Opening a storage that was written *before* this feature existed is safe.
+Pre-feature data files carry no file header, so the engine treats them as legacy: it does not retro-fit checksums onto them, and a lenient policy ignores their missing coverage.
+Once the feature is enabled, newly created data files are written with checksums, so coverage grows naturally as the storage rolls over to new files.
+The two states coexist on disk without conflict.
+
+To assert that an *already fully migrated* storage has complete coverage, switch to `NewStrict()`.
+While migrating, `NewStrictTolerateLegacy()` enforces integrity on new writes while only logging the pre-existing gaps.
+
+== Custom Algorithms
+
+A custom checksum algorithm is an implementation of `StorageChunkChecksumCalculator.Algorithm`.
+Supply it as the primary (and/or among the additional algorithms) via a factory:
+
+[source, java]
+----
+StorageChunkChecksumProvider.New(MyAlgorithm::new);
+----
+
+An algorithm is supplied as a factory because each storage channel owns its own stateful instance.
+
+== Coalescing During Housekeeping
+
+When housekeeping cleans up storage files (see xref:housekeeping.adoc[Housekeeping]), it relocates the still-live data of a retired file into a new one.
+With checksums enabled, several small live runs are merged into a single coalesced chunk covered by one checksum, which keeps the checksum overhead of fragmented stores in check.
+
+The soft target size of a coalesced chunk defaults to 1 MB and can be tuned via the additional `StorageDataFileEvaluator` parameter:
+
+[source, java]
+----
+StorageDataFileEvaluator evaluator = Storage.DataFileEvaluator(
+    fileMinimumSize,
+    fileMaximumSize,
+    minimumUseRatio,
+    cleanUpHeadFile,
+    transactionFileMaximumSize,
+    coalesceChunkTargetBytes      // soft target per coalesced chunk, default 1 MB
+);
+----
+
+== On-demand Integrity Verification
+
+Chunk-checksum verification normally runs only at startup (during the load walk). To re-verify a *running* storage without restarting it, issue an on-demand integrity check on a `StorageConnection` (or the `StorageManager`, which is one):
+
+[source, java]
+----
+StorageIntegrityCheckResult result = storageManager.issueFullIntegrityCheck();
+if(!result.isClean())
+{
+    for(StorageIntegrityCheckResult.Finding finding : result.anomalies())
+    {
+        System.err.println(finding); // channel, data file, position, anomaly, expected vs actual
+    }
+}
+----
+
+The check re-walks the live data files of every channel, recomputes each chunk's checksum and compares it against the stored record. Unlike startup verification it *collects* every anomaly into the result instead of throwing, so a single call surfaces all corruption found across all channels without halting the storage. The chunk-checksum anomalies route through the configured `StorageChunkChecksumPolicy`: anomaly types whose reaction is `IGNORE` are not reported, and a policy that does not verify reports nothing.
+
+In addition, the budgeted variant verifies that the data files it snapshotted stay stable while it works: a sealed (non-head) file is immutable, so if its size changes between resume calls — truncation, growth or rewrite — that is reported as a `FILE_SIZE_CHANGED` anomaly (always, independent of the policy). Only the head file is exempt, since it legitimately grows.
+
+The check is an issued operation, so it is serialized with stores like any other (see xref:housekeeping.adoc[Housekeeping]); stores are blocked for its duration. `issueFullIntegrityCheck()` runs to completion in a single call and sees a consistent, complete set of files as of the moment it runs. Each channel's head file is verified up to its committed length at that moment (append-only data beyond that point is out of scope and is covered at the next startup or check).
+
+A budgeted variant yields between calls so a long scan need not block stores for its whole duration:
+
+[source, java]
+----
+StorageIntegrityCheckResult result;
+do
+{
+    result = storageManager.issueIntegrityCheck(timeBudgetNanos);
+    // ... inspect result.anomalies() ...
+}
+while(!result.isComplete());
+----
+
+The verification scope is snapshotted at the start of the scan. Because housekeeping may delete or relocate whole data files between budgeted calls, a file dissolved in the meantime is skipped (no false positive) but its relocated data is not re-checked in that run; budgeted coverage is therefore best-effort. For a guaranteed complete, consistent snapshot, use `issueFullIntegrityCheck()`.
+
+The verification pass is side-effect-free: it never alters the running write state (the head file's chain tip and header are left untouched), so it is safe to run at any time.
+
+== Chained Checksums and Housekeeping
+
+The chained `SHA-256` algorithm links each chunk's hash to the previous one, which makes reordering, insertion or deletion of chunks within a file detectable.
+This linkage is bounded by {product-name}'s normal housekeeping, and the boundary matters when reasoning about what corruption the chain can detect.
+
+Housekeeping routinely *deletes whole storage files*: garbage collection retires a file once all of its entities have become unreachable, and file cleanup retires under-utilized files, relocating their still-live data into new files (see xref:housekeeping.adoc[Housekeeping]).
+Two consequences follow:
+
+* *Verification is per file.* On start, each file's chain is recomputed from the chain seed stored in that file's own header; the engine does not check that one file's seed continues the previous file's final value, and it keeps no record of how many files should exist. A surviving file therefore always verifies on its own.
+* *Relocation re-seeds the chain.* When live data is relocated and coalesced into a new file, it is re-hashed under that file's chain rather than its original one. The on-disk chain is thus not a single continuous lineage spanning the whole history of the storage; it is reset at file boundaries and after relocation.
+
+[WARNING]
+====
+Because deleting and relocating whole files is a legitimate, routine housekeeping operation, the *removal of an entire data file is indistinguishable from a housekeeping deletion and is not detected* by chained checksums.
+The chain detects corruption *within* a surviving file; it does not span the whole store.
+
+Chunk checksums are designed to detect accidental or partial corruption of persisted bytes; for that purpose this limitation does not apply.
+====
+
+== Failure Handling
+
+If verification finds a corrupted chunk under a `FAIL` reaction, the start aborts with a `StorageExceptionChunkChecksumMismatch`, which reports the affected file, the chunk position and the expected versus actual hash. (The on-demand integrity check never throws; it collects anomalies into its result instead — see <<_on_demand_integrity_verification>>.)
+
+Off-line repair tooling that writes into a checksum-protected storage but cannot produce a compliant covered file (for example, configured with a mismatching algorithm) fails loudly with a `StorageExceptionChunkChecksumUnavailable` rather than silently appending unprotected data.
+
+== Limitations
+
+* Verification runs automatically only at startup; it does not re-check individual lazy/cache loads during normal operation. A running storage can be re-verified explicitly with an on-demand integrity check (see <<_on_demand_integrity_verification>>).
+* The `CRC32C` algorithm detects accidental corruption (bit-rot, damaged blocks) and is the fastest option.
+* Chained `SHA-256` detects corruption within a file, including reordering, insertion or deletion of chunks. Because housekeeping deletes and relocates whole storage files, the chain does not span the whole store and does not detect the removal of an entire data file (see <<_chained_checksums_and_housekeeping>>).
+* Custom `Algorithm` implementations and custom verify sets are configurable through the Java API only, not through external text configuration.

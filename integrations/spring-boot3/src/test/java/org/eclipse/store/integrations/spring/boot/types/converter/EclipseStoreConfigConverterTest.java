@@ -21,6 +21,7 @@ import java.util.Map;
  * #L%
  */
 
+import org.eclipse.store.integrations.spring.boot.types.configuration.ChunkChecksum;
 import org.eclipse.store.integrations.spring.boot.types.configuration.EclipseStoreProperties;
 import org.eclipse.store.integrations.spring.boot.types.configuration.StorageFilesystem;
 import org.eclipse.store.integrations.spring.boot.types.configuration.googlecloud.Googlecloud;
@@ -107,6 +108,30 @@ class EclipseStoreConfigConverterTest
     {
         final String result = this.converter.composeKey("prefix", "suffix");
         assertEquals("prefix.suffix", result);
+    }
+
+    @Test
+    void testChunkChecksumConversion()
+    {
+        final ChunkChecksum chunkChecksum = new ChunkChecksum();
+        chunkChecksum.setAlgorithm("crc32c");
+        chunkChecksum.setProfile("strict");
+        chunkChecksum.setVerify(Boolean.FALSE);
+        chunkChecksum.setOnChecksumMismatch("log");
+
+        final EclipseStoreProperties properties = new EclipseStoreProperties();
+        properties.setChunkChecksum(chunkChecksum);
+
+        final Map<String, String> result = this.converter.convertConfigurationToMap(properties);
+
+        assertEquals("crc32c", result.get(EclipseStoreConfigConverter.CHUNK_CHECKSUM_ALGORITHM));
+        assertEquals("strict", result.get(EclipseStoreConfigConverter.CHUNK_CHECKSUM_PROFILE));
+        assertEquals("false", result.get(EclipseStoreConfigConverter.CHUNK_CHECKSUM_VERIFY));
+        assertEquals("log", result.get(EclipseStoreConfigConverter.CHUNK_CHECKSUM_ON_CHECKSUM_MISMATCH));
+        // unset fields (including the not-set Boolean overrides) must not appear
+        assertNull(result.get(EclipseStoreConfigConverter.CHUNK_CHECKSUM_SEED));
+        assertNull(result.get(EclipseStoreConfigConverter.CHUNK_CHECKSUM_EMIT));
+        assertNull(result.get(EclipseStoreConfigConverter.CHUNK_CHECKSUM_REQUIRE_COVERAGE));
     }
 
     @Test

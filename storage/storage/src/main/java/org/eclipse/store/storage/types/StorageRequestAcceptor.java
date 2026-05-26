@@ -75,6 +75,8 @@ public interface StorageRequestAcceptor
 	public boolean issueCacheCheck(long nanoTimeBudget, StorageEntityCacheEvaluator entityEvaluator)
 		throws InterruptedException;
 
+	public StorageIntegrityCheckResult issueIntegrityCheck(long nanoTimeBudget, boolean freshScan) throws InterruptedException;
+
 	public void issueTransactionsLogCleanup()
 		throws InterruptedException;
 	 
@@ -227,6 +229,13 @@ public interface StorageRequestAcceptor
 			throws InterruptedException
 		{
 			return waitOnTask(this.taskBroker.issueFileCheck(nanoTimeBudget)).result();
+		}
+
+		@Override
+		public StorageIntegrityCheckResult issueIntegrityCheck(final long nanoTimeBudget, final boolean freshScan)
+			throws InterruptedException
+		{
+			return waitOnTask(this.taskBroker.issueIntegrityCheck(nanoTimeBudget, freshScan)).result();
 		}
 
 		@Override

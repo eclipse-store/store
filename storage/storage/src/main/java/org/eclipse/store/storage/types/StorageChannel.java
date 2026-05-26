@@ -190,6 +190,18 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 	public boolean issuedEntityCacheCheck(long nanoTimeBudget, StorageEntityCacheEvaluator entityEvaluator);
 
 	/**
+	 * Issues an on-demand chunk-checksum integrity check to this channel with the passed time budget,
+	 * returning this channel's collected anomalies and whether the scan completed within the budget.
+	 *
+	 * @param nanoTimeBudget the maximum amount of time, in nanoseconds, this channel is allowed to
+	 *                       spend on the integrity-check step.
+	 * @param freshScan      whether to start a new scan (vs resume the in-progress one).
+	 *
+	 * @return this channel's findings and completion state.
+	 */
+	public StorageIntegrityCheckResult issuedIntegrityCheck(long nanoTimeBudget, boolean freshScan);
+
+	/**
 	 * Issues a transactions-log cleanup pass to this channel.
 	 *
 	 * @return whether the cleanup pass completed; {@code true} if no further cleanup is currently
@@ -518,6 +530,17 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		}
 
 		@Override
+		public StorageIntegrityCheckResult performIssuedIntegrityCheck(final long nanoTimeBudget, final boolean freshScan)
+		{
+			logger.trace("StorageChannel#{} performing issued integrity check", this.channelIndex);
+
+			// turn budget into the budget bounding value for easier and faster checking
+			final long nanoTimeBudgetBound = XTime.calculateNanoTimeBudgetBound(nanoTimeBudget);
+
+			return this.fileManager.verifyChunkChecksums(nanoTimeBudgetBound, freshScan);
+		}
+
+		@Override
 		public final boolean performFileCleanupCheck(final long nanoTimeBudget)
 		{
 			if(!this.fileManager.isFileCleanupEnabled())
@@ -606,7 +629,13 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		{
 			return this.housekeepingBroker.performIssuedEntityCacheCheck(this, nanoTimeBudget, entityEvaluator);
 		}
-		
+
+		@Override
+		public StorageIntegrityCheckResult issuedIntegrityCheck(final long nanoTimeBudget, final boolean freshScan)
+		{
+			return this.housekeepingBroker.performIssuedIntegrityCheck(this, nanoTimeBudget, freshScan);
+		}
+
 		@Override
 		public boolean issuedTransactionsLogCleanup()
 		{

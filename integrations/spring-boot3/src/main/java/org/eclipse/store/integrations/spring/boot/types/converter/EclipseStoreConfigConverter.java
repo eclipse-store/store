@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
+import org.eclipse.store.integrations.spring.boot.types.configuration.ChunkChecksum;
 import org.eclipse.store.integrations.spring.boot.types.configuration.EclipseStoreProperties;
 import org.eclipse.store.integrations.spring.boot.types.configuration.StorageFilesystem;
 import org.eclipse.store.integrations.spring.boot.types.configuration.aws.AbstractAwsProperties;
@@ -81,6 +82,20 @@ public class EclipseStoreConfigConverter
     protected static final String DATA_FILE_MINIMUM_USE_RATIO = EmbeddedStorageConfigurationPropertyNames.DATA_FILE_MINIMUM_USE_RATIO;
     protected static final String DATA_FILE_CLEANUP_HEAD_FILE = EmbeddedStorageConfigurationPropertyNames.DATA_FILE_CLEANUP_HEAD_FILE;
 
+    // Fields for the chunk-checksum (data integrity) configuration
+    protected static final String CHUNK_CHECKSUM_ALGORITHM = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ALGORITHM;
+    protected static final String CHUNK_CHECKSUM_PROFILE = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_PROFILE;
+    protected static final String CHUNK_CHECKSUM_SEED = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_SEED;
+    protected static final String CHUNK_CHECKSUM_EMIT = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_EMIT;
+    protected static final String CHUNK_CHECKSUM_VERIFY = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_VERIFY;
+    protected static final String CHUNK_CHECKSUM_ON_CHECKSUM_MISMATCH = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ON_CHECKSUM_MISMATCH;
+    protected static final String CHUNK_CHECKSUM_ON_BOUNDARY_MISMATCH = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ON_BOUNDARY_MISMATCH;
+    protected static final String CHUNK_CHECKSUM_ON_UNKNOWN_KIND = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ON_UNKNOWN_KIND;
+    protected static final String CHUNK_CHECKSUM_ON_MISSING_HEADER = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ON_MISSING_HEADER;
+    protected static final String CHUNK_CHECKSUM_ON_UNCOVERED_DATA = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ON_UNCOVERED_DATA;
+    protected static final String CHUNK_CHECKSUM_REQUIRE_COVERAGE = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_REQUIRE_COVERAGE;
+    protected static final String CHUNK_CHECKSUM_CONTINUOUS_COVERAGE = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_CONTINUOUS_COVERAGE;
+
 
     /**
      * Converts the provided Eclipse Store properties into a map.
@@ -132,12 +147,35 @@ public class EclipseStoreConfigConverter
         configValues.put(DATA_FILE_MINIMUM_USE_RATIO, properties.getDataFileMinimumUseRatio());
         configValues.put(DATA_FILE_CLEANUP_HEAD_FILE, properties.getDataFileCleanupHeadFile());
 
+        if (properties.getChunkChecksum() != null)
+        {
+            configValues.putAll(this.prepareChunkChecksum(properties.getChunkChecksum()));
+        }
+
 
         //remove keys with null value
         configValues.values().removeIf(Objects::isNull);
 
 
         return configValues;
+    }
+
+    private Map<String, String> prepareChunkChecksum(final ChunkChecksum properties)
+    {
+        final Map<String, String> values = new HashMap<>();
+        values.put(CHUNK_CHECKSUM_ALGORITHM, properties.getAlgorithm());
+        values.put(CHUNK_CHECKSUM_PROFILE, properties.getProfile());
+        values.put(CHUNK_CHECKSUM_SEED, properties.getSeed());
+        values.put(CHUNK_CHECKSUM_EMIT, properties.getEmit() == null ? null : properties.getEmit().toString());
+        values.put(CHUNK_CHECKSUM_VERIFY, properties.getVerify() == null ? null : properties.getVerify().toString());
+        values.put(CHUNK_CHECKSUM_ON_CHECKSUM_MISMATCH, properties.getOnChecksumMismatch());
+        values.put(CHUNK_CHECKSUM_ON_BOUNDARY_MISMATCH, properties.getOnBoundaryMismatch());
+        values.put(CHUNK_CHECKSUM_ON_UNKNOWN_KIND, properties.getOnUnknownKind());
+        values.put(CHUNK_CHECKSUM_ON_MISSING_HEADER, properties.getOnMissingHeader());
+        values.put(CHUNK_CHECKSUM_ON_UNCOVERED_DATA, properties.getOnUncoveredData());
+        values.put(CHUNK_CHECKSUM_REQUIRE_COVERAGE, properties.getRequireCoverage() == null ? null : properties.getRequireCoverage().toString());
+        values.put(CHUNK_CHECKSUM_CONTINUOUS_COVERAGE, properties.getContinuousCoverage() == null ? null : properties.getContinuousCoverage().toString());
+        return values;
     }
 
     private Map<String, String> prepareFileSystem(final StorageFilesystem properties, final String key)
