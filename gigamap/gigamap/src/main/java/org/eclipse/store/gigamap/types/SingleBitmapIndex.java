@@ -239,7 +239,14 @@ implements BitmapIndex.TopLevel<E, Boolean>, ChangeHandler
 		// entryResultInverted) keep working. Reached via internalRemoveFromEntry on the
 		// change-handler path used by update / set / replace when the last TRUE entity flips
 		// to FALSE / null.
-		//
+		if(entry != this.entry)
+		{
+			// Defensive guard: this index owns exactly one entry by construction. If the
+			// generic cleanup ever passes a different entry, the invariant has regressed
+			// somewhere else and we want to fail loudly rather than silently mark the
+			// wrong children dirty.
+			throw new IllegalArgumentException("SingleBitmapIndex received an unexpected BitmapEntry instance in removeEntry");
+		}
 		// internalRemoveFromEntry marks the index instance-changed (not children-changed) after
 		// invoking removeEntry, but since the entry is kept, its child bitmap also needs to be
 		// re-stored on the next store(). Mark children-changed here so storeChangedChildren
