@@ -233,8 +233,18 @@ implements BitmapIndex.TopLevel<E, Boolean>, ChangeHandler
 	@Override
 	protected final void removeEntry(final BitmapEntry<E, E, Boolean> entry)
 	{
-		// not used in this implementation since ... well ... there is only one entry. Lol.
-		throw new Error();
+		// SingleBitmapIndex holds exactly one permanent BitmapEntry (the TRUE-set), allocated
+		// in the constructor. An empty entry is a valid state (no TRUE-indexed entities) and
+		// must remain in place so future TRUE additions and FALSE / inverted queries (see
+		// entryResultInverted) keep working. Reached via internalRemoveFromEntry on the
+		// change-handler path used by update / set / replace when the last TRUE entity flips
+		// to FALSE / null.
+		//
+		// internalRemoveFromEntry marks the index instance-changed (not children-changed) after
+		// invoking removeEntry, but since the entry is kept, its child bitmap also needs to be
+		// re-stored on the next store(). Mark children-changed here so storeChangedChildren
+		// reaches the entry's level3 — matching what internalRemove does on the direct path.
+		this.markStateChangeChildren();
 	}
 	
 	@Override
