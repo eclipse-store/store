@@ -49,6 +49,11 @@ public interface BinaryIndexerString<E> extends BinaryCompositeIndexer<E>
 	
 	public static abstract class Abstract<E> extends AbstractSingleValueVariableSize<E, String> implements BinaryIndexerString<E>
 	{
+		// reserved sentinel for the empty string: byte 7 = 0xFF, which UTF-8 can never produce, so it
+		// cannot collide with any non-empty string's packed long nor with the all-null Long.MAX_VALUE.
+		private static final long EMPTY_VALUE_SENTINEL = 0xFF00000000000000L;
+
+
 //		static String longArrayToString(final long[] encoded)
 //		{
 //			// Find the actual byte length by scanning for non-zero bytes
@@ -104,6 +109,16 @@ public interface BinaryIndexerString<E> extends BinaryCompositeIndexer<E>
 		@Override
 		protected long[] fillCarrier(final String value, final long[] carrier)
 		{
+			if(value.isEmpty())
+			{
+				// An empty string packs into zero bytes, which would leave it without any bit position
+				// and therefore unindexable (never added to a sub index, never matched by a query).
+				// Use a reserved single-position sentinel so the empty string is indexable and queryable.
+				// 0xFF is never a valid UTF-8 byte, so no non-empty string can ever produce this value,
+				// and it differs from the all-null-bytes sentinel (Long.MAX_VALUE) used below.
+				return new long[]{EMPTY_VALUE_SENTINEL};
+			}
+
 			final byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
 			final int size = (bytes.length + 7) / 8; // Round up division to handle any string length
 			long[] result = carrier;

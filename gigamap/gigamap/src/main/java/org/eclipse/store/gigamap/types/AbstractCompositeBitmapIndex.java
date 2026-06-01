@@ -300,11 +300,14 @@ implements BitmapIndex.TopLevel<E, KS>
 		for(int i = 0; i < this.subIndices.length; i++)
 		{
 			// filter for selected positions to allow querying for specific positions instead of always all positions.
-			if(!this.isEmpty(keys, i))
+			// empty (null/zero) positions are wildcards and must be skipped; only positions that carry an actual
+			// key value are queried. (The guard was previously inverted, which skipped exactly the relevant
+			// positions and made In/All/Equals conditions on composite binary indexes return wrong results.)
+			if(this.isEmpty(keys, i))
 			{
 				continue;
 			}
-			
+
 			// query sub index at position i for the non-null key value
 			final BitmapResult result = this.subIndices[i].internalQueryForKeys(keys);
 			
@@ -455,7 +458,14 @@ implements BitmapIndex.TopLevel<E, KS>
 			try
 			{
 				final CompositePredicate<KS> predicate = this.ensureCompositePredicate(passedPredicate);
-				
+
+				if(predicate.exceedsPositions(this.subIndices.length))
+				{
+					// the searched value requires more sub-key positions than this index has ever seen,
+					// so no stored entity can possibly hold that value.
+					return EMPTY_RESULT;
+				}
+
 				for(int i = 0; i < this.subIndices.length; i++)
 				{
 					if(!predicate.setSubKeyPosition(i))
