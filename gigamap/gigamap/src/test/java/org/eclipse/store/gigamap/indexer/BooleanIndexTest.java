@@ -98,6 +98,60 @@ public class BooleanIndexTest
     }
 
     @Test
+    void updateLastTrueToFalse_doesNotThrow()
+    {
+        // Regression for issue 685: flipping the indexed boolean from TRUE to FALSE on the
+        // last (and only) TRUE-indexed entity used to throw java.lang.Error from
+        // SingleBitmapIndex.removeEntry via the update / set / replace change-handler path.
+        GigaMap<BooleanPerson> map = GigaMap.New();
+        map.index().bitmap().add(this.booleanPersonIndex);
+
+        BooleanPerson person = new BooleanPerson("Solo", true);
+        map.add(person);
+
+        try (EmbeddedStorageManager manager = EmbeddedStorage.start(map, tempDir)) {
+            map.update(person, p -> p.setAdult(Boolean.FALSE));
+            map.store();
+
+            assertEquals(0, map.query(this.booleanPersonIndex.isTrue()).count());
+            assertEquals(1, map.query(this.booleanPersonIndex.isFalse()).count());
+        }
+
+        try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
+            GigaMap<BooleanPerson> newMap = manager.root();
+            assertEquals(0, newMap.query(this.booleanPersonIndex.isTrue()).count());
+            assertEquals(1, newMap.query(this.booleanPersonIndex.isFalse()).count());
+        }
+    }
+
+    @Test
+    void setLastTrueToFalse_doesNotThrow()
+    {
+        // Regression for issue 685, set-based path. Same shape as updateLastTrueToFalse_doesNotThrow
+        // but mutates via map.set(entityId, replacement) instead of map.update(...).
+        GigaMap<BooleanPerson> map = GigaMap.New();
+        map.index().bitmap().add(this.booleanPersonIndex);
+
+        BooleanPerson person = new BooleanPerson("Solo", true);
+        long entityId = map.add(person);
+
+        try (EmbeddedStorageManager manager = EmbeddedStorage.start(map, tempDir)) {
+            BooleanPerson replacement = new BooleanPerson("Solo", false);
+            map.set(entityId, replacement);
+            map.store();
+
+            assertEquals(0, map.query(this.booleanPersonIndex.isTrue()).count());
+            assertEquals(1, map.query(this.booleanPersonIndex.isFalse()).count());
+        }
+
+        try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
+            GigaMap<BooleanPerson> newMap = manager.root();
+            assertEquals(0, newMap.query(this.booleanPersonIndex.isTrue()).count());
+            assertEquals(1, newMap.query(this.booleanPersonIndex.isFalse()).count());
+        }
+    }
+
+    @Test
     void booleanPersonTest()
     {
         GigaMap<BooleanPerson> map = prepageGigaMap();
