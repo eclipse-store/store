@@ -116,7 +116,10 @@ public interface BinaryIndexerString<E> extends BinaryCompositeIndexer<E>
 				// Use a reserved single-position sentinel so the empty string is indexable and queryable.
 				// 0xFF is never a valid UTF-8 byte, so no non-empty string can ever produce this value,
 				// and it differs from the all-null-bytes sentinel (Long.MAX_VALUE) used below.
-				return new long[]{EMPTY_VALUE_SENTINEL};
+				// Reuse the (already zero-filled) carrier when possible to avoid an allocation.
+				final long[] result = carrier != null && carrier.length >= 1 ? carrier : new long[1];
+				result[0] = EMPTY_VALUE_SENTINEL;
+				return result;
 			}
 
 			final byte[] bytes = value.getBytes(StandardCharsets.UTF_8);

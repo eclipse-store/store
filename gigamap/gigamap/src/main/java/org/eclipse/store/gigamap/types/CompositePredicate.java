@@ -234,7 +234,8 @@ public interface CompositePredicate<KS> extends Predicate<KS>
 			// exact match, so every entry there is rejected (collected as an inverted result by the caller).
 			final long s = subKeyPosition < this.sample.length ? this.sample[subKeyPosition] : 0L;
 
-			// inherent Object#equals equality by default. Any other logic needs another implementation.
+			// binary (bit-sliced) semantics: each subKey is a single bit of the value; it is selected
+			// when that bit is set in the sample. Entries whose bit is not set are inverted by the caller.
 			return subKey != null && (s & (Long)subKey) != 0L;
 		}
 

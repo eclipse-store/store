@@ -292,7 +292,7 @@ implements BitmapIndex.TopLevel<E, KS>
 	}
 	
 	@Override
-	public final BitmapResult internalQuery(final KS keys)
+	public BitmapResult internalQuery(final KS keys)
 	{
 		final BitmapResult[] results = new BitmapResult[this.subIndices.length];
 		int r = 0;

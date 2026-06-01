@@ -214,5 +214,16 @@ public class CompositeBitmapIndexBinary<E> extends AbstractCompositeBitmapIndex<
 	{
 		return super.is(new CompositePredicate.BinarySampleBased(key));
 	}
-	
+
+	@Override
+	public BitmapResult internalQuery(final long[] keys)
+	{
+		// Route exact-match lookups (used by In / All / Equals conditions) through the same
+		// bit-sliced predicate path as is(...). The generic super implementation treats trailing /
+		// out-of-range positions as wildcards, which would let a shorter key match longer stored
+		// values that share its prefix; BinarySampleBased correctly enforces missing-bit,
+		// trailing-position-empty, and oversized semantics.
+		return this.search(new CompositePredicate.BinarySampleBased(keys));
+	}
+
 }

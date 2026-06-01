@@ -251,6 +251,24 @@ public class BinaryIndexerExactMatchTest
 			final GigaMap<StrBox> map = stringMap("test", "test2");
 			assertTrue(map.query(STRING_INDEX.in(key("test3"))).toList().isEmpty());
 		}
+
+		@Test
+		void inWithShorterKeyDoesNotMatchLongerStoredValue()
+		{
+			// the internalQuery (In/All/Equals) path must enforce trailing-position emptiness just like
+			// is(...): a 1-long key for "abcdefgh" must not match the 2-long stored "abcdefghi".
+			final GigaMap<StrBox> map = stringMap("abcdefgh", "abcdefghi");
+			final List<StrBox> r = map.query(STRING_INDEX.in(key("abcdefgh"))).toList();
+			assertEquals(1, r.size());
+			assertEquals("abcdefgh", r.get(0).value);
+		}
+
+		@Test
+		void inWithLongerKeyThanAnyStoredReturnsEmpty()
+		{
+			final GigaMap<StrBox> map = stringMap("abcdefgh", "12345678");
+			assertTrue(map.query(STRING_INDEX.in(key("abcdefghi"))).toList().isEmpty());
+		}
 	}
 
 	@Nested
