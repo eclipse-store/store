@@ -27,6 +27,7 @@ module org.eclipes.store.gigamap.jvector
 
     // Export public API
     exports org.eclipse.store.gigamap.jvector;
+    exports org.eclipse.store.gigamap.jvector.annotations;
 
     // Open to EclipseStore for reflective access (provideTypeHandler discovery)
     opens org.eclipse.store.gigamap.jvector to org.eclipse.serializer.persistence;
