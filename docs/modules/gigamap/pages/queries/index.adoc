@@ -188,6 +188,16 @@ Each of them comes with specialized query methods.
 
 |===
 
+[NOTE]
+====
+A Boolean index only materializes the set of `true`-valued entities; `false` and `null` are
+indistinguishable, as both are simply absent from the `true` set. Consequently `isFalse()`, `isNull()`,
+`is(false)` and `is(null)` all resolve to the same result set: every entity whose key is *not*
+`true` (i.e. `false` **or** `null`). This also applies to predicate queries, e.g. `is(k -> k == null)`
+matches the same set as `isFalse()`. If you need to tell `null` apart from `false`, index a
+non-Boolean key instead (for example an enum with explicit `UNKNOWN` / `YES` / `NO` values).
+====
+
 === Multi-value
 
 [options="header",cols="1,2"]
