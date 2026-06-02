@@ -4,18 +4,20 @@ package org.eclipse.store.gigamap.types;
  * #%L
  * EclipseStore GigaMap
  * %%
- * Copyright (C) 2023 - 2025 MicroStream Software
+ * Copyright (C) 2023 - 2026 MicroStream Software
  * %%
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
 import org.eclipse.store.gigamap.annotations.Identity;
 import org.eclipse.store.gigamap.annotations.Index;
+import org.eclipse.store.gigamap.annotations.IndexKind;
+import org.eclipse.store.gigamap.annotations.SpatialIndex;
 import org.eclipse.store.gigamap.annotations.Unique;
 import org.eclipse.store.gigamap.types.Indexer.Creator;
 import org.eclipse.serializer.chars.XChars;
@@ -33,10 +35,12 @@ import org.eclipse.serializer.typing.KeyValue;
 import org.eclipse.serializer.typing.XTypes;
 
 import java.lang.reflect.*;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.YearMonth;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -49,6 +53,12 @@ import static org.eclipse.serializer.util.X.notNull;
  * and organizing data in a structured format. This class provides utilities to
  * create indices based on annotations or other mechanisms. It serves as an integral
  * component in indexing operations for objects of a specified type.
+ * <p>
+ * Annotation-based generation natively produces {@link BitmapIndex bitmap indices} from
+ * {@link Index}, {@link Unique}, {@link Identity} and {@link SpatialIndex} annotations. Index types
+ * provided by integration modules (for example full-text or vector search) can participate by
+ * registering a {@link GigaIndexAnnotationHandler} via {@link #register(GigaIndexAnnotationHandler)}
+ * and invoking {@link #generateIndices(GigaMap)}.
  *
  * @param <E> the type parameter representing the type of the entities that will
  *            be indexed.
@@ -61,8 +71,33 @@ public interface IndexerGenerator<E>
 	 * @param target the BitmapIndices object to be populated with generated index data
 	 */
 	public void generateIndices(BitmapIndices<E> target);
-	
-	
+
+	/**
+	 * Generates all annotation-based indices for the given {@link GigaMap}: the bitmap indices
+	 * (equivalent to {@link #generateIndices(BitmapIndices)} on {@code target.index().bitmap()}) plus
+	 * any index groups contributed by registered {@link GigaIndexAnnotationHandler handlers}.
+	 *
+	 * @param target the {@link GigaMap} whose indices are to be generated
+	 */
+	public default void generateIndices(final GigaMap<E> target)
+	{
+		this.generateIndices(target.index().bitmap());
+	}
+
+	/**
+	 * Registers a {@link GigaIndexAnnotationHandler} that contributes additional index groups during
+	 * {@link #generateIndices(GigaMap)}. Handlers are invoked in registration order, after the bitmap
+	 * indices have been generated.
+	 *
+	 * @param handler the handler to register
+	 * @return this generator, for fluent chaining
+	 */
+	public default IndexerGenerator<E> register(final GigaIndexAnnotationHandler<E> handler)
+	{
+		throw new UnsupportedOperationException();
+	}
+
+
 	/**
 	 * Creates and returns an instance of IndexerGenerator using an annotation-based configuration
 	 * for the provided entity type.
@@ -77,679 +112,1295 @@ public interface IndexerGenerator<E>
 			notNull(entityType)
 		);
 	}
-	
-	
+
+	/**
+	 * Convenience entry point that generates all annotation-based indices for the given
+	 * {@link GigaMap} using the supplied handlers.
+	 *
+	 * @param entityType the annotated entity type
+	 * @param map        the target {@link GigaMap}
+	 * @param handlers   the {@link GigaIndexAnnotationHandler handlers} to apply (may be empty)
+	 */
+	@SafeVarargs
+	public static <E> void generate(
+		final Class<E>                       entityType,
+		final GigaMap<E>                     map       ,
+		final GigaIndexAnnotationHandler<E>... handlers
+	)
+	{
+		final IndexerGenerator<E> generator = AnnotationBased(entityType);
+		for(final GigaIndexAnnotationHandler<E> handler : handlers)
+		{
+			generator.register(handler);
+		}
+		generator.generateIndices(map);
+	}
+
+
 	public static class AnnotationBased<E> implements IndexerGenerator<E>
 	{
-		private final Class<E> entityType;
+		private final Class<E>                              entityType;
+		private final List<GigaIndexAnnotationHandler<E>>   handlers = new ArrayList<>();
 
 		AnnotationBased(final Class<E> entityType)
 		{
 			super();
 			this.entityType = entityType;
 		}
-	
+
+		@Override
+		public IndexerGenerator<E> register(final GigaIndexAnnotationHandler<E> handler)
+		{
+			this.handlers.add(notNull(handler));
+			return this;
+		}
+
+		@Override
+		public void generateIndices(final GigaMap<E> target)
+		{
+			final GigaIndices<E> indices = target.index();
+			this.generateIndices(indices.bitmap());
+			for(final GigaIndexAnnotationHandler<E> handler : this.handlers)
+			{
+				handler.contribute(this.entityType, indices);
+			}
+		}
+
 		@Override
 		public void generateIndices(final BitmapIndices<E> target)
 		{
-			final XTable<Field, Index>    indexTable    = HashTable.New();
-			final XTable<Field, Unique>   uniqueTable   = HashTable.New();
-			final XTable<Field, Identity> identityTable = HashTable.New();
-			final XEnum<String>           indexNames    = EqHashEnum.New();
+			final XTable<MemberAccessor, Index>    indexTable    = HashTable.New();
+			final XTable<MemberAccessor, Unique>   uniqueTable   = HashTable.New();
+			final XTable<MemberAccessor, Identity> identityTable = HashTable.New();
+			final XEnum<String>                    indexNames    = EqHashEnum.New();
 
-			final Field[] fields = XReflect.collectInstanceFields(
-				this.entityType,
-				field -> !Modifier.isStatic(field.getModifiers())
-			);
-			for(final Field field : fields)
+			for(final MemberAccessor accessor : this.collectAnnotatedMembers())
 			{
-				final Index index = field.getAnnotation(Index.class);
-				if(index != null)
+				final Index index = accessor.annotated().getAnnotation(Index.class);
+				if(index == null)
 				{
-					final String indexName = this.getIndexName(index, field);
-					if(!indexNames.add(indexName))
-					{
-						throw new IllegalStateException("Double index name '" + indexName + "' in " + this.entityType.getCanonicalName());
-					}
-					indexTable.add(field, index);
-					
-					final Unique unique = field.getAnnotation(Unique.class);
-					if(unique != null)
-					{
-						uniqueTable.add(field, unique);
-					}
-					
-					final Identity identity = field.getAnnotation(Identity.class);
-					if(identity != null)
-					{
-						identityTable.add(field, identity);
-					}
+					continue;
 				}
-				
+				final String indexName = this.getIndexName(index, accessor);
+				if(!indexNames.add(indexName))
+				{
+					throw new IllegalStateException("Double index name '" + indexName + "' in " + this.entityType.getCanonicalName());
+				}
+				indexTable.add(accessor, index);
+
+				final Unique unique = accessor.annotated().getAnnotation(Unique.class);
+				if(unique != null)
+				{
+					uniqueTable.add(accessor, unique);
+				}
+
+				final Identity identity = accessor.annotated().getAnnotation(Identity.class);
+				if(identity != null)
+				{
+					identityTable.add(accessor, identity);
+				}
 			}
 
 			final XList<Indexer<E, ?>> uniqueIndexers  = BulkList.New();
 			final XList<Indexer<E, ?>> indexers        = BulkList.New();
 			final XEnum<Indexer<E, ?>> identityIndices = HashEnum.New();
-			
-			for(final Field field : uniqueTable.keys())
+
+			for(final MemberAccessor accessor : uniqueTable.keys())
 			{
 				final Indexer<E, ?> indexer = this.createIndexer(
-					indexTable.removeFor(field),
-					field,
+					indexTable.removeFor(accessor),
+					accessor,
 					true
 				);
-				if(identityTable.get(field) != null)
+				if(identityTable.get(accessor) != null)
 				{
 					identityIndices.add(indexer);
 				}
 				uniqueIndexers.add(indexer);
 			}
 
-			for(final KeyValue<Field, Index> kv : indexTable)
+			for(final KeyValue<MemberAccessor, Index> kv : indexTable)
 			{
-				final Field field      = kv.key();
-				final Index annotation = kv.value();
-				
-				final Indexer<E, ?> indexer = this.createIndexer(annotation, field, false);
-				if(identityTable.get(field) != null)
+				final MemberAccessor accessor   = kv.key();
+				final Index          annotation = kv.value();
+
+				final Indexer<E, ?> indexer = this.createIndexer(annotation, accessor, false);
+				if(identityTable.get(accessor) != null)
 				{
 					identityIndices.add(indexer);
 				}
 				indexers.add(indexer);
 			}
 
+			this.addSpatialIndices(indexers, indexNames);
+
 			target.addUniqueConstraints(uniqueIndexers);
 			target.addAll(indexers);
 			target.setIdentityIndices(identityIndices);
 		}
-		
-		@SuppressWarnings({"rawtypes", "unchecked"})
-		private Indexer<E, ?> createIndexer(final Index annotation, final Field field, final boolean unique)
+
+		private List<MemberAccessor> collectAnnotatedMembers()
 		{
-			boolean forceBinary = false;
+			final List<MemberAccessor> result   = new ArrayList<>();
+			final List<String>         seenProps = new ArrayList<>();
+
+			for(final Field field : XReflect.collectInstanceFields(
+				this.entityType,
+				field -> !Modifier.isStatic(field.getModifiers())
+			))
+			{
+				if(field.isAnnotationPresent(Index.class))
+				{
+					final MemberAccessor accessor = MemberAccessor.forField(field);
+					result.add(accessor);
+					seenProps.add(accessor.propertyName());
+				}
+			}
+
+			for(Class<?> c = this.entityType; c != null && c != Object.class; c = c.getSuperclass())
+			{
+				for(final Method method : c.getDeclaredMethods())
+				{
+					if(Modifier.isStatic(method.getModifiers())
+						|| method.getParameterCount() != 0
+						|| method.getReturnType() == void.class)
+					{
+						continue;
+					}
+					if(method.isAnnotationPresent(Index.class))
+					{
+						final MemberAccessor accessor = MemberAccessor.forMethod(method);
+						// a record component / property annotated on both the field and its accessor
+						// must only yield a single index; the field (collected above) takes precedence.
+						if(!seenProps.contains(accessor.propertyName()))
+						{
+							result.add(accessor);
+							seenProps.add(accessor.propertyName());
+						}
+					}
+				}
+			}
+
+			return result;
+		}
+
+		private void addSpatialIndices(final XList<Indexer<E, ?>> indexers, final XEnum<String> indexNames)
+		{
+			final SpatialIndex spatial = this.entityType.getAnnotation(SpatialIndex.class);
+			if(spatial == null)
+			{
+				return;
+			}
+			final String name = XChars.isEmpty(spatial.name()) ? "spatial" : spatial.name();
+			if(!indexNames.add(name))
+			{
+				throw new IllegalStateException("Double index name '" + name + "' in " + this.entityType.getCanonicalName());
+			}
+			indexers.add(new SpatialIndexerField<>(
+				name,
+				this.resolveMember(spatial.latitude()),
+				this.resolveMember(spatial.longitude())
+			));
+		}
+
+		private MemberAccessor resolveMember(final String propertyName)
+		{
+			for(final Field field : XReflect.collectInstanceFields(
+				this.entityType,
+				field -> !Modifier.isStatic(field.getModifiers())
+			))
+			{
+				if(field.getName().equals(propertyName))
+				{
+					return MemberAccessor.forField(field);
+				}
+			}
+
+			for(Class<?> c = this.entityType; c != null && c != Object.class; c = c.getSuperclass())
+			{
+				for(final Method method : c.getDeclaredMethods())
+				{
+					if(Modifier.isStatic(method.getModifiers())
+						|| method.getParameterCount() != 0
+						|| method.getReturnType() == void.class)
+					{
+						continue;
+					}
+					if(method.getName().equals(propertyName)
+						|| MemberAccessor.derivePropertyName(method.getName(), method.getReturnType()).equals(propertyName))
+					{
+						return MemberAccessor.forMethod(method);
+					}
+				}
+			}
+
+			throw new IllegalStateException(
+				"No field or getter '" + propertyName + "' found in " + this.entityType.getCanonicalName()
+			);
+		}
+
+		@SuppressWarnings({"rawtypes", "unchecked"})
+		private Indexer<E, ?> createIndexer(final Index annotation, final MemberAccessor accessor, final boolean unique)
+		{
+			final Class<?> type = accessor.type();
+			final String   name = this.getIndexName(annotation, accessor);
+
 			if(annotation != null)
 			{
 				final Class<? extends Creator> creatorClass = annotation.creator();
 				if(!Creator.Dummy.class.equals(creatorClass))
 				{
-					return (Indexer<E, ?>)XReflect.defaultInstantiate(creatorClass);
+					return this.instantiateCreator(creatorClass, name, accessor);
 				}
-				
-				forceBinary = annotation.binary();
 			}
-			
-			final Class<?> type = field.getType();
-			final String   name = this.getIndexName(annotation, field);
-			
-			if(unique || forceBinary)
+
+			final IndexKind kind           = annotation != null ? annotation.kind() : IndexKind.AUTO;
+			final boolean   explicitBinary = kind == IndexKind.BINARY || (annotation != null && annotation.binary());
+			final boolean   preferBinary   = explicitBinary || (kind == IndexKind.AUTO && unique);
+
+			if(kind == IndexKind.BIT_SLICED)
+			{
+				final Indexer<E, ?> bitSliced = this.createBitSliced(type, name, accessor);
+				if(bitSliced != null)
+				{
+					return bitSliced;
+				}
+				throw new IllegalStateException(
+					"Unsupported field type for annotation based bit-sliced index generation: " + type.getTypeName()
+				);
+			}
+
+			if(preferBinary)
 			{
 				if(XTypes.isNaturalNumberType(type))
 				{
-					return new BinaryIndexerField(name, field);
+					return new BinaryIndexerField(name, accessor);
 				}
 				if(String.class.equals(type))
 				{
-					return new BinaryIndexerStringField(name, field);
+					return new BinaryIndexerStringField(name, accessor);
 				}
-				if(forceBinary)
+				if(UUID.class.equals(type))
+				{
+					return new BinaryIndexerUUIDField(name, accessor);
+				}
+				if(explicitBinary)
 				{
 					throw new IllegalStateException(
 						"Unsupported field type for annotation based binary index generation: " + type.getTypeName()
 					);
 				}
+				// unique on a non-binary type: fall through to a standard indexer (used as unique constraint)
 			}
-			
+
 			if(String.class.equals(type))
 			{
-				return new IndexerStringField(name, field);
+				return new IndexerStringField(name, accessor);
 			}
 			if(XTypes.isCharacterType(type))
 			{
-				return new IndexerCharacterField(name, field);
+				return new IndexerCharacterField(name, accessor);
 			}
 			if(XTypes.isIntegerType(type))
 			{
-				return new IndexerIntegerField(name, field);
+				return new IndexerIntegerField(name, accessor);
 			}
 			if(XTypes.isLongType(type))
 			{
-				return new IndexerLongField(name, field);
+				return new IndexerLongField(name, accessor);
 			}
 			if(XTypes.isFloatType(type))
 			{
-				return new IndexerFloatField(name, field);
+				return new IndexerFloatField(name, accessor);
 			}
 			if(XTypes.isDoubleType(type))
 			{
-				return new IndexerDoubleField(name, field);
+				return new IndexerDoubleField(name, accessor);
 			}
 			if(XTypes.isByteType(type))
 			{
-				return new IndexerByteField(name, field);
+				return new IndexerByteField(name, accessor);
 			}
 			if(XTypes.isShortType(type))
 			{
-				return new IndexerShortField(name, field);
+				return new IndexerShortField(name, accessor);
 			}
 			if(XTypes.isBooleanType(type))
 			{
-				return new IndexerBooleanField(name, field);
+				return new IndexerBooleanField(name, accessor);
 			}
 			if(LocalDate.class.equals(type))
 			{
-				return new IndexerLocalDateField(name, field);
+				return new IndexerLocalDateField(name, accessor);
 			}
 			if(LocalTime.class.equals(type))
 			{
-				return new IndexerLocalTimeField(name, field);
+				return new IndexerLocalTimeField(name, accessor);
 			}
 			if(LocalDateTime.class.equals(type))
 			{
-				return new IndexerLocalDateTimeField(name, field);
+				return new IndexerLocalDateTimeField(name, accessor);
 			}
 			if(YearMonth.class.equals(type))
 			{
-				return new IndexerYearMonthField(name, field);
+				return new IndexerYearMonthField(name, accessor);
+			}
+			if(Instant.class.equals(type))
+			{
+				return new IndexerInstantField(name, accessor);
+			}
+			if(ZonedDateTime.class.equals(type))
+			{
+				return new IndexerZonedDateTimeField(name, accessor);
 			}
 			if(UUID.class.equals(type))
 			{
-				return new BinaryIndexerUUIDField(name, field);
+				return new BinaryIndexerUUIDField(name, accessor);
+			}
+			if(type.isEnum())
+			{
+				return new IndexerEnumField(name, accessor, type);
 			}
 			if(Iterable.class.isAssignableFrom(type))
 			{
-				final Type genericType = field.getGenericType();
+				final Type genericType = accessor.genericType();
 				if(IndexerMultiValueFieldIterable.isValidType(genericType))
 				{
-					return new IndexerMultiValueFieldIterable(name, field);
+					return new IndexerMultiValueFieldIterable(name, accessor);
 				}
-				
+
 				throw new IllegalStateException(
 					"Unsupported field type for annotation based multi value index generation: " + genericType.getTypeName()
 				);
 			}
 			if(type.isArray())
 			{
-				return new IndexerMultiValueFieldArray(name, field);
+				return new IndexerMultiValueFieldArray(name, accessor);
 			}
-			
-			return new IndexerCustomField<>(name, field);
+
+			return new IndexerCustomField<>(name, accessor);
 		}
-		
-		private String getIndexName(final Index annotation, final Field field)
+
+		@SuppressWarnings("rawtypes")
+		private Indexer<E, ?> createBitSliced(final Class<?> type, final String name, final MemberAccessor accessor)
 		{
-			String annotationName = null;
-			if(annotation != null)
+			if(XTypes.isIntegerType(type))
 			{
-				annotationName = annotation.name();
+				return new ByteIndexerIntegerField(name, accessor);
 			}
+			if(XTypes.isLongType(type))
+			{
+				return new ByteIndexerLongField(name, accessor);
+			}
+			if(XTypes.isByteType(type))
+			{
+				return new ByteIndexerByteField(name, accessor);
+			}
+			if(XTypes.isShortType(type))
+			{
+				return new ByteIndexerShortField(name, accessor);
+			}
+			if(XTypes.isFloatType(type))
+			{
+				return new ByteIndexerFloatField(name, accessor);
+			}
+			if(XTypes.isDoubleType(type))
+			{
+				return new ByteIndexerDoubleField(name, accessor);
+			}
+			return null;
+		}
+
+		@SuppressWarnings({"rawtypes", "unchecked"})
+		private Indexer<E, ?> instantiateCreator(
+			final Class<? extends Creator> creatorClass,
+			final String                   name        ,
+			final MemberAccessor           accessor
+		)
+		{
+			// Instantiate from this (the GigaMap) module rather than via the serializer module, so the
+			// same "opens <entity-pkg> to org.eclipse.store.gigamap" that already enables member access
+			// also covers the creator.
+			final Creator creator;
+			try
+			{
+				final Constructor<? extends Creator> constructor = creatorClass.getDeclaredConstructor();
+				constructor.trySetAccessible();
+				creator = constructor.newInstance();
+			}
+			catch(final ReflectiveOperationException e)
+			{
+				throw new RuntimeException(
+					"Could not instantiate index creator " + creatorClass.getName()
+					+ " (a public no-argument constructor is required)", e
+				);
+			}
+			if(creator instanceof Creator.MemberAware)
+			{
+				((Creator.MemberAware)creator).initialize(name, accessor.reflectMember());
+			}
+			return (Indexer<E, ?>)creator.create();
+		}
+
+		private String getIndexName(final Index annotation, final MemberAccessor accessor)
+		{
+			final String annotationName = annotation != null ? annotation.name() : null;
 			return !XChars.isEmpty(annotationName)
 				? annotationName
-				: field.getName()
+				: accessor.propertyName()
 			;
 		}
-				
-		
-		static class FieldInfo
+
+
+		/**
+		 * Reflective accessor for an annotated member, which is either a {@link Field} or a
+		 * no-argument getter {@link Method}. The underlying member is held {@code transient} and
+		 * re-resolved on demand so generated indexers stay (de)serializable.
+		 */
+		static final class MemberAccessor
 		{
-			private final Class<?>  clazz;
-			private final String    fieldName;
-			private transient Field field;
-			
-			FieldInfo(final Field field)
+			private final Class<?>            declaringClass;
+			private final String              memberName;
+			private final boolean             method;
+			private transient AccessibleObject member;
+
+			static MemberAccessor forField(final Field field)
 			{
-				this.clazz     = field.getDeclaringClass();
-				this.fieldName = field.getName();
-				this.field     = field;
+				return new MemberAccessor(field.getDeclaringClass(), field.getName(), false, field);
 			}
-			
-			Field field()
+
+			static MemberAccessor forMethod(final Method method)
 			{
-				if(this.field == null)
+				return new MemberAccessor(method.getDeclaringClass(), method.getName(), true, method);
+			}
+
+			private MemberAccessor(
+				final Class<?>         declaringClass,
+				final String           memberName    ,
+				final boolean          method        ,
+				final AccessibleObject member
+			)
+			{
+				this.declaringClass = declaringClass;
+				this.memberName     = memberName;
+				this.method         = method;
+				this.member         = member;
+				if(member != null)
+				{
+					member.trySetAccessible();
+				}
+			}
+
+			private AccessibleObject member()
+			{
+				if(this.member == null)
 				{
 					try
 					{
-						this.field = this.clazz.getDeclaredField(this.fieldName);
+						this.member = this.method
+							? this.declaringClass.getDeclaredMethod(this.memberName)
+							: this.declaringClass.getDeclaredField(this.memberName)
+						;
+						this.member.trySetAccessible();
+					}
+					catch(final NoSuchMethodException e)
+					{
+						throw new RuntimeException(e);
 					}
 					catch(final NoSuchFieldException e)
 					{
 						throw new NoSuchFieldRuntimeException(e);
 					}
 				}
-				return this.field;
+				return this.member;
 			}
-			
+
+			Member reflectMember()
+			{
+				return (Member)this.member();
+			}
+
+			AnnotatedElement annotated()
+			{
+				return (AnnotatedElement)this.member();
+			}
+
+			Class<?> type()
+			{
+				final AccessibleObject m = this.member();
+				return this.method ? ((Method)m).getReturnType() : ((Field)m).getType();
+			}
+
+			Type genericType()
+			{
+				final AccessibleObject m = this.member();
+				return this.method ? ((Method)m).getGenericReturnType() : ((Field)m).getGenericType();
+			}
+
+			Class<?> componentType()
+			{
+				return this.type().getComponentType();
+			}
+
+			String propertyName()
+			{
+				return this.method
+					? derivePropertyName(this.memberName, this.type())
+					: this.memberName
+				;
+			}
+
 			@SuppressWarnings("unchecked")
 			<T> T getValue(final Object entity)
 			{
+				final AccessibleObject m = this.member();
 				try
 				{
-					return (T)this.field().get(entity);
+					return this.method
+						? (T)((Method)m).invoke(entity)
+						: (T)((Field)m).get(entity)
+					;
 				}
 				catch(final IllegalAccessException e)
 				{
 					throw new IllegalAccessRuntimeException(e);
 				}
+				catch(final InvocationTargetException e)
+				{
+					throw new RuntimeException(e);
+				}
+			}
+
+			static String derivePropertyName(final String methodName, final Class<?> returnType)
+			{
+				if(methodName.startsWith("get") && methodName.length() > 3)
+				{
+					return decapitalize(methodName.substring(3));
+				}
+				if(methodName.startsWith("is") && methodName.length() > 2
+					&& (returnType == boolean.class || returnType == Boolean.class))
+				{
+					return decapitalize(methodName.substring(2));
+				}
+				return methodName;
+			}
+
+			private static String decapitalize(final String s)
+			{
+				if(s.isEmpty())
+				{
+					return s;
+				}
+				// JavaBeans rule: leave names that start with two upper-case letters unchanged (e.g. "URL")
+				if(s.length() > 1 && Character.isUpperCase(s.charAt(0)) && Character.isUpperCase(s.charAt(1)))
+				{
+					return s;
+				}
+				final char[] chars = s.toCharArray();
+				chars[0] = Character.toLowerCase(chars[0]);
+				return new String(chars);
 			}
 		}
-		
-		
+
+
 		static class BinaryIndexerField<E> extends BinaryIndexer.Abstract<E>
 		{
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			BinaryIndexerField(final String indexName, final Field field)
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			BinaryIndexerField(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-			
+
 			@Override
 			public long indexBinary(final E entity)
 			{
-				final Number key = this.fieldInfo.getValue(entity);
+				final Number key = this.accessor.getValue(entity);
+				if(key == null)
+				{
+					throw new IllegalArgumentException("Null keys are not allowed in index " + this.indexName);
+				}
 				return key.longValue();
 			}
-			
+
 		}
-		
-		
+
+
 		static class IndexerStringField<E> extends IndexerString.Abstract<E>
 		{
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			IndexerStringField(final String indexName, final Field field)
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			IndexerStringField(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-					
+
 			@Override
 			protected String getString(final E entity)
 			{
-				return this.fieldInfo.getValue(entity);
+				return this.accessor.getValue(entity);
 			}
-			
+
 		}
-		
-		
+
+
 		static class BinaryIndexerStringField<E> extends BinaryIndexerString.Abstract<E>
 		{
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			BinaryIndexerStringField(final String indexName, final Field field)
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			BinaryIndexerStringField(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-			
+
 			@Override
 			protected String getString(final E entity)
 			{
-				return this.fieldInfo.getValue(entity);
+				return this.accessor.getValue(entity);
 			}
 		}
-		
-		
+
+
 		static class IndexerCharacterField<E> extends IndexerCharacter.Abstract<E>
 		{
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			IndexerCharacterField(final String indexName, final Field field)
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			IndexerCharacterField(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-					
+
 			@Override
 			protected Character getCharacter(final E entity)
 			{
-				return this.fieldInfo.getValue(entity);
+				return this.accessor.getValue(entity);
 			}
-			
+
 		}
-		
-		
+
+
 		static class IndexerIntegerField<E> extends IndexerInteger.Abstract<E>
 		{
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			IndexerIntegerField(final String indexName, final Field field)
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			IndexerIntegerField(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-					
+
 			@Override
 			protected Integer getInteger(final E entity)
 			{
-				return this.fieldInfo.getValue(entity);
+				return this.accessor.getValue(entity);
 			}
-			
+
 		}
-		
-		
+
+
 		static class IndexerLongField<E> extends IndexerLong.Abstract<E>
 		{
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			IndexerLongField(final String indexName, final Field field)
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			IndexerLongField(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-					
+
 			@Override
 			protected Long getLong(final E entity)
 			{
-				return this.fieldInfo.getValue(entity);
+				return this.accessor.getValue(entity);
 			}
-			
+
 		}
-		
-		
+
+
 		static class IndexerFloatField<E> extends IndexerFloat.Abstract<E>
 		{
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			IndexerFloatField(final String indexName, final Field field)
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			IndexerFloatField(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-					
+
 			@Override
 			protected Float getFloat(final E entity)
 			{
-				return this.fieldInfo.getValue(entity);
+				return this.accessor.getValue(entity);
 			}
-			
+
 		}
-		
-		
+
+
 		static class IndexerDoubleField<E> extends IndexerDouble.Abstract<E>
 		{
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			IndexerDoubleField(final String indexName, final Field field)
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			IndexerDoubleField(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-					
+
 			@Override
 			protected Double getDouble(final E entity)
 			{
-				return this.fieldInfo.getValue(entity);
+				return this.accessor.getValue(entity);
 			}
-			
+
 		}
-		
-		
+
+
 		static class IndexerByteField<E> extends IndexerByte.Abstract<E>
 		{
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			IndexerByteField(final String indexName, final Field field)
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			IndexerByteField(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-					
+
 			@Override
 			protected Byte getByte(final E entity)
 			{
-				return this.fieldInfo.getValue(entity);
+				return this.accessor.getValue(entity);
 			}
-			
+
 		}
-		
-		
+
+
 		static class IndexerShortField<E> extends IndexerShort.Abstract<E>
 		{
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			IndexerShortField(final String indexName, final Field field)
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			IndexerShortField(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-					
+
 			@Override
 			protected Short getShort(final E entity)
 			{
-				return this.fieldInfo.getValue(entity);
+				return this.accessor.getValue(entity);
 			}
-			
+
 		}
-		
-		
+
+
 		static class IndexerBooleanField<E> extends IndexerBoolean.Abstract<E>
 		{
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			IndexerBooleanField(final String indexName, final Field field)
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			IndexerBooleanField(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-					
+
 			@Override
 			protected Boolean getBoolean(final E entity)
 			{
-				return this.fieldInfo.getValue(entity);
+				return this.accessor.getValue(entity);
 			}
-			
+
 		}
-		
-		
+
+
 		static class IndexerLocalDateField<E> extends IndexerLocalDate.Abstract<E>
 		{
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			IndexerLocalDateField(final String indexName, final Field field)
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			IndexerLocalDateField(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-			
+
 			@Override
 			protected LocalDate getLocalDate(final E entity)
 			{
-				return this.fieldInfo.getValue(entity);
+				return this.accessor.getValue(entity);
 			}
-			
+
 		}
-		
-		
+
+
 		static class IndexerLocalTimeField<E> extends IndexerLocalTime.Abstract<E>
 		{
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			IndexerLocalTimeField(final String indexName, final Field field)
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			IndexerLocalTimeField(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-			
+
 			@Override
 			protected LocalTime getLocalTime(final E entity)
 			{
-				return this.fieldInfo.getValue(entity);
+				return this.accessor.getValue(entity);
 			}
-			
+
 		}
-		
-		
+
+
 		static class IndexerLocalDateTimeField<E> extends IndexerLocalDateTime.Abstract<E>
 		{
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			IndexerLocalDateTimeField(final String indexName, final Field field)
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			IndexerLocalDateTimeField(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-			
+
 			@Override
 			protected LocalDateTime getLocalDateTime(final E entity)
 			{
-				return this.fieldInfo.getValue(entity);
+				return this.accessor.getValue(entity);
 			}
-			
+
 		}
-		
-		
+
+
 		static class IndexerYearMonthField<E> extends IndexerYearMonth.Abstract<E>
 		{
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			IndexerYearMonthField(final String indexName, final Field field)
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			IndexerYearMonthField(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-			
+
 			@Override
 			protected YearMonth getYearMonth(final E entity)
 			{
-				return this.fieldInfo.getValue(entity);
+				return this.accessor.getValue(entity);
 			}
-			
+
 		}
-		
-		
-		static class BinaryIndexerUUIDField<E> extends BinaryIndexerUUID.Abstract<E>
+
+
+		static class IndexerInstantField<E> extends IndexerInstant.Abstract<E>
 		{
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			BinaryIndexerUUIDField(final String indexName, final Field field)
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			IndexerInstantField(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-			
+
+			@Override
+			protected Instant getInstant(final E entity)
+			{
+				return this.accessor.getValue(entity);
+			}
+
+		}
+
+
+		static class IndexerZonedDateTimeField<E> extends IndexerZonedDateTime.Abstract<E>
+		{
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			IndexerZonedDateTimeField(final String indexName, final MemberAccessor accessor)
+			{
+				this.indexName = indexName;
+				this.accessor  = accessor;
+			}
+
+			@Override
+			public String name()
+			{
+				return this.indexName;
+			}
+
+			@Override
+			protected ZonedDateTime getZonedDateTime(final E entity)
+			{
+				return this.accessor.getValue(entity);
+			}
+
+		}
+
+
+		static class BinaryIndexerUUIDField<E> extends BinaryIndexerUUID.Abstract<E>
+		{
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			BinaryIndexerUUIDField(final String indexName, final MemberAccessor accessor)
+			{
+				this.indexName = indexName;
+				this.accessor  = accessor;
+			}
+
+			@Override
+			public String name()
+			{
+				return this.indexName;
+			}
+
 			@Override
 			protected UUID getUUID(final E entity)
 			{
-				return this.fieldInfo.getValue(entity);
+				return this.accessor.getValue(entity);
 			}
-			
+
 		}
-		
-		
+
+
+		static class ByteIndexerIntegerField<E> extends ByteIndexerInteger.Abstract<E>
+		{
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			ByteIndexerIntegerField(final String indexName, final MemberAccessor accessor)
+			{
+				this.indexName = indexName;
+				this.accessor  = accessor;
+			}
+
+			@Override
+			public String name()
+			{
+				return this.indexName;
+			}
+
+			@Override
+			protected Integer getInteger(final E entity)
+			{
+				return this.accessor.getValue(entity);
+			}
+
+		}
+
+
+		static class ByteIndexerLongField<E> extends ByteIndexerLong.Abstract<E>
+		{
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			ByteIndexerLongField(final String indexName, final MemberAccessor accessor)
+			{
+				this.indexName = indexName;
+				this.accessor  = accessor;
+			}
+
+			@Override
+			public String name()
+			{
+				return this.indexName;
+			}
+
+			@Override
+			protected Long getLong(final E entity)
+			{
+				return this.accessor.getValue(entity);
+			}
+
+		}
+
+
+		static class ByteIndexerByteField<E> extends ByteIndexerByte.Abstract<E>
+		{
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			ByteIndexerByteField(final String indexName, final MemberAccessor accessor)
+			{
+				this.indexName = indexName;
+				this.accessor  = accessor;
+			}
+
+			@Override
+			public String name()
+			{
+				return this.indexName;
+			}
+
+			@Override
+			protected Byte getByte(final E entity)
+			{
+				return this.accessor.getValue(entity);
+			}
+
+		}
+
+
+		static class ByteIndexerShortField<E> extends ByteIndexerShort.Abstract<E>
+		{
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			ByteIndexerShortField(final String indexName, final MemberAccessor accessor)
+			{
+				this.indexName = indexName;
+				this.accessor  = accessor;
+			}
+
+			@Override
+			public String name()
+			{
+				return this.indexName;
+			}
+
+			@Override
+			protected Short getShort(final E entity)
+			{
+				return this.accessor.getValue(entity);
+			}
+
+		}
+
+
+		static class ByteIndexerFloatField<E> extends ByteIndexerFloat.Abstract<E>
+		{
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			ByteIndexerFloatField(final String indexName, final MemberAccessor accessor)
+			{
+				this.indexName = indexName;
+				this.accessor  = accessor;
+			}
+
+			@Override
+			public String name()
+			{
+				return this.indexName;
+			}
+
+			@Override
+			protected Float getFloat(final E entity)
+			{
+				return this.accessor.getValue(entity);
+			}
+
+		}
+
+
+		static class ByteIndexerDoubleField<E> extends ByteIndexerDouble.Abstract<E>
+		{
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			ByteIndexerDoubleField(final String indexName, final MemberAccessor accessor)
+			{
+				this.indexName = indexName;
+				this.accessor  = accessor;
+			}
+
+			@Override
+			public String name()
+			{
+				return this.indexName;
+			}
+
+			@Override
+			protected Double getDouble(final E entity)
+			{
+				return this.accessor.getValue(entity);
+			}
+
+		}
+
+
+		static class IndexerEnumField<E, K extends Enum<K>> extends Indexer.Abstract<E, K>
+		{
+			private final String         indexName;
+			private final MemberAccessor accessor;
+			private final Class<K>       keyType;
+
+			IndexerEnumField(final String indexName, final MemberAccessor accessor, final Class<K> keyType)
+			{
+				this.indexName = indexName;
+				this.accessor  = accessor;
+				this.keyType   = keyType;
+			}
+
+			@Override
+			public String name()
+			{
+				return this.indexName;
+			}
+
+			@Override
+			public Class<K> keyType()
+			{
+				return this.keyType;
+			}
+
+			@Override
+			public K index(final E entity)
+			{
+				return this.accessor.getValue(entity);
+			}
+
+		}
+
+
+		static class SpatialIndexerField<E> extends SpatialIndexer.Abstract<E>
+		{
+			private final String         indexName;
+			private final MemberAccessor latitude;
+			private final MemberAccessor longitude;
+
+			SpatialIndexerField(final String indexName, final MemberAccessor latitude, final MemberAccessor longitude)
+			{
+				this.indexName = indexName;
+				this.latitude  = latitude;
+				this.longitude = longitude;
+			}
+
+			@Override
+			public String name()
+			{
+				return this.indexName;
+			}
+
+			@Override
+			protected Double getLatitude(final E entity)
+			{
+				final Number value = this.latitude.getValue(entity);
+				return value == null ? null : value.doubleValue();
+			}
+
+			@Override
+			protected Double getLongitude(final E entity)
+			{
+				final Number value = this.longitude.getValue(entity);
+				return value == null ? null : value.doubleValue();
+			}
+
+		}
+
+
 		static class IndexerMultiValueFieldIterable<E, K> extends IndexerMultiValue.Abstract<E, K>
 		{
 			static boolean isValidType(final Type type)
@@ -759,71 +1410,71 @@ public interface IndexerGenerator<E>
 					final Type[] args = ((ParameterizedType)type).getActualTypeArguments();
 					return args.length == 1 && args[0] instanceof Class;
 				}
-				
+
 				return false;
 			}
-			
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			IndexerMultiValueFieldIterable(final String indexName, final Field field)
+
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			IndexerMultiValueFieldIterable(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-			
+
 			@SuppressWarnings("unchecked")
 			@Override
 			public Class<K> keyType()
 			{
-				final Type genericType = this.fieldInfo.field().getGenericType();
+				final Type genericType = this.accessor.genericType();
 				return (Class<K>)((ParameterizedType)genericType).getActualTypeArguments()[0];
 			}
-			
+
 			@Override
 			public Iterable<? extends K> indexEntityMultiValue(final E entity)
 			{
-				return this.fieldInfo.getValue(entity);
+				return this.accessor.getValue(entity);
 			}
-			
+
 		}
-		
-		
+
+
 		static class IndexerMultiValueFieldArray<E, K> extends IndexerMultiValue.Abstract<E, K>
 		{
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			IndexerMultiValueFieldArray(final String indexName, final Field field)
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			IndexerMultiValueFieldArray(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-			
+
 			@SuppressWarnings("unchecked")
 			@Override
 			public Class<K> keyType()
 			{
-				return (Class<K>)this.fieldInfo.clazz.getComponentType();
+				return (Class<K>)this.accessor.componentType();
 			}
-			
+
 			@SuppressWarnings("unchecked")
 			@Override
 			public Iterable<? extends K> indexEntityMultiValue(final E entity)
 			{
-				final Object array = this.fieldInfo.getValue(entity);
+				final Object array = this.accessor.getValue(entity);
 				if(array == null)
 				{
 					return null;
@@ -836,42 +1487,42 @@ public interface IndexerGenerator<E>
 				}
 				return list;
 			}
-			
+
 		}
-		
-		
+
+
 		static class IndexerCustomField<E, K> extends Indexer.Abstract<E, K>
 		{
-			private final String    indexName;
-			private final FieldInfo fieldInfo;
-			
-			IndexerCustomField(final String indexName, final Field field)
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			IndexerCustomField(final String indexName, final MemberAccessor accessor)
 			{
 				this.indexName = indexName;
-				this.fieldInfo = new FieldInfo(field);
+				this.accessor  = accessor;
 			}
-			
+
 			@Override
 			public String name()
 			{
 				return this.indexName;
 			}
-			
+
 			@SuppressWarnings("unchecked")
 			@Override
 			public Class<K> keyType()
 			{
-				return (Class<K>)this.fieldInfo.field().getType();
+				return (Class<K>)this.accessor.type();
 			}
-			
+
 			@Override
 			public K index(final E entity)
 			{
-				return this.fieldInfo.getValue(entity);
+				return this.accessor.getValue(entity);
 			}
-			
+
 		}
-		
+
 	}
-	
+
 }
