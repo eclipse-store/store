@@ -74,8 +74,9 @@ All other long values are fully supported.
 
 `BinaryIndexerString` packs a string's UTF-8 bytes into long values and does not encode the byte length.
 Trailing `0x00` (NUL) bytes would therefore be indistinguishable from absent bytes, so `"alpha"` and `"alpha"` with a trailing NUL — or NUL-only strings of different length — could not be told apart.
-As a consequence, keys containing the NUL character (`U+0000`) are not supported and will throw an `IllegalArgumentException`, on both adding an entity and querying.
-The empty string and all other (NUL-free) strings are fully supported.
+As a consequence, keys containing the NUL character (`U+0000`) are not supported and will throw an `IllegalArgumentException`. This applies to every operation that derives the index key from the value — adding, querying, and also updating or removing an entity (which re-index it to maintain the bitmap). The empty string and all other (NUL-free) strings are fully supported.
+
+WARNING: If you have an existing storage that already contains NUL-valued keys (written before this validation existed), not only adds and queries but also updates and removals of those entities will now throw, because they re-index the value. Normalize the affected values (see below) as part of your upgrade.
 
 If your input may contain NUL — for example fixed-width records padded with `\0`, or null-terminated buffers from native/JNI/FFI code — normalize it before indexing (cut at the terminator or strip NUL). Doing this explicitly at the input is preferable to a silent, partial normalization inside the index.
 
