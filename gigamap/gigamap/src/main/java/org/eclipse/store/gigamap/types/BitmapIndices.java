@@ -525,6 +525,29 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 				// changeHandler arrays stay empty until needed.
 			}
 		}
+
+		/**
+		 * Re-binds each index' indexer to the name the index is registered and persisted under.
+		 * <p>
+		 * Invoked once after deserialization (see {@code BinaryHandlerBitmapIndicesDefault#complete}).
+		 * An anonymous {@link Indexer.Abstract} loses its {@code transient} derived name on reload and
+		 * would otherwise recompute a divergent fallback name, breaking index resolution (e.g.
+		 * {@link GigaMap#update}, whose lookup condition is built from the indexer via
+		 * {@code HashingBitmapIndex#like}).
+		 */
+		final void restoreIndexerNames()
+		{
+			// the table key is the name the index is registered under and the name index resolution
+			// (BitmapIndices#internalGet) looks up by, so it is the authoritative name to re-bind to.
+			for(final KeyValue<String, ? extends BitmapIndex.Internal<E, ?>> entry : this.bitmapIndices)
+			{
+				final Indexer<? super E, ?> indexer = entry.value().indexer();
+				if(indexer instanceof Indexer.Abstract)
+				{
+					((Indexer.Abstract<?, ?>)indexer).initializeResolvedName(entry.key());
+				}
+			}
+		}
 		
 		@Override
 		public final GigaMap.Internal<E> parentMap()
