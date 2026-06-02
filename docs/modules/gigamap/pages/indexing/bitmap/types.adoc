@@ -70,6 +70,47 @@ For sub-64-bit types (`Byte`, `Short`, `Integer`, `Float`), this mapping is coll
 As a consequence, `Long.MAX_VALUE` is not supported as an index key and will throw an `IllegalArgumentException`.
 All other long values are fully supported.
 
+=== String Keys and the NUL Character
+
+`BinaryIndexerString` packs a string's UTF-8 bytes into long values and does not encode the byte length.
+Trailing `0x00` (NUL) bytes would therefore be indistinguishable from absent bytes, so `"alpha"` and `"alpha"` with a trailing NUL — or NUL-only strings of different length — could not be told apart.
+As a consequence, keys containing the NUL character (`U+0000`) are not supported and will throw an `IllegalArgumentException`. This applies to every operation that derives the index key from the value — adding, querying, and also updating or removing an entity (which re-index it to maintain the bitmap). The empty string and all other (NUL-free) strings are fully supported.
+
+WARNING: If you have an existing storage that already contains NUL-valued keys (written before this validation existed), not only adds and queries but also updates and removals of those entities will now throw, because they re-index the value. Normalize the affected values (see below) as part of your upgrade.
+
+If your input may contain NUL — for example fixed-width records padded with `\0`, or null-terminated buffers from native/JNI/FFI code — normalize it before indexing (cut at the terminator or strip NUL). Doing this explicitly at the input is preferable to a silent, partial normalization inside the index.
+
+The simplest place to normalize is in the indexer's value extractor, so the stored key is always NUL-free. Apply the *same* normalization to query keys (e.g. `nameIndex.is(cutAtNul(input))`) so a query matches what was stored:
+
+[source, java]
+----
+// Strategy 1: cut at the first NUL terminator (typical for null-terminated buffers)
+static String cutAtNul(final String s)
+{
+    final int nul = s.indexOf('\u0000');
+    return nul < 0 ? s : s.substring(0, nul);
+}
+
+// Strategy 2: remove every NUL character (typical for fixed-width padding)
+static String stripNul(final String s)
+{
+    return s.indexOf('\u0000') < 0 ? s : s.replace("\u0000", "");
+}
+
+// normalize inside the indexer so every stored key is NUL-free
+final BinaryIndexerString<Person> nameIndex = new BinaryIndexerString.Abstract<>()
+{
+    @Override
+    protected String getString(final Person person)
+    {
+        return cutAtNul(person.name());
+    }
+};
+
+// ... and normalize the query key the same way
+final List<Person> result = gigaMap.query(nameIndex.is(cutAtNul(userInput))).toList();
+----
+
 == Byte Index
 
 A composite bitmap index designed for high cardinality numeric types with range query support.
