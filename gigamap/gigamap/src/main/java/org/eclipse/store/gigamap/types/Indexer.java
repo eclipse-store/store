@@ -162,10 +162,29 @@ public interface Indexer<E, K> extends IndexIdentifier<E, K>
 			{
 				this.name = this.defaultName();
 			}
-			
+
 			return this.name;
 		}
-		
+
+		/**
+		 * Re-binds the resolved (cached) name of this indexer to the name its owning index is
+		 * registered and persisted under.
+		 * <p>
+		 * The {@link #name} field is {@code transient}, so a reloaded indexer loses its derived
+		 * name. For an anonymous indexer the {@link #defaultName() reflectively derived} default
+		 * name cannot be reconstructed from a deserialized instance (it is no longer the value of
+		 * the declaring {@code static} field), so {@code name()} would otherwise compute a divergent
+		 * fallback name that no longer matches the registered index name. Pushing the persisted index
+		 * name back into the indexer on reload keeps both consistent so index resolution (e.g. during
+		 * {@link GigaMap#update}) succeeds.
+		 *
+		 * @param resolvedName the name the owning index is registered under
+		 */
+		final void initializeResolvedName(final String resolvedName)
+		{
+			this.name = resolvedName;
+		}
+
 		private String defaultName()
 		{
 			final Class<?> clazz = this.getClass();
