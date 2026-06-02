@@ -16,6 +16,7 @@ package org.eclipse.store.gigamap.indexer;
 
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.IndexerBoolean;
+import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
@@ -152,6 +153,70 @@ public class BooleanIndexTest
     }
 
     @Test
+    void nullValuedEntityUpdateDoesNotThrow()
+    {
+        // Reproducer: update() / apply() on an entity whose indexed Boolean is null used to throw
+        // IllegalArgumentException("Entity not found"), even though the entity is present
+        // (counted by size(), retrievable by get(id)).
+        //
+        // Root cause: the entity locator queries the indices with the entity's current value;
+        // SingleBitmapIndex.internalQuery(null) returned the empty result, so a null-valued entity
+        // yielded no candidate id. A false value is located via the inverted (NOT-TRUE) result, so
+        // the defect was null-specific (see falseValuedEntityUpdateDoesNotThrow for the contrast).
+        GigaMap<BooleanPerson> map = GigaMap.New();
+        map.index().bitmap().add(this.booleanPersonIndex);
+
+        BooleanPerson person = new BooleanPerson("Dave", null);   // optional flag left unset
+        map.add(person);
+        assertEquals(1, map.size());                              // the entity is present...
+
+        map.update(person, p -> p.setAdult(Boolean.TRUE));        // ...and must not throw "Entity not found"
+
+        assertEquals(1, map.query(this.booleanPersonIndex.isTrue()).count());
+    }
+
+    @Test
+    void falseValuedEntityUpdateDoesNotThrow()
+    {
+        // Control: a false-valued entity updates fine - proves the null reproducer is not vacuous.
+        GigaMap<BooleanPerson> map = GigaMap.New();
+        map.index().bitmap().add(this.booleanPersonIndex);
+
+        BooleanPerson person = new BooleanPerson("Eve", Boolean.FALSE);
+        map.add(person);
+
+        map.update(person, p -> p.setAdult(Boolean.TRUE));
+
+        assertEquals(1, map.query(this.booleanPersonIndex.isTrue()).count());
+    }
+
+    @Test
+    void nullValuedEntityWithSecondNonNullIndexUpdates()
+    {
+        // Even with a second, non-null index (so the entity is findable via that index), updating a
+        // null-valued Boolean entity must succeed: the entity locator intersects across indices, and
+        // the null-boolean leg must not contribute an empty set.
+        IndexerString<BooleanPerson> nameIndex = new IndexerString.Abstract<>()
+        {
+            @Override
+            protected String getString(BooleanPerson e)
+            {
+                return e.name();
+            }
+        };
+        GigaMap<BooleanPerson> map = GigaMap.New();
+        map.index().bitmap().add(this.booleanPersonIndex);
+        map.index().bitmap().add(nameIndex);
+
+        BooleanPerson person = new BooleanPerson("Alice", null);   // adult null, name non-null
+        map.add(person);
+
+        map.update(person, p -> p.setAdult(Boolean.TRUE));
+
+        assertEquals(1, map.query(this.booleanPersonIndex.isTrue()).count());
+    }
+
+    @Test
     void booleanPersonTest()
     {
         GigaMap<BooleanPerson> map = prepageGigaMap();
@@ -210,7 +275,7 @@ public class BooleanIndexTest
         private final String name;
         private Boolean isAdult;
 
-        public BooleanPerson(String name, boolean isAdult)
+        public BooleanPerson(String name, Boolean isAdult)
         {
             this.name = name;
             this.isAdult = isAdult;
