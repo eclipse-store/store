@@ -102,7 +102,9 @@ public final class AnnotationDocumentPopulator<E> extends DocumentPopulator<E>
 		{
 			for(final Method method : c.getDeclaredMethods())
 			{
-				if(Modifier.isStatic(method.getModifiers()) || method.getParameterCount() != 0)
+				if(Modifier.isStatic(method.getModifiers())
+					|| method.getParameterCount() != 0
+					|| method.getReturnType() == void.class)
 				{
 					continue;
 				}

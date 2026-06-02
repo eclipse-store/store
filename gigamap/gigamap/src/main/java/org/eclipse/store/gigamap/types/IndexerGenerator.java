@@ -75,9 +75,13 @@ public interface IndexerGenerator<E>
 	public void generateIndices(BitmapIndices<E> target);
 
 	/**
-	 * Generates all annotation-based indices for the given {@link GigaMap}: the bitmap indices
-	 * (equivalent to {@link #generateIndices(BitmapIndices)} on {@code target.index().bitmap()}) plus
-	 * any index groups contributed by registered {@link GigaIndexAnnotationHandler handlers}.
+	 * Generates the annotation-based indices for the given {@link GigaMap}.
+	 * <p>
+	 * This default implementation generates the bitmap indices only (equivalent to
+	 * {@link #generateIndices(BitmapIndices)} on {@code target.index().bitmap()}). The
+	 * {@link AnnotationBased} implementation additionally invokes the registered
+	 * {@link GigaIndexAnnotationHandler handlers} to contribute further index groups (for example
+	 * full-text or vector indices).
 	 *
 	 * @param target the {@link GigaMap} whose indices are to be generated
 	 */

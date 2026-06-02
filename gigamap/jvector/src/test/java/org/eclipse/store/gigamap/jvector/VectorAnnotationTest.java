@@ -100,6 +100,24 @@ class VectorAnnotationTest
 	}
 
 	@Test
+	void worksWhenVectorIndicesAlreadyRegistered()
+	{
+		final GigaMap<Item> map = GigaMap.New();
+		// pre-register the group so the handler's register(...) returns null and must fall back
+		map.index().register(VectorIndices.Category());
+
+		IndexerGenerator.AnnotationBased(Item.class)
+			.register(VectorAnnotationHandler.New())
+			.generateIndices(map);
+
+		final long idA = map.add(new Item(new float[]{1, 0, 0, 0}));
+		map.add(new Item(new float[]{0, 1, 0, 0}));
+
+		final VectorIndex<Item> index = map.index().get(VectorIndices.class).get("vector");
+		assertEquals(idA, index.search(new float[]{1, 0, 0, 0}, 2).stream().findFirst().orElseThrow().entityId());
+	}
+
+	@Test
 	void vectorOnNonFloatArrayFailsFast()
 	{
 		final GigaMap<Bad> map = GigaMap.New();

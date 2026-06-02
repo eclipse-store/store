@@ -79,6 +79,7 @@ public final class VectorAnnotationHandler<E> implements GigaIndexAnnotationHand
 		this.indexBaseDir = indexBaseDir;
 	}
 
+	@SuppressWarnings("unchecked")
 	@Override
 	public void contribute(final Class<E> entityType, final GigaIndices<E> indices)
 	{
@@ -117,7 +118,13 @@ public final class VectorAnnotationHandler<E> implements GigaIndexAnnotationHand
 			builder.indexDirectory(this.indexBaseDir.resolve(name));
 		}
 
-		final VectorIndices<E> vectorIndices = indices.register(VectorIndices.Category());
+		// register(...) returns null if a VectorIndices group is already present (e.g. another @Vector
+		// entity, or generateIndices called twice); fall back to the existing group in that case.
+		VectorIndices<E> vectorIndices = indices.register(VectorIndices.Category());
+		if(vectorIndices == null)
+		{
+			vectorIndices = indices.get(VectorIndices.class);
+		}
 		vectorIndices.add(
 			name,
 			builder.build(),
