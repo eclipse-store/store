@@ -164,7 +164,7 @@ The bitmap index offers three families of indexers: **regular indexers** (e.g. `
 |Composite sub-indices with at most 256 entries per byte position
 
 |Null values
-|Native support
+|Native support footnote:[Exception: the Boolean index cannot distinguish `null` from `false` — both are absent from the `true` set. See the Boolean section under xref:queries/index.adoc[Queries].]
 |Requires sentinel value handling
 |Requires sentinel value handling
 

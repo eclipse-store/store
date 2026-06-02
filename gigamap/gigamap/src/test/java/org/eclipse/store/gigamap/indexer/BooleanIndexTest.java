@@ -16,6 +16,7 @@ package org.eclipse.store.gigamap.indexer;
 
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.IndexerBoolean;
+import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
@@ -152,6 +153,108 @@ public class BooleanIndexTest
     }
 
     @Test
+    void nullValuedEntityUpdateDoesNotThrow()
+    {
+        // Reproducer: update() / apply() on an entity whose indexed Boolean is null used to throw
+        // IllegalArgumentException("Entity not found"), even though the entity is present
+        // (counted by size(), retrievable by get(id)).
+        //
+        // Root cause: the entity locator queries the indices with the entity's current value;
+        // SingleBitmapIndex.internalQuery(null) returned the empty result, so a null-valued entity
+        // yielded no candidate id. A false value is located via the inverted (NOT-TRUE) result, so
+        // the defect was null-specific (see falseValuedEntityUpdateDoesNotThrow for the contrast).
+        GigaMap<BooleanPerson> map = GigaMap.New();
+        map.index().bitmap().add(this.booleanPersonIndex);
+
+        BooleanPerson person = new BooleanPerson("Dave", null);   // optional flag left unset
+        map.add(person);
+        assertEquals(1, map.size());                              // the entity is present...
+
+        map.update(person, p -> p.setAdult(Boolean.TRUE));        // ...and must not throw "Entity not found"
+
+        assertEquals(1, map.query(this.booleanPersonIndex.isTrue()).count());
+    }
+
+    @Test
+    void falseValuedEntityUpdateDoesNotThrow()
+    {
+        // Control: a false-valued entity updates fine - proves the null reproducer is not vacuous.
+        GigaMap<BooleanPerson> map = GigaMap.New();
+        map.index().bitmap().add(this.booleanPersonIndex);
+
+        BooleanPerson person = new BooleanPerson("Eve", Boolean.FALSE);
+        map.add(person);
+
+        map.update(person, p -> p.setAdult(Boolean.TRUE));
+
+        assertEquals(1, map.query(this.booleanPersonIndex.isTrue()).count());
+    }
+
+    @Test
+    void nullValuedEntityWithSecondNonNullIndexUpdates()
+    {
+        // Even with a second, non-null index (so the entity is findable via that index), updating a
+        // null-valued Boolean entity must succeed: the entity locator intersects across indices, and
+        // the null-boolean leg must not contribute an empty set.
+        IndexerString<BooleanPerson> nameIndex = new IndexerString.Abstract<>()
+        {
+            @Override
+            protected String getString(BooleanPerson e)
+            {
+                return e.name();
+            }
+        };
+        GigaMap<BooleanPerson> map = GigaMap.New();
+        map.index().bitmap().add(this.booleanPersonIndex);
+        map.index().bitmap().add(nameIndex);
+
+        BooleanPerson person = new BooleanPerson("Alice", null);   // adult null, name non-null
+        map.add(person);
+
+        map.update(person, p -> p.setAdult(Boolean.TRUE));
+
+        assertEquals(1, map.query(this.booleanPersonIndex.isTrue()).count());
+    }
+
+    @Test
+    void conditionTestMatchesBitmapQuery()
+    {
+        // The in-memory predicate path (Condition#test) must agree with the bitmap query for this
+        // index. Since SingleBitmapIndex cannot tell FALSE from null (neither is in the TRUE set),
+        // is(false) and is(null) both resolve to the NOT-TRUE set in BOTH paths.
+        GigaMap<BooleanPerson> map = GigaMap.New();
+        map.index().bitmap().add(this.booleanPersonIndex);
+
+        BooleanPerson adult   = new BooleanPerson("Alice", Boolean.TRUE);
+        BooleanPerson child   = new BooleanPerson("Bob",   Boolean.FALSE);
+        BooleanPerson unknown = new BooleanPerson("Dave",  null);
+        map.addAll(adult, child, unknown);
+
+        // isTrue(): only the TRUE-valued entity, consistent across query and predicate.
+        assertEquals(1, map.query(this.booleanPersonIndex.isTrue()).count());
+        assertTrue(this.booleanPersonIndex.isTrue().test(adult));
+        assertFalse(this.booleanPersonIndex.isTrue().test(child));
+        assertFalse(this.booleanPersonIndex.isTrue().test(unknown));
+
+        // isFalse() / is(null): the NOT-TRUE set (FALSE and null), consistent across query and predicate.
+        assertEquals(2, map.query(this.booleanPersonIndex.isFalse()).count());
+        assertFalse(this.booleanPersonIndex.isFalse().test(adult));
+        assertTrue(this.booleanPersonIndex.isFalse().test(child));
+        assertTrue(this.booleanPersonIndex.isFalse().test(unknown));   // null is NOT-TRUE
+
+        assertEquals(2, map.query(this.booleanPersonIndex.is((Boolean)null)).count());
+        assertFalse(this.booleanPersonIndex.is((Boolean)null).test(adult));
+        assertTrue(this.booleanPersonIndex.is((Boolean)null).test(child));      // false is NOT-TRUE
+        assertTrue(this.booleanPersonIndex.is((Boolean)null).test(unknown));
+
+        // Predicate-based query (search path) must also map FALSE and null to the same NOT-TRUE set:
+        // a predicate matching only TRUE -> the TRUE set; a predicate matching only null -> NOT-TRUE.
+        assertEquals(1, map.query(this.booleanPersonIndex.is(k -> Boolean.TRUE.equals(k))).count());
+        assertEquals(2, map.query(this.booleanPersonIndex.is(k -> k == null)).count());
+        assertEquals(2, map.query(this.booleanPersonIndex.is(k -> Boolean.FALSE.equals(k))).count());
+    }
+
+    @Test
     void booleanPersonTest()
     {
         GigaMap<BooleanPerson> map = prepageGigaMap();
@@ -210,7 +313,7 @@ public class BooleanIndexTest
         private final String name;
         private Boolean isAdult;
 
-        public BooleanPerson(String name, boolean isAdult)
+        public BooleanPerson(String name, Boolean isAdult)
         {
             this.name = name;
             this.isAdult = isAdult;

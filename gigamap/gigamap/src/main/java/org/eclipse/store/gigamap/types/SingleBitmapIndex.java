@@ -106,15 +106,17 @@ implements BitmapIndex.TopLevel<E, Boolean>, ChangeHandler
 	@Override
 	public final BitmapResult internalQuery(final Boolean key)
 	{
-		if(key == null)
-		{
-			return EMPTY_RESULT;
-		}
-		if(key == true)
+		if(Boolean.TRUE.equals(key))
 		{
 			return this.createResult();
 		}
-		
+
+		// A SingleBitmapIndex only materializes the TRUE set; FALSE and null are both simply
+		// "not in the TRUE entry" and cannot be told apart by this index. Both must therefore
+		// resolve to the inverted (NOT-TRUE) result. Returning EMPTY_RESULT for null would make
+		// a present null-valued entity unfindable by the entity locator (used by update / apply /
+		// set / replace via like(entity) -> is(null)), throwing "Entity not found", and would also
+		// make is(null) inconsistent with the is(false) it is indistinguishable from.
 		return this.entryResultInverted();
 	}
 	
@@ -286,11 +288,16 @@ implements BitmapIndex.TopLevel<E, Boolean>, ChangeHandler
 		{
 			results[r++] = this.createResult();
 		}
-		if(predicate.test(Boolean.FALSE))
+		// FALSE and null are indistinguishable in this index: both live in the NOT-TRUE set. A
+		// predicate matching either therefore maps to the same inverted result, added at most once.
+		// Testing null here (consistent with how hashing indexes invoke predicates against a null
+		// key) keeps search() consistent with internalQuery(FALSE) / internalQuery(null), which both
+		// resolve to NOT-TRUE.
+		if(predicate.test(Boolean.FALSE) || predicate.test(null))
 		{
 			results[r++] = this.entryResultInverted();
 		}
-		
+
 		// it is theoretically possible that the predicate just always returns false, so r == 0 must be checked.
 		if(r == 0)
 		{
