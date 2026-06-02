@@ -217,6 +217,38 @@ public class BooleanIndexTest
     }
 
     @Test
+    void conditionTestMatchesBitmapQuery()
+    {
+        // The in-memory predicate path (Condition#test) must agree with the bitmap query for this
+        // index. Since SingleBitmapIndex cannot tell FALSE from null (neither is in the TRUE set),
+        // is(false) and is(null) both resolve to the NOT-TRUE set in BOTH paths.
+        GigaMap<BooleanPerson> map = GigaMap.New();
+        map.index().bitmap().add(this.booleanPersonIndex);
+
+        BooleanPerson adult   = new BooleanPerson("Alice", Boolean.TRUE);
+        BooleanPerson child   = new BooleanPerson("Bob",   Boolean.FALSE);
+        BooleanPerson unknown = new BooleanPerson("Dave",  null);
+        map.addAll(adult, child, unknown);
+
+        // isTrue(): only the TRUE-valued entity, consistent across query and predicate.
+        assertEquals(1, map.query(this.booleanPersonIndex.isTrue()).count());
+        assertTrue(this.booleanPersonIndex.isTrue().test(adult));
+        assertFalse(this.booleanPersonIndex.isTrue().test(child));
+        assertFalse(this.booleanPersonIndex.isTrue().test(unknown));
+
+        // isFalse() / is(null): the NOT-TRUE set (FALSE and null), consistent across query and predicate.
+        assertEquals(2, map.query(this.booleanPersonIndex.isFalse()).count());
+        assertFalse(this.booleanPersonIndex.isFalse().test(adult));
+        assertTrue(this.booleanPersonIndex.isFalse().test(child));
+        assertTrue(this.booleanPersonIndex.isFalse().test(unknown));   // null is NOT-TRUE
+
+        assertEquals(2, map.query(this.booleanPersonIndex.is((Boolean)null)).count());
+        assertFalse(this.booleanPersonIndex.is((Boolean)null).test(adult));
+        assertTrue(this.booleanPersonIndex.is((Boolean)null).test(child));      // false is NOT-TRUE
+        assertTrue(this.booleanPersonIndex.is((Boolean)null).test(unknown));
+    }
+
+    @Test
     void booleanPersonTest()
     {
         GigaMap<BooleanPerson> map = prepageGigaMap();

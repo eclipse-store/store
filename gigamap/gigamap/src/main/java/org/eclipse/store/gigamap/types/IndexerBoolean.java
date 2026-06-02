@@ -76,6 +76,20 @@ public interface IndexerBoolean<E> extends Indexer<E, Boolean>
 		{
 			return this.getBoolean(entity);
 		}
+
+		@Override
+		public boolean test(final E entity, final Boolean key)
+		{
+			// A Boolean index is backed by a SingleBitmapIndex, which only materializes the TRUE
+			// set: FALSE and null are both simply "not in the TRUE set" and cannot be told apart.
+			// The bitmap query (SingleBitmapIndex#internalQuery) collapses them accordingly, so this
+			// in-memory predicate (used by Condition#test) must do the same to stay consistent:
+			// key==TRUE matches a TRUE-indexed entity, key==FALSE or null matches any non-TRUE
+			// (FALSE or null) entity. The default strict-key-equality test would diverge from the
+			// bitmap result for both FALSE and null.
+			final boolean entityIsTrue = Boolean.TRUE.equals(this.index(entity));
+			return Boolean.TRUE.equals(key) ? entityIsTrue : !entityIsTrue;
+		}
 		
 		protected abstract Boolean getBoolean(E entity);
 		
