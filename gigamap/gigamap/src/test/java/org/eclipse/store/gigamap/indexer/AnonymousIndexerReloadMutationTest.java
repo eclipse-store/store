@@ -24,6 +24,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Covers mutation of entities through the entity-locator path (update / replace / remove by entity)
@@ -169,7 +170,7 @@ public class AnonymousIndexerReloadMutationTest
 			assertEquals(0, reloaded.query(NAME_INDEX.is("alice")).count());
 			assertEquals(1, reloaded.query(NAME_INDEX.is("bob")).count());
 			assertEquals(1, reloaded.size());
-			assertEquals(true, removedId >= 0);
+			assertTrue(removedId >= 0);
 		}
 	}
 }
