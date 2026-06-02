@@ -42,7 +42,9 @@ import java.time.LocalTime;
 import java.time.YearMonth;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.eclipse.serializer.util.X.notNull;
@@ -241,8 +243,8 @@ public interface IndexerGenerator<E>
 
 		private List<MemberAccessor> collectAnnotatedMembers()
 		{
-			final List<MemberAccessor> result   = new ArrayList<>();
-			final List<String>         seenProps = new ArrayList<>();
+			final List<MemberAccessor> result    = new ArrayList<>();
+			final Set<String>          seenProps = new HashSet<>();
 
 			for(final Field field : XReflect.collectInstanceFields(
 				this.entityType,
@@ -1387,15 +1389,29 @@ public interface IndexerGenerator<E>
 			@Override
 			protected Double getLatitude(final E entity)
 			{
-				final Number value = this.latitude.getValue(entity);
-				return value == null ? null : value.doubleValue();
+				return this.coordinate(this.latitude.getValue(entity), "latitude");
 			}
 
 			@Override
 			protected Double getLongitude(final E entity)
 			{
-				final Number value = this.longitude.getValue(entity);
-				return value == null ? null : value.doubleValue();
+				return this.coordinate(this.longitude.getValue(entity), "longitude");
+			}
+
+			private Double coordinate(final Object value, final String axis)
+			{
+				if(value == null)
+				{
+					return null;
+				}
+				if(value instanceof Number)
+				{
+					return ((Number)value).doubleValue();
+				}
+				throw new IllegalStateException(
+					"Spatial index '" + this.indexName + "' " + axis
+					+ " member must be numeric, but was " + value.getClass().getTypeName()
+				);
 			}
 
 		}

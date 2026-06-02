@@ -26,7 +26,9 @@ import java.lang.reflect.Member;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * A {@link DocumentPopulator} that maps the {@link FullText}-annotated members (fields or
@@ -77,7 +79,8 @@ public final class AnnotationDocumentPopulator<E> extends DocumentPopulator<E>
 
 	private static List<TextMember> collect(final Class<?> entityType)
 	{
-		final List<TextMember> result = new ArrayList<>();
+		final List<TextMember> result    = new ArrayList<>();
+		final Set<String>      seenProps = new HashSet<>();
 
 		for(Class<?> c = entityType; c != null && c != Object.class; c = c.getSuperclass())
 		{
@@ -88,11 +91,15 @@ public final class AnnotationDocumentPopulator<E> extends DocumentPopulator<E>
 					continue;
 				}
 				final FullText annotation = field.getAnnotation(FullText.class);
-				if(annotation != null)
+				if(annotation != null && seenProps.add(field.getName()))
 				{
 					result.add(new TextMember(field, fieldName(annotation, field.getName(), null), annotation));
 				}
 			}
+		}
+
+		for(Class<?> c = entityType; c != null && c != Object.class; c = c.getSuperclass())
+		{
 			for(final Method method : c.getDeclaredMethods())
 			{
 				if(Modifier.isStatic(method.getModifiers()) || method.getParameterCount() != 0)
@@ -100,7 +107,14 @@ public final class AnnotationDocumentPopulator<E> extends DocumentPopulator<E>
 					continue;
 				}
 				final FullText annotation = method.getAnnotation(FullText.class);
-				if(annotation != null)
+				if(annotation == null)
+				{
+					continue;
+				}
+				// a property annotated on both the field and its accessor (e.g. record components) must
+				// only be indexed once; the field takes precedence, matching the bitmap generator.
+				final String property = propertyName(method.getName(), method.getReturnType());
+				if(seenProps.add(property))
 				{
 					result.add(new TextMember(
 						method,
@@ -112,6 +126,20 @@ public final class AnnotationDocumentPopulator<E> extends DocumentPopulator<E>
 		}
 
 		return result;
+	}
+
+	private static String propertyName(final String methodName, final Class<?> returnType)
+	{
+		if(methodName.startsWith("get") && methodName.length() > 3)
+		{
+			return decapitalize(methodName.substring(3));
+		}
+		if(methodName.startsWith("is") && methodName.length() > 2
+			&& (returnType == boolean.class || returnType == Boolean.class))
+		{
+			return decapitalize(methodName.substring(2));
+		}
+		return methodName;
 	}
 
 	private List<TextMember> members()

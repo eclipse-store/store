@@ -121,7 +121,7 @@ public final class VectorAnnotationHandler<E> implements GigaIndexAnnotationHand
 		vectorIndices.add(
 			name,
 			builder.build(),
-			new AnnotationVectorizer<>(entityType, member.getName(), method)
+			new AnnotationVectorizer<>(member.getDeclaringClass(), member.getName(), method)
 		);
 	}
 

@@ -32,18 +32,18 @@ import java.lang.reflect.Method;
  */
 public final class AnnotationVectorizer<E> extends Vectorizer<E>
 {
-	private final Class<E> entityType;
+	private final Class<?> declaringClass;
 	private final String   memberName;
 	private final boolean  method;
 
 	private transient AccessibleObject member;
 
-	AnnotationVectorizer(final Class<E> entityType, final String memberName, final boolean method)
+	AnnotationVectorizer(final Class<?> declaringClass, final String memberName, final boolean method)
 	{
 		super();
-		this.entityType = entityType;
-		this.memberName = memberName;
-		this.method     = method;
+		this.declaringClass = declaringClass;
+		this.memberName     = memberName;
+		this.method         = method;
 	}
 
 	private AccessibleObject member()
@@ -53,8 +53,8 @@ public final class AnnotationVectorizer<E> extends Vectorizer<E>
 			try
 			{
 				this.member = this.method
-					? this.entityType.getDeclaredMethod(this.memberName)
-					: this.entityType.getDeclaredField(this.memberName)
+					? this.declaringClass.getDeclaredMethod(this.memberName)
+					: this.declaringClass.getDeclaredField(this.memberName)
 				;
 				this.member.trySetAccessible();
 			}

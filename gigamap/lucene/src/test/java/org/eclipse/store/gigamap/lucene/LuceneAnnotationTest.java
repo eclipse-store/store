@@ -74,6 +74,27 @@ public class LuceneAnnotationTest
 		}
 	}
 
+	record Doc(@FullText String title)
+	{
+	}
+
+	@Test
+	void recordComponentIsIndexedAndQueryable()
+	{
+		final GigaMap<Doc> map = GigaMap.New();
+		IndexerGenerator.AnnotationBased(Doc.class)
+			.register(LuceneAnnotationHandler.New())
+			.generateIndices(map);
+
+		map.add(new Doc("hello world"));
+		map.add(new Doc("another text"));
+
+		final LuceneIndex<Doc> luceneIndex = map.index().get(LuceneIndex.class);
+		final List<Doc> hits = luceneIndex.query("title:hello");
+		assertEquals(1, hits.size());
+		assertEquals("hello world", hits.get(0).title());
+	}
+
 	@Test
 	void fullTextAnnotationBuildsQueryableLuceneIndex()
 	{

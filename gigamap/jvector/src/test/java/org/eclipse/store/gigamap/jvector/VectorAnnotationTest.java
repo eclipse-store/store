@@ -42,6 +42,25 @@ class VectorAnnotationTest
 		String notAVector;
 	}
 
+	static class Base
+	{
+		@Vector(dimension = 4, similarity = VectorSimilarityFunction.COSINE)
+		float[] vector;
+
+		Base(final float[] vector)
+		{
+			this.vector = vector;
+		}
+	}
+
+	static class Sub extends Base
+	{
+		Sub(final float[] vector)
+		{
+			super(vector);
+		}
+	}
+
 	@Test
 	void vectorAnnotationBuildsSearchableIndex()
 	{
@@ -61,6 +80,23 @@ class VectorAnnotationTest
 
 		final long top = results.stream().findFirst().orElseThrow().entityId();
 		assertEquals(idA, top, "the closest vector's entity should rank first");
+	}
+
+	@Test
+	void inheritedVectorMemberIsResolved()
+	{
+		final GigaMap<Sub> map = GigaMap.New();
+		IndexerGenerator.AnnotationBased(Sub.class)
+			.register(VectorAnnotationHandler.New())
+			.generateIndices(map);
+
+		final long idA = map.add(new Sub(new float[]{1, 0, 0, 0}));
+		map.add(new Sub(new float[]{0, 1, 0, 0}));
+
+		final VectorIndex<Sub> index = map.index().get(VectorIndices.class).get("vector");
+		final var results = index.search(new float[]{1, 0, 0, 0}, 2);
+		assertFalse(results.isEmpty());
+		assertEquals(idA, results.stream().findFirst().orElseThrow().entityId());
 	}
 
 	@Test
