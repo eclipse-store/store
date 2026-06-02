@@ -14,11 +14,12 @@
 module org.eclipse.store.gigamap.lucene
 {
 	exports org.eclipse.store.gigamap.lucene;
-	
+	exports org.eclipse.store.gigamap.lucene.annotations;
+
 	requires org.apache.lucene.core;
 	requires org.apache.lucene.queryparser;
 	requires org.eclipse.serializer.base;
 	requires org.eclipse.store.gigamap;
 	
-	opens org.eclipse.store.gigamap.lucene to org.eclipse.serializer.persistence;
+	opens org.eclipse.store.gigamap.lucene to org.eclipse.serializer.persistence, org.eclipse.store.gigamap;
 }
