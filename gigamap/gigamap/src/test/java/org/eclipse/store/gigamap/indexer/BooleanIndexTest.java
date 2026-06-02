@@ -246,6 +246,12 @@ public class BooleanIndexTest
         assertFalse(this.booleanPersonIndex.is((Boolean)null).test(adult));
         assertTrue(this.booleanPersonIndex.is((Boolean)null).test(child));      // false is NOT-TRUE
         assertTrue(this.booleanPersonIndex.is((Boolean)null).test(unknown));
+
+        // Predicate-based query (search path) must also map FALSE and null to the same NOT-TRUE set:
+        // a predicate matching only TRUE -> the TRUE set; a predicate matching only null -> NOT-TRUE.
+        assertEquals(1, map.query(this.booleanPersonIndex.is(k -> Boolean.TRUE.equals(k))).count());
+        assertEquals(2, map.query(this.booleanPersonIndex.is(k -> k == null)).count());
+        assertEquals(2, map.query(this.booleanPersonIndex.is(k -> Boolean.FALSE.equals(k))).count());
     }
 
     @Test

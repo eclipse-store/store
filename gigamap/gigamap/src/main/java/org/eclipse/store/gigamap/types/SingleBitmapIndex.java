@@ -288,11 +288,16 @@ implements BitmapIndex.TopLevel<E, Boolean>, ChangeHandler
 		{
 			results[r++] = this.createResult();
 		}
-		if(predicate.test(Boolean.FALSE))
+		// FALSE and null are indistinguishable in this index: both live in the NOT-TRUE set. A
+		// predicate matching either therefore maps to the same inverted result, added at most once.
+		// Testing null here (consistent with how hashing indexes invoke predicates against a null
+		// key) keeps search() consistent with internalQuery(FALSE) / internalQuery(null), which both
+		// resolve to NOT-TRUE.
+		if(predicate.test(Boolean.FALSE) || predicate.test(null))
 		{
 			results[r++] = this.entryResultInverted();
 		}
-		
+
 		// it is theoretically possible that the predicate just always returns false, so r == 0 must be checked.
 		if(r == 0)
 		{

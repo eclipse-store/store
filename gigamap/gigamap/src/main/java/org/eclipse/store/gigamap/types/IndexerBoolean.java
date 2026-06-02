@@ -77,16 +77,23 @@ public interface IndexerBoolean<E> extends Indexer<E, Boolean>
 			return this.getBoolean(entity);
 		}
 
+		/**
+		 * {@inheritDoc}
+		 * <p>
+		 * <b>Note:</b> a Boolean index is backed by a single-bucket bitmap index that only
+		 * materializes the {@code TRUE} set; {@code FALSE} and {@code null} are indistinguishable
+		 * (both are simply "not {@code TRUE}"). To keep this in-memory predicate consistent with the
+		 * bitmap query, {@code null} and {@code FALSE} are treated equivalently: a {@code key} of
+		 * {@code TRUE} matches a {@code TRUE}-indexed entity, while a {@code key} of {@code FALSE}
+		 * <i>or</i> {@code null} matches any non-{@code TRUE} (i.e. {@code FALSE} or {@code null})
+		 * entity. Consequently {@code test(entity, null)} returns {@code true} for a
+		 * {@code FALSE}-indexed entity, and {@code test(entity, FALSE)} returns {@code true} for a
+		 * {@code null}-indexed entity - this is intentional and mirrors {@code is(false)} /
+		 * {@code is(null)} resolving to the same candidate set.
+		 */
 		@Override
 		public boolean test(final E entity, final Boolean key)
 		{
-			// A Boolean index is backed by a SingleBitmapIndex, which only materializes the TRUE
-			// set: FALSE and null are both simply "not in the TRUE set" and cannot be told apart.
-			// The bitmap query (SingleBitmapIndex#internalQuery) collapses them accordingly, so this
-			// in-memory predicate (used by Condition#test) must do the same to stay consistent:
-			// key==TRUE matches a TRUE-indexed entity, key==FALSE or null matches any non-TRUE
-			// (FALSE or null) entity. The default strict-key-equality test would diverge from the
-			// bitmap result for both FALSE and null.
 			final boolean entityIsTrue = Boolean.TRUE.equals(this.index(entity));
 			return Boolean.TRUE.equals(key) ? entityIsTrue : !entityIsTrue;
 		}
