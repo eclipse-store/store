@@ -1,0 +1,53 @@
+= Defining a Vector Index by Annotation
+
+In addition to providing a `Vectorizer` and `VectorIndexConfiguration` by hand (see xref:indexing/jvector/configuration.adoc[Configuration]), a vector similarity index can be declared with the `@Vector` annotation from the `gigamap-jvector` module.
+
+Annotate the `float[]` field (or no-argument getter) that holds the entity's embedding:
+
+[source, java]
+----
+public class Product
+{
+    @Vector(dimension = 384, similarity = VectorSimilarityFunction.COSINE)
+    private float[] embedding;
+}
+----
+
+[options="header",cols="1,3"]
+|===
+|Attribute |Meaning
+
+|`name`
+|Index name; defaults to the property name.
+
+|`dimension`
+|Required positive vector dimension; must match the length of the `float[]`.
+
+|`similarity`
+|Similarity function (`COSINE`, `EUCLIDEAN`, `DOT_PRODUCT`); defaults to `COSINE`.
+
+|`onDisk`
+|Whether the index is stored on disk; requires a directory (see below). Defaults to `false`.
+|===
+
+The vector is read from the entity on demand (embedded mode), so it is not stored a second time by the index.
+
+Register the `VectorAnnotationHandler` with annotation-based generation and pass the `GigaMap`:
+
+[source, java]
+----
+GigaMap<Product> gigaMap = GigaMap.New();
+IndexerGenerator.AnnotationBased(Product.class)
+    .register(VectorAnnotationHandler.New())
+    .generateIndices(gigaMap);
+
+gigaMap.add(new Product(/* ... embedding ... */));
+
+VectorIndices<Product> vectors = gigaMap.index().get(VectorIndices.class);
+VectorIndex<Product>   index   = vectors.get("embedding");
+var results = index.search(queryVector, 10);
+----
+
+For on-disk indices (`@Vector(onDisk = true)`), create the handler with a base directory: `VectorAnnotationHandler.New(baseDir)`; each index is stored in a sub-directory named after the index.
+
+The handler is a no-op when the entity type carries no `@Vector` member, so it composes safely with bitmap (`@Index`) and other annotations on the same entity. See xref:indexing/annotations.adoc[Annotation-based Indexing] for the overall model.

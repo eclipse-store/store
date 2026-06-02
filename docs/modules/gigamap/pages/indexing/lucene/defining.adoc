@@ -1,0 +1,53 @@
+= Defining a Lucene Index by Annotation
+
+In addition to providing a `DocumentPopulator` and `LuceneContext` by hand (see xref:indexing/lucene/configuration.adoc[Configuration]), a Lucene full-text index can be declared with the `@FullText` annotation from the `gigamap-lucene` module.
+
+Annotate the fields or no-argument getters that should be searchable:
+
+[source, java]
+----
+public class Article
+{
+    @FullText
+    private String title;
+
+    @FullText(analyzed = true)   // tokenized full-text field (default)
+    private String content;
+
+    @FullText(analyzed = false)  // exact-match keyword field
+    private String sku;
+}
+----
+
+[options="header",cols="1,3"]
+|===
+|Attribute |Meaning
+
+|`name`
+|Lucene document field name; defaults to the property name.
+
+|`analyzed`
+|`true` (default) indexes a tokenized `TextField`; `false` indexes an exact-match `StringField`.
+
+|`store`
+|Whether the original value is stored in the index (default `true`).
+|===
+
+Register the `LuceneAnnotationHandler` with annotation-based generation and pass the `GigaMap`:
+
+[source, java]
+----
+GigaMap<Article> gigaMap = GigaMap.New();
+IndexerGenerator.AnnotationBased(Article.class)
+    .register(LuceneAnnotationHandler.New())
+    .generateIndices(gigaMap);
+
+gigaMap.add(new Article(/* ... */));
+
+LuceneIndex<Article> index = gigaMap.index().get(LuceneIndex.class);
+List<Article> hits = index.query("title:eclipse");
+----
+
+By default the Lucene data is stored inside the GigaMap object graph. To store it in a directory instead, create the handler with a directory: `LuceneAnnotationHandler.New(path)` or `LuceneAnnotationHandler.New(directoryCreator)`.
+
+The handler is a no-op when the entity type carries no `@FullText` member, so it composes safely with bitmap (`@Index`) and other annotations on the same entity. See xref:indexing/annotations.adoc[Annotation-based Indexing] for the overall model.

@@ -2,6 +2,8 @@
 
 GigaMap supports multiple index types, each optimized for different query patterns.
 
+Indices can be defined by implementing indexers directly or declaratively via annotations — see xref:indexing/annotations.adoc[Annotation-based Indexing] for the latter.
+
 [options="header",cols="1,2,2"]
 |===
 |Index Type |Best For |Example Query
