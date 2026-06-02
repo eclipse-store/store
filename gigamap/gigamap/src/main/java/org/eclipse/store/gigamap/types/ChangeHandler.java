@@ -96,18 +96,54 @@ public interface ChangeHandler
 		@Override
 		public void changeInIndex(final long entityId, final ChangeHandler prevEntityHandler)
 		{
-			// Remove from all old entries once, then add to all new entries.
-			// Each individual handler.changeInIndex calls prevEntityHandler.removeFromIndex,
-			// so calling it for every handler would remove the entity from shared keys
-			// that were just re-added by a previous handler in this chain.
-			prevEntityHandler.removeFromIndex(entityId);
+			// Keys present in both the previous and the new state must be left untouched.
+			// Removing such a shared key first can empty its entry, causing the index to
+			// detach (delete) that entry; the subsequent re-add then operates on the now
+			// orphaned entry and is silently lost. So only remove keys that are gone and
+			// only add keys that are genuinely new; shared keys stay as they are.
+			if(!(prevEntityHandler instanceof final Chain prevChain))
+			{
+				// No comparable previous chain (e.g. transition from no previous state):
+				// remove from all previous entries once, then add to all new entries.
+				prevEntityHandler.removeFromIndex(entityId);
+				for(final ChangeHandler handler : this.handlers)
+				{
+					handler.changeInIndex(entityId, NullChangeChandler.SINGLETON);
+				}
+				return;
+			}
 
+			// Remove the entity from previous keys that are no longer present.
+			for(final ChangeHandler prev : prevChain.handlers)
+			{
+				if(!containsEqual(this.handlers, prev))
+				{
+					prev.removeFromIndex(entityId);
+				}
+			}
+
+			// Add the entity to newly introduced keys; shared keys are left untouched.
 			for(final ChangeHandler handler : this.handlers)
 			{
-				handler.changeInIndex(entityId, NullChangeChandler.SINGLETON);
+				if(!containsEqual(prevChain.handlers, handler))
+				{
+					handler.changeInIndex(entityId, NullChangeChandler.SINGLETON);
+				}
 			}
 		}
-		
+
+		private static boolean containsEqual(final XGettingList<ChangeHandler> handlers, final ChangeHandler handler)
+		{
+			for(final ChangeHandler h : handlers)
+			{
+				if(h.isEqual(handler) || handler.isEqual(h))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+
 	}
 	
 }
