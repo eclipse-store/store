@@ -247,8 +247,9 @@ For each annotated property the generator picks a matching indexer based on the 
 * `UUID` (always a binary index)
 * `enum` types (low-cardinality index)
 * `Iterable<T>` and arrays (multi-value index)
+* any `Comparable` type (including `java.util.Date`) gets a comparing index, so range queries (`lessThan`, `greaterThan`, `between`) work in addition to equality
 
-Any other type falls back to a generic, equality-based indexer (value `equals`/`hashCode`). For such custom key types, make sure `equals` and `hashCode` are implemented.
+Any remaining (non-`Comparable`) type falls back to a generic, equality-based indexer (value `equals`/`hashCode`). For such custom key types, make sure `equals` and `hashCode` are implemented.
 
 === Choosing the index kind
 
@@ -273,7 +274,7 @@ ByteIndexerInteger<Product> price = gigaMap.index().bitmap().getIndexer(ByteInde
 gigaMap.query(price.between(10, 100));
 ----
 
-`@Index(binary = true)` is the backward-compatible shortcut for `kind = IndexKind.BINARY`. Requesting `BINARY` or `BIT_SLICED` for an unsupported type fails fast at generation time.
+`@Index(binary = true)` is the backward-compatible shortcut for `kind = IndexKind.BINARY`. `BINARY` supports the natural-number types, `float`/`double`, `String` and `UUID`; `BIT_SLICED` supports the numeric types and `Instant`. Requesting either for an unsupported type fails fast at generation time.
 
 === Custom indexer via a creator
 

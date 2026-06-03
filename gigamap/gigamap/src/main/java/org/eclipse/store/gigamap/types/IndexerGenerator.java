@@ -394,6 +394,14 @@ public interface IndexerGenerator<E>
 				{
 					return new BinaryIndexerField(name, accessor);
 				}
+				if(XTypes.isFloatType(type))
+				{
+					return new BinaryIndexerFloatField(name, accessor);
+				}
+				if(XTypes.isDoubleType(type))
+				{
+					return new BinaryIndexerDoubleField(name, accessor);
+				}
 				if(String.class.equals(type))
 				{
 					return new BinaryIndexerStringField(name, accessor);
@@ -496,6 +504,12 @@ public interface IndexerGenerator<E>
 				return new IndexerMultiValueFieldArray(name, accessor);
 			}
 
+			if(Comparable.class.isAssignableFrom(type))
+			{
+				// Comparable key types (e.g. java.util.Date or a custom Comparable) get a comparing index
+				// so range queries work; equality still uses equals/hashCode (see IndexerComparing.Abstract).
+				return new IndexerComparingField(name, accessor, type);
+			}
 			return new IndexerCustomField<>(name, accessor);
 		}
 
@@ -525,6 +539,10 @@ public interface IndexerGenerator<E>
 			if(XTypes.isDoubleType(type))
 			{
 				return new ByteIndexerDoubleField(name, accessor);
+			}
+			if(Instant.class.equals(type))
+			{
+				return new ByteIndexerInstantField(name, accessor);
 			}
 			return null;
 		}
@@ -1518,6 +1536,118 @@ public interface IndexerGenerator<E>
 					list.add((K)Array.get(array, i));
 				}
 				return list;
+			}
+
+		}
+
+
+		static class BinaryIndexerFloatField<E> extends BinaryIndexerFloat.Abstract<E>
+		{
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			BinaryIndexerFloatField(final String indexName, final MemberAccessor accessor)
+			{
+				this.indexName = indexName;
+				this.accessor  = accessor;
+			}
+
+			@Override
+			public String name()
+			{
+				return this.indexName;
+			}
+
+			@Override
+			protected Float getFloat(final E entity)
+			{
+				return this.accessor.getValue(entity);
+			}
+
+		}
+
+
+		static class BinaryIndexerDoubleField<E> extends BinaryIndexerDouble.Abstract<E>
+		{
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			BinaryIndexerDoubleField(final String indexName, final MemberAccessor accessor)
+			{
+				this.indexName = indexName;
+				this.accessor  = accessor;
+			}
+
+			@Override
+			public String name()
+			{
+				return this.indexName;
+			}
+
+			@Override
+			protected Double getDouble(final E entity)
+			{
+				return this.accessor.getValue(entity);
+			}
+
+		}
+
+
+		static class ByteIndexerInstantField<E> extends ByteIndexerInstant.Abstract<E>
+		{
+			private final String         indexName;
+			private final MemberAccessor accessor;
+
+			ByteIndexerInstantField(final String indexName, final MemberAccessor accessor)
+			{
+				this.indexName = indexName;
+				this.accessor  = accessor;
+			}
+
+			@Override
+			public String name()
+			{
+				return this.indexName;
+			}
+
+			@Override
+			protected Instant getInstant(final E entity)
+			{
+				return this.accessor.getValue(entity);
+			}
+
+		}
+
+
+		static class IndexerComparingField<E, K> extends IndexerComparing.Abstract<E, K>
+		{
+			private final String         indexName;
+			private final MemberAccessor accessor;
+			private final Class<K>       keyType;
+
+			IndexerComparingField(final String indexName, final MemberAccessor accessor, final Class<K> keyType)
+			{
+				this.indexName = indexName;
+				this.accessor  = accessor;
+				this.keyType   = keyType;
+			}
+
+			@Override
+			public String name()
+			{
+				return this.indexName;
+			}
+
+			@Override
+			public Class<K> keyType()
+			{
+				return this.keyType;
+			}
+
+			@Override
+			public K index(final E entity)
+			{
+				return this.accessor.getValue(entity);
 			}
 
 		}
