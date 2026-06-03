@@ -74,7 +74,40 @@ public interface UniqueConstraints<E> extends GigaConstraints.Category<E>
 	 * @return the updated instance of {@code UniqueConstraints<E>} with the new unique constraints applied
 	 */
 	public UniqueConstraints<E> addUniqueConstraints(Iterable<? extends Indexer<? super E, ?>> indexers);
-	
+
+	/**
+	 * Removes the unique constraint registered under the given index name, i.e. stops enforcing
+	 * uniqueness for that index.
+	 * <p>
+	 * The underlying index is <b>not</b> removed: it remains registered as a regular, queryable
+	 * bitmap index. To remove the index itself, use {@link BitmapIndices#removeIndex(String)}.
+	 * <p>
+	 * Because the demoted index keeps its name, it cannot be re-promoted directly via
+	 * {@link #addUniqueConstraint(String, Indexer)} (that would fail on the already-registered name);
+	 * remove the index first with {@link BitmapIndices#removeIndex(String)}, then add the unique
+	 * constraint anew (which re-validates the current data).
+	 *
+	 * @param indexName the name of the unique constraint to remove
+	 * @return {@code true} if a unique constraint with that name existed and was removed,
+	 *         {@code false} otherwise
+	 */
+	public boolean removeUniqueConstraint(String indexName);
+
+	/**
+	 * Removes the unique constraint registered under the {@link Indexer#name() name} of the given
+	 * indexer.
+	 * <p>
+	 * For details see {@link #removeUniqueConstraint(String)}.
+	 *
+	 * @param indexer the indexer whose name identifies the unique constraint to remove
+	 * @return {@code true} if a unique constraint with that name existed and was removed,
+	 *         {@code false} otherwise
+	 */
+	public default boolean removeUniqueConstraint(final Indexer<? super E, ?> indexer)
+	{
+		return this.removeUniqueConstraint(indexer.name());
+	}
+
 	/**
 	 * Applies the provided logic to each unique constraint in the current category.
 	 * The unique constraints are represented as instances of {@code XImmutableEnum} containing

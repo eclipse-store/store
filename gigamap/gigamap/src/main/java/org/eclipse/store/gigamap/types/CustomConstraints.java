@@ -63,9 +63,28 @@ public interface CustomConstraints<E> extends GigaConstraints.Category<E>
 	 * @return the updated CustomConstraints instance with the new constraints added
 	 */
 	public CustomConstraints<E> addConstraints(Iterable<? extends CustomConstraint<? super E>> constraints);
-	
-		
-	
+
+	/**
+	 * Removes the custom constraint registered under the given name, i.e. stops enforcing it.
+	 *
+	 * @param name the {@link CustomConstraint#name() name} of the constraint to remove
+	 * @return {@code true} if a constraint with that name existed and was removed, {@code false} otherwise
+	 */
+	public boolean removeConstraint(String name);
+
+	/**
+	 * Removes the given custom constraint, identified by its {@link CustomConstraint#name() name}.
+	 * <p>
+	 * For details see {@link #removeConstraint(String)}.
+	 *
+	 * @param constraint the constraint whose name identifies the constraint to remove
+	 * @return {@code true} if a constraint with that name existed and was removed, {@code false} otherwise
+	 */
+	public default boolean removeConstraint(final CustomConstraint<? super E> constraint)
+	{
+		return this.removeConstraint(constraint.name());
+	}
+
 	public final class Default<E> extends AbstractStateChangeFlagged implements CustomConstraints<E>
 	{
 		///////////////////////////////////////////////////////////////////////////
@@ -196,7 +215,26 @@ public interface CustomConstraints<E> extends GigaConstraints.Category<E>
 
 			return this;
 		}
-		
+
+		@Override
+		public final boolean removeConstraint(final String name)
+		{
+			synchronized(this.parentMap())
+			{
+				if(this.elements == null)
+				{
+					return false;
+				}
+				if(this.elements.removeFor(name) == null)
+				{
+					return false;
+				}
+				this.markStateChangeInstance();
+				this.parent.internalReportConstraintsStateChange();
+				return true;
+			}
+		}
+
 		private void validateForExistingEntities(final Iterable<? extends CustomConstraint<? super E>> constraints)
 		{
 			this.parent.iterateIndexed((final long entityId, final E entity) ->

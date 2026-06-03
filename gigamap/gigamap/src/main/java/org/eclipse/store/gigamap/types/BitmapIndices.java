@@ -91,7 +91,69 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	public BitmapIndices<E> addAll(Iterable<? extends Indexer<? super E, ?>> indexers);
 	
 	/**
+	 * Removes the index registered under the given name.
+	 * <p>
+	 * The index and its data are dropped from this group. If the index is also registered as a
+	 * unique constraint, that constraint is lifted as well. The orphaned index data is reclaimed
+	 * by the storage's garbage collection on the next housekeeping cycle after the surrounding
+	 * {@link GigaMap} is stored - it is not freed synchronously.
+	 * <p>
+	 * Removing an index that is currently registered as an
+	 * {@link #identityIndices() identity index} is rejected with a {@link RuntimeException},
+	 * because doing so would silently break entity lookup and removal; update the identity indices
+	 * first via {@link #setIdentityIndices(org.eclipse.serializer.collections.types.XGettingEnum)}.
+	 *
+	 * @param name the name of the index to remove
+	 * @return {@code true} if an index with that name existed and was removed, {@code false} otherwise
+	 * @throws RuntimeException if the index is currently registered as an identity index, or if the
+	 *         parent {@link GigaMap} is read-only
+	 * @see #update(Indexer)
+	 */
+	public boolean removeIndex(String name);
+
+	/**
+	 * Removes the index registered under the {@link IndexIdentifier#name() name} of the given identifier.
+	 * <p>
+	 * For details see {@link #removeIndex(String)}.
+	 *
+	 * @param identifier the identifier whose name identifies the index to remove
+	 * @return {@code true} if an index with that name existed and was removed, {@code false} otherwise
+	 */
+	public default boolean removeIndex(final IndexIdentifier<? super E, ?> identifier)
+	{
+		return this.removeIndex(identifier.name());
+	}
+
+	/**
+	 * Replaces the indexing logic of the already-registered index that has the same
+	 * {@link Indexer#name() name} as the given indexer, and rebuilds that index's data from all
+	 * entities currently contained in the parent {@link GigaMap}.
+	 * <p>
+	 * Unlike {@link #ensure(Indexer)}, which never changes an existing index, this method is the
+	 * supported way to change an index's logic. Unique-constraint and identity-index membership of
+	 * the existing index are preserved: if the index was a unique constraint, the rebuild
+	 * re-validates uniqueness under the new logic (and fails with a
+	 * {@link org.eclipse.store.gigamap.exceptions.UniqueConstraintViolationException} if the current
+	 * data is no longer unique); if it was an identity index, the identity set is re-pointed to the
+	 * rebuilt index.
+	 *
+	 * @param <K> the key type
+	 * @param indexer the new indexing logic, whose name selects the index to replace
+	 * @return the rebuilt index
+	 * @throws RuntimeException if no index is registered under the indexer's name, or if the parent
+	 *         {@link GigaMap} is read-only
+	 * @see #removeIndex(String)
+	 */
+	public <K> BitmapIndex<E, K> update(Indexer<? super E, K> indexer);
+
+	/**
 	 * Ensures that an index exists in this group.
+	 * <p>
+	 * This is a get-or-create operation: if an index is already registered under the given
+	 * indexer's {@link Indexer#name() name} (and key type), that existing index is returned
+	 * <b>unchanged</b> and the passed {@code indexer}'s logic is ignored. {@code ensure} therefore
+	 * never modifies an existing index. To change the logic of an already-registered index, use
+	 * {@link #update(Indexer)}.
 	 *
 	 * @param <K> the key type
 	 * @param indexer the indexing logic
@@ -682,11 +744,184 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 				final BitmapIndex.Internal<E, K> index = indexer.createFor(this);
 				this.internalAddBitmapIndex(index);
 				this.rebuildCache();
-				
+
 				return index;
 			}
 		}
-		
+
+		@Override
+		public boolean removeIndex(final String name)
+		{
+			synchronized(this.parentMap())
+			{
+				if(this.parentMap().isReadOnly())
+				{
+					throw new BitmapIndicesException(
+						"Cannot remove index \"" + name + "\": the parent GigaMap is read-only.",
+						this
+					);
+				}
+				return this.internalRemoveIndex(name, false) != null;
+			}
+		}
+
+		/**
+		 * @param allowIdentity whether an index that is currently an identity index may be removed.
+		 *        {@code false} for the public {@link #removeIndex(String)}; {@code true} for
+		 *        {@link #update(Indexer)}, which re-points the identity set to the rebuilt index.
+		 * @return the removed index, or {@code null} if no index was registered under the given name
+		 */
+		private BitmapIndex.Internal<E, ?> internalRemoveIndex(final String name, final boolean allowIdentity)
+		{
+			final BitmapIndex.Internal<E, ?> index = this.bitmapIndices.get(name);
+			if(index == null)
+			{
+				return null;
+			}
+			if(!allowIdentity && this.isIdentityIndex(index))
+			{
+				throw new BitmapIndicesException(
+					"Index \"" + name + "\" is registered as an identity index and cannot be removed; "
+					+ "update the identity indices first.",
+					this
+				);
+			}
+			this.bitmapIndices.removeFor(name);
+			this.internalRemoveUniqueConstraint(index);
+			this.rebuildCache();
+			this.markStateChangeInstance();
+			this.parent.internalReportIndexGroupStateChange(this);
+			return index;
+		}
+
+		@Override
+		public boolean removeUniqueConstraint(final String name)
+		{
+			synchronized(this.parentMap())
+			{
+				final BitmapIndex.Internal<E, ?> index = this.bitmapIndices.get(name);
+				if(index == null || this.uniqueConstraints == null || !this.uniqueConstraints.contains(index))
+				{
+					return false;
+				}
+				this.internalRemoveUniqueConstraint(index);
+				// the index stays registered, but its unique flag in the cache must be cleared.
+				this.rebuildCache();
+				this.markStateChangeInstance();
+				return true;
+			}
+		}
+
+		private void internalRemoveUniqueConstraint(final BitmapIndex.Internal<E, ?> index)
+		{
+			if(this.uniqueConstraints == null || !this.uniqueConstraints.contains(index))
+			{
+				return;
+			}
+			final BulkList<BitmapIndex.Internal<E, ?>> remaining = BulkList.New();
+			for(final BitmapIndex.Internal<E, ?> e : this.uniqueConstraints)
+			{
+				if(e != index)
+				{
+					remaining.add(e);
+				}
+			}
+			this.uniqueConstraints = remaining.isEmpty() ? null : ConstHashEnum.New(remaining);
+			this.parent.internalReportIndexGroupStateChange(this);
+		}
+
+		private boolean isIdentityIndex(final BitmapIndex.Internal<E, ?> index)
+		{
+			if(this.identityIndices == null)
+			{
+				return false;
+			}
+			for(final BitmapIndex<E, ?> identityIndex : this.identityIndices)
+			{
+				if(identityIndex == index)
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+
+		@Override
+		public <K> BitmapIndex<E, K> update(final Indexer<? super E, K> indexer)
+		{
+			synchronized(this.parentMap())
+			{
+				if(this.parentMap().isReadOnly())
+				{
+					throw new BitmapIndicesException(
+						"Cannot update indexer \"" + indexer.name() + "\": the parent GigaMap is read-only.",
+						this
+					);
+				}
+				final String                     name     = indexer.name();
+				final BitmapIndex.Internal<E, ?> existing = this.bitmapIndices.get(name);
+				if(existing == null)
+				{
+					throw new BitmapIndicesException(
+						"No index registered for name \"" + name + "\" to update; use add(...) to create it.",
+						this
+					);
+				}
+				final boolean wasUnique   = this.isUniqueConstraint(existing);
+				final boolean wasIdentity = this.isIdentityIndex(existing);
+
+				final BitmapIndex.Internal<E, K> index = indexer.createFor(this);
+				if(wasUnique)
+				{
+					if(!index.isSuitableAsUniqueConstraint())
+					{
+						throw new BitmapIndicesException(
+							"Index not suited as a unique constraint: \"" + index.name() + "\" class " + index.getClass(),
+							this
+						);
+					}
+					// Build and validate the new index' data against all existing entities BEFORE dropping
+					// the old one, so that a uniqueness violation under the new logic leaves the existing
+					// index untouched (atomic failure). The new index is standalone (not yet registered).
+					final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices = EqHashTable.New();
+					indices.add(index.name(), index);
+					this.buildIndexDataAndValidateUniqueness(indices);
+				}
+
+				// commit: drop the old index (logic + data), then register the rebuilt index.
+				// identity removal is allowed here and restored below.
+				this.internalRemoveIndex(name, true);
+				if(wasUnique)
+				{
+					this.internalAddUniqueConstraint(index);
+				}
+				// registers the index and back-fills it from all existing entities (idempotent for the unique branch).
+				this.internalAddBitmapIndex(index);
+
+				if(wasIdentity)
+				{
+					this.internalReplaceIdentityIndex(existing, index);
+				}
+				this.rebuildCache();
+				return index;
+			}
+		}
+
+		private void internalReplaceIdentityIndex(final BitmapIndex<E, ?> oldIndex, final BitmapIndex<E, ?> newIndex)
+		{
+			if(this.identityIndices == null)
+			{
+				return;
+			}
+			final BulkList<BitmapIndex<E, ?>> resolved = BulkList.New();
+			for(final BitmapIndex<E, ?> identityIndex : this.identityIndices)
+			{
+				resolved.add(identityIndex == oldIndex ? newIndex : identityIndex);
+			}
+			this.internalSetIdentityIndices(ConstHashEnum.New(resolved));
+			this.markStateChangeInstance();
+		}
+
 		@Override
 		public final BitmapIndices<E> addAll(final Iterable<? extends Indexer<? super E, ?>> indexers)
 		{
