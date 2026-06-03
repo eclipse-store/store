@@ -191,7 +191,7 @@ Alternatively, indices can be defined by annotating the relevant fields of the e
 ----
 public class Person
 {
-	@Index @Identity
+	@Identity
     private long           id           ;
 
     @Index
@@ -214,6 +214,8 @@ public class Person
 }
 ----
 
+`@Unique` and `@Identity` do not require a companion `@Index`: on their own they generate the appropriate index for the property — a unique index, respectively an index marked as identity (as with the standalone `@Identity` on `id` above). They may still be combined with `@Index` and with each other, e.g. `@Index @Unique String email;`.
+
 === Registration
 
 When creating the GigaMap, the indices must also be registered.
@@ -230,9 +232,140 @@ Since there are no constants in your code, you need to reference the generated i
 [source, java]
 ----
 BitmapIndices<Person> bitmapIndices = gigaMap.index().bitmap();
-IndexerString<Person> firstNameIndex = bitmapIndices.getStringIndex("firstName");
+IndexerString<Person> firstNameIndex = bitmapIndices.getIndexerString("firstName");
 // ...
 ----
+
+=== Supported types
+
+For each annotated property the generator picks a matching indexer based on the declared type:
+
+* `String`, `Character`
+* the numeric wrapper/primitive types (`Byte`, `Short`, `Integer`, `Long`, `Float`, `Double`)
+* `Boolean`
+* `java.time` types: `LocalDate`, `LocalTime`, `LocalDateTime`, `YearMonth`, `Instant`, `ZonedDateTime`
+* `UUID` (always a binary index)
+* `enum` types (low-cardinality index)
+* `Iterable<T>` and arrays (multi-value index)
+* any `Comparable` type (including `java.util.Date`) gets a comparing index, so range queries (`lessThan`, `greaterThan`, `between`) work in addition to equality
+
+Any remaining (non-`Comparable`) type falls back to a generic, equality-based indexer (value `equals`/`hashCode`). For such custom key types, make sure `equals` and `hashCode` are implemented.
+
+=== Choosing the index kind
+
+By default the generator picks a suitable bitmap index for the field type. Use `@Index(kind = ...)` to choose explicitly (see xref:indexing/bitmap/types.adoc[Index Types] for the trade-offs):
+
+[source, java]
+----
+public class Product
+{
+    @Index(kind = IndexKind.LOW_CARDINALITY)  // hashing index (default for most types)
+    private String category;
+
+    @Index(kind = IndexKind.BINARY)           // high cardinality, equality-only
+    private long id;
+
+    @Index(kind = IndexKind.BIT_SLICED)       // high cardinality, supports range queries
+    private int price;
+}
+
+// range query on the bit-sliced numeric index
+ByteIndexerInteger<Product> price = gigaMap.index().bitmap().getIndexer(ByteIndexerInteger.class, "price");
+gigaMap.query(price.between(10, 100));
+----
+
+`@Index(binary = true)` is the backward-compatible shortcut for `kind = IndexKind.BINARY`. `BINARY` supports the natural-number types, `float`/`double`, `String` and `UUID`; `BIT_SLICED` supports the numeric types and `Instant`. Requesting either for an unsupported type fails fast at generation time.
+
+=== Custom indexer via a creator
+
+When none of the built-in mappings fit, supply your own indexer with `@Index(creator = ...)`. The creator is an `Indexer.Creator` with a public no-argument constructor; the `Indexer` returned by its `create()` method is registered as the index for that property:
+
+[source, java]
+----
+@Index(creator = MyCreator.class)
+private SomeType value;
+----
+
+If the creator implements `Indexer.Creator.MemberAware`, the generator calls `initialize(indexName, member)` with the resolved index name and the reflective `Field`/`Method` *before* `create()`. This lets a single creator be reused across properties and read whichever member it was attached to, instead of hard-coding one:
+
+[source, java]
+----
+public class UpperCaseStringCreator implements Indexer.Creator.MemberAware<MyEntity, String>
+{
+    private String name;
+    private Field  field;
+
+    @Override
+    public void initialize(final String indexName, final Member member)
+    {
+        this.name  = indexName;
+        this.field = (Field)member;
+    }
+
+    @Override
+    public Indexer<MyEntity, String> create()
+    {
+        final String name  = this.name;
+        final Field  field = this.field;
+        return new IndexerString.Abstract<>()
+        {
+            @Override public String name() { return name; }
+            @Override protected String getString(final MyEntity e)
+            {
+                try { return ((String)field.get(e)).toUpperCase(); }
+                catch(IllegalAccessException ex) { throw new RuntimeException(ex); }
+            }
+        };
+    }
+}
+----
+
+NOTE: As with member access, the creator class must be reachable from the GigaMap module — in a named module, make the creator `public` and `opens` its package to `org.eclipse.store.gigamap`.
+
+=== Annotating getters
+
+`@Index`, `@Unique` and `@Identity` may be placed on a no-argument getter instead of a field. The index name is derived from the property (the `get`/`is` prefix is stripped). This makes annotation-based indexing work for records and immutable types:
+
+[source, java]
+----
+public record Product(@Index String sku, @Index int quantity) { }
+----
+
+NOTE: The generator reads the annotated members reflectively. When your entities live in a *named* Java module, open their package to the GigaMap module so the values can be read: `opens com.example.model to org.eclipse.store.gigamap;` (and to the respective integration module — e.g. `org.eclipse.store.gigamap.lucene` — when using its annotations).
+
+=== Class-level spatial index
+
+A spatial index spans two coordinate properties and is therefore declared on the type with `@SpatialIndex`, naming the latitude and longitude members (fields or getters):
+
+[source, java]
+----
+@SpatialIndex(latitude = "lat", longitude = "lon")
+public class City
+{
+    private String name;
+    private double lat;
+    private double lon;
+}
+
+SpatialIndexer<City> spatial = gigaMap.index().bitmap().getIndexer(SpatialIndexer.class, "spatial");
+gigaMap.query(spatial.near(52.52, 13.405, 100)); // within 100 km
+----
+
+See xref:indexing/spatial/index.adoc[Spatial Index] for the full query API.
+
+=== Generating across index types
+
+`IndexerGenerator.AnnotationBased(...).generateIndices(BitmapIndices)` only generates bitmap indices. To also generate full-text or vector indices declared by integration-module annotations, register the corresponding handler and call the `GigaMap` overload:
+
+[source, java]
+----
+IndexerGenerator.AnnotationBased(Article.class)
+    .register(LuceneAnnotationHandler.New())   // from gigamap-lucene
+    .register(VectorAnnotationHandler.New())   // from gigamap-jvector
+    .generateIndices(gigaMap);                 // bitmap + full-text + vector
+----
+
+See xref:indexing/annotations.adoc[Annotation-based Indexing] for the full picture and for adding your own handler. The `@Indexed` type-level marker can be used to flag entity types whose indices are defined by annotations.
 
 == Persistence
 

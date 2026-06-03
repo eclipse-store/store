@@ -1,0 +1,83 @@
+= Annotation-based Indexing
+
+Instead of implementing and registering indexers by hand, GigaMap can derive them from annotations on your entity type. The core module ships the bitmap annotations; integration modules add their own.
+
+[options="header",cols="1,2,2"]
+|===
+|Annotation |Module |Produces
+
+|`@Index`, `@Unique`, `@Identity`
+|`gigamap`
+|Bitmap indices (see xref:indexing/bitmap/defining.adoc[Defining Indices])
+
+|`@SpatialIndex`
+|`gigamap`
+|Spatial (geo) index (see xref:indexing/spatial/index.adoc[Spatial Index])
+
+|`@FullText`
+|`gigamap-lucene`
+|Lucene full-text index (see xref:indexing/lucene/defining.adoc[Lucene · Annotations])
+
+|`@Vector`
+|`gigamap-jvector`
+|JVector similarity index (see xref:indexing/jvector/defining.adoc[JVector · Annotations])
+
+|`@Indexed`
+|`gigamap`
+|Type-level marker flagging an annotated entity (optional)
+|===
+
+== Generating the indices
+
+Bitmap indices alone:
+
+[source, java]
+----
+GigaMap<Person> gigaMap = GigaMap.New();
+IndexerGenerator.AnnotationBased(Person.class).generateIndices(gigaMap.index().bitmap());
+----
+
+To also generate indices contributed by integration modules, register their handlers and pass the `GigaMap` (the bitmap indices are generated first, then each handler runs in registration order):
+
+[source, java]
+----
+IndexerGenerator.AnnotationBased(Article.class)
+    .register(LuceneAnnotationHandler.New())   // gigamap-lucene
+    .register(VectorAnnotationHandler.New())   // gigamap-jvector
+    .generateIndices(gigaMap);
+----
+
+The convenience method does the same in one call:
+
+[source, java]
+----
+IndexerGenerator.generate(Article.class, gigaMap,
+    LuceneAnnotationHandler.New(),
+    VectorAnnotationHandler.New());
+----
+
+Registration uses explicit handlers (no classpath scanning), so only the modules you depend on participate.
+
+== Adding your own annotation handler
+
+An index type outside the core module participates by implementing `GigaIndexAnnotationHandler`. The handler reflects over the entity type for the annotations it owns and registers the matching `IndexCategory` on the supplied `GigaIndices`; it must be a no-op when the type carries none of its annotations.
+
+[source, java]
+----
+public final class MyAnnotationHandler<E> implements GigaIndexAnnotationHandler<E>
+{
+    @Override
+    public void contribute(Class<E> entityType, GigaIndices<E> indices)
+    {
+        if(/* entityType has none of my annotations */)
+        {
+            return;
+        }
+        indices.register(MyIndex.Category(/* configuration derived from the annotations */));
+    }
+}
+----
+
+This is exactly how `LuceneAnnotationHandler` and `VectorAnnotationHandler` are built; use them as a reference.
+
+NOTE: The generator and handlers read annotated members reflectively. For entities in a *named* Java module, open the entity package to the modules that read it — `org.eclipse.store.gigamap` for bitmap/spatial annotations and the respective integration module (e.g. `org.eclipse.store.gigamap.lucene`) for its annotations.

@@ -122,6 +122,30 @@ gigaMap.query(locationIndex.at(51.5074, -0.1278));
 gigaMap.query(locationIndex.latitudeAbove(0.0));
 ----
 
+== Defining by Annotation
+
+A spatial index can also be declared without a hand-written `SpatialIndexer` by placing `@SpatialIndex` on the entity type and naming the latitude and longitude properties (fields or no-argument getters):
+
+[source, java]
+----
+@SpatialIndex(latitude = "lat", longitude = "lon")
+public class Location
+{
+    private String name;
+    private double lat;
+    private double lon;
+}
+
+GigaMap<Location> gigaMap = GigaMap.New();
+IndexerGenerator.AnnotationBased(Location.class).generateIndices(gigaMap.index().bitmap());
+
+// the generated index is named "spatial" by default (override via @SpatialIndex(name = ...))
+SpatialIndexer<Location> spatial = gigaMap.index().bitmap().getIndexer(SpatialIndexer.class, "spatial");
+gigaMap.query(spatial.near(40.7128, -74.0060, 100.0));
+----
+
+See xref:indexing/annotations.adoc[Annotation-based Indexing] for the overall model.
+
 == Query Methods
 
 [options="header",cols="2,3"]
