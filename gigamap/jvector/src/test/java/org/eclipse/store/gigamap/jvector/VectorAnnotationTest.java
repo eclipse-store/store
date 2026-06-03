@@ -118,6 +118,25 @@ class VectorAnnotationTest
 	}
 
 	@Test
+	void generatingTwiceIsIdempotent()
+	{
+		final GigaMap<Item> map = GigaMap.New();
+		IndexerGenerator.AnnotationBased(Item.class)
+			.register(VectorAnnotationHandler.New())
+			.generateIndices(map);
+		// second run must not throw on the already-registered index
+		IndexerGenerator.AnnotationBased(Item.class)
+			.register(VectorAnnotationHandler.New())
+			.generateIndices(map);
+
+		final long idA = map.add(new Item(new float[]{1, 0, 0, 0}));
+		map.add(new Item(new float[]{0, 1, 0, 0}));
+
+		final VectorIndex<Item> index = map.index().get(VectorIndices.class).get("vector");
+		assertEquals(idA, index.search(new float[]{1, 0, 0, 0}, 2).stream().findFirst().orElseThrow().entityId());
+	}
+
+	@Test
 	void vectorOnNonFloatArrayFailsFast()
 	{
 		final GigaMap<Bad> map = GigaMap.New();

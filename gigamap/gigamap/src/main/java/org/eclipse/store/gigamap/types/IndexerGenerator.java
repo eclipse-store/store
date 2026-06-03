@@ -216,8 +216,31 @@ public interface IndexerGenerator<E>
 
 			this.addSpatialIndices(indexers, indexNames);
 
-			target.addUniqueConstraints(uniqueIndexers);
-			target.addAll(indexers);
+			// Idempotent: skip unique constraints already registered and ensure (rather than add) the
+			// remaining indices, so the generator can run more than once on the same GigaMap without
+			// failing on already-present index names.
+			final XEnum<String> existingUnique = HashEnum.New();
+			target.accessUniqueConstraints(constraints ->
+			{
+				for(final GigaIndex<E> constraint : constraints)
+				{
+					existingUnique.add(constraint.name());
+				}
+			});
+			final XList<Indexer<E, ?>> newUniqueIndexers = BulkList.New();
+			for(final Indexer<E, ?> uniqueIndexer : uniqueIndexers)
+			{
+				if(!existingUnique.contains(uniqueIndexer.name()))
+				{
+					newUniqueIndexers.add(uniqueIndexer);
+				}
+			}
+			if(!newUniqueIndexers.isEmpty())
+			{
+				target.addUniqueConstraints(newUniqueIndexers);
+			}
+
+			target.ensureAll(indexers);
 			target.setIdentityIndices(identityIndices);
 		}
 
@@ -476,7 +499,7 @@ public interface IndexerGenerator<E>
 			return new IndexerCustomField<>(name, accessor);
 		}
 
-		@SuppressWarnings("rawtypes")
+		@SuppressWarnings({"rawtypes", "unchecked"})
 		private Indexer<E, ?> createBitSliced(final Class<?> type, final String name, final MemberAccessor accessor)
 		{
 			if(XTypes.isIntegerType(type))
@@ -617,7 +640,7 @@ public interface IndexerGenerator<E>
 
 			AnnotatedElement annotated()
 			{
-				return (AnnotatedElement)this.member();
+				return this.member();
 			}
 
 			Class<?> type()

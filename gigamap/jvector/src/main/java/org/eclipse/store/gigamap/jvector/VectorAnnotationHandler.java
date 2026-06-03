@@ -125,7 +125,8 @@ public final class VectorAnnotationHandler<E> implements GigaIndexAnnotationHand
 		{
 			vectorIndices = indices.get(VectorIndices.class);
 		}
-		vectorIndices.add(
+		// ensure (not add) so re-running annotation-based generation is idempotent
+		vectorIndices.ensure(
 			name,
 			builder.build(),
 			new AnnotationVectorizer<>(member.getDeclaringClass(), member.getName(), method)
