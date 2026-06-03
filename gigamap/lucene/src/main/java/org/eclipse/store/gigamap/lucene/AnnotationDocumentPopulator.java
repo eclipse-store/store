@@ -92,9 +92,13 @@ public final class AnnotationDocumentPopulator<E> extends DocumentPopulator<E>
 					continue;
 				}
 				final FullText annotation = field.getAnnotation(FullText.class);
-				if(annotation != null && seenProps.add(field.getName().toLowerCase(Locale.ROOT)))
+				if(annotation != null)
 				{
-					result.add(new TextMember(field, fieldName(annotation, field.getName(), null), annotation));
+					validateTextType(field.getType(), entityType, field.getName());
+					if(seenProps.add(field.getName().toLowerCase(Locale.ROOT)))
+					{
+						result.add(new TextMember(field, fieldName(annotation, field.getName(), null), annotation));
+					}
 				}
 			}
 		}
@@ -114,6 +118,7 @@ public final class AnnotationDocumentPopulator<E> extends DocumentPopulator<E>
 				{
 					continue;
 				}
+				validateTextType(method.getReturnType(), entityType, method.getName());
 				// a property annotated on both the field and its accessor (e.g. record components) must
 				// only be indexed once; the field takes precedence, matching the bitmap generator.
 				// Compared case-insensitively so an acronym getter (getURL) matches its field (url).
@@ -130,6 +135,17 @@ public final class AnnotationDocumentPopulator<E> extends DocumentPopulator<E>
 		}
 
 		return result;
+	}
+
+	private static void validateTextType(final Class<?> type, final Class<?> entityType, final String memberName)
+	{
+		if(!CharSequence.class.isAssignableFrom(type))
+		{
+			throw new IllegalStateException(
+				"@FullText on " + entityType.getTypeName() + "." + memberName
+				+ " must be a CharSequence (e.g. String), but was " + type.getTypeName()
+			);
+		}
 	}
 
 	private static String propertyName(final String methodName, final Class<?> returnType)

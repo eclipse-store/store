@@ -27,6 +27,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class LuceneAnnotationTest
 {
@@ -74,6 +75,12 @@ public class LuceneAnnotationTest
 		}
 	}
 
+	static class BadFullText
+	{
+		@FullText
+		float[] embedding;
+	}
+
 	record Doc(@FullText String title)
 	{
 	}
@@ -116,6 +123,18 @@ public class LuceneAnnotationTest
 		final List<Article> byContent = luceneIndex.query("content:second");
 		assertEquals(1, byContent.size());
 		assertEquals("Title_2", byContent.get(0).title);
+	}
+
+	@Test
+	void fullTextOnNonTextMemberFailsFast()
+	{
+		final GigaMap<BadFullText> map = GigaMap.New();
+		assertThrows(
+			IllegalStateException.class,
+			() -> IndexerGenerator.AnnotationBased(BadFullText.class)
+				.register(LuceneAnnotationHandler.New())
+				.generateIndices(map)
+		);
 	}
 
 	@Test

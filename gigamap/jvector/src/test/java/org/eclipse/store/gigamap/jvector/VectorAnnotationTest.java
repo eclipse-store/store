@@ -42,6 +42,18 @@ class VectorAnnotationTest
 		String notAVector;
 	}
 
+	static class Conflict
+	{
+		@Vector(dimension = 4)
+		@org.eclipse.store.gigamap.annotations.Index
+		float[] vector;
+
+		Conflict(final float[] vector)
+		{
+			this.vector = vector;
+		}
+	}
+
 	static class Base
 	{
 		@Vector(dimension = 4, similarity = VectorSimilarityFunction.COSINE)
@@ -134,6 +146,18 @@ class VectorAnnotationTest
 
 		final VectorIndex<Item> index = map.index().get(VectorIndices.class).get("vector");
 		assertEquals(idA, index.search(new float[]{1, 0, 0, 0}, 2).stream().findFirst().orElseThrow().entityId());
+	}
+
+	@Test
+	void vectorCombinedWithIndexFailsFast()
+	{
+		final GigaMap<Conflict> map = GigaMap.New();
+		assertThrows(
+			IllegalStateException.class,
+			() -> IndexerGenerator.AnnotationBased(Conflict.class)
+				.register(VectorAnnotationHandler.New())
+				.generateIndices(map)
+		);
 	}
 
 	@Test

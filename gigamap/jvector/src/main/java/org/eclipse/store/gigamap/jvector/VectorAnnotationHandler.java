@@ -14,6 +14,9 @@ package org.eclipse.store.gigamap.jvector;
  * #L%
  */
 
+import org.eclipse.store.gigamap.annotations.Identity;
+import org.eclipse.store.gigamap.annotations.Index;
+import org.eclipse.store.gigamap.annotations.Unique;
 import org.eclipse.store.gigamap.jvector.annotations.Vector;
 import org.eclipse.store.gigamap.types.GigaIndexAnnotationHandler;
 import org.eclipse.store.gigamap.types.GigaIndices;
@@ -88,6 +91,7 @@ public final class VectorAnnotationHandler<E> implements GigaIndexAnnotationHand
 		{
 			return;
 		}
+		rejectConflictingBitmapAnnotations(member);
 
 		final Vector annotation = ((AnnotatedElement)member).getAnnotation(Vector.class);
 		final boolean method    = member instanceof Method;
@@ -131,6 +135,21 @@ public final class VectorAnnotationHandler<E> implements GigaIndexAnnotationHand
 			builder.build(),
 			new AnnotationVectorizer<>(member.getDeclaringClass(), member.getName(), method)
 		);
+	}
+
+	private static void rejectConflictingBitmapAnnotations(final Member member)
+	{
+		final AnnotatedElement annotated = (AnnotatedElement)member;
+		if(annotated.isAnnotationPresent(Index.class)
+			|| annotated.isAnnotationPresent(Unique.class)
+			|| annotated.isAnnotationPresent(Identity.class))
+		{
+			throw new IllegalStateException(
+				"@Vector on " + member.getDeclaringClass().getTypeName() + "." + member.getName()
+				+ " must not be combined with @Index/@Unique/@Identity: a vector field would otherwise also"
+				+ " be indexed as a (pointless) multi-value bitmap index over its components"
+			);
+		}
 	}
 
 	private static Member findVectorMember(final Class<?> entityType)
