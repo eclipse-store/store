@@ -29,6 +29,10 @@ import static java.lang.annotation.RetentionPolicy.RUNTIME;
  * for instances of the class. It can be used in scenarios where differentiating between
  * instances based on an identity value is necessary.
  * <p>
+ * For annotation-based index generation this annotation is sufficient on its own: it creates an index
+ * for the property and marks it as an identity index, so a companion {@link Index} is not required
+ * (though it may still be combined with {@link Index} or {@link Unique}).
+ * <p>
  * The annotation is retained at runtime and can be applied to fields or no-argument getter methods.
  */
 @Retention(RUNTIME)

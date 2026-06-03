@@ -30,6 +30,10 @@ import static java.lang.annotation.RetentionPolicy.RUNTIME;
  * This annotation enforces the uniqueness of the property it is applied to, often in the context of persistence or
  * data modeling systems where ensuring unique values is required.
  * <p>
+ * For annotation-based index generation this annotation is sufficient on its own: it creates a unique
+ * index for the property, so a companion {@link Index} is not required (though it may still be combined
+ * with {@link Index}).
+ * <p>
  * The annotation is retained at runtime and can be applied to fields or no-argument getter methods.
  */
 @Retention(RUNTIME)

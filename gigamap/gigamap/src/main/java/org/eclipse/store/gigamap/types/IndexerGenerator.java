@@ -24,14 +24,11 @@ import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.EqHashEnum;
 import org.eclipse.serializer.collections.HashEnum;
-import org.eclipse.serializer.collections.HashTable;
 import org.eclipse.serializer.collections.types.XEnum;
 import org.eclipse.serializer.collections.types.XList;
-import org.eclipse.serializer.collections.types.XTable;
 import org.eclipse.serializer.exceptions.IllegalAccessRuntimeException;
 import org.eclipse.serializer.exceptions.NoSuchFieldRuntimeException;
 import org.eclipse.serializer.reflect.XReflect;
-import org.eclipse.serializer.typing.KeyValue;
 import org.eclipse.serializer.typing.XTypes;
 
 import java.lang.reflect.*;
@@ -175,67 +172,45 @@ public interface IndexerGenerator<E>
 		@Override
 		public void generateIndices(final BitmapIndices<E> target)
 		{
-			final XTable<MemberAccessor, Index>    indexTable    = HashTable.New();
-			final XTable<MemberAccessor, Unique>   uniqueTable   = HashTable.New();
-			final XTable<MemberAccessor, Identity> identityTable = HashTable.New();
-			final XEnum<String>                    indexNames    = EqHashEnum.New();
+			final XEnum<String>        indexNames      = EqHashEnum.New();
+			final XList<Indexer<E, ?>> uniqueIndexers  = BulkList.New();
+			final XList<Indexer<E, ?>> indexers        = BulkList.New();
+			final XEnum<Indexer<E, ?>> identityIndices = HashEnum.New();
 
 			for(final MemberAccessor accessor : this.collectAnnotatedMembers())
 			{
-				final Index index = accessor.annotated().getAnnotation(Index.class);
-				if(index == null)
+				final AnnotatedElement annotated = accessor.annotated();
+				final Index    index    = annotated.getAnnotation(Index.class);
+				final Unique   unique   = annotated.getAnnotation(Unique.class);
+				final Identity identity = annotated.getAnnotation(Identity.class);
+
+				// @Index is optional: a member carrying @Unique or @Identity alone is indexed too.
+				if(index == null && unique == null && identity == null)
 				{
 					continue;
 				}
+
 				final String indexName = this.getIndexName(index, accessor);
 				if(!indexNames.add(indexName))
 				{
 					throw new IllegalStateException("Double index name '" + indexName + "' in " + this.entityType.getCanonicalName());
 				}
-				indexTable.add(accessor, index);
 
-				final Unique unique = accessor.annotated().getAnnotation(Unique.class);
+				final Indexer<E, ?> indexer = this.createIndexer(index, accessor, unique != null);
+
+				// a member with both @Index and @Unique is registered only as a unique constraint
 				if(unique != null)
 				{
-					uniqueTable.add(accessor, unique);
+					uniqueIndexers.add(indexer);
 				}
-
-				final Identity identity = accessor.annotated().getAnnotation(Identity.class);
+				else
+				{
+					indexers.add(indexer);
+				}
 				if(identity != null)
 				{
-					identityTable.add(accessor, identity);
-				}
-			}
-
-			final XList<Indexer<E, ?>> uniqueIndexers  = BulkList.New();
-			final XList<Indexer<E, ?>> indexers        = BulkList.New();
-			final XEnum<Indexer<E, ?>> identityIndices = HashEnum.New();
-
-			for(final MemberAccessor accessor : uniqueTable.keys())
-			{
-				final Indexer<E, ?> indexer = this.createIndexer(
-					indexTable.removeFor(accessor),
-					accessor,
-					true
-				);
-				if(identityTable.get(accessor) != null)
-				{
 					identityIndices.add(indexer);
 				}
-				uniqueIndexers.add(indexer);
-			}
-
-			for(final KeyValue<MemberAccessor, Index> kv : indexTable)
-			{
-				final MemberAccessor accessor   = kv.key();
-				final Index          annotation = kv.value();
-
-				final Indexer<E, ?> indexer = this.createIndexer(annotation, accessor, false);
-				if(identityTable.get(accessor) != null)
-				{
-					identityIndices.add(indexer);
-				}
-				indexers.add(indexer);
 			}
 
 			this.addSpatialIndices(indexers, indexNames);
@@ -255,7 +230,7 @@ public interface IndexerGenerator<E>
 				field -> !Modifier.isStatic(field.getModifiers())
 			))
 			{
-				if(field.isAnnotationPresent(Index.class))
+				if(isIndexAnnotated(field))
 				{
 					final MemberAccessor accessor = MemberAccessor.forField(field);
 					result.add(accessor);
@@ -273,7 +248,7 @@ public interface IndexerGenerator<E>
 					{
 						continue;
 					}
-					if(method.isAnnotationPresent(Index.class))
+					if(isIndexAnnotated(method))
 					{
 						final MemberAccessor accessor = MemberAccessor.forMethod(method);
 						// a record component / property annotated on both the field and its accessor
@@ -288,6 +263,14 @@ public interface IndexerGenerator<E>
 			}
 
 			return result;
+		}
+
+		private static boolean isIndexAnnotated(final AnnotatedElement element)
+		{
+			return element.isAnnotationPresent(Index.class)
+				|| element.isAnnotationPresent(Unique.class)
+				|| element.isAnnotationPresent(Identity.class)
+			;
 		}
 
 		private void addSpatialIndices(final XList<Indexer<E, ?>> indexers, final XEnum<String> indexNames)

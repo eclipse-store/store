@@ -191,7 +191,7 @@ Alternatively, indices can be defined by annotating the relevant fields of the e
 ----
 public class Person
 {
-	@Index @Identity
+	@Identity
     private long           id           ;
 
     @Index
@@ -213,6 +213,8 @@ public class Person
     // ...
 }
 ----
+
+`@Unique` and `@Identity` do not require a companion `@Index`: on their own they generate the appropriate index for the property — a unique index, respectively an index marked as identity (as with the standalone `@Identity` on `id` above). They may still be combined with `@Index` and with each other, e.g. `@Index @Unique String email;`.
 
 === Registration
 
