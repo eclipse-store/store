@@ -41,6 +41,7 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
@@ -234,7 +235,7 @@ public interface IndexerGenerator<E>
 				{
 					final MemberAccessor accessor = MemberAccessor.forField(field);
 					result.add(accessor);
-					seenProps.add(accessor.propertyName());
+					seenProps.add(normalizeProperty(accessor.propertyName()));
 				}
 			}
 
@@ -251,12 +252,12 @@ public interface IndexerGenerator<E>
 					if(isIndexAnnotated(method))
 					{
 						final MemberAccessor accessor = MemberAccessor.forMethod(method);
-						// a record component / property annotated on both the field and its accessor
-						// must only yield a single index; the field (collected above) takes precedence.
-						if(!seenProps.contains(accessor.propertyName()))
+						// a property annotated on both the field and its accessor must only yield a single
+						// index; the field (collected above) takes precedence. Compared case-insensitively
+						// so an acronym getter (getURL) matches its field (url).
+						if(seenProps.add(normalizeProperty(accessor.propertyName())))
 						{
 							result.add(accessor);
-							seenProps.add(accessor.propertyName());
 						}
 					}
 				}
@@ -271,6 +272,11 @@ public interface IndexerGenerator<E>
 				|| element.isAnnotationPresent(Unique.class)
 				|| element.isAnnotationPresent(Identity.class)
 			;
+		}
+
+		private static String normalizeProperty(final String propertyName)
+		{
+			return propertyName.toLowerCase(Locale.ROOT);
 		}
 
 		private void addSpatialIndices(final XList<Indexer<E, ?>> indexers, final XEnum<String> indexNames)

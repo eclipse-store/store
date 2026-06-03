@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 public class GetterIndexTest
 {
@@ -55,6 +56,23 @@ public class GetterIndexTest
 	{
 	}
 
+	static class Resource
+	{
+		@Index
+		private final String url;
+
+		Resource(final String url)
+		{
+			this.url = url;
+		}
+
+		@Index
+		public String getURL()
+		{
+			return this.url;
+		}
+	}
+
 	@Test
 	void getterAnnotationsAreIndexedByPropertyName()
 	{
@@ -71,6 +89,26 @@ public class GetterIndexTest
 
 		final IndexerInteger<Person> age = map.index().bitmap().getIndexerInteger("age");
 		assertEquals(1, map.query(age.is(40)).toList().size());
+	}
+
+	@Test
+	void fieldAndAcronymGetterProduceSingleIndex()
+	{
+		final GigaMap<Resource> map = GigaMap.New();
+		IndexerGenerator.AnnotationBased(Resource.class).generateIndices(map.index().bitmap());
+
+		int count = 0;
+		for(@SuppressWarnings("unused") final var entry : map.index().bitmap())
+		{
+			count++;
+		}
+		assertEquals(1, count, "field url and getter getURL must yield a single index");
+
+		final IndexerString<Resource> url = map.index().bitmap().getIndexerString("url");
+		assertNotNull(url, "the field name takes precedence");
+
+		map.add(new Resource("http://example.com"));
+		assertEquals(1, map.query(url.is("http://example.com")).toList().size());
 	}
 
 	@Test

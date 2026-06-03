@@ -28,6 +28,7 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -91,7 +92,7 @@ public final class AnnotationDocumentPopulator<E> extends DocumentPopulator<E>
 					continue;
 				}
 				final FullText annotation = field.getAnnotation(FullText.class);
-				if(annotation != null && seenProps.add(field.getName()))
+				if(annotation != null && seenProps.add(field.getName().toLowerCase(Locale.ROOT)))
 				{
 					result.add(new TextMember(field, fieldName(annotation, field.getName(), null), annotation));
 				}
@@ -115,7 +116,8 @@ public final class AnnotationDocumentPopulator<E> extends DocumentPopulator<E>
 				}
 				// a property annotated on both the field and its accessor (e.g. record components) must
 				// only be indexed once; the field takes precedence, matching the bitmap generator.
-				final String property = propertyName(method.getName(), method.getReturnType());
+				// Compared case-insensitively so an acronym getter (getURL) matches its field (url).
+				final String property = propertyName(method.getName(), method.getReturnType()).toLowerCase(Locale.ROOT);
 				if(seenProps.add(property))
 				{
 					result.add(new TextMember(
