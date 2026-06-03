@@ -22,6 +22,7 @@ import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.serializer.typing.KeyValue;
 import org.eclipse.store.gigamap.types.*;
 
+import java.io.Closeable;
 import java.util.Iterator;
 import java.util.function.Consumer;
 
@@ -74,6 +75,20 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
      * @return the found index or {@code null}
      */
     public VectorIndex<E> get(String name);
+
+    /**
+     * Removes the vector index registered under the given name, dropping it and its data.
+     * <p>
+     * The index is {@link VectorIndex#close() closed} first to release its background, search and
+     * (if any) disk resources. Vector data held inside the object graph is reclaimed by the storage's
+     * garbage collection on the next housekeeping cycle after the surrounding {@link GigaMap} is
+     * stored; index artifacts kept in an external, application-managed directory are not deleted.
+     *
+     * @param name the name of the index to remove
+     * @return {@code true} if an index with that name existed and was removed, {@code false} otherwise
+     * @throws RuntimeException if the parent {@link GigaMap} is read-only
+     */
+    public boolean removeIndex(String name);
 
     /**
      * Accesses the indices table.
@@ -130,7 +145,7 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
     }
 
 
-    public final class Default<E> extends AbstractStateChangeFlagged implements Internal<E>
+    public final class Default<E> extends AbstractStateChangeFlagged implements Internal<E>, Closeable
     {
         static BinaryTypeHandler<Default<?>> provideTypeHandler()
         {
@@ -304,6 +319,46 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
             synchronized(this.parentMap())
             {
                 return this.internalGet(name);
+            }
+        }
+
+        @Override
+        public boolean removeIndex(final String name)
+        {
+            synchronized(this.parentMap())
+            {
+                if(this.parent.isReadOnly())
+                {
+                    throw new IllegalStateException(
+                        "Cannot remove vector index \"" + name + "\": the GigaMap is read-only."
+                    );
+                }
+                final VectorIndex.Internal<E> index = this.vectorIndices.get(name);
+                if(index == null)
+                {
+                    return false;
+                }
+                index.close(); // release background/disk/searcher resources before dropping the index
+                this.vectorIndices.removeFor(name);
+                this.markStateChangeInstance();
+                this.parent.internalReportIndexGroupStateChange(this);
+                return true;
+            }
+        }
+
+        /**
+         * Closes all contained vector indices, releasing their native resources. Invoked when the
+         * whole vector index group is removed via {@link GigaIndices#remove(IndexCategory)}.
+         */
+        @Override
+        public void close()
+        {
+            synchronized(this.parentMap())
+            {
+                for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+                {
+                    index.close();
+                }
             }
         }
 
