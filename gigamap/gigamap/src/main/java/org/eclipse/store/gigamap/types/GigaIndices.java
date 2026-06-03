@@ -482,7 +482,11 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 					}
 					catch(final IOException e)
 					{
-						throw new RuntimeException(e);
+						throw new RuntimeException(
+							"Failed to close index group \"" + found.getClass().getName()
+							+ "\" while removing it.",
+							e
+						);
 					}
 				}
 
