@@ -41,7 +41,7 @@ public @interface Vector
 {
 	/**
 	 * The index name. Defaults to the property name (field name, or getter name with the
-	 * {@code get}/{@code is} prefix stripped) when empty.
+	 * {@code get} prefix stripped) when empty.
 	 *
 	 * @return the index name
 	 */

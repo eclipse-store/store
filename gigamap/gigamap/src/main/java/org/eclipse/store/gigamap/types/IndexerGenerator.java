@@ -28,6 +28,7 @@ import org.eclipse.serializer.collections.types.XEnum;
 import org.eclipse.serializer.collections.types.XList;
 import org.eclipse.serializer.exceptions.IllegalAccessRuntimeException;
 import org.eclipse.serializer.exceptions.NoSuchFieldRuntimeException;
+import org.eclipse.serializer.exceptions.NoSuchMethodRuntimeException;
 import org.eclipse.serializer.reflect.XReflect;
 import org.eclipse.serializer.typing.XTypes;
 
@@ -641,7 +642,7 @@ public interface IndexerGenerator<E>
 					}
 					catch(final NoSuchMethodException e)
 					{
-						throw new RuntimeException(e);
+						throw new NoSuchMethodRuntimeException(e);
 					}
 					catch(final NoSuchFieldException e)
 					{

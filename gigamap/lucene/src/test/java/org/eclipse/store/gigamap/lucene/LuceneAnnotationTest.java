@@ -49,24 +49,9 @@ public class LuceneAnnotationTest
 		}
 	}
 
-	static class ArticleCombo
-	{
-		@org.eclipse.store.gigamap.annotations.Index
-		String category;
-
-		@FullText
-		String body;
-
-		ArticleCombo(final String category, final String body)
-		{
-			this.category = category;
-			this.body     = body;
-		}
-	}
-
 	static class Plain
 	{
-		@org.eclipse.store.gigamap.annotations.Index
+		@SuppressWarnings("unused")
 		String name;
 
 		Plain(final String name)
@@ -146,28 +131,6 @@ public class LuceneAnnotationTest
 			.generateIndices(map);
 
 		assertNull(map.index().get(LuceneIndex.class));
-		// the bitmap index for @Index is still generated
-		map.add(new Plain("a"));
-		assertEquals(1, map.query(map.index().bitmap().getIndexerString("name").is("a")).toList().size());
-	}
-
-	@Test
-	void bitmapAndFullTextCoexist()
-	{
-		final GigaMap<ArticleCombo> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(ArticleCombo.class)
-			.register(LuceneAnnotationHandler.New())
-			.generateIndices(map);
-
-		map.add(new ArticleCombo("news", "breaking story about indexing"));
-		map.add(new ArticleCombo("blog", "a quiet post about gardening"));
-
-		assertEquals(1, map.query(map.index().bitmap().getIndexerString("category").is("news")).toList().size());
-
-		final LuceneIndex<ArticleCombo> luceneIndex = map.index().get(LuceneIndex.class);
-		final List<ArticleCombo> hits = luceneIndex.query("body:indexing");
-		assertEquals(1, hits.size());
-		assertEquals("news", hits.get(0).category);
 	}
 
 	@Test

@@ -21,5 +21,5 @@ module org.eclipse.store.gigamap.lucene
 	requires org.eclipse.serializer.base;
 	requires org.eclipse.store.gigamap;
 	
-	opens org.eclipse.store.gigamap.lucene to org.eclipse.serializer.persistence, org.eclipse.store.gigamap;
+	opens org.eclipse.store.gigamap.lucene to org.eclipse.serializer.persistence;
 }

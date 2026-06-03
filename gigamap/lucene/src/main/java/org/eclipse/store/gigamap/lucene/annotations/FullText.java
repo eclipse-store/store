@@ -41,7 +41,7 @@ public @interface FullText
 {
 	/**
 	 * The Lucene document field name. Defaults to the property name (field name, or getter name
-	 * with the {@code get}/{@code is} prefix stripped) when empty.
+	 * with the {@code get} prefix stripped) when empty.
 	 *
 	 * @return the Lucene field name
 	 */

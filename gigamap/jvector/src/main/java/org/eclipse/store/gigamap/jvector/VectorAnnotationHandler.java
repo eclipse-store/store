@@ -207,16 +207,11 @@ public final class VectorAnnotationHandler<E> implements GigaIndexAnnotationHand
 			return annotation.name();
 		}
 		final String memberName = member.getName();
-		if(method)
+		// only the "get" prefix is stripped; "is" is a boolean-getter convention and @Vector members
+		// are float[], so an "is" prefix is part of the name (consistent with the bitmap generator).
+		if(method && memberName.startsWith("get") && memberName.length() > 3)
 		{
-			if(memberName.startsWith("get") && memberName.length() > 3)
-			{
-				return decapitalize(memberName.substring(3));
-			}
-			if(memberName.startsWith("is") && memberName.length() > 2)
-			{
-				return decapitalize(memberName.substring(2));
-			}
+			return decapitalize(memberName.substring(3));
 		}
 		return memberName;
 	}
