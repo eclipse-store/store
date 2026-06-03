@@ -761,7 +761,7 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 						this
 					);
 				}
-				return this.internalRemoveIndex(name, false) != null;
+				return this.internalRemoveIndex(name, false, true) != null;
 			}
 		}
 
@@ -769,9 +769,12 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		 * @param allowIdentity whether an index that is currently an identity index may be removed.
 		 *        {@code false} for the public {@link #removeIndex(String)}; {@code true} for
 		 *        {@link #update(Indexer)}, which re-points the identity set to the rebuilt index.
+		 * @param rebuildCache whether to rebuild the index cache here. {@code false} lets a caller that
+		 *        performs further structural changes (e.g. {@link #update(Indexer)}) do a single rebuild
+		 *        at the end instead of rebuilding twice.
 		 * @return the removed index, or {@code null} if no index was registered under the given name
 		 */
-		private BitmapIndex.Internal<E, ?> internalRemoveIndex(final String name, final boolean allowIdentity)
+		private BitmapIndex.Internal<E, ?> internalRemoveIndex(final String name, final boolean allowIdentity, final boolean rebuildCache)
 		{
 			final BitmapIndex.Internal<E, ?> index = this.bitmapIndices.get(name);
 			if(index == null)
@@ -788,7 +791,10 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			}
 			this.bitmapIndices.removeFor(name);
 			this.internalRemoveUniqueConstraint(index);
-			this.rebuildCache();
+			if(rebuildCache)
+			{
+				this.rebuildCache();
+			}
 			this.markStateChangeInstance();
 			this.parent.internalReportIndexGroupStateChange(this);
 			return index;
@@ -799,6 +805,13 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		{
 			synchronized(this.parentMap())
 			{
+				if(this.parentMap().isReadOnly())
+				{
+					throw new BitmapIndicesException(
+						"Cannot remove unique constraint \"" + name + "\": the parent GigaMap is read-only.",
+						this
+					);
+				}
 				final BitmapIndex.Internal<E, ?> index = this.bitmapIndices.get(name);
 				if(index == null || this.uniqueConstraints == null || !this.uniqueConstraints.contains(index))
 				{
@@ -889,8 +902,9 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 				}
 
 				// commit: drop the old index (logic + data), then register the rebuilt index.
-				// identity removal is allowed here and restored below.
-				this.internalRemoveIndex(name, true);
+				// identity removal is allowed here and restored below; skip the intermediate cache
+				// rebuild since update() rebuilds the cache once at the end.
+				this.internalRemoveIndex(name, true, false);
 				if(wasUnique)
 				{
 					this.internalAddUniqueConstraint(index);

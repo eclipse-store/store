@@ -34,8 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Covers structural lifecycle of the Lucene full-text index group: whole-group removal via
- * {@link org.eclipse.store.gigamap.types.GigaIndices#remove(org.eclipse.store.gigamap.types.IndexCategory)}
- * and redefinition via {@link LuceneIndex#update(LuceneContext)}.
+ * {@link org.eclipse.store.gigamap.types.GigaIndices#remove(org.eclipse.store.gigamap.types.IndexCategory)}.
  */
 public class LuceneLifecycleRemovalTest
 {

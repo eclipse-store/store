@@ -33,9 +33,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Covers the structural lifecycle of vector indices: {@link VectorIndices#removeIndex(String)},
- * {@link VectorIndices#update(String, VectorIndexConfiguration, Vectorizer)} and whole-group removal
- * via {@link org.eclipse.store.gigamap.types.GigaIndices#remove(org.eclipse.store.gigamap.types.IndexCategory)}.
+ * Covers the structural lifecycle of vector indices: {@link VectorIndices#removeIndex(String)} and
+ * whole-group removal via
+ * {@link org.eclipse.store.gigamap.types.GigaIndices#remove(org.eclipse.store.gigamap.types.IndexCategory)}.
  */
 @Tag("slow")
 class VectorIndexLifecycleTest

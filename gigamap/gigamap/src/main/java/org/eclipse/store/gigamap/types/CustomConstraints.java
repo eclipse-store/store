@@ -221,6 +221,12 @@ public interface CustomConstraints<E> extends GigaConstraints.Category<E>
 		{
 			synchronized(this.parentMap())
 			{
+				if(this.parentMap().isReadOnly())
+				{
+					throw new IllegalStateException(
+						"Cannot remove custom constraint \"" + name + "\": the parent GigaMap is read-only."
+					);
+				}
 				if(this.elements == null)
 				{
 					return false;
