@@ -521,7 +521,7 @@ public interface IndexerGenerator<E>
 			{
 				throw new RuntimeException(
 					"Could not instantiate index creator " + creatorClass.getName()
-					+ " (a public no-argument constructor is required)", e
+					+ " (an accessible no-argument constructor is required)", e
 				);
 			}
 			if(creator instanceof Creator.MemberAware)
