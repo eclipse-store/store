@@ -890,7 +890,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				// more than one with...Index method.
 				if(!this.uniqueIndices.isEmpty())
 				{
-					indices.addUniqueConstraints(this.uniqueIndices);
+					indices.ensureUniqueConstraints(this.uniqueIndices);
 				}
 				if(!this.bitmapIndices.isEmpty())
 				{
@@ -903,7 +903,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				}
 				if(!this.customConstraints.isEmpty())
 				{
-					gigaMap.constraints().custom().addConstraints(this.customConstraints);
+					gigaMap.constraints().custom().ensureConstraints(this.customConstraints);
 				}
 
 				return gigaMap;

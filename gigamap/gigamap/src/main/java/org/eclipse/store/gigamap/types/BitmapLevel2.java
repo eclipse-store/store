@@ -633,6 +633,22 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 	{
 		return ensureAddableLevel1SegmentForEntityId(this.level2Address, entityId, level3);
 	}
+
+	// Deterministically frees this segment's off-heap memory and neutralizes the Cleaner so it cannot
+	// double-free. Idempotent. Used when an index is dropped (see BitmapIndices#removeIndex / update) to
+	// release native memory immediately instead of waiting for the Cleaner to run on GC. Safe because the
+	// owning instance is still strongly reachable while this runs, so the Cleaner cannot fire concurrently.
+	final void release()
+	{
+		final long address = this.level2Address;
+		if(address == 0L)
+		{
+			return;
+		}
+		this.cleanup.address = 0L; // neutralize the Cleaner before freeing (volatile write)
+		this.level2Address   = 0L;
+		deallocate(address);
+	}
 	
 	// Holds the off-heap address for Cleaner-based release.
 	//

@@ -14,6 +14,7 @@ package org.eclipse.store.gigamap.types;
  * #L%
  */
 
+import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.EqHashTable;
 import org.eclipse.serializer.persistence.binary.types.BinaryTypeHandler;
 import org.eclipse.serializer.persistence.types.Storer;
@@ -63,9 +64,70 @@ public interface CustomConstraints<E> extends GigaConstraints.Category<E>
 	 * @return the updated CustomConstraints instance with the new constraints added
 	 */
 	public CustomConstraints<E> addConstraints(Iterable<? extends CustomConstraint<? super E>> constraints);
-	
-		
-	
+
+	/**
+	 * Ensures the given custom constraint exists (get-or-create).
+	 * <p>
+	 * For details see {@link #ensureConstraints(Iterable)}.
+	 *
+	 * @param constraint the constraint to ensure
+	 * @return this
+	 */
+	public default CustomConstraints<E> ensureConstraint(final CustomConstraint<? super E> constraint)
+	{
+		return this.ensureConstraints(X.List(constraint));
+	}
+
+	/**
+	 * Ensures the given custom constraints exist (get-or-create).
+	 * <p>
+	 * For details see {@link #ensureConstraints(Iterable)}.
+	 *
+	 * @param constraints the constraints to ensure
+	 * @return this
+	 */
+	@SuppressWarnings("unchecked")
+	public default CustomConstraints<E> ensureConstraints(final CustomConstraint<? super E>... constraints)
+	{
+		return this.ensureConstraints(X.List(constraints));
+	}
+
+	/**
+	 * Ensures the given custom constraints exist (get-or-create per constraint).
+	 * <p>
+	 * A constraint whose {@link CustomConstraint#name() name} is already registered is skipped (no-op),
+	 * and its newly passed logic is <b>not</b> applied; the remaining (new) constraints are added and
+	 * validated against all existing entities, exactly like {@link #addConstraints(Iterable)}.
+	 * <p>
+	 * This makes startup schema declaration idempotent: the same call can run on every boot, whether
+	 * the storage is new or already contains the constraints.
+	 *
+	 * @param constraints the constraints to ensure
+	 * @return this
+	 */
+	public CustomConstraints<E> ensureConstraints(Iterable<? extends CustomConstraint<? super E>> constraints);
+
+	/**
+	 * Removes the custom constraint registered under the given name, i.e. stops enforcing it.
+	 *
+	 * @param name the {@link CustomConstraint#name() name} of the constraint to remove
+	 * @return {@code true} if a constraint with that name existed and was removed, {@code false} otherwise
+	 */
+	public boolean removeConstraint(String name);
+
+	/**
+	 * Removes the given custom constraint, identified by its {@link CustomConstraint#name() name}.
+	 * <p>
+	 * For details see {@link #removeConstraint(String)}.
+	 *
+	 * @param constraint the constraint whose name identifies the constraint to remove
+	 * @return {@code true} if a constraint with that name existed and was removed, {@code false} otherwise
+	 */
+	public default boolean removeConstraint(final CustomConstraint<? super E> constraint)
+	{
+		return this.removeConstraint(constraint.name());
+	}
+
 	public final class Default<E> extends AbstractStateChangeFlagged implements CustomConstraints<E>
 	{
 		///////////////////////////////////////////////////////////////////////////
@@ -174,6 +236,10 @@ public interface CustomConstraints<E> extends GigaConstraints.Category<E>
 		{
 			synchronized(this.parentMap())
 			{
+				if(this.parentMap().isReadOnly())
+				{
+					throw new IllegalStateException("Cannot add custom constraint(s): the parent GigaMap is read-only.");
+				}
 				for(final CustomConstraint<? super E> constraint : constraints)
 				{
 					this.validateConstraintToAdd(constraint.name(), constraint);
@@ -196,7 +262,55 @@ public interface CustomConstraints<E> extends GigaConstraints.Category<E>
 
 			return this;
 		}
-		
+
+		@Override
+		public final CustomConstraints<E> ensureConstraints(final Iterable<? extends CustomConstraint<? super E>> constraints)
+		{
+			synchronized(this.parentMap())
+			{
+				final BulkList<CustomConstraint<? super E>> toAdd = BulkList.New();
+				for(final CustomConstraint<? super E> constraint : constraints)
+				{
+					if(this.elements == null || this.elements.get(constraint.name()) == null)
+					{
+						toAdd.add(constraint);  // absent -> create
+					}
+					// else: already registered under that name -> idempotent no-op
+				}
+				if(!toAdd.isEmpty())
+				{
+					this.addConstraints(toAdd);  // validates only the new constraints against existing entities
+				}
+			}
+
+			return this;
+		}
+
+		@Override
+		public final boolean removeConstraint(final String name)
+		{
+			synchronized(this.parentMap())
+			{
+				if(this.parentMap().isReadOnly())
+				{
+					throw new IllegalStateException(
+						"Cannot remove custom constraint \"" + name + "\": the parent GigaMap is read-only."
+					);
+				}
+				if(this.elements == null)
+				{
+					return false;
+				}
+				if(this.elements.removeFor(name) == null)
+				{
+					return false;
+				}
+				this.markStateChangeInstance();
+				this.parent.internalReportConstraintsStateChange();
+				return true;
+			}
+		}
+
 		private void validateForExistingEntities(final Iterable<? extends CustomConstraint<? super E>> constraints)
 		{
 			this.parent.iterateIndexed((final long entityId, final E entity) ->

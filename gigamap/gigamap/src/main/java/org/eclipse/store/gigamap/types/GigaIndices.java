@@ -18,6 +18,8 @@ import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.persistence.binary.types.BinaryTypeHandler;
 import org.eclipse.serializer.persistence.types.Storer;
 
+import java.io.Closeable;
+import java.io.IOException;
 import java.util.function.Function;
 
 import static org.eclipse.serializer.util.X.notNull;
@@ -106,7 +108,37 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 	 * @return the registered index group corresponding to the specified category
 	 */
 	public <I extends IndexGroup<E>> I register(IndexCategory<E, I> category);
-	
+
+	/**
+	 * Removes the index group of the given category from this {@link GigaMap}, dropping the whole
+	 * group and its data.
+	 * <p>
+	 * If the group implements {@link java.io.Closeable} (e.g. the Lucene full-text index), it is
+	 * closed first to release native resources such as file locks, readers and writers. Index data
+	 * held inside the object graph is reclaimed by the storage's garbage collection on the next
+	 * housekeeping cycle after the surrounding {@link GigaMap} is stored; index artifacts kept in an
+	 * external, application-managed directory on the file system are <b>not</b> deleted.
+	 * <p>
+	 * The core bitmap index group cannot be removed (it hosts the unique and custom constraints);
+	 * use {@link BitmapIndices#removeIndex(String)} to remove individual bitmap indices instead.
+	 *
+	 * @param category the category identifying the index group to remove
+	 * @return {@code true} if a matching group existed and was removed, {@code false} otherwise
+	 * @throws IllegalArgumentException if the targeted group is the core bitmap index group
+	 * @throws RuntimeException if the parent {@link GigaMap} is read-only
+	 */
+	public boolean remove(IndexCategory<E, ?> category);
+
+	/**
+	 * Removes the index group of the given type from this {@link GigaMap}.
+	 * <p>
+	 * For details see {@link #remove(IndexCategory)}.
+	 *
+	 * @param categoryType the type of the index group to remove
+	 * @return {@code true} if a matching group existed and was removed, {@code false} otherwise
+	 */
+	public boolean remove(Class<? extends IndexGroup<E>> categoryType);
+
 	/**
 	 * The Internals interface extends the GigaIndices interface to provide additional functionality
 	 * specifically related to managing internal operations and indices. This interface is meant
@@ -369,6 +401,12 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 		{
 			synchronized(this.parentMap())
 			{
+				if(this.parent.isReadOnly())
+				{
+					throw new IllegalStateException(
+						"Cannot register an index group: the GigaMap is read-only."
+					);
+				}
 				final IndexGroup.Internal<E> indexGroup = category.createIndexGroup(this.parent);
 				
 				@SuppressWarnings("unchecked")
@@ -380,8 +418,87 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 				
 				this.indexGroups.add(indexGroup);
 				this.markStateChangeInstance();
-				
+
 				return category.indexType().cast(indexGroup);
+			}
+		}
+
+		@Override
+		public final boolean remove(final IndexCategory<E, ?> category)
+		{
+			return this.internalRemoveGroup(category.indexType());
+		}
+
+		@Override
+		public final boolean remove(final Class<? extends IndexGroup<E>> categoryType)
+		{
+			return this.internalRemoveGroup(categoryType);
+		}
+
+		private boolean internalRemoveGroup(final Class<?> categoryType)
+		{
+			synchronized(this.parentMap())
+			{
+				if(this.parent.isReadOnly())
+				{
+					throw new IllegalStateException(
+						"Cannot remove index group \"" + categoryType.getName() + "\": the GigaMap is read-only."
+					);
+				}
+
+				IndexGroup.Internal<E> found = null;
+				// exact class match is checked first, then the general (e.g. interface) type, mirroring #get.
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					if(indexGroup.getClass() == categoryType)
+					{
+						found = indexGroup;
+						break;
+					}
+				}
+				if(found == null)
+				{
+					for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+					{
+						if(categoryType.isAssignableFrom(indexGroup.getClass()))
+						{
+							found = indexGroup;
+							break;
+						}
+					}
+				}
+				if(found == null)
+				{
+					return false;
+				}
+				if(found instanceof BitmapIndices)
+				{
+					throw new IllegalArgumentException(
+						"The bitmap index group cannot be removed (it hosts the unique and custom constraints); "
+						+ "use BitmapIndices#removeIndex(String) to remove individual bitmap indices."
+					);
+				}
+
+				// release resources
+				if(found instanceof Closeable)
+				{
+					try
+					{
+						((Closeable)found).close();
+					}
+					catch(final IOException e)
+					{
+						throw new RuntimeException(
+							"Failed to close index group \"" + found.getClass().getName()
+							+ "\" while removing it.",
+							e
+						);
+					}
+				}
+
+				this.indexGroups.removeOne(found);
+				this.markStateChangeInstance();
+				return true;
 			}
 		}
 

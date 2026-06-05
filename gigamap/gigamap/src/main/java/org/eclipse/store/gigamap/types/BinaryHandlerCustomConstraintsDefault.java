@@ -102,15 +102,15 @@ public class BinaryHandlerCustomConstraintsDefault extends AbstractBinaryHandler
 	)
 	{
 		data.storeEntityHeader(BINARY_LENGTH, this.typeId(), objectId);
-		
+
 		data.store_long(
 			BINARY_OFFSET_parent,
 			handler.apply(XMemory.getObject(instance, MEMORY_OFFSET_parent))
 		);
-		data.store_long(
-			BINARY_OFFSET_elements,
-			handler.apply(instance.elements())
-		);
+		// must be stored eagerly so that structural mutations of the elements table (adding or
+		// removing a constraint after the first store) are actually re-persisted, not just referenced.
+		// Mirrors BinaryHandlerBitmapIndicesDefault, which stores its registries eagerly for the same reason.
+		data.storeReferenceEager(BINARY_OFFSET_elements, handler, instance.elements());
 	}
 		
 	@Override
