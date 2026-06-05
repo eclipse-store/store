@@ -236,6 +236,10 @@ public interface CustomConstraints<E> extends GigaConstraints.Category<E>
 		{
 			synchronized(this.parentMap())
 			{
+				if(this.parentMap().isReadOnly())
+				{
+					throw new IllegalStateException("Cannot add custom constraint(s): the parent GigaMap is read-only.");
+				}
 				for(final CustomConstraint<? super E> constraint : constraints)
 				{
 					this.validateConstraintToAdd(constraint.name(), constraint);

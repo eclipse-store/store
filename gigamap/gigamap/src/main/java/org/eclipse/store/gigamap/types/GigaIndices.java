@@ -401,6 +401,12 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 		{
 			synchronized(this.parentMap())
 			{
+				if(this.parent.isReadOnly())
+				{
+					throw new IllegalStateException(
+						"Cannot register an index group: the GigaMap is read-only."
+					);
+				}
 				final IndexGroup.Internal<E> indexGroup = category.createIndexGroup(this.parent);
 				
 				@SuppressWarnings("unchecked")

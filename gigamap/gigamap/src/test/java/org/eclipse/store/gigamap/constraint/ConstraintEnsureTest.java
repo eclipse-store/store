@@ -211,6 +211,41 @@ public class ConstraintEnsureTest
 	}
 
 	@Test
+	void ensureAndAdd_onReadOnlyMap_throwWhenCreating()
+	{
+		final GigaMap<Person> map = GigaMap.New();
+		map.markReadOnly();
+
+		// creating structure on a read-only map is rejected (consistent with the remove/update guards)
+		assertThrows(RuntimeException.class, () -> map.constraints().unique().ensureUniqueConstraint(UNAME));
+		assertThrows(RuntimeException.class, () -> map.constraints().unique().addUniqueConstraint(UNAME));
+		assertThrows(RuntimeException.class, () -> map.constraints().custom().ensureConstraint(new NoBad()));
+		assertThrows(RuntimeException.class, () -> map.constraints().custom().addConstraint(new NoBad()));
+		assertThrows(RuntimeException.class, () -> map.index().bitmap().add(PLAIN_X));
+
+		map.unmarkReadOnly();
+	}
+
+	@Test
+	void ensure_onReadOnlyMap_noOpWhenAlreadyPresent()
+	{
+		final GigaMap<Person> map = GigaMap.New();
+		map.constraints().unique().addUniqueConstraint(UNAME);
+		map.constraints().custom().addConstraint(new NoBad());
+		map.markReadOnly();
+
+		// an already-satisfied ensure must not mutate -> no-op, no throw (lets a read-only replica run
+		// the identical startup schema declaration)
+		assertDoesNotThrow(() ->
+		{
+			map.constraints().unique().ensureUniqueConstraint(UNAME);
+			map.constraints().custom().ensureConstraint(new NoBad());
+		});
+
+		map.unmarkReadOnly();
+	}
+
+	@Test
 	void ensure_isIdempotentAcrossManyCalls()
 	{
 		final GigaMap<Person> map = GigaMap.New();

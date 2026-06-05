@@ -739,13 +739,26 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		{
 			synchronized(this.parentMap())
 			{
+				this.ensureMutable();
 				this.validateIndexToAdd(indexer);
-				
+
 				final BitmapIndex.Internal<E, K> index = indexer.createFor(this);
 				this.internalAddBitmapIndex(index);
 				this.rebuildCache();
 
 				return index;
+			}
+		}
+
+		/**
+		 * Guards structural mutations against a read-only parent {@link GigaMap}. Must be called while
+		 * holding the parent-map lock.
+		 */
+		private void ensureMutable()
+		{
+			if(this.parentMap().isReadOnly())
+			{
+				throw new BitmapIndicesException("Cannot modify indices: the parent GigaMap is read-only.", this);
 			}
 		}
 
@@ -941,6 +954,7 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		{
 			synchronized(this.parentMap())
 			{
+				this.ensureMutable();
 				for(final Indexer<? super E, ?> indexer : indexers)
 				{
 					this.validateIndexToAdd(indexer);
@@ -1185,9 +1199,10 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			}
 			
 			final BulkList<BitmapIndex<E, ?>> resolved = BulkList.New(identityIndices.size());
-			
+
 			synchronized(this.parentMap())
 			{
+				this.ensureMutable();
 				for(final IndexIdentifier<? super E, ?> i : identityIndices)
 				{
 					final BitmapIndex<E, ?> index = i.resolveFor(this);
@@ -1322,6 +1337,7 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		{
 			synchronized(this.parentMap())
 			{
+				this.ensureMutable();
 				// Basic validation before changing any state.
 				for(final Indexer<? super E, ?> indexer : indexers)
 				{

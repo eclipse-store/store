@@ -283,6 +283,12 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
         {
             synchronized(this.parentMap())
             {
+                if(this.parent.isReadOnly())
+                {
+                    throw new IllegalStateException(
+                        "Cannot add vector index \"" + name + "\": the GigaMap is read-only."
+                    );
+                }
                 this.validateIndexToAdd(name);
 
                 final VectorIndex.Internal<E> index = new VectorIndex.Default<>(
