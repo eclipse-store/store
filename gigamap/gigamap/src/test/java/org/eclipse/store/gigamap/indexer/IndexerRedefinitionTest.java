@@ -309,6 +309,27 @@ public class IndexerRedefinitionTest
 	}
 
 	@Test
+	void repeatedUpdateReleasesOffHeapWithoutCorruption()
+	{
+		// Each update() drops the previous index and deterministically frees its off-heap bitmap memory.
+		// Repeating it over a populated index would crash (double-free / use-after-free) if that release
+		// were wrong, and must keep producing correct query results.
+		final GigaMap<Person> map = GigaMap.New();
+		map.index().bitmap().add(FULL_NAME);
+		for(int i = 0; i < 300; i++)
+		{
+			map.add(new Person("name" + i));
+		}
+
+		for(int cycle = 0; cycle < 30; cycle++)
+		{
+			map.index().bitmap().update(FULL_NAME);
+			assertEquals(1, map.query(FULL_NAME.is("name123")).count());
+		}
+		assertEquals(300, map.size());
+	}
+
+	@Test
 	void ensure_doesNotUpdateLogic()
 	{
 		final GigaMap<Person> map = GigaMap.New();

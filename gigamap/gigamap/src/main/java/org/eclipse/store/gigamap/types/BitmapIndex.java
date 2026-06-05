@@ -192,10 +192,18 @@ public interface BitmapIndex<E, K> extends IndexIdentifier<E, K>, GigaIndex<E>
 		public void internalRemoveAll();
 		
 		public boolean internalContains(E entity);
-		
+
 		public BitmapResult internalQuery(K key);
-		
+
 		public void clearStateChangeMarkers();
+
+		/**
+		 * Deterministically frees the off-heap memory held by this index' currently loaded bitmap
+		 * segments. Called when the index is dropped (see {@link BitmapIndices#removeIndex(String)} /
+		 * {@code update}) so native memory is released immediately rather than only when the garbage
+		 * collector eventually runs the segments' cleaners.
+		 */
+		public void internalReleaseOffHeap();
 	}
 	
 	
@@ -278,7 +286,14 @@ public interface BitmapIndex<E, K> extends IndexIdentifier<E, K>, GigaIndex<E>
 		}
 						
 		public abstract void iterateEntries(Consumer<? super BitmapEntry<?, ?, ?>> logic);
-		
+
+		// Concrete here so every index type (hashing, binary, single, composite — whose iterateEntries
+		// fans out to its sub-indices) inherits a correct release; satisfies BitmapIndex.Internal.
+		public void internalReleaseOffHeap()
+		{
+			this.iterateEntries(BitmapEntry::releaseOffHeap);
+		}
+
 		public abstract int entryCount();
 		
 		protected abstract K indexEntity(I entity);

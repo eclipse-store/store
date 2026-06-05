@@ -804,6 +804,9 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			}
 			this.bitmapIndices.removeFor(name);
 			this.internalRemoveUniqueConstraint(index);
+			// release the dropped index' off-heap (Unsafe) memory immediately instead of waiting for the
+			// segments' cleaners to run on GC (see BitmapLevel2#release).
+			index.internalReleaseOffHeap();
 			if(rebuildCache)
 			{
 				this.rebuildCache();
