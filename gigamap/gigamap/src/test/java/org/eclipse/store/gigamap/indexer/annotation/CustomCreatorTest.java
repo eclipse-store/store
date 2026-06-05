@@ -119,7 +119,7 @@ public class CustomCreatorTest
 	void memberAwareCreatorReceivesNameAndMember()
 	{
 		final GigaMap<Bean> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(Bean.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Bean.class).generateIndices(map);
 
 		map.add(new Bean("hello", "X1"));
 		map.add(new Bean("world", "X2"));
@@ -136,7 +136,7 @@ public class CustomCreatorTest
 	void plainCreatorIsUsedAsIs()
 	{
 		final GigaMap<Bean> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(Bean.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Bean.class).generateIndices(map);
 
 		map.add(new Bean("hello", "X1"));
 		map.add(new Bean("world", "X2"));

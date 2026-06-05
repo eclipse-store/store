@@ -45,7 +45,7 @@ public class SpatialAnnotationTest
 	private static GigaMap<City> newMap()
 	{
 		final GigaMap<City> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(City.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(City.class).generateIndices(map);
 		map.add(new City("Berlin", 52.520, 13.405));
 		map.add(new City("Paris", 48.857, 2.352));
 		map.add(new City("New York", 40.713, -74.006));

@@ -78,7 +78,7 @@ public class UniqueStandaloneTest
 	void uniqueWithoutIndexEnforcesConstraint()
 	{
 		final GigaMap<User> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(User.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(User.class).generateIndices(map);
 
 		map.add(new User("a@example.com"));
 		assertThrows(
@@ -92,7 +92,7 @@ public class UniqueStandaloneTest
 	void uniqueOnlyOnGetterEnforcesConstraint()
 	{
 		final GigaMap<Account> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(Account.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Account.class).generateIndices(map);
 
 		map.add(new Account("X1"));
 		assertThrows(
@@ -107,7 +107,7 @@ public class UniqueStandaloneTest
 	{
 		final GigaMap<Mixed> map = GigaMap.New();
 		// must not throw a "double index name" error and must register every annotated property
-		IndexerGenerator.AnnotationBased(Mixed.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Mixed.class).generateIndices(map);
 
 		map.add(new Mixed("n1", "S1", "e1@example.com", 1));
 

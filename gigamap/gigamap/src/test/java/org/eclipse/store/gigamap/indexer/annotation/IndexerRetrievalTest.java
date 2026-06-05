@@ -86,7 +86,7 @@ public class IndexerRetrievalTest
 	private static GigaMap<Bean> newBeanMap()
 	{
 		final GigaMap<Bean> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(Bean.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Bean.class).generateIndices(map);
 		map.add(new Bean("alice", Instant.parse("2024-01-01T00:00:00Z"), 100L, 10, new Date(1_000L)));
 		map.add(new Bean("bob",   Instant.parse("2025-06-01T00:00:00Z"), 200L, 90, new Date(9_000L)));
 		return map;
@@ -116,7 +116,7 @@ public class IndexerRetrievalTest
 	void spatialGetter()
 	{
 		final GigaMap<City> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(City.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(City.class).generateIndices(map);
 		map.add(new City("Berlin", 52.520, 13.405));
 		map.add(new City("New York", 40.713, -74.006));
 
@@ -130,7 +130,7 @@ public class IndexerRetrievalTest
 	{
 		final GigaMap<Bean> map = GigaMap.New();
 		final GeneratedIndices<Bean> idx =
-			IndexerGenerator.AnnotationBased(Bean.class).generateIndices(map.index().bitmap());
+			IndexerGenerator.AnnotationBased(Bean.class).generateIndices(map);
 
 		map.add(new Bean("alice", Instant.parse("2024-01-01T00:00:00Z"), 100L, 10, new Date(1_000L)));
 		map.add(new Bean("bob",   Instant.parse("2025-06-01T00:00:00Z"), 200L, 90, new Date(9_000L)));
@@ -163,7 +163,7 @@ public class IndexerRetrievalTest
 
 			// re-run the idempotent generation on the reloaded map to obtain a fresh handle
 			final GeneratedIndices<Bean> idx =
-				IndexerGenerator.AnnotationBased(Bean.class).generateIndices(map2.index().bitmap());
+				IndexerGenerator.AnnotationBased(Bean.class).generateIndices(map2);
 
 			assertEquals(6, idx.all().size());
 			assertEquals(1, map2.query(idx.getIndexerString("name").is("bob")).toList().size());

@@ -71,26 +71,25 @@ public interface IndexerGenerator<E>
 	 * Fills the provided BitmapIndices object with index data.
 	 *
 	 * @param target the BitmapIndices object to be populated with generated index data
-	 * @return a {@link GeneratedIndices} handle over the generated bitmap indexers, keyed by index name
+	 * @deprecated use {@link #generateIndices(GigaMap)}, which additionally returns a
+	 *             {@link GeneratedIndices} handle over the generated indexers. This method is
+	 *             retained for binary compatibility and discards that handle.
 	 */
-	public GeneratedIndices<E> generateIndices(BitmapIndices<E> target);
+	@Deprecated
+	public void generateIndices(BitmapIndices<E> target);
 
 	/**
-	 * Generates the annotation-based indices for the given {@link GigaMap}.
+	 * Generates the annotation-based indices for the given {@link GigaMap} and returns a
+	 * {@link GeneratedIndices} handle over the generated bitmap indexers, keyed by index name.
 	 * <p>
-	 * This default implementation generates the bitmap indices only (equivalent to
-	 * {@link #generateIndices(BitmapIndices)} on {@code target.index().bitmap()}). The
-	 * {@link AnnotationBased} implementation additionally invokes the registered
-	 * {@link GigaIndexAnnotationHandler handlers} to contribute further index groups (for example
-	 * full-text or vector indices).
+	 * Implementations generate the bitmap indices and may additionally contribute further index groups
+	 * (for example full-text or vector indices) via registered
+	 * {@link GigaIndexAnnotationHandler handlers}.
 	 *
 	 * @param target the {@link GigaMap} whose indices are to be generated
 	 * @return a {@link GeneratedIndices} handle over the generated bitmap indexers, keyed by index name
 	 */
-	public default GeneratedIndices<E> generateIndices(final GigaMap<E> target)
-	{
-		return this.generateIndices(target.index().bitmap());
-	}
+	public GeneratedIndices<E> generateIndices(GigaMap<E> target);
 
 	/**
 	 * Registers a {@link GigaIndexAnnotationHandler} that contributes additional index groups during
@@ -100,10 +99,7 @@ public interface IndexerGenerator<E>
 	 * @param handler the handler to register
 	 * @return this generator, for fluent chaining
 	 */
-	public default IndexerGenerator<E> register(final GigaIndexAnnotationHandler<E> handler)
-	{
-		throw new UnsupportedOperationException();
-	}
+	public IndexerGenerator<E> register(final GigaIndexAnnotationHandler<E> handler);
 
 
 	/**
@@ -168,7 +164,7 @@ public interface IndexerGenerator<E>
 		public GeneratedIndices<E> generateIndices(final GigaMap<E> target)
 		{
 			final GigaIndices<E> indices = target.index();
-			final GeneratedIndices<E> generated = this.generateIndices(indices.bitmap());
+			final GeneratedIndices<E> generated = this.generateBitmapIndices(indices.bitmap());
 			for(final GigaIndexAnnotationHandler<E> handler : this.handlers)
 			{
 				handler.contribute(this.entityType, indices);
@@ -177,7 +173,13 @@ public interface IndexerGenerator<E>
 		}
 
 		@Override
-		public GeneratedIndices<E> generateIndices(final BitmapIndices<E> target)
+		@Deprecated
+		public void generateIndices(final BitmapIndices<E> target)
+		{
+			this.generateBitmapIndices(target);
+		}
+
+		private GeneratedIndices<E> generateBitmapIndices(final BitmapIndices<E> target)
 		{
 			final XEnum<String>        indexNames      = EqHashEnum.New();
 			final XList<Indexer<E, ?>> uniqueIndexers  = BulkList.New();

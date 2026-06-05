@@ -234,7 +234,7 @@ indexers that you can reuse like a hand-written constant:
 [source, java]
 ----
 GeneratedIndices<Person> idx =
-    IndexerGenerator.AnnotationBased(Person.class).generateIndices(gigaMap.index().bitmap());
+    IndexerGenerator.AnnotationBased(Person.class).generateIndices(gigaMap);
 
 gigaMap.query(idx.getIndexerString("firstName").startsWith("J"));
 gigaMap.query(idx.getIndexerLocalDate("dateOfBirth").after(LocalDate.of(2000, 1, 1)));

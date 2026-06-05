@@ -97,7 +97,7 @@ public class ParityIndexTest
 	void binaryFloatAndDoubleAreSupported()
 	{
 		final GigaMap<Measurement> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(Measurement.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Measurement.class).generateIndices(map);
 
 		map.add(new Measurement(1.5f, 2.5, Instant.parse("2024-01-01T00:00:00Z")));
 		map.add(new Measurement(9.0f, 9.0, Instant.parse("2025-01-01T00:00:00Z")));
@@ -118,7 +118,7 @@ public class ParityIndexTest
 	void bitSlicedInstantSupportsRange()
 	{
 		final GigaMap<Measurement> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(Measurement.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Measurement.class).generateIndices(map);
 
 		map.add(new Measurement(1.5f, 2.5, Instant.parse("2024-01-01T00:00:00Z")));
 		map.add(new Measurement(9.0f, 9.0, Instant.parse("2025-06-01T00:00:00Z")));
@@ -137,7 +137,7 @@ public class ParityIndexTest
 	void comparableKeyTypesSupportRange()
 	{
 		final GigaMap<Doc> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(Doc.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Doc.class).generateIndices(map);
 
 		final Date d1 = new Date(1_000L);
 		final Date d2 = new Date(2_000L);

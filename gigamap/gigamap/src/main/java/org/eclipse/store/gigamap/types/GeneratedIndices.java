@@ -28,7 +28,7 @@ import static org.eclipse.serializer.util.X.notNull;
  * generated indexer instances keyed by their index name, so the result of a generation call can be kept and
  * reused much like a hand-written {@code public static final} indexer constant:
  * <pre>{@code
- * GeneratedIndices<Person> idx = IndexerGenerator.AnnotationBased(Person.class).generateIndices(map.index().bitmap());
+ * GeneratedIndices<Person> idx = IndexerGenerator.AnnotationBased(Person.class).generateIndices(map);
  * map.query(idx.getIndexerString("firstName").startsWith("J"));
  * map.query(idx.getSpatialIndexer("location").near(52.5, 13.4, 100));
  * }</pre>
@@ -278,7 +278,8 @@ public interface GeneratedIndices<E>
 		@Override
 		public XGettingTable<String, ? extends Indexer<E, ?>> all()
 		{
-			return this.indices;
+			// immutable snapshot: callers must not be able to mutate the backing table (not even via downcast).
+			return this.indices.immure();
 		}
 	}
 

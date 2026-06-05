@@ -77,7 +77,7 @@ public class GetterIndexTest
 	void getterAnnotationsAreIndexedByPropertyName()
 	{
 		final GigaMap<Person> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(Person.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Person.class).generateIndices(map);
 
 		map.add(new Person("Alice", 30));
 		map.add(new Person("Bob", 40));
@@ -95,7 +95,7 @@ public class GetterIndexTest
 	void fieldAndAcronymGetterProduceSingleIndex()
 	{
 		final GigaMap<Resource> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(Resource.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Resource.class).generateIndices(map);
 
 		int count = 0;
 		for(@SuppressWarnings("unused") final var entry : map.index().bitmap())
@@ -115,7 +115,7 @@ public class GetterIndexTest
 	void recordComponentsAreIndexedOnce()
 	{
 		final GigaMap<Point> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(Point.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Point.class).generateIndices(map);
 
 		map.add(new Point(1, 2));
 		map.add(new Point(3, 4));

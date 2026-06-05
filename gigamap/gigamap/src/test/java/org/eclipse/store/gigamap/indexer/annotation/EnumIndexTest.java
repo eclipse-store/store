@@ -45,7 +45,7 @@ public class EnumIndexTest
 	void enumFieldProducesQueryableIndex()
 	{
 		final GigaMap<Account> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(Account.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Account.class).generateIndices(map);
 
 		map.add(new Account(Status.ACTIVE));
 		map.add(new Account(Status.ACTIVE));

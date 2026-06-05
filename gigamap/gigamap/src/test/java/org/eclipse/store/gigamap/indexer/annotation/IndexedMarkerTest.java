@@ -68,7 +68,7 @@ public class IndexedMarkerTest
 		final GigaMap<DuplicateNames> map = GigaMap.New();
 		final IllegalStateException ex = assertThrows(
 			IllegalStateException.class,
-			() -> IndexerGenerator.AnnotationBased(DuplicateNames.class).generateIndices(map.index().bitmap())
+			() -> IndexerGenerator.AnnotationBased(DuplicateNames.class).generateIndices(map)
 		);
 		assertTrue(ex.getMessage().contains("Double index name"));
 	}
