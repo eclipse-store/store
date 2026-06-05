@@ -450,7 +450,7 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	 * Get the registered identity indices used to identify entities during lookup and removal operations.
 	 * <p>
 	 * Note: Identity indices do not enforce uniqueness. To ensure that identity values are unique
-	 * across all entities, add a unique constraint via {@link #addUniqueConstraint(String, Indexer)}.
+	 * across all entities, add a unique constraint via {@link #addUniqueConstraint(Indexer)}.
 	 *
 	 * @return all registered identity indices, might be <code>null</code>
 	 */
@@ -461,7 +461,7 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	 * <p>
 	 * Identity indices define which fields are used to build internal queries for looking up
 	 * and removing entities. They do not enforce uniqueness. To ensure that no two entities
-	 * share the same identity value, add a unique constraint via {@link #addUniqueConstraint(String, Indexer)}.
+	 * share the same identity value, add a unique constraint via {@link #addUniqueConstraint(Indexer)}.
 	 *
 	 * @param identityIndices the new, non-empty, identity indices
 	 * @return this
@@ -473,7 +473,7 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	 * <p>
 	 * Identity indices define which fields are used to build internal queries for looking up
 	 * and removing entities. They do not enforce uniqueness. To ensure that no two entities
-	 * share the same identity value, add a unique constraint via {@link #addUniqueConstraint(String, Indexer)}.
+	 * share the same identity value, add a unique constraint via {@link #addUniqueConstraint(Indexer)}.
 	 *
 	 * @param identityIndices the new, non-empty, identity indices
 	 * @return this
@@ -1306,12 +1306,14 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			this.parent.internalReportIndexGroupStateChange(this);
 		}
 		
+		@Deprecated
 		@Override
 		public final UniqueConstraints<E> addUniqueConstraint(final String indexName, final Indexer<? super E, ?> indexer)
 		{
+			// note: indexName is ignored; the constraint is registered under the indexer's own name.
 			// validation and registering creates so many instances that this one detour instance does not matter.
 			this.addUniqueConstraints(X.Constant(indexer));
-			
+
 			return this;
 		}
 		
@@ -1339,10 +1341,27 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 				}
 				this.rebuildCache();
 			}
-			
+
 			return this;
 		}
-		
+
+		@Override
+		public final UniqueConstraints<E> ensureUniqueConstraint(final Indexer<? super E, ?> indexer)
+		{
+			synchronized(this.parentMap())
+			{
+				// registry key is the indexer's name (a unique constraint is registered under index.name())
+				final BitmapIndex.Internal<E, ?> existing = this.bitmapIndices.get(indexer.name());
+				if(existing != null && this.uniqueConstraints != null && this.uniqueConstraints.contains(existing))
+				{
+					// already registered as a unique constraint -> idempotent no-op
+					return this;
+				}
+				// create + validate against existing data (throws if the name is taken by a non-unique index)
+				return this.addUniqueConstraint(indexer);
+			}
+		}
+
 		private void buildUniqueIndices(
 			final Iterable<? extends Indexer<? super E, ?>> indexers,
 			final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices

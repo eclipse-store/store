@@ -30,14 +30,17 @@ public interface UniqueConstraints<E> extends GigaConstraints.Category<E>
 {
 	/**
 	 * Adds a unique constraint to the current set of constraints using the provided index name and indexer.
-	 * This constraint ensures that the indexed values for the specified property are unique across all elements.
 	 *
 	 * @param indexName the name of the unique index to be created
 	 * @param indexer the indexer used to extract the property from elements for indexing
 	 * @return the updated instance of {@code UniqueConstraints<E>} with the new unique constraint applied
+	 * @deprecated The {@code indexName} is ignored: a unique constraint is always registered under the
+	 *             indexer's own {@link Indexer#name() name}, consistent with index registration
+	 *             ({@link BitmapIndices#add(Indexer)}). Use {@link #addUniqueConstraint(Indexer)} instead.
 	 */
+	@Deprecated
 	public UniqueConstraints<E> addUniqueConstraint(String indexName, Indexer<? super E, ?> indexer);
-	
+
 	/**
 	 * Adds a unique constraint to the current set of constraints using the given indexer.
 	 * This method ensures that the indexed values for the specified property are unique
@@ -48,7 +51,7 @@ public interface UniqueConstraints<E> extends GigaConstraints.Category<E>
 	 */
 	public default UniqueConstraints<E> addUniqueConstraint(final Indexer<? super E, ?> indexer)
 	{
-		return this.addUniqueConstraint(indexer.name(), indexer);
+		return this.addUniqueConstraints(X.List(indexer));
 	}
 	
 	/**
@@ -76,6 +79,55 @@ public interface UniqueConstraints<E> extends GigaConstraints.Category<E>
 	public UniqueConstraints<E> addUniqueConstraints(Iterable<? extends Indexer<? super E, ?>> indexers);
 
 	/**
+	 * Ensures a unique constraint for the given indexer exists (get-or-create), keyed by the indexer's
+	 * {@link Indexer#name() name}.
+	 * <p>
+	 * If a unique constraint with that name is already registered, this is a no-op and the newly passed
+	 * indexer logic is <b>not</b> applied (consistent with {@link BitmapIndices#ensure(Indexer)}); to
+	 * change the logic, remove it via {@link BitmapIndices#removeIndex(String)} and add it anew.
+	 * Otherwise the constraint is created and validated against all existing entities, exactly like
+	 * {@link #addUniqueConstraint(Indexer)}.
+	 * <p>
+	 * This makes startup schema declaration idempotent: the same call can run on every boot, whether
+	 * the storage is new or already contains the constraint.
+	 *
+	 * @param indexer the indexer used to extract the property from elements for indexing
+	 * @return this
+	 */
+	public UniqueConstraints<E> ensureUniqueConstraint(Indexer<? super E, ?> indexer);
+
+	/**
+	 * Ensures unique constraints for all given indexers exist (get-or-create per indexer).
+	 * <p>
+	 * For details see {@link #ensureUniqueConstraint(Indexer)}.
+	 *
+	 * @param indexers the indexers used to extract properties from elements for indexing
+	 * @return this
+	 */
+	@SuppressWarnings("unchecked")
+	public default UniqueConstraints<E> ensureUniqueConstraints(final Indexer<? super E, ?>... indexers)
+	{
+		return this.ensureUniqueConstraints(X.List(indexers));
+	}
+
+	/**
+	 * Ensures unique constraints for all given indexers exist (get-or-create per indexer).
+	 * <p>
+	 * For details see {@link #ensureUniqueConstraint(Indexer)}.
+	 *
+	 * @param indexers the indexers used to extract properties from elements for indexing
+	 * @return this
+	 */
+	public default UniqueConstraints<E> ensureUniqueConstraints(final Iterable<? extends Indexer<? super E, ?>> indexers)
+	{
+		for(final Indexer<? super E, ?> indexer : indexers)
+		{
+			this.ensureUniqueConstraint(indexer);
+		}
+		return this;
+	}
+
+	/**
 	 * Removes the unique constraint registered under the given index name, i.e. stops enforcing
 	 * uniqueness for that index.
 	 * <p>
@@ -83,7 +135,7 @@ public interface UniqueConstraints<E> extends GigaConstraints.Category<E>
 	 * bitmap index. To remove the index itself, use {@link BitmapIndices#removeIndex(String)}.
 	 * <p>
 	 * Because the demoted index keeps its name, it cannot be re-promoted directly via
-	 * {@link #addUniqueConstraint(String, Indexer)} (that would fail on the already-registered name);
+	 * {@link #addUniqueConstraint(Indexer)} (that would fail on the already-registered name);
 	 * remove the index first with {@link BitmapIndices#removeIndex(String)}, then add the unique
 	 * constraint anew (which re-validates the current data).
 	 *
