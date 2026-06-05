@@ -354,7 +354,105 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	{
 		return this.getIndexer(IndexerMultiValue.class, name);
 	}
-	
+
+	/**
+	 * Gets the registered indexing logic with the given name, or <code>null</code>.
+	 *
+	 * @param name the name of the indexer to search
+	 * @return the found indexer or <code>null</code>
+	 */
+	@SuppressWarnings("unchecked")
+	public default IndexerInstant<E> getIndexerInstant(final String name)
+	{
+		return this.getIndexer(IndexerInstant.class, name);
+	}
+
+	/**
+	 * Gets the registered indexing logic with the given name, or <code>null</code>.
+	 *
+	 * @param name the name of the indexer to search
+	 * @return the found indexer or <code>null</code>
+	 */
+	@SuppressWarnings("unchecked")
+	public default IndexerZonedDateTime<E> getIndexerZonedDateTime(final String name)
+	{
+		return this.getIndexer(IndexerZonedDateTime.class, name);
+	}
+
+	/**
+	 * Gets the registered comparing indexer with the given name, or <code>null</code>. Use this for
+	 * {@code Comparable} key types (including {@code java.util.Date}) generated for range queries.
+	 *
+	 * @param <K>     the key type
+	 * @param keyType the key type
+	 * @param name    the name of the indexer to search
+	 * @return the found indexer or <code>null</code>
+	 */
+	@SuppressWarnings("unchecked")
+	public default <K> IndexerComparing<E, K> getIndexerComparing(final Class<K> keyType, final String name)
+	{
+		return this.getIndexer(IndexerComparing.class, name);
+	}
+
+	/**
+	 * Gets the registered spatial indexer with the given name, or <code>null</code>.
+	 *
+	 * @param name the name of the indexer to search
+	 * @return the found indexer or <code>null</code>
+	 */
+	@SuppressWarnings("unchecked")
+	public default SpatialIndexer<E> getSpatialIndexer(final String name)
+	{
+		return this.getIndexer(SpatialIndexer.class, name);
+	}
+
+	/**
+	 * Gets the registered binary indexer with the given name, or <code>null</code>.
+	 * <p>
+	 * Note: the value-typed getters ({@link #getIndexerInteger(String) getIndexerInteger} etc.) match only
+	 * the low-cardinality ({@code AUTO}) variant. An index generated with {@code @Index(binary = true)} or
+	 * {@code kind = BINARY} is a {@link BinaryIndexer} (a parallel hierarchy, not an {@code IndexerInteger}
+	 * subtype) and must be fetched here.
+	 *
+	 * @param name the name of the indexer to search
+	 * @return the found indexer or <code>null</code>
+	 */
+	@SuppressWarnings("unchecked")
+	public default BinaryIndexer<E> getBinaryIndexer(final String name)
+	{
+		return this.getIndexer(BinaryIndexer.class, name);
+	}
+
+	/**
+	 * Gets the registered byte-sliced numeric indexer with the given name, or <code>null</code>.
+	 * <p>
+	 * Note: an index generated with {@code kind = BIT_SLICED} is a {@link ByteIndexerNumber} (a parallel
+	 * hierarchy, not an {@code IndexerInteger} subtype) and must be fetched here rather than via the
+	 * value-typed getters.
+	 *
+	 * @param <K>     the numeric key type
+	 * @param keyType the numeric key type
+	 * @param name    the name of the indexer to search
+	 * @return the found indexer or <code>null</code>
+	 */
+	@SuppressWarnings("unchecked")
+	public default <K extends Number> ByteIndexerNumber<E, K> getByteIndexerNumber(final Class<K> keyType, final String name)
+	{
+		return this.getIndexer(ByteIndexerNumber.class, name);
+	}
+
+	/**
+	 * Gets the registered byte-sliced {@code Instant} indexer with the given name, or <code>null</code>.
+	 *
+	 * @param name the name of the indexer to search
+	 * @return the found indexer or <code>null</code>
+	 */
+	@SuppressWarnings("unchecked")
+	public default ByteIndexerInstant<E> getByteIndexerInstant(final String name)
+	{
+		return this.getIndexer(ByteIndexerInstant.class, name);
+	}
+
 	/**
 	 * Gets the registered String index with given name, or <code>null</code>.
 	 * <p>

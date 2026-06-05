@@ -23,6 +23,7 @@ import org.eclipse.store.gigamap.types.Indexer.Creator;
 import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.EqHashEnum;
+import org.eclipse.serializer.collections.EqHashTable;
 import org.eclipse.serializer.collections.HashEnum;
 import org.eclipse.serializer.collections.types.XEnum;
 import org.eclipse.serializer.collections.types.XList;
@@ -70,8 +71,9 @@ public interface IndexerGenerator<E>
 	 * Fills the provided BitmapIndices object with index data.
 	 *
 	 * @param target the BitmapIndices object to be populated with generated index data
+	 * @return a {@link GeneratedIndices} handle over the generated bitmap indexers, keyed by index name
 	 */
-	public void generateIndices(BitmapIndices<E> target);
+	public GeneratedIndices<E> generateIndices(BitmapIndices<E> target);
 
 	/**
 	 * Generates the annotation-based indices for the given {@link GigaMap}.
@@ -83,10 +85,11 @@ public interface IndexerGenerator<E>
 	 * full-text or vector indices).
 	 *
 	 * @param target the {@link GigaMap} whose indices are to be generated
+	 * @return a {@link GeneratedIndices} handle over the generated bitmap indexers, keyed by index name
 	 */
-	public default void generateIndices(final GigaMap<E> target)
+	public default GeneratedIndices<E> generateIndices(final GigaMap<E> target)
 	{
-		this.generateIndices(target.index().bitmap());
+		return this.generateIndices(target.index().bitmap());
 	}
 
 	/**
@@ -125,9 +128,10 @@ public interface IndexerGenerator<E>
 	 * @param entityType the annotated entity type
 	 * @param map        the target {@link GigaMap}
 	 * @param handlers   the {@link GigaIndexAnnotationHandler handlers} to apply (may be empty)
+	 * @return a {@link GeneratedIndices} handle over the generated bitmap indexers, keyed by index name
 	 */
 	@SafeVarargs
-	public static <E> void generate(
+	public static <E> GeneratedIndices<E> generate(
 		final Class<E>                       entityType,
 		final GigaMap<E>                     map       ,
 		final GigaIndexAnnotationHandler<E>... handlers
@@ -138,7 +142,7 @@ public interface IndexerGenerator<E>
 		{
 			generator.register(handler);
 		}
-		generator.generateIndices(map);
+		return generator.generateIndices(map);
 	}
 
 
@@ -161,18 +165,19 @@ public interface IndexerGenerator<E>
 		}
 
 		@Override
-		public void generateIndices(final GigaMap<E> target)
+		public GeneratedIndices<E> generateIndices(final GigaMap<E> target)
 		{
 			final GigaIndices<E> indices = target.index();
-			this.generateIndices(indices.bitmap());
+			final GeneratedIndices<E> generated = this.generateIndices(indices.bitmap());
 			for(final GigaIndexAnnotationHandler<E> handler : this.handlers)
 			{
 				handler.contribute(this.entityType, indices);
 			}
+			return generated;
 		}
 
 		@Override
-		public void generateIndices(final BitmapIndices<E> target)
+		public GeneratedIndices<E> generateIndices(final BitmapIndices<E> target)
 		{
 			final XEnum<String>        indexNames      = EqHashEnum.New();
 			final XList<Indexer<E, ?>> uniqueIndexers  = BulkList.New();
@@ -243,6 +248,18 @@ public interface IndexerGenerator<E>
 
 			target.ensureAll(indexers);
 			target.setIdentityIndices(identityIndices);
+
+			// hand back a typed by-name registry of every generated indexer (regular + spatial + unique)
+			final EqHashTable<String, Indexer<E, ?>> generated = EqHashTable.New();
+			for(final Indexer<E, ?> indexer : indexers)
+			{
+				generated.add(indexer.name(), indexer);
+			}
+			for(final Indexer<E, ?> uniqueIndexer : uniqueIndexers)
+			{
+				generated.add(uniqueIndexer.name(), uniqueIndexer);
+			}
+			return GeneratedIndices.New(generated);
 		}
 
 		private List<MemberAccessor> collectAnnotatedMembers()

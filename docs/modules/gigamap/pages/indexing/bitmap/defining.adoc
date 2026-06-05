@@ -227,7 +227,24 @@ BitmapIndices<Person> bitmapIndices = gigaMap.index().bitmap();
 IndexerGenerator.AnnotationBased(Person.class).generateIndices(bitmapIndices);
 ----
 
-Since there are no constants in your code, you need to reference the generated indexers.
+Since there are no constants in your code, you need a handle to the generated indexers. The simplest way is
+to keep the `GeneratedIndices` returned by `generateIndices(...)` — a by-name, typed registry of the generated
+indexers that you can reuse like a hand-written constant:
+
+[source, java]
+----
+GeneratedIndices<Person> idx =
+    IndexerGenerator.AnnotationBased(Person.class).generateIndices(gigaMap.index().bitmap());
+
+gigaMap.query(idx.getIndexerString("firstName").startsWith("J"));
+gigaMap.query(idx.getIndexerLocalDate("dateOfBirth").after(LocalDate.of(2000, 1, 1)));
+----
+
+For a `GigaMap` loaded from existing storage the indexers are already registered; just re-run the (idempotent)
+generation on the loaded map to obtain a fresh handle — re-registration is a no-op, and the returned indexers
+query correctly because they resolve against the registered index by name.
+
+Alternatively, retrieve an indexer directly from the `BitmapIndices` getter API by name:
 
 [source, java]
 ----
@@ -235,6 +252,12 @@ BitmapIndices<Person> bitmapIndices = gigaMap.index().bitmap();
 IndexerString<Person> firstNameIndex = bitmapIndices.getIndexerString("firstName");
 // ...
 ----
+
+NOTE: The value-typed getters (`getIndexerInteger`, `getIndexerString`, …) match only the *low-cardinality*
+(`AUTO`) variant. An index declared with `@Index(binary = true)` / `kind = BINARY` or `kind = BIT_SLICED` is a
+`BinaryIndexer` / `ByteIndexerNumber` (parallel hierarchies, *not* `IndexerInteger` subtypes) and must be
+fetched via `getBinaryIndexer(name)` / `getByteIndexerNumber(keyType, name)`. Dedicated getters also exist for
+`Instant`, `ZonedDateTime`, spatial and comparing (`Comparable`/`Date`) indexes.
 
 === Supported types
 
