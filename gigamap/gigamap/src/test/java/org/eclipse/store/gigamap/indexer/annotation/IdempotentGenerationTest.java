@@ -50,9 +50,9 @@ public class IdempotentGenerationTest
 	{
 		final GigaMap<Entity> map = GigaMap.New();
 
-		IndexerGenerator.AnnotationBased(Entity.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Entity.class).generateIndices(map);
 		// second run must be a no-op, not throw "already registered" / "Double index name"
-		IndexerGenerator.AnnotationBased(Entity.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Entity.class).generateIndices(map);
 
 		map.add(new Entity("n1", "C1", 1));
 

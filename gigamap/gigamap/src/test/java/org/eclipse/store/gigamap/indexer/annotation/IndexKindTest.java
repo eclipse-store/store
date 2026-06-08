@@ -55,7 +55,7 @@ public class IndexKindTest
 	void bitSlicedNumericSupportsRangeQueries()
 	{
 		final GigaMap<Scored> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(Scored.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Scored.class).generateIndices(map);
 
 		map.add(new Scored(10, 1L, 100L));
 		map.add(new Scored(60, 2L, 200L));
@@ -76,7 +76,7 @@ public class IndexKindTest
 	void binaryKindAndLegacyBinaryFlagBothProduceBinaryIndex()
 	{
 		final GigaMap<Scored> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(Scored.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Scored.class).generateIndices(map);
 
 		map.add(new Scored(10, 1L, 100L));
 		map.add(new Scored(60, 2L, 200L));
@@ -97,7 +97,7 @@ public class IndexKindTest
 		final GigaMap<BadBitSliced> map = GigaMap.New();
 		final IllegalStateException ex = assertThrows(
 			IllegalStateException.class,
-			() -> IndexerGenerator.AnnotationBased(BadBitSliced.class).generateIndices(map.index().bitmap())
+			() -> IndexerGenerator.AnnotationBased(BadBitSliced.class).generateIndices(map)
 		);
 		assertEquals(true, ex.getMessage().contains("bit-sliced"));
 	}

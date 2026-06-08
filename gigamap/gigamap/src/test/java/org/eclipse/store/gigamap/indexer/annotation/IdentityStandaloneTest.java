@@ -46,7 +46,7 @@ public class IdentityStandaloneTest
 	void identityWithoutIndexCreatesUsableIndex()
 	{
 		final GigaMap<Doc> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(Doc.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Doc.class).generateIndices(map);
 
 		map.add(new Doc(1, "a"));
 		map.add(new Doc(2, "b"));

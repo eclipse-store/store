@@ -23,6 +23,7 @@ import org.eclipse.store.gigamap.types.Indexer.Creator;
 import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.EqHashEnum;
+import org.eclipse.serializer.collections.EqHashTable;
 import org.eclipse.serializer.collections.HashEnum;
 import org.eclipse.serializer.collections.types.XEnum;
 import org.eclipse.serializer.collections.types.XList;
@@ -70,24 +71,25 @@ public interface IndexerGenerator<E>
 	 * Fills the provided BitmapIndices object with index data.
 	 *
 	 * @param target the BitmapIndices object to be populated with generated index data
+	 * @deprecated use {@link #generateIndices(GigaMap)}, which additionally returns a
+	 *             {@link GeneratedIndices} handle over the generated indexers. This method is
+	 *             retained for binary compatibility and discards that handle.
 	 */
+	@Deprecated
 	public void generateIndices(BitmapIndices<E> target);
 
 	/**
-	 * Generates the annotation-based indices for the given {@link GigaMap}.
+	 * Generates the annotation-based indices for the given {@link GigaMap} and returns a
+	 * {@link GeneratedIndices} handle over the generated bitmap indexers, keyed by index name.
 	 * <p>
-	 * This default implementation generates the bitmap indices only (equivalent to
-	 * {@link #generateIndices(BitmapIndices)} on {@code target.index().bitmap()}). The
-	 * {@link AnnotationBased} implementation additionally invokes the registered
-	 * {@link GigaIndexAnnotationHandler handlers} to contribute further index groups (for example
-	 * full-text or vector indices).
+	 * Implementations generate the bitmap indices and may additionally contribute further index groups
+	 * (for example full-text or vector indices) via registered
+	 * {@link GigaIndexAnnotationHandler handlers}.
 	 *
 	 * @param target the {@link GigaMap} whose indices are to be generated
+	 * @return a {@link GeneratedIndices} handle over the generated bitmap indexers, keyed by index name
 	 */
-	public default void generateIndices(final GigaMap<E> target)
-	{
-		this.generateIndices(target.index().bitmap());
-	}
+	public GeneratedIndices<E> generateIndices(GigaMap<E> target);
 
 	/**
 	 * Registers a {@link GigaIndexAnnotationHandler} that contributes additional index groups during
@@ -97,10 +99,7 @@ public interface IndexerGenerator<E>
 	 * @param handler the handler to register
 	 * @return this generator, for fluent chaining
 	 */
-	public default IndexerGenerator<E> register(final GigaIndexAnnotationHandler<E> handler)
-	{
-		throw new UnsupportedOperationException();
-	}
+	public IndexerGenerator<E> register(final GigaIndexAnnotationHandler<E> handler);
 
 
 	/**
@@ -125,9 +124,10 @@ public interface IndexerGenerator<E>
 	 * @param entityType the annotated entity type
 	 * @param map        the target {@link GigaMap}
 	 * @param handlers   the {@link GigaIndexAnnotationHandler handlers} to apply (may be empty)
+	 * @return a {@link GeneratedIndices} handle over the generated bitmap indexers, keyed by index name
 	 */
 	@SafeVarargs
-	public static <E> void generate(
+	public static <E> GeneratedIndices<E> generate(
 		final Class<E>                       entityType,
 		final GigaMap<E>                     map       ,
 		final GigaIndexAnnotationHandler<E>... handlers
@@ -138,7 +138,7 @@ public interface IndexerGenerator<E>
 		{
 			generator.register(handler);
 		}
-		generator.generateIndices(map);
+		return generator.generateIndices(map);
 	}
 
 
@@ -161,18 +161,25 @@ public interface IndexerGenerator<E>
 		}
 
 		@Override
-		public void generateIndices(final GigaMap<E> target)
+		public GeneratedIndices<E> generateIndices(final GigaMap<E> target)
 		{
 			final GigaIndices<E> indices = target.index();
-			this.generateIndices(indices.bitmap());
+			final GeneratedIndices<E> generated = this.generateBitmapIndices(indices.bitmap());
 			for(final GigaIndexAnnotationHandler<E> handler : this.handlers)
 			{
 				handler.contribute(this.entityType, indices);
 			}
+			return generated;
 		}
 
 		@Override
+		@Deprecated
 		public void generateIndices(final BitmapIndices<E> target)
+		{
+			this.generateBitmapIndices(target);
+		}
+
+		private GeneratedIndices<E> generateBitmapIndices(final BitmapIndices<E> target)
 		{
 			final XEnum<String>        indexNames      = EqHashEnum.New();
 			final XList<Indexer<E, ?>> uniqueIndexers  = BulkList.New();
@@ -243,6 +250,18 @@ public interface IndexerGenerator<E>
 
 			target.ensureAll(indexers);
 			target.setIdentityIndices(identityIndices);
+
+			// hand back a typed by-name registry of every generated indexer (regular + spatial + unique)
+			final EqHashTable<String, Indexer<E, ?>> generated = EqHashTable.New();
+			for(final Indexer<E, ?> indexer : indexers)
+			{
+				generated.add(indexer.name(), indexer);
+			}
+			for(final Indexer<E, ?> uniqueIndexer : uniqueIndexers)
+			{
+				generated.add(uniqueIndexer.name(), uniqueIndexer);
+			}
+			return GeneratedIndices.New(generated);
 		}
 
 		private List<MemberAccessor> collectAnnotatedMembers()

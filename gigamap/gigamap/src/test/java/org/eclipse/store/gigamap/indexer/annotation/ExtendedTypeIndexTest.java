@@ -51,7 +51,7 @@ public class ExtendedTypeIndexTest
 	void instantZonedAndBigDecimalAreMappedAndQueryable()
 	{
 		final GigaMap<Event> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(Event.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Event.class).generateIndices(map);
 
 		final Instant       t1 = Instant.parse("2024-01-01T10:15:30Z");
 		final Instant       t2 = Instant.parse("2025-06-02T08:00:00Z");
@@ -82,7 +82,7 @@ public class ExtendedTypeIndexTest
 	void instantRangeQuery()
 	{
 		final GigaMap<Event> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(Event.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Event.class).generateIndices(map);
 
 		final Instant t1 = Instant.parse("2024-01-01T10:15:30Z");
 		final Instant t2 = Instant.parse("2025-06-02T08:00:00Z");

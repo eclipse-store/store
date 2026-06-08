@@ -58,7 +58,7 @@ public class NullValueIndexTest
 	void nullBinaryKeyFailsWithClearMessageNotNpe()
 	{
 		final GigaMap<UniqueId> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(UniqueId.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(UniqueId.class).generateIndices(map);
 
 		final IllegalArgumentException ex = assertThrows(
 			IllegalArgumentException.class,
@@ -71,7 +71,7 @@ public class NullValueIndexTest
 	void nullEnumValueIsIndexedWithoutError()
 	{
 		final GigaMap<Painted> map = GigaMap.New();
-		IndexerGenerator.AnnotationBased(Painted.class).generateIndices(map.index().bitmap());
+		IndexerGenerator.AnnotationBased(Painted.class).generateIndices(map);
 
 		map.add(new Painted(null));
 		map.add(new Painted(Color.RED));
