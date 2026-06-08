@@ -216,6 +216,22 @@ public class BitmapLevel3 extends AbstractStateChangeFlagged implements Unpersis
 		}
 	}
 	
+	// Deterministically frees the off-heap memory of all level2 segments below this level. Used when the
+	// owning index is dropped (see BitmapIndices#removeIndex / update) to release native memory immediately.
+	final void release()
+	{
+		final BitmapLevel2[] segments = this.segments;
+		for(int i = 0; i < segments.length; i++)
+		{
+			final BitmapLevel2 segment = segments[i];
+			if(segment != null)
+			{
+				segment.release();
+				segments[i] = null;
+			}
+		}
+	}
+
 	static BitmapLevel2[] createArray(final int length)
 	{
 		return new BitmapLevel2[length];
