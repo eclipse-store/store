@@ -260,6 +260,10 @@ getter: a binary *numeric* index via `getBinaryIndexer(name)`, a binary `String`
 a binary `UUID` via `getIndexerUUID(name)`, and a bit-sliced numeric index via `getByteIndexerNumber(keyType, name)`.
 Dedicated getters also exist for `Instant`, `ZonedDateTime`, spatial and comparing (`Comparable`/`Date`) indexes.
 
+NOTE: A `@Unique` field is generated as a *binary* index even without `@Index(binary = true)`. In particular a
+`@Unique String` (e.g. an e-mail or username) is a `BinaryIndexerString` and must be retrieved via
+`getBinaryIndexerString(name)` — `getIndexerString(name)` would throw a `ClassCastException`.
+
 === Supported types
 
 For each annotated property the generator picks a matching indexer based on the declared type:

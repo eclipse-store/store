@@ -17,6 +17,7 @@ package org.eclipse.store.gigamap.indexer.annotation;
 import org.eclipse.store.gigamap.annotations.Index;
 import org.eclipse.store.gigamap.annotations.IndexKind;
 import org.eclipse.store.gigamap.annotations.SpatialIndex;
+import org.eclipse.store.gigamap.annotations.Unique;
 import org.eclipse.store.gigamap.types.BinaryIndexer;
 import org.eclipse.store.gigamap.types.BinaryIndexerString;
 import org.eclipse.store.gigamap.types.BitmapIndices;
@@ -72,6 +73,16 @@ public class IndexerRetrievalTest
 		}
 	}
 
+	static class Account
+	{
+		@Unique String email;
+
+		Account(final String email)
+		{
+			this.email = email;
+		}
+	}
+
 	@SpatialIndex(latitude = "lat", longitude = "lon")
 	static class City
 	{
@@ -121,6 +132,27 @@ public class IndexerRetrievalTest
 		final IndexerComparing<Bean, Date> date = b.getIndexerComparing(Date.class, "date");
 		assertEquals(1, map.query(date.greaterThan(new Date(5_000L))).toList().size());
 		assertEquals(1, map.query(date.is(new Date(1_000L))).toList().size());
+	}
+
+	@Test
+	void uniqueStringIsBinaryAndRetrievableByDedicatedGetter()
+	{
+		// the common case: @Unique String (e.g. email / username). It has no explicit @Index(binary = true),
+		// yet the generator promotes a unique AUTO field to binary, so the indexer is a BinaryIndexerString.
+		final GigaMap<Account> map = GigaMap.New();
+		final GeneratedIndices<Account> idx =
+			IndexerGenerator.AnnotationBased(Account.class).generateIndices(map);
+		map.add(new Account("alice@example.org"));
+		map.add(new Account("bob@example.org"));
+
+		final BitmapIndices<Account> b = map.index().bitmap();
+
+		// the dedicated getter resolves it; the obvious getIndexerString and getBinaryIndexer do not.
+		assertNotNull(b.getBinaryIndexerString("email"));
+		assertEquals(1, map.query(b.getBinaryIndexerString("email").is("alice@example.org")).toList().size());
+		assertEquals(1, map.query(idx.getBinaryIndexerString("email").is("bob@example.org")).toList().size());
+		assertThrows(ClassCastException.class, () -> b.getIndexerString("email"));
+		assertThrows(ClassCastException.class, () -> b.getBinaryIndexer("email"));
 	}
 
 	@Test
