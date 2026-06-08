@@ -254,10 +254,11 @@ IndexerString<Person> firstNameIndex = bitmapIndices.getIndexerString("firstName
 ----
 
 NOTE: The value-typed getters (`getIndexerInteger`, `getIndexerString`, …) match only the *low-cardinality*
-(`AUTO`) variant. An index declared with `@Index(binary = true)` / `kind = BINARY` or `kind = BIT_SLICED` is a
-`BinaryIndexer` / `ByteIndexerNumber` (parallel hierarchies, *not* `IndexerInteger` subtypes) and must be
-fetched via `getBinaryIndexer(name)` / `getByteIndexerNumber(keyType, name)`. Dedicated getters also exist for
-`Instant`, `ZonedDateTime`, spatial and comparing (`Comparable`/`Date`) indexes.
+(`AUTO`) variant. An index declared with `@Index(binary = true)` / `kind = BINARY` or `kind = BIT_SLICED` lives
+in a parallel hierarchy (*not* an `IndexerInteger`/`IndexerString` subtype) and must be fetched via a dedicated
+getter: a binary *numeric* index via `getBinaryIndexer(name)`, a binary `String` via `getBinaryIndexerString(name)`,
+a binary `UUID` via `getIndexerUUID(name)`, and a bit-sliced numeric index via `getByteIndexerNumber(keyType, name)`.
+Dedicated getters also exist for `Instant`, `ZonedDateTime`, spatial and comparing (`Comparable`/`Date`) indexes.
 
 === Supported types
 

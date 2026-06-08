@@ -472,9 +472,12 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	 * Gets the registered binary indexer with the given name, or <code>null</code>.
 	 * <p>
 	 * Note: the value-typed getters ({@link #getIndexerInteger(String) getIndexerInteger} etc.) match only
-	 * the low-cardinality ({@code AUTO}) variant. An index generated with {@code @Index(binary = true)} or
-	 * {@code kind = BINARY} is a {@link BinaryIndexer} (a parallel hierarchy, not an {@code IndexerInteger}
-	 * subtype) and must be fetched here.
+	 * the low-cardinality ({@code AUTO}) variant. A binary index ({@code @Index(binary = true)} /
+	 * {@code kind = BINARY}) over a <em>numeric</em> type (integral, {@code float}, {@code double}) is a
+	 * {@link BinaryIndexer} (a parallel hierarchy, not an {@code IndexerInteger} subtype) and must be
+	 * fetched here. Binary indexes over non-numeric types are <em>not</em> {@code BinaryIndexer}s: use
+	 * {@link #getBinaryIndexerString(String)} for {@code String} and {@link #getIndexerUUID(String)} for
+	 * {@code UUID}.
 	 *
 	 * @param name the name of the indexer to search
 	 * @return the found indexer or <code>null</code>
@@ -483,6 +486,23 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	public default BinaryIndexer<E> getBinaryIndexer(final String name)
 	{
 		return this.getIndexer(BinaryIndexer.class, name);
+	}
+
+	/**
+	 * Gets the registered binary {@code String} indexer with the given name, or <code>null</code>.
+	 * <p>
+	 * Note: a binary {@code String} index ({@code @Index(binary = true)} / {@code kind = BINARY}) is a
+	 * {@link BinaryIndexerString} (a {@link BinaryCompositeIndexer}, neither an {@link IndexerString} nor a
+	 * {@link BinaryIndexer}) and must be fetched here rather than via {@link #getIndexerString(String)} or
+	 * {@link #getBinaryIndexer(String)}.
+	 *
+	 * @param name the name of the indexer to search
+	 * @return the found indexer or <code>null</code>
+	 */
+	@SuppressWarnings("unchecked")
+	public default BinaryIndexerString<E> getBinaryIndexerString(final String name)
+	{
+		return this.getIndexer(BinaryIndexerString.class, name);
 	}
 
 	/**

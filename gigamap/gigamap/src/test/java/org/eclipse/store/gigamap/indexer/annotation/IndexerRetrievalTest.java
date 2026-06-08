@@ -18,6 +18,7 @@ import org.eclipse.store.gigamap.annotations.Index;
 import org.eclipse.store.gigamap.annotations.IndexKind;
 import org.eclipse.store.gigamap.annotations.SpatialIndex;
 import org.eclipse.store.gigamap.types.BinaryIndexer;
+import org.eclipse.store.gigamap.types.BinaryIndexerString;
 import org.eclipse.store.gigamap.types.BitmapIndices;
 import org.eclipse.store.gigamap.types.ByteIndexerNumber;
 import org.eclipse.store.gigamap.types.GeneratedIndices;
@@ -42,6 +43,7 @@ import java.util.Date;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class IndexerRetrievalTest
 {
@@ -54,15 +56,17 @@ public class IndexerRetrievalTest
 		@Index                              Instant       ts;
 		@Index                              ZonedDateTime zdt;
 		@Index(binary = true)               long          id;
+		@Index(binary = true)               String        code;
 		@Index(kind = IndexKind.BIT_SLICED) int           score;
 		@Index                              Date          date;
 
-		Bean(final String name, final Instant ts, final long id, final int score, final Date date)
+		Bean(final String name, final Instant ts, final long id, final String code, final int score, final Date date)
 		{
 			this.name  = name;
 			this.ts    = ts;
 			this.zdt   = ts.atZone(ZoneOffset.UTC);
 			this.id    = id;
+			this.code  = code;
 			this.score = score;
 			this.date  = date;
 		}
@@ -87,8 +91,8 @@ public class IndexerRetrievalTest
 	{
 		final GigaMap<Bean> map = GigaMap.New();
 		IndexerGenerator.AnnotationBased(Bean.class).generateIndices(map);
-		map.add(new Bean("alice", Instant.parse("2024-01-01T00:00:00Z"), 100L, 10, new Date(1_000L)));
-		map.add(new Bean("bob",   Instant.parse("2025-06-01T00:00:00Z"), 200L, 90, new Date(9_000L)));
+		map.add(new Bean("alice", Instant.parse("2024-01-01T00:00:00Z"), 100L, "ax-1", 10, new Date(1_000L)));
+		map.add(new Bean("bob",   Instant.parse("2025-06-01T00:00:00Z"), 200L, "bx-9", 90, new Date(9_000L)));
 		return map;
 	}
 
@@ -103,6 +107,13 @@ public class IndexerRetrievalTest
 
 		final BinaryIndexer<Bean> id = b.getBinaryIndexer("id");
 		assertEquals(1, map.query(id.is(200L)).toList().size());
+
+		// a binary String index is a BinaryIndexerString (BinaryCompositeIndexer), so neither the
+		// String getter nor the binary getter can resolve it - getBinaryIndexerString must be used.
+		final BinaryIndexerString<Bean> code = b.getBinaryIndexerString("code");
+		assertEquals(1, map.query(code.is("ax-1")).toList().size());
+		assertThrows(ClassCastException.class, () -> b.getIndexerString("code"));
+		assertThrows(ClassCastException.class, () -> b.getBinaryIndexer("code"));
 
 		final ByteIndexerNumber<Bean, Integer> score = b.getByteIndexerNumber(Integer.class, "score");
 		assertEquals(1, map.query(score.greaterThan(50)).toList().size());
@@ -132,10 +143,10 @@ public class IndexerRetrievalTest
 		final GeneratedIndices<Bean> idx =
 			IndexerGenerator.AnnotationBased(Bean.class).generateIndices(map);
 
-		map.add(new Bean("alice", Instant.parse("2024-01-01T00:00:00Z"), 100L, 10, new Date(1_000L)));
-		map.add(new Bean("bob",   Instant.parse("2025-06-01T00:00:00Z"), 200L, 90, new Date(9_000L)));
+		map.add(new Bean("alice", Instant.parse("2024-01-01T00:00:00Z"), 100L, "ax-1", 10, new Date(1_000L)));
+		map.add(new Bean("bob",   Instant.parse("2025-06-01T00:00:00Z"), 200L, "bx-9", 90, new Date(9_000L)));
 
-		assertEquals(6, idx.all().size());
+		assertEquals(7, idx.all().size());
 		assertNotNull(idx.get("name"));
 		assertNull(idx.get("does-not-exist"));
 
@@ -144,6 +155,7 @@ public class IndexerRetrievalTest
 		assertEquals(1, map.query(idx.get(IndexerString.class, "name").startsWith("al")).toList().size());
 		assertEquals(1, map.query(idx.getIndexerInstant("ts").after(Instant.parse("2025-01-01T00:00:00Z"))).toList().size());
 		assertEquals(1, map.query(idx.getBinaryIndexer("id").is(100L)).toList().size());
+		assertEquals(1, map.query(idx.getBinaryIndexerString("code").is("bx-9")).toList().size());
 		assertEquals(1, map.query(idx.getByteIndexerNumber(Integer.class, "score").greaterThan(50)).toList().size());
 		assertEquals(1, map.query(idx.getIndexerComparing(Date.class, "date").greaterThan(new Date(5_000L))).toList().size());
 	}
@@ -165,9 +177,10 @@ public class IndexerRetrievalTest
 			final GeneratedIndices<Bean> idx =
 				IndexerGenerator.AnnotationBased(Bean.class).generateIndices(map2);
 
-			assertEquals(6, idx.all().size());
+			assertEquals(7, idx.all().size());
 			assertEquals(1, map2.query(idx.getIndexerString("name").is("bob")).toList().size());
 			assertEquals(1, map2.query(idx.getBinaryIndexer("id").is(100L)).toList().size());
+			assertEquals(1, map2.query(idx.getBinaryIndexerString("code").is("ax-1")).toList().size());
 			assertEquals(1, map2.query(idx.getByteIndexerNumber(Integer.class, "score").greaterThan(50)).toList().size());
 		}
 	}
