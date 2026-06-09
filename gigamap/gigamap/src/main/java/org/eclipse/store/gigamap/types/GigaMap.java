@@ -38,6 +38,7 @@ import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Spliterator;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -412,6 +413,21 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	public default void forEach(final Consumer<? super E> action)
 	{
 		this.iterate(action);
+	}
+
+	/**
+	 * {@inheritDoc}
+	 * <p>
+	 * <strong>
+	 * Important: a directly-obtained spliterator holds the GigaMap read-lock and provides no close
+	 * handle. Either consume it fully (the underlying {@link GigaIterator} self-closes on exhaustion)
+	 * or, preferably, use {@link #iterate(Consumer)} or a try-with-resources around {@link #iterator()}.
+	 * </strong>
+	 */
+	@Override
+	public default Spliterator<E> spliterator()
+	{
+		return Iterable.super.spliterator();
 	}
 
 	/**

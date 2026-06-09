@@ -14,6 +14,7 @@ package org.eclipse.store.gigamap.indexer.edge;
  * #L%
  */
 
+import org.eclipse.store.gigamap.types.GigaIterator;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.IndexerString;
 import org.junit.jupiter.api.Test;
@@ -21,9 +22,11 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 public class QueryIteratorCloseTest
@@ -134,6 +137,33 @@ public class QueryIteratorCloseTest
             }
 
             // Must NOT deadlock: forEach has to release the read-lock even though the consumer threw.
+            gigaMap.update(person, p -> p.setName("changed"));
+        });
+
+        assertEquals(1, gigaMap.query(nameIndexer.is("changed")).count());
+    }
+
+
+    @Test
+    void nextPastEndReleasesLockOnThrow()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            // A matching query yields a real BitmapIterator holding a read-lock (an empty query
+            // would return the always-safe GigaIterator.Empty and not exercise the guard).
+            // Deliberately NOT closing the iterator: driving next() one past the end must release
+            // the read-lock itself when it throws NoSuchElementException. A try-with-resources
+            // would mask the leak.
+            final GigaIterator<NamePerson> it = gigaMap.query(nameIndexer.is("name1")).iterator();
+            it.hasNext();                                         // prepares the single match
+            it.next();                                           // consumes it, clearing the buffer
+            assertThrows(NoSuchElementException.class, it::next); // scrolls past end -> must self-close
+
+            // Must NOT deadlock: next() has to release the read-lock on throw.
             gigaMap.update(person, p -> p.setName("changed"));
         });
 

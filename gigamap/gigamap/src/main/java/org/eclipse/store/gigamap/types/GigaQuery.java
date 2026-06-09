@@ -80,6 +80,22 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 	{
 		this.iterate(action);
 	}
+
+	/**
+	 * {@inheritDoc}
+	 * <p>
+	 * <strong>
+	 * Important: a directly-obtained spliterator holds the GigaMap read-lock and provides no close
+	 * handle. Either consume it fully (the underlying {@link GigaIterator} self-closes on exhaustion)
+	 * or, preferably, use {@link #stream()} (which releases the read-lock via {@code onClose}) or
+	 * {@link #iterate(Consumer)}.
+	 * </strong>
+	 */
+	@Override
+	public default Spliterator<E> spliterator()
+	{
+		return Iterable.super.spliterator();
+	}
 	
 	/**
 	 * Iterates over the results of this query with their corresponding id

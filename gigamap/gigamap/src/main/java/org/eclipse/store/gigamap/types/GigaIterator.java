@@ -132,15 +132,24 @@ public interface GigaIterator<E> extends Iterator<E>, AutoCloseable
 		@Override
 		public final boolean hasNext()
 		{
-			if(this.next != null || (this.next = this.scrollToNextNonNullElement()) != null)
+			// must close in any and all cases where next is null. Including no elements and any throwable.
+			try
 			{
-				return true;
+				if(this.next != null || (this.next = this.scrollToNextNonNullElement()) != null)
+				{
+					return true;
+				}
+
+				// must close at the end to unregister from the parent GigaMap.
+				this.close();
+
+				return false;
 			}
-
-			// must close at the end to unregister from the parent GigaMap.
-			this.close();
-
-			return false;
+			catch(final Throwable t)
+			{
+				this.close();
+				throw t;
+			}
 		}
 
 		@Override
@@ -158,19 +167,28 @@ public interface GigaIterator<E> extends Iterator<E>, AutoCloseable
 		
 		private Entry<E> nextEntry()
 		{
-			final Entry<E> next;
-			if(this.next != null)
+			// must close on any throwable (no more elements or a failure during entity resolution).
+			try
 			{
-				// #hasNext already had the next element prepared, so just consume it.
-				next = this.next;
-				this.next = null;
+				final Entry<E> next;
+				if(this.next != null)
+				{
+					// #hasNext already had the next element prepared, so just consume it.
+					next = this.next;
+					this.next = null;
+				}
+				else if((next = this.scrollToNextNonNullElement()) == null)
+				{
+					// no element and no more data to get the next one, hence exception
+					throw new NoSuchElementException();
+				}
+				return next;
 			}
-			else if((next = this.scrollToNextNonNullElement()) == null)
+			catch(final Throwable t)
 			{
-				// no element and no more data to get the next one, hence exception
-				throw new NoSuchElementException();
+				this.close();
+				throw t;
 			}
-			return next;
 		}
 		
 		private Entry<E> scrollToNextNonNullElement()
