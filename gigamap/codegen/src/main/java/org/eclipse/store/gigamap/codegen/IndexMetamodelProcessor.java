@@ -556,24 +556,25 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 
 	/**
 	 * The source expression reading {@code member} off a parameter {@code e}: a direct field access
-	 * when reachable from the same package (non-private field), otherwise an accessible getter call.
-	 * Methods are called directly when non-private.
+	 * when the field is accessible from the generated metamodel, otherwise an accessible getter call.
+	 * The metamodel sits in the entity's package and is not a subclass, so a member is reachable only
+	 * when it is {@code public} or declared in the entity's package (see {@link #isAccessibleFrom}).
 	 */
 	private String readExpression(final TypeElement entity, final Member member)
 	{
 		if(member.element.getKind() == ElementKind.METHOD)
 		{
-			if(member.element.getModifiers().contains(Modifier.PRIVATE))
+			if(this.isAccessibleFrom(member.element, entity))
 			{
-				this.error(member.element, "Indexed accessor '" + member.element.getSimpleName()
-					+ "' must not be private to be reachable from the generated metamodel");
-				return null;
+				return "e." + member.element.getSimpleName() + "()";
 			}
-			return "e." + member.element.getSimpleName() + "()";
+			this.error(member.element, "Indexed accessor '" + member.element.getSimpleName()
+				+ "' is not accessible from the generated metamodel (must be public or in the entity's package)");
+			return null;
 		}
 
 		// field
-		if(!member.element.getModifiers().contains(Modifier.PRIVATE))
+		if(this.isAccessibleFrom(member.element, entity))
 		{
 			return "e." + member.element.getSimpleName();
 		}
@@ -582,9 +583,28 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 		{
 			return "e." + getter.getSimpleName() + "()";
 		}
-		this.error(member.element, "Indexed private field '" + member.element.getSimpleName()
-			+ "' has no accessible getter reachable from the generated metamodel");
+		this.error(member.element, "Indexed field '" + member.element.getSimpleName()
+			+ "' is not accessible and has no accessible getter reachable from the generated metamodel");
 		return null;
+	}
+
+	/**
+	 * Whether {@code member} can be referenced from a generated class in the entity's package. The
+	 * metamodel is not a subclass of the member's declaring type, so {@code protected} only helps when
+	 * the declaring type is in the entity's package; {@code private} is never reachable.
+	 */
+	private boolean isAccessibleFrom(final Element member, final TypeElement entity)
+	{
+		final Set<Modifier> modifiers = member.getModifiers();
+		if(modifiers.contains(Modifier.PRIVATE))
+		{
+			return false;
+		}
+		if(modifiers.contains(Modifier.PUBLIC))
+		{
+			return true;
+		}
+		return this.elements.getPackageOf(member).equals(this.elements.getPackageOf(entity));
 	}
 
 	private ExecutableElement findGetter(final TypeElement entity, final Member field)
@@ -607,9 +627,10 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 					continue;
 				}
 				final String n = method.getSimpleName().toString();
-				if(n.equals("get" + cap)
+				if((n.equals("get" + cap)
 					|| (isBool && n.equals("is" + cap))
 					|| n.equals(prop)) // record component accessor
+					&& this.isAccessibleFrom(method, entity))
 				{
 					return method;
 				}
@@ -1093,14 +1114,10 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 		return propertyName.toLowerCase(Locale.ROOT);
 	}
 
-	/** A Java identifier for a constant, kept unique within the metamodel. */
-	private String identifier(final String propertyName, final List<GeneratedConstant> existing)
+	/** A valid, unique-within-the-metamodel Java identifier for a constant. */
+	private String identifier(final String raw, final List<GeneratedConstant> existing)
 	{
-		String id = propertyName;
-		if(SourceVersion.isKeyword(id) || !SourceVersion.isIdentifier(id))
-		{
-			id = "_" + id;
-		}
+		final String id = sanitizeIdentifier(raw);
 		String candidate = id;
 		int n = 1;
 		while(containsIdentifier(existing, candidate))
@@ -1108,6 +1125,27 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 			candidate = id + "_" + (++n);
 		}
 		return candidate;
+	}
+
+	/**
+	 * Turns an arbitrary string (a property name, or an arbitrary {@code @...(name = ...)} index name)
+	 * into a valid Java identifier: non-identifier characters become {@code _}, and a leading {@code _}
+	 * is prepended when the result is empty, starts with a non-identifier-start character, or is a
+	 * reserved word. Valid property names pass through unchanged.
+	 */
+	private static String sanitizeIdentifier(final String raw)
+	{
+		final StringBuilder b = new StringBuilder(raw.length());
+		for(int i = 0; i < raw.length(); i++)
+		{
+			final char c = raw.charAt(i);
+			b.append(Character.isJavaIdentifierPart(c) ? c : '_');
+		}
+		if(b.length() == 0 || !Character.isJavaIdentifierStart(b.charAt(0)) || SourceVersion.isKeyword(b.toString()))
+		{
+			b.insert(0, '_');
+		}
+		return b.toString();
 	}
 
 	private static boolean containsIdentifier(final List<GeneratedConstant> existing, final String id)
