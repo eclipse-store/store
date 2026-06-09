@@ -338,6 +338,87 @@ final class IndexerEmitter
 		b.append("\t\t}\n");
 	}
 
+	/** A single {@code @FullText} document field: target Lucene field name, read expression, flags. */
+	static final class FullTextField
+	{
+		final String  fieldName;
+		final String  readExpr;
+		final boolean analyzed;
+		final boolean store;
+
+		FullTextField(final String fieldName, final String readExpr, final boolean analyzed, final boolean store)
+		{
+			this.fieldName = fieldName;
+			this.readExpr  = readExpr;
+			this.analyzed  = analyzed;
+			this.store     = store;
+		}
+	}
+
+	/**
+	 * Emits a nested {@code DocumentPopulator} subclass that maps each {@code @FullText} member into a
+	 * Lucene document field through {@code readExpr} (reflection-free, mirroring
+	 * {@code AnnotationDocumentPopulator}).
+	 */
+	String fullTextPopulator(final String entityRef, final String className, final List<FullTextField> fields)
+	{
+		final String base     = this.imports.ref("org.eclipse.store.gigamap.lucene.DocumentPopulator");
+		final String document = this.imports.ref("org.apache.lucene.document.Document");
+		final String store    = this.imports.ref("org.apache.lucene.document.Field.Store");
+
+		final StringBuilder b = new StringBuilder();
+		b.append("\tpublic static final class ").append(className)
+			.append(" extends ").append(base).append("<").append(entityRef).append(">\n");
+		b.append("\t{\n");
+		b.append("\t\t@Override\n");
+		b.append("\t\tpublic void populate(final ").append(document).append(" document, final ")
+			.append(entityRef).append(" e)\n");
+		b.append("\t\t{\n");
+		int i = 0;
+		for(final FullTextField f : fields)
+		{
+			final String fieldType = this.imports.ref(f.analyzed
+				? "org.apache.lucene.document.TextField"
+				: "org.apache.lucene.document.StringField");
+			final String local = "v" + i++;
+			b.append("\t\t\tfinal Object ").append(local).append(" = ").append(f.readExpr).append(";\n");
+			b.append("\t\t\tif(").append(local).append(" != null)\n\t\t\t{\n");
+			b.append("\t\t\t\tdocument.add(new ").append(fieldType).append("(\"").append(escape(f.fieldName))
+				.append("\", String.valueOf(").append(local).append("), ").append(store)
+				.append(f.store ? ".YES" : ".NO").append("));\n");
+			b.append("\t\t\t}\n");
+		}
+		b.append("\t\t}\n");
+		b.append("\t}\n");
+		return b.toString();
+	}
+
+	/**
+	 * Emits a nested {@code Vectorizer} subclass that reads the {@code @Vector float[]} member through
+	 * {@code readExpr} in embedded mode (reflection-free, mirroring {@code AnnotationVectorizer}).
+	 */
+	String vectorizer(final String entityRef, final String className, final String readExpr)
+	{
+		final String base = this.imports.ref("org.eclipse.store.gigamap.jvector.Vectorizer");
+
+		final StringBuilder b = new StringBuilder();
+		b.append("\tpublic static final class ").append(className)
+			.append(" extends ").append(base).append("<").append(entityRef).append(">\n");
+		b.append("\t{\n");
+		b.append("\t\t@Override\n");
+		b.append("\t\tpublic float[] vectorize(final ").append(entityRef).append(" e)\n");
+		b.append("\t\t{\n");
+		b.append("\t\t\treturn ").append(readExpr).append(";\n");
+		b.append("\t\t}\n\n");
+		b.append("\t\t@Override\n");
+		b.append("\t\tpublic boolean isEmbedded()\n");
+		b.append("\t\t{\n");
+		b.append("\t\t\treturn true;\n");
+		b.append("\t\t}\n");
+		b.append("\t}\n");
+		return b.toString();
+	}
+
 	// ---- shared constant templates -------------------------------------------------------------
 
 	/** A single-{@code E}-parameter indexer overriding {@code name()} and one protected getter. */

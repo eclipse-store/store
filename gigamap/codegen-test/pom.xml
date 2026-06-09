@@ -43,6 +43,33 @@
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- integration modules whose @FullText / @Vector annotations the processor wires up -->
+        <dependency>
+            <groupId>org.eclipse.store</groupId>
+            <artifactId>gigamap-lucene</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.store</groupId>
+            <artifactId>gigamap-jvector</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Lucene is 'provided' in gigamap-lucene (not transitive), so pull it in for the tests -->
+        <dependency>
+            <groupId>org.apache.lucene</groupId>
+            <artifactId>lucene-core</artifactId>
+            <version>9.8.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.lucene</groupId>
+            <artifactId>lucene-queryparser</artifactId>
+            <version>9.8.0</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

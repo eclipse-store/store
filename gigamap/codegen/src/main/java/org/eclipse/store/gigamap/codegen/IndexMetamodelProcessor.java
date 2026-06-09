@@ -26,12 +26,15 @@ import javax.annotation.processing.RoundEnvironment;
 import javax.annotation.processing.SupportedAnnotationTypes;
 import javax.annotation.processing.SupportedOptions;
 import javax.lang.model.SourceVersion;
+import javax.lang.model.element.AnnotationMirror;
+import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.MirroredTypeException;
 import javax.lang.model.type.TypeKind;
@@ -48,7 +51,9 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Compile-time annotation processor that emits, for each entity carrying GigaMap index annotations
@@ -58,9 +63,18 @@ import java.util.Set;
  * <p>
  * This is the compile-time, reflection-free counterpart of the runtime
  * {@code IndexerGenerator.AnnotationBased}: the type/kind to indexer-flavor mapping is reproduced in
- * {@link IndexerEmitter}. Members carrying a custom {@code @Index(creator=...)}, and any full-text /
- * vector annotations, cannot be reproduced at compile time and are skipped with a note — those
- * entities must still use the runtime generator for the skipped indices.
+ * {@link IndexerEmitter}. Bitmap and spatial indices yield typed query constants. Full-text
+ * ({@code @FullText}, Lucene) and vector ({@code @Vector}, JVector) annotations are wired up too: the
+ * processor emits a reflection-free {@code DocumentPopulator} / {@code Vectorizer} and registration
+ * code in {@code registerIndices} (in-graph / in-memory defaults), but — unlike bitmap indices — no
+ * typed query handle, since those are per-map runtime objects. Members carrying a custom
+ * {@code @Index(creator=...)}, and {@code @Vector(onDisk=true)}, cannot be reproduced at compile time
+ * and are skipped with a note — those stay on the runtime generator.
+ * <p>
+ * The full-text / vector annotations are read via the {@code javax.lang.model} mirror API by fully
+ * qualified name, so this processor depends only on the GigaMap core (not the Lucene / JVector
+ * modules); the generated code references their types, which are on the user's classpath whenever the
+ * annotations are used.
  * <p>
  * The suffix appended to the entity's simple name to form the metamodel name (default {@code "_"},
  * e.g. {@code Person} &rarr; {@code Person_}) is configurable through the processor option
@@ -71,7 +85,9 @@ import java.util.Set;
 	"org.eclipse.store.gigamap.annotations.Unique",
 	"org.eclipse.store.gigamap.annotations.Identity",
 	"org.eclipse.store.gigamap.annotations.SpatialIndex",
-	"org.eclipse.store.gigamap.annotations.Indexed"
+	"org.eclipse.store.gigamap.annotations.Indexed",
+	"org.eclipse.store.gigamap.lucene.annotations.FullText",
+	"org.eclipse.store.gigamap.jvector.annotations.Vector"
 })
 @SupportedOptions(IndexMetamodelProcessor.SUFFIX_OPTION)
 public final class IndexMetamodelProcessor extends AbstractProcessor
@@ -81,6 +97,11 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 	static final String DEFAULT_SUFFIX = "_";
 
 	private static final String DUMMY_CREATOR = "org.eclipse.store.gigamap.types.Indexer.Creator.Dummy";
+
+	private static final String FULLTEXT_ANNOTATION = "org.eclipse.store.gigamap.lucene.annotations.FullText";
+	private static final String VECTOR_ANNOTATION   = "org.eclipse.store.gigamap.jvector.annotations.Vector";
+	private static final String FULLTEXT_POPULATOR  = "FullTextPopulator";
+	private static final String VECTORIZER_CLASS    = "EmbeddingVectorizer";
 
 	private Types             types;
 	private Elements          elements;
@@ -118,6 +139,8 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 		this.collectEntities(roundEnv, Identity.class     , entities);
 		this.collectEntities(roundEnv, SpatialIndex.class , entities);
 		this.collectEntities(roundEnv, Indexed.class       , entities);
+		this.collectEntities(roundEnv, FULLTEXT_ANNOTATION, entities);
+		this.collectEntities(roundEnv, VECTOR_ANNOTATION  , entities);
 
 		for(final TypeElement entity : entities)
 		{
@@ -146,13 +169,40 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 	{
 		for(final Element e : roundEnv.getElementsAnnotatedWith(annotation))
 		{
-			final TypeElement entity = e.getKind().isClass() || e.getKind().isInterface()
-				? (TypeElement)e
-				: enclosingType(e);
-			if(entity != null && (entity.getKind() == ElementKind.CLASS || entity.getKind() == ElementKind.RECORD))
-			{
-				entities.add(entity);
-			}
+			addEntity(e, entities);
+		}
+	}
+
+	/**
+	 * Like {@link #collectEntities(RoundEnvironment, Class, Set)} but resolves the annotation by name,
+	 * so it works for the Lucene / JVector annotations that are not on this processor's classpath. A
+	 * no-op when the annotation type is absent from the compilation (then no entity uses it).
+	 */
+	private void collectEntities(
+		final RoundEnvironment roundEnv      ,
+		final String           annotationFqn ,
+		final Set<TypeElement> entities
+	)
+	{
+		final TypeElement annotation = this.elements.getTypeElement(annotationFqn);
+		if(annotation == null)
+		{
+			return;
+		}
+		for(final Element e : roundEnv.getElementsAnnotatedWith(annotation))
+		{
+			addEntity(e, entities);
+		}
+	}
+
+	private static void addEntity(final Element e, final Set<TypeElement> entities)
+	{
+		final TypeElement entity = e.getKind().isClass() || e.getKind().isInterface()
+			? (TypeElement)e
+			: enclosingType(e);
+		if(entity != null && (entity.getKind() == ElementKind.CLASS || entity.getKind() == ElementKind.RECORD))
+		{
+			entities.add(entity);
 		}
 	}
 
@@ -234,7 +284,99 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 
 		this.addSpatial(entity, entityRef, emitter, indexNames, constants);
 
-		this.writeSource(entity, pkg, metamodelName, entityRef, imports, constants);
+		final FullTextPlan fullText = this.buildFullText(entity, entityRef, emitter);
+		final VectorPlan   vector   = this.buildVector(entity, entityRef, emitter, metamodelName);
+
+		this.writeSource(entity, pkg, metamodelName, entityRef, imports, constants, fullText, vector);
+	}
+
+	/** Builds the {@code @FullText} populator plan, or {@code null} if the entity has no full-text members. */
+	private FullTextPlan buildFullText(final TypeElement entity, final String entityRef, final IndexerEmitter emitter)
+	{
+		final List<Member> members = this.collectMembers(entity, e -> findMirror(e, FULLTEXT_ANNOTATION) != null);
+		if(members.isEmpty())
+		{
+			return null;
+		}
+		final List<IndexerEmitter.FullTextField> fields = new ArrayList<>();
+		for(final Member member : members)
+		{
+			final String readExpr = this.readExpression(entity, member);
+			if(readExpr == null)
+			{
+				continue; // diagnostic already emitted
+			}
+			final AnnotationMirror am = findMirror(member.element, FULLTEXT_ANNOTATION);
+			fields.add(new IndexerEmitter.FullTextField(
+				nonEmpty(stringValue(am, "name"), member.propertyName),
+				readExpr,
+				boolValue(am, "analyzed", true),
+				boolValue(am, "store", true)
+			));
+		}
+		if(fields.isEmpty())
+		{
+			return null;
+		}
+		return new FullTextPlan(emitter.fullTextPopulator(entityRef, FULLTEXT_POPULATOR, fields));
+	}
+
+	/** Builds the {@code @Vector} vectorizer plan, or {@code null} if absent / not generatable. */
+	private VectorPlan buildVector(
+		final TypeElement    entity,
+		final String         entityRef,
+		final IndexerEmitter emitter,
+		final String         metamodelName
+	)
+	{
+		final List<Member> members = this.collectMembers(entity, e -> findMirror(e, VECTOR_ANNOTATION) != null);
+		if(members.isEmpty())
+		{
+			return null;
+		}
+		if(members.size() > 1)
+		{
+			this.error(entity, "Multiple @Vector members in " + entity.getQualifiedName()
+				+ "; only one vector index per entity is supported");
+			return null;
+		}
+		final Member member = members.get(0);
+		if(isIndexAnnotated(member.element))
+		{
+			this.error(member.element, "A @Vector member must not also carry @Index / @Unique / @Identity");
+			return null;
+		}
+		if(!isFloatArray(member.type))
+		{
+			this.error(member.element, "A @Vector member must be of type float[]");
+			return null;
+		}
+
+		final AnnotationMirror am = findMirror(member.element, VECTOR_ANNOTATION);
+		final int dimension = intValue(am, "dimension", 0);
+		if(dimension <= 0)
+		{
+			this.error(member.element, "@Vector requires a positive dimension");
+			return null;
+		}
+		if(boolValue(am, "onDisk", false))
+		{
+			this.note(member.element, "@Vector(onDisk = true) needs an index directory and is not generated into "
+				+ metamodelName + "; register it via the runtime VectorAnnotationHandler.New(Path).");
+			return null;
+		}
+
+		final String readExpr = this.readExpression(entity, member);
+		if(readExpr == null)
+		{
+			return null; // diagnostic already emitted
+		}
+		return new VectorPlan(
+			emitter.vectorizer(entityRef, VECTORIZER_CLASS, readExpr),
+			nonEmpty(stringValue(am, "name"), member.propertyName),
+			dimension,
+			enumValue(am, "similarity", "COSINE")
+		);
 	}
 
 	private void addSpatial(
@@ -293,6 +435,16 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 	 */
 	private List<Member> collectAnnotatedMembers(final TypeElement entity)
 	{
+		return this.collectMembers(entity, IndexMetamodelProcessor::isIndexAnnotated);
+	}
+
+	/**
+	 * Collects instance members (fields, then no-argument getters) matching {@code annotated} across
+	 * the superclass chain; fields take precedence over getters of the same property
+	 * (case-insensitive).
+	 */
+	private List<Member> collectMembers(final TypeElement entity, final Predicate<Element> annotated)
+	{
 		final List<Member> result    = new ArrayList<>();
 		final Set<String>  seenProps = new HashSet<>();
 
@@ -300,7 +452,7 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 		{
 			for(final VariableElement field : fieldsOf(t))
 			{
-				if(!field.getModifiers().contains(Modifier.STATIC) && isIndexAnnotated(field))
+				if(!field.getModifiers().contains(Modifier.STATIC) && annotated.test(field))
 				{
 					final String prop = field.getSimpleName().toString();
 					if(seenProps.add(normalize(prop)))
@@ -321,7 +473,7 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 				{
 					continue;
 				}
-				if(isIndexAnnotated(method))
+				if(annotated.test(method))
 				{
 					final String prop = derivePropertyName(method);
 					if(seenProps.add(normalize(prop)))
@@ -464,7 +616,9 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 		final String                  metamodelName,
 		final String                  entityRef,
 		final Imports                 imports,
-		final List<GeneratedConstant> constants
+		final List<GeneratedConstant> constants,
+		final FullTextPlan            fullText,
+		final VectorPlan              vector
 	) throws IOException
 	{
 		// resolve the remaining references (these register their imports) before emitting the header
@@ -481,7 +635,16 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 				.append(" =\n\t\t").append(c.initializer).append(";\n\n");
 		}
 
-		this.appendRegisterIndices(body, entityRef, imports, constants);
+		this.appendRegisterIndices(body, entityRef, imports, constants, fullText, vector);
+
+		if(fullText != null)
+		{
+			body.append("\n").append(fullText.source);
+		}
+		if(vector != null)
+		{
+			body.append("\n").append(vector.source);
+		}
 
 		body.append("\n\tprivate ").append(metamodelName).append("()\n\t{\n")
 			.append("\t\t// static metamodel; not instantiable\n\t}\n");
@@ -515,7 +678,9 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 		final StringBuilder           b,
 		final String                  entityRef,
 		final Imports                 imports,
-		final List<GeneratedConstant> constants
+		final List<GeneratedConstant> constants,
+		final FullTextPlan            fullText,
+		final VectorPlan              vector
 	)
 	{
 		final List<GeneratedConstant> nonUnique = new ArrayList<>();
@@ -529,9 +694,9 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 				identity.add(c);
 			}
 		}
+		final boolean hasBitmap = !constants.isEmpty();
 
 		final String gigaMap = imports.ref(IndexerEmitter.TYPES + "GigaMap");
-		final String bitmaps = imports.ref(IndexerEmitter.TYPES + "BitmapIndices");
 
 		b.append("\t/**\n");
 		b.append("\t * Idempotently registers all generated indices on the given map; safe to call on a\n");
@@ -539,38 +704,67 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 		b.append("\t */\n");
 		b.append("\tpublic static void registerIndices(final ").append(gigaMap).append("<")
 			.append(entityRef).append("> map)\n\t{\n");
-		b.append("\t\tfinal ").append(bitmaps).append("<").append(entityRef)
-			.append("> bitmap = map.index().bitmap();\n");
 
-		if(!nonUnique.isEmpty())
+		if(hasBitmap)
 		{
-			b.append("\t\tbitmap.ensureAll(").append(joinIdentifiers(nonUnique)).append(");\n");
-		}
+			final String bitmaps = imports.ref(IndexerEmitter.TYPES + "BitmapIndices");
+			b.append("\t\tfinal ").append(bitmaps).append("<").append(entityRef)
+				.append("> bitmap = map.index().bitmap();\n");
 
-		if(!unique.isEmpty())
-		{
-			final String set      = imports.ref("java.util.Set");
-			final String hashSet  = imports.ref("java.util.HashSet");
-			final String list     = imports.ref("java.util.List");
-			final String arrayList = imports.ref("java.util.ArrayList");
-			final String indexer  = imports.ref(IndexerEmitter.TYPES + "Indexer");
-
-			b.append("\t\tfinal ").append(set).append("<String> existingUnique = new ").append(hashSet).append("<>();\n");
-			b.append("\t\tbitmap.accessUniqueConstraints(cs -> cs.forEach(c -> existingUnique.add(c.name())));\n");
-			b.append("\t\tfinal ").append(list).append("<").append(indexer).append("<? super ")
-				.append(entityRef).append(", ?>> newUnique = new ").append(arrayList).append("<>();\n");
-			for(final GeneratedConstant c : unique)
+			if(!nonUnique.isEmpty())
 			{
-				b.append("\t\tif(!existingUnique.contains(").append(c.identifier).append(".name()))\n\t\t{\n")
-					.append("\t\t\tnewUnique.add(").append(c.identifier).append(");\n\t\t}\n");
+				b.append("\t\tbitmap.ensureAll(").append(joinIdentifiers(nonUnique)).append(");\n");
 			}
-			b.append("\t\tif(!newUnique.isEmpty())\n\t\t{\n");
-			b.append("\t\t\tbitmap.addUniqueConstraints(newUnique);\n\t\t}\n");
+
+			if(!unique.isEmpty())
+			{
+				final String set      = imports.ref("java.util.Set");
+				final String hashSet  = imports.ref("java.util.HashSet");
+				final String list     = imports.ref("java.util.List");
+				final String arrayList = imports.ref("java.util.ArrayList");
+				final String indexer  = imports.ref(IndexerEmitter.TYPES + "Indexer");
+
+				b.append("\t\tfinal ").append(set).append("<String> existingUnique = new ").append(hashSet).append("<>();\n");
+				b.append("\t\tbitmap.accessUniqueConstraints(cs -> cs.forEach(c -> existingUnique.add(c.name())));\n");
+				b.append("\t\tfinal ").append(list).append("<").append(indexer).append("<? super ")
+					.append(entityRef).append(", ?>> newUnique = new ").append(arrayList).append("<>();\n");
+				for(final GeneratedConstant c : unique)
+				{
+					b.append("\t\tif(!existingUnique.contains(").append(c.identifier).append(".name()))\n\t\t{\n")
+						.append("\t\t\tnewUnique.add(").append(c.identifier).append(");\n\t\t}\n");
+				}
+				b.append("\t\tif(!newUnique.isEmpty())\n\t\t{\n");
+				b.append("\t\t\tbitmap.addUniqueConstraints(newUnique);\n\t\t}\n");
+			}
+
+			if(!identity.isEmpty())
+			{
+				b.append("\t\tbitmap.setIdentityIndices(").append(joinIdentifiers(identity)).append(");\n");
+			}
 		}
 
-		if(!identity.isEmpty())
+		if(fullText != null)
 		{
-			b.append("\t\tbitmap.setIdentityIndices(").append(joinIdentifiers(identity)).append(");\n");
+			final String luceneIndex   = imports.ref("org.eclipse.store.gigamap.lucene.LuceneIndex");
+			final String luceneContext = imports.ref("org.eclipse.store.gigamap.lucene.LuceneContext");
+			// register() returns null if already present (reloaded map) — that is intentionally ignored
+			b.append("\t\tmap.index().register(").append(luceneIndex).append(".Category(")
+				.append(luceneContext).append(".New(new ").append(FULLTEXT_POPULATOR).append("())));\n");
+		}
+
+		if(vector != null)
+		{
+			final String vectorIndices = imports.ref("org.eclipse.store.gigamap.jvector.VectorIndices");
+			final String vectorConfig  = imports.ref("org.eclipse.store.gigamap.jvector.VectorIndexConfiguration");
+			final String similarity    = imports.ref("org.eclipse.store.gigamap.jvector.VectorSimilarityFunction");
+			b.append("\t\t").append(vectorIndices).append("<").append(entityRef)
+				.append("> vectorIndices = map.index().register(").append(vectorIndices).append(".Category());\n");
+			b.append("\t\tif(vectorIndices == null)\n\t\t{\n");
+			b.append("\t\t\tvectorIndices = map.index().get(").append(vectorIndices).append(".class);\n\t\t}\n");
+			b.append("\t\tvectorIndices.ensure(\"").append(quote(vector.name)).append("\", ")
+				.append(vectorConfig).append(".builder().dimension(").append(vector.dimension)
+				.append(").similarityFunction(").append(similarity).append(".").append(vector.similarity)
+				.append(").onDisk(false).build(), new ").append(VECTORIZER_CLASS).append("());\n");
 		}
 
 		b.append("\t}\n");
@@ -610,6 +804,74 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 		{
 			return e.getTypeMirror().toString().equals(DUMMY_CREATOR);
 		}
+	}
+
+	// ---- annotation mirror reading (for the off-classpath Lucene / JVector annotations) ---------
+
+	private static AnnotationMirror findMirror(final Element element, final String annotationFqn)
+	{
+		for(final AnnotationMirror am : element.getAnnotationMirrors())
+		{
+			if(am.getAnnotationType().toString().equals(annotationFqn))
+			{
+				return am;
+			}
+		}
+		return null;
+	}
+
+	/** The explicitly-set value of an annotation attribute, or {@code null} (then the default applies). */
+	private static Object rawValue(final AnnotationMirror am, final String attribute)
+	{
+		for(final Map.Entry<? extends ExecutableElement, ? extends AnnotationValue> e : am.getElementValues().entrySet())
+		{
+			if(e.getKey().getSimpleName().contentEquals(attribute))
+			{
+				return e.getValue().getValue();
+			}
+		}
+		return null;
+	}
+
+	private static String stringValue(final AnnotationMirror am, final String attribute)
+	{
+		final Object v = rawValue(am, attribute);
+		return v == null ? "" : (String)v;
+	}
+
+	private static boolean boolValue(final AnnotationMirror am, final String attribute, final boolean def)
+	{
+		final Object v = rawValue(am, attribute);
+		return v == null ? def : (Boolean)v;
+	}
+
+	private static int intValue(final AnnotationMirror am, final String attribute, final int def)
+	{
+		final Object v = rawValue(am, attribute);
+		return v == null ? def : ((Number)v).intValue();
+	}
+
+	/** The simple name of an enum-valued attribute (e.g. {@code COSINE}), or {@code def} if unset. */
+	private static String enumValue(final AnnotationMirror am, final String attribute, final String def)
+	{
+		final Object v = rawValue(am, attribute);
+		return v instanceof VariableElement ? ((VariableElement)v).getSimpleName().toString() : def;
+	}
+
+	private static String nonEmpty(final String value, final String fallback)
+	{
+		return value == null || value.isEmpty() ? fallback : value;
+	}
+
+	private static boolean isFloatArray(final TypeMirror type)
+	{
+		return type.getKind() == TypeKind.ARRAY
+			&& ((ArrayType)type).getComponentType().getKind() == TypeKind.FLOAT;
+	}
+
+	private static String quote(final String s)
+	{
+		return s.replace("\\", "\\\\").replace("\"", "\\\"");
 	}
 
 	private static List<VariableElement> fieldsOf(final TypeElement t)
@@ -746,6 +1008,34 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 			this.initializer  = initializer;
 			this.unique       = unique;
 			this.identity     = identity;
+		}
+	}
+
+	/** A generated Lucene full-text populator (nested class source) to embed and register. */
+	private static final class FullTextPlan
+	{
+		final String source;
+
+		FullTextPlan(final String source)
+		{
+			this.source = source;
+		}
+	}
+
+	/** A generated JVector vectorizer (nested class source) plus the index config from {@code @Vector}. */
+	private static final class VectorPlan
+	{
+		final String source;
+		final String name;
+		final int    dimension;
+		final String similarity;
+
+		VectorPlan(final String source, final String name, final int dimension, final String similarity)
+		{
+			this.source     = source;
+			this.name       = name;
+			this.dimension  = dimension;
+			this.similarity = similarity;
 		}
 	}
 }
