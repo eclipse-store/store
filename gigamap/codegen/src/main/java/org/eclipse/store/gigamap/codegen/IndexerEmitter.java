@@ -419,6 +419,79 @@ final class IndexerEmitter
 		return b.toString();
 	}
 
+	/** The generated source for a {@code @Index(creator=...)} constant plus its backing helper method. */
+	static final class CreatorCode
+	{
+		final String declaredType;
+		final String initializer;
+		final String helperMethod;
+
+		CreatorCode(final String declaredType, final String initializer, final String helperMethod)
+		{
+			this.declaredType = declaredType;
+			this.initializer  = initializer;
+			this.helperMethod = helperMethod;
+		}
+	}
+
+	/**
+	 * Emits a constant backed by a custom {@code Indexer.Creator}: a typed {@code Indexer<E, K>} (or
+	 * {@code Indexer<E, ?>} when {@code keyRawFqn} is {@code null}) initialized from a generated private
+	 * static helper. A plain creator is instantiated reflection-free ({@code new C().create()}); a
+	 * {@code MemberAware} creator additionally receives the resolved index name and the reflective
+	 * member (mirroring the runtime {@code IndexerGenerator.instantiateCreator}).
+	 */
+	CreatorCode creator(
+		final String  entityRef,
+		final String  helperName,
+		final String  creatorFqn,
+		final String  keyRawFqn,     // null -> wildcard
+		final boolean memberAware,
+		final String  declaringFqn,
+		final boolean methodMember,
+		final String  memberName,
+		final String  indexName
+	)
+	{
+		final String indexer    = this.imports.ref(TYPES + "Indexer");
+		final String creatorRef = this.imports.ref(creatorFqn);
+		final String keyRef     = keyRawFqn == null ? "?" : this.imports.ref(keyRawFqn);
+		final String declared   = indexer + "<" + entityRef + ", " + keyRef + ">";
+
+		final StringBuilder b = new StringBuilder();
+		b.append("\t@SuppressWarnings(\"unchecked\")\n");
+		b.append("\tprivate static ").append(declared).append(" ").append(helperName).append("()\n");
+		b.append("\t{\n");
+		if(memberAware)
+		{
+			final String declaringRef = this.imports.ref(declaringFqn);
+			final String memberType   = this.imports.ref(methodMember
+				? "java.lang.reflect.Method" : "java.lang.reflect.Field");
+			final String lookup       = methodMember ? "getDeclaredMethod" : "getDeclaredField";
+			final String checkedEx    = methodMember ? "NoSuchMethodException" : "NoSuchFieldException";
+
+			b.append("\t\tfinal ").append(creatorRef).append(" creator = new ").append(creatorRef).append("();\n");
+			b.append("\t\ttry\n\t\t{\n");
+			b.append("\t\t\tfinal ").append(memberType).append(" member = ").append(declaringRef)
+				.append(".class.").append(lookup).append("(\"").append(escape(memberName)).append("\");\n");
+			b.append("\t\t\tmember.trySetAccessible();\n");
+			b.append("\t\t\tcreator.initialize(\"").append(escape(indexName)).append("\", member);\n");
+			b.append("\t\t}\n");
+			b.append("\t\tcatch(final ").append(checkedEx).append(" e)\n\t\t{\n");
+			b.append("\t\t\tthrow new RuntimeException(e);\n\t\t}\n");
+			b.append("\t\treturn (").append(declared).append(")(").append(indexer)
+				.append("<?, ?>) creator.create();\n");
+		}
+		else
+		{
+			b.append("\t\treturn (").append(declared).append(")(").append(indexer)
+				.append("<?, ?>) new ").append(creatorRef).append("().create();\n");
+		}
+		b.append("\t}\n");
+
+		return new CreatorCode(declared, helperName + "()", b.toString());
+	}
+
 	// ---- shared constant templates -------------------------------------------------------------
 
 	/** A single-{@code E}-parameter indexer overriding {@code name()} and one protected getter. */

@@ -105,9 +105,11 @@ gigaMap.index().get(VectorIndices.class).get("embedding").search(queryVector, 10
 
 The processor depends only on the GigaMap core and reads the `@FullText` / `@Vector` annotations by name, so bitmap-only projects do not pull the Lucene / JVector libraries onto the processor path; the generated code references those types, which are on your classpath whenever you use the annotations.
 
+A custom `@Index(creator = ...)` is wired up too: the processor generates a constant initialized from the creator and registers it (a plain creator via `new TheCreator().create()`; a `Creator.MemberAware` is handed the index name and the member first). Because the creator decides the indexer at runtime, the constant is typed `Indexer<Entity, K>` (the key type `K` is taken from the creator's `Creator<E,K>` binding when concrete, else a wildcard), which supports equality queries (`Entity_.code.is(value)`); flavor-specific methods are not exposed. The creator must be referenceable from the entity's package (a `public`, or same-package, class with an accessible no-argument constructor); otherwise the processor emits a note and leaves that index to the runtime generator.
+
 The metamodel name suffix (default `_`, e.g. `Person` \-> `Person_`) is configurable via the processor option `-Agigamap.metamodel.suffix=...`.
 
-NOTE: A custom `@Index(creator = ...)` and `@Vector(onDisk = true)` cannot be reproduced at compile time. The processor skips them with a compiler note; register those via the runtime `IndexerGenerator` / `VectorAnnotationHandler.New(Path)`. The compile-time metamodel complements the runtime generator rather than replacing it — both resolve indices by name, so they interoperate.
+NOTE: `@Vector(onDisk = true)` cannot be reproduced at compile time (it needs an index directory) and an inaccessible custom creator falls back to the runtime path; both are skipped with a compiler note — register those via the runtime `IndexerGenerator` / `VectorAnnotationHandler.New(Path)`. The compile-time metamodel complements the runtime generator rather than replacing it — both resolve indices by name, so they interoperate.
 
 NOTE: Because the generated code uses getters and package-accessible fields (never reflection), no JPMS `opens` is required for the compile-time path.
 

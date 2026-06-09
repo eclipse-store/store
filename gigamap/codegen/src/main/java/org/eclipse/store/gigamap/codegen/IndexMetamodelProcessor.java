@@ -230,8 +230,9 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 		final String         entityRef = imports.ref(entityFqn);
 		final IndexerEmitter emitter   = new IndexerEmitter(this.types, this.elements, imports);
 
-		final List<GeneratedConstant> constants  = new ArrayList<>();
-		final Set<String>             indexNames = new HashSet<>();
+		final List<GeneratedConstant> constants     = new ArrayList<>();
+		final Set<String>             indexNames    = new HashSet<>();
+		final List<String>            helperMethods = new ArrayList<>();
 
 		for(final Member member : this.collectAnnotatedMembers(entity))
 		{
@@ -249,12 +250,21 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 				continue;
 			}
 
-			if(index != null && !isDummyCreator(index))
+			if(index != null)
 			{
-				this.note(member.element,
-					"Index '" + indexName + "' uses a custom creator and is not generated into "
-					+ metamodelName + "; register it via the runtime IndexerGenerator.");
-				continue;
+				final TypeMirror creator = creatorType(index);
+				if(creator != null)
+				{
+					final String id = this.identifier(member.propertyName, constants);
+					final IndexerEmitter.CreatorCode cc =
+						this.buildCreator(entity, entityRef, emitter, member, indexName, id, creator);
+					if(cc != null)
+					{
+						helperMethods.add(cc.helperMethod);
+						constants.add(new GeneratedConstant(id, cc.declaredType, cc.initializer, unique, identity));
+					}
+					continue; // generated, or NOTE + skip (falls back to the runtime generator)
+				}
 			}
 
 			final String readExpr = this.readExpression(entity, member);
@@ -287,7 +297,7 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 		final FullTextPlan fullText = this.buildFullText(entity, entityRef, emitter);
 		final VectorPlan   vector   = this.buildVector(entity, entityRef, emitter, metamodelName);
 
-		this.writeSource(entity, pkg, metamodelName, entityRef, imports, constants, fullText, vector);
+		this.writeSource(entity, pkg, metamodelName, entityRef, imports, constants, helperMethods, fullText, vector);
 	}
 
 	/** Builds the {@code @FullText} populator plan, or {@code null} if the entity has no full-text members. */
@@ -617,6 +627,7 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 		final String                  entityRef,
 		final Imports                 imports,
 		final List<GeneratedConstant> constants,
+		final List<String>            helperMethods,
 		final FullTextPlan            fullText,
 		final VectorPlan              vector
 	) throws IOException
@@ -636,6 +647,11 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 		}
 
 		this.appendRegisterIndices(body, entityRef, imports, constants, fullText, vector);
+
+		for(final String helper : helperMethods)
+		{
+			body.append("\n").append(helper);
+		}
 
 		if(fullText != null)
 		{
@@ -793,17 +809,157 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 			|| element.getAnnotation(Identity.class) != null;
 	}
 
-	private static boolean isDummyCreator(final Index index)
+	/** The custom {@code Indexer.Creator} type of an {@code @Index}, or {@code null} for the default. */
+	private static TypeMirror creatorType(final Index index)
 	{
 		try
 		{
 			index.creator();
-			return false; // unreachable: accessing a Class-valued member throws
+			return null; // unreachable: accessing a Class-valued member throws
 		}
 		catch(final MirroredTypeException e)
 		{
-			return e.getTypeMirror().toString().equals(DUMMY_CREATOR);
+			final TypeMirror creator = e.getTypeMirror();
+			return creator.toString().equals(DUMMY_CREATOR) ? null : creator;
 		}
+	}
+
+	/**
+	 * Builds a constant backed by a custom creator, or {@code null} (with a NOTE) when the creator is not
+	 * referenceable from generated code — then the index falls back to the runtime generator.
+	 */
+	private IndexerEmitter.CreatorCode buildCreator(
+		final TypeElement    entity,
+		final String         entityRef,
+		final IndexerEmitter emitter,
+		final Member         member,
+		final String         indexName,
+		final String         identifier,
+		final TypeMirror     creatorMirror
+	)
+	{
+		if(creatorMirror.getKind() != TypeKind.DECLARED)
+		{
+			return null;
+		}
+		final TypeElement creatorElement = (TypeElement)((DeclaredType)creatorMirror).asElement();
+		if(!this.isReferenceableCreator(creatorElement, entity))
+		{
+			this.note(member.element, "Index '" + indexName + "' creator " + creatorElement.getQualifiedName()
+				+ " is not accessible for compile-time wiring; register it via the runtime IndexerGenerator.");
+			return null;
+		}
+
+		final TypeMirror keyType   = this.creatorKeyType(creatorMirror);
+		final String     keyRawFqn = keyType != null && keyType.getKind() == TypeKind.DECLARED
+			? this.types.erasure(keyType).toString()
+			: null;
+		final TypeElement declaring = (TypeElement)member.element.getEnclosingElement();
+
+		return emitter.creator(
+			entityRef,
+			identifier + "__creator",
+			creatorElement.getQualifiedName().toString(),
+			keyRawFqn,
+			this.isMemberAware(creatorMirror),
+			declaring.getQualifiedName().toString(),
+			member.element.getKind() == ElementKind.METHOD,
+			member.element.getSimpleName().toString(),
+			indexName
+		);
+	}
+
+	/** Whether a creator class can be referenced and {@code new}-ed from generated code in the entity's package. */
+	private boolean isReferenceableCreator(final TypeElement creator, final TypeElement entity)
+	{
+		final Set<Modifier> modifiers = creator.getModifiers();
+		if(modifiers.contains(Modifier.PRIVATE))
+		{
+			return false;
+		}
+		final Element enclosing = creator.getEnclosingElement();
+		final boolean nested = enclosing != null
+			&& (enclosing.getKind().isClass() || enclosing.getKind().isInterface());
+		if(nested && !modifiers.contains(Modifier.STATIC))
+		{
+			return false;
+		}
+		final boolean samePackage = this.elements.getPackageOf(creator)
+			.equals(this.elements.getPackageOf(entity));
+		if(!modifiers.contains(Modifier.PUBLIC) && !samePackage)
+		{
+			return false;
+		}
+		return hasAccessibleNoArgConstructor(creator, samePackage);
+	}
+
+	private static boolean hasAccessibleNoArgConstructor(final TypeElement type, final boolean samePackage)
+	{
+		boolean anyConstructor = false;
+		for(final Element e : type.getEnclosedElements())
+		{
+			if(e.getKind() != ElementKind.CONSTRUCTOR)
+			{
+				continue;
+			}
+			anyConstructor = true;
+			final ExecutableElement constructor = (ExecutableElement)e;
+			if(constructor.getParameters().isEmpty())
+			{
+				final Set<Modifier> m = constructor.getModifiers();
+				return !m.contains(Modifier.PRIVATE) && (m.contains(Modifier.PUBLIC) || samePackage);
+			}
+		}
+		// no explicit constructors -> implicit default ctor with the class's (already checked) visibility
+		return !anyConstructor;
+	}
+
+	private boolean isMemberAware(final TypeMirror creatorMirror)
+	{
+		final TypeElement memberAware =
+			this.elements.getTypeElement("org.eclipse.store.gigamap.types.Indexer.Creator.MemberAware");
+		return memberAware != null
+			&& this.types.isAssignable(creatorMirror, this.types.erasure(memberAware.asType()));
+	}
+
+	/** The {@code K} of the creator's {@code Indexer.Creator<E,K>} binding, or {@code null} if not concrete. */
+	private TypeMirror creatorKeyType(final TypeMirror creatorMirror)
+	{
+		final TypeElement creator =
+			this.elements.getTypeElement("org.eclipse.store.gigamap.types.Indexer.Creator");
+		return creator == null ? null : this.findTypeArgument(creatorMirror, creator, 1, new HashSet<>());
+	}
+
+	private TypeMirror findTypeArgument(
+		final TypeMirror  type,
+		final TypeElement target,
+		final int         index,
+		final Set<String> seen
+	)
+	{
+		if(type.getKind() != TypeKind.DECLARED)
+		{
+			return null;
+		}
+		final DeclaredType declared = (DeclaredType)type;
+		if(((TypeElement)declared.asElement()).getQualifiedName().contentEquals(target.getQualifiedName()))
+		{
+			final List<? extends TypeMirror> args = declared.getTypeArguments();
+			return args.size() > index ? args.get(index) : null;
+		}
+		if(!seen.add(declared.asElement().toString()))
+		{
+			return null;
+		}
+		for(final TypeMirror supertype : this.types.directSupertypes(type))
+		{
+			final TypeMirror found = this.findTypeArgument(supertype, target, index, seen);
+			if(found != null)
+			{
+				return found;
+			}
+		}
+		return null;
 	}
 
 	// ---- annotation mirror reading (for the off-classpath Lucene / JVector annotations) ---------
