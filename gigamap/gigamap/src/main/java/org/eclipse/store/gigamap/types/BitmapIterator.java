@@ -41,8 +41,9 @@ public final class BitmapIterator<E> extends AbstractBitmapIterating<E> implemen
 	////////////////////
 
 	// parent must be referenced separately because resolver might not use/reference it at all.
-	private final GigaMap.Default<E> parent  ;
-	private final EntityResolver<E>  resolver;
+	private final GigaMap.Default<E> parent      ;
+	private final EntityResolver<E>  resolver    ;
+	private final Thread             owningThread = Thread.currentThread();
 
 	private boolean isActive = true;
 
@@ -80,6 +81,12 @@ public final class BitmapIterator<E> extends AbstractBitmapIterating<E> implemen
 	public final GigaMap.Default<E> parent()
 	{
 		return this.parent;
+	}
+
+	@Override
+	public final Thread owningThread()
+	{
+		return this.owningThread;
 	}
 
 	@Override

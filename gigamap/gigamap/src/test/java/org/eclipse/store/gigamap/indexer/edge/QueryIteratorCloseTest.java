@@ -23,9 +23,13 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
@@ -167,6 +171,70 @@ public class QueryIteratorCloseTest
             gigaMap.update(person, p -> p.setName("changed"));
         });
 
+        assertEquals(1, gigaMap.query(nameIndexer.is("changed")).count());
+    }
+
+
+    @Test
+    void mutationWhileHoldingOwnIteratorThrows()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            // Open and hold a reader without exhausting/closing it.
+            final GigaIterator<NamePerson> it = gigaMap.query(nameIndexer.is("name1")).iterator();
+            it.hasNext();
+
+            // Mutating the same GigaMap on the same thread that holds the reader would deadlock;
+            // it must fail fast with IllegalStateException instead.
+            assertThrows(IllegalStateException.class,
+                () -> gigaMap.update(person, p -> p.setName("changed")));
+
+            it.close();
+        });
+    }
+
+    @Test
+    void mutationFromOtherThreadStillWaits() throws InterruptedException
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+
+        final CountDownLatch readerOpened = new CountDownLatch(1);
+        final CountDownLatch releaseReader = new CountDownLatch(1);
+        final AtomicReference<Throwable> holderError = new AtomicReference<>();
+
+        // A different thread holds an open reader, then releases it on signal.
+        final Thread holder = new Thread(() -> {
+            try (final GigaIterator<NamePerson> it = gigaMap.query(nameIndexer.is("name1")).iterator())
+            {
+                it.hasNext();
+                readerOpened.countDown();
+                releaseReader.await(5, TimeUnit.SECONDS);
+            }
+            catch (final Throwable t)
+            {
+                holderError.set(t);
+            }
+        }, "reader-holder");
+        holder.start();
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            readerOpened.await();
+            // The mutating thread does NOT own the reader, so it must wait (not throw). Release the
+            // holder shortly after so the update can proceed once the foreign reader is closed.
+            final Thread releaser = new Thread(releaseReader::countDown, "releaser");
+            releaser.start();
+            gigaMap.update(person, p -> p.setName("changed"));
+        });
+
+        holder.join();
+        assertNull(holderError.get());
         assertEquals(1, gigaMap.query(nameIndexer.is("changed")).count());
     }
 

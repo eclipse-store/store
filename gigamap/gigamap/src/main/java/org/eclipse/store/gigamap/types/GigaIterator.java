@@ -93,9 +93,10 @@ public interface GigaIterator<E> extends Iterator<E>, AutoCloseable
 		////////////////////
 		
 		// parent must be referenced separately because resolver might not use/reference it at all.
-		private final GigaMap.Default<E> parent    ;
-		private final ResultIdIterator   idIterator;
-		private final EntityResolver<E>  resolver  ;
+		private final GigaMap.Default<E> parent      ;
+		private final ResultIdIterator   idIterator  ;
+		private final EntityResolver<E>  resolver    ;
+		private final Thread             owningThread = Thread.currentThread();
 
 		private Entry<E> next = null;
 		
@@ -127,6 +128,12 @@ public interface GigaIterator<E> extends Iterator<E>, AutoCloseable
 		public GigaMap<?> parent()
 		{
 			return this.idIterator.parent();
+		}
+
+		@Override
+		public Thread owningThread()
+		{
+			return this.owningThread;
 		}
 
 		@Override

@@ -1872,6 +1872,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			while(this.checkingIsReadOnly())
 			{
+				this.checkSelfHeldReader();
 				try
 				{
 					this.wait();
@@ -1881,6 +1882,26 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 					throw new IllegalStateException(
 						XChars.systemString(this) + " is not mutable. (readOnlyCount " + this.readOnlyCount + ")",
 						e
+					);
+				}
+			}
+		}
+
+		private void checkSelfHeldReader()
+		{
+			// If the current thread itself holds an open reader, waiting for mutability would block
+			// forever (the blocked thread is the only one that would close its own reader). Fail fast
+			// with a clear error instead of deadlocking. Only reached when a mutation would block.
+			final Thread current = Thread.currentThread();
+			for(final Reading reader : this.activeReaders)
+			{
+				if(reader.owningThread() == current)
+				{
+					throw new IllegalStateException(
+						"Self-deadlock detected: the current thread holds an open read iterator on this "
+						+ GigaMap.class.getSimpleName() + " and cannot mutate it until that iterator is closed. "
+						+ "Close the iterator (e.g. via try-with-resources) before mutating, or iterate and "
+						+ "mutate on separate threads."
 					);
 				}
 			}
@@ -2939,17 +2960,18 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		////////////////////
 		
 		private final GigaMap.Default<E> parent;
+		private final Thread             owningThread = Thread.currentThread();
 		long currentEntityId = -1;
 		E currentEntity = null;
-		
+
 		boolean isActive = true;
-		
-		
-		
+
+
+
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
 		/////////////////
-		
+
 		Itr(final GigaMap.Default<E> parent)
 		{
 			super();
@@ -3013,19 +3035,25 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			return this.parent;
 		}
-		
+
+		@Override
+		public final Thread owningThread()
+		{
+			return this.owningThread;
+		}
+
 		@Override
 		public final boolean isClosed()
 		{
 			return !this.isActive;
 		}
-		
+
 		@Override
 		public final void setInactive()
 		{
 			this.isActive = false;
 		}
-		
+
 		@Override
 		public final void close()
 		{
@@ -3044,13 +3072,29 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	public interface Reading
 	{
 		public void close();
-		
+
 		public boolean isClosed();
-		
+
 		public GigaMap<?> parent();
-		
+
 		public void setInactive();
-				
+
+		/**
+		 * Returns the thread that opened this reader (and therefore holds the parent
+		 * {@link GigaMap}'s read-lock), or {@code null} if unknown.
+		 * <p>
+		 * Used to detect self-deadlocks: a thread that still holds an open reader and then tries to
+		 * mutate the same GigaMap on that same thread would wait forever for its own reader to close.
+		 * The ownership reflects the <em>creating</em> thread; the supported usage model is that an
+		 * iterator is driven and closed by the same thread that created it.
+		 *
+		 * @return the owning thread, or {@code null} if unknown
+		 */
+		public default Thread owningThread()
+		{
+			return null;
+		}
+
 	}
 	
 	
