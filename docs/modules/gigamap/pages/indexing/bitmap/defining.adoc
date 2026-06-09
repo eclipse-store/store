@@ -244,6 +244,10 @@ For a `GigaMap` loaded from existing storage the indexers are already registered
 generation on the loaded map to obtain a fresh handle — re-registration is a no-op, and the returned indexers
 query correctly because they resolve against the registered index by name.
 
+TIP: To get typed constants at *compile* time instead of a runtime registry — `Person_.firstName.startsWith("J")`
+with IDE autocomplete and refactor-safe names — use the `gigamap-codegen` annotation processor (see
+xref:indexing/annotations.adoc#_compile_time_metamodel_annotation_processor[Compile-time metamodel]).
+
 Alternatively, retrieve an indexer directly from the `BitmapIndices` getter API by name:
 
 [source, java]

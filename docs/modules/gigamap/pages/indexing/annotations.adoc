@@ -58,6 +58,59 @@ IndexerGenerator.generate(Article.class, gigaMap,
 
 Registration uses explicit handlers (no classpath scanning), so only the modules you depend on participate.
 
+== Compile-time metamodel (annotation processor)
+
+`IndexerGenerator` builds the indexers reflectively at runtime. As an alternative, the optional `gigamap-codegen` module is an annotation processor that, at *compile* time, generates a sibling metamodel class `+<Entity>_+` for each annotated entity — typed `public static final` indexer constants plus a `registerIndices(GigaMap)` helper. This gives you compile-time index names, IDE autocomplete and refactor-safety, and reads members through getters / accessible fields instead of reflection.
+
+Add the processor to the `maven-compiler-plugin` (it is only needed at compile time, not at runtime):
+
+[source, xml, subs=attributes+]
+----
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-compiler-plugin</artifactId>
+    <configuration>
+        <annotationProcessorPaths>
+            <path>
+                <groupId>org.eclipse.store</groupId>
+                <artifactId>gigamap-codegen</artifactId>
+                <version>{maven-version}</version>
+            </path>
+        </annotationProcessorPaths>
+    </configuration>
+</plugin>
+----
+
+For an annotated `Person`, the processor emits `Person_` (into `target/generated-sources/annotations`) with a typed constant per bitmap / spatial index and an idempotent registration helper. Query through the constants just like hand-written ones:
+
+[source, java]
+----
+GigaMap<Person> gigaMap = GigaMap.New();
+Person_.registerIndices(gigaMap);   // ensures all indices, unique constraints, identity indices
+
+gigaMap.query(Person_.firstName.startsWith("J"));
+gigaMap.query(Person_.score.between(10, 20));
+----
+
+`registerIndices(...)` is idempotent and reload-safe: call it on a freshly created map or re-run it on a map loaded from storage (re-registration is a no-op, like the runtime generator).
+
+`@FullText` and `@Vector` are wired up too, but — unlike bitmap indices — without a typed query constant, since a `LuceneIndex` / `VectorIndex` is a per-map runtime object. For these the processor generates a reflection-free `DocumentPopulator` / `Vectorizer` and registers the index inside `registerIndices(...)` (using in-graph / in-memory defaults); you still query through the runtime handle:
+
+[source, java]
+----
+Article_.registerIndices(gigaMap);
+gigaMap.index().get(LuceneIndex.class).query("title:gigamap");
+gigaMap.index().get(VectorIndices.class).get("embedding").search(queryVector, 10);
+----
+
+The processor depends only on the GigaMap core and reads the `@FullText` / `@Vector` annotations by name, so bitmap-only projects do not pull the Lucene / JVector libraries onto the processor path; the generated code references those types, which are on your classpath whenever you use the annotations.
+
+The metamodel name suffix (default `_`, e.g. `Person` \-> `Person_`) is configurable via the processor option `-Agigamap.metamodel.suffix=...`.
+
+NOTE: A custom `@Index(creator = ...)` and `@Vector(onDisk = true)` cannot be reproduced at compile time. The processor skips them with a compiler note; register those via the runtime `IndexerGenerator` / `VectorAnnotationHandler.New(Path)`. The compile-time metamodel complements the runtime generator rather than replacing it — both resolve indices by name, so they interoperate.
+
+NOTE: Because the generated code uses getters and package-accessible fields (never reflection), no JPMS `opens` is required for the compile-time path.
+
 == Adding your own annotation handler
 
 An index type outside the core module participates by implementing `GigaIndexAnnotationHandler`. The handler reflects over the entity type for the annotations it owns and registers the matching `IndexCategory` on the supplied `GigaIndices`; it must be a no-op when the type carries none of its annotations.
