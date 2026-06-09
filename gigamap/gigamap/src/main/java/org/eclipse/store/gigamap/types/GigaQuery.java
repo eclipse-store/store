@@ -17,12 +17,15 @@ package org.eclipse.store.gigamap.types;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.XArrays;
 import org.eclipse.serializer.collections.types.XIterable;
+import org.eclipse.serializer.util.X;
 
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+
+import static org.eclipse.serializer.util.X.notNull;
 
 
 /**
@@ -78,7 +81,7 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 	@Override
 	public default void forEach(final Consumer<? super E> action)
 	{
-		this.iterate(action);
+		this.iterate(notNull(action));
 	}
 
 	/**

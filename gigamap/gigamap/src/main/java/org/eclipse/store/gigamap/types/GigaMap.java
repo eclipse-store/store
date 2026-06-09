@@ -412,7 +412,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	@Override
 	public default void forEach(final Consumer<? super E> action)
 	{
-		this.iterate(action);
+		this.iterate(notNull(action));
 	}
 
 	/**
