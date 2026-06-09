@@ -26,4 +26,21 @@
         </dependency>
     </dependencies>
 
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <!--
+                    This module registers itself as an annotation processor via META-INF/services.
+                    Disable annotation processing while compiling the processor itself, otherwise a
+                    clean build discovers the (not-yet-compiled) processor and fails to load it.
+                -->
+                <configuration>
+                    <proc>none</proc>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
 </project>

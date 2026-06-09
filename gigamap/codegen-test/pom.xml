@@ -81,7 +81,6 @@
                     <execution>
                         <id>default-testCompile</id>
                         <configuration>
-                            <proc>full</proc>
                             <annotationProcessorPaths>
                                 <path>
                                     <groupId>org.eclipse.store</groupId>
