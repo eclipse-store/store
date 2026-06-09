@@ -111,7 +111,7 @@ The metamodel name suffix (default `_`, e.g. `Person` \-> `Person_`) is configur
 
 NOTE: `@Vector(onDisk = true)` cannot be reproduced at compile time (it needs an index directory) and an inaccessible custom creator falls back to the runtime path; both are skipped with a compiler note — register those via the runtime `IndexerGenerator` / `VectorAnnotationHandler.New(Path)`. The compile-time metamodel complements the runtime generator rather than replacing it — both resolve indices by name, so they interoperate.
 
-NOTE: Because the generated code uses getters and package-accessible fields (never reflection), no JPMS `opens` is required for the compile-time path.
+NOTE: The generated bitmap, spatial, full-text and vector reads use getters and package-accessible fields rather than reflection, so the compile-time path needs no JPMS `opens`. The one exception is a `Creator.MemberAware` creator, whose member is resolved with `getDeclaredField` / `getDeclaredMethod` — but that reflection targets the entity's own module, which is allowed without `opens`.
 
 == Adding your own annotation handler
 
