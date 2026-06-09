@@ -402,6 +402,19 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	public <I extends Consumer<? super E>> I iterate(I iterator);
 
 	/**
+	 * {@inheritDoc}
+	 * <p>
+	 * Overrides the default {@link Iterable#forEach(Consumer)} to delegate to {@link #iterate(Consumer)},
+	 * which traverses the elements without leaving a read-lock open if {@code action} throws. The inherited
+	 * default implementation obtains a {@link GigaIterator} but never closes it.
+	 */
+	@Override
+	public default void forEach(final Consumer<? super E> action)
+	{
+		this.iterate(action);
+	}
+
+	/**
 	 * Iterates over all elements, handing over the entity ids as well.
 	 * <p>
 	 * Keep in mind that this can result in a very expensive operation, depending on the overall count of elements.

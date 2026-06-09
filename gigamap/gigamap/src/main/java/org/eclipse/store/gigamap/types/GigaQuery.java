@@ -67,6 +67,19 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 		}
 		return procedure;
 	}
+
+	/**
+	 * {@inheritDoc}
+	 * <p>
+	 * Overrides the default {@link Iterable#forEach(Consumer)} to ensure the underlying
+	 * {@link GigaIterator} (and thus the GigaMap read-lock) is closed even if {@code action}
+	 * throws. The inherited default implementation does not close the iterator.
+	 */
+	@Override
+	public default void forEach(final Consumer<? super E> action)
+	{
+		this.iterate(action);
+	}
 	
 	/**
 	 * Iterates over the results of this query with their corresponding id

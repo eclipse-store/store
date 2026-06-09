@@ -18,11 +18,13 @@ import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.IndexerString;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 public class QueryIteratorCloseTest
 {
@@ -81,6 +83,61 @@ public class QueryIteratorCloseTest
 
         gigaMap.remove(namePerson);
 
+    }
+
+
+    @Test
+    void queryForEachClosesIteratorOnException()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            try
+            {
+                gigaMap.query(nameIndexer.is("name1")).forEach(p -> {
+                    throw new RuntimeException("boom");
+                });
+            }
+            catch (final RuntimeException expected)
+            {
+                // swallow: the consumer threw on purpose
+            }
+
+            // Must NOT deadlock: forEach has to release the read-lock even though the consumer threw.
+            gigaMap.update(person, p -> p.setName("changed"));
+        });
+
+        assertEquals(1, gigaMap.query(nameIndexer.is("changed")).count());
+    }
+
+    @Test
+    void mapForEachClosesIteratorOnException()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            try
+            {
+                gigaMap.forEach(p -> {
+                    throw new RuntimeException("boom");
+                });
+            }
+            catch (final RuntimeException expected)
+            {
+                // swallow: the consumer threw on purpose
+            }
+
+            // Must NOT deadlock: forEach has to release the read-lock even though the consumer threw.
+            gigaMap.update(person, p -> p.setName("changed"));
+        });
+
+        assertEquals(1, gigaMap.query(nameIndexer.is("changed")).count());
     }
 
 
