@@ -50,4 +50,15 @@ public class ReviewFixesTest
 		assertEquals(1, map.query(InheritingEntity_.tag.is("beta")).toList().size());  // private field, via getter
 		assertEquals(1, map.query(InheritingEntity_.name.is("first")).toList().size()); // own field
 	}
+
+	@Test
+	void nestedEntityMetamodelIsQualifiedWithEnclosingType()
+	{
+		// Nesting.Customer -> Nesting_Customer_ (would shadow a top-level Customer_ if named Customer_)
+		final GigaMap<Nesting.Customer> map = GigaMap.New();
+		Nesting_Customer_.registerIndices(map);
+		map.add(new Nesting.Customer("acme"));
+
+		assertEquals(1, map.query(Nesting_Customer_.name.is("acme")).toList().size());
+	}
 }

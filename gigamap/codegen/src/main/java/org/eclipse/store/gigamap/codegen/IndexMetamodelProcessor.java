@@ -220,11 +220,26 @@ public final class IndexMetamodelProcessor extends AbstractProcessor
 
 	// ---- model building ------------------------------------------------------------------------
 
+	/**
+	 * The metamodel type name: the entity's simple name plus the configured suffix, qualified with the
+	 * enclosing type names for a nested entity (e.g. {@code Outer.Customer} &rarr; {@code Outer_Customer_})
+	 * so it cannot silently shadow a same-named top-level entity's metamodel in the same package.
+	 */
+	private String metamodelName(final TypeElement entity)
+	{
+		final List<String> parts = new ArrayList<>();
+		for(Element e = entity; e instanceof TypeElement; e = e.getEnclosingElement())
+		{
+			parts.add(0, e.getSimpleName().toString());
+		}
+		return String.join("_", parts) + this.suffix;
+	}
+
 	private void generate(final TypeElement entity) throws IOException
 	{
 		final String entityFqn     = entity.getQualifiedName().toString();
 		final String pkg           = this.elements.getPackageOf(entity).getQualifiedName().toString();
-		final String metamodelName = entity.getSimpleName().toString() + this.suffix;
+		final String metamodelName = this.metamodelName(entity);
 
 		final Imports        imports   = new Imports(pkg);
 		final String         entityRef = imports.ref(entityFqn);
