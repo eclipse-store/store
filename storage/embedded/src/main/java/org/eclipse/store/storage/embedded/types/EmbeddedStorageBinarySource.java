@@ -15,6 +15,7 @@ package org.eclipse.store.storage.embedded.types;
  */
 
 import java.util.function.Supplier;
+import static org.eclipse.serializer.util.X.notNull;
 
 import org.eclipse.serializer.collections.ArrayView;
 import org.eclipse.serializer.collections.types.XGettingCollection;
@@ -106,7 +107,7 @@ public interface EmbeddedStorageBinarySource extends PersistenceSource<Binary>
 		public Default(final Supplier<StorageRequestAcceptor> requestAcceptorSupplier)
 		{
 			super();
-			this.requestAcceptorSupplier = requestAcceptorSupplier;
+			this.requestAcceptorSupplier = notNull(requestAcceptorSupplier);
 		}
 
 
