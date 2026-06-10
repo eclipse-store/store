@@ -14,9 +14,12 @@ package org.eclipse.store.gigamap.indexer.edge;
  * #L%
  */
 
+import org.eclipse.store.gigamap.types.EntityResolver;
 import org.eclipse.store.gigamap.types.GigaIterator;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.GigaQuery;
 import org.eclipse.store.gigamap.types.IndexerString;
+import org.eclipse.store.gigamap.types.IterationThreadProvider;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -236,6 +239,140 @@ public class QueryIteratorCloseTest
         holder.join();
         assertNull(holderError.get());
         assertEquals(1, gigaMap.query(nameIndexer.is("changed")).count());
+    }
+
+
+    @Test
+    void threadedQueryForEachClosesIteratorOnException()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+        for (int i = 0; i < 99; i++)
+        {
+            gigaMap.add(new NamePerson("name1", i));
+        }
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            try
+            {
+                // A thread provider forces the multi-threaded GigaIterator.Wrapping instead of BitmapIterator.
+                gigaMap.query(threadProvider()).and(nameIndexer.is("name1")).forEach(p -> {
+                    throw new RuntimeException("boom");
+                });
+            }
+            catch (final RuntimeException expected)
+            {
+                // swallow: the consumer threw on purpose
+            }
+
+            // Must NOT deadlock: the read-lock has to be released even though the consumer threw.
+            gigaMap.update(person, p -> p.setName("changed"));
+        });
+
+        assertEquals(1, gigaMap.query(nameIndexer.is("changed")).count());
+    }
+
+    @Test
+    void threadedNextPastEndReleasesLockOnThrow()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+        gigaMap.add(new NamePerson("other", 2));
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            // Deliberately NOT closing the iterator: driving next() one past the end must release
+            // the read-lock itself when it throws NoSuchElementException (Wrapping.nextEntry guard).
+            final GigaIterator<NamePerson> it =
+                gigaMap.query(threadProvider()).and(nameIndexer.is("name1")).iterator();
+            it.hasNext();                                         // prepares the single match
+            it.next();                                           // consumes it, clearing the buffer
+            assertThrows(NoSuchElementException.class, it::next); // scrolls past end -> must self-close
+
+            // Must NOT deadlock: next() has to release the read-lock on throw.
+            gigaMap.update(person, p -> p.setName("changed"));
+        });
+
+        assertEquals(1, gigaMap.query(nameIndexer.is("changed")).count());
+    }
+
+    @Test
+    void threadedResolutionFailureInHasNextReleasesLock()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            // A failing resolver simulates an entity resolution error (e.g. lazy-load failure) on
+            // the normal iteration path: hasNext() itself throws and must release the read-lock
+            // (Wrapping.hasNext guard). Deliberately NOT closing the iterator.
+            final GigaQuery.Default<NamePerson> query =
+                (GigaQuery.Default<NamePerson>)gigaMap.query(threadProvider()).and(nameIndexer.is("name1"));
+            final GigaIterator<NamePerson> it = query.iterator(failingResolver(gigaMap));
+
+            final RuntimeException thrown = assertThrows(RuntimeException.class, it::hasNext);
+            assertEquals("simulated entity resolution failure", thrown.getMessage());
+
+            // Must NOT deadlock: hasNext() has to release the read-lock on throw.
+            gigaMap.update(person, p -> p.setName("changed"));
+        });
+
+        assertEquals(1, gigaMap.query(nameIndexer.is("changed")).count());
+    }
+
+    @Test
+    void resolutionFailureInNextReleasesLock()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            // Single-threaded path: calling next() without a prior hasNext() exercises the scroll
+            // branch inside BitmapIterator.next() itself, where the resolution failure must
+            // release the read-lock. Deliberately NOT closing the iterator.
+            final GigaQuery.Default<NamePerson> query =
+                (GigaQuery.Default<NamePerson>)gigaMap.query(nameIndexer.is("name1"));
+            final GigaIterator<NamePerson> it = query.iterator(failingResolver(gigaMap));
+
+            final RuntimeException thrown = assertThrows(RuntimeException.class, it::next);
+            assertEquals("simulated entity resolution failure", thrown.getMessage());
+
+            // Must NOT deadlock: next() has to release the read-lock on throw.
+            gigaMap.update(person, p -> p.setName("changed"));
+        });
+
+        assertEquals(1, gigaMap.query(nameIndexer.is("changed")).count());
+    }
+
+
+    static IterationThreadProvider threadProvider()
+    {
+        return IterationThreadProvider.Creating((parent, results) -> 4);
+    }
+
+    static EntityResolver<NamePerson> failingResolver(final GigaMap<NamePerson> parent)
+    {
+        return new EntityResolver<>()
+        {
+            @Override
+            public NamePerson get(final long entityId)
+            {
+                throw new RuntimeException("simulated entity resolution failure");
+            }
+
+            @Override
+            public GigaMap<NamePerson> parent()
+            {
+                return parent;
+            }
+        };
     }
 
 
