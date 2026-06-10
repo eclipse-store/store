@@ -21,7 +21,12 @@ import org.eclipse.store.gigamap.exceptions.UniqueConstraintViolationExceptionBi
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.IndexerGenerator;
 import org.eclipse.store.gigamap.types.IndexerString;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -42,6 +47,38 @@ public class IdempotentGenerationTest
 			this.name = name;
 			this.code = code;
 			this.id   = id;
+		}
+	}
+
+	@TempDir
+	Path tempDir;
+
+	@Test
+	void generateIndicesIsIdempotentAcrossRestart()
+	{
+		final GigaMap<Entity> map = GigaMap.New();
+		IndexerGenerator.AnnotationBased(Entity.class).generateIndices(map);
+		map.add(new Entity("n1", "C1", 1));
+
+		try(final EmbeddedStorageManager sm = EmbeddedStorage.start(map, this.tempDir))
+		{
+		}
+
+		try(final EmbeddedStorageManager sm = EmbeddedStorage.start(this.tempDir))
+		{
+			final GigaMap<Entity> reloaded = sm.root();
+
+			// before the fix this throws: BitmapIndex already registered for name "code".
+			IndexerGenerator.AnnotationBased(Entity.class).generateIndices(reloaded);
+
+			assertEquals(1, reloaded.size());
+
+			// unique constraint still enforced exactly once after re-generation
+			assertThrows(
+				UniqueConstraintViolationExceptionBitmap.class,
+				() -> reloaded.add(new Entity("n2", "C1", 2))
+			);
+			assertEquals(1, reloaded.size());
 		}
 	}
 

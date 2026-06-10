@@ -227,7 +227,7 @@ public interface IndexerGenerator<E>
 			// Idempotent: skip unique constraints already registered and ensure (rather than add) the
 			// remaining indices, so the generator can run more than once on the same GigaMap without
 			// failing on already-present index names.
-			final XEnum<String> existingUnique = HashEnum.New();
+			final XEnum<String> existingUnique = EqHashEnum.New();
 			target.accessUniqueConstraints(constraints ->
 			{
 				for(final GigaIndex<E> constraint : constraints)
