@@ -22,6 +22,8 @@
 
     <modules>
         <module>gigamap</module>
+        <module>codegen</module>
+        <module>codegen-test</module>
         <module>lucene</module>
         <module>jvector</module>
     </modules>
