@@ -16,6 +16,8 @@ package org.eclipse.store.storage.embedded.types;
 
 import static org.eclipse.serializer.util.X.notNull;
 
+import java.util.function.Supplier;
+
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.exceptions.PersistenceExceptionTransfer;
 import org.eclipse.serializer.persistence.types.PersistenceTarget;
@@ -53,23 +55,23 @@ public interface EmbeddedStorageBinaryTarget extends PersistenceTarget<Binary>
 
 
 	/**
-	 * Pseudo-constructor method to create a new {@link EmbeddedStorageBinaryTarget} instance.
+	 * Pseudo-constructor that resolves the current {@link StorageRequestAcceptor} from the given supplier
+	 * on every write. The supplier is expected to return the storage's currently active acceptor, so the
+	 * Target self-heals across {@code shutdown()/start()} cycles without any explicit rebind step.
 	 *
-	 * @param requestAcceptor the {@link StorageRequestAcceptor} used to dispatch store requests to the
-	 *        storage threads. May not be {@code null}.
+	 * @param requestAcceptorSupplier supplier of the currently-active request acceptor. May not be {@code null}.
 	 *
-	 * @param writeController the {@link StorageWriteController} used to gate write requests. May not be
-	 *        {@code null}.
+	 * @param writeController the {@link StorageWriteController} used to gate write requests. May not be {@code null}.
 	 *
 	 * @return a new {@link EmbeddedStorageBinaryTarget} instance.
 	 */
 	public static EmbeddedStorageBinaryTarget New(
-		final StorageRequestAcceptor requestAcceptor,
-		final StorageWriteController writeController
+		final Supplier<StorageRequestAcceptor> requestAcceptorSupplier,
+		final StorageWriteController           writeController
 	)
 	{
 		return new EmbeddedStorageBinaryTarget.Default(
-			notNull(requestAcceptor),
+			notNull(requestAcceptorSupplier),
 			notNull(writeController)
 		);
 	}
@@ -85,8 +87,14 @@ public interface EmbeddedStorageBinaryTarget extends PersistenceTarget<Binary>
 		// instance fields //
 		////////////////////
 
-		private final StorageRequestAcceptor requestAcceptor;
-		private final StorageWriteController writeController;
+		/*
+		 * Holds the current {@link StorageRequestAcceptor} via a {@link Supplier} rather than a
+		 * direct reference, so a {@code shutdown()/start()} cycle (which replaces the storage
+		 * system's task broker and therefore the acceptor) is observed automatically on the
+		 * next call. No update method, no rebind step, no explicit shutdown hook required.
+		 */
+		private final Supplier<StorageRequestAcceptor> requestAcceptorSupplier;
+		private final StorageWriteController           writeController;
 
 
 
@@ -95,13 +103,13 @@ public interface EmbeddedStorageBinaryTarget extends PersistenceTarget<Binary>
 		/////////////////
 
 		Default(
-			final StorageRequestAcceptor requestAcceptor,
-			final StorageWriteController writeController
+			final Supplier<StorageRequestAcceptor> requestAcceptorSupplier,
+			final StorageWriteController           writeController
 		)
 		{
 			super();
-			this.requestAcceptor = requestAcceptor;
-			this.writeController = writeController;
+			this.requestAcceptorSupplier = requestAcceptorSupplier;
+			this.writeController         = writeController;
 		}
 
 
@@ -116,7 +124,7 @@ public interface EmbeddedStorageBinaryTarget extends PersistenceTarget<Binary>
 			try
 			{
 				this.writeController.validateIsWritable();
-				this.requestAcceptor.storeData(data);
+				this.requestAcceptorSupplier.get().storeData(data);
 			}
 			catch(final Exception e)
 			{

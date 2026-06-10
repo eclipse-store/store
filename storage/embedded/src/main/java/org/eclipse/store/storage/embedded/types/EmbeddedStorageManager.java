@@ -31,6 +31,7 @@ import org.eclipse.serializer.monitoring.MonitoringManager;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.types.Persistence;
 import org.eclipse.serializer.persistence.types.PersistenceManager;
+import org.eclipse.serializer.persistence.types.PersistenceObjectRegistry;
 import org.eclipse.serializer.persistence.types.PersistenceRootReference;
 import org.eclipse.serializer.persistence.types.PersistenceRoots;
 import org.eclipse.serializer.persistence.types.PersistenceRootsProvider;
@@ -291,7 +292,7 @@ public interface EmbeddedStorageManager extends StorageManager
 		}
 
 		@Override
-		public final EmbeddedStorageManager.Default start()
+		public final synchronized EmbeddedStorageManager.Default start()
 		{
 			logger.info("Starting embedded storage manager");
 			
@@ -371,14 +372,14 @@ public interface EmbeddedStorageManager extends StorageManager
 		{
 			final EqHashTable<String, Object> loadedEntries  = normalize(loadedRoots.entries());
 			final EqHashTable<String, Object> definedEntries = normalize(this.rootsProvider.provideRoots().entries());
-			
+
 			final boolean match = loadedEntries.equalsContent(definedEntries, EmbeddedStorageManager.Default::isEqualRootEntry);
 			if(!match)
 			{
 				// change detected. Entries of loadedRoots must be updated/replaced
 				loadedRoots.updateEntries(definedEntries);
 			}
-			
+
 			/*
 			 * If the loaded roots had to change in any way to match the runtime state of the application,
 			 * it means that it has to be stored to update the persistent state to the current (changed) one.
@@ -438,11 +439,18 @@ public interface EmbeddedStorageManager extends StorageManager
 						return;
 					}
 				}
-				
-				logger.debug("Storing required root objects and constants");
-				
-				// any other case than a perfectly synchronous loaded roots instance needs to store
-				initConnection.store(loadedRoots);
+
+				if(this.connectionFoundation.writeController().isWritable())
+				{
+					logger.debug("Storing required root objects and constants");
+					// any other case than a perfectly synchronous loaded roots instance needs to store
+					initConnection.store(loadedRoots);
+				}
+				else
+				{
+					logger.warn("Updated root objects and constants can't be stored because storage is opened read only!");
+				}
+
 			}
 			catch(final Exception e)
 			{
@@ -453,10 +461,22 @@ public interface EmbeddedStorageManager extends StorageManager
 		}
 		
 		@Override
-		public final boolean shutdown()
+		public final synchronized boolean shutdown()
 		{
 			LazyReferenceManager.get().removeController(this);
-			return this.storageSystem.shutdown();
+			final boolean result = this.storageSystem.shutdown();
+			if(!result)
+			{
+				// shutdown was interrupted; storage may still be partially running, so don't
+				// invalidate cached connection/registry state on top of an indeterminate storage.
+				return false;
+			}
+			// drop cached connection so a subsequent start() rebuilds it against the new task broker
+			this.singletonConnection = null;
+			final PersistenceObjectRegistry registry = this.connectionFoundation.getObjectRegistry();
+			registry.truncateAll();
+			Persistence.registerJavaConstants(registry);
+			return true;
 		}
 
 		@Override

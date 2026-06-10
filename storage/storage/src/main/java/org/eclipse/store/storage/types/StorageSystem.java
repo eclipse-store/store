@@ -413,10 +413,18 @@ public interface StorageSystem extends StorageController
 				}
 				initializingTask.waitOnCompletion();
 			}
-			
+
 			this.timestampProvider.set(initializingTask.latestTimestamp());
-						
+
 			return initializingTask.idAnalysis();
+		}
+
+		private void joinChannelThreads() throws InterruptedException
+		{
+			for(final ChannelKeeper keeper : this.channelKeepers)
+			{
+				keeper.channelThread.join();
+			}
 		}
 		
 		private StorageBackupHandler provideBackupHandler()
@@ -630,20 +638,26 @@ public interface StorageSystem extends StorageController
 			
 			
 			final StorageChannelTaskShutdown task = this.taskbroker.issueChannelShutdown(this.operationController);
-			
+
 			synchronized(task)
 			{
-				// (07.07.2016 TM)FIXME: OGS-23: shutdown doesn't wait for the shutdown to be completed.
 				task.waitOnCompletion();
 			}
 			this.taskbroker = null;
-			
+
 			this.shutdownBackup();
-			
+
 			this.operationController.deactivate();
-			
+
+			// wake every channel thread that is parked in StorageTask.awaitNext on the shutdown task, so they
+			// observe the deactivated controller immediately instead of waiting out the housekeeping interval.
+			task.endAwaitNext();
+
+			// wait for channel threads to actually terminate after the controller flag was flipped
+			this.joinChannelThreads();
+
 			this.stopLockFileManagerThread();
-			
+
 			this.monitorManager.shutdown();
 
 			/* (07.03.2019 TM)FIXME: Shutdown must wait for ongoing activities.

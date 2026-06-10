@@ -409,14 +409,16 @@ extends BinaryPersistenceFoundation<F>
 		@Override
 		protected EmbeddedStorageBinarySource ensurePersistenceSource()
 		{
-			return new EmbeddedStorageBinarySource.Default(this.internalGetStorageRequestAcceptor());
+			// pass a supplier — Source resolves the current acceptor on every call so it
+			// survives shutdown/start cycles without being rebuilt or explicitly rebound.
+			return new EmbeddedStorageBinarySource.Default(this::internalGetStorageRequestAcceptor);
 		}
 
 		@Override
 		protected EmbeddedStorageBinaryTarget ensurePersistenceTarget()
 		{
 			return EmbeddedStorageBinaryTarget.New(
-				this.internalGetStorageRequestAcceptor(),
+				this::internalGetStorageRequestAcceptor,
 				this.getWriteController()
 			);
 		}
