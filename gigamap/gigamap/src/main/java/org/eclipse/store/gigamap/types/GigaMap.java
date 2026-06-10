@@ -394,7 +394,12 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * Iterates over all elements.
 	 * <p>
 	 * Keep in mind that this can result in a very expensive operation, depending on the overall count of elements.
-	 * 
+	 * <p>
+	 * The map is held read-only for the duration of the iteration: structurally modifying it from within
+	 * {@code iterator} (e.g. {@code add}, {@code remove}, {@code update}/{@code apply}, {@code store}) is not
+	 * supported and throws an {@link IllegalStateException}. To mutate based on a scan, collect first (e.g.
+	 * into a separate {@link java.util.List}) and mutate afterwards.
+	 *
 	 * @param <I> type of iterator
 	 * @param iterator the consumer of elements
 	 * @return the given iterator
@@ -408,6 +413,9 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * Overrides the default {@link Iterable#forEach(Consumer)} to delegate to {@link #iterate(Consumer)},
 	 * which traverses the elements without leaving a read-lock open if {@code action} throws. The inherited
 	 * default implementation obtains a {@link GigaIterator} but never closes it.
+	 * <p>
+	 * As with {@link #iterate(Consumer)}, structurally modifying the map from within {@code action} is not
+	 * supported and throws an {@link IllegalStateException}.
 	 */
 	@Override
 	public default void forEach(final Consumer<? super E> action)
@@ -434,7 +442,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * Iterates over all elements, handing over the entity ids as well.
 	 * <p>
 	 * Keep in mind that this can result in a very expensive operation, depending on the overall count of elements.
-	 * 
+	 * <p>
+	 * As with {@link #iterate(Consumer)}, the map is held read-only for the duration of the iteration:
+	 * structurally modifying it from within {@code consumer} is not supported and throws an
+	 * {@link IllegalStateException}.
+	 *
 	 * @param <I> type of consumer
 	 * @param consumer the consumer of elements
 	 * @return the given consumer
@@ -2170,24 +2182,35 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		@Override
 		public final synchronized <I extends Consumer<? super E>> I iterate(final I iterator)
 		{
-			final Lazy<GigaLevel2<E>>[] level3 = this.level3.segments;
-			for(final Lazy<GigaLevel2<E>> level2Root : level3)
+			// Mark read-only for the duration of the traversal so that a reentrant mutation from the
+			// consumer fails fast (in #ensureMutability) instead of corrupting the structure being
+			// walked. Structural modification during iteration is not supported.
+			this.markReadOnly();
+			try
 			{
-				if(level2Root == null)
+				final Lazy<GigaLevel2<E>>[] level3 = this.level3.segments;
+				for(final Lazy<GigaLevel2<E>> level2Root : level3)
 				{
-					continue;
-				}
-				final Lazy<GigaLevel1<E>>[] level2 = level2Root.get().segments;
-				try
-				{
-					iterate(level2, iterator);
-				}
-				catch(final ThrowBreak b)
-				{
-					break;
+					if(level2Root == null)
+					{
+						continue;
+					}
+					final Lazy<GigaLevel1<E>>[] level2 = level2Root.get().segments;
+					try
+					{
+						iterate(level2, iterator);
+					}
+					catch(final ThrowBreak b)
+					{
+						break;
+					}
 				}
 			}
-			
+			finally
+			{
+				this.unmarkReadOnly();
+			}
+
 			return iterator;
 		}
 				
@@ -2219,26 +2242,35 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		@Override
 		public final synchronized <I extends EntryConsumer<? super E>> I iterateIndexed(final I consumer)
 		{
-			final int level1p2Pow2 = this.level2TotalLengthExp;
-			final Lazy<GigaLevel2<E>>[] level3 = this.level3.segments;
-			for(int i = 0; i < level3.length; i++)
+			// see #iterate(Consumer): read-only for the duration so reentrant mutation fails fast.
+			this.markReadOnly();
+			try
 			{
-				final Lazy<GigaLevel2<E>> level2Root;
-				if((level2Root = level3[i]) == null)
+				final int level1p2Pow2 = this.level2TotalLengthExp;
+				final Lazy<GigaLevel2<E>>[] level3 = this.level3.segments;
+				for(int i = 0; i < level3.length; i++)
 				{
-					continue;
-				}
-				final GigaLevel2<E> level2 = level2Root.get();
-				try
-				{
-					this.iterate(level2, i<<level1p2Pow2, consumer);
-				}
-				catch(final ThrowBreak b)
-				{
-					break;
+					final Lazy<GigaLevel2<E>> level2Root;
+					if((level2Root = level3[i]) == null)
+					{
+						continue;
+					}
+					final GigaLevel2<E> level2 = level2Root.get();
+					try
+					{
+						this.iterate(level2, i<<level1p2Pow2, consumer);
+					}
+					catch(final ThrowBreak b)
+					{
+						break;
+					}
 				}
 			}
-			
+			finally
+			{
+				this.unmarkReadOnly();
+			}
+
 			return consumer;
 		}
 		

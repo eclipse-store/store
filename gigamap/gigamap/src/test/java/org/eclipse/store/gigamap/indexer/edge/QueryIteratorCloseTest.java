@@ -376,6 +376,52 @@ public class QueryIteratorCloseTest
     }
 
 
+    @Test
+    void mapForEachMutationDuringIterationThrows()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        gigaMap.add(new NamePerson("name1", 1));
+        gigaMap.add(new NamePerson("name2", 2));
+
+        // Structurally modifying the map from within forEach is not supported and must fail fast
+        // (the map is held read-only for the duration of the iteration), not silently produce
+        // undefined results.
+        assertTimeoutPreemptively(Duration.ofSeconds(5),
+            () -> assertThrows(IllegalStateException.class,
+                () -> gigaMap.forEach(gigaMap::remove)));
+    }
+
+    @Test
+    void mapIterateMutationDuringIterationThrows()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5),
+            () -> assertThrows(IllegalStateException.class,
+                () -> gigaMap.iterate(p -> gigaMap.update(p, x -> x.setName("changed")))));
+    }
+
+    @Test
+    void collectThenMutateIsSupported()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        gigaMap.add(new NamePerson("name1", 1));
+        gigaMap.add(new NamePerson("name2", 2));
+
+        // Supported pattern: snapshot first, then mutate.
+        final List<NamePerson> snapshot = new ArrayList<>();
+        gigaMap.forEach(snapshot::add);
+        snapshot.forEach(gigaMap::remove);
+
+        assertEquals(0, gigaMap.size());
+    }
+
+
     static IndexerString<NamePerson> nameIndexer = new IndexerString.Abstract<>()
     {
         @Override

@@ -53,6 +53,12 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 	
 	/**
 	 * Iterates over the results of this query using the provided {@code Consumer} procedure.
+	 * <p>
+	 * The backing {@link GigaMap} is held read-only for the duration of the iteration: structurally
+	 * modifying it from within {@code procedure} (e.g. {@code add}, {@code remove},
+	 * {@code update}/{@code apply}, {@code store}) is not supported and throws an
+	 * {@link IllegalStateException}. To mutate based on a query, collect first (e.g. via
+	 * {@link #toList()}) and mutate afterwards.
 	 *
 	 * @param <P> the type of the {@code Consumer} that will process the elements
 	 * @param procedure the {@code Consumer} instance that processes elements
@@ -77,6 +83,9 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 	 * Overrides the default {@link Iterable#forEach(Consumer)} to ensure the underlying
 	 * {@link GigaIterator} (and thus the GigaMap read-lock) is closed even if {@code action}
 	 * throws. The inherited default implementation does not close the iterator.
+	 * <p>
+	 * As with {@link #iterate(Consumer)}, structurally modifying the backing map from within
+	 * {@code action} is not supported and throws an {@link IllegalStateException}.
 	 */
 	@Override
 	public default void forEach(final Consumer<? super E> action)
@@ -103,6 +112,10 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 	/**
 	 * Iterates over the results of this query with their corresponding id
 	 * and applies the given consumer to each element.
+	 * <p>
+	 * As with {@link #iterate(Consumer)}, the backing map is held read-only for the duration of the
+	 * iteration: structurally modifying it from within {@code consumer} is not supported and throws an
+	 * {@link IllegalStateException}.
 	 *
 	 * @param <I> The type of the consumer that will process each element and its id.
 	 * @param consumer The consumer that processes each element and its id during iteration.
