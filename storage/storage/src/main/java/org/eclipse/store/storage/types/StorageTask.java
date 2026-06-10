@@ -44,7 +44,10 @@ public interface StorageTask
 	 * sequence to make channel threads observe a deactivated operation controller immediately
 	 * instead of waiting out the housekeeping interval.
 	 */
-	public void endAwaitNext();
+	default void endAwaitNext()
+	{
+		// no-op by default to preserve binary compatibility for external StorageTask implementations
+	}
 
 
 
