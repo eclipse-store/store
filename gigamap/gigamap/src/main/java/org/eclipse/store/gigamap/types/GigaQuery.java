@@ -14,6 +14,7 @@ package org.eclipse.store.gigamap.types;
  * #L%
  */
 
+import org.eclipse.serializer.branching.ThrowBreak;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.XArrays;
 import org.eclipse.serializer.collections.types.XIterable;
@@ -75,6 +76,11 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 				procedure.accept(it.next());
 			}
 		}
+		catch(final ThrowBreak b)
+		{
+			// X.BREAK() signals a controlled early exit per the XIterable contract; absorb it.
+			// (The iterator is already closed by the try-with-resources, releasing the read-lock.)
+		}
 		return procedure;
 	}
 
@@ -130,6 +136,11 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 			{
 				it.nextIndexed(consumer);
 			}
+		}
+		catch(final ThrowBreak b)
+		{
+			// X.BREAK() signals a controlled early exit; absorb it, mirroring iterate(Consumer) and
+			// GigaMap.iterateIndexed(). (The iterator is already closed, releasing the read-lock.)
 		}
 		return consumer;
 	}
