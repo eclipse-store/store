@@ -396,9 +396,10 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * Keep in mind that this can result in a very expensive operation, depending on the overall count of elements.
 	 * <p>
 	 * The map is held read-only for the duration of the iteration: structurally modifying it from within
-	 * {@code iterator} (e.g. {@code add}, {@code remove}, {@code update}/{@code apply}, {@code store}) is not
-	 * supported and throws an {@link IllegalStateException}. To mutate based on a scan, collect first (e.g.
-	 * into a separate {@link java.util.List}) and mutate afterwards.
+	 * {@code iterator} (e.g. {@code add}, {@code remove}, {@code update}/{@code apply}) is not supported and
+	 * throws an {@link IllegalStateException}. To mutate based on a scan, collect first (e.g. into a separate
+	 * {@link java.util.List}) and mutate afterwards. (Calling {@code store()} during iteration is allowed —
+	 * it persists the graph without structurally modifying the map.)
 	 *
 	 * @param <I> type of iterator
 	 * @param iterator the consumer of elements

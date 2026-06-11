@@ -56,9 +56,10 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 	 * <p>
 	 * The backing {@link GigaMap} is held read-only for the duration of the iteration: structurally
 	 * modifying it from within {@code procedure} (e.g. {@code add}, {@code remove},
-	 * {@code update}/{@code apply}, {@code store}) is not supported and throws an
-	 * {@link IllegalStateException}. To mutate based on a query, collect first (e.g. via
-	 * {@link #toList()}) and mutate afterwards.
+	 * {@code update}/{@code apply}) is not supported and throws an {@link IllegalStateException}. To mutate
+	 * based on a query, collect first (e.g. via {@link #toList()}) and mutate afterwards. (Calling
+	 * {@code store()} during iteration is allowed — it persists the graph without structurally modifying
+	 * the map.)
 	 *
 	 * @param <P> the type of the {@code Consumer} that will process the elements
 	 * @param procedure the {@code Consumer} instance that processes elements
