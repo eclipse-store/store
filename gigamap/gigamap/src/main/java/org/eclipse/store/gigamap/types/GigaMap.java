@@ -1815,6 +1815,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			{
 				throw new IllegalArgumentException("'current' and 'replacement' cannot be the same instance");
 			}
+			this.validateForCRUD(current);
 			this.validateForCRUD(replacement);
 			
 			this.ensureMutability();
@@ -1860,6 +1861,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		@Override
 		public final synchronized <R> R apply(final E current, final Function<? super E, R> logic)
 		{
+			this.validateForCRUD(current);
 			this.ensureMutability();
 			
 			final long entityId = this.lookupEntityIdPeeking(current, this.determineIdentityLookupIndices());

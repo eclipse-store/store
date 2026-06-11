@@ -92,6 +92,42 @@ public class GigaMapUnitTest
         }
     }
 
+    // dereferencing indexer: without the null-argument guard, replace(null, x) / apply(null, logic) NPE inside the indexer
+    static class LengthIndexer extends IndexerInteger.Abstract<String>
+    {
+        @Override
+        protected Integer getInteger(final String entity)
+        {
+            return entity.length();
+        }
+    }
+
+    @Test
+    void replaceNullCurrentTest()
+    {
+        final GigaMap<String> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(new LengthIndexer());
+        gigaMap.add("1000");
+        assertThrows(IllegalArgumentException.class, () -> gigaMap.replace(null, "1001"));
+        try (EmbeddedStorageManager manager = EmbeddedStorage.start(gigaMap, tempDir)) {
+            assertThrows(IllegalArgumentException.class, () -> gigaMap.replace(null, "1001"));
+        }
+        try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
+            final GigaMap<String> gigaMap2 = manager.root();
+            assertThrows(IllegalArgumentException.class, () -> gigaMap2.replace(null, "1001"));
+        }
+    }
+
+    @Test
+    void applyNullCurrentTest()
+    {
+        final GigaMap<String> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(new LengthIndexer());
+        gigaMap.add("1000");
+        assertThrows(IllegalArgumentException.class, () -> gigaMap.apply(null, e -> e));
+        assertThrows(IllegalArgumentException.class, () -> gigaMap.update(null, e -> {}));
+    }
+
     @Test
     void setWithNull()
     {
