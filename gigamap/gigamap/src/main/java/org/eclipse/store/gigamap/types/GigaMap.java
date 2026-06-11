@@ -315,6 +315,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 */
 	public default E update(final E current, final Consumer<? super E> logic)
 	{
+		notNull(logic);
 		this.apply(current, e ->
 		{
 			logic.accept(e);
@@ -1811,12 +1812,12 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		@Override
 		public final synchronized long replace(final E current, final E replacement)
 		{
+			this.validateForCRUD(current);
+			this.validateForCRUD(replacement);
 			if(current == replacement)
 			{
 				throw new IllegalArgumentException("'current' and 'replacement' cannot be the same instance");
 			}
-			this.validateForCRUD(current);
-			this.validateForCRUD(replacement);
 			
 			this.ensureMutability();
 			
@@ -1862,6 +1863,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		public final synchronized <R> R apply(final E current, final Function<? super E, R> logic)
 		{
 			this.validateForCRUD(current);
+			notNull(logic);
 			this.ensureMutability();
 			
 			final long entityId = this.lookupEntityIdPeeking(current, this.determineIdentityLookupIndices());

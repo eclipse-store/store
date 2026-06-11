@@ -109,6 +109,11 @@ public class GigaMapUnitTest
         gigaMap.index().bitmap().add(new LengthIndexer());
         gigaMap.add("1000");
         assertThrows(IllegalArgumentException.class, () -> gigaMap.replace(null, "1001"));
+        // both null must be rejected as null arguments, not as "same instance"
+        final IllegalArgumentException bothNull = assertThrows(
+            IllegalArgumentException.class, () -> gigaMap.replace(null, null)
+        );
+        assertEquals("null entries are not allowed", bothNull.getMessage());
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(gigaMap, tempDir)) {
             assertThrows(IllegalArgumentException.class, () -> gigaMap.replace(null, "1001"));
         }
@@ -123,9 +128,12 @@ public class GigaMapUnitTest
     {
         final GigaMap<String> gigaMap = GigaMap.New();
         gigaMap.index().bitmap().add(new LengthIndexer());
-        gigaMap.add("1000");
+        String s = "1000";
+        gigaMap.add(s);
         assertThrows(IllegalArgumentException.class, () -> gigaMap.apply(null, e -> e));
         assertThrows(IllegalArgumentException.class, () -> gigaMap.update(null, e -> {}));
+        assertThrows(NullPointerException.class, () -> gigaMap.apply(s, null));
+        assertThrows(NullPointerException.class, () -> gigaMap.update(s, null));
     }
 
     @Test
