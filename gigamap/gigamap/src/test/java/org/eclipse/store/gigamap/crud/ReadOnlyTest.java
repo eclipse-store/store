@@ -157,4 +157,52 @@ public class ReadOnlyTest
 		map.add(Entity.Random().setWord("x"));
 		assertEquals(1, map.size());
 	}
+
+	@Test
+	void unmarkReadOnly_withoutMatchingMark_throws()
+	{
+		final GigaMap<Entity> map = GigaMap.New();
+		map.index().bitmap().ensure(Entity.wordIndex);
+
+		// An unbalanced unmark must fail fast rather than drive readOnlyCount negative, which would
+		// leave the map permanently non-mutable (a silent deadlock for every future mutation).
+		assertThrows(IllegalStateException.class, map::unmarkReadOnly);
+
+		// The map must still be mutable afterwards.
+		map.add(Entity.Random().setWord("x"));
+		assertEquals(1, map.size());
+	}
+
+	@Test
+	void unmarkReadOnly_oneTooMany_throws()
+	{
+		final GigaMap<Entity> map = GigaMap.New();
+		map.index().bitmap().ensure(Entity.wordIndex);
+
+		map.markReadOnly();
+		map.unmarkReadOnly();
+		assertThrows(IllegalStateException.class, map::unmarkReadOnly);
+
+		map.add(Entity.Random().setWord("x"));
+		assertEquals(1, map.size());
+	}
+
+	@Test
+	void unmarkReadOnly_fromWithinIteration_cannotLiftIterationGuard()
+	{
+		final GigaMap<Entity> map = GigaMap.New();
+		map.index().bitmap().ensure(Entity.wordIndex);
+		map.add(Entity.Random().setWord("a"));
+
+		// The public read-only API uses a counter separate from the iteration's internal read-lock.
+		// A consumer calling unmarkReadOnly() must therefore NOT be able to lift the protection of the
+		// running iteration; it fails fast (no matching markReadOnly()) instead.
+		assertThrows(IllegalStateException.class,
+			() -> map.forEach(e -> map.unmarkReadOnly()));
+
+		// The iteration released its own hold cleanly, so the map is mutable again afterwards.
+		assertFalse(map.isReadOnly());
+		map.add(Entity.Random().setWord("b"));
+		assertEquals(2, map.size());
+	}
 }

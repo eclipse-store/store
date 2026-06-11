@@ -14,15 +14,19 @@ package org.eclipse.store.gigamap.types;
  * #L%
  */
 
+import org.eclipse.serializer.branching.ThrowBreak;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.XArrays;
 import org.eclipse.serializer.collections.types.XIterable;
+import org.eclipse.serializer.util.X;
 
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+
+import static org.eclipse.serializer.util.X.notNull;
 
 
 /**
@@ -50,6 +54,13 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 	
 	/**
 	 * Iterates over the results of this query using the provided {@code Consumer} procedure.
+	 * <p>
+	 * The backing {@link GigaMap} is held read-only for the duration of the iteration: structurally
+	 * modifying it from within {@code procedure} (e.g. {@code add}, {@code remove},
+	 * {@code update}/{@code apply}) is not supported and throws an {@link IllegalStateException}. To mutate
+	 * based on a query, collect first (e.g. via {@link #toList()}) and mutate afterwards. (Calling
+	 * {@code store()} during iteration is allowed — it persists the graph without structurally modifying
+	 * the map.)
 	 *
 	 * @param <P> the type of the {@code Consumer} that will process the elements
 	 * @param procedure the {@code Consumer} instance that processes elements
@@ -65,12 +76,53 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 				procedure.accept(it.next());
 			}
 		}
+		catch(final ThrowBreak b)
+		{
+			// X.BREAK() signals a controlled early exit per the XIterable contract; absorb it.
+			// (The iterator is already closed by the try-with-resources, releasing the read-lock.)
+		}
 		return procedure;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 * <p>
+	 * Overrides the default {@link Iterable#forEach(Consumer)} to ensure the underlying
+	 * {@link GigaIterator} (and thus the GigaMap read-lock) is closed even if {@code action}
+	 * throws. The inherited default implementation does not close the iterator.
+	 * <p>
+	 * As with {@link #iterate(Consumer)}, structurally modifying the backing map from within
+	 * {@code action} is not supported and throws an {@link IllegalStateException}.
+	 */
+	@Override
+	public default void forEach(final Consumer<? super E> action)
+	{
+		this.iterate(notNull(action));
+	}
+
+	/**
+	 * {@inheritDoc}
+	 * <p>
+	 * <strong>
+	 * Important: a directly-obtained spliterator holds the GigaMap read-lock and provides no close
+	 * handle. Either consume it fully (the underlying {@link GigaIterator} self-closes on exhaustion)
+	 * or, preferably, use {@link #stream()} (which releases the read-lock via {@code onClose}) or
+	 * {@link #iterate(Consumer)}.
+	 * </strong>
+	 */
+	@Override
+	public default Spliterator<E> spliterator()
+	{
+		return Iterable.super.spliterator();
 	}
 	
 	/**
 	 * Iterates over the results of this query with their corresponding id
 	 * and applies the given consumer to each element.
+	 * <p>
+	 * As with {@link #iterate(Consumer)}, the backing map is held read-only for the duration of the
+	 * iteration: structurally modifying it from within {@code consumer} is not supported and throws an
+	 * {@link IllegalStateException}.
 	 *
 	 * @param <I> The type of the consumer that will process each element and its id.
 	 * @param consumer The consumer that processes each element and its id during iteration.
@@ -84,6 +136,11 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 			{
 				it.nextIndexed(consumer);
 			}
+		}
+		catch(final ThrowBreak b)
+		{
+			// X.BREAK() signals a controlled early exit; absorb it, mirroring iterate(Consumer) and
+			// GigaMap.iterateIndexed(). (The iterator is already closed, releasing the read-lock.)
 		}
 		return consumer;
 	}

@@ -38,6 +38,7 @@ import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Spliterator;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -223,24 +224,33 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	public boolean isReadOnly();
 	
 	/**
-	 * Marks this {@link GigaMap} as read-only, indicating that
-	 * it cannot be modified further.
+	 * Marks this {@link GigaMap} as read-only, indicating that it cannot be modified further until a
+	 * matching {@link #unmarkReadOnly()} is issued.
+	 * <p>
+	 * Read-only marks are <strong>reference-counted</strong>: nesting is allowed, but every
+	 * {@code markReadOnly()} must be paired with exactly one {@link #unmarkReadOnly()}.
+	 * <p>
+	 * <strong>Warning:</strong> this is a low-level toggle that shares its counter with the read-lock
+	 * mechanism guarding in-progress iterations and queries. Do <strong>not</strong> call it (nor
+	 * {@link #unmarkReadOnly()}) from within an {@link #iterate(Consumer)} / {@link #forEach(Consumer)} /
+	 * {@code query(...)} consumer: doing so corrupts the read-only count that protects the running
+	 * iteration and results in undefined behavior. Imbalanced calls can leave the map permanently
+	 * non-mutable.
 	 */
 	public void markReadOnly();
-	
+
 	/**
-	 * Removes the read-only status from this {@link GigaMap}.
+	 * Removes one read-only mark previously set via {@link #markReadOnly()}; the map becomes mutable
+	 * again once the last mark is removed.
+	 * <p>
+	 * <strong>Warning:</strong> must be balanced with {@link #markReadOnly()}. Calling it more often than
+	 * {@code markReadOnly()} throws an {@link IllegalStateException} (it would otherwise drive the
+	 * read-only count negative and leave the map permanently non-mutable). See {@link #markReadOnly()} for
+	 * why this must never be called from within an iteration/query consumer.
+	 *
+	 * @throws IllegalStateException if called without a matching {@link #markReadOnly()}
 	 */
 	public void unmarkReadOnly();
-	
-	/**
-	 * Removes all read-only marks currently set.
-	 * This operation is intended to reset or clear any read-only status
-	 * that may have been applied to this {@link GigaMap}.
-	 *
-	 * @return true if the read-only marks were successfully cleared, false otherwise
-	 */
-	public boolean clearReadOnlyMarks();
 	
 	/**
 	 * Replaces an entity if present in this collection, updates the indices accordingly,
@@ -393,7 +403,13 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * Iterates over all elements.
 	 * <p>
 	 * Keep in mind that this can result in a very expensive operation, depending on the overall count of elements.
-	 * 
+	 * <p>
+	 * The map is held read-only for the duration of the iteration: structurally modifying it from within
+	 * {@code iterator} (e.g. {@code add}, {@code remove}, {@code update}/{@code apply}) is not supported and
+	 * throws an {@link IllegalStateException}. To mutate based on a scan, collect first (e.g. into a separate
+	 * {@link java.util.List}) and mutate afterwards. (Calling {@code store()} during iteration is allowed —
+	 * it persists the graph without structurally modifying the map.)
+	 *
 	 * @param <I> type of iterator
 	 * @param iterator the consumer of elements
 	 * @return the given iterator
@@ -402,10 +418,45 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	public <I extends Consumer<? super E>> I iterate(I iterator);
 
 	/**
+	 * {@inheritDoc}
+	 * <p>
+	 * Overrides the default {@link Iterable#forEach(Consumer)} to delegate to {@link #iterate(Consumer)},
+	 * which traverses the elements without leaving a read-lock open if {@code action} throws. The inherited
+	 * default implementation obtains a {@link GigaIterator} but never closes it.
+	 * <p>
+	 * As with {@link #iterate(Consumer)}, structurally modifying the map from within {@code action} is not
+	 * supported and throws an {@link IllegalStateException}.
+	 */
+	@Override
+	public default void forEach(final Consumer<? super E> action)
+	{
+		this.iterate(notNull(action));
+	}
+
+	/**
+	 * {@inheritDoc}
+	 * <p>
+	 * <strong>
+	 * Important: a directly-obtained spliterator holds the GigaMap read-lock and provides no close
+	 * handle. Either consume it fully (the underlying {@link GigaIterator} self-closes on exhaustion)
+	 * or, preferably, use {@link #iterate(Consumer)} or a try-with-resources around {@link #iterator()}.
+	 * </strong>
+	 */
+	@Override
+	public default Spliterator<E> spliterator()
+	{
+		return Iterable.super.spliterator();
+	}
+
+	/**
 	 * Iterates over all elements, handing over the entity ids as well.
 	 * <p>
 	 * Keep in mind that this can result in a very expensive operation, depending on the overall count of elements.
-	 * 
+	 * <p>
+	 * As with {@link #iterate(Consumer)}, the map is held read-only for the duration of the iteration:
+	 * structurally modifying it from within {@code consumer} is not supported and throws an
+	 * {@link IllegalStateException}.
+	 *
 	 * @param <I> type of consumer
 	 * @param consumer the consumer of elements
 	 * @return the given consumer
@@ -1207,8 +1258,13 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		// Uses WeakReferences so removed entities can be garbage-collected.
 		private transient BulkList<WeakReference<E>> pendingEntityStores;
 		
+		// Internal, transient read-only hold count: incremented by active readers (iterators), in-progress
+		// iterate()/iterateIndexed() and query execution. NOT touched by the public markReadOnly() API, so
+		// that public misuse cannot lift the protection of a running iteration.
 		private transient int readOnlyCount;
 		private transient int activeReaderCount;
+		// Public, explicit read-only mode count, controlled solely by markReadOnly()/unmarkReadOnly().
+		private transient int explicitReadOnlyCount;
 		private final transient BulkList<Reading> activeReaders;
 							
 		
@@ -1269,8 +1325,9 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			
 			this.initializeConfiguration();
 			
-			this.readOnlyCount       = 0;
-			this.activeReaderCount = 0;
+			this.readOnlyCount         = 0;
+			this.activeReaderCount     = 0;
+			this.explicitReadOnlyCount = 0;
 			this.activeReaders = BulkList.New();
 
 			if(createInstances)
@@ -1583,10 +1640,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			
 			this.initializeConfiguration();
 			
-			this.readOnlyCount       = 0;
-			this.activeReaderCount = 0;
+			this.readOnlyCount         = 0;
+			this.activeReaderCount     = 0;
+			this.explicitReadOnlyCount = 0;
 			this.activeReaders.clear();
-			
+
 			for(final Lazy<?> e : this.level3.segments)
 			{
 				if(e != null)
@@ -1843,6 +1901,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			while(this.checkingIsReadOnly())
 			{
+				this.checkSelfHeldReader();
 				try
 				{
 					this.wait();
@@ -1852,6 +1911,26 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 					throw new IllegalStateException(
 						XChars.systemString(this) + " is not mutable. (readOnlyCount " + this.readOnlyCount + ")",
 						e
+					);
+				}
+			}
+		}
+
+		private void checkSelfHeldReader()
+		{
+			// If the current thread itself holds an open reader, waiting for mutability would block
+			// forever (the blocked thread is the only one that would close its own reader). Fail fast
+			// with a clear error instead of deadlocking. Only reached when a mutation would block.
+			final Thread current = Thread.currentThread();
+			for(final Reading reader : this.activeReaders)
+			{
+				if(reader.owningThread() == current)
+				{
+					throw new IllegalStateException(
+						"Self-deadlock detected: the current thread holds an open read iterator on this "
+						+ GigaMap.class.getSimpleName() + " and cannot mutate it until that iterator is closed. "
+						+ "Close the iterator (e.g. via try-with-resources) before mutating, or iterate and "
+						+ "mutate on separate threads."
 					);
 				}
 			}
@@ -1913,8 +1992,9 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			
 			this.initializeConfiguration();
 			
-			this.readOnlyCount       = 0;
-			this.activeReaderCount = 0;
+			this.readOnlyCount         = 0;
+			this.activeReaderCount     = 0;
+			this.explicitReadOnlyCount = 0;
 			this.activeReaders.clear();
 		}
 		
@@ -2120,24 +2200,35 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		@Override
 		public final synchronized <I extends Consumer<? super E>> I iterate(final I iterator)
 		{
-			final Lazy<GigaLevel2<E>>[] level3 = this.level3.segments;
-			for(final Lazy<GigaLevel2<E>> level2Root : level3)
+			// Mark read-only for the duration of the traversal so that a reentrant mutation from the
+			// consumer fails fast (in #ensureMutability) instead of corrupting the structure being
+			// walked. Structural modification during iteration is not supported.
+			this.enterReadOnly();
+			try
 			{
-				if(level2Root == null)
+				final Lazy<GigaLevel2<E>>[] level3 = this.level3.segments;
+				for(final Lazy<GigaLevel2<E>> level2Root : level3)
 				{
-					continue;
-				}
-				final Lazy<GigaLevel1<E>>[] level2 = level2Root.get().segments;
-				try
-				{
-					iterate(level2, iterator);
-				}
-				catch(final ThrowBreak b)
-				{
-					break;
+					if(level2Root == null)
+					{
+						continue;
+					}
+					final Lazy<GigaLevel1<E>>[] level2 = level2Root.get().segments;
+					try
+					{
+						iterate(level2, iterator);
+					}
+					catch(final ThrowBreak b)
+					{
+						break;
+					}
 				}
 			}
-			
+			finally
+			{
+				this.exitReadOnly();
+			}
+
 			return iterator;
 		}
 				
@@ -2169,26 +2260,35 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		@Override
 		public final synchronized <I extends EntryConsumer<? super E>> I iterateIndexed(final I consumer)
 		{
-			final int level1p2Pow2 = this.level2TotalLengthExp;
-			final Lazy<GigaLevel2<E>>[] level3 = this.level3.segments;
-			for(int i = 0; i < level3.length; i++)
+			// see #iterate(Consumer): read-only for the duration so reentrant mutation fails fast.
+			this.enterReadOnly();
+			try
 			{
-				final Lazy<GigaLevel2<E>> level2Root;
-				if((level2Root = level3[i]) == null)
+				final int level1p2Pow2 = this.level2TotalLengthExp;
+				final Lazy<GigaLevel2<E>>[] level3 = this.level3.segments;
+				for(int i = 0; i < level3.length; i++)
 				{
-					continue;
-				}
-				final GigaLevel2<E> level2 = level2Root.get();
-				try
-				{
-					this.iterate(level2, i<<level1p2Pow2, consumer);
-				}
-				catch(final ThrowBreak b)
-				{
-					break;
+					final Lazy<GigaLevel2<E>> level2Root;
+					if((level2Root = level3[i]) == null)
+					{
+						continue;
+					}
+					final GigaLevel2<E> level2 = level2Root.get();
+					try
+					{
+						this.iterate(level2, i<<level1p2Pow2, consumer);
+					}
+					catch(final ThrowBreak b)
+					{
+						break;
+					}
 				}
 			}
-			
+			finally
+			{
+				this.exitReadOnly();
+			}
+
 			return consumer;
 		}
 		
@@ -2335,7 +2435,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 
 			this.activeReaders.add(reading);
 			this.activeReaderCount++;
-			this.markReadOnly();
+			this.enterReadOnly();
 
 			return iterator;
 		}
@@ -2451,54 +2551,83 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			}
 			finally
 			{
-				this.unmarkReadOnly();
+				this.exitReadOnly();
 			}
 		}
 		
 		private boolean checkingIsReadOnly()
 		{
+			// Explicit (public) read-only mode: reject mutation immediately.
+			if(this.explicitReadOnlyCount != 0)
+			{
+				throw new IllegalStateException(XChars.systemString(this) + " is in read only mode.");
+			}
+
 			if(this.readOnlyCount == 0)
 			{
 				return false;
 			}
-			
+
+			// A read-only hold that does not stem from an active reader means an iterate()/iterateIndexed()
+			// or query execution is in progress: structural modification during iteration is not supported.
 			if(this.readOnlyCount > this.activeReaderCount)
 			{
-				throw new IllegalStateException(XChars.systemString(this) + " is in read only mode.");
+				throw new IllegalStateException(
+					XChars.systemString(this) + " must not be structurally modified during iteration."
+				);
 			}
-			
+
+			// Only active readers hold the map read-only: a mutation must wait until they are closed
+			// (the reader may be driven by another thread; #checkSelfHeldReader guards the same-thread case).
 			return true;
 		}
-				
-		@Override
-		public final synchronized boolean isReadOnly()
-		{
-			return this.readOnlyCount != 0;
-		}
-					
-		@Override
-		public final synchronized void markReadOnly()
+
+		/**
+		 * Internal read-only hold for active readers, in-progress iterations and query execution. Distinct
+		 * from the public {@link #markReadOnly()} so that public misuse cannot lift an iteration's hold.
+		 */
+		private synchronized void enterReadOnly()
 		{
 			this.readOnlyCount++;
 		}
-		
-		@Override
-		public final synchronized void unmarkReadOnly()
+
+		private synchronized void exitReadOnly()
 		{
 			if(--this.readOnlyCount == 0)
 			{
-				// notify threads waiting for gigamap instance to become mutable again
+				// notify threads waiting for the gigamap instance to become mutable again
 				this.notifyAll();
 			}
 		}
-		
+
 		@Override
-		public final synchronized boolean clearReadOnlyMarks()
+		public final synchronized boolean isReadOnly()
 		{
-			final boolean result = this.readOnlyCount > this.activeReaderCount;
-			this.readOnlyCount = this.activeReaderCount;
-			
-			return result;
+			return this.explicitReadOnlyCount != 0 || this.readOnlyCount != 0;
+		}
+
+		@Override
+		public final synchronized void markReadOnly()
+		{
+			this.explicitReadOnlyCount++;
+		}
+
+		@Override
+		public final synchronized void unmarkReadOnly()
+		{
+			if(this.explicitReadOnlyCount <= 0)
+			{
+				// Fail fast instead of driving the count negative: a negative count would make
+				// #checkingIsReadOnly report read-only forever, permanently blocking every mutation.
+				throw new IllegalStateException(
+					XChars.systemString(this) + " unmarkReadOnly() called without a matching markReadOnly()."
+				);
+			}
+			if(--this.explicitReadOnlyCount == 0)
+			{
+				// notify threads waiting for the gigamap instance to become mutable again
+				this.notifyAll();
+			}
 		}
 
 		final void executeInReadOnlyMode(
@@ -2511,12 +2640,12 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			try
 			{
-				this.markReadOnly();
+				this.enterReadOnly();
 				this.executeReadOnly(condition, idStart, idBound, idMatcher, consumer);
 			}
 			finally
 			{
-				this.unmarkReadOnly();
+				this.exitReadOnly();
 			}
 		}
 		
@@ -2719,7 +2848,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			this.activeReaders.add(iterator);
 			this.activeReaderCount++;
 			
-			this.markReadOnly();
+			this.enterReadOnly();
 			
 			return iterator;
 		}
@@ -2910,17 +3039,18 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		////////////////////
 		
 		private final GigaMap.Default<E> parent;
+		private final Thread             owningThread = Thread.currentThread();
 		long currentEntityId = -1;
 		E currentEntity = null;
-		
+
 		boolean isActive = true;
-		
-		
-		
+
+
+
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
 		/////////////////
-		
+
 		Itr(final GigaMap.Default<E> parent)
 		{
 			super();
@@ -2984,19 +3114,25 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			return this.parent;
 		}
-		
+
+		@Override
+		public final Thread owningThread()
+		{
+			return this.owningThread;
+		}
+
 		@Override
 		public final boolean isClosed()
 		{
 			return !this.isActive;
 		}
-		
+
 		@Override
 		public final void setInactive()
 		{
 			this.isActive = false;
 		}
-		
+
 		@Override
 		public final void close()
 		{
@@ -3015,13 +3151,29 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	public interface Reading
 	{
 		public void close();
-		
+
 		public boolean isClosed();
-		
+
 		public GigaMap<?> parent();
-		
+
 		public void setInactive();
-				
+
+		/**
+		 * Returns the thread that opened this reader (and therefore holds the parent
+		 * {@link GigaMap}'s read-lock), or {@code null} if unknown.
+		 * <p>
+		 * Used to detect self-deadlocks: a thread that still holds an open reader and then tries to
+		 * mutate the same GigaMap on that same thread would wait forever for its own reader to close.
+		 * The ownership reflects the <em>creating</em> thread; the supported usage model is that an
+		 * iterator is driven and closed by the same thread that created it.
+		 *
+		 * @return the owning thread, or {@code null} if unknown
+		 */
+		public default Thread owningThread()
+		{
+			return null;
+		}
+
 	}
 	
 	
