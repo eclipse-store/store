@@ -659,7 +659,18 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		@Override
 		public final void rollbackWrite()
 		{
-			this.writer.truncate(this.headFile, this.headFile.totalLength(), this.fileProvider);
+			// only roll back if an uncommitted write actually happened (size grew past the committed length).
+			// channels that wrote nothing (e.g. empty chunk) must not accrue a spurious truncation entry.
+			if(this.headFile.totalLength() != this.headFile.size())
+			{
+				final long timestamp = this.timestampProvider.currentNanoTimestamp();
+
+				// write truncation entry (BEFORE the actual truncate), mirroring handleLastFile, so the
+				// transaction log and the data file stay consistent after a rolled-back partial store.
+				this.writeTransactionsEntryFileTruncation(this.headFile, timestamp, this.headFile.totalLength());
+
+				this.writer.truncate(this.headFile, this.headFile.totalLength(), this.fileProvider);
+			}
 		}
 
 		@Override
