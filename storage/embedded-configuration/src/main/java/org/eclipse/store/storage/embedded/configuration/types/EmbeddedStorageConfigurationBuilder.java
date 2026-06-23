@@ -335,8 +335,8 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 	public EmbeddedStorageConfigurationBuilder setTransactionFileMaximumSize(ByteSize transactionFileMaximumSize);
 
 	/**
-	 * The primary chunk-checksum algorithm: {@code none}, {@code crc32c}, {@code sha256} or
-	 * {@code sha256-chained}. Default is {@code sha256}. Setting any {@code chunk-checksum-*} property
+	 * The primary chunk-checksum algorithm: {@code none}, {@code crc32c} or
+	 * {@code sha256-chained}. Default is {@code sha256-chained}. Setting any {@code chunk-checksum-*} property
 	 * activates declarative configuration of the feature; leaving them all unset keeps the framework default.
 	 *
 	 * @param chunkChecksumAlgorithm the algorithm token

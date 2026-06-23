@@ -176,8 +176,10 @@ public interface EmbeddedStorageConfigurationPropertyNames
 	public final static String DATA_FILE_CLEANUP_HEAD_FILE   = "data-file-cleanup-head-file";
 
 	/**
-	 * Primary chunk-checksum algorithm: {@code none}, {@code crc32c}, {@code sha256} or
-	 * {@code sha256-chained}. Default (unset) is {@code sha256}.
+	 * Primary chunk-checksum algorithm: {@code none}, {@code crc32c} or
+	 * {@code sha256-chained}. When this key is unset but another {@code chunk-checksum-*} key is present,
+	 * the default is {@code sha256-chained}; setting no {@code chunk-checksum-*} key at all keeps the
+	 * framework default (no checksum &mdash; the feature off).
 	 *
 	 * @see EmbeddedStorageConfigurationBuilder#setChunkChecksumAlgorithm(String)
 	 */

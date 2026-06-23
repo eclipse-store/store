@@ -474,7 +474,8 @@ public interface StorageConfiguration
 
 		/**
 		 * Sets the {@link StorageChunkChecksumProvider} to be used by the resulting configuration.
-		 * Passing {@code null} resets the value to the framework default (SHA-256, emit + verify).
+		 * Passing {@code null} resets the value to the framework default
+		 * ({@link StorageChunkChecksumProvider#New()}: no checksum, i.e. the feature off).
 		 *
 		 * @param chunkChecksumProvider the new {@link StorageChunkChecksumProvider}, or {@code null} to reset.
 		 *
