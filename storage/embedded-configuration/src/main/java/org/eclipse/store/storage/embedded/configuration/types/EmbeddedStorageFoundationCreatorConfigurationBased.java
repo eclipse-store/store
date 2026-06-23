@@ -436,11 +436,11 @@ public interface EmbeddedStorageFoundationCreatorConfigurationBased extends Embe
 		private byte[] parseChunkChecksumSeed(final String hex)
 		{
 			final String s = hex.trim();
-			if((s.length() & 1) != 0)
+			if(s.length() != 64)
 			{
 				throw new ConfigurationException(
 					this.configuration,
-					CHUNK_CHECKSUM_SEED + " must be an even-length hex string (64 chars = 32 bytes), got length " + s.length() + "."
+					CHUNK_CHECKSUM_SEED + " must be a 64-character hex string (32 bytes), got length " + s.length() + "."
 				);
 			}
 			final byte[] out = new byte[s.length() / 2];
