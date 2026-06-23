@@ -200,11 +200,30 @@ public interface StorageEntityInitializer<D extends StorageLiveDataFile>
 
 			for(long address = bufferStartAddress; address < bufferBoundAddress;)
 			{
+				// Validate the item length against the buffer bound before using it: a corrupted length is
+				// caught here as a consistency error instead of an out-of-bounds read or a later crash.
+				final long remaining = bufferBoundAddress - address;
+				if(remaining < Long.BYTES)
+				{
+					// too few bytes left to read a length: file does not end on a record boundary.
+					throw new StorageExceptionConsistency(
+						"Truncated data item: " + remaining + " byte(s) remaining at offset "
+						+ (address - bufferStartAddress) + " in " + file + ", cannot read an entity length."
+					);
+				}
+
 				currentItemLength = Binary.getEntityLengthRawValue(address);
 
 				if(currentItemLength > 0)
 				{
-					// handle actual entity
+					// must cover at least the entity header and not overrun the buffered data.
+					if(!Binary.isValidEntityLength(currentItemLength) || currentItemLength > remaining)
+					{
+						throw new StorageExceptionConsistency(
+							"Invalid entity length " + currentItemLength + " at offset "
+							+ (address - bufferStartAddress) + " in " + file + " (remaining " + remaining + ")."
+						);
+					}
 					entityOffsets[++lastEntityIndex] = (int)(address - bufferStartAddress);
 					address += currentItemLength;
 				}
@@ -213,6 +232,14 @@ public interface StorageEntityInitializer<D extends StorageLiveDataFile>
 					// negative-length entry: either a legacy opaque gap (skip) or a structured
 					// meta record (recognize, verify, dispatch). May throw on checksum mismatch.
 					// Returns the updated chunkStart for the next chunk.
+					// (< -remaining is the overflow-safe form of |length| > remaining.)
+					if(currentItemLength < -remaining)
+					{
+						throw new StorageExceptionConsistency(
+							"Invalid item length " + currentItemLength + " at offset "
+							+ (address - bufferStartAddress) + " in " + file + " (remaining " + remaining + ")."
+						);
+					}
 					chunkStart = metaRecordRegistry.dispatch(file, buffer, address, chunkStart);
 					address -= currentItemLength;
 				}
