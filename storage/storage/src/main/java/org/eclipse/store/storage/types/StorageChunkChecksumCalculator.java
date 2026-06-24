@@ -694,7 +694,7 @@ public interface StorageChunkChecksumCalculator
 
 		/**
 		 * @return whether this algorithm chains: each chunk's hash folds in the previous chunk's hash, so
-		 *         reorder / insert / delete / substitute of chunks is detectable. Non-chained kinds return
+		 *         reorder / insert / delete / substitute of chunks within a file is detectable. Non-chained kinds return
 		 *         {@code false} and ignore {@link #setChainTip(byte[])} / {@link #chainTip()}.
 		 */
 		public default boolean isChained()
@@ -866,9 +866,12 @@ public interface StorageChunkChecksumCalculator
 		 * Chained SHA-256 algorithm: cryptographic and tamper-evident like {@link Sha256}, but each chunk's
 		 * stored hash folds in the previous chunk's hash &mdash; {@code tip_i = SHA-256(tip_{i-1} || chunk_i)},
 		 * seeded by the file's {@code FileHeaderV1.chainRoot} ({@code tip_0}). Altering any chunk invalidates
-		 * that chunk and every chunk after it, so reordering, insertion, deletion or substitution of chunks is
-		 * detectable &mdash; not just bit-rot of a single chunk. Emits {@code ChunkChecksumChainedV1} records
-		 * (44 B; same envelope+hash layout as {@code ChunkChecksumV1}, distinguished purely by KIND).
+		 * that chunk and every chunk after it in the same file, so reordering, insertion, deletion or
+		 * substitution of chunks <i>within a file</i> is detectable &mdash; not just bit-rot of a single chunk.
+		 * The chain is re-seeded per file from that file's own header, so it does not span files: deleting or
+		 * reordering whole data files (as housekeeping legitimately does) is not detected by the chain. Emits
+		 * {@code ChunkChecksumChainedV1} records (44 B; same envelope+hash layout as {@code ChunkChecksumV1},
+		 * distinguished purely by KIND).
 		 * <p>
 		 * <b>Chaining is SHA-256 only.</b> A chained CRC32C is forgeable (CRC is linear and not
 		 * collision-resistant), so it would provide no tamper-evidence while adding nothing for accidental
