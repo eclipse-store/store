@@ -1,6 +1,6 @@
 = Lucene Index
 
-The Lucene index adds full-text search capabilities to entities stored in a GigaMap. Like the xref:indexing/bitmap/index.adoc[Bitmap] and xref:indexing/jvector/index.adoc[JVector] indices, it is registered with the GigaMap and automatically kept in sync as entities are added, updated, or removed.
+The Lucene index adds full-text search capabilities to entities stored in a GigaMap. Like the xref:indexing/bitmap/index.adoc[Bitmap] and xref:indexing/jvector/index.adoc[JVector] indices, it is registered with the GigaMap and automatically kept in sync as entities are added, updated, or removed. When it is registered on a GigaMap that already contains entities, those existing entities are indexed immediately (back-filled), so the index can be added at any time — whether before or after the data is loaded.
 
 Under the hood, the index uses https://lucene.apache.org[Apache Lucene], the de facto industry standard for full-text indexing in the Java ecosystem. This enables powerful text search features including tokenization, stemming, relevance scoring, and the full Lucene query syntax.
 
@@ -97,6 +97,8 @@ LuceneIndex<Article> luceneIndex = articles.index().register(LuceneIndex.Categor
 articles.add(new Article("Python Guide", "Learn Python programming...", "Jane"));
 articles.add(new Article("Java Tips", "Best practices for Java...", "John"));
 ----
+
+NOTE: Registration order does not matter. If the GigaMap already holds entities when the index is registered, they are back-filled into the new index, so a subsequent `query` finds them just like entities added afterwards. On a very large GigaMap this back-fill iterates all entities once, which can take a while; registering the index before bulk-loading avoids that initial scan.
 
 Query using the Lucene query syntax.
 

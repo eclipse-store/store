@@ -339,12 +339,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 				synchronized(this.gigaMap)
 				{
 					this.lazyInit();
-				
-					final Document document = new Document();
-					document.add(new LongField(ENTITY_ID_FIELD, entityId, Store.YES));
-					this.context.documentPopulator().populate(document, entity);
-					
-					this.writer.addDocument(document);
+
+					this.writer.addDocument(this.toDocument(entityId, entity));
                     this.optCommit();
 				}
 			}
@@ -368,10 +364,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 					
 					for(final E entity : entities)
 					{
-						final Document document = new Document();
-						document.add(new LongField(ENTITY_ID_FIELD, currentEntityId++, Store.YES));
-						this.context.documentPopulator().populate(document, entity);
-						documents.add(document);
+						documents.add(this.toDocument(currentEntityId++, entity));
 					}
 					
 					this.writer.addDocuments(documents);
@@ -427,7 +420,57 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 				throw new IORuntimeException(e);
 			}
 		}
-		
+
+		@Override
+		public void internalOnRegistered()
+		{
+			// the GigaMap may already hold entities at the moment this index is registered; index them
+			// now so a full-text search sees pre-existing entities, not only those added afterwards.
+			// Documents are added incrementally (no per-entity commit, no buffering of the whole corpus)
+			// and committed once at the end via optCommit, which also honors the manual-commit contract
+			// (context.autoCommit() == false defers visibility to the user's explicit commit()).
+			try
+			{
+				synchronized(this.gigaMap)
+				{
+					this.lazyInit();
+
+					this.gigaMap.iterateIndexed(this::backfillDocument);
+
+					if(!this.gigaMap.isEmpty())
+					{
+						this.optCommit();
+					}
+				}
+			}
+			catch(final IOException e)
+			{
+				throw new IORuntimeException(e);
+			}
+		}
+
+		private void backfillDocument(final long entityId, final E entity)
+		{
+			// uses the GigaMap-assigned entityId (not a contiguous counter) so ENTITY_ID_FIELD stays the
+			// authoritative id that queryFor(entityId) relies on for later update/remove.
+			try
+			{
+				this.writer.addDocument(this.toDocument(entityId, entity));
+			}
+			catch(final IOException e)
+			{
+				throw new IORuntimeException(e);
+			}
+		}
+
+		private Document toDocument(final long entityId, final E entity)
+		{
+			final Document document = new Document();
+			document.add(new LongField(ENTITY_ID_FIELD, entityId, Store.YES));
+			this.context.documentPopulator().populate(document, entity);
+			return document;
+		}
+
 		@Override
 		public void internalPrepareIndicesUpdate(final E replacedEntity)
 		{
@@ -453,11 +496,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 				synchronized(this.gigaMap)
 				{
 					this.lazyInit();
-					
-					final Document document = new Document();
-					document.add(new LongField(ENTITY_ID_FIELD, entityId, Store.YES));
-					this.context.documentPopulator().populate(document, entity);
-					this.writer.updateDocuments(queryFor(entityId), List.of(document));
+
+					this.writer.updateDocuments(queryFor(entityId), List.of(this.toDocument(entityId, entity)));
                     this.optCommit();
 				}
 			}

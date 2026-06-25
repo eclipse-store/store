@@ -50,4 +50,6 @@ List<Article> hits = index.query("title:eclipse");
 
 By default the Lucene data is stored inside the GigaMap object graph. To store it in a directory instead, create the handler with a directory: `LuceneAnnotationHandler.New(path)` or `LuceneAnnotationHandler.New(directoryCreator)`.
 
+Like a manually registered Lucene index, an annotation-generated one is back-filled: if `generateIndices` runs on a GigaMap that already contains entities, those existing entities are indexed immediately, so generation can happen before or after the data is loaded.
+
 The handler is a no-op when the entity type carries no `@FullText` member, so it composes safely with bitmap (`@Index`) and other annotations on the same entity. See xref:indexing/annotations.adoc[Annotation-based Indexing] for the overall model.

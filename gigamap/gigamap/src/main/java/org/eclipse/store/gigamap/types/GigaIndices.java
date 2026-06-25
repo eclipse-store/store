@@ -419,6 +419,11 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 				this.indexGroups.add(indexGroup);
 				this.markStateChangeInstance();
 
+				// let the freshly added group back-fill itself from entities that already exist in the
+				// map (no-op for most groups; only reached for a newly-added group, see the early return
+				// above). Not invoked on deserialization, which reconstructs groups via their handlers.
+				indexGroup.internalOnRegistered();
+
 				return category.indexType().cast(indexGroup);
 			}
 		}
