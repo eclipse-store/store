@@ -219,9 +219,17 @@ public class StorageConverter
 		}
 		else
 		{
-			this.copyTypeDictionary();
-			this.convertStorage();
-			this.close();
+			try
+			{
+				this.copyTypeDictionary();
+				this.convertStorage();
+			}
+			finally
+			{
+				// always release the target's off-heap buffers (per-channel chunk buffers + header/record
+				// buffers) even if conversion throws partway; StorageConverterTarget.close() is exception-safe.
+				this.close();
+			}
 		}
 	}
 
@@ -247,8 +255,21 @@ public class StorageConverter
 		BinaryConverter converter = this.binaryConverterSelector.get(tid);
 		if(converter!=null)
 		{
-			ByteBuffer converted = converter.convert(this.bufferIn);
-			this.target.transferBytes(converted, oid);
+			final ByteBuffer converted = converter.convert(this.bufferIn);
+			try
+			{
+				this.target.transferBytes(converted, oid);
+			}
+			finally
+			{
+				// the converter hands ownership of a fresh direct buffer and transferBytes only copies it,
+				// so free it now instead of leaving each per-entity buffer to the Cleaner. Guard against a
+				// converter that returns bufferIn unchanged (that one is owned/freed by processFile).
+				if(converted != this.bufferIn)
+				{
+					XMemory.deallocateDirectByteBuffer(converted);
+				}
+			}
 		}
 		else
 		{
