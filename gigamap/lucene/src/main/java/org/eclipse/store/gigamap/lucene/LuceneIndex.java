@@ -427,8 +427,10 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			// the GigaMap may already hold entities at the moment this index is registered; index them
 			// now so a full-text search sees pre-existing entities, not only those added afterwards.
 			// Documents are added incrementally (no per-entity commit, no buffering of the whole corpus)
-			// and committed once at the end via optCommit, which also honors the manual-commit contract
-			// (context.autoCommit() == false defers visibility to the user's explicit commit()).
+			// and committed once at the end via optCommit, which honors the manual-commit contract: with
+			// context.autoCommit() == false the back-fill performs no commit, leaving durability to the
+			// user's explicit commit() (the near-real-time reader still makes the documents queryable in
+			// the meantime, just like internalAdd).
 			try
 			{
 				synchronized(this.gigaMap)

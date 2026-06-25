@@ -22,10 +22,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Verifies that registering a {@link LuceneIndex} on a {@link GigaMap} that already contains
@@ -167,6 +168,39 @@ public class LuceneBackfillTest
 			// an explicit commit must work and keep the data visible
 			assertDoesNotThrow(luceneIndex::commit);
 			assertEquals(2, luceneIndex.query("content:eclipse").size());
+		}
+	}
+
+	// ── failed back-fill rolls back the registration ────────────────────────────
+
+	@Test
+	void failedBackfillRollsBackRegistration()
+	{
+		final GigaMap<Article> gigaMap = GigaMap.New();
+		gigaMap.add(new Article("Title_1", "eclipse store"));
+
+		// a populator that fails during back-fill of the pre-existing entity
+		final LuceneContext<Article> failing = LuceneContext.New(
+			DirectoryCreator.ByteBuffers(),
+			new DocumentPopulator<Article>()
+			{
+				@Override
+				public void populate(final Document document, final Article entity)
+				{
+					throw new IllegalStateException("boom");
+				}
+			});
+
+		assertThrows(IllegalStateException.class,
+			() -> gigaMap.index().register(LuceneIndex.Category(failing)));
+
+		assertNull(gigaMap.index().get(LuceneIndex.class),
+			"A back-fill failure must roll back the index-group registration");
+
+		// the map remains usable: a subsequent successful registration back-fills normally
+		try(final LuceneIndex<Article> luceneIndex = gigaMap.index().register(LuceneIndex.Category(standardContext())))
+		{
+			assertEquals(1, luceneIndex.query("content:eclipse").size());
 		}
 	}
 
