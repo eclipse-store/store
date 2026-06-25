@@ -265,61 +265,72 @@ public class StorageConverter
 		
 		try
 		{
-			storageDataInventoryFile.readBytes(this.bufferIn);
+			try
+			{
+				storageDataInventoryFile.readBytes(this.bufferIn);
+			}
+			finally
+			{
+				storageDataInventoryFile.close();
+			}
+
+			final long bufferStartAddress = XMemory.getDirectByteBufferAddress(this.bufferIn);
+			final long bufferBoundAddress = bufferStartAddress + this.bufferIn.limit();
+
+			if (this.sourceVerifying)
+			{
+				// verify the source's own chunk checksums before any entity is transferred, so a FAIL reaction
+				// aborts the conversion instead of copying corruption into the target.
+				this.verifyFile(storageDataInventoryFile, bufferStartAddress, bufferBoundAddress);
+			}
+
+			if (this.target == null)
+			{
+				// verify-only: the file has been verified above; nothing is registered or transferred.
+				return;
+			}
+
+			long currentItemLength;
+			long offset = 0;
+
+			for (long address = bufferStartAddress; address < bufferBoundAddress;)
+			{
+				currentItemLength = Binary.getEntityLengthRawValue(address);
+
+				if (currentItemLength > 0)
+				{
+					this.registerFileEntity(address, offset, currentItemLength);
+
+					address += currentItemLength;
+					offset += currentItemLength;
+				}
+				else if (currentItemLength < 0)
+				{
+					// comments (indicated by negative length) just get skipped.
+					// note that gap length gets registered for the file at the end arithmetically
+					address -= currentItemLength;
+					offset -= currentItemLength;
+				}
+				else
+				{
+					// entity length may never be 0 or the iteration will hang forever
+					throw new StorageExceptionConsistency("Zero length data item.");
+				}
+			}
+
+			this.transferRegisteredEntities();
+
+			logger.trace("Clearing current file entities.");
+			this.currentFileEntities.clear();
 		}
 		finally
 		{
-			storageDataInventoryFile.close();
+			// Release the per-file off-heap buffer in every exit path (the verify-only return included)
+			// instead of leaving it for the Cleaner, so a long run over many files does not accumulate
+			// direct buffers.
+			XMemory.deallocateDirectByteBuffer(this.bufferIn);
+			this.bufferIn = null;
 		}
-
-		final long bufferStartAddress = XMemory.getDirectByteBufferAddress(this.bufferIn);
-		final long bufferBoundAddress = bufferStartAddress + this.bufferIn.limit();
-
-		if (this.sourceVerifying)
-		{
-			// verify the source's own chunk checksums before any entity is transferred, so a FAIL reaction
-			// aborts the conversion instead of copying corruption into the target.
-			this.verifyFile(storageDataInventoryFile, bufferStartAddress, bufferBoundAddress);
-		}
-
-		if (this.target == null)
-		{
-			// verify-only: the file has been verified above; nothing is registered or transferred.
-			return;
-		}
-
-		long currentItemLength;
-		long offset = 0;
-
-		for (long address = bufferStartAddress; address < bufferBoundAddress;)
-		{
-			currentItemLength = Binary.getEntityLengthRawValue(address);
-
-			if (currentItemLength > 0)
-			{
-				this.registerFileEntity(address, offset, currentItemLength);
-
-				address += currentItemLength;
-				offset += currentItemLength;
-			}
-			else if (currentItemLength < 0)
-			{
-				// comments (indicated by negative length) just get skipped.
-				// note that gap length gets registered for the file at the end arithmetically
-				address -= currentItemLength;
-				offset -= currentItemLength;
-			}
-			else
-			{
-				// entity length may never be 0 or the iteration will hang forever
-				throw new StorageExceptionConsistency("Zero length data item.");
-			}
-		}
-
-		this.transferRegisteredEntities();
-
-		logger.trace("Clearing current file entities.");
-		this.currentFileEntities.clear();
 	}
 
 	/**
