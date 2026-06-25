@@ -22,7 +22,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
-import test.eclipse.store.library.TypeEnum;
+import test.eclipse.serializer.fixtures.TypeEnum;
 
 public class BinaryHandlerTest {
 

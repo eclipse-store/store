@@ -99,6 +99,12 @@
             <version>${eclipse.serializer.version}</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.eclipse.serializer</groupId>
+            <artifactId>test-fixtures</artifactId>
+            <version>${eclipse.serializer.version}</version>
+            <scope>test</scope>
+        </dependency>
 
         <!-- Test libraries -->
         <dependency>

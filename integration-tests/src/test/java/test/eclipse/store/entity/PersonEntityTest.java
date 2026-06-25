@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import java.util.HashSet;
 import java.util.Set;
 
-import test.eclipse.store.library.types.BinaryHandlerTestData;
+import test.eclipse.serializer.fixtures.types.BinaryHandlerTestData;
 
 
 public class PersonEntityTest extends AbstractHandlerTest<PersonEntityTest.DataRoot> {

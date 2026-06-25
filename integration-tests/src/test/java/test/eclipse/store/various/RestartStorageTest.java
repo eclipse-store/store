@@ -19,7 +19,7 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.eclipse.store.storage.types.StorageEntityCache;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import test.eclipse.store.library.TypeRegister;
+import test.eclipse.serializer.fixtures.TypeRegister;
 
 import java.nio.file.Path;
 

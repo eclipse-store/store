@@ -24,9 +24,9 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import test.eclipse.store.library.TypeRegister;
-import test.eclipse.store.library.types.LazyData;
-import test.eclipse.store.library.types.PrimitiveTypes;
+import test.eclipse.serializer.fixtures.TypeRegister;
+import test.eclipse.serializer.fixtures.types.LazyData;
+import test.eclipse.serializer.fixtures.types.PrimitiveTypes;
 
 import java.nio.file.Path;
 import java.util.HashMap;

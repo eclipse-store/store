@@ -38,7 +38,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import test.eclipse.store.library.TypeRegister;
+import test.eclipse.serializer.fixtures.TypeRegister;
 
 public class ReadOnlyTest
 {

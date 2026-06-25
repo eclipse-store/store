@@ -33,7 +33,7 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import test.eclipse.store.library.types.PrimitiveTypes;
+import test.eclipse.serializer.fixtures.types.PrimitiveTypes;
 
 public class HashMapSmokeTest {
 

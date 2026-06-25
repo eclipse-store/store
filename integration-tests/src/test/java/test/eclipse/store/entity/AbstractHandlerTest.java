@@ -39,7 +39,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import test.eclipse.store.library.types.BinaryHandlerTestData;
+import test.eclipse.serializer.fixtures.types.BinaryHandlerTestData;
 
 public abstract class AbstractHandlerTest<T extends BinaryHandlerTestData> {
 
