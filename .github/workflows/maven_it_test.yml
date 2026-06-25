@@ -26,6 +26,10 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
         cache: 'maven'
+    - name: Align serializer version to matching branch snapshot
+      uses: ./.github/actions/align-serializer-version
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Build reactor dependencies (no tests)
       run: mvn -T 1C -P IT -B clean install -DskipTests -pl integration-tests -am --no-transfer-progress --file pom.xml -U -Dmaven.javadoc.skip=true -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
     - name: Run integration tests
