@@ -262,11 +262,29 @@ public interface StorageObjectRestorer
                     ? writeRawBlob(storageFile, blob)
                     : writeCheckedBlob(storageFile, blob, algorithm);
 
+                // The Store log length is an int. If the file is too large to log, roll it back and abort
+                // before writing any log entry, so no Create entry or unlogged file is left behind.
+                final int storeLength;
+                try
+                {
+                    storeLength = Math.toIntExact(contentLength);
+                }
+                catch(final ArithmeticException e)
+                {
+                    logger.warn(
+                        "Recovery file content length {} for channel {} exceeds the int transaction-log length "
+                        + "field; rolling back the recovery file and aborting the append.",
+                        contentLength, channelIndex, e
+                    );
+                    rollbackRecoveryFile(storageFile);
+                    return false;
+                }
+
                 try
                 {
                     final long fileTimeStamp = getLastTimeStamp(storageFileProvider) + 1;
                     writeTransactionLogCreate(channelIndex, lastFileNumber, fileTimeStamp);
-                    writeTransactionLogStore(channelIndex, fileTimeStamp, Math.toIntExact(contentLength));
+                    writeTransactionLogStore(channelIndex, fileTimeStamp, storeLength);
 
                     //write other channels transaction log zero store
                     for(int channel = 0; channel < channelCount; channel++)
@@ -496,6 +514,28 @@ public interface StorageObjectRestorer
             catch(final Throwable suppressed)
             {
                 logger.warn("Failed to delete the partially-written recovery file {} during rollback", path, suppressed);
+            }
+        }
+
+        /**
+         * Deletes a written-but-unlogged recovery file to restore the pre-write state. Best-effort: a deletion
+         * failure is logged, not rethrown.
+         */
+        private static void rollbackRecoveryFile(final AFile storageFile)
+        {
+            final AWritableFile wFile = storageFile.useWriting();
+            try
+            {
+                final boolean deleted = wFile.delete();
+                logger.warn("Rolled back recovery file {} (deleted={}).", wFile.toPathString(), deleted);
+            }
+            catch(final Throwable suppressed)
+            {
+                logger.warn("Failed to delete the recovery file {} during rollback", wFile.toPathString(), suppressed);
+            }
+            finally
+            {
+                wFile.release();
             }
         }
 

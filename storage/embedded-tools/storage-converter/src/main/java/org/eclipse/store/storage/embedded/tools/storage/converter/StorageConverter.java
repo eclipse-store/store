@@ -226,8 +226,7 @@ public class StorageConverter
 			}
 			finally
 			{
-				// always release the target's off-heap buffers (per-channel chunk buffers + header/record
-				// buffers) even if conversion throws partway; StorageConverterTarget.close() is exception-safe.
+				// release the target's buffers even if conversion throws.
 				this.close();
 			}
 		}
@@ -262,9 +261,7 @@ public class StorageConverter
 			}
 			finally
 			{
-				// the converter hands ownership of a fresh direct buffer and transferBytes only copies it,
-				// so free it now instead of leaving each per-entity buffer to the Cleaner. Guard against a
-				// converter that returns bufferIn unchanged (that one is owned/freed by processFile).
+				// free the converter's fresh buffer; skip bufferIn (freed by processFile).
 				if(converted != this.bufferIn)
 				{
 					XMemory.deallocateDirectByteBuffer(converted);
@@ -346,9 +343,7 @@ public class StorageConverter
 		}
 		finally
 		{
-			// Release the per-file off-heap buffer in every exit path (the verify-only return included)
-			// instead of leaving it for the Cleaner, so a long run over many files does not accumulate
-			// direct buffers.
+			// release the per-file buffer on every exit path (verify-only return included).
 			XMemory.deallocateDirectByteBuffer(this.bufferIn);
 			this.bufferIn = null;
 		}
