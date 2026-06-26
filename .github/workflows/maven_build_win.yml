@@ -22,9 +22,5 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
         cache: 'maven'
-    - name: Align serializer version to matching branch snapshot
-      uses: ./.github/actions/align-serializer-version
-      with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Build with Maven
       run: mvn  -T 1C -P examples -B clean package --file pom.xml -U
