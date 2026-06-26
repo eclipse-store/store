@@ -241,7 +241,10 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
      * finalizes recent additions, updates, or deletions of indexed entities.
      * <p>
      * Note: If {@link LuceneContext#autoCommit()} returns {@code true}, which is the default,
-     * this method doesn't need to be invoked explicitly.
+     * this method doesn't need to be invoked explicitly. When {@code autoCommit()} is
+     * {@code false}, pending changes are also committed automatically at each
+     * {@code GigaMap.store()} boundary, so an explicit call is only needed to commit between
+     * stores.
      */
     public void commit();
 	
@@ -833,6 +836,38 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
             }
 
 			this.markStateChangeChildren();
+        }
+
+        /**
+         * Couples the Lucene commit to the {@link GigaMap} store boundary when
+         * {@link LuceneContext#autoCommit()} is {@code false}: invoked by
+         * {@link BinaryHandlerLuceneIndexDefault#store} right before the index is serialized,
+         * it flushes and commits any pending writer changes so the persisted state reflects all
+         * mutations up to this {@code store()} exactly. For a graph directory this populates the
+         * {@link Default#fileEntries} map before it is read for serialization; for an external
+         * directory it syncs the on-disk index at the store boundary.
+         * <p>
+         * No-op when {@code autoCommit()} is {@code true} (the eager commits already ran), when
+         * the writer has not been initialized yet, or when there are no uncommitted changes.
+         */
+        void internalCommitOnStore()
+        {
+            synchronized(this.gigaMap)
+            {
+                if(!this.context.autoCommit()
+                    && this.writer != null
+                    && this.writer.hasUncommittedChanges())
+                {
+                    try
+                    {
+                        this.internalCommit();
+                    }
+                    catch(final IOException e)
+                    {
+                        throw new IORuntimeException(e);
+                    }
+                }
+            }
         }
 
         private void internalCommit() throws IOException
