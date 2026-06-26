@@ -390,6 +390,12 @@
             </modules>
         </profile>
         <profile>
+            <id>IT</id>
+            <modules>
+                <module>integration-tests</module>
+            </modules>
+        </profile>
+        <profile>
             <id>deploy</id>
             <build>
                 <plugins>

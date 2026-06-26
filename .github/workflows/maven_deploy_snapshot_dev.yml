@@ -24,26 +24,13 @@ jobs:
           server-id: ossrh
           server-username: MAVEN_USERNAME
           server-password: MAVEN_PASSWORD
-      - name: Prepare suffix
-        run: |
-          suffix=$(echo -n "${GITHUB_REF#refs/heads/}" | tr '/' '_' | cut -c1-10)-$(echo -n "${GITHUB_REF#refs/heads/}" | md5sum | cut -c1-10)
-          echo "Suffix: $suffix"
-          echo "SUFFIX=$suffix" >> $GITHUB_ENV
+      - name: Align serializer version
+        id: align
+        uses: ./.github/actions/align-serializer-version
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Update project version
-        run: |
-          currentVersion=$(mvn -q -Dexec.executable=echo -Dexec.args='${project.version}' --non-recursive exec:exec)
-          currentVersionWithoutSnapshot=${currentVersion%-SNAPSHOT}
-          newVersion="${currentVersionWithoutSnapshot}-$SUFFIX-SNAPSHOT"
-          mvn versions:set -DnewVersion=$newVersion --batch-mode
-          BRANCH_NAME=${{ github.ref }}
-          REPO_OWNER="eclipse-serializer"
-          REPO_NAME="serializer"
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/branches/$BRANCH_NAME)
-          if [ $RESPONSE -eq 200 ]; then
-            mvn versions:set-property -Dproperty=eclipse.serializer.version -DnewVersion=$newVersion
-          else
-            echo "Branch does not exist in serializer repository, skipping serializer version change"          
-          fi
+        run: mvn versions:set -DnewVersion=${{ steps.align.outputs.version }} --batch-mode
       - name: Make a snapshot
         run: mvn  -T 1C -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy -U -Dmaven.javadoc.skip=true -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
         env:
