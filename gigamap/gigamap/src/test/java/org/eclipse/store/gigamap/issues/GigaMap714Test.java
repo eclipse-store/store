@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -92,19 +93,25 @@ public class GigaMap714Test
 
 		try(final EmbeddedStorageManager manager = EmbeddedStorage.start(map, dir))
 		{
-			// initial graph is persisted by start(); now mutate an indexed field directly (index goes stale),
-			// rebuild from current state and store the rebuilt index.
+			// initial graph is persisted by start(); now mutate an indexed field directly (index goes stale).
+			// A direct mutation is not tracked by GigaMap, so the entity must be stored explicitly; reindex()
+			// then rebuilds the index structures, which gigaMap.store() persists.
 			alice.setName("Carol");
+			manager.store(alice);
 			map.reindex();
 			map.store();
 		}
 
-		// reopen and confirm the rebuilt index was persisted
+		// reopen and confirm the rebuilt index AND the entity state were persisted consistently
 		try(final EmbeddedStorageManager manager = EmbeddedStorage.start(dir))
 		{
 			final GigaMap<Customer> root = manager.root();
 			assertEquals(0, root.query(nameIndexer.is("Alice")).count(), "stale key must not survive a reload");
-			assertEquals(1, root.query(nameIndexer.is("Carol")).count(), "rebuilt key must be persisted");
+
+			final List<Customer> carol = root.query(nameIndexer.is("Carol")).toList();
+			assertEquals(1, carol.size(), "rebuilt key must be persisted");
+			assertEquals("Carol", carol.get(0).getName(), "entity state and index must be consistent after reload");
+
 			assertEquals(1, root.query(nameIndexer.is("Bob")).count());
 		}
 	}

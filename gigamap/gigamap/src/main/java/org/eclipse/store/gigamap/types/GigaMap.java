@@ -69,10 +69,13 @@ import static org.eclipse.serializer.util.X.notNull;
  * indexed field must go through this collection's mutating methods ({@link #add(Object) add},
  * {@link #remove(Object) remove}, {@link #set(long, Object) set}, {@link #replace(Object, Object) replace},
  * {@link #update(long, Consumer) update}, {@link #apply(long, Function) apply}); only these re-run the
- * indexers. Mutating an entity's indexed field <em>directly</em> and then calling {@link #store()} persists
- * the entity but leaves the indices stale - for bitmap indices this yields wrong query results, for Lucene
- * indices it fails silently. To bring a single entity back in sync use {@link #update(long, Consumer)} /
- * {@link #apply(long, Function)}; to rebuild every index from the current entity state use {@link #reindex()}.
+ * indexers. Mutating an entity's indexed field <em>directly</em> leaves the indices stale - for bitmap indices
+ * this yields wrong query results, for Lucene indices it fails silently. A subsequent {@link #store()} does
+ * not fix this: it neither updates the indices nor implicitly persists the direct mutation (only entities
+ * mutated through {@code update} / {@code apply} are scheduled for storing; a directly mutated entity must be
+ * stored explicitly, as usual). To bring a single entity back in sync use {@link #update(long, Consumer)} /
+ * {@link #apply(long, Function)} (which also schedule the entity for storing); to rebuild every index from the
+ * current entity state use {@link #reindex()}.
  *
  * @param <E> the type of entities in this collection
  */
@@ -461,22 +464,24 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * Rebuilds all registered indices (bitmap, Lucene, vector, ...) from the current state of the
 	 * entities contained in this map.
 	 * <p>
-	 * GigaMap has no automatic change tracking. An entity whose indexed fields are mutated <em>directly</em>
+	 * GigaMap has no automatic change tracking. When an entity's indexed fields are mutated <em>directly</em>
 	 * (i.e. not through {@link #update(long, Consumer) update} / {@link #apply(long, Function) apply} /
-	 * {@link #set(long, Object) set} / {@link #replace(Object, Object) replace}) is persisted by
-	 * {@link #store()}, but its index entries are <b>not</b> updated and therefore become stale. For bitmap
-	 * indices this typically surfaces as wrong query results; for Lucene indices it fails silently. This
-	 * method is the recovery path for such situations, and is also useful after a bulk import that bypassed
-	 * per-entity indexing.
+	 * {@link #set(long, Object) set} / {@link #replace(Object, Object) replace}), its index entries are
+	 * <b>not</b> updated and therefore become stale. For bitmap indices this typically surfaces as wrong query
+	 * results; for Lucene indices it fails silently. This method is the recovery path for such situations, and
+	 * is also useful after a bulk operation that bypassed per-entity indexing.
 	 * <p>
 	 * The rebuild drops each index' data and re-indexes every entity from its current state; a per-entity
 	 * update replay would be insufficient because the previous index key of a directly mutated entity is no
 	 * longer available.
 	 * <p>
-	 * Persistence follows the usual rules: call {@link #store()} afterwards to persist the rebuilt bitmap and
-	 * embedded (graph) Lucene/vector indices. An external-directory Lucene index is committed during the
-	 * rebuild according to its Lucene configuration (the {@code LuceneContext.autoCommit} setting). On a very
-	 * large map this can be an expensive operation, as it iterates all entities once per index group.
+	 * This rebuilds only the index structures; it does <b>not</b> store the entities themselves. A directly
+	 * mutated entity must still be persisted explicitly (mutating via {@code update} / {@code apply} does this
+	 * for you), otherwise a reload would restore the old entity state behind the rebuilt index. Call
+	 * {@link #store()} afterwards to persist the rebuilt bitmap and embedded (graph) Lucene/vector indices. An
+	 * external-directory Lucene index is committed during the rebuild when its {@code LuceneContext.autoCommit}
+	 * is {@code true} (the default), otherwise at the next {@link #store()} boundary. On a very large map this
+	 * can be an expensive operation, as it iterates all entities once per index group.
 	 *
 	 * @see #update(long, Consumer)
 	 * @see #apply(long, Function)
@@ -773,10 +778,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * Entities mutated through the {@link #update} or {@link #apply} methods are automatically included in the
 	 * store operation. However, changes made to entities directly (outside of these methods) are NOT stored
 	 * implicitly since it is not possible to automatically track changes made to objects outside the framework.
-	 * Such a direct mutation also leaves the indices stale: storing the entity does not re-run the indexers, so
-	 * bitmap queries return wrong results and Lucene searches fail silently. Mutate indexed entities via
-	 * {@link #update(long, Consumer)} / {@link #apply(long, Function)}, or call {@link #reindex()} to rebuild
-	 * the indices from the current entity state before storing.
+	 * Such a direct mutation also leaves the indices stale, and this store does not re-run the indexers: bitmap
+	 * queries then return wrong results and Lucene searches fail silently. Mutate indexed entities via
+	 * {@link #update(long, Consumer)} / {@link #apply(long, Function)} (which update the indices and schedule
+	 * the entity for storing), or - if a mutation already bypassed them - store the affected entities yourself
+	 * and call {@link #reindex()} to rebuild the indices from the current entity state before storing.
 	 * <p>
 	 * <b>Note on concurrency:</b><br>
 	 * Using this method guarantees concurrency safety since it locks the {@link GigaMap} instance internally.<br>

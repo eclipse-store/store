@@ -347,21 +347,21 @@ Map<String, Long> categoryCounts = products.query(Query.all())
 
 === Reindexing
 
-GigaMap has no automatic change tracking. The Lucene index is only updated when an entity is added, removed, or mutated through `update` / `apply`. If an indexed field is changed *directly* and the entity is then stored, the document is never re-populated, so searches silently return stale results.
+GigaMap has no automatic change tracking. The Lucene index is only updated when an entity is added, removed, or mutated through `update` / `apply`. If an indexed field is changed *directly*, the document is never re-populated, so searches silently return stale results — and a subsequent `gigaMap.store()` neither fixes the index nor persists the direct change.
 
-To recover, mutate the entity through the entityId-based `update` / `apply` (single entity), or rebuild the whole index from the current entity state with `reindex()`:
+The preferred fix is to mutate the entity through the entityId-based `update` / `apply` (single entity), which re-indexes it and schedules it for storing. To repair an index that has already drifted, store the affected entities explicitly and rebuild the whole index from the current entity state with `reindex()`:
 
 [source, java]
 ----
 // stale: title was changed directly, not via update()
 article.setTitle("New Title");
-gigaMap.store();           // entity persisted, Lucene index NOT updated
+storageManager.store(article);  // persist the changed entity explicitly (not tracked by GigaMap)
 
-gigaMap.reindex();         // rebuild all indices from current entity state
-gigaMap.store();           // persist (embedded index); external index already committed
+gigaMap.reindex();              // rebuild all indices from current entity state
+gigaMap.store();                // persist the rebuilt indices
 ----
 
-`reindex()` drops the existing documents and re-populates them via the configured `DocumentPopulator`, committing once at the end (honoring `autoCommit`). It is also useful after a bulk import that added entities without indexing them. On a very large map this iterates all entities, so prefer `update` / `apply` for routine single-entity changes.
+`reindex()` drops the existing documents and re-populates them via the configured `DocumentPopulator`, committing once at the end (honoring `autoCommit`: with an external directory and `autoCommit=false` the commit is deferred to the next `gigaMap.store()` boundary). It rebuilds only the index structures — it does not store the entities — so ensure the entities themselves are persisted as shown above. On a very large map this iterates all entities, so prefer `update` / `apply` for routine single-entity changes.
 
 === Closing and Re-opening
 
