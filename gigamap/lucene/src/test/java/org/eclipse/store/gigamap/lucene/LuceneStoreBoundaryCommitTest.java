@@ -132,16 +132,14 @@ public class LuceneStoreBoundaryCommitTest
 		// map. With autoCommit=false the writer must be flushed into that map at store() time,
 		// otherwise store() would persist an empty/stale index (the bug fixed by #715).
 		final GigaMap<Article> map = GigaMap.New();
-		final LuceneIndex<Article> idx = map.index().register(LuceneIndex.Category(
+		try(final LuceneIndex<Article> idx = map.index().register(LuceneIndex.Category(
 			LuceneContext.New(null, AnalyzerCreator.Standard(), new ArticlePopulator(), false)));
-
-		try(final EmbeddedStorageManager sm = EmbeddedStorage.start(map, this.storagePath))
+			final EmbeddedStorageManager sm = EmbeddedStorage.start(map, this.storagePath))
 		{
 			map.add(new Article("eclipse", "graph directory"));
 			map.add(new Article("store", "boundary"));
 			map.store();
 		}
-		idx.close();
 
 		LuceneIndex<Article> idx2 = null;
 		try(final EmbeddedStorageManager sm = EmbeddedStorage.start(this.storagePath))
