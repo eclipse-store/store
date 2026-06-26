@@ -78,7 +78,23 @@ public interface IndexGroup<E> extends GigaMap.Component<E>
 		 * Removes all entities from this index.
 		 */
 		public void internalRemoveAll();
-		
+
+		/**
+		 * Lifecycle hook invoked by {@link GigaIndices.Default#register(IndexCategory)} immediately
+		 * after this group has been added, while holding the parent-map lock, to let the group
+		 * synchronize itself with entities that already exist in the map at registration time
+		 * (back-fill). It is <b>not</b> called on deserialization, so a group that back-fills here
+		 * will not re-index everything on restart.
+		 * <p>
+		 * The default is a no-op. Groups that are registered while the map is still empty (e.g. the
+		 * bitmap group at build time) or that back-fill their individual indices when those are added
+		 * (e.g. the vector group) do not override it.
+		 */
+		public default void internalOnRegistered()
+		{
+			// no-op
+		}
+
 		public void clearStateChangeMarkers();
 	}
 	

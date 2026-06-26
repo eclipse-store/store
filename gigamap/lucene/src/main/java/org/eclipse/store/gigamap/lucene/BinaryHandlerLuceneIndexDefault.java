@@ -77,6 +77,24 @@ public class BinaryHandlerLuceneIndexDefault extends AbstractBinaryHandlerStateC
     ////////////
 
     @Override
+    public void store(
+        final Binary                          data    ,
+        final LuceneIndex.Default<?>          instance,
+        final long                            objectId,
+        final PersistenceStoreHandler<Binary> handler
+    )
+    {
+        // Couple the Lucene commit to the GigaMap store boundary (no-op unless autoCommit is
+        // disabled). Must run BEFORE super.store(): super.store calls internalStore (which stores
+        // the fileEntries reference) and then storeChildren (which stores the map contents). For a
+        // graph directory the writer may not have flushed yet, so committing here ensures
+        // fileEntries is populated before either reads it.
+        instance.internalCommitOnStore();
+
+        super.store(data, instance, objectId, handler);
+    }
+
+    @Override
     protected void internalStore(
         final Binary                          data    ,
         final LuceneIndex.Default<?>          instance,
