@@ -9,27 +9,29 @@ package test.eclipse.store.legacy.cross;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import org.junit.jupiter.api.Test;
-
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.junit.jupiter.api.Test;
+
 import test.eclipse.store.legacy.legacy.cross.data.IntLegacy;
 import test.eclipse.store.legacy.legacy.cross.data.IntLegacy2;
 
-class CrossIntLegacyTest extends AbstractLegacyTest {
+class CrossIntLegacyTest extends AbstractLegacyTest
+{
 
     private String oldClass = classPackage + ".IntLegacy";
     private String newClass = classPackage + ".IntLegacy2";
 
     @Test
-    void crossIntLegacyTest() {
+    void crossIntLegacyTest()
+    {
 
         IntLegacy intLegacy = IntLegacy.fillSample();
 

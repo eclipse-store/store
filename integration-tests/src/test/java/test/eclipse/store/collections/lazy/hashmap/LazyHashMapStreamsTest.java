@@ -9,10 +9,17 @@ package test.eclipse.store.collections.lazy.hashmap;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+
+import java.nio.file.Path;
+import java.util.Map.Entry;
+import java.util.stream.Stream;
 
 import org.eclipse.serializer.collections.lazy.LazyCollection;
 import org.eclipse.serializer.collections.lazy.LazyHashMap;
@@ -21,17 +28,12 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.nio.file.Path;
-import java.util.Map.Entry;
-import java.util.stream.Stream;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-
-public class LazyHashMapStreamsTest {
+public class LazyHashMapStreamsTest
+{
 
     @Test
-    void readValueStreamAndCloseTest(@TempDir final Path path) {
+    void readValueStreamAndCloseTest(@TempDir final Path path)
+    {
         final LazyHashMap<String, String> map = createMap(6, 100);
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(map, path)) {
@@ -55,7 +57,8 @@ public class LazyHashMapStreamsTest {
     }
 
     @Test
-    void readValueParallelStreamAndCloseTest(@TempDir final Path path) {
+    void readValueParallelStreamAndCloseTest(@TempDir final Path path)
+    {
         final LazyHashMap<String, String> map = createMap(6, 100);
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(map, path)) {
@@ -79,7 +82,8 @@ public class LazyHashMapStreamsTest {
     }
 
     @Test
-    void readKeyStreamAndCloseTest(@TempDir final Path path) {
+    void readKeyStreamAndCloseTest(@TempDir final Path path)
+    {
         final LazyHashMap<String, String> map = createMap(6, 100);
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(map, path)) {
@@ -102,7 +106,8 @@ public class LazyHashMapStreamsTest {
     }
 
     @Test
-    void readKeyParallelStreamAndCloseTest(@TempDir final Path path) {
+    void readKeyParallelStreamAndCloseTest(@TempDir final Path path)
+    {
         final LazyHashMap<String, String> map = createMap(6, 100);
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(map, path)) {
@@ -124,7 +129,8 @@ public class LazyHashMapStreamsTest {
     }
 
     @Test
-    void readEntryStreamAndCloseTest(@TempDir final Path path) {
+    void readEntryStreamAndCloseTest(@TempDir final Path path)
+    {
         final LazyHashMap<String, String> map = createMap(6, 100);
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(map, path)) {
@@ -149,7 +155,8 @@ public class LazyHashMapStreamsTest {
     }
 
     @Test
-    void readEntryParallelStreamAndCloseTest(@TempDir final Path path) {
+    void readEntryParallelStreamAndCloseTest(@TempDir final Path path)
+    {
         final LazyHashMap<String, String> map = createMap(6, 100);
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(map, path)) {
@@ -177,7 +184,8 @@ public class LazyHashMapStreamsTest {
         }
     }
 
-    private LazyHashMap<String, String> createMap(int maxSegmentSize, int count) {
+    private LazyHashMap<String, String> createMap(int maxSegmentSize, int count)
+    {
         final LazyHashMap<String, String> map = new LazyHashMap<>(maxSegmentSize);
 
         for (int i = 0; i < count; i++) {

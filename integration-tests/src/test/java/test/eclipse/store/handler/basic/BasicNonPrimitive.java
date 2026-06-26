@@ -9,14 +9,15 @@ package test.eclipse.store.handler.basic;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
 import test.eclipse.store.handler.BinaryHandlerTestData;
 
-public class BasicNonPrimitive implements BinaryHandlerTestData {
+public class BasicNonPrimitive implements BinaryHandlerTestData
+{
     private static final Byte SAMPLE_BYTE = 100;
     private static final Short SAMPLE_SHORT = 50;
     private static final Integer SAMPLE_INT = 5401;
@@ -38,7 +39,8 @@ public class BasicNonPrimitive implements BinaryHandlerTestData {
     private String stringValue;
 
     @Override
-    public void fillSampleData() {
+    public void fillSampleData()
+    {
         byteValue = SAMPLE_BYTE;
         shortValue = SAMPLE_SHORT;
         intValue = SAMPLE_INT;
@@ -50,39 +52,48 @@ public class BasicNonPrimitive implements BinaryHandlerTestData {
         stringValue = SAMPLE_STRING;
     }
 
-    public Byte getByteValue() {
+    public Byte getByteValue()
+    {
         return byteValue;
     }
 
-    public Short getShortValue() {
+    public Short getShortValue()
+    {
         return shortValue;
     }
 
-    public Integer getIntValue() {
+    public Integer getIntValue()
+    {
         return intValue;
     }
 
-    public Long getLongValue() {
+    public Long getLongValue()
+    {
         return longValue;
     }
 
-    public Float getFloatValue() {
+    public Float getFloatValue()
+    {
         return floatValue;
     }
 
-    public Double getDoubleValue() {
+    public Double getDoubleValue()
+    {
         return doubleValue;
     }
 
-    public Boolean getBooleanValue() {
+    public Boolean getBooleanValue()
+    {
         return booleanValue;
     }
 
-    public Character getCharacterValue() {
+    public Character getCharacterValue()
+    {
         return characterValue;
     }
 
-    public String getStringValue() {
+    public String getStringValue()
+    {
         return stringValue;
     }
 

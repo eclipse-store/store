@@ -9,7 +9,7 @@ package test.eclipse.store.legacy.enumeration;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -41,13 +41,11 @@ public class EnumBehindLazyTest
     {
         Root root = new Root(Lazy.Reference(EnumerationOrig.FIRST));
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(root, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(root, tempDir)) {
             sm.storeRoot();
         }
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir)) {
             Root loaded = (Root) sm.root();
             assertNotNull(loaded.lazy);
             assertEquals(EnumerationOrig.FIRST, loaded.lazy.get());
@@ -59,13 +57,11 @@ public class EnumBehindLazyTest
     {
         Root root = new Root(Lazy.Reference(EnumerationOrig.SECOND));
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(root, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(root, tempDir)) {
             sm.storeRoot();
         }
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir)) {
             Root loaded = (Root) sm.root();
             assertNotNull(loaded.lazy);
             assertEquals(EnumerationOrig.SECOND, loaded.lazy.get());
@@ -81,13 +77,11 @@ public class EnumBehindLazyTest
     {
         Root root = new Root(Lazy.Reference(null));
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(root, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(root, tempDir)) {
             sm.storeRoot();
         }
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir)) {
             Root loaded = (Root) sm.root();
             assertNotNull(loaded.lazy);
             assertNull(loaded.lazy.get());
@@ -103,8 +97,7 @@ public class EnumBehindLazyTest
     {
         Root root = new Root(Lazy.Reference(EnumerationOrig.FIRST));
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(root, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(root, tempDir)) {
             sm.storeRoot();
             // Clear the Lazy reference so that the value must be fetched from disk.
             root.lazy.clear();
@@ -121,21 +114,18 @@ public class EnumBehindLazyTest
     {
         Root root = new Root(Lazy.Reference(EnumerationOrig.FIRST));
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(root, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(root, tempDir)) {
             sm.storeRoot();
         }
 
         // Change to SECOND, re-store, then verify reload.
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir)) {
             Root loaded = (Root) sm.root();
             loaded.lazy = Lazy.Reference(EnumerationOrig.SECOND);
             sm.store(loaded);
         }
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir)) {
             Root loaded = (Root) sm.root();
             assertEquals(EnumerationOrig.SECOND, loaded.lazy.get());
         }
@@ -149,19 +139,17 @@ public class EnumBehindLazyTest
     void lazyEnum_two_lazy_refs_survive_roundtrip(@TempDir Path tempDir)
     {
         TwoLazyRoot root = new TwoLazyRoot(
-            Lazy.Reference(EnumerationOrig.FIRST),
-            Lazy.Reference(EnumerationOrig.SECOND)
+                Lazy.Reference(EnumerationOrig.FIRST),
+                Lazy.Reference(EnumerationOrig.SECOND)
         );
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(root, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(root, tempDir)) {
             sm.storeRoot();
         }
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir)) {
             TwoLazyRoot loaded = (TwoLazyRoot) sm.root();
-            assertEquals(EnumerationOrig.FIRST,  loaded.first.get());
+            assertEquals(EnumerationOrig.FIRST, loaded.first.get());
             assertEquals(EnumerationOrig.SECOND, loaded.second.get());
         }
     }
@@ -176,13 +164,11 @@ public class EnumBehindLazyTest
         Wrapper wrapper = new Wrapper(EnumerationOrig.FIRST);
         WrapperRoot root = new WrapperRoot(Lazy.Reference(wrapper));
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(root, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(root, tempDir)) {
             sm.storeRoot();
         }
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir)) {
             WrapperRoot loaded = (WrapperRoot) sm.root();
             assertNotNull(loaded.lazy);
             Wrapper w = loaded.lazy.get();
@@ -198,21 +184,18 @@ public class EnumBehindLazyTest
         Wrapper w2 = new Wrapper(EnumerationOrig.SECOND);
         WrapperRoot root = new WrapperRoot(Lazy.Reference(w1));
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(root, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(root, tempDir)) {
             sm.storeRoot();
         }
 
         // Overwrite with SECOND and re-persist
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir)) {
             WrapperRoot loaded = (WrapperRoot) sm.root();
             loaded.lazy = Lazy.Reference(w2);
             sm.store(loaded);
         }
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir)) {
             WrapperRoot loaded = (WrapperRoot) sm.root();
             assertEquals(EnumerationOrig.SECOND, loaded.lazy.get().value);
         }
@@ -227,19 +210,17 @@ public class EnumBehindLazyTest
     {
         Root root = new Root(Lazy.Reference(EnumerationOrig.SECOND));
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(root, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(root, tempDir)) {
             sm.storeRoot();
         }
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(tempDir)) {
             Root loaded = (Root) sm.root();
             EnumerationOrig reloaded = loaded.lazy.get();
-            assertEquals(EnumerationOrig.SECOND.name(),    reloaded.name());
+            assertEquals(EnumerationOrig.SECOND.name(), reloaded.name());
             assertEquals(EnumerationOrig.SECOND.ordinal(), reloaded.ordinal());
-            assertEquals(EnumerationOrig.SECOND.getName(),      reloaded.getName());
-            assertEquals(EnumerationOrig.SECOND.getValue(),     reloaded.getValue());
+            assertEquals(EnumerationOrig.SECOND.getName(), reloaded.getName());
+            assertEquals(EnumerationOrig.SECOND.getValue(), reloaded.getValue());
             assertEquals(EnumerationOrig.SECOND.getSecondValue(), reloaded.getSecondValue());
         }
     }
@@ -265,7 +246,7 @@ public class EnumBehindLazyTest
 
         TwoLazyRoot(Lazy<EnumerationOrig> first, Lazy<EnumerationOrig> second)
         {
-            this.first  = first;
+            this.first = first;
             this.second = second;
         }
     }

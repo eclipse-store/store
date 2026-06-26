@@ -9,10 +9,12 @@ package test.eclipse.store.configuration.exception;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -23,15 +25,15 @@ import org.eclipse.store.storage.embedded.configuration.types.EmbeddedStorageCon
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import static org.junit.jupiter.api.Assertions.assertThrows;
-
-class InvalidStorageConfigurationExceptionTest {
+class InvalidStorageConfigurationExceptionTest
+{
 
     @TempDir
     Path location;
 
     @Test
-    void invalidStorageConfigurationException() throws IOException, InterruptedException {
+    void invalidStorageConfigurationException() throws IOException, InterruptedException
+    {
 
         final Path configFilePath = this.location.resolve("deleteDirectory.xml");
         final Path deleteLocation = this.location.resolve("deleted");
@@ -49,13 +51,14 @@ class InvalidStorageConfigurationExceptionTest {
 
         assertThrows(ConfigurationException.class, () -> {
             EmbeddedStorageConfiguration.load(configFilePath.toString())
-    			.createEmbeddedStorageFoundation();
+                    .createEmbeddedStorageFoundation();
         });
 
     }
 
     @Test
-    void maxStorageSizeExceedException() throws IOException, InterruptedException {
+    void maxStorageSizeExceedException() throws IOException, InterruptedException
+    {
 
         final Path configFilePath = this.location.resolve("deleteDirectory.xml");
         final Path deleteLocation = this.location.resolve("deleted");
@@ -70,15 +73,16 @@ class InvalidStorageConfigurationExceptionTest {
         builder.append("</properties>");
 
         FileUtils.writeStringToFile(configFilePath.toFile(), builder.toString(), "UTF-8");
-        
+
         assertThrows(ConfigurationException.class, () -> {
             EmbeddedStorageConfiguration.load(configFilePath.toString())
-				.createEmbeddedStorageFoundation();
+                    .createEmbeddedStorageFoundation();
         });
     }
 
     @Test
-    void channelCountBadNumberTest() throws IOException {
+    void channelCountBadNumberTest() throws IOException
+    {
         final Path configFilePath = this.location.resolve("channelCount.xml");
 
         final String xmlConfig =
@@ -88,15 +92,13 @@ class InvalidStorageConfigurationExceptionTest {
                         "</properties>";
 
         FileUtils.writeStringToFile(configFilePath.toFile(), xmlConfig, "UTF-8");
-        
+
         assertThrows(ConfigurationException.class, () -> {
             EmbeddedStorageConfiguration.load(configFilePath.toString())
-            	.createEmbeddedStorageFoundation();
+                    .createEmbeddedStorageFoundation();
         });
 
     }
-
-
 
 
 }

@@ -9,7 +9,7 @@ package test.eclipse.store.conversion;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -32,7 +32,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 import net.datafaker.Faker;
 
-public class ConversionTest {
+public class ConversionTest
+{
 
     @TempDir
     Path src;
@@ -43,7 +44,8 @@ public class ConversionTest {
     final private Faker faker = new Faker();
 
     @Test
-    public void conversionTest() {
+    public void conversionTest()
+    {
 
         List<String> dataSrc = new ArrayList<>();
         List<String> dataDst = new ArrayList<>();
@@ -81,7 +83,8 @@ public class ConversionTest {
     }
 
     @Test
-    public void conversionMainTest(@TempDir Path configFolder) throws IOException {
+    public void conversionMainTest(@TempDir Path configFolder) throws IOException
+    {
 
         List<String> dataSrc = new ArrayList<>();
         List<String> dataDst = new ArrayList<>();

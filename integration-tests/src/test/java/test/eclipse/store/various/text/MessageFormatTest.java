@@ -9,7 +9,7 @@ package test.eclipse.store.various.text;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -36,7 +36,7 @@ public class MessageFormatTest
     void messageFormatAsFieldInDataClass()
     {
         MessageFormat mf = new MessageFormat("Hello {0}");
-        Object[] params = new Object[]{ "World" };
+        Object[] params = new Object[]{"World"};
 
         MessageData root = new MessageData(mf);
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(root, tempDir)) {
@@ -53,7 +53,7 @@ public class MessageFormatTest
     void messageFormatWithMultipleParameters()
     {
         MessageFormat mf = new MessageFormat("User {0} has {1} messages and {2} notifications");
-        Object[] params = new Object[]{ "Alice", 5, 3 };
+        Object[] params = new Object[]{"Alice", 5, 3};
 
         MessageData root = new MessageData(mf);
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(root, tempDir)) {
@@ -71,7 +71,7 @@ public class MessageFormatTest
     void messageFormatWithNumberFormat()
     {
         MessageFormat mf = new MessageFormat("The price is {0,number,currency}", Locale.US);
-        Object[] params = new Object[]{ 123.45 };
+        Object[] params = new Object[]{123.45};
 
         MessageData root = new MessageData(mf);
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(root, tempDir)) {
@@ -89,7 +89,7 @@ public class MessageFormatTest
     void messageFormatWithDateFormat()
     {
         MessageFormat mf = new MessageFormat("Today is {0,date,long}", Locale.US);
-        Object[] params = new Object[]{ new Date(1610000000000L) };
+        Object[] params = new Object[]{new Date(1610000000000L)};
 
         MessageData root = new MessageData(mf);
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(root, tempDir)) {
@@ -106,9 +106,9 @@ public class MessageFormatTest
     void messageFormatWithChoiceFormat()
     {
         MessageFormat mf = new MessageFormat("There {0,choice,0#are no files|1#is one file|1<are {0,number,integer} files}");
-        Object[] params0 = new Object[]{ 0 };
-        Object[] params1 = new Object[]{ 1 };
-        Object[] params5 = new Object[]{ 5 };
+        Object[] params0 = new Object[]{0};
+        Object[] params1 = new Object[]{1};
+        Object[] params5 = new Object[]{5};
 
         MessageData root = new MessageData(mf);
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(root, tempDir)) {
@@ -144,7 +144,7 @@ public class MessageFormatTest
     void messageFormatWithSpecialCharacters()
     {
         MessageFormat mf = new MessageFormat("Symbol: {0} and emoji: {1}");
-        Object[] params = new Object[]{ "€£¥", "😀" };
+        Object[] params = new Object[]{"€£¥", "😀"};
 
         MessageData root = new MessageData(mf);
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(root, tempDir)) {
@@ -161,7 +161,7 @@ public class MessageFormatTest
     void messageFormatWithQuotedBraces()
     {
         MessageFormat mf = new MessageFormat("Value in '{braces}': {0}");
-        Object[] params = new Object[]{ "test" };
+        Object[] params = new Object[]{"test"};
 
         MessageData root = new MessageData(mf);
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(root, tempDir)) {
@@ -180,7 +180,7 @@ public class MessageFormatTest
     {
         MessageFormat mfUS = new MessageFormat("Number: {0,number}", Locale.US);
         MessageFormat mfFR = new MessageFormat("Nombre: {0,number}", Locale.FRANCE);
-        Object[] params = new Object[]{ 1234.56 };
+        Object[] params = new Object[]{1234.56};
 
         MessageData root1 = new MessageData(mfUS);
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(root1, tempDir.resolve("us"))) {
@@ -208,7 +208,7 @@ public class MessageFormatTest
     {
         String pattern = "This is a very long message pattern with parameter {0} ".repeat(10);
         MessageFormat mf = new MessageFormat(pattern);
-        Object[] params = new Object[]{ "TEST" };
+        Object[] params = new Object[]{"TEST"};
 
         MessageData root = new MessageData(mf);
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(root, tempDir)) {

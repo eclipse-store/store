@@ -9,7 +9,7 @@ package test.eclipse.store.deepcopy;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -30,7 +30,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 
-public class DeepCopyTest {
+public class DeepCopyTest
+{
 
     EmbeddedStorageManager storageManager;
 
@@ -38,7 +39,8 @@ public class DeepCopyTest {
     Path tempDir;
 
     @Test
-    public void deepCopyTest() {
+    public void deepCopyTest()
+    {
 
         List<DeepPerson> children = new ArrayList<>();
 
@@ -65,7 +67,8 @@ public class DeepCopyTest {
     }
 
     @Test
-    public void deepCopyWithNullParentsTest() {
+    public void deepCopyWithNullParentsTest()
+    {
         List<DeepPerson> people = new ArrayList<>();
 
         // Person with null parents
@@ -84,7 +87,8 @@ public class DeepCopyTest {
     }
 
     @Test
-    public void deepCopyCircularReferenceTest() {
+    public void deepCopyCircularReferenceTest()
+    {
         List<DeepPerson> people = new ArrayList<>();
 
         DeepPerson person1 = new DeepPerson("Person1", "First", 180, true);
@@ -108,7 +112,8 @@ public class DeepCopyTest {
     }
 
     @Test
-    public void deepCopyEmptyPersonTest() {
+    public void deepCopyEmptyPersonTest()
+    {
         List<DeepPerson> people = new ArrayList<>();
 
         DeepPerson emptyPerson = new DeepPerson(null, null, null, null);
@@ -127,7 +132,8 @@ public class DeepCopyTest {
     }
 
     @Test
-    public void deepCopyComplexFamilyTreeTest() {
+    public void deepCopyComplexFamilyTreeTest()
+    {
         List<DeepPerson> family = new ArrayList<>();
 
         // Grandparents
@@ -158,11 +164,12 @@ public class DeepCopyTest {
         // Verify structure is preserved
         assertEquals(child1.getFather().getFirstName(), child1Copy.getFather().getFirstName());
         assertEquals(child1.getFather().getFather().getFirstName(),
-                     child1Copy.getFather().getFather().getFirstName());
+                child1Copy.getFather().getFather().getFirstName());
     }
 
     @Test
-    public void deepCopyModifyMultipleLevelsTest() {
+    public void deepCopyModifyMultipleLevelsTest()
+    {
         List<DeepPerson> people = new ArrayList<>();
 
         DeepPerson grandpa = new DeepPerson("OldName", "Grandfather", 170, true);
@@ -193,7 +200,8 @@ public class DeepCopyTest {
     }
 
     @Test
-    public void deepCopyListOfPeopleTest() {
+    public void deepCopyListOfPeopleTest()
+    {
         List<DeepPerson> originalList = new ArrayList<>();
 
         originalList.add(new DeepPerson("Person1", "First", 180, true));
@@ -222,7 +230,8 @@ public class DeepCopyTest {
     }
 
     @Test
-    public void deepCopyWithAllPrimitiveTypesTest() {
+    public void deepCopyWithAllPrimitiveTypesTest()
+    {
         List<ComplexData> dataList = new ArrayList<>();
 
         ComplexData data = new ComplexData();
@@ -263,7 +272,8 @@ public class DeepCopyTest {
     }
 
     @Test
-    public void deepCopyWithCollectionsTest() {
+    public void deepCopyWithCollectionsTest()
+    {
         List<PersonWithCollections> people = new ArrayList<>();
 
         PersonWithCollections person = new PersonWithCollections("John", "Doe");
@@ -301,14 +311,15 @@ public class DeepCopyTest {
     }
 
     @Test
-    public void deepCopyArrayTest() {
+    public void deepCopyArrayTest()
+    {
         List<DataWithArray> dataList = new ArrayList<>();
 
         DataWithArray data = new DataWithArray();
         data.numbers = new int[]{1, 2, 3, 4, 5};
         data.people = new DeepPerson[]{
-            new DeepPerson("Array1", "Person1", 180, true),
-            new DeepPerson("Array2", "Person2", 170, false)
+                new DeepPerson("Array1", "Person1", 180, true),
+                new DeepPerson("Array2", "Person2", 170, false)
         };
 
         dataList.add(data);
@@ -339,7 +350,8 @@ public class DeepCopyTest {
     }
 
     @Test
-    public void deepCopySamePersonMultipleReferencesTest() {
+    public void deepCopySamePersonMultipleReferencesTest()
+    {
         List<DeepPerson> people = new ArrayList<>();
 
         DeepPerson sharedParent = new DeepPerson("Shared", "Parent", 180, true);
@@ -367,14 +379,16 @@ public class DeepCopyTest {
     }
 
     @AfterEach
-    public void afterTest() {
+    public void afterTest()
+    {
         if (storageManager != null) {
             storageManager.shutdown();
         }
     }
 
 
-    static class DeepPerson {
+    static class DeepPerson
+    {
         private String SecondName;
         private String FirstName;
         private Integer high;
@@ -383,14 +397,16 @@ public class DeepCopyTest {
         private DeepPerson mather;
 
 
-        public DeepPerson(String secondName, String firstName, Integer high, Boolean man) {
+        public DeepPerson(String secondName, String firstName, Integer high, Boolean man)
+        {
             SecondName = secondName;
             FirstName = firstName;
             this.high = high;
             this.man = man;
         }
 
-        public DeepPerson(String secondName, String firstName, Integer high, Boolean man, DeepPerson father, DeepPerson mather) {
+        public DeepPerson(String secondName, String firstName, Integer high, Boolean man, DeepPerson father, DeepPerson mather)
+        {
             SecondName = secondName;
             FirstName = firstName;
             this.high = high;
@@ -399,56 +415,69 @@ public class DeepCopyTest {
             this.mather = mather;
         }
 
-        public String getSecondName() {
+        public String getSecondName()
+        {
             return SecondName;
         }
 
-        public void setSecondName(String secondName) {
+        public void setSecondName(String secondName)
+        {
             SecondName = secondName;
         }
 
-        public String getFirstName() {
+        public String getFirstName()
+        {
             return FirstName;
         }
 
-        public void setFirstName(String firstName) {
+        public void setFirstName(String firstName)
+        {
             FirstName = firstName;
         }
 
-        public Integer getHigh() {
+        public Integer getHigh()
+        {
             return high;
         }
 
-        public void setHigh(Integer high) {
+        public void setHigh(Integer high)
+        {
             this.high = high;
         }
 
-        public Boolean getMan() {
+        public Boolean getMan()
+        {
             return man;
         }
 
-        public void setMan(Boolean man) {
+        public void setMan(Boolean man)
+        {
             this.man = man;
         }
 
-        public DeepPerson getFather() {
+        public DeepPerson getFather()
+        {
             return father;
         }
 
-        public void setFather(DeepPerson father) {
+        public void setFather(DeepPerson father)
+        {
             this.father = father;
         }
 
-        public DeepPerson getMather() {
+        public DeepPerson getMather()
+        {
             return mather;
         }
 
-        public void setMather(DeepPerson mather) {
+        public void setMather(DeepPerson mather)
+        {
             this.mather = mather;
         }
 
         @Override
-        public String toString() {
+        public String toString()
+        {
             return "DeepPerson{" +
                     "SecondName='" + SecondName + '\'' +
                     ", FirstName='" + FirstName + '\'' +
@@ -460,7 +489,8 @@ public class DeepCopyTest {
         }
     }
 
-    static class ComplexData {
+    static class ComplexData
+    {
         byte byteValue;
         short shortValue;
         int intValue;
@@ -472,14 +502,16 @@ public class DeepCopyTest {
         String stringValue;
     }
 
-    static class PersonWithCollections {
+    static class PersonWithCollections
+    {
         String firstName;
         String lastName;
         List<String> hobbies;
         Map<String, String> attributes;
         List<DeepPerson> friends;
 
-        public PersonWithCollections(String firstName, String lastName) {
+        public PersonWithCollections(String firstName, String lastName)
+        {
             this.firstName = firstName;
             this.lastName = lastName;
             this.hobbies = new ArrayList<>();
@@ -487,20 +519,24 @@ public class DeepCopyTest {
             this.friends = new ArrayList<>();
         }
 
-        public void addHobby(String hobby) {
+        public void addHobby(String hobby)
+        {
             hobbies.add(hobby);
         }
 
-        public void addAttribute(String key, String value) {
+        public void addAttribute(String key, String value)
+        {
             attributes.put(key, value);
         }
 
-        public void addFriend(DeepPerson friend) {
+        public void addFriend(DeepPerson friend)
+        {
             friends.add(friend);
         }
     }
 
-    static class DataWithArray {
+    static class DataWithArray
+    {
         int[] numbers;
         DeepPerson[] people;
     }

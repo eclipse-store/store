@@ -9,10 +9,12 @@ package test.eclipse.store.configuration;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
 import java.io.IOException;
@@ -28,24 +30,24 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-class DataFilePrefixTest {
+class DataFilePrefixTest
+{
 
     @TempDir
     Path location;
 
     @Test
-    void dataFilePrefixTest() throws IOException {
+    void dataFilePrefixTest() throws IOException
+    {
 
         final Customer customer = CustomerGenerator.generateNewCustomer();
 
         final EmbeddedStorageConfigurationBuilder configuration = EmbeddedStorageConfiguration.load(
-        	"configuration/dataFilePrefix.ini"
+                "configuration/dataFilePrefix.ini"
         );
 
         final EmbeddedStorageManager storageManager = configuration.setStorageDirectory(this.location.toString())
-        	.createEmbeddedStorageFoundation().createEmbeddedStorageManager(customer).start();
+                .createEmbeddedStorageFoundation().createEmbeddedStorageManager(customer).start();
 
         final List<File> files = (List<File>) FileUtils.listFiles(this.location.toFile(), null, true);
 
@@ -60,16 +62,17 @@ class DataFilePrefixTest {
     }
 
     @Test
-    void dataFilePrefixXmlTest() throws IOException {
+    void dataFilePrefixXmlTest() throws IOException
+    {
 
         final Customer customer = CustomerGenerator.generateNewCustomer();
 
         final EmbeddedStorageConfigurationBuilder configuration = EmbeddedStorageConfiguration.load(
-        	"configuration/dataFilePrefix.xml"
+                "configuration/dataFilePrefix.xml"
         );
 
         final EmbeddedStorageManager storageManager = configuration.setStorageDirectory(this.location.toString())
-        	.createEmbeddedStorageFoundation().createEmbeddedStorageManager(customer).start();
+                .createEmbeddedStorageFoundation().createEmbeddedStorageManager(customer).start();
 
         final List<File> files = (List<File>) FileUtils.listFiles(this.location.toFile(), null, true);
 
@@ -84,7 +87,8 @@ class DataFilePrefixTest {
     }
 
     @Test
-    void dataFilePrefixYmlTest() throws IOException {
+    void dataFilePrefixYmlTest() throws IOException
+    {
 
         final Customer customer = CustomerGenerator.generateNewCustomer();
 

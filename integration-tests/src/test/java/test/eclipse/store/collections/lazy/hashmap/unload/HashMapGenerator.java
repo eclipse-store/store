@@ -9,7 +9,7 @@ package test.eclipse.store.collections.lazy.hashmap.unload;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -19,16 +19,19 @@ import org.eclipse.serializer.collections.lazy.LazySegmentUnloader;
 
 import net.datafaker.Faker;
 
-public class HashMapGenerator {
+public class HashMapGenerator
+{
 
-    static Faker faker =  new Faker();
+    static Faker faker = new Faker();
 
-    public static LazyHashMap<Integer, MapPerson> generate(int count, LazySegmentUnloader unloader) {
+    public static LazyHashMap<Integer, MapPerson> generate(int count, LazySegmentUnloader unloader)
+    {
 
         return generate(count, unloader, 1000);
     }
 
-    public static LazyHashMap<Integer, MapPerson> generate(int count, LazySegmentUnloader unloader, int segmentSize) {
+    public static LazyHashMap<Integer, MapPerson> generate(int count, LazySegmentUnloader unloader, int segmentSize)
+    {
         LazyHashMap<Integer, MapPerson> persons = new LazyHashMap<>(segmentSize, unloader);
         for (int i = 0; i < count; i++) {
             MapPerson person = new MapPerson();

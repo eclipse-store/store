@@ -9,7 +9,7 @@ package test.eclipse.store.various;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -47,11 +47,13 @@ public class TooManyFilesOpen
     }
 
 
-    public static class Data {
+    public static class Data
+    {
         String name;
         Lazy<String> lazy;
 
-        public Data(final String name) {
+        public Data(final String name)
+        {
             super();
             this.name = name;
             this.lazy = Lazy.Reference("Lazy content " + name);

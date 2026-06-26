@@ -9,10 +9,16 @@ package test.eclipse.store.collections.lazy.hashmap;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import java.nio.file.Path;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.eclipse.serializer.collections.lazy.LazyHashMap;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
@@ -20,21 +26,14 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.nio.file.Path;
-import java.util.Objects;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-public class LazyHashMapPersistenceTest {
+public class LazyHashMapPersistenceTest
+{
 
 
     @SuppressWarnings("unchecked")
     @Test
-    void EmptyMap(@TempDir final Path path) {
+    void EmptyMap(@TempDir final Path path)
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>(3);
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(map, path)) {
         }
@@ -52,7 +51,8 @@ public class LazyHashMapPersistenceTest {
     }
 
     @Test
-    void testToString(@TempDir final Path path) {
+    void testToString(@TempDir final Path path)
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>(3);
         for (int i = 0; i < 10; i++) {
             map.put(i, "E" + i);
@@ -70,7 +70,8 @@ public class LazyHashMapPersistenceTest {
     }
 
     @Test
-    void testToStringEmpty(@TempDir final Path path) {
+    void testToStringEmpty(@TempDir final Path path)
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>(3);
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(map, path)) {
@@ -88,7 +89,8 @@ public class LazyHashMapPersistenceTest {
     }
 
     @Test
-    void isSegmentModifiedTest(@TempDir final Path path) {
+    void isSegmentModifiedTest(@TempDir final Path path)
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
         map.put(1, "ahoj");
 
@@ -118,7 +120,8 @@ public class LazyHashMapPersistenceTest {
     }
 
     @Test
-    void replaceTest(@TempDir final Path path) {
+    void replaceTest(@TempDir final Path path)
+    {
         LazyHashMap<String, MapEntry> map = new LazyHashMap<>(13);
         map.put("Key 1", new MapEntry("to be replaced"));
 
@@ -135,26 +138,31 @@ public class LazyHashMapPersistenceTest {
 
     }
 
-    static class MapEntry {
+    static class MapEntry
+    {
         String name;
 
-        public MapEntry(final String name) {
+        public MapEntry(final String name)
+        {
             super();
             this.name = name;
         }
 
         @Override
-        public String toString() {
+        public String toString()
+        {
             return "id: " + this.name;
         }
 
         @Override
-        public int hashCode() {
+        public int hashCode()
+        {
             return Objects.hash(this.name);
         }
 
         @Override
-        public boolean equals(final Object obj) {
+        public boolean equals(final Object obj)
+        {
             if (this == obj)
                 return true;
             if (obj == null)

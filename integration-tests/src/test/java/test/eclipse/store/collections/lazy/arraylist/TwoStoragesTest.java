@@ -9,7 +9,7 @@ package test.eclipse.store.collections.lazy.arraylist;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -31,7 +31,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 //@Disabled("Will not work beacuse auf Lazy.Default also does not support this")
-public class TwoStoragesTest {
+public class TwoStoragesTest
+{
 
     @TempDir
     Path location;
@@ -59,9 +60,9 @@ public class TwoStoragesTest {
     }
 
 
-
     @Test
-    public void removeTest(@TempDir final Path path) {
+    public void removeTest(@TempDir final Path path)
+    {
         LazyArrayList<String> list = new LazyArrayList<>();
 
         list.add("some text");
@@ -77,10 +78,12 @@ public class TwoStoragesTest {
     }
 
 
-    public static class MyRoot {
+    public static class MyRoot
+    {
         Lazy<String> lazy;
 
-        public MyRoot(final String content) {
+        public MyRoot(final String content)
+        {
             super();
             this.lazy = Lazy.Reference(content);
         }
@@ -88,7 +91,8 @@ public class TwoStoragesTest {
     }
 
     @Test
-    public void saveDefaultLazySecondTimeTest(@TempDir final Path secondLocation) {
+    public void saveDefaultLazySecondTimeTest(@TempDir final Path secondLocation)
+    {
         final MyRoot myRoot = new MyRoot("Hello World");
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(myRoot, this.location)) {
@@ -101,11 +105,13 @@ public class TwoStoragesTest {
 
     }
 
-    public static LazyArrayList<String> generateList(final Integer count) {
+    public static LazyArrayList<String> generateList(final Integer count)
+    {
         return generateList(count, 0);
     }
 
-    public static LazyArrayList<String> generateList(final Integer count, final int keyStart) {
+    public static LazyArrayList<String> generateList(final Integer count, final int keyStart)
+    {
 
         LazyArrayList<String> list = new LazyArrayList<>();
 

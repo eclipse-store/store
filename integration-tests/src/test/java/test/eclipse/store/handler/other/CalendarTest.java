@@ -9,7 +9,7 @@ package test.eclipse.store.handler.other;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -25,14 +25,17 @@ import java.util.TimeZone;
 import test.eclipse.store.handler.AbstractHandlerTest;
 import test.eclipse.store.handler.BinaryHandlerTestData;
 
-class CalendarTest extends AbstractHandlerTest<CalendarTest.CalendarData> {
+class CalendarTest extends AbstractHandlerTest<CalendarTest.CalendarData>
+{
 
-    CalendarTest() {
+    CalendarTest()
+    {
         super(CalendarData.class);
     }
 
     @Override
-    public void proveResult(CalendarData original, CalendarData copy) {
+    public void proveResult(CalendarData original, CalendarData copy)
+    {
         assertAll(
                 () -> assertEquals(original.getTimeZone(), copy.getTimeZone()),
                 () -> assertEquals(original.getCalendar(), copy.getCalendar()),
@@ -41,7 +44,7 @@ class CalendarTest extends AbstractHandlerTest<CalendarTest.CalendarData> {
                 () -> assertEquals(original.getInstant(), copy.getInstant()),
                 () -> assertEquals(original.getLocalDate(), copy.getLocalDate()),
                 () -> assertEquals(original.getLocalDateTime(), copy.getLocalDateTime()),
-                () -> assertEquals(original.getLocalTime() , copy.getLocalTime()),
+                () -> assertEquals(original.getLocalTime(), copy.getLocalTime()),
                 () -> assertEquals(original.getMonthDay(), copy.getMonthDay()),
                 () -> assertEquals(original.getOffsetDateTime(), copy.getOffsetDateTime()),
                 () -> assertEquals(original.getOffsetTime(), copy.getOffsetTime()),
@@ -56,7 +59,8 @@ class CalendarTest extends AbstractHandlerTest<CalendarTest.CalendarData> {
         );
     }
 
-    public static class CalendarData implements BinaryHandlerTestData {
+    public static class CalendarData implements BinaryHandlerTestData
+    {
 
         TimeZone timeZone = TimeZone.getDefault();
         Calendar calendar;
@@ -80,7 +84,8 @@ class CalendarTest extends AbstractHandlerTest<CalendarTest.CalendarData> {
         Month month;
 
         @Override
-        public void fillSampleData() {
+        public void fillSampleData()
+        {
             timeZone = TimeZone.getTimeZone("Europe/Copenhagen");
             calendar = new GregorianCalendar();
             clock = Clock.systemUTC();
@@ -102,79 +107,98 @@ class CalendarTest extends AbstractHandlerTest<CalendarTest.CalendarData> {
             month = Month.DECEMBER;
         }
 
-         TimeZone getTimeZone() {
+        TimeZone getTimeZone()
+        {
             return timeZone;
         }
 
-        Calendar getCalendar() {
+        Calendar getCalendar()
+        {
             return calendar;
         }
 
-         Clock getClock() {
+        Clock getClock()
+        {
             return clock;
         }
 
-         Duration getDuration() {
+        Duration getDuration()
+        {
             return duration;
         }
 
-         Instant getInstant() {
+        Instant getInstant()
+        {
             return instant;
         }
 
-         LocalDate getLocalDate() {
+        LocalDate getLocalDate()
+        {
             return localDate;
         }
 
-         LocalDateTime getLocalDateTime() {
+        LocalDateTime getLocalDateTime()
+        {
             return localDateTime;
         }
 
-         LocalTime getLocalTime() {
+        LocalTime getLocalTime()
+        {
             return localTime;
         }
 
-         MonthDay getMonthDay() {
+        MonthDay getMonthDay()
+        {
             return monthDay;
         }
 
-         OffsetDateTime getOffsetDateTime() {
+        OffsetDateTime getOffsetDateTime()
+        {
             return offsetDateTime;
         }
 
-         OffsetTime getOffsetTime() {
+        OffsetTime getOffsetTime()
+        {
             return offsetTime;
         }
 
-         Period getPeriod() {
+        Period getPeriod()
+        {
             return period;
         }
 
-         Year getYear() {
+        Year getYear()
+        {
             return year;
         }
 
-         YearMonth getYearMonth() {
+        YearMonth getYearMonth()
+        {
             return yearMonth;
         }
 
-         ZonedDateTime getZonedDateTime() {
+        ZonedDateTime getZonedDateTime()
+        {
             return zonedDateTime;
         }
 
-         ZoneId getZoneId() {
+        ZoneId getZoneId()
+        {
             return zoneId;
         }
 
-         ZoneOffset getZoneOffset() {
+        ZoneOffset getZoneOffset()
+        {
             return zoneOffset;
         }
 
-         DayOfWeek getDayOfWeek() {
+        DayOfWeek getDayOfWeek()
+        {
             return dayOfWeek;
         }
 
-         Month getMonth() {
+        Month getMonth()
+        {
             return month;
         }
 

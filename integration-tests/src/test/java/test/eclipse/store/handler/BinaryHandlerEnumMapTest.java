@@ -9,7 +9,7 @@ package test.eclipse.store.handler;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -21,38 +21,46 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 
 @Disabled
-class BinaryHandlerEnumMapTest extends AbstractHandlerTest<BinaryHandlerEnumMapTest.EnumMapData> {
+class BinaryHandlerEnumMapTest extends AbstractHandlerTest<BinaryHandlerEnumMapTest.EnumMapData>
+{
 
-    BinaryHandlerEnumMapTest() {
+    BinaryHandlerEnumMapTest()
+    {
         super(EnumMapData.class);
     }
 
     @Override
-    public void proveResult(EnumMapData original, EnumMapData copy) {
+    public void proveResult(EnumMapData original, EnumMapData copy)
+    {
         Assertions.assertEquals(original.getOriginal(), copy.getOriginal());
     }
 
 
-    static enum Tasks {
+    static enum Tasks
+    {
         WORK(10), HOBBY(20);
 
         private int value;
 
-        Tasks(int value) {
+        Tasks(int value)
+        {
             this.value = value;
         }
     }
 
-    static class EnumMapData implements BinaryHandlerTestData {
+    static class EnumMapData implements BinaryHandlerTestData
+    {
         Map<Tasks, String> original = new EnumMap<>(Tasks.class);
 
         @Override
-        public void fillSampleData() {
+        public void fillSampleData()
+        {
             original.put(Tasks.WORK, "work");
             original.put(Tasks.HOBBY, "hobby");
         }
 
-        public Map<Tasks, String> getOriginal() {
+        public Map<Tasks, String> getOriginal()
+        {
             return original;
         }
     }

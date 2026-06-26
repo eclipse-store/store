@@ -9,7 +9,7 @@ package test.eclipse.store.various.storer;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -38,9 +38,9 @@ import org.junit.jupiter.api.io.TempDir;
 @Disabled("only manual launch, takes to long")
 public class BatchStorerCloseUnderLoadTest
 {
-    private static final int      WRITER_THREADS         = 6;
-    private static final int      INITIAL_LIST_SIZE      = 500;
-    private static final Duration WARMUP                 = Duration.ofSeconds(10);
+    private static final int WRITER_THREADS = 6;
+    private static final int INITIAL_LIST_SIZE = 500;
+    private static final Duration WARMUP = Duration.ofSeconds(10);
     private static final Duration WRITER_RUN_AFTER_CLOSE = Duration.ofSeconds(5);
 
     @TempDir
@@ -49,36 +49,38 @@ public class BatchStorerCloseUnderLoadTest
     static class DataItem
     {
         final int id;
-        String    value;
-        int       revision;
+        String value;
+        int revision;
 
         DataItem(final int id, final String value)
         {
-            this.id       = id;
-            this.value    = value;
+            this.id = id;
+            this.value = value;
             this.revision = 0;
         }
 
-        void update(final String v) { this.value = v; this.revision++; }
+        void update(final String v)
+        {
+            this.value = v;
+            this.revision++;
+        }
     }
 
     @Test
     void closeUnderLoadTest() throws InterruptedException
     {
         final List<DataItem> data = new ArrayList<>();
-        for (int i = 0; i < INITIAL_LIST_SIZE; i++)
-        {
+        for (int i = 0; i < INITIAL_LIST_SIZE; i++) {
             data.add(new DataItem(i, "initial-" + i));
         }
 
-        final AtomicBoolean  stop            = new AtomicBoolean(false);
-        final CountDownLatch startLatch      = new CountDownLatch(1);
-        final AtomicLong     storeAfterClose = new AtomicLong(0);
+        final AtomicBoolean stop = new AtomicBoolean(false);
+        final CountDownLatch startLatch = new CountDownLatch(1);
+        final AtomicLong storeAfterClose = new AtomicLong(0);
 
         System.out.println("Starting close-under-load test (warmup " + WARMUP.toSeconds() + "s)...");
 
-        try (EmbeddedStorageManager storage = EmbeddedStorage.start(data, tempDir))
-        {
+        try (EmbeddedStorageManager storage = EmbeddedStorage.start(data, tempDir)) {
             storage.storeRoot();
 
             final BatchStorer storer = storage.createBatchStorer(
@@ -88,29 +90,27 @@ public class BatchStorerCloseUnderLoadTest
 
             final ExecutorService executor = Executors.newFixedThreadPool(WRITER_THREADS);
 
-            for (int t = 0; t < WRITER_THREADS; t++)
-            {
+            for (int t = 0; t < WRITER_THREADS; t++) {
                 final int idx = t;
                 executor.submit(() ->
                 {
-                    try { startLatch.await(); }
-                    catch (final InterruptedException e) { Thread.currentThread().interrupt(); return; }
+                    try {
+                        startLatch.await();
+                    } catch (final InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
 
                     int iteration = 0;
-                    while (!stop.get())
-                    {
-                        try
-                        {
-                            synchronized (data)
-                            {
+                    while (!stop.get()) {
+                        try {
+                            synchronized (data) {
                                 data.add(new DataItem(data.size(), "w" + idx + "-" + iteration));
                                 storer.store(data);
                             }
                             iteration++;
                             Thread.yield();
-                        }
-                        catch (final Exception e)
-                        {
+                        } catch (final Exception e) {
                             // After close() any exception from store() is acceptable.
                             storeAfterClose.incrementAndGet();
                         }
@@ -145,16 +145,13 @@ public class BatchStorerCloseUnderLoadTest
 
         System.out.println("Reloading storage from disk...");
 
-        try (EmbeddedStorageManager reloadStorage = EmbeddedStorage.start(tempDir))
-        {
-            @SuppressWarnings("unchecked")
-            final List<DataItem> reloaded = (List<DataItem>) reloadStorage.root();
+        try (EmbeddedStorageManager reloadStorage = EmbeddedStorage.start(tempDir)) {
+            @SuppressWarnings("unchecked") final List<DataItem> reloaded = (List<DataItem>) reloadStorage.root();
 
             assertFalse(reloaded.isEmpty(), "Reloaded list must not be empty");
 
             int nulls = 0;
-            for (int i = 0; i < reloaded.size(); i++)
-            {
+            for (int i = 0; i < reloaded.size(); i++) {
                 if (reloaded.get(i) == null) nulls++;
             }
             System.out.println("Reloaded size: " + reloaded.size() + " | null items: " + nulls);

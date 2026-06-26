@@ -9,10 +9,18 @@ package test.eclipse.store.collections.lazy.arraylist;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import java.lang.reflect.Field;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.eclipse.serializer.collections.lazy.LazyArrayList;
 import org.eclipse.serializer.collections.lazy.LazySegmentUnloader;
@@ -21,21 +29,13 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.lang.reflect.Field;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-public class LazyArrayListAutoUnloadTest {
+public class LazyArrayListAutoUnloadTest
+{
 
 
     @Test
-    void removedSegments(@TempDir final Path path) {
+    void removedSegments(@TempDir final Path path)
+    {
 
         LazyArrayList<String> list = new LazyArrayList<>(3, new LazySegmentUnloader.Default(1));
         for (int i = 0; i < 27; i++) {
@@ -70,7 +70,8 @@ public class LazyArrayListAutoUnloadTest {
 
 
     @Test
-    void devTest(@TempDir final Path path) {
+    void devTest(@TempDir final Path path)
+    {
 
         LazyArrayList<String> list = new LazyArrayList<>(5);
 
@@ -157,7 +158,8 @@ public class LazyArrayListAutoUnloadTest {
     }
 
 
-    static void unloadAll(LazyArrayList<?> list) {
+    static void unloadAll(LazyArrayList<?> list)
+    {
 
         final Iterable<? extends LazyArrayList<?>.Segment> segments = list.segments();
         segments.forEach(LazyArrayList.Segment::unloadSegment);
@@ -165,7 +167,8 @@ public class LazyArrayListAutoUnloadTest {
     }
 
 
-    void assertLoadedSegment(LazyArrayList<?> list) {
+    void assertLoadedSegment(LazyArrayList<?> list)
+    {
 
         int expected = 0;
 
@@ -188,11 +191,13 @@ public class LazyArrayListAutoUnloadTest {
         assertTrue(getLoadedSegments(list).size() <= expected);
     }
 
-    void assertNoLoadedSegment(LazyArrayList<?> list) {
+    void assertNoLoadedSegment(LazyArrayList<?> list)
+    {
         assertTrue(getLoadedSegments(list).size() == 0);
     }
 
-    static int countSegments(LazyArrayList<?> list) {
+    static int countSegments(LazyArrayList<?> list)
+    {
 
         final AtomicInteger count = new AtomicInteger();
 
@@ -202,7 +207,8 @@ public class LazyArrayListAutoUnloadTest {
         return count.get();
     }
 
-    static List<LazyArrayList<?>.Segment> getLoadedSegments(LazyArrayList<?> list) {
+    static List<LazyArrayList<?>.Segment> getLoadedSegments(LazyArrayList<?> list)
+    {
 
         final Iterable<? extends LazyArrayList<?>.Segment> segments = list.segments();
 
@@ -216,7 +222,8 @@ public class LazyArrayListAutoUnloadTest {
         return loadedSegments;
     }
 
-    static EmbeddedStorageManager startStorage(final Path path) {
+    static EmbeddedStorageManager startStorage(final Path path)
+    {
         final EmbeddedStorageManager storage = EmbeddedStorage
                 .Foundation(path)
                 .start();

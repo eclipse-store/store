@@ -9,7 +9,7 @@ package test.eclipse.store.various.collections;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -17,7 +17,8 @@ package test.eclipse.store.various.collections;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.nio.file.Path;
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
 
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
@@ -27,13 +28,13 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Round-trip tests for java.util.Map.of(...), Map.ofEntries(...) and Map.entry(...) (JDK 9).
- *
+ * <p>
  * Backing types observed on JDK 17:
- *   Map.of()              -> java.util.ImmutableCollections$MapN
- *   Map.of(k, v)          -> java.util.ImmutableCollections$Map1
- *   Map.of(k1,v1, k2,v2)  -> java.util.ImmutableCollections$MapN
- *   Map.entry(k, v)       -> java.util.KeyValueHolder
- *
+ * Map.of()              -> java.util.ImmutableCollections$MapN
+ * Map.of(k, v)          -> java.util.ImmutableCollections$Map1
+ * Map.of(k1,v1, k2,v2)  -> java.util.ImmutableCollections$MapN
+ * Map.entry(k, v)       -> java.util.KeyValueHolder
+ * <p>
  * Unlike List.of and Set.of, Eclipse Serializer ships **no** dedicated
  * handler for Map.of variants and **no** handler for KeyValueHolder.
  * These tests therefore intentionally exercise the generic / fallback path
@@ -104,11 +105,11 @@ public class MapOfTest
     void mapOfFiveEntriesTest()
     {
         stateDataField = Map.of(
-            "k1", "v1",
-            "k2", "v2",
-            "k3", "v3",
-            "k4", "v4",
-            "k5", "v5"
+                "k1", "v1",
+                "k2", "v2",
+                "k3", "v3",
+                "k4", "v4",
+                "k5", "v5"
         );
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(stateDataField, workDir)) {
@@ -130,16 +131,16 @@ public class MapOfTest
     {
         // Map.of has explicit overloads up to 10 entries.
         stateDataField = Map.of(
-            "k1", "v1",
-            "k2", "v2",
-            "k3", "v3",
-            "k4", "v4",
-            "k5", "v5",
-            "k6", "v6",
-            "k7", "v7",
-            "k8", "v8",
-            "k9", "v9",
-            "k10", "v10"
+                "k1", "v1",
+                "k2", "v2",
+                "k3", "v3",
+                "k4", "v4",
+                "k5", "v5",
+                "k6", "v6",
+                "k7", "v7",
+                "k8", "v8",
+                "k9", "v9",
+                "k10", "v10"
         );
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(stateDataField, workDir)) {
@@ -216,11 +217,11 @@ public class MapOfTest
     void mapOfWithIntegersTest()
     {
         Map<Integer, Integer> ints = Map.of(
-            1, 11,
-            2, 22,
-            3, 33,
-            -1, -11,
-            Integer.MIN_VALUE, Integer.MAX_VALUE
+                1, 11,
+                2, 22,
+                3, 33,
+                -1, -11,
+                Integer.MIN_VALUE, Integer.MAX_VALUE
         );
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(ints, workDir)) {
@@ -239,9 +240,9 @@ public class MapOfTest
     void mapOfNestedTest()
     {
         Map<String, Map<String, Integer>> nested = Map.of(
-            "a", Map.of("x", 1, "y", 2),
-            "b", Map.of("z", 3),
-            "c", Map.of()
+                "a", Map.of("x", 1, "y", 2),
+                "b", Map.of("z", 3),
+                "c", Map.of()
         );
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(nested, workDir)) {

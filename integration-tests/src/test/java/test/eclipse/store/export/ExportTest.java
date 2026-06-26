@@ -9,7 +9,7 @@ package test.eclipse.store.export;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -27,25 +27,21 @@ import org.eclipse.serializer.afs.types.ADirectory;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AReadableFile;
 import org.eclipse.store.afs.nio.types.NioFileSystem;
-import org.eclipse.store.storage.types.StorageDataConverterCsvConfiguration;
-import org.eclipse.store.storage.types.StorageDataConverterTypeBinaryToCsv;
-import org.eclipse.store.storage.types.StorageDataConverterTypeCsvToBinary;
-import org.eclipse.store.storage.types.StorageEntityTypeConversionFileProvider;
-import org.eclipse.store.storage.types.StorageEntityTypeExportFileProvider;
-import org.eclipse.store.storage.types.StorageEntityTypeExportStatistics;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.eclipse.store.storage.types.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
-import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
-
-class ExportTest {
+class ExportTest
+{
 
     @TempDir
     Path location;
 
     @Test
-    void exportToCSVTest() throws IOException {
+    void exportToCSVTest() throws IOException
+    {
         List<Customer> customers = new ArrayList<>();
         customers.add(CustomerGenerator.generateNewCustomer());
         customers.add(CustomerGenerator.generateNewCustomer());

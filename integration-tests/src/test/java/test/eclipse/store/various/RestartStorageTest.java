@@ -9,21 +9,23 @@ package test.eclipse.store.various;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import java.nio.file.Path;
 
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.eclipse.store.storage.types.StorageEntityCache;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+
 import test.eclipse.serializer.fixtures.TypeRegister;
 
-import java.nio.file.Path;
-
-public class RestartStorageTest {
+public class RestartStorageTest
+{
 
     @TempDir
     Path location;
@@ -33,7 +35,8 @@ public class RestartStorageTest {
     private EmbeddedStorageManager manager;
 
     @Test
-    public void restartTest() throws InterruptedException {
+    public void restartTest() throws InterruptedException
+    {
         StorageEntityCache.Default.setGarbageCollectionEnabled(true);
         TypeRegister register = new TypeRegister();
         register.fillSampleDate();

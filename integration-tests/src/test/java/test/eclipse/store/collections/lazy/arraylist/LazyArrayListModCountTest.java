@@ -9,10 +9,18 @@ package test.eclipse.store.collections.lazy.arraylist;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.lang.reflect.Field;
+import java.util.Iterator;
+import java.util.List;
+import java.util.ListIterator;
 
 import org.eclipse.serializer.collections.lazy.LazyArrayList;
 import org.eclipse.serializer.exceptions.IllegalAccessRuntimeException;
@@ -21,27 +29,22 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Field;
-import java.util.Iterator;
-import java.util.List;
-import java.util.ListIterator;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 
 @Disabled
-public class LazyArrayListModCountTest {
+public class LazyArrayListModCountTest
+{
 
     private static Field modCount;
 
     @BeforeAll
-    static void initTests() {
+    static void initTests()
+    {
         modCount = XReflect.setAccessible(LazyArrayList.class, XReflect.getAnyField(LazyArrayList.class, "modCount"));
     }
 
     @Test
-    void add() {
+    void add()
+    {
         final LazyArrayList<ListEntry> lal = LazyArrayListPersistenceTest.createLazyList(4, 0);
         final int initialModCount = getField_int(modCount, lal);
 
@@ -51,7 +54,8 @@ public class LazyArrayListModCountTest {
     }
 
     @Test
-    void addIndex() {
+    void addIndex()
+    {
         final LazyArrayList<ListEntry> lal = LazyArrayListPersistenceTest.createLazyList(4, 2);
         final int initialModCount = getField_int(modCount, lal);
 
@@ -61,7 +65,8 @@ public class LazyArrayListModCountTest {
     }
 
     @Test
-    void addAll() {
+    void addAll()
+    {
         final LazyArrayList<ListEntry> lal = LazyArrayListPersistenceTest.createLazyList(4, 2);
         final int initialModCount = getField_int(modCount, lal);
 
@@ -71,7 +76,8 @@ public class LazyArrayListModCountTest {
     }
 
     @Test
-    void addAllIndex() {
+    void addAllIndex()
+    {
         final LazyArrayList<ListEntry> lal = LazyArrayListPersistenceTest.createLazyList(4, 2);
         final int initialModCount = getField_int(modCount, lal);
 
@@ -81,7 +87,8 @@ public class LazyArrayListModCountTest {
     }
 
     @Test
-    void clear() {
+    void clear()
+    {
         final LazyArrayList<ListEntry> lal = LazyArrayListPersistenceTest.createLazyList(4, 4);
         final int initialModCount = getField_int(modCount, lal);
 
@@ -91,7 +98,8 @@ public class LazyArrayListModCountTest {
     }
 
     @Test
-    void consolidate_nothingTodo() {
+    void consolidate_nothingTodo()
+    {
         final LazyArrayList<ListEntry> lal = LazyArrayListPersistenceTest.createLazyList(4, 4);
         final int initialModCount = getField_int(modCount, lal);
 
@@ -101,7 +109,8 @@ public class LazyArrayListModCountTest {
     }
 
     @Test
-    void consolidate() {
+    void consolidate()
+    {
         final LazyArrayList<ListEntry> lal = LazyArrayListPersistenceTest.createLazyList(2, 6);
         lal.removeAll(List.of(new ListEntry("Entry-1"), new ListEntry("Entry-2"), new ListEntry("Entry-3"), new ListEntry("Entry-4")));
         final int initialModCount = getField_int(modCount, lal);
@@ -112,7 +121,8 @@ public class LazyArrayListModCountTest {
     }
 
     @Test
-    void remove() {
+    void remove()
+    {
         final LazyArrayList<ListEntry> lal = LazyArrayListPersistenceTest.createLazyList(4, 4);
         final int initialModCount = getField_int(modCount, lal);
 
@@ -122,7 +132,8 @@ public class LazyArrayListModCountTest {
     }
 
     @Test
-    void removeIndex() {
+    void removeIndex()
+    {
         final LazyArrayList<ListEntry> lal = LazyArrayListPersistenceTest.createLazyList(4, 4);
         final int initialModCount = getField_int(modCount, lal);
 
@@ -132,7 +143,8 @@ public class LazyArrayListModCountTest {
     }
 
     @Test
-    void removeAll() {
+    void removeAll()
+    {
         final LazyArrayList<ListEntry> lal = LazyArrayListPersistenceTest.createLazyList(4, 7);
         final int initialModCount = getField_int(modCount, lal);
 
@@ -142,7 +154,8 @@ public class LazyArrayListModCountTest {
     }
 
     @Test
-    void retainAll() {
+    void retainAll()
+    {
         final LazyArrayList<ListEntry> lal = LazyArrayListPersistenceTest.createLazyList(4, 7);
         final int initialModCount = getField_int(modCount, lal);
 
@@ -152,7 +165,8 @@ public class LazyArrayListModCountTest {
     }
 
     @Test
-    void removeIf() {
+    void removeIf()
+    {
         final LazyArrayList<ListEntry> lal = LazyArrayListPersistenceTest.createLazyList(4, 7);
         final int initialModCount = getField_int(modCount, lal);
 
@@ -162,7 +176,8 @@ public class LazyArrayListModCountTest {
     }
 
     @Test
-    void iteratorRemove() {
+    void iteratorRemove()
+    {
         final LazyArrayList<ListEntry> lal = LazyArrayListPersistenceTest.createLazyList(4, 7);
         final int initialModCount = getField_int(modCount, lal);
 
@@ -177,7 +192,8 @@ public class LazyArrayListModCountTest {
     }
 
     @Test
-    void iteratorAdd() {
+    void iteratorAdd()
+    {
         final LazyArrayList<ListEntry> lal = LazyArrayListPersistenceTest.createLazyList(4, 7);
         final int initialModCount = getField_int(modCount, lal);
 
@@ -189,12 +205,9 @@ public class LazyArrayListModCountTest {
 
     public static int getField_int(final Field f, final Object obj) throws IllegalAccessRuntimeException
     {
-        try
-        {
+        try {
             return f.getInt(obj);
-        }
-        catch(final IllegalAccessException e)
-        {
+        } catch (final IllegalAccessException e) {
             throw new IllegalAccessRuntimeException(e);
         }
     }

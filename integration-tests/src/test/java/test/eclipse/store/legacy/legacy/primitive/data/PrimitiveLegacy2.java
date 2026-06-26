@@ -9,12 +9,13 @@ package test.eclipse.store.legacy.legacy.primitive.data;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
-public class PrimitiveLegacy2 {
+public class PrimitiveLegacy2
+{
 
     private static final byte SAMPLE_BYTE = 100;
     private static final short SAMPLE_SHORT = 50;
@@ -35,17 +36,20 @@ public class PrimitiveLegacy2 {
     private Boolean booleanValue;
     private Character charValue;
 
-    public PrimitiveLegacy2() {
+    public PrimitiveLegacy2()
+    {
         super();
     }
 
-    public static PrimitiveLegacy2 fillSample() {
+    public static PrimitiveLegacy2 fillSample()
+    {
         PrimitiveLegacy2 p = new PrimitiveLegacy2();
         p.fillSampleData();
         return p;
     }
 
-    public void fillSampleData() {
+    public void fillSampleData()
+    {
         this.byteValue = SAMPLE_BYTE;
         this.shortValue = SAMPLE_SHORT;
         this.intValue = SAMPLE_INT;
@@ -56,72 +60,89 @@ public class PrimitiveLegacy2 {
         this.charValue = SAMPLE_CHAR;
     }
 
-    public Byte getByteValue() {
+    public Byte getByteValue()
+    {
         return byteValue;
     }
 
-    public void setByteValue(Byte byteValue) {
+    public void setByteValue(Byte byteValue)
+    {
         this.byteValue = byteValue;
     }
 
-    public Short getShortValue() {
+    public Short getShortValue()
+    {
         return shortValue;
     }
 
-    public void setShortValue(Short shortValue) {
+    public void setShortValue(Short shortValue)
+    {
         this.shortValue = shortValue;
     }
 
-    public Integer getIntValue() {
+    public Integer getIntValue()
+    {
         return intValue;
     }
 
-    public void setIntValue(Integer intValue) {
+    public void setIntValue(Integer intValue)
+    {
         this.intValue = intValue;
     }
 
-    public Long getLongValue() {
+    public Long getLongValue()
+    {
         return longValue;
     }
 
-    public void setLongValue(Long longValue) {
+    public void setLongValue(Long longValue)
+    {
         this.longValue = longValue;
     }
 
-    public Float getFloatValue() {
+    public Float getFloatValue()
+    {
         return floatValue;
     }
 
-    public void setFloatValue(Float floatValue) {
+    public void setFloatValue(Float floatValue)
+    {
         this.floatValue = floatValue;
     }
 
-    public Double getDoubleValue() {
+    public Double getDoubleValue()
+    {
         return doubleValue;
     }
 
-    public void setDoubleValue(Double doubleValue) {
+    public void setDoubleValue(Double doubleValue)
+    {
         this.doubleValue = doubleValue;
     }
 
-    public Boolean getBooleanValue() {
+    public Boolean getBooleanValue()
+    {
         return booleanValue;
     }
 
-    public void setBooleanValue(Boolean booleanValue) {
+    public void setBooleanValue(Boolean booleanValue)
+    {
         this.booleanValue = booleanValue;
     }
 
-    public Character getCharValue() {
+    public Character getCharValue()
+    {
         return charValue;
     }
 
-    public void setCharValue(Character charValue) {
+    public void setCharValue(Character charValue)
+    {
         this.charValue = charValue;
     }
 
     @Override
-    public String toString() {
+    public String toString()
+    {
         return "{" +
                 "byteValue=" + byteValue +
                 ", shortValue=" + shortValue +

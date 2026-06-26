@@ -9,10 +9,12 @@ package test.eclipse.store.various;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import java.nio.file.Path;
 
 import org.eclipse.serializer.persistence.util.Reloader;
 import org.eclipse.serializer.reference.Lazy;
@@ -20,8 +22,6 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-
-import java.nio.file.Path;
 
 
 //https://github.com/eclipse-serializer/serializer/issues/135

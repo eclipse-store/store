@@ -9,7 +9,7 @@ package test.eclipse.store.collections.lazy.arraylist.unload;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -78,7 +78,7 @@ public class Unloader
     void unloadTestNeverUnloader() throws InterruptedException
     {
         LazyArrayList<Person> personList;
-        personList = (LazyArrayList<Person>) Generator.generatePersons(8000, new LazySegmentUnloader.Never(),100);
+        personList = (LazyArrayList<Person>) Generator.generatePersons(8000, new LazySegmentUnloader.Never(), 100);
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(personList, location)) {
 
@@ -113,7 +113,7 @@ public class Unloader
     void unloadTestTimedUnloader_parallelStream() throws InterruptedException
     {
         LazyArrayList<Person> personList;
-        personList = (LazyArrayList<Person>) Generator.generatePersons(8000, new LazySegmentUnloader.Timed(50),500);
+        personList = (LazyArrayList<Person>) Generator.generatePersons(8000, new LazySegmentUnloader.Timed(50), 500);
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(personList, location)) {
 
@@ -151,7 +151,7 @@ public class Unloader
     void shuffle_unloader_test() throws InterruptedException
     {
         LazyArrayList<Person> personList;
-        personList = (LazyArrayList<Person>) Generator.generatePersons(1000, new LazySegmentUnloader.Timed(50),100);
+        personList = (LazyArrayList<Person>) Generator.generatePersons(1000, new LazySegmentUnloader.Timed(50), 100);
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(personList, location)) {
 
@@ -169,7 +169,7 @@ public class Unloader
     void manual_unloader_test() throws InterruptedException
     {
         LazyArrayList<Person> personList;
-        personList = (LazyArrayList<Person>) Generator.generatePersons(8_000, new LazySegmentUnloader.Timed(50),500);
+        personList = (LazyArrayList<Person>) Generator.generatePersons(8_000, new LazySegmentUnloader.Timed(50), 500);
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(personList, location)) {
 

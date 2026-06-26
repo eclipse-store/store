@@ -9,7 +9,7 @@ package test.eclipse.store.handler.special;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -20,14 +20,14 @@ import java.io.IOException;
 import java.nio.file.Path;
 
 import org.apache.commons.io.FileUtils;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
-import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
-
-class BinaryHandlerGenericEnumTest {
+class BinaryHandlerGenericEnumTest
+{
 
     private EmbeddedStorageManager storage;
 
@@ -37,7 +37,8 @@ class BinaryHandlerGenericEnumTest {
     Path workDir;
 
     @AfterEach
-    void cleanStorage() throws IOException {
+    void cleanStorage() throws IOException
+    {
         if (null != storage && !storage.isShutdown()) {
             storage.shutdown();
         }
@@ -45,7 +46,8 @@ class BinaryHandlerGenericEnumTest {
     }
 
     @Test
-    void binaryHandlerGenericEnum() {
+    void binaryHandlerGenericEnum()
+    {
 
         GenericEnumData original = GenericEnumData.THIRD;
         original.setOtherValue(TEXT);
@@ -85,43 +87,52 @@ class BinaryHandlerGenericEnumTest {
 //        assertEquals(TEXT, copy.getOtherValue());
 //    }
 
-    private void saveAndShutdown(GenericEnumData original) {
+    private void saveAndShutdown(GenericEnumData original)
+    {
         storage = startStorage(original);
         storage.storeRoot();
         storage.shutdown();
     }
 
-    private void load(GenericEnumData loaded) {
+    private void load(GenericEnumData loaded)
+    {
         storage = startStorage(loaded);
     }
 
-    private EmbeddedStorageManager startStorage(Object root) {
+    private EmbeddedStorageManager startStorage(Object root)
+    {
         return EmbeddedStorage.start(root, workDir);
     }
 
-    private enum GenericEnumData {
+    private enum GenericEnumData
+    {
         FIRST(1), SECOND(2), THIRD(3), FOURTH(4), FIVE(5);
 
         int value;
         String otherValue;
 
-        GenericEnumData(int value) {
+        GenericEnumData(int value)
+        {
             this.value = value;
         }
 
-        public String getOtherValue() {
+        public String getOtherValue()
+        {
             return otherValue;
         }
 
-        public void setOtherValue(String otherValue) {
+        public void setOtherValue(String otherValue)
+        {
             this.otherValue = otherValue;
         }
 
-        public int getValue() {
+        public int getValue()
+        {
             return value;
         }
 
-        public void setValue(int value) {
+        public void setValue(int value)
+        {
             this.value = value;
         }
     }

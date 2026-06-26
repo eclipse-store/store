@@ -9,10 +9,17 @@ package test.eclipse.store.collections.lazy.unit;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import java.nio.file.Path;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.eclipse.serializer.collections.lazy.LazyCollection;
 import org.eclipse.serializer.collections.lazy.LazyHashMap;
@@ -21,32 +28,15 @@ import org.eclipse.serializer.reference.Lazy;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.ConcurrentModificationException;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.Spliterator;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertIterableEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-public class HashMapUnitTest {
+public class HashMapUnitTest
+{
 
     @TempDir
     Path location;
 
     @Test
-    public void sizeTest() {
+    public void sizeTest()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
 
         assertEquals(100, map.size());
@@ -54,7 +44,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    public void isEmpty() {
+    public void isEmpty()
+    {
         final LazyHashMap<Integer, String> map = new LazyHashMap<>();
 
         assertTrue(map.isEmpty());
@@ -62,7 +53,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    public void containsKey() {
+    public void containsKey()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         map.put(null, null);
 
@@ -71,9 +63,9 @@ public class HashMapUnitTest {
     }
 
 
-
     @Test
-    public void containsValueNull() {
+    public void containsValueNull()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         map.put(null, null);
 
@@ -85,7 +77,8 @@ public class HashMapUnitTest {
 
 
     @Test
-    public void containsValue() {
+    public void containsValue()
+    {
         final String value = "Hi, i am a great value test sentence";
         final LazyHashMap<Integer, String> map = new LazyHashMap<>();
 
@@ -95,7 +88,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    public void getTest() {
+    public void getTest()
+    {
         final String value = "Hi, i am a great value test sentence";
         final LazyHashMap<Integer, String> map = new LazyHashMap<>();
 
@@ -105,7 +99,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    public void removeTest() {
+    public void removeTest()
+    {
         final String value = "Hi, i am a great value test sentence";
         final LazyHashMap<Integer, String> map = new LazyHashMap<>();
 
@@ -115,7 +110,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void remoteNullValueTest() {
+    void remoteNullValueTest()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         map.put(101, null);
         map.put(102, null);
@@ -126,7 +122,8 @@ public class HashMapUnitTest {
 
 
     @Test
-    void remoteNullValueHashMapTest() {
+    void remoteNullValueHashMapTest()
+    {
         final HashMap<Integer, String> map = Util.generateHashMap(100);
         map.put(101, null);
         map.put(102, null);
@@ -136,7 +133,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    public void putAll(@TempDir final Path secondLocation) {
+    public void putAll(@TempDir final Path secondLocation)
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
 
 
@@ -147,7 +145,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    public void putALLtoOneStorage() {
+    public void putALLtoOneStorage()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
 
 
@@ -164,7 +163,8 @@ public class HashMapUnitTest {
      * @param secondLocation Junit feature to provide private folder in temp directory
      */
     @Test
-    public void lazyTwoStorageTest(@TempDir final Path secondLocation) {
+    public void lazyTwoStorageTest(@TempDir final Path secondLocation)
+    {
 
         final ArrayList<Lazy<String>> lazyList = Stream.generate(() -> {
                     final String type1 = new String("ahoj");
@@ -177,7 +177,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    public void clear() {
+    public void clear()
+    {
         final String value = "Hi, i am a great value test sentence";
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
 
@@ -194,7 +195,8 @@ public class HashMapUnitTest {
      * After fix diese Issue, add some other tests: terator.remove, Set.remove, removeAll, retainAll, and clear operations
      */
     @Test
-    public void keySetRemove() {
+    public void keySetRemove()
+    {
 
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
 
@@ -205,7 +207,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    public void keySet() {
+    public void keySet()
+    {
 
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
 
@@ -225,7 +228,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    public void values_clear() {
+    public void values_clear()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final LazyCollection<String> values = map.values();
         values.clear();
@@ -234,7 +238,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    public void values_removeAll() {
+    public void values_removeAll()
+    {
         LazyHashMap<Integer, String> map = Util.generateMap(100);
         final LazyCollection<String> values = map.values();
         values.removeAll(map.values());
@@ -245,7 +250,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    public void entrySet() {
+    public void entrySet()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final LazySet<Map.Entry<Integer, String>> entries = map.entrySet();
         assertEquals(100, entries.size());
@@ -253,7 +259,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void entryTest() {
+    void entryTest()
+    {
         final String value = "Ahoj";
 
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
@@ -273,7 +280,8 @@ public class HashMapUnitTest {
 
 
     @Test
-    void replaceAll() {
+    void replaceAll()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
 
         assertThrows(UnsupportedOperationException.class, () -> map.replaceAll((key, oldValue) -> {
@@ -282,7 +290,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void putIfAbsent() {
+    void putIfAbsent()
+    {
         final String s = "javax.net.ssl.keyStore";
 
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
@@ -295,7 +304,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void remove_for_specific_key_and_value() {
+    void remove_for_specific_key_and_value()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final String value = map.get(60);
         assertFalse(map.remove(60, "javax.net.ssl.keyStore"));
@@ -305,7 +315,8 @@ public class HashMapUnitTest {
 
 
     @Test
-    void computeIfAbsent() {
+    void computeIfAbsent()
+    {
         final String value = "ahoj";
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         map.put(101, null);
@@ -316,7 +327,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void computeIfPresent() {
+    void computeIfPresent()
+    {
         final String value = "ahoj";
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         map.put(101, value);
@@ -325,7 +337,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void merge() {
+    void merge()
+    {
         final String value = "ahoj";
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         map.put(101, value);
@@ -338,7 +351,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void ofTestEmpty() {
+    void ofTestEmpty()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final Map<Integer, String> immutableMap = Map.of();
         map.putAll(immutableMap);
@@ -346,7 +360,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void ofTestWithValue() {
+    void ofTestWithValue()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final Map<Integer, String> immutableMap = Map.of(101, "PP", 102, "QQ", 103, "RR");
         map.putAll(immutableMap);
@@ -354,7 +369,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void ofEntries() {
+    void ofEntries()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final Map<Integer, String> immutableMap = Map.ofEntries(Map.entry(101, "ahoj"),
                 Map.entry(102, "ahoj2"), Map.entry(103, "ahoj3"));
@@ -363,7 +379,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void entry() {
+    void entry()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final Map.Entry<Integer, String> ahoj = Map.entry(101, "ahoj");
         assertThrows(UnsupportedOperationException.class, () -> map.entrySet()
@@ -372,27 +389,31 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void copyOf() {
+    void copyOf()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final Map<Integer, String> integerStringMap = Map.copyOf(map);
         assertEquals(100, map.size());
     }
 
     @Test
-    void replaceWithOldValue_notExists() {
+    void replaceWithOldValue_notExists()
+    {
         final LazyHashMap<Integer, String> map = new LazyHashMap<>();
         assertFalse(map.replace(5, "oldValue", "newValue"));
     }
 
     @Test
-    void replaceWithOldValue() {
+    void replaceWithOldValue()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(10);
         final String oldValue = map.get(5);
         assertTrue(map.replace(5, oldValue, "newValue"));
     }
 
     @Test
-    void removeSegmentIfEmpty() {
+    void removeSegmentIfEmpty()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         for (int i = 0; i < map.size(); i++) {
             map.remove(i);
@@ -400,7 +421,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void lazyMapIterator() {
+    void lazyMapIterator()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         map.entrySet()
                 .removeIf(e -> true);
@@ -409,7 +431,8 @@ public class HashMapUnitTest {
     /* Segment */
 
     @Test
-    void isSegmentLoaded() {
+    void isSegmentLoaded()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         map.segments()
                 .forEach(segment -> {
@@ -418,7 +441,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void isSegmentModified() {
+    void isSegmentModified()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         map.segments()
                 .forEach(segment -> {
@@ -427,7 +451,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void unloadSegment() {
+    void unloadSegment()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         map.segments()
                 .forEach(LazyHashMap.Segment::unloadSegment);
@@ -438,14 +463,16 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void constructorWithMaxSegmentSize() {
+    void constructorWithMaxSegmentSize()
+    {
         final LazyHashMap<Integer, String> map = new LazyHashMap<>(100);
         assertEquals(100, map.getMaxSegmentSize());
         assertNotNull(map);
     }
 
     @Test
-    void constructorWithMaxSegmentSize_0() {
+    void constructorWithMaxSegmentSize_0()
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>(0);
         assertEquals(0, map.getMaxSegmentSize());
 
@@ -455,7 +482,8 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void constructorFromExistingLazyHashMap() {
+    void constructorFromExistingLazyHashMap()
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>(100);
         map = Util.fillHashMap(map, 200, 0);
         final LazyHashMap<Integer, String> newMap = new LazyHashMap<>(map);
@@ -464,21 +492,24 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void segmentsTest() {
+    void segmentsTest()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final Iterable<? extends LazyHashMap<Integer, String>.Segment<?>> segments = map.segments();
         assertNotNull(segments);
     }
 
     @Test
-    void maxSegmentsSize() {
+    void maxSegmentsSize()
+    {
         final LazyHashMap<Integer, String> map = new LazyHashMap<>(100);
         assertEquals(100, map.getMaxSegmentSize());
     }
 
 
     @Test
-    void copyTest() throws CloneNotSupportedException {
+    void copyTest() throws CloneNotSupportedException
+    {
         final LazyHashMap<Integer, String> map = new LazyHashMap<>();
         map.put(1, "ahoj");
         map.put(2, "second string");
@@ -490,54 +521,62 @@ public class HashMapUnitTest {
 
 
     @Test
-    void containsKeyTest() {
+    void containsKeyTest()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(100);
         map.put(null, null);
         assertTrue(map.containsKey(null));
     }
 
     @Test
-    void getWhatNotExists() {
+    void getWhatNotExists()
+    {
         final LazyHashMap<Integer, String> map = new LazyHashMap<>();
         assertNull(map.get(5));
     }
 
     @Test
-    void containsValue_notExists() {
+    void containsValue_notExists()
+    {
         final LazyHashMap<Integer, String> map = new LazyHashMap<>();
         assertFalse(map.containsValue("something"));
     }
 
     @Test
-    void remove_notExists() {
+    void remove_notExists()
+    {
         final LazyHashMap<Integer, String> map = new LazyHashMap<>();
         assertNull(map.remove(5));
     }
 
     @Test
-    void replaceTest_nonExists() {
+    void replaceTest_nonExists()
+    {
         final LazyHashMap<Integer, String> map = new LazyHashMap<>();
         assertNull(map.replace(5, "ahoj"));
     }
 
     @Test
-    void replace() {
+    void replace()
+    {
         final LazyHashMap<Integer, String> map = Util.generateMap(20);
         final String origValue = map.get(5);
         assertEquals(origValue, map.replace(5, "someText"));
     }
 
     @Test
-    void valuesSplitIterator() {
-        final LazyHashMap<Integer,String> map = Util.generateMap(100);
+    void valuesSplitIterator()
+    {
+        final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final List<Spliterator<?>> spliterators = this.splitAll(map.values().spliterator());
 
         assertTrue(spliterators.size() > 1);
     }
 
     @Test
-    void keysSplitIterator() {
-        final LazyHashMap<Integer,String> map = Util.generateMap(100);
+    void keysSplitIterator()
+    {
+        final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final List<Spliterator<?>> spliterators = this.splitAll(map.keySet()
                 .spliterator());
         assertTrue(spliterators.size() > 1);
@@ -547,8 +586,9 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void keysSplitIteratorReverse() {
-        final LazyHashMap<Integer,String> map = Util.generateMap(100);
+    void keysSplitIteratorReverse()
+    {
+        final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final List<Spliterator<?>> spliterators = this.splitAll(map.keySet()
                 .spliterator());
         assertTrue(spliterators.size() > 1);
@@ -559,8 +599,9 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void keysSplitIteratorNullAction() {
-        final LazyHashMap<Integer,String> map = Util.generateMap(100);
+    void keysSplitIteratorNullAction()
+    {
+        final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final List<Spliterator<?>> spliterators = this.splitAll(map.keySet()
                 .spliterator());
         assertTrue(spliterators.size() > 1);
@@ -570,8 +611,9 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void keysSplitIteratorConcurrentAction() {
-        final LazyHashMap<Integer,String> map = Util.generateMap(100);
+    void keysSplitIteratorConcurrentAction()
+    {
+        final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final List<Spliterator<?>> spliterators = this.splitAll(map.keySet()
                 .spliterator());
         assertTrue(spliterators.size() > 1);
@@ -582,8 +624,9 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void splitIteratorTest() {
-        final LazyHashMap<Integer,String> map = Util.generateMap(100);
+    void splitIteratorTest()
+    {
+        final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final Spliterator<String> spliterator = map.values()
                 .spliterator();
         final Spliterator<String> split2 = spliterator.trySplit();
@@ -593,8 +636,9 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void entrySplitIterator() {
-        final LazyHashMap<Integer,String> map = Util.generateMap(100);
+    void entrySplitIterator()
+    {
+        final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final List<Spliterator<?>> spliterators = this.splitAll(map.entrySet()
                 .spliterator());
         assertTrue(spliterators.size() > 1);
@@ -604,8 +648,9 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void valueSplitIterator() {
-        final LazyHashMap<Integer,String> map = Util.generateMap(100);
+    void valueSplitIterator()
+    {
+        final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final List<Spliterator<?>> spliterators = this.splitAll(map.values()
                 .spliterator());
         assertTrue(spliterators.size() > 1);
@@ -615,8 +660,9 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void segmentsSplitIterator() {
-        final LazyHashMap<Integer,String> map = Util.generateMap(100);
+    void segmentsSplitIterator()
+    {
+        final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final List<Spliterator<?>> spliterators = this.splitAll(map.segments()
                 .spliterator());
         assertTrue(spliterators.size() > 1);
@@ -625,11 +671,12 @@ public class HashMapUnitTest {
         }
     }
 
-    private List<Spliterator<?>> splitAll(final Spliterator<?> spliterator) {
+    private List<Spliterator<?>> splitAll(final Spliterator<?> spliterator)
+    {
         final List<Spliterator<?>> spliterators = new ArrayList<>();
         final Spliterator<?> split = spliterator.trySplit();
 
-        if(split != null) {
+        if (split != null) {
             spliterators.addAll(this.splitAll(spliterator));
             spliterators.addAll(this.splitAll(split));
         } else {
@@ -640,38 +687,43 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void valueIteratorTest() {
-        final LazyHashMap<Integer,String> map = Util.generateMap(100);
+    void valueIteratorTest()
+    {
+        final LazyHashMap<Integer, String> map = Util.generateMap(100);
         for (final String value : map.values()) {
             assertNotNull(value);
         }
     }
 
     @Test
-    void keyIteratorTest() {
-        final LazyHashMap<Integer,String> map = Util.generateMap(100);
+    void keyIteratorTest()
+    {
+        final LazyHashMap<Integer, String> map = Util.generateMap(100);
         for (final Integer integer : map.keySet()) {
             assertNotNull(integer);
         }
     }
 
     @Test
-    void entryIteratorTest() {
-        final LazyHashMap<Integer,String> map = Util.generateMap(100);
+    void entryIteratorTest()
+    {
+        final LazyHashMap<Integer, String> map = Util.generateMap(100);
         for (final Map.Entry<Integer, String> integerStringEntry : map.entrySet()) {
             assertNotNull(integerStringEntry);
         }
     }
 
     @Test
-    void toStringEmptyMap() {
-        final LazyHashMap<Integer,String> map = new LazyHashMap<>();
+    void toStringEmptyMap()
+    {
+        final LazyHashMap<Integer, String> map = new LazyHashMap<>();
         assertEquals("{}", map.toString());
     }
 
     @Test
-    void entryHashCode() {
-        final LazyHashMap<Integer,String> map = Util.generateMap(100);
+    void entryHashCode()
+    {
+        final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final LazySet<Map.Entry<Integer, String>> entries = map.entrySet();
         for (final Map.Entry<Integer, String> entry : entries) {
             assertNotNull(entry.hashCode());
@@ -680,33 +732,37 @@ public class HashMapUnitTest {
     }
 
     @Test
-    void entrySetClear() {
-        final LazyHashMap<Integer,String> map = Util.generateMap(100);
+    void entrySetClear()
+    {
+        final LazyHashMap<Integer, String> map = Util.generateMap(100);
         map.entrySet().clear();
         assertEquals(0, map.size());
     }
 
     @Test
-    void entrySet_iterateLazyReference() {
-        final LazyHashMap<Integer,String> map = Util.generateMap(100);
+    void entrySet_iterateLazyReference()
+    {
+        final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final LazySet<Map.Entry<Integer, String>> entries = map.entrySet();
-        entries.iterateLazyReferences( (l) -> {
+        entries.iterateLazyReferences((l) -> {
             assertTrue(l.isLoaded());
         });
     }
 
     @Test
-    void entrySet_consolidate() {
-        final LazyHashMap<Integer,String> map = Util.generateMap(100);
+    void entrySet_consolidate()
+    {
+        final LazyHashMap<Integer, String> map = Util.generateMap(100);
         final LazySet<Map.Entry<Integer, String>> entries = map.entrySet();
         entries.consolidate();
         assertEquals(100, map.size());
     }
 
     @Test
-    void value_iterateLazyReference() {
-        final LazyHashMap<Integer,String> map = Util.generateMap(100);
-        map.values().iterateLazyReferences( (v) -> {
+    void value_iterateLazyReference()
+    {
+        final LazyHashMap<Integer, String> map = Util.generateMap(100);
+        map.values().iterateLazyReferences((v) -> {
             assertTrue(v.isLoaded());
         });
     }

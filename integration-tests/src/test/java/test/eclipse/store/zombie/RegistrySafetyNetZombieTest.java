@@ -9,14 +9,12 @@ package test.eclipse.store.zombie;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.lang.ref.WeakReference;
@@ -58,13 +56,15 @@ public class RegistrySafetyNetZombieTest
     @AfterEach
     public void afterTest()
     {
-        if(this.reloaded != null)
-        {
-            try { this.reloaded.shutdown(); } catch(final Exception ignored) { /* best effort */ }
+        if (this.reloaded != null) {
+            try {
+                this.reloaded.shutdown();
+            } catch (final Exception ignored) { /* best effort */ }
         }
-        if(this.storage != null && this.storage.isRunning())
-        {
-            try { this.storage.shutdown(); } catch(final Exception ignored) { /* best effort */ }
+        if (this.storage != null && this.storage.isRunning()) {
+            try {
+                this.storage.shutdown();
+            } catch (final Exception ignored) { /* best effort */ }
         }
     }
 
@@ -75,15 +75,15 @@ public class RegistrySafetyNetZombieTest
 
         // Phase 1: start storage, store root -> Holder -> Payload
         this.storage = EmbeddedStorage.Foundation(
-                Storage.ConfigurationBuilder()
-                    .setChannelCountProvider (Storage.ChannelCountProvider(1))
-                    .setHousekeepingController(Storage.HousekeepingController(100, 1_000_000_000))
-                    .setDataFileEvaluator    (Storage.DataFileEvaluator(1024, 2048, 1.0))
-                    .setStorageFileProvider  (Storage.FileProvider(this.tempDir))
-                    .createConfiguration()
-            )
-            .setGCZombieOidHandler(zombieHandler)
-            .start();
+                        Storage.ConfigurationBuilder()
+                                .setChannelCountProvider(Storage.ChannelCountProvider(1))
+                                .setHousekeepingController(Storage.HousekeepingController(100, 1_000_000_000))
+                                .setDataFileEvaluator(Storage.DataFileEvaluator(1024, 2048, 1.0))
+                                .setStorageFileProvider(Storage.FileProvider(this.tempDir))
+                                .createConfiguration()
+                )
+                .setGCZombieOidHandler(zombieHandler)
+                .start();
 
         final PersistenceObjectRegistry registry = this.storage.persistenceManager().objectRegistry();
 
@@ -98,11 +98,11 @@ public class RegistrySafetyNetZombieTest
             this.storage.setRoot(root);
             this.storage.storeRoot();
 
-            payloadOid    = registry.lookupObjectId(originalPayload);
-            payloadProbe  = new WeakReference<>(originalPayload);
+            payloadOid = registry.lookupObjectId(originalPayload);
+            payloadProbe = new WeakReference<>(originalPayload);
         }
         assertNotEquals(Swizzling.notFoundId(), payloadOid,
-            "Payload must be registered after initial store");
+                "Payload must be registered after initial store");
 
         // Phase 2: detach Holder from root in binary, keep Java ref alive
         final Holder holderRef = root.holder;
@@ -112,13 +112,12 @@ public class RegistrySafetyNetZombieTest
         // Phase 3: drop the last strong Payload reference and reap its registry entry.
         holderRef.payload = null;
 
-        for(int i = 0; i < 10 && payloadProbe.get() != null; i++)
-        {
+        for (int i = 0; i < 10 && payloadProbe.get() != null; i++) {
             System.gc();
             Thread.sleep(50);
         }
         assumeTrue(payloadProbe.get() == null,
-            "JVM did not garbage-collect the Payload — test cannot proceed deterministically");
+                "JVM did not garbage-collect the Payload — test cannot proceed deterministically");
 
         // Reap the cleared WeakReference Entry from the registry hash table.
         // Same code path that synchInternalMergeEntries triggers on every store
@@ -143,39 +142,40 @@ public class RegistrySafetyNetZombieTest
         Thread.sleep(200);
 
         assertEquals(0, zombieHandler.count(),
-            "No zombie OIDs expected after the second GC cycle, but got "
-                + zombieHandler.count() + ": " + zombieHandler.oids());
+                "No zombie OIDs expected after the second GC cycle, but got "
+                        + zombieHandler.count() + ": " + zombieHandler.oids());
 
         // Phase 7: shut down and reload to confirm the persisted graph is intact.
         this.storage.shutdown();
 
         final CountingZombieOidHandler reloadZombieHandler = new CountingZombieOidHandler();
         this.reloaded = EmbeddedStorage.Foundation(
-                Storage.ConfigurationBuilder()
-                    .setStorageFileProvider(Storage.FileProvider(this.tempDir))
-                    .createConfiguration()
-            )
-            .setGCZombieOidHandler(reloadZombieHandler)
-            .start();
+                        Storage.ConfigurationBuilder()
+                                .setStorageFileProvider(Storage.FileProvider(this.tempDir))
+                                .createConfiguration()
+                )
+                .setGCZombieOidHandler(reloadZombieHandler)
+                .start();
 
         final DataRoot reloadedRoot = (DataRoot) this.reloaded.root();
-        assertNotNull(reloadedRoot,                     "Reloaded root must not be null");
-        assertNotNull(reloadedRoot.holder,              "Reloaded holder must not be null");
+        assertNotNull(reloadedRoot, "Reloaded root must not be null");
+        assertNotNull(reloadedRoot.holder, "Reloaded holder must not be null");
         assertNotNull(reloadedRoot.holder.payload,
-            "Reloaded Payload must not be null — losing it means a zombie OID corrupted the store");
+                "Reloaded Payload must not be null — losing it means a zombie OID corrupted the store");
         assertEquals("I will become a ghost", reloadedRoot.holder.payload.data,
-            "Reloaded Payload data must match the originally stored value");
+                "Reloaded Payload data must match the originally stored value");
 
         this.reloaded.issueFullGarbageCollection();
         Thread.sleep(200);
         assertEquals(0, reloadZombieHandler.count(),
-            "No zombie OIDs expected on reloaded storage, but got "
-                + reloadZombieHandler.count() + ": " + reloadZombieHandler.oids());
+                "No zombie OIDs expected on reloaded storage, but got "
+                        + reloadZombieHandler.count() + ": " + reloadZombieHandler.oids());
     }
 
     ///////////////////////////////////////////////////////////////////////////
     // data types //
-    ///////////////
+
+    /// ////////////
 
     public static class Holder
     {
@@ -225,14 +225,13 @@ public class RegistrySafetyNetZombieTest
     static final class CountingZombieOidHandler implements StorageGCZombieOidHandler
     {
         final AtomicInteger zombieCount = new AtomicInteger();
-        final List<Long>    zombieOids  = new ArrayList<>();
+        final List<Long> zombieOids = new ArrayList<>();
 
         @Override
         public boolean handleZombieOid(final long objectId)
         {
             this.zombieCount.incrementAndGet();
-            synchronized(this.zombieOids)
-            {
+            synchronized (this.zombieOids) {
                 this.zombieOids.add(objectId);
             }
             return true;
@@ -245,8 +244,7 @@ public class RegistrySafetyNetZombieTest
 
         public List<Long> oids()
         {
-            synchronized(this.zombieOids)
-            {
+            synchronized (this.zombieOids) {
                 return new ArrayList<>(this.zombieOids);
             }
         }

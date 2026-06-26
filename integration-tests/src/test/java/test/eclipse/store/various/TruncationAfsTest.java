@@ -9,10 +9,13 @@ package test.eclipse.store.various;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import java.nio.ByteBuffer;
+import java.nio.file.Path;
 
 import org.eclipse.serializer.afs.types.ADirectory;
 import org.eclipse.serializer.afs.types.AFile;
@@ -23,9 +26,6 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-
-import java.nio.ByteBuffer;
-import java.nio.file.Path;
 
 public class TruncationAfsTest
 {

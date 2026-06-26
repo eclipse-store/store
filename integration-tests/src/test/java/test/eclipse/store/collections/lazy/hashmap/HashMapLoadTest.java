@@ -9,10 +9,14 @@ package test.eclipse.store.collections.lazy.hashmap;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
 
 import org.eclipse.serializer.collections.lazy.LazyHashMap;
 import org.eclipse.serializer.collections.lazy.LazySegmentUnloader;
@@ -21,16 +25,12 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
-import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+
 import test.eclipse.serializer.fixtures.TypeRegister;
 import test.eclipse.serializer.fixtures.types.LazyData;
 import test.eclipse.serializer.fixtures.types.PrimitiveTypes;
-
-import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.Map;
 
 public class HashMapLoadTest
 {
@@ -90,7 +90,9 @@ public class HashMapLoadTest
             });
             manager.store(bigLazyHashMap);
 
-            bigLazyHashMap.entrySet().forEach(entry -> {integerTypeRegisterMap.put(entry.getKey(), entry.getValue().getLazy().get());});
+            bigLazyHashMap.entrySet().forEach(entry -> {
+                integerTypeRegisterMap.put(entry.getKey(), entry.getValue().getLazy().get());
+            });
 
         }
 
@@ -101,7 +103,7 @@ public class HashMapLoadTest
 
 
             for (Map.Entry<Integer, LazyData> entry : loadedMap.entrySet()) {
-               loadedMapWithoutLazy.put(entry.getKey(), entry.getValue().getLazy().get());
+                loadedMapWithoutLazy.put(entry.getKey(), entry.getValue().getLazy().get());
             }
 
         }

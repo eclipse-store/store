@@ -9,7 +9,7 @@ package test.eclipse.store.collections.lazy.hashmap;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -35,13 +35,15 @@ import org.junit.jupiter.api.io.TempDir;
 
 import test.eclipse.serializer.fixtures.types.PrimitiveTypes;
 
-public class HashMapSmokeTest {
+public class HashMapSmokeTest
+{
 
     @TempDir
     Path location;
 
     @Test
-    public void sizeTest() {
+    public void sizeTest()
+    {
         LazyHashMap<Integer, String> map = Util.generateMap(100);
 
         assertEquals(100, map.size());
@@ -58,7 +60,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    public void isEmpty() {
+    public void isEmpty()
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
 
         assertTrue(map.isEmpty());
@@ -75,7 +78,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    public void containsKey() {
+    public void containsKey()
+    {
         LazyHashMap<Integer, String> map = Util.generateMap(100);
         map.put(null, null);
 
@@ -94,7 +98,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    public void containsValueNull() {
+    public void containsValueNull()
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
         map.put(null, null);
 
@@ -106,7 +111,8 @@ public class HashMapSmokeTest {
 
 
     @Test
-    public void containsValue() {
+    public void containsValue()
+    {
         String value = "Hi, i am a great value test sentence";
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
 
@@ -125,7 +131,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    public void getTest() {
+    public void getTest()
+    {
         String value = "Hi, i am a great value test sentence";
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
 
@@ -144,7 +151,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    public void removeTest() {
+    public void removeTest()
+    {
         String value = "Hi, i am a great value test sentence";
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
 
@@ -165,7 +173,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    void remoteNullValueTest() {
+    void remoteNullValueTest()
+    {
         LazyHashMap<Integer, String> map = Util.generateMap(100);
         map.put(101, null);
         map.put(102, null);
@@ -176,7 +185,8 @@ public class HashMapSmokeTest {
 
 
     @Test
-    void remoteNullValueHashMapTest() {
+    void remoteNullValueHashMapTest()
+    {
         HashMap<Integer, String> map = Util.generateHashMap(100);
         map.put(101, null);
         map.put(102, null);
@@ -186,7 +196,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    public void putALLtoOneStorage() {
+    public void putALLtoOneStorage()
+    {
         LazyHashMap<Integer, String> map = Util.generateMap(100);
 
 
@@ -211,7 +222,8 @@ public class HashMapSmokeTest {
      * @param secondLocation Junit feature to provide private folder in temp directory
      */
     @Test
-    public void lazyTwoStorageTest(@TempDir Path secondLocation) {
+    public void lazyTwoStorageTest(@TempDir Path secondLocation)
+    {
 
         ArrayList<Lazy<PrimitiveTypes>> lazyList = Stream.generate(() -> {
                     PrimitiveTypes type1 = new PrimitiveTypes();
@@ -234,7 +246,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    public void clear() {
+    public void clear()
+    {
         String value = "Hi, i am a great value test sentence";
         LazyHashMap<Integer, String> map = Util.generateMap(100);
 
@@ -264,7 +277,8 @@ public class HashMapSmokeTest {
      * After fix diese Issue, add some other tests: terator.remove, Set.remove, removeAll, retainAll, and clear operations
      */
     @Test
-    public void keySetRemove() {
+    public void keySetRemove()
+    {
 
         LazyHashMap<Integer, String> map = Util.generateMap(100);
 
@@ -284,7 +298,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    public void keySet() {
+    public void keySet()
+    {
 
         LazyHashMap<Integer, String> map = Util.generateMap(100);
 
@@ -311,7 +326,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    public void values_clear() {
+    public void values_clear()
+    {
         LazyHashMap<Integer, String> map = Util.generateMap(100);
         LazyCollection<String> values = map.values();
         values.clear();
@@ -332,7 +348,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    public void values_removeAll() {
+    public void values_removeAll()
+    {
         LazyHashMap<Integer, String> map = Util.generateMap(100);
         LazyCollection<String> values = map.values();
         values.removeAll(map.values());
@@ -353,7 +370,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    public void entrySet() {
+    public void entrySet()
+    {
         LazyHashMap<Integer, String> map = Util.generateMap(100);
         LazySet<Map.Entry<Integer, String>> entries = map.entrySet();
         assertEquals(100, entries.size());
@@ -370,7 +388,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    void entryTest() {
+    void entryTest()
+    {
         String value = "Ahoj";
 
         LazyHashMap<Integer, String> map = Util.generateMap(100);
@@ -394,7 +413,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    void replaceAll() {
+    void replaceAll()
+    {
         LazyHashMap<Integer, String> map = Util.generateMap(100);
 
         assertThrows(UnsupportedOperationException.class, () -> map.replaceAll((key, oldValue) -> {
@@ -403,7 +423,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    void putIfAbsent() {
+    void putIfAbsent()
+    {
         String s = "javax.net.ssl.keyStore";
 
         LazyHashMap<Integer, String> map = Util.generateMap(100);
@@ -416,7 +437,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    void remove_for_specific_key_and_value() {
+    void remove_for_specific_key_and_value()
+    {
         LazyHashMap<Integer, String> map = Util.generateMap(100);
         String value = map.get(60);
         assertFalse(map.remove(60, "javax.net.ssl.keyStore"));
@@ -426,7 +448,8 @@ public class HashMapSmokeTest {
 
 
     @Test
-    void computeIfAbsent() {
+    void computeIfAbsent()
+    {
         final String value = "ahoj";
         LazyHashMap<Integer, String> map = Util.generateMap(100);
         map.put(101, null);
@@ -437,7 +460,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    void computeIfPresent() {
+    void computeIfPresent()
+    {
         final String value = "ahoj";
         LazyHashMap<Integer, String> map = Util.generateMap(100);
         map.put(101, value);
@@ -446,7 +470,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    void merge() {
+    void merge()
+    {
         final String value = "ahoj";
         LazyHashMap<Integer, String> map = Util.generateMap(100);
         map.put(101, value);
@@ -459,7 +484,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    void ofTestEmpty() {
+    void ofTestEmpty()
+    {
         LazyHashMap<Integer, String> map = Util.generateMap(100);
         Map<Integer, String> immutableMap = Map.of();
         map.putAll(immutableMap);
@@ -467,7 +493,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    void ofTestWithValue() {
+    void ofTestWithValue()
+    {
         LazyHashMap<Integer, String> map = Util.generateMap(100);
         Map<Integer, String> immutableMap = Map.of(101, "PP", 102, "QQ", 103, "RR");
         map.putAll(immutableMap);
@@ -475,7 +502,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    void ofEntries() {
+    void ofEntries()
+    {
         LazyHashMap<Integer, String> map = Util.generateMap(100);
         Map<Integer, String> immutableMap = Map.ofEntries(Map.entry(101, "ahoj"),
                 Map.entry(102, "ahoj2"), Map.entry(103, "ahoj3"));
@@ -484,7 +512,8 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    void entry() {
+    void entry()
+    {
         LazyHashMap<Integer, String> map = Util.generateMap(100);
         Map.Entry<Integer, String> ahoj = Map.entry(101, "ahoj");
         assertThrows(UnsupportedOperationException.class, () -> map.entrySet()
@@ -493,14 +522,16 @@ public class HashMapSmokeTest {
     }
 
     @Test
-    void copyOf() {
+    void copyOf()
+    {
         LazyHashMap<Integer, String> map = Util.generateMap(100);
         Map<Integer, String> integerStringMap = Map.copyOf(map);
         assertEquals(100, map.size());
     }
 
     @Test
-    void equals() {
+    void equals()
+    {
 
         LazyHashMap<Integer, String> mapA = new LazyHashMap<>();
         mapA.put(1, "A");

@@ -9,7 +9,7 @@ package test.eclipse.store.various;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -32,62 +32,63 @@ import org.junit.jupiter.api.io.TempDir;
 public class UnloadedLazyTest
 {
 
-	@TempDir
-	Path location;
+    @TempDir
+    Path location;
 
-	private static PrintStream originalErr;
+    private static PrintStream originalErr;
 
-	@BeforeAll
-	static void setupErr()
-	{
-		originalErr = System.err;
-		System.setErr(new PrintStream(new OutputStream()
-		{
-			@Override
-			public void write(int b)
-			{
-				// Discard output
-			}
-		}));
-	}
+    @BeforeAll
+    static void setupErr()
+    {
+        originalErr = System.err;
+        System.setErr(new PrintStream(new OutputStream()
+        {
+            @Override
+            public void write(int b)
+            {
+                // Discard output
+            }
+        }));
+    }
 
-	@AfterAll
-	static void restoreErr()
-	{
-		System.setErr(originalErr);
-	}
-
-
-	/**
-	 * https://github.com/eclipse-serializer/serializer/issues/221
-	 * @param secondLocation
-	 */
-	@Test
-	public void saveDefaultLazySecondTimeTest(@TempDir final Path secondLocation)
-	{
-		final MyRoot myRoot = new MyRoot("Hello World");
-
-		try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(myRoot, this.location)) {
-		}
-
-		myRoot.lazy.clear();
-
-		assertThrows(PersistenceException.class, () -> EmbeddedStorage.start(myRoot, secondLocation));
-
-	}
+    @AfterAll
+    static void restoreErr()
+    {
+        System.setErr(originalErr);
+    }
 
 
-	public static class MyRoot
-	{
-		Lazy<String> lazy;
-		Integer number = 42;
+    /**
+     * https://github.com/eclipse-serializer/serializer/issues/221
+     *
+     * @param secondLocation
+     */
+    @Test
+    public void saveDefaultLazySecondTimeTest(@TempDir final Path secondLocation)
+    {
+        final MyRoot myRoot = new MyRoot("Hello World");
 
-		public MyRoot(final String content)
-		{
-			super();
-			this.lazy = Lazy.Reference(content);
-		}
+        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(myRoot, this.location)) {
+        }
 
-	}
+        myRoot.lazy.clear();
+
+        assertThrows(PersistenceException.class, () -> EmbeddedStorage.start(myRoot, secondLocation));
+
+    }
+
+
+    public static class MyRoot
+    {
+        Lazy<String> lazy;
+        Integer number = 42;
+
+        public MyRoot(final String content)
+        {
+            super();
+            this.lazy = Lazy.Reference(content);
+        }
+
+    }
 
 }

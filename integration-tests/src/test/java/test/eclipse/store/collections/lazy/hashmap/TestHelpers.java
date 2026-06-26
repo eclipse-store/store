@@ -9,24 +9,26 @@ package test.eclipse.store.collections.lazy.hashmap;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import org.eclipse.serializer.collections.lazy.LazyHashMap;
 import org.eclipse.serializer.collections.lazy.LazySegment;
 
-public class TestHelpers {
+public class TestHelpers
+{
 
-    static public void assertLoadedSegment(LazyHashMap<?, ?> map) {
+    static public void assertLoadedSegment(LazyHashMap<?, ?> map)
+    {
 
         int expected = 0;
 
@@ -48,7 +50,8 @@ public class TestHelpers {
         assertTrue(getLoadedSegments(map).size() <= expected);
     }
 
-    static public List<LazySegment<?>> getLoadedSegments(LazyHashMap<?, ?> map) {
+    static public List<LazySegment<?>> getLoadedSegments(LazyHashMap<?, ?> map)
+    {
 
         final Iterable<? extends LazyHashMap<?, ?>.Segment<?>> segments = map.segments();
 

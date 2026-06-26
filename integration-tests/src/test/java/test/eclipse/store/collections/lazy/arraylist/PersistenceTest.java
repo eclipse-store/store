@@ -9,27 +9,28 @@ package test.eclipse.store.collections.lazy.arraylist;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
-import org.eclipse.serializer.collections.lazy.LazyArrayList;
-import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
-import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+import static org.junit.jupiter.api.Assertions.assertIterableEquals;
 
 import java.nio.file.Path;
 
-import static org.junit.jupiter.api.Assertions.assertIterableEquals;
+import org.eclipse.serializer.collections.lazy.LazyArrayList;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-public class PersistenceTest {
+public class PersistenceTest
+{
 
 
     @Test
-    public void storeAndReload(@TempDir final Path path) {
+    public void storeAndReload(@TempDir final Path path)
+    {
 
         LazyArrayList<String> myLazyList = new LazyArrayList<>(3);
         for (int i = 0; i < 10; i++) {

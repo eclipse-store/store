@@ -9,7 +9,7 @@ package test.eclipse.store.collections.lazy.hashmap;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -30,7 +30,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-public class TwoStoragesTest {
+public class TwoStoragesTest
+{
 
     @TempDir
     Path location;
@@ -58,7 +59,8 @@ public class TwoStoragesTest {
     }
 
     @Test
-    public void hashMapkeySetRemoveTest(@TempDir final Path path) {
+    public void hashMapkeySetRemoveTest(@TempDir final Path path)
+    {
         final HashMap<Integer, String> map = new HashMap<>();
 
         map.put(101, "some text");
@@ -75,7 +77,8 @@ public class TwoStoragesTest {
     }
 
     @Test
-    public void keySetRemoveTest(@TempDir final Path path) {
+    public void keySetRemoveTest(@TempDir final Path path)
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
 
         map.put(101, "some text");
@@ -92,7 +95,8 @@ public class TwoStoragesTest {
     }
 
     @Test
-    public void saveSecondTimeTest(@TempDir final Path secondLocation) {
+    public void saveSecondTimeTest(@TempDir final Path secondLocation)
+    {
         LazyHashMap<Integer, String> map = generateMap(11);
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(map, this.location)) {
@@ -106,21 +110,25 @@ public class TwoStoragesTest {
 
     }
 
-    public static class MyRoot {
+    public static class MyRoot
+    {
         Lazy<String> lazy;
 
-        public MyRoot(final String content) {
+        public MyRoot(final String content)
+        {
             super();
             this.lazy = Lazy.Reference(content);
         }
 
     }
 
-    public static LazyHashMap<Integer, String> generateMap(final Integer count) {
+    public static LazyHashMap<Integer, String> generateMap(final Integer count)
+    {
         return generateMap(count, 0);
     }
 
-    public static LazyHashMap<Integer, String> generateMap(final Integer count, final int keyStart) {
+    public static LazyHashMap<Integer, String> generateMap(final Integer count, final int keyStart)
+    {
 
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
 

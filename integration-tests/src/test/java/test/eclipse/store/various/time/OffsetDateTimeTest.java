@@ -9,7 +9,7 @@ package test.eclipse.store.various.time;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -33,7 +33,7 @@ public class OffsetDateTimeTest
     @Test
     void offsetDateTimeStoreAndReload()
     {
-        OffsetDateTime odt = OffsetDateTime.of(2020,1,1,1,1,0,0, ZoneOffset.ofHours(1));
+        OffsetDateTime odt = OffsetDateTime.of(2020, 1, 1, 1, 1, 0, 0, ZoneOffset.ofHours(1));
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(odt, tempDir)) {
         }
@@ -48,7 +48,7 @@ public class OffsetDateTimeTest
     @Test
     void offsetDateTimeUpdateApiBehavior()
     {
-        OffsetDateTime odt = OffsetDateTime.of(2020,1,1,1,1,0,0, ZoneOffset.ofHours(1));
+        OffsetDateTime odt = OffsetDateTime.of(2020, 1, 1, 1, 1, 0, 0, ZoneOffset.ofHours(1));
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(odt, tempDir)) {
         }
@@ -63,7 +63,7 @@ public class OffsetDateTimeTest
     @Test
     void saveOffsetDateTimeDataAndReload()
     {
-        OffsetDateTime odt = OffsetDateTime.of(2020,1,1,1,1,0,0, ZoneOffset.ofHours(1));
+        OffsetDateTime odt = OffsetDateTime.of(2020, 1, 1, 1, 1, 0, 0, ZoneOffset.ofHours(1));
 
         OffsetDateTimeData root = new OffsetDateTimeData(odt);
 

@@ -9,7 +9,7 @@ package test.eclipse.store.legacy.enumeration;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -33,7 +33,8 @@ import org.junit.jupiter.api.io.TempDir;
 import test.eclipse.store.legacy.legacy.enumeration.data.EnumerationCopy;
 import test.eclipse.store.legacy.legacy.enumeration.data.EnumerationOrig;
 
-public class EnumerationLTMTest {
+public class EnumerationLTMTest
+{
 
 
     @TempDir
@@ -43,14 +44,16 @@ public class EnumerationLTMTest {
 
 
     @AfterEach
-    void cleanStorage() {
+    void cleanStorage()
+    {
         if (null != storage && !storage.isShutdown()) {
             storage.shutdown();
         }
     }
 
     @Test
-    void removeMemberBasicTest() {
+    void removeMemberBasicTest()
+    {
         EnumerationOrig eOrig = EnumerationOrig.FIRST;
 
         storage = EmbeddedStorage.start(eOrig, tempDir);
@@ -103,7 +106,8 @@ public class EnumerationLTMTest {
     // -------------------------------------------------------------------------
 
     @Test
-    void removeMemberBasicTest_lazyWrapped() {
+    void removeMemberBasicTest_lazyWrapped()
+    {
         LazyEnumWrapper<EnumerationOrig> origWrapper = new LazyEnumWrapper<>(EnumerationOrig.FIRST);
 
         storage = EmbeddedStorage.start(origWrapper, tempDir);
@@ -124,7 +128,7 @@ public class EnumerationLTMTest {
 
         storage.start();
         EnumerationCopy eCopy = copyWrapper.lazy.get();
-        assertEquals(EnumerationOrig.FIRST.getName(),  eCopy.getName());
+        assertEquals(EnumerationOrig.FIRST.getName(), eCopy.getName());
         assertEquals(EnumerationOrig.FIRST.getValue(), eCopy.getValue());
         storage.store(copyWrapper);
         storage.shutdown();
@@ -141,15 +145,17 @@ public class EnumerationLTMTest {
 
         storage.start();
         EnumerationOrig eOrig = origWrapper2.lazy.get();
-        assertEquals(EnumerationOrig.FIRST.getName(),  eOrig.getName());
+        assertEquals(EnumerationOrig.FIRST.getName(), eOrig.getName());
         assertEquals(EnumerationOrig.FIRST.getValue(), eOrig.getValue());
         storage.shutdown();
     }
 
-    static class LazyEnumWrapper<E> {
+    static class LazyEnumWrapper<E>
+    {
         Lazy<E> lazy;
 
-        LazyEnumWrapper(E value) {
+        LazyEnumWrapper(E value)
+        {
             this.lazy = Lazy.Reference(value);
         }
     }

@@ -9,7 +9,7 @@ package test.eclipse.store.handler;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -24,14 +24,16 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 import test.eclipse.serializer.fixtures.TypeEnum;
 
-public class BinaryHandlerTest {
+public class BinaryHandlerTest
+{
 
     @TempDir
     Path storagePath;
 
     @ParameterizedTest
     @EnumSource(TypeEnum.class)
-    public void saveAndLoadTest(TypeEnum type) {
+    public void saveAndLoadTest(TypeEnum type)
+    {
 
         EmbeddedStorageManager storageManager = EmbeddedStorage.start(type.getOriginal(), storagePath);
         storageManager.shutdown();
@@ -46,11 +48,13 @@ public class BinaryHandlerTest {
 
     /**
      * Tests data types without storing data in them. e.g. new ArrayList<>()
+     *
      * @param type Injected by JunitFramework
      */
     @ParameterizedTest
     @EnumSource(TypeEnum.class)
-    public void saveAndLoadEmptyClassTest(TypeEnum type) {
+    public void saveAndLoadEmptyClassTest(TypeEnum type)
+    {
 
         EmbeddedStorageManager storageManager = EmbeddedStorage.start(type.createEmptyInstance(), storagePath);
         storageManager.shutdown();

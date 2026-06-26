@@ -9,31 +9,33 @@ package test.eclipse.store.legacy.legacy.enumeration.data;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
-public enum EnumerationCopy {
+public enum EnumerationCopy
+{
 
     FIRST("first", "10"),
-    SECOND("second", "30")
-
-    ;
+    SECOND("second", "30");
 
     private String name;
     private String value;
 
-    EnumerationCopy(String name, String value) {
+    EnumerationCopy(String name, String value)
+    {
         this.name = name;
         this.value = value;
     }
 
-    public String getName() {
+    public String getName()
+    {
         return name;
     }
 
-    public String getValue() {
+    public String getValue()
+    {
         return value;
     }
 }

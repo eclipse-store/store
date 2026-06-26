@@ -9,10 +9,12 @@ package test.eclipse.store.configuration;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
 import java.io.IOException;
@@ -29,25 +31,24 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-class ChannelDirectoryPrefixTest {
+class ChannelDirectoryPrefixTest
+{
 
     @TempDir
     Path location;
 
     @Test
-    void channelDirectoryPrefixTest() throws IOException {
+    void channelDirectoryPrefixTest() throws IOException
+    {
 
         final Customer customer = CustomerGenerator.generateNewCustomer();
-        
+
         final EmbeddedStorageConfigurationBuilder configuration = EmbeddedStorageConfiguration.load(
-        	"configuration/channelDirectoryPrefix.ini"
+                "configuration/channelDirectoryPrefix.ini"
         );
 
         final EmbeddedStorageManager storageManager = configuration.setStorageDirectory(this.location.toString())
-        	.createEmbeddedStorageFoundation().createEmbeddedStorageManager(customer).start();
+                .createEmbeddedStorageFoundation().createEmbeddedStorageManager(customer).start();
 
         final List<File> files = (List<File>) FileUtils.listFiles(this.location.toFile(), null, true);
 
@@ -62,7 +63,8 @@ class ChannelDirectoryPrefixTest {
     }
 
     @Test
-    void channelDirectoryPrefixYmlTest() throws IOException {
+    void channelDirectoryPrefixYmlTest() throws IOException
+    {
 
         final Customer customer = CustomerGenerator.generateNewCustomer();
 
@@ -87,7 +89,8 @@ class ChannelDirectoryPrefixTest {
     }
 
     @Test
-    void channelDirectoryPrefixHoconTest() throws IOException {
+    void channelDirectoryPrefixHoconTest() throws IOException
+    {
 
         final Customer customer = CustomerGenerator.generateNewCustomer();
 
@@ -112,16 +115,17 @@ class ChannelDirectoryPrefixTest {
     }
 
     @Test
-    void channelDirectoryPrefixXMLTest() throws IOException {
+    void channelDirectoryPrefixXMLTest() throws IOException
+    {
 
         final Customer customer = CustomerGenerator.generateNewCustomer();
 
         final EmbeddedStorageConfigurationBuilder configuration = EmbeddedStorageConfiguration.load(
-        	"configuration/channelDirectoryPrefix.xml"
+                "configuration/channelDirectoryPrefix.xml"
         );
 
         final EmbeddedStorageManager storageManager = configuration.setStorageDirectory(this.location.toString())
-        	.createEmbeddedStorageFoundation().createEmbeddedStorageManager(customer).start();
+                .createEmbeddedStorageFoundation().createEmbeddedStorageManager(customer).start();
 
         final List<File> files = (List<File>) FileUtils.listFiles(this.location.toFile(), null, true);
 

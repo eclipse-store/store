@@ -9,14 +9,15 @@ package test.eclipse.store.handler.basic;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
 import test.eclipse.store.handler.BinaryHandlerTestData;
 
-public class BasicNonPrimitiveArrayTypes implements BinaryHandlerTestData {
+public class BasicNonPrimitiveArrayTypes implements BinaryHandlerTestData
+{
     private static final Byte SAMPLE_BYTE = 100;
     private static final Byte SAMPLE_BYTE_2 = 127;
     private static final Short SAMPLE_SHORT = 50;
@@ -52,7 +53,8 @@ public class BasicNonPrimitiveArrayTypes implements BinaryHandlerTestData {
     private Character[][] charValueMatrix;
     private Object[][] objectValueMatrix;
 
-    public BasicNonPrimitiveArrayTypes() {
+    public BasicNonPrimitiveArrayTypes()
+    {
         byteValues = new Byte[1];
         shortValues = new Short[1];
         intValues = new Integer[1];
@@ -73,7 +75,8 @@ public class BasicNonPrimitiveArrayTypes implements BinaryHandlerTestData {
     }
 
     @Override
-    public void fillSampleData() {
+    public void fillSampleData()
+    {
         byteValues = new Byte[]{SAMPLE_BYTE, SAMPLE_BYTE_2};
         shortValues = new Short[]{SAMPLE_SHORT, SAMPLE_SHORT_2};
         intValues = new Integer[]{SAMPLE_INT, SAMPLE_INT_2};
@@ -96,75 +99,93 @@ public class BasicNonPrimitiveArrayTypes implements BinaryHandlerTestData {
     }
 
 
-    public Byte[] getByteValues() {
+    public Byte[] getByteValues()
+    {
         return byteValues;
     }
 
-    public Short[] getShortValues() {
+    public Short[] getShortValues()
+    {
         return shortValues;
     }
 
-    public Integer[] getIntValues() {
+    public Integer[] getIntValues()
+    {
         return intValues;
     }
 
-    public Long[] getLongValues() {
+    public Long[] getLongValues()
+    {
         return longValues;
     }
 
-    public Float[] getFloatValues() {
+    public Float[] getFloatValues()
+    {
         return floatValues;
     }
 
-    public Double[] getDoubleValues() {
+    public Double[] getDoubleValues()
+    {
         return doubleValues;
     }
 
-    public Boolean[] getBooleanValues() {
+    public Boolean[] getBooleanValues()
+    {
         return booleanValues;
     }
 
-    public Character[] getCharValues() {
+    public Character[] getCharValues()
+    {
         return charValues;
     }
 
-    public Byte[][] getByteValueMatrix() {
+    public Byte[][] getByteValueMatrix()
+    {
         return byteValueMatrix;
     }
 
-    public Short[][] getShortValueMatrix() {
+    public Short[][] getShortValueMatrix()
+    {
         return shortValueMatrix;
     }
 
-    public Integer[][] getIntValueMatrix() {
+    public Integer[][] getIntValueMatrix()
+    {
         return intValueMatrix;
     }
 
-    public Long[][] getLongValueMatrix() {
+    public Long[][] getLongValueMatrix()
+    {
         return longValueMatrix;
     }
 
-    public Float[][] getFloatValueMatrix() {
+    public Float[][] getFloatValueMatrix()
+    {
         return floatValueMatrix;
     }
 
-    public Double[][] getDoubleValueMatrix() {
+    public Double[][] getDoubleValueMatrix()
+    {
         return doubleValueMatrix;
     }
 
-    public Boolean[][] getBooleanValueMatrix() {
+    public Boolean[][] getBooleanValueMatrix()
+    {
         return booleanValueMatrix;
     }
 
-    public Character[][] getCharValueMatrix() {
+    public Character[][] getCharValueMatrix()
+    {
         return charValueMatrix;
     }
 
-    public Object[] getObjectValues() {
+    public Object[] getObjectValues()
+    {
         return objectValues;
     }
 
-    public Object[][] getObjectValueMatrix() {
+    public Object[][] getObjectValueMatrix()
+    {
         return objectValueMatrix;
     }
 }

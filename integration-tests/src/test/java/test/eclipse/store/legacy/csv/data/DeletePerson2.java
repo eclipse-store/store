@@ -9,7 +9,7 @@ package test.eclipse.store.legacy.csv.data;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -17,7 +17,8 @@ package test.eclipse.store.legacy.csv.data;
 import java.util.HashMap;
 import java.util.Map;
 
-public class DeletePerson2 {
+public class DeletePerson2
+{
 
     private static final String HAIR_COLOR = "hair_color";
     private static final String EYE_COLOR = "eye_color";
@@ -28,65 +29,80 @@ public class DeletePerson2 {
     private Map<String, String> attributes = new HashMap<>();
     private Integer age = null;
 
-    public DeletePerson2(String firstName, String eyeColor, String hairColor) {
+    public DeletePerson2(String firstName, String eyeColor, String hairColor)
+    {
         this.firstName = firstName;
         this.attributes.put(HAIR_COLOR, hairColor);
         this.attributes.put(EYE_COLOR, eyeColor);
     }
 
-    public DeletePerson2() {
+    public DeletePerson2()
+    {
 
     }
 
-    public String getFullName() {
+    public String getFullName()
+    {
         return fullName;
     }
 
-    public String getOriginal() {
+    public String getOriginal()
+    {
         return original;
     }
 
-    public void setOriginal(String original) {
+    public void setOriginal(String original)
+    {
         this.original = original;
     }
 
-    public Integer getAge() {
+    public Integer getAge()
+    {
         return age;
     }
 
-    public void setAge(Integer age) {
+    public void setAge(Integer age)
+    {
         this.age = age;
     }
 
-    public String findHairColor() {
+    public String findHairColor()
+    {
         return attributes.get(HAIR_COLOR);
     }
 
-    public String findEyeColor() {
+    public String findEyeColor()
+    {
         return attributes.get(EYE_COLOR);
     }
 
-    public void setEyeColor(String color) {
+    public void setEyeColor(String color)
+    {
         attributes.put(EYE_COLOR, color);
     }
 
-    public void setHairColor(String color) {
+    public void setHairColor(String color)
+    {
         attributes.put(HAIR_COLOR, color);
     }
 
-    public String getFirstName() {
+    public String getFirstName()
+    {
         return firstName;
     }
 
-    public void setFirstName(String firstName) {
+    public void setFirstName(String firstName)
+    {
         this.firstName = firstName;
     }
 
-    public Map<String, String> getAttributes() {
+    public Map<String, String> getAttributes()
+    {
         return attributes;
     }
 
-    public void setAttributes(Map<String, String> attributes) {
+    public void setAttributes(Map<String, String> attributes)
+    {
         this.attributes = attributes;
     }
 }

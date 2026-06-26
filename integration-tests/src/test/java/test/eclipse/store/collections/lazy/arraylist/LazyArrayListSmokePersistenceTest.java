@@ -9,7 +9,7 @@ package test.eclipse.store.collections.lazy.arraylist;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -30,14 +30,16 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-public class LazyArrayListSmokePersistenceTest {
+public class LazyArrayListSmokePersistenceTest
+{
 
 
     @TempDir
     Path location;
 
     @Test
-    public void addItem() {
+    public void addItem()
+    {
         LazyArrayList<Integer> list = new LazyArrayList<>();
 
         try (EmbeddedStorageManager storage = EmbeddedStorage.start(list, location)) {
@@ -69,7 +71,8 @@ public class LazyArrayListSmokePersistenceTest {
     }
 
     @Test
-    public void isEmpty() {
+    public void isEmpty()
+    {
         LazyArrayList<Integer> list = new LazyArrayList<>();
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(list, location)) {
             assertTrue(list.isEmpty());
@@ -77,7 +80,8 @@ public class LazyArrayListSmokePersistenceTest {
     }
 
     @Test
-    public void contains() {
+    public void contains()
+    {
         String s = "Hello, i would to be a great object";
 
         LazyArrayList<String> list = new LazyArrayList<>();
@@ -95,7 +99,8 @@ public class LazyArrayListSmokePersistenceTest {
 
 
     @Test
-    public void iterator() {
+    public void iterator()
+    {
         String s = "Hello, i would to be a great object";
 
         LazyArrayList<String> list = new LazyArrayList<>();
@@ -129,7 +134,8 @@ public class LazyArrayListSmokePersistenceTest {
     }
 
     @Test
-    public void toArray() {
+    public void toArray()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -152,7 +158,8 @@ public class LazyArrayListSmokePersistenceTest {
     }
 
     @Test
-    public void toArrayWithType() {
+    public void toArrayWithType()
+    {
         LazyArrayList<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -179,7 +186,8 @@ public class LazyArrayListSmokePersistenceTest {
     }
 
     @Test
-    public void remove() {
+    public void remove()
+    {
         LazyArrayList<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -205,7 +213,8 @@ public class LazyArrayListSmokePersistenceTest {
     }
 
     @Test
-    public void containsAll() {
+    public void containsAll()
+    {
         LazyArrayList<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -234,7 +243,8 @@ public class LazyArrayListSmokePersistenceTest {
     }
 
     @Test
-    public void addAllIndex() {
+    public void addAllIndex()
+    {
         LazyArrayList<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -263,7 +273,6 @@ public class LazyArrayListSmokePersistenceTest {
         assertTrue(copy.addAll(2, list2));
 
 
-
         List<Integer> list3 = new LazyArrayList<>();
         list3.add(1);
         list3.add(2);
@@ -276,7 +285,8 @@ public class LazyArrayListSmokePersistenceTest {
     }
 
     @Test
-    public void removeAllCollection() {
+    public void removeAllCollection()
+    {
         LazyArrayList<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -309,7 +319,8 @@ public class LazyArrayListSmokePersistenceTest {
     }
 
     @Test
-    public void retainAll() {
+    public void retainAll()
+    {
         LazyArrayList<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -347,9 +358,12 @@ public class LazyArrayListSmokePersistenceTest {
 
 
     @Test
-    public void replaceAllUnaryOperator() {
-        class Op implements UnaryOperator<String> {
-            public String apply(String str) {
+    public void replaceAllUnaryOperator()
+    {
+        class Op implements UnaryOperator<String>
+        {
+            public String apply(String str)
+            {
                 return str.toUpperCase();
             }
         }
@@ -368,7 +382,8 @@ public class LazyArrayListSmokePersistenceTest {
     }
 
     @Test
-    public void sort() {
+    public void sort()
+    {
 
         Comparator<Integer> valueComparator = (Integer o1, Integer o2) -> o1 - o2;
 
@@ -392,7 +407,6 @@ public class LazyArrayListSmokePersistenceTest {
                         .shutdown();
             }
         }
-
 
 
         List<Integer> resultList = new LazyArrayList<>();

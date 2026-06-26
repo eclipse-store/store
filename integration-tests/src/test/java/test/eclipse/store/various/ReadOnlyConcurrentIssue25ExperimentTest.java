@@ -9,7 +9,7 @@ package test.eclipse.store.various;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -34,76 +34,73 @@ import org.junit.jupiter.api.io.TempDir;
  */
 public class ReadOnlyConcurrentIssue25ExperimentTest
 {
-	@TempDir
-	Path workDir;
+    @TempDir
+    Path workDir;
 
-	/**
-	 * The exact scenario from the issue: second foundation on the same directory
-	 * with the default database name. Expected to still fail with
-	 * "Active storage ... already exists" (Database.guaranteeNoActiveStorage).
-	 */
-	@Test
-	void originalRepro_secondManagerWhileFirstRunning_stillThrows()
-	{
-		List<String> root = new ArrayList<>(List.of("a", "b", "c"));
+    /**
+     * The exact scenario from the issue: second foundation on the same directory
+     * with the default database name. Expected to still fail with
+     * "Active storage ... already exists" (Database.guaranteeNoActiveStorage).
+     */
+    @Test
+    void originalRepro_secondManagerWhileFirstRunning_stillThrows()
+    {
+        List<String> root = new ArrayList<>(List.of("a", "b", "c"));
 
-		try (EmbeddedStorageManager writer = EmbeddedStorage.start(root, workDir))
-		{
-			EmbeddedStorageFoundation<?> foundation = EmbeddedStorage.Foundation(workDir);
-			StorageWriteControllerReadOnlyMode writeController =
-				new StorageWriteControllerReadOnlyMode(foundation.getWriteController());
-			writeController.setReadOnly(true);
-			foundation.setWriteController(writeController);
+        try (EmbeddedStorageManager writer = EmbeddedStorage.start(root, workDir)) {
+            EmbeddedStorageFoundation<?> foundation = EmbeddedStorage.Foundation(workDir);
+            StorageWriteControllerReadOnlyMode writeController =
+                    new StorageWriteControllerReadOnlyMode(foundation.getWriteController());
+            writeController.setReadOnly(true);
+            foundation.setWriteController(writeController);
 
-			StorageExceptionInitialization e = Assertions.assertThrows(
-				StorageExceptionInitialization.class,
-				() -> foundation.setRoot(new ArrayList<String>()).createEmbeddedStorageManager()
-			);
-			Assertions.assertTrue(e.getMessage().contains("already exists"), e.getMessage());
-		}
-	}
+            StorageExceptionInitialization e = Assertions.assertThrows(
+                    StorageExceptionInitialization.class,
+                    () -> foundation.setRoot(new ArrayList<String>()).createEmbeddedStorageManager()
+            );
+            Assertions.assertTrue(e.getMessage().contains("already exists"), e.getMessage());
+        }
+    }
 
-	/**
-	 * Same scenario, but the second foundation gets its own database name,
-	 * which bypasses the Databases-registry guard. The read-only manager
-	 * should start next to the running writer, read the data and reject writes.
-	 */
-	@Test
-	void setDataBaseName_bypassesGuard_readOnlyManagerReadsLiveStorage()
-	{
-		List<String> root = new ArrayList<>(List.of("a", "b", "c"));
+    /**
+     * Same scenario, but the second foundation gets its own database name,
+     * which bypasses the Databases-registry guard. The read-only manager
+     * should start next to the running writer, read the data and reject writes.
+     */
+    @Test
+    void setDataBaseName_bypassesGuard_readOnlyManagerReadsLiveStorage()
+    {
+        List<String> root = new ArrayList<>(List.of("a", "b", "c"));
 
-		try (EmbeddedStorageManager writer = EmbeddedStorage.start(root, workDir))
-		{
-			EmbeddedStorageFoundation<?> foundation = EmbeddedStorage.Foundation(workDir);
-			StorageWriteControllerReadOnlyMode writeController =
-				new StorageWriteControllerReadOnlyMode(foundation.getWriteController());
-			writeController.setReadOnly(true);
-			foundation.setWriteController(writeController);
-			foundation.setDataBaseName("read-only-experiment");
+        try (EmbeddedStorageManager writer = EmbeddedStorage.start(root, workDir)) {
+            EmbeddedStorageFoundation<?> foundation = EmbeddedStorage.Foundation(workDir);
+            StorageWriteControllerReadOnlyMode writeController =
+                    new StorageWriteControllerReadOnlyMode(foundation.getWriteController());
+            writeController.setReadOnly(true);
+            foundation.setWriteController(writeController);
+            foundation.setDataBaseName("read-only-experiment");
 
-			try (EmbeddedStorageManager readOnly =
-				foundation.setRoot(new ArrayList<String>()).createEmbeddedStorageManager().start())
-			{
-				Assertions.assertTrue(writer.isRunning());
-				Assertions.assertTrue(readOnly.isRunning());
+            try (EmbeddedStorageManager readOnly =
+                         foundation.setRoot(new ArrayList<String>()).createEmbeddedStorageManager().start()) {
+                Assertions.assertTrue(writer.isRunning());
+                Assertions.assertTrue(readOnly.isRunning());
 
-				@SuppressWarnings("unchecked")
-				List<String> loaded = (List<String>)readOnly.root();
-				Assertions.assertEquals(List.of("a", "b", "c"), loaded);
+                @SuppressWarnings("unchecked")
+                List<String> loaded = (List<String>) readOnly.root();
+                Assertions.assertEquals(List.of("a", "b", "c"), loaded);
 
-				RuntimeException writeRejected = Assertions.assertThrows(
-					RuntimeException.class,
-					() -> readOnly.store(loaded)
-				);
-				System.out.println("[experiment] write on read-only manager rejected with: "
-					+ writeRejected.getClass().getName() + ": " + writeRejected.getMessage());
-			}
+                RuntimeException writeRejected = Assertions.assertThrows(
+                        RuntimeException.class,
+                        () -> readOnly.store(loaded)
+                );
+                System.out.println("[experiment] write on read-only manager rejected with: "
+                        + writeRejected.getClass().getName() + ": " + writeRejected.getMessage());
+            }
 
-			// writer must stay alive and writable after the read-only manager is closed
-			Assertions.assertTrue(writer.isRunning());
-			root.add("d");
-			writer.store(root);
-		}
-	}
+            // writer must stay alive and writable after the read-only manager is closed
+            Assertions.assertTrue(writer.isRunning());
+            root.add("d");
+            writer.store(root);
+        }
+    }
 }

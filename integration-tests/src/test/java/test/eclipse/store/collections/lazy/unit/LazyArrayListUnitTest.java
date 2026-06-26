@@ -9,39 +9,28 @@ package test.eclipse.store.collections.lazy.unit;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import java.util.*;
+import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.eclipse.serializer.collections.lazy.LazyArrayList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
-import java.util.ListIterator;
-import java.util.Spliterator;
-import java.util.function.UnaryOperator;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
-import static org.junit.jupiter.api.Assertions.assertAll;
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertIterableEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-public class LazyArrayListUnitTest {
+public class LazyArrayListUnitTest
+{
 
     @Test
-    public void addItem() {
+    public void addItem()
+    {
         LazyArrayList<Integer> list = new LazyArrayList<>();
 
         assertTrue(list.isEmpty());
@@ -58,14 +47,16 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    void addAll() {
+    void addAll()
+    {
         LazyArrayList<String> lazyArrayList = Util.generateLazyArrayList(10, 100);
         LazyArrayList<String> list = new LazyArrayList<>();
         assertFalse(lazyArrayList.addAll(list));
     }
 
     @Test
-    void addAllEmpty() {
+    void addAllEmpty()
+    {
         LazyArrayList<String> lazyArrayList = Util.generateLazyArrayList(10, 100);
         LazyArrayList<String> list2 = new LazyArrayList<>();
         lazyArrayList.addAll(0, list2);
@@ -73,7 +64,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    void addAllToEnd() {
+    void addAllToEnd()
+    {
         LazyArrayList<String> lazyArrayList = Util.generateLazyArrayList(10, 100);
         LazyArrayList<String> list2 = Util.generateLazyArrayList(10, 100);
         lazyArrayList.addAll(100, list2);
@@ -81,7 +73,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    void addAllInside() {
+    void addAllInside()
+    {
         LazyArrayList<String> lazyArrayList = Util.generateLazyArrayList(10, 100);
         LazyArrayList<String> list2 = Util.generateLazyArrayList(10, 100);
         lazyArrayList.addAll(50, list2);
@@ -90,20 +83,23 @@ public class LazyArrayListUnitTest {
 
 
     @Test
-    void addItemSimple() {
+    void addItemSimple()
+    {
         LazyArrayList<String> lazyArrayList = Util.generateLazyArrayList(10, 100);
         lazyArrayList.add(100, "SomeString");
         assertEquals(101, lazyArrayList.size());
     }
 
     @Test
-    void getSegmentCountTest() {
+    void getSegmentCountTest()
+    {
         LazyArrayList<String> lazyArrayList = Util.generateLazyArrayList(10, 100);
         assertEquals(10, lazyArrayList.getSegmentCount());
     }
 
     @Test
-    void iterateSegmentsTest() {
+    void iterateSegmentsTest()
+    {
         LazyArrayList<String> lazyArrayList = Util.generateLazyArrayList(10, 100);
         for (LazyArrayList<String>.Segment segment : lazyArrayList.segments()) {
             assertTrue(segment.isLoaded());
@@ -111,19 +107,22 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    void getMaxSegmentSize() {
+    void getMaxSegmentSize()
+    {
         LazyArrayList<String> lazyArrayList = Util.generateLazyArrayList(10, 100);
         assertEquals(10, lazyArrayList.getMaxSegmentSize());
     }
 
     @Test
-    public void isEmpty() {
+    public void isEmpty()
+    {
         LazyArrayList<Integer> list = new LazyArrayList<>();
         assertTrue(list.isEmpty());
     }
 
     @Test
-    public void contains() {
+    public void contains()
+    {
         String s = "Hello, i would to be a great object";
 
         LazyArrayList<String> list = new LazyArrayList<>();
@@ -134,7 +133,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void containsHuge() {
+    public void containsHuge()
+    {
         LazyArrayList<String> list = Stream.generate(() -> "Java")
                 .limit(35000)
                 .collect(Collectors.toCollection(LazyArrayList::new));
@@ -144,7 +144,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void iterator() {
+    public void iterator()
+    {
         String s = "Hello, i would to be a great object";
 
         LazyArrayList<String> list = new LazyArrayList<>();
@@ -165,7 +166,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void toArray() {
+    public void toArray()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -177,7 +179,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void toArrayWithType() {
+    public void toArrayWithType()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -189,7 +192,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void toArrayWithTypeLongerArray() {
+    public void toArrayWithTypeLongerArray()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -201,7 +205,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void remove() {
+    public void remove()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -212,7 +217,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    void removeObject() {
+    void removeObject()
+    {
         LazyArrayList<String> lazyArrayList = Util.generateLazyArrayList(10, 100);
         String s = lazyArrayList.get(50);
         assertTrue(lazyArrayList.remove(s));
@@ -220,7 +226,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    void removeAllSameObject() {
+    void removeAllSameObject()
+    {
         LazyArrayList<String> lazyArrayList = Stream.generate(() -> "Java")
                 .limit(100)
                 .collect(Collectors.toCollection(LazyArrayList::new));
@@ -229,13 +236,15 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    void removeSegmentIndex() {
+    void removeSegmentIndex()
+    {
         LazyArrayList<String> list = Util.generateLazyArrayList(10, 101);
         assertNotNull(list.remove(100));
     }
 
     @Test
-    void removeSegmentValue() {
+    void removeSegmentValue()
+    {
         LazyArrayList<String> list = Util.generateLazyArrayList(10, 101);
         String s = list.get(100);
         assertNotNull(list.remove(s));
@@ -243,7 +252,8 @@ public class LazyArrayListUnitTest {
 
 
     @Test
-    void removeObject_notExists() {
+    void removeObject_notExists()
+    {
         LazyArrayList<String> lazyArrayList = Util.generateLazyArrayList(10, 100);
         String s = "fkldsj;f jadslkf jsdalkjf alsdjf ;aksjfld";
         assertFalse(lazyArrayList.remove(s));
@@ -251,7 +261,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    void removeIfTest() {
+    void removeIfTest()
+    {
         LazyArrayList<String> lazyArrayList = Stream.generate(() -> "Java")
                 .limit(100)
                 .collect(Collectors.toCollection(LazyArrayList::new));
@@ -260,7 +271,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    void consolidate() {
+    void consolidate()
+    {
         LazyArrayList<String> lazyArrayList = Util.generateLazyArrayList(10, 100);
         lazyArrayList.remove(54);
         lazyArrayList.remove(82);
@@ -268,7 +280,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    void iterateLazyReferences() {
+    void iterateLazyReferences()
+    {
         LazyArrayList<String> lazyArrayList = Util.generateLazyArrayList(10, 100);
         lazyArrayList.iterateLazyReferences((i) -> {
             assertTrue(i.isLoaded());
@@ -276,7 +289,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    void loadedFirstIterator() {
+    void loadedFirstIterator()
+    {
         LazyArrayList<String> lazyArrayList = Util.generateLazyArrayList(10, 100);
         for (Iterator<String> it = lazyArrayList.loadedFirstIterator(); it.hasNext(); ) {
             String stringIterator = it.next();
@@ -289,7 +303,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    void loadedFirstIterator_remove() {
+    void loadedFirstIterator_remove()
+    {
         LazyArrayList<String> lazyArrayList = Util.generateLazyArrayList(10, 100);
         for (Iterator<String> it = lazyArrayList.loadedFirstIterator(); it.hasNext(); ) {
             String stringIterator = it.next();
@@ -299,28 +314,32 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    void spliteratorCharacteristics() {
+    void spliteratorCharacteristics()
+    {
         LazyArrayList<String> lazyArrayList = Util.generateLazyArrayList(10, 100);
         assertNotEquals(0, lazyArrayList.spliterator()
                 .characteristics());
     }
 
     @Test
-    void segmentsSpliteratorCharacteristics() {
+    void segmentsSpliteratorCharacteristics()
+    {
         LazyArrayList<String> lazyArrayList = Util.generateLazyArrayList(10, 100);
         assertNotEquals(0, lazyArrayList.segmentSpliterator()
                 .characteristics());
     }
 
     @Test
-    void segmentSpliteratorTest() {
+    void segmentSpliteratorTest()
+    {
         LazyArrayList<String> lazyArrayList = Util.generateLazyArrayList(10, 100);
         Spliterator<String> stringSpliterator = lazyArrayList.segmentSpliterator();
         assertTrue(stringSpliterator.tryAdvance(Assertions::assertNotNull));
     }
 
     @Test
-    public void containsAll() {
+    public void containsAll()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -335,7 +354,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void addAllIndex() {
+    public void addAllIndex()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -360,7 +380,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void removeAllCollection() {
+    public void removeAllCollection()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -377,7 +398,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void retainAll() {
+    public void retainAll()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -398,9 +420,12 @@ public class LazyArrayListUnitTest {
 
 
     @Test
-    public void replaceAllUnaryOperator() {
-        class Op implements UnaryOperator<String> {
-            public String apply(String str) {
+    public void replaceAllUnaryOperator()
+    {
+        class Op implements UnaryOperator<String>
+        {
+            public String apply(String str)
+            {
                 return str.toUpperCase();
             }
         }
@@ -419,7 +444,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void sort() {
+    public void sort()
+    {
 
         Comparator<Integer> valueComparator = (Integer o1, Integer o2) -> o1 - o2;
 
@@ -439,7 +465,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void clear() {
+    public void clear()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(3);
         list.add(2);
@@ -451,7 +478,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void equals() {
+    public void equals()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -470,7 +498,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void hashCodeTest() {
+    public void hashCodeTest()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -488,7 +517,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void get() {
+    public void get()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -498,7 +528,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void getWithIndexOutOfBoundException() {
+    public void getWithIndexOutOfBoundException()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -511,7 +542,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void setAndGetBack() {
+    public void setAndGetBack()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -528,7 +560,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void setIndexBoundOfException() {
+    public void setIndexBoundOfException()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -542,7 +575,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void addWithIndex() {
+    public void addWithIndex()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -560,7 +594,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void removeWithIndex() {
+    public void removeWithIndex()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -577,7 +612,8 @@ public class LazyArrayListUnitTest {
 
 
     @Test
-    public void indexOf() {
+    public void indexOf()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -587,7 +623,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void lastIndexOf() {
+    public void lastIndexOf()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(1);
@@ -599,7 +636,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void listIteratorIndex() {
+    public void listIteratorIndex()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(1);
@@ -618,7 +656,8 @@ public class LazyArrayListUnitTest {
     }
 
     @Test
-    public void sublist() {
+    public void sublist()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);
@@ -639,14 +678,16 @@ public class LazyArrayListUnitTest {
                 () -> assertThrows(IndexOutOfBoundsException.class, () -> list.subList(100, 50)));
     }
 
-    public LazyArrayList<Article> generateElements() {
+    public LazyArrayList<Article> generateElements()
+    {
         return Stream.generate(() -> new Article("Java"))
                 .limit(35000)
                 .collect(Collectors.toCollection(LazyArrayList::new));
     }
 
     @Test
-    public void givenSpliterator_whenAppliedToAListOfArticle_thenSplittedInHalf() {
+    public void givenSpliterator_whenAppliedToAListOfArticle_thenSplittedInHalf()
+    {
         LazyArrayList<Article> articles = generateElements();
         Spliterator<Article> split1 = articles.spliterator();
         Spliterator<Article> split2 = split1.trySplit();
@@ -657,11 +698,13 @@ public class LazyArrayListUnitTest {
                 () -> assertEquals(18000, split2.estimateSize()));
     }
 
-    public class Article {
+    public class Article
+    {
         private int id;
         private String name;
 
-        public Article(String name) {
+        public Article(String name)
+        {
             this.name = name;
         }
 
@@ -670,7 +713,8 @@ public class LazyArrayListUnitTest {
 
 
     @Test
-    public void copyOf() {
+    public void copyOf()
+    {
         List<Integer> list = new LazyArrayList<>();
         list.add(1);
         list.add(2);

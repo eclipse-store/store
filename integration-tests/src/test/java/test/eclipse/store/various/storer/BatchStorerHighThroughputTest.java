@@ -9,7 +9,7 @@ package test.eclipse.store.various.storer;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -37,44 +37,48 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Stress test for BatchStorer internal synchronization.
- *
+ * <p>
  * Multiple writer threads each own a private partition of the shared list and
  * store DIFFERENT objects into a single BatchStorer instance concurrently.
  * User data access is properly synchronized — the pressure is purely on the
  * BatchStorer internals (pending-map, flush pipeline, storage channel locking).
- *
+ * <p>
  * Concurrent flush threads call storer.flush() in a tight loop to maximise
  * overlap between serialization and store() enqueuing.
- *
+ * <p>
  * After the run the storage is reloaded and the exact item count is verified.
  */
 @Disabled("only manual launch, takes to long")
 public class BatchStorerHighThroughputTest
 {
-    private static final Duration TEST_DURATION   = Duration.ofMinutes(5);
-    private static final int      WRITER_THREADS  = 8;
-    private static final int      FLUSH_THREADS   = 4;
-    private static final int      ITEMS_PER_BATCH = 50;
+    private static final Duration TEST_DURATION = Duration.ofMinutes(5);
+    private static final int WRITER_THREADS = 8;
+    private static final int FLUSH_THREADS = 4;
+    private static final int ITEMS_PER_BATCH = 50;
 
     @TempDir
     Path tempDir;
 
     static class DataItem
     {
-        final int    id;
-        String       value;
-        int          revision;
+        final int id;
+        String value;
+        int revision;
         final byte[] payload;
 
         DataItem(final int id, final String value)
         {
-            this.id       = id;
-            this.value    = value;
+            this.id = id;
+            this.value = value;
             this.revision = 0;
-            this.payload  = new byte[(id % 64) + 16];
+            this.payload = new byte[(id % 64) + 16];
         }
 
-        void update(final String v) { this.value = v; this.revision++; }
+        void update(final String v)
+        {
+            this.value = v;
+            this.revision++;
+        }
     }
 
     static class Root
@@ -86,8 +90,7 @@ public class BatchStorerHighThroughputTest
     void highThroughputTest() throws InterruptedException
     {
         final Root root = new Root();
-        for (int i = 0; i < 200; i++)
-        {
+        for (int i = 0; i < 200; i++) {
             root.items.add(new DataItem(i, "seed-" + i));
         }
 
@@ -100,38 +103,35 @@ public class BatchStorerHighThroughputTest
 
         System.out.println("Starting high-throughput BatchStorer test (" + TEST_DURATION.toMinutes() + " min)...");
 
-        try (EmbeddedStorageManager storage = EmbeddedStorage.start(root, tempDir))
-        {
+        try (EmbeddedStorageManager storage = EmbeddedStorage.start(root, tempDir)) {
             storage.storeRoot();
             storage.store(root.items);
 
             try (BatchStorer storer = storage.createBatchStorer(
                     BatchStorer.Controller(500, Duration.ofMillis(400)),
                     Duration.ofMillis(50)
-            ))
-            {
+            )) {
                 final ExecutorService executor =
                         Executors.newFixedThreadPool(WRITER_THREADS + FLUSH_THREADS);
 
                 // Writer threads: each adds items in batches and updates existing items.
-                for (int t = 0; t < WRITER_THREADS; t++)
-                {
+                for (int t = 0; t < WRITER_THREADS; t++) {
                     final int idx = t;
                     executor.submit(() ->
                     {
-                        try { startLatch.await(); }
-                        catch (final InterruptedException e) { Thread.currentThread().interrupt(); return; }
+                        try {
+                            startLatch.await();
+                        } catch (final InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
 
                         int iteration = 0;
-                        while (!stop.get())
-                        {
-                            try
-                            {
+                        while (!stop.get()) {
+                            try {
                                 // Add a batch of new items.
-                                synchronized (root.items)
-                                {
-                                    for (int b = 0; b < ITEMS_PER_BATCH; b++)
-                                    {
+                                synchronized (root.items) {
+                                    for (int b = 0; b < ITEMS_PER_BATCH; b++) {
                                         final DataItem item = new DataItem(
                                                 root.items.size(),
                                                 "w" + idx + "-i" + iteration + "-b" + b
@@ -145,10 +145,8 @@ public class BatchStorerHighThroughputTest
                                 }
 
                                 // Update existing items from own "zone".
-                                synchronized (root.items)
-                                {
-                                    for (int u = 0; u < 10; u++)
-                                    {
+                                synchronized (root.items) {
+                                    for (int u = 0; u < 10; u++) {
                                         final int target = (idx * 31 + iteration * 7 + u * 13) % root.items.size();
                                         final DataItem item = root.items.get(target);
                                         item.update("w" + idx + "-upd-" + iteration);
@@ -159,9 +157,7 @@ public class BatchStorerHighThroughputTest
 
                                 iteration++;
                                 Thread.yield();
-                            }
-                            catch (final Exception e)
-                            {
+                            } catch (final Exception e) {
                                 if (firstError.compareAndSet(null, e)) e.printStackTrace();
                             }
                         }
@@ -169,22 +165,21 @@ public class BatchStorerHighThroughputTest
                 }
 
                 // Flush threads: hammer flush() to create maximum contention.
-                for (int t = 0; t < FLUSH_THREADS; t++)
-                {
+                for (int t = 0; t < FLUSH_THREADS; t++) {
                     executor.submit(() ->
                     {
-                        try { startLatch.await(); }
-                        catch (final InterruptedException e) { Thread.currentThread().interrupt(); return; }
+                        try {
+                            startLatch.await();
+                        } catch (final InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
 
-                        while (!stop.get())
-                        {
-                            try
-                            {
+                        while (!stop.get()) {
+                            try {
                                 storer.flush();
                                 flushCalls.incrementAndGet();
-                            }
-                            catch (final Exception e)
-                            {
+                            } catch (final Exception e) {
                                 if (firstError.compareAndSet(null, e)) e.printStackTrace();
                             }
                         }
@@ -208,18 +203,18 @@ public class BatchStorerHighThroughputTest
         }
 
         final int expectedSize;
-        synchronized (root.items) { expectedSize = root.items.size(); }
+        synchronized (root.items) {
+            expectedSize = root.items.size();
+        }
 
         System.out.println("Reloading storage from disk...");
-        try (EmbeddedStorageManager reloadStorage = EmbeddedStorage.start(tempDir))
-        {
+        try (EmbeddedStorageManager reloadStorage = EmbeddedStorage.start(tempDir)) {
             final Root reloaded = (Root) reloadStorage.root();
             assertNotNull(reloaded, "Root must not be null");
             assertFalse(reloaded.items.isEmpty(), "Reloaded items list must not be empty");
 
             int nulls = 0;
-            for (int i = 0; i < reloaded.items.size(); i++)
-            {
+            for (int i = 0; i < reloaded.items.size(); i++) {
                 if (reloaded.items.get(i) == null) nulls++;
             }
 

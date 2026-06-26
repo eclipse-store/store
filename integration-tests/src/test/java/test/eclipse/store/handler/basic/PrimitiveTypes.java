@@ -9,14 +9,15 @@ package test.eclipse.store.handler.basic;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
 import test.eclipse.store.handler.BinaryHandlerTestData;
 
-public class PrimitiveTypes implements BinaryHandlerTestData {
+public class PrimitiveTypes implements BinaryHandlerTestData
+{
     private static final byte SAMPLE_BYTE = 100;
     private static final short SAMPLE_SHORT = 50;
     private static final int SAMPLE_INT = 5401;
@@ -36,18 +37,21 @@ public class PrimitiveTypes implements BinaryHandlerTestData {
     private boolean booleanValue;
     private char charValue;
 
-    public PrimitiveTypes() {
+    public PrimitiveTypes()
+    {
         super();
     }
 
-    public static PrimitiveTypes fillSample() {
+    public static PrimitiveTypes fillSample()
+    {
         PrimitiveTypes p = new PrimitiveTypes();
         p.fillSampleData();
         return p;
     }
 
     @Override
-    public void fillSampleData() {
+    public void fillSampleData()
+    {
         this.byteValue = SAMPLE_BYTE;
         this.shortValue = SAMPLE_SHORT;
         this.intValue = SAMPLE_INT;
@@ -58,41 +62,50 @@ public class PrimitiveTypes implements BinaryHandlerTestData {
         this.charValue = SAMPLE_CHAR;
     }
 
-    public byte getByteValue() {
+    public byte getByteValue()
+    {
         return byteValue;
     }
 
-    public short getShortValue() {
+    public short getShortValue()
+    {
         return shortValue;
     }
 
-    public int getIntValue() {
+    public int getIntValue()
+    {
         return intValue;
     }
 
-    public long getLongValue() {
+    public long getLongValue()
+    {
         return longValue;
     }
 
-    public float getFloatValue() {
+    public float getFloatValue()
+    {
         return floatValue;
     }
 
-    public double getDoubleValue() {
+    public double getDoubleValue()
+    {
         return doubleValue;
     }
 
-    public boolean isBooleanValue() {
+    public boolean isBooleanValue()
+    {
         return booleanValue;
     }
 
-    public char getCharValue() {
+    public char getCharValue()
+    {
         return charValue;
     }
 
 
     @Override
-    public int hashCode() {
+    public int hashCode()
+    {
         final int prime = 31;
         int result = 1;
         result = prime * result + (booleanValue ? 1231 : 1237);
@@ -109,7 +122,8 @@ public class PrimitiveTypes implements BinaryHandlerTestData {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(Object obj)
+    {
         if (this == obj)
             return true;
         if (obj == null)

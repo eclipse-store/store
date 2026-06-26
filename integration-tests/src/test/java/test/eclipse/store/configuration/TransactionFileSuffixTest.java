@@ -9,10 +9,12 @@ package test.eclipse.store.configuration;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
 import java.io.IOException;
@@ -20,31 +22,30 @@ import java.nio.file.Path;
 import java.util.List;
 
 import org.apache.commons.io.FileUtils;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-
 import org.eclipse.store.storage.embedded.configuration.types.EmbeddedStorageConfiguration;
 import org.eclipse.store.storage.embedded.configuration.types.EmbeddedStorageConfigurationBuilder;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-class TransactionFileSuffixTest {
+class TransactionFileSuffixTest
+{
 
     @TempDir
     Path location;
 
     @Test
-    void transactionFileSuffixTest() throws IOException {
+    void transactionFileSuffixTest() throws IOException
+    {
 
         final Customer customer = CustomerGenerator.generateNewCustomer();
 
         final EmbeddedStorageConfigurationBuilder configuration = EmbeddedStorageConfiguration.load(
-        	"configuration/transactionFileSuffix.ini"
+                "configuration/transactionFileSuffix.ini"
         );
 
         final EmbeddedStorageManager storageManager = configuration.setStorageDirectory(this.location.toString())
-        	.createEmbeddedStorageFoundation().createEmbeddedStorageManager(customer).start();
+                .createEmbeddedStorageFoundation().createEmbeddedStorageManager(customer).start();
 
         final List<File> files = (List<File>) FileUtils.listFiles(this.location.toFile(), null, true);
 
@@ -59,16 +60,17 @@ class TransactionFileSuffixTest {
     }
 
     @Test
-    void transactionFileSuffixXmlTest() throws IOException {
+    void transactionFileSuffixXmlTest() throws IOException
+    {
 
         final Customer customer = CustomerGenerator.generateNewCustomer();
 
         final EmbeddedStorageConfigurationBuilder configuration = EmbeddedStorageConfiguration.load(
-        	"configuration/transactionFileSuffix.xml"
+                "configuration/transactionFileSuffix.xml"
         );
 
         final EmbeddedStorageManager storageManager = configuration.setStorageDirectory(this.location.toString())
-        	.createEmbeddedStorageFoundation().createEmbeddedStorageManager(customer).start();
+                .createEmbeddedStorageFoundation().createEmbeddedStorageManager(customer).start();
 
         final List<File> files = (List<File>) FileUtils.listFiles(this.location.toFile(), null, true);
 

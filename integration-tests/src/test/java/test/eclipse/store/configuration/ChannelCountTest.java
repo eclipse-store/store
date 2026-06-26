@@ -9,10 +9,12 @@ package test.eclipse.store.configuration;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
 import java.io.IOException;
@@ -29,24 +31,24 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-class ChannelCountTest {
+class ChannelCountTest
+{
 
     @TempDir
     Path location;
 
     @Test
-    void channelCount4Test() throws IOException {
+    void channelCount4Test() throws IOException
+    {
 
         final Customer customer = CustomerGenerator.generateNewCustomer();
 
         final EmbeddedStorageConfigurationBuilder configuration = EmbeddedStorageConfiguration.load(
-        	"configuration/channelCount4.ini"
+                "configuration/channelCount4.ini"
         );
 
         final EmbeddedStorageManager storageManager = configuration.setStorageDirectory(this.location.toString())
-        	.createEmbeddedStorageFoundation().createEmbeddedStorageManager(customer).start();
+                .createEmbeddedStorageFoundation().createEmbeddedStorageManager(customer).start();
 
         final List<File> files = (List<File>) FileUtils.listFiles(this.location.toFile(), null, true);
 
@@ -64,7 +66,8 @@ class ChannelCountTest {
     }
 
     @Test
-    void channelCount4YmlTest() throws IOException {
+    void channelCount4YmlTest() throws IOException
+    {
 
         final Customer customer = CustomerGenerator.generateNewCustomer();
 
@@ -92,7 +95,8 @@ class ChannelCountTest {
     }
 
     @Test
-    void channelCount4HoconTest() throws IOException {
+    void channelCount4HoconTest() throws IOException
+    {
 
         final Customer customer = CustomerGenerator.generateNewCustomer();
 
@@ -120,16 +124,17 @@ class ChannelCountTest {
     }
 
     @Test
-    void channelCount64Test() throws IOException {
+    void channelCount64Test() throws IOException
+    {
 
         final Customer customer = CustomerGenerator.generateNewCustomer();
 
         final EmbeddedStorageConfigurationBuilder configuration = EmbeddedStorageConfiguration.load(
-        	"configuration/channelCount64.ini"
+                "configuration/channelCount64.ini"
         );
-        
+
         final EmbeddedStorageManager storageManager = configuration.setStorageDirectory(this.location.toString())
-        	.createEmbeddedStorageFoundation().createEmbeddedStorageManager(customer).start();
+                .createEmbeddedStorageFoundation().createEmbeddedStorageManager(customer).start();
 
         final List<File> files = (List<File>) FileUtils.listFiles(this.location.toFile(), null, true);
 
@@ -147,7 +152,8 @@ class ChannelCountTest {
     }
 
     @Test
-    void channelCount64YmlTest() throws IOException {
+    void channelCount64YmlTest() throws IOException
+    {
 
         final Customer customer = CustomerGenerator.generateNewCustomer();
 

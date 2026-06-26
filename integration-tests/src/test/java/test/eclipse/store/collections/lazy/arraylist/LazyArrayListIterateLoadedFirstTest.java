@@ -9,17 +9,12 @@ package test.eclipse.store.collections.lazy.arraylist;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
-import org.eclipse.serializer.collections.lazy.LazyArrayList;
-import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
-import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
-import org.junit.jupiter.api.Disabled;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -28,16 +23,19 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertIterableEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.eclipse.serializer.collections.lazy.LazyArrayList;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-public class LazyArrayListIterateLoadedFirstTest {
+public class LazyArrayListIterateLoadedFirstTest
+{
 
     @Test
-    void concurrentModificationNext(@TempDir final Path path) {
+    void concurrentModificationNext(@TempDir final Path path)
+    {
         try (final EmbeddedStorageManager storage = createListStorage(path, 5, 8)) {
 
             @SuppressWarnings("unchecked")
@@ -52,7 +50,8 @@ public class LazyArrayListIterateLoadedFirstTest {
 
     @Disabled
     @Test
-    void concurrentModificationRemove(@TempDir final Path path) {
+    void concurrentModificationRemove(@TempDir final Path path)
+    {
         try (final EmbeddedStorageManager storage = createListStorage(path, 5, 8)) {
 
             @SuppressWarnings("unchecked")
@@ -69,7 +68,8 @@ public class LazyArrayListIterateLoadedFirstTest {
 
 
     @Test
-    void emptyList(@TempDir final Path path) {
+    void emptyList(@TempDir final Path path)
+    {
         try (final EmbeddedStorageManager storage = createListStorage(path, 5, 0)) {
 
             @SuppressWarnings("unchecked")
@@ -82,7 +82,8 @@ public class LazyArrayListIterateLoadedFirstTest {
     }
 
     @Test
-    void RemoveSome(@TempDir final Path path) {
+    void RemoveSome(@TempDir final Path path)
+    {
         try (final EmbeddedStorageManager storage = createListStorage(path, 3, 67)) {
 
 
@@ -109,7 +110,8 @@ public class LazyArrayListIterateLoadedFirstTest {
     }
 
     @Test
-    void removeAll(@TempDir final Path path) {
+    void removeAll(@TempDir final Path path)
+    {
         try (final EmbeddedStorageManager storage = createListStorage(path, 3, 7)) {
 
             @SuppressWarnings("unchecked")
@@ -127,7 +129,8 @@ public class LazyArrayListIterateLoadedFirstTest {
     }
 
     @Test
-    void iterateAllUnloaded(@TempDir final Path path) {
+    void iterateAllUnloaded(@TempDir final Path path)
+    {
         try (final EmbeddedStorageManager storage = createListStorage(path, 5, 19)) {
 
             final List<ListEntry> referenceList = new ArrayList<>();
@@ -145,7 +148,8 @@ public class LazyArrayListIterateLoadedFirstTest {
     }
 
     @Test
-    void iterateAllLoaded(@TempDir final Path path) {
+    void iterateAllLoaded(@TempDir final Path path)
+    {
         try (final EmbeddedStorageManager storage = createListStorage(path, 5, 19)) {
 
             final List<ListEntry> referenceList = new ArrayList<>();
@@ -170,7 +174,8 @@ public class LazyArrayListIterateLoadedFirstTest {
     }
 
     @Test
-    void iterateSomeLoaded(@TempDir final Path path) {
+    void iterateSomeLoaded(@TempDir final Path path)
+    {
         try (final EmbeddedStorageManager storage = createListStorage(path, 5, 19)) {
 
 
@@ -194,7 +199,8 @@ public class LazyArrayListIterateLoadedFirstTest {
     }
 
     @Test
-    void unloadedAfterIterate(@TempDir final Path path) {
+    void unloadedAfterIterate(@TempDir final Path path)
+    {
         try (final EmbeddedStorageManager storage = createListStorage(path, 5, 19)) {
 
             final List<ListEntry> referenceList = new ArrayList<>();
@@ -221,14 +227,16 @@ public class LazyArrayListIterateLoadedFirstTest {
         }
     }
 
-    void checkIter(final Iterator<?> iter, final List<?> reference) {
+    void checkIter(final Iterator<?> iter, final List<?> reference)
+    {
         while (iter.hasNext()) {
             assertTrue(reference.remove(iter.next()), "Iterator returned element that is not in the reference list!");
         }
         assertTrue(reference.isEmpty(), "reference list should be empty after removing all iterated elements!");
     }
 
-    static EmbeddedStorageManager createListStorage(final Path path, final int segmentSize, final int entries) {
+    static EmbeddedStorageManager createListStorage(final Path path, final int segmentSize, final int entries)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(segmentSize, entries);
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
 
@@ -237,7 +245,8 @@ public class LazyArrayListIterateLoadedFirstTest {
         return EmbeddedStorage.start(path);
     }
 
-    static LazyArrayList<ListEntry> createLazyList(final int segmentSize, final int entries) {
+    static LazyArrayList<ListEntry> createLazyList(final int segmentSize, final int entries)
+    {
         final LazyArrayList<ListEntry> lazyList = new LazyArrayList<>(segmentSize);
 
         for (int i = 0; i < entries; i++) {

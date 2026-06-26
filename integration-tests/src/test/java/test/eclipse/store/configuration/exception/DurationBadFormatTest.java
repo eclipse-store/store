@@ -9,10 +9,12 @@ package test.eclipse.store.configuration.exception;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -23,15 +25,15 @@ import org.eclipse.store.storage.embedded.configuration.types.EmbeddedStorageCon
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import static org.junit.jupiter.api.Assertions.assertThrows;
-
-public class DurationBadFormatTest {
+public class DurationBadFormatTest
+{
 
     @TempDir
     Path location;
 
     @Test
-    public void badFormatWithUnit() throws IOException {
+    public void badFormatWithUnit() throws IOException
+    {
 
         final Path configFilePath = this.location.resolve("deleteDirectory.xml");
         final Path deleteLocation = this.location.resolve("deleted");
@@ -48,13 +50,14 @@ public class DurationBadFormatTest {
         FileUtils.writeStringToFile(configFilePath.toFile(), builder.toString(), "UTF-8");
 
         assertThrows(ConfigurationException.class, () -> {
-        	EmbeddedStorageConfiguration.load(configFilePath.toString())
-        		.createEmbeddedStorageFoundation();
+            EmbeddedStorageConfiguration.load(configFilePath.toString())
+                    .createEmbeddedStorageFoundation();
         });
     }
 
     @Test
-    public void badFormatWithoutUnit() throws IOException {
+    public void badFormatWithoutUnit() throws IOException
+    {
 
         final Path configFilePath = this.location.resolve("deleteDirectory.xml");
         final Path deleteLocation = this.location.resolve("deleted");
@@ -71,9 +74,9 @@ public class DurationBadFormatTest {
 
         FileUtils.writeStringToFile(configFilePath.toFile(), builder.toString(), "UTF-8");
 
-		assertThrows(ConfigurationException.class, () -> {
-			EmbeddedStorageConfiguration.load(configFilePath.toString())
-				.createEmbeddedStorageFoundation();
-		});
+        assertThrows(ConfigurationException.class, () -> {
+            EmbeddedStorageConfiguration.load(configFilePath.toString())
+                    .createEmbeddedStorageFoundation();
+        });
     }
 }

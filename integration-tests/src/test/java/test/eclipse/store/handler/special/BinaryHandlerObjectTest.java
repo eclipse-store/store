@@ -9,7 +9,7 @@ package test.eclipse.store.handler.special;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -20,22 +20,24 @@ import java.io.IOException;
 import java.nio.file.Path;
 
 import org.apache.commons.io.FileUtils;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
-import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import test.eclipse.store.handler.basic.PrimitiveTypes;
 
-class BinaryHandlerObjectTest {
+class BinaryHandlerObjectTest
+{
 
     @TempDir
     Path workDir;
     private EmbeddedStorageManager storage;
 
     @AfterEach
-    void cleanStorage() throws IOException {
+    void cleanStorage() throws IOException
+    {
         if (null != storage && !storage.isShutdown()) {
             storage.shutdown();
         }
@@ -43,7 +45,8 @@ class BinaryHandlerObjectTest {
     }
 
     @Test
-    void binaryHandlerObjectTest() {
+    void binaryHandlerObjectTest()
+    {
         Object original = PrimitiveTypes.fillSample();
         Object copy = new PrimitiveTypes();
 
@@ -80,7 +83,8 @@ class BinaryHandlerObjectTest {
 //    }
 
 
-    <O> O saveAndReload(O original, O loaded) {
+    <O> O saveAndReload(O original, O loaded)
+    {
         storage = startStorage(original);
         storage.storeRoot();
         storage.shutdown();
@@ -89,7 +93,8 @@ class BinaryHandlerObjectTest {
         return loaded;
     }
 
-    private EmbeddedStorageManager startStorage(Object root) {
+    private EmbeddedStorageManager startStorage(Object root)
+    {
         return EmbeddedStorage.start(root, workDir);
     }
 }

@@ -9,7 +9,7 @@ package test.eclipse.store.configuration;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -42,7 +42,8 @@ import org.junit.jupiter.api.io.TempDir;
 import test.eclipse.serializer.fixtures.types.BasicNonPrimitive;
 import test.eclipse.serializer.fixtures.types.BasicNonPrimitiveArrayTypes;
 
-class BackupDirectoryTest {
+class BackupDirectoryTest
+{
 
     @TempDir
     Path location;
@@ -55,7 +56,8 @@ class BackupDirectoryTest {
     EmbeddedStorageManager storageManager;
 
     @AfterEach
-    public void closeStorage() {
+    public void closeStorage()
+    {
         if (this.storageManager != null) {
             if (!this.storageManager.isShutdown()) {
                 this.storageManager.shutdown();
@@ -71,7 +73,8 @@ class BackupDirectoryTest {
      * @throws InterruptedException
      */
     @Test
-    public void backup_in_another_folder_as_original(@TempDir Path secondBackup) throws InterruptedException {
+    public void backup_in_another_folder_as_original(@TempDir Path secondBackup) throws InterruptedException
+    {
 
         final BasicNonPrimitive basicNonPrimitive = new BasicNonPrimitive();
         basicNonPrimitive.fillSampleData();
@@ -108,7 +111,8 @@ class BackupDirectoryTest {
     }
 
     @Test
-    public void backup_without_configuration_layer_Test() throws InterruptedException {
+    public void backup_without_configuration_layer_Test() throws InterruptedException
+    {
 
         final AFileSystem aFileSystem = NioFileSystem.New();
         final ADirectory backupDir = aFileSystem.ensureDirectoryPath(this.backup.toFile().getAbsolutePath());
@@ -145,7 +149,8 @@ class BackupDirectoryTest {
     }
 
     @Test
-    void backup_without_configuration_level() throws InterruptedException {
+    void backup_without_configuration_level() throws InterruptedException
+    {
         this.location = this.location.resolve("backup_without_configuration_level");
         final Path backupPath = this.location.resolve("backup");
 
@@ -182,7 +187,8 @@ class BackupDirectoryTest {
     }
 
     @Test
-    void backupDirectoryTest(@TempDir Path configPath) throws IOException, InterruptedException {
+    void backupDirectoryTest(@TempDir Path configPath) throws IOException, InterruptedException
+    {
         this.configFilePath = configPath.resolve("backupDirectory.ini");
 
         FileUtils.writeStringToFile(this.configFilePath.toFile(), "backup-directory = " + this.backup.toString(), "UTF-8");
@@ -205,7 +211,8 @@ class BackupDirectoryTest {
     }
 
     @Test
-    void backupDirectoryXMLTest() throws IOException, InterruptedException {
+    void backupDirectoryXMLTest() throws IOException, InterruptedException
+    {
         this.configFilePath = this.location.resolve("backupDirectory.xml");
         final Path backupLocation = this.location.resolve("backup");
         backupLocation.toFile().mkdir();
@@ -234,7 +241,8 @@ class BackupDirectoryTest {
     }
 
     @Test
-    void backupDirectoryXMLFullTest() throws IOException, InterruptedException {
+    void backupDirectoryXMLFullTest() throws IOException, InterruptedException
+    {
         this.configFilePath = this.location.resolve("backupDirectory.xml");
 
         final String xmlConfig = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +

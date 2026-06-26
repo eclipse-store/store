@@ -9,7 +9,7 @@ package test.eclipse.store.configuration;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -30,16 +30,18 @@ import org.junit.jupiter.api.io.TempDir;
 
 import net.datafaker.Faker;
 
-public class TransactionFileSizeTest {
+public class TransactionFileSizeTest
+{
 
     @TempDir
     Path location;
 
-	private Faker faker = new Faker();
+    private Faker faker = new Faker();
 
     //@Test
     @Test
-    void setSizeConfigTest() throws InterruptedException {
+    void setSizeConfigTest() throws InterruptedException
+    {
         EmbeddedStorageFoundation<?> embeddedStorageFoundation = EmbeddedStorageConfigurationBuilder.New()
                 .setStorageDirectory(location.toAbsolutePath()
                         .toString())
@@ -56,7 +58,7 @@ public class TransactionFileSizeTest {
             }
         }
         File file = Path.of(location.toAbsolutePath()
-                        .toString(), "channel_0","transactions_0.sft")
+                        .toString(), "channel_0", "transactions_0.sft")
                 .toFile();
         long length = file.length();
         //System.out.println(length);
@@ -64,22 +66,26 @@ public class TransactionFileSizeTest {
     }
 
     @Test
-    void setBadConfigTest() {
-                assertThrows(ConfigurationException.class, () -> EmbeddedStorageConfigurationBuilder.New()
-                        .setStorageDirectory(location.toAbsolutePath()
-                                .toString())
-                        .setTransactionFileMaximumSize(ByteSize.New("50"))
-                        .createEmbeddedStorageFoundation());
+    void setBadConfigTest()
+    {
+        assertThrows(ConfigurationException.class, () -> EmbeddedStorageConfigurationBuilder.New()
+                .setStorageDirectory(location.toAbsolutePath()
+                        .toString())
+                .setTransactionFileMaximumSize(ByteSize.New("50"))
+                .createEmbeddedStorageFoundation());
     }
 
-    static class Customer {
+    static class Customer
+    {
         String name;
 
-        public Customer(String name) {
+        public Customer(String name)
+        {
             this.name = name;
         }
 
-        public void setName(String name) {
+        public void setName(String name)
+        {
             this.name = name;
         }
     }

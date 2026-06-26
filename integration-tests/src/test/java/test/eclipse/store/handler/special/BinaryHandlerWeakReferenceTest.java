@@ -9,7 +9,7 @@ package test.eclipse.store.handler.special;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -18,24 +18,22 @@ import java.lang.ref.WeakReference;
 import java.nio.file.Path;
 
 import org.eclipse.serializer.persistence.exceptions.PersistenceExceptionTypeNotPersistable;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.DisabledOnOs;
-import org.junit.jupiter.api.io.TempDir;
-
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-import static org.junit.jupiter.api.condition.OS.WINDOWS;
-
-public class BinaryHandlerWeakReferenceTest {
+public class BinaryHandlerWeakReferenceTest
+{
 
     @TempDir
     Path workDir;
     private EmbeddedStorageManager storage;
 
     @Test
-    void binaryHandlerWeakReferenceTest() {
+    void binaryHandlerWeakReferenceTest()
+    {
         Integer i = 30;
 
         WeakReference original = new WeakReference<>(i);
@@ -44,7 +42,8 @@ public class BinaryHandlerWeakReferenceTest {
 
     }
 
-    <O> O saveAndReload(O original, O loaded) {
+    <O> O saveAndReload(O original, O loaded)
+    {
         storage = startStorage(original);
         storage.storeRoot();
         storage.shutdown();
@@ -54,7 +53,8 @@ public class BinaryHandlerWeakReferenceTest {
     }
 
 
-    private EmbeddedStorageManager startStorage(Object root) {
+    private EmbeddedStorageManager startStorage(Object root)
+    {
         return EmbeddedStorage.start(root, workDir);
     }
 }

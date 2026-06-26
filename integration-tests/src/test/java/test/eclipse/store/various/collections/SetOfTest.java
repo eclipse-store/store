@@ -9,7 +9,7 @@ package test.eclipse.store.various.collections;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -17,7 +17,9 @@ package test.eclipse.store.various.collections;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.nio.file.Path;
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
@@ -26,16 +28,16 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Round-trip tests for java.util.Set.of(...) (JDK 9).
- *
+ * <p>
  * Backing types observed on JDK 17:
- *   Set.of()              -> java.util.ImmutableCollections$SetN
- *   Set.of(x)             -> java.util.ImmutableCollections$Set12
- *   Set.of(x, y)          -> java.util.ImmutableCollections$Set12
- *   Set.of(x, y, z, ...)  -> java.util.ImmutableCollections$SetN
- *
+ * Set.of()              -> java.util.ImmutableCollections$SetN
+ * Set.of(x)             -> java.util.ImmutableCollections$Set12
+ * Set.of(x, y)          -> java.util.ImmutableCollections$Set12
+ * Set.of(x, y, z, ...)  -> java.util.ImmutableCollections$SetN
+ * <p>
  * Eclipse Serializer ships BinaryHandlerImmutableCollectionsSet12 but no
  * handler for SetN. Empty Set.of() is SetN, not Set12.
- *
+ * <p>
  * Iteration order in SetN is *deliberately randomized* per JVM via SALT,
  * so we only assert membership and size, never order.
  */
@@ -176,9 +178,9 @@ public class SetOfTest
     void setOfNestedTest()
     {
         Set<Set<String>> nested = Set.of(
-            Set.of("a", "b"),
-            Set.of("c", "d", "e"),
-            Set.of()
+                Set.of("a", "b"),
+                Set.of("c", "d", "e"),
+                Set.of()
         );
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(nested, workDir)) {

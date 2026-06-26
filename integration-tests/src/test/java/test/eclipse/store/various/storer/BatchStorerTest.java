@@ -9,7 +9,7 @@ package test.eclipse.store.various.storer;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -38,15 +38,12 @@ public class BatchStorerTest
 
         ArrayList<String> data = new ArrayList<>();
 
-        try (EmbeddedStorageManager storage = EmbeddedStorage.start(data, tempDir))
-        {
+        try (EmbeddedStorageManager storage = EmbeddedStorage.start(data, tempDir)) {
             try (BatchStorer storer = storage.createBatchStorer(
                     BatchStorer.Controller(Duration.ofMillis(500)),
                     Duration.ofMillis(200)
-            ))
-            {
-                for (int i = 0; i < 1_000; i++)
-                {
+            )) {
+                for (int i = 0; i < 1_000; i++) {
                     String s = "String " + i;
                     data.add(s);
                     storer.store(data);
@@ -56,8 +53,7 @@ public class BatchStorerTest
             }
         }
 
-        try (EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
-        {
+        try (EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir)) {
             ArrayList<String> list = storage.root();
 
             System.out.println("List size: " + list.size());

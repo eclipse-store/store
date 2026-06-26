@@ -9,7 +9,7 @@ package test.eclipse.store.handler.other;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -24,14 +24,17 @@ import java.sql.Timestamp;
 import test.eclipse.store.handler.AbstractHandlerTest;
 import test.eclipse.store.handler.BinaryHandlerTestData;
 
-class SqlCalendarTest extends AbstractHandlerTest<SqlCalendarTest.CalendarData> {
+class SqlCalendarTest extends AbstractHandlerTest<SqlCalendarTest.CalendarData>
+{
 
-    SqlCalendarTest() {
+    SqlCalendarTest()
+    {
         super(CalendarData.class);
     }
 
     @Override
-    public void proveResult(CalendarData original, CalendarData copy) {
+    public void proveResult(CalendarData original, CalendarData copy)
+    {
         assertAll(
                 () -> assertEquals(original.getSqlTime(), copy.getSqlTime(), "sqlTime"),
                 () -> assertEquals(original.getSqlTimestamp(), copy.getSqlTimestamp(), "sqlTimestamp"),
@@ -40,25 +43,29 @@ class SqlCalendarTest extends AbstractHandlerTest<SqlCalendarTest.CalendarData> 
     }
 
 
-    public static class CalendarData implements BinaryHandlerTestData {
+    public static class CalendarData implements BinaryHandlerTestData
+    {
 
         Timestamp sqlTimestamp;
         Time sqlTime;
         java.sql.Date date;
 
         @Override
-        public void fillSampleData() {
+        public void fillSampleData()
+        {
             sqlTimestamp = new Timestamp(System.currentTimeMillis());
             sqlTime = new Time(System.currentTimeMillis());
             date = new Date(System.currentTimeMillis());
         }
 
 
-        Timestamp getSqlTimestamp() {
+        Timestamp getSqlTimestamp()
+        {
             return sqlTimestamp;
         }
 
-        Time getSqlTime() {
+        Time getSqlTime()
+        {
             return sqlTime;
         }
     }

@@ -9,7 +9,7 @@ package test.eclipse.store.legacy.enumeration;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -40,16 +40,14 @@ public class EnumUnderGigamapTest
         gigaMap.add(EnumerationOrig.FIRST);
         gigaMap.add(EnumerationOrig.SECOND);
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(gigaMap, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(gigaMap, tempDir)) {
             // persist implicitly via GigaMap's own storage
         }
 
         GigaMap<EnumerationOrig> reloaded = GigaMap.New();
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(reloaded, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(reloaded, tempDir)) {
             assertEquals(2, reloaded.size());
-            assertEquals(EnumerationOrig.FIRST,  reloaded.get(0));
+            assertEquals(EnumerationOrig.FIRST, reloaded.get(0));
             assertEquals(EnumerationOrig.SECOND, reloaded.get(1));
         }
     }
@@ -64,13 +62,11 @@ public class EnumUnderGigamapTest
         GigaMap<EnumerationOrig> gigaMap = GigaMap.New();
         gigaMap.add(EnumerationOrig.FIRST);
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(gigaMap, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(gigaMap, tempDir)) {
         }
 
         GigaMap<EnumerationOrig> reloaded = GigaMap.New();
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(reloaded, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(reloaded, tempDir)) {
             assertEquals(1, reloaded.size());
             assertEquals(EnumerationOrig.FIRST, reloaded.get(0));
         }
@@ -86,13 +82,11 @@ public class EnumUnderGigamapTest
         GigaMap<EnumerationOrig> gigaMap = GigaMap.New();
         gigaMap.add(EnumerationOrig.SECOND);
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(gigaMap, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(gigaMap, tempDir)) {
         }
 
         GigaMap<EnumerationOrig> reloaded = GigaMap.New();
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(reloaded, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(reloaded, tempDir)) {
             assertEquals(1, reloaded.size());
             assertEquals(EnumerationOrig.SECOND, reloaded.get(0));
         }
@@ -109,26 +103,24 @@ public class EnumUnderGigamapTest
         gigaMap.add(EnumerationOrig.FIRST);
         gigaMap.add(EnumerationOrig.SECOND);
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(gigaMap, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(gigaMap, tempDir)) {
         }
 
         GigaMap<EnumerationOrig> reloaded = GigaMap.New();
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(reloaded, tempDir))
-        {
-            EnumerationOrig first  = reloaded.get(0);
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(reloaded, tempDir)) {
+            EnumerationOrig first = reloaded.get(0);
             EnumerationOrig second = reloaded.get(1);
 
-            assertEquals(EnumerationOrig.FIRST.name(),         first.name());
-            assertEquals(EnumerationOrig.FIRST.ordinal(),      first.ordinal());
-            assertEquals(EnumerationOrig.FIRST.getName(),      first.getName());
-            assertEquals(EnumerationOrig.FIRST.getValue(),     first.getValue());
+            assertEquals(EnumerationOrig.FIRST.name(), first.name());
+            assertEquals(EnumerationOrig.FIRST.ordinal(), first.ordinal());
+            assertEquals(EnumerationOrig.FIRST.getName(), first.getName());
+            assertEquals(EnumerationOrig.FIRST.getValue(), first.getValue());
             assertEquals(EnumerationOrig.FIRST.getSecondValue(), first.getSecondValue());
 
-            assertEquals(EnumerationOrig.SECOND.name(),          second.name());
-            assertEquals(EnumerationOrig.SECOND.ordinal(),       second.ordinal());
-            assertEquals(EnumerationOrig.SECOND.getName(),       second.getName());
-            assertEquals(EnumerationOrig.SECOND.getValue(),      second.getValue());
+            assertEquals(EnumerationOrig.SECOND.name(), second.name());
+            assertEquals(EnumerationOrig.SECOND.ordinal(), second.ordinal());
+            assertEquals(EnumerationOrig.SECOND.getName(), second.getName());
+            assertEquals(EnumerationOrig.SECOND.getValue(), second.getValue());
             assertEquals(EnumerationOrig.SECOND.getSecondValue(), second.getSecondValue());
         }
     }
@@ -144,17 +136,14 @@ public class EnumUnderGigamapTest
         gigaMap.add(EnumerationOrig.FIRST);
         gigaMap.add(EnumerationOrig.SECOND);
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(gigaMap, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(gigaMap, tempDir)) {
         }
 
-        for (int cycle = 0; cycle < 3; cycle++)
-        {
+        for (int cycle = 0; cycle < 3; cycle++) {
             GigaMap<EnumerationOrig> reloaded = GigaMap.New();
-            try (EmbeddedStorageManager sm = EmbeddedStorage.start(reloaded, tempDir))
-            {
+            try (EmbeddedStorageManager sm = EmbeddedStorage.start(reloaded, tempDir)) {
                 assertEquals(2, reloaded.size(), "cycle " + cycle);
-                assertEquals(EnumerationOrig.FIRST,  reloaded.get(0));
+                assertEquals(EnumerationOrig.FIRST, reloaded.get(0));
                 assertEquals(EnumerationOrig.SECOND, reloaded.get(1));
             }
         }
@@ -170,13 +159,11 @@ public class EnumUnderGigamapTest
         GigaMap<EnumerationOrig> gigaMap = GigaMap.New();
         gigaMap.add(EnumerationOrig.FIRST);
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(gigaMap, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(gigaMap, tempDir)) {
         }
 
         GigaMap<EnumerationOrig> reloaded = GigaMap.New();
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(reloaded, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(reloaded, tempDir)) {
             // Enums are singletons; the reloaded reference must be identical.
             assertNotNull(reloaded.get(0));
             assertEquals(EnumerationOrig.FIRST, reloaded.get(0));
@@ -194,15 +181,13 @@ public class EnumUnderGigamapTest
         gigaMap.add(new EnumHolder(EnumerationOrig.FIRST));
         gigaMap.add(new EnumHolder(EnumerationOrig.SECOND));
 
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(gigaMap, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(gigaMap, tempDir)) {
         }
 
         GigaMap<EnumHolder> reloaded = GigaMap.New();
-        try (EmbeddedStorageManager sm = EmbeddedStorage.start(reloaded, tempDir))
-        {
+        try (EmbeddedStorageManager sm = EmbeddedStorage.start(reloaded, tempDir)) {
             assertEquals(2, reloaded.size());
-            assertEquals(EnumerationOrig.FIRST,  reloaded.get(0).value);
+            assertEquals(EnumerationOrig.FIRST, reloaded.get(0).value);
             assertEquals(EnumerationOrig.SECOND, reloaded.get(1).value);
         }
     }

@@ -9,7 +9,7 @@ package test.eclipse.store.various;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -30,71 +30,78 @@ public class ClazzPrimitiveTest
 {
     // --- helper types used as Class<?> representatives ---
 
-    interface SampleInterface {}
+    interface SampleInterface
+    {
+    }
 
-    enum SampleEnum { VALUE }
+    enum SampleEnum
+    {VALUE}
 
     @SuppressWarnings("InnerClassMayBeStatic")
-    abstract static class SampleAbstractClass {}
+    abstract static class SampleAbstractClass
+    {
+    }
 
-    @interface SampleAnnotation {}
+    @interface SampleAnnotation
+    {
+    }
 
     // --- test data ---
 
     static Stream<Class<?>> allClassVariants()
     {
         return Stream.of(
-            // Primitive types
-            int.class,
-            long.class,
-            double.class,
-            float.class,
-            boolean.class,
-            byte.class,
-            short.class,
-            char.class,
-            // Void pseudo-type
-            //void.class, //https://github.com/eclipse-serializer/serializer/issues/247
-            // Boxed types
-            Integer.class,
-            Long.class,
-            Double.class,
-            Float.class,
-            Boolean.class,
-            Byte.class,
-            Short.class,
-            Character.class,
-            Void.class,
-            // Common reference types
-            String.class,
-            Object.class,
-            Number.class,
-            // Interface
-            SampleInterface.class,
-            Serializable.class,
-            Iterable.class,
-            // Enum
-            SampleEnum.class,
-            // Abstract class
-            SampleAbstractClass.class,
-            // Annotation type
-            SampleAnnotation.class,
-            // Array types – primitives
-            int[].class,
-            long[].class,
-            double[].class,
-            float[].class,
-            boolean[].class,
-            byte[].class,
-            short[].class,
-            char[].class,
-            // Array types – reference
-            String[].class,
-            Object[].class,
-            Integer[].class,
-            // Multi-dimensional arrays
-            int[][].class,
-            String[][].class
+                // Primitive types
+                int.class,
+                long.class,
+                double.class,
+                float.class,
+                boolean.class,
+                byte.class,
+                short.class,
+                char.class,
+                // Void pseudo-type
+                //void.class, //https://github.com/eclipse-serializer/serializer/issues/247
+                // Boxed types
+                Integer.class,
+                Long.class,
+                Double.class,
+                Float.class,
+                Boolean.class,
+                Byte.class,
+                Short.class,
+                Character.class,
+                Void.class,
+                // Common reference types
+                String.class,
+                Object.class,
+                Number.class,
+                // Interface
+                SampleInterface.class,
+                Serializable.class,
+                Iterable.class,
+                // Enum
+                SampleEnum.class,
+                // Abstract class
+                SampleAbstractClass.class,
+                // Annotation type
+                SampleAnnotation.class,
+                // Array types – primitives
+                int[].class,
+                long[].class,
+                double[].class,
+                float[].class,
+                boolean[].class,
+                byte[].class,
+                short[].class,
+                char[].class,
+                // Array types – reference
+                String[].class,
+                Object[].class,
+                Integer[].class,
+                // Multi-dimensional arrays
+                int[][].class,
+                String[][].class
         );
     }
 
@@ -106,17 +113,15 @@ public class ClazzPrimitiveTest
     void clazzTest(Class<?> clazz)
     {
         ClazzData root = new ClazzData(clazz);
-        try (EmbeddedStorageManager manager = EmbeddedStorage.start(root, tempDir))
-        {
+        try (EmbeddedStorageManager manager = EmbeddedStorage.start(root, tempDir)) {
             manager.storeRoot();
         }
 
         ClazzData root1 = new ClazzData();
-        try (EmbeddedStorageManager manager = EmbeddedStorage.start(root1, tempDir))
-        {
+        try (EmbeddedStorageManager manager = EmbeddedStorage.start(root1, tempDir)) {
             System.out.println("Loaded class: " + root1.getClazz());
             assertEquals(clazz.getTypeName(), root1.getClazz().getTypeName(),
-                "Type name mismatch for: " + clazz);
+                    "Type name mismatch for: " + clazz);
         }
     }
 

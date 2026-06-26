@@ -9,14 +9,12 @@ package test.eclipse.store.legacy.csv;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.File;
 import java.net.URISyntaxException;
@@ -24,19 +22,19 @@ import java.net.URL;
 import java.nio.file.Path;
 
 import org.eclipse.serializer.persistence.types.Persistence;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-
-import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
-import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 
 import test.eclipse.store.legacy.csv.data.CsvPerson;
 import test.eclipse.store.legacy.csv.data.CsvPerson2;
 import test.eclipse.store.legacy.csv.data.DeletePerson;
 import test.eclipse.store.legacy.csv.data.DeletePerson2;
 
-class CsvLegacyTest {
+class CsvLegacyTest
+{
 
     @TempDir
     Path tempDir;
@@ -44,14 +42,16 @@ class CsvLegacyTest {
     private EmbeddedStorageManager storage;
 
     @AfterEach
-    void cleanStorage() {
+    void cleanStorage()
+    {
         if (null != storage && !storage.isShutdown()) {
             storage.shutdown();
         }
     }
 
     @Test
-    void legacyDirectTest() throws URISyntaxException {
+    void legacyDirectTest() throws URISyntaxException
+    {
         CsvPerson person = new CsvPerson("Karel", "May", "1001", "blue");
 
 
@@ -76,7 +76,8 @@ class CsvLegacyTest {
     }
 
     @Test
-    void legacyRemoveFieldCSVTest() throws URISyntaxException {
+    void legacyRemoveFieldCSVTest() throws URISyntaxException
+    {
         DeletePerson person = new DeletePerson("Karel", "May", "1001", "blue");
 
 
@@ -100,7 +101,8 @@ class CsvLegacyTest {
     }
 
     @Test
-    void legacyAddFieldCSVTest() throws URISyntaxException {
+    void legacyAddFieldCSVTest() throws URISyntaxException
+    {
         DeletePerson2 person = new DeletePerson2("Karel", "May", "1001");
 
 

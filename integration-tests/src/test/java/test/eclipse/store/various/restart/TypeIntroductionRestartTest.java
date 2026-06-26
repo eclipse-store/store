@@ -9,7 +9,7 @@ package test.eclipse.store.various.restart;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -34,76 +34,76 @@ import org.junit.jupiter.api.io.TempDir;
  */
 public class TypeIntroductionRestartTest
 {
-	static class Alpha
-	{
-		String value;
+    static class Alpha
+    {
+        String value;
 
-		Alpha(final String value)
-		{
-			this.value = value;
-		}
-	}
+        Alpha(final String value)
+        {
+            this.value = value;
+        }
+    }
 
-	static class Beta
-	{
-		int number;
+    static class Beta
+    {
+        int number;
 
-		Beta(final int number)
-		{
-			this.number = number;
-		}
-	}
+        Beta(final int number)
+        {
+            this.number = number;
+        }
+    }
 
-	static class Gamma
-	{
-		boolean flag;
-		String  label;
+    static class Gamma
+    {
+        boolean flag;
+        String label;
 
-		Gamma(final boolean flag, final String label)
-		{
-			this.flag  = flag;
-			this.label = label;
-		}
-	}
+        Gamma(final boolean flag, final String label)
+        {
+            this.flag = flag;
+            this.label = label;
+        }
+    }
 
-	@Test
-	public void newTypesIntroducedAcrossCycles_persistAndReload(@TempDir final Path dir)
-	{
-		final List<Object> root = new ArrayList<>();
-		final EmbeddedStorageManager storage = EmbeddedStorage.start(root, dir);
+    @Test
+    public void newTypesIntroducedAcrossCycles_persistAndReload(@TempDir final Path dir)
+    {
+        final List<Object> root = new ArrayList<>();
+        final EmbeddedStorageManager storage = EmbeddedStorage.start(root, dir);
 
-		// cycle 0: only Alpha is known to the storage
-		root.add(new Alpha("a-0"));
-		storage.store(root);
-		storage.shutdown();
-		storage.start();
+        // cycle 0: only Alpha is known to the storage
+        root.add(new Alpha("a-0"));
+        storage.store(root);
+        storage.shutdown();
+        storage.start();
 
-		// cycle 1: introduce Beta — a type the storage has never seen before this restart
-		((List<Object>)storage.root()).add(new Beta(42));
-		storage.store(storage.root());
-		storage.shutdown();
-		storage.start();
+        // cycle 1: introduce Beta — a type the storage has never seen before this restart
+        ((List<Object>) storage.root()).add(new Beta(42));
+        storage.store(storage.root());
+        storage.shutdown();
+        storage.start();
 
-		// cycle 2: introduce Gamma — another brand-new type after a further restart
-		((List<Object>)storage.root()).add(new Gamma(true, "g-2"));
-		storage.store(storage.root());
-		storage.shutdown();
+        // cycle 2: introduce Gamma — another brand-new type after a further restart
+        ((List<Object>) storage.root()).add(new Gamma(true, "g-2"));
+        storage.store(storage.root());
+        storage.shutdown();
 
-		// fresh manager: every type introduced at a different point in the restart history must reload
-		final EmbeddedStorageManager fresh = EmbeddedStorage.start(new ArrayList<Object>(), dir);
-		final List<Object> fromDisk = fresh.root();
-		assertEquals(3, fromDisk.size(), "all entries across all type introductions must persist");
+        // fresh manager: every type introduced at a different point in the restart history must reload
+        final EmbeddedStorageManager fresh = EmbeddedStorage.start(new ArrayList<Object>(), dir);
+        final List<Object> fromDisk = fresh.root();
+        assertEquals(3, fromDisk.size(), "all entries across all type introductions must persist");
 
-		final Alpha alpha = assertInstanceOf(Alpha.class, fromDisk.get(0));
-		assertEquals("a-0", alpha.value);
+        final Alpha alpha = assertInstanceOf(Alpha.class, fromDisk.get(0));
+        assertEquals("a-0", alpha.value);
 
-		final Beta beta = assertInstanceOf(Beta.class, fromDisk.get(1));
-		assertEquals(42, beta.number);
+        final Beta beta = assertInstanceOf(Beta.class, fromDisk.get(1));
+        assertEquals(42, beta.number);
 
-		final Gamma gamma = assertInstanceOf(Gamma.class, fromDisk.get(2));
-		assertEquals(true, gamma.flag);
-		assertEquals("g-2", gamma.label);
+        final Gamma gamma = assertInstanceOf(Gamma.class, fromDisk.get(2));
+        assertEquals(true, gamma.flag);
+        assertEquals("g-2", gamma.label);
 
-		fresh.shutdown();
-	}
+        fresh.shutdown();
+    }
 }

@@ -9,7 +9,7 @@ package test.eclipse.store.collections.lazy.hashset;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -30,13 +30,15 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-public class HashSetStoreTest {
+public class HashSetStoreTest
+{
 
     @TempDir
     Path location;
 
     @Test
-    void saveLazyHashSet() {
+    void saveLazyHashSet()
+    {
         LazyHashSet<String> lazyHashSet = Util.generateLazyHashSet(10, 100);
 
         try (EmbeddedStorageManager storage = EmbeddedStorage.start(lazyHashSet, location)) {
@@ -51,7 +53,8 @@ public class HashSetStoreTest {
     }
 
     @Test
-    void unloaderTest() throws InterruptedException {
+    void unloaderTest() throws InterruptedException
+    {
         LazyHashSet<String> lazyHashSet = new LazyHashSet<>(3, new LazySegmentUnloader.Timed(50));
         for (int i = 0; i < 100; i++) {
             lazyHashSet.add(faker.lorem()
@@ -75,7 +78,8 @@ public class HashSetStoreTest {
     }
 
     @Test
-    void unloaderStreamTest() throws InterruptedException {
+    void unloaderStreamTest() throws InterruptedException
+    {
         LazyHashSet<String> lazyHashSet = new LazyHashSet<>(3, new LazySegmentUnloader.Timed(50));
         for (int i = 0; i < 100; i++) {
             lazyHashSet.add(faker.lorem()

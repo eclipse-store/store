@@ -9,10 +9,15 @@ package test.eclipse.store.collections.lazy.hashmap;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.eclipse.serializer.collections.lazy.LazyHashMap;
 import org.eclipse.serializer.collections.lazy.LazySegmentUnloader;
@@ -23,18 +28,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 
-import java.nio.file.Path;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 @Isolated
-public class LazyHashMapUnloadingTests {
+public class LazyHashMapUnloadingTests
+{
 
     @Test
-    void autoUnloadUnloadRemovedSegments(@TempDir final Path path) throws InterruptedException {
+    void autoUnloadUnloadRemovedSegments(@TempDir final Path path) throws InterruptedException
+    {
 
         LazyHashMap<String, String> map = new LazyHashMap<>(3, new LazySegmentUnloader.Timed(50));
         for (int i = 0; i < 100; i++) {
@@ -68,7 +68,8 @@ public class LazyHashMapUnloadingTests {
     }
 
     @Test
-    void unloadingWhilePut(@TempDir final Path path) {
+    void unloadingWhilePut(@TempDir final Path path)
+    {
 
         LazyHashMap<String, String> map = new LazyHashMap<>(10);
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(map, path)) {
@@ -84,7 +85,8 @@ public class LazyHashMapUnloadingTests {
 
 
     @Test
-    void unloadSegment(@TempDir final Path path) {
+    void unloadSegment(@TempDir final Path path)
+    {
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(path)) {
 
             LazyHashMap<Integer, String> map = createLazyMap(44);
@@ -102,7 +104,8 @@ public class LazyHashMapUnloadingTests {
     }
 
     @Test
-    void unloadStored(@TempDir final Path path) {
+    void unloadStored(@TempDir final Path path)
+    {
 
         LazyHashMap<Integer, String> map = createLazyMap(44);
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(map, path)) {
@@ -116,7 +119,8 @@ public class LazyHashMapUnloadingTests {
     }
 
     @Test
-    void UnloadNotStored(@TempDir final Path path) {
+    void UnloadNotStored(@TempDir final Path path)
+    {
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(path)) {
 
@@ -132,7 +136,8 @@ public class LazyHashMapUnloadingTests {
     }
 
     @Test
-    void unloaded_reloadedStorage(@TempDir final Path path) {
+    void unloaded_reloadedStorage(@TempDir final Path path)
+    {
 
         try (final EmbeddedStorageManager storageReloaded = createRealodedStorageWithList(path)) {
 
@@ -148,7 +153,8 @@ public class LazyHashMapUnloadingTests {
     }
 
     @Test
-    void UnloadNotStored_reloadedStorage(@TempDir final Path path) {
+    void UnloadNotStored_reloadedStorage(@TempDir final Path path)
+    {
 
         try (final EmbeddedStorageManager storageReloaded = createRealodedStorageWithList(path)) {
 
@@ -181,7 +187,8 @@ public class LazyHashMapUnloadingTests {
     }
 
 
-    static EmbeddedStorageManager createRealodedStorageWithList(final Path path) {
+    static EmbeddedStorageManager createRealodedStorageWithList(final Path path)
+    {
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(path)) {
             LazyHashMap<Integer, String> map = createLazyMap(44);
@@ -196,7 +203,8 @@ public class LazyHashMapUnloadingTests {
         return EmbeddedStorage.start(path);
     }
 
-    private static LazyHashMap<Integer, String> createLazyMap(final int size) {
+    private static LazyHashMap<Integer, String> createLazyMap(final int size)
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
 
         for (int i = 0; i < size; i++) {
@@ -205,7 +213,8 @@ public class LazyHashMapUnloadingTests {
         return map;
     }
 
-    private SegmentStatistics getLoadedSegments(LazyHashMap<?, ?> map) {
+    private SegmentStatistics getLoadedSegments(LazyHashMap<?, ?> map)
+    {
         final AtomicInteger loadedCount = new AtomicInteger();
         final AtomicInteger unloadedCount = new AtomicInteger();
         map.segments()
@@ -220,18 +229,21 @@ public class LazyHashMapUnloadingTests {
         return new SegmentStatistics(loadedCount.get(), unloadedCount.get());
     }
 
-    static class SegmentStatistics {
+    static class SegmentStatistics
+    {
         int loaded;
         int unloaded;
 
-        public SegmentStatistics(final int loaded, final int unloaded) {
+        public SegmentStatistics(final int loaded, final int unloaded)
+        {
             super();
             this.loaded = loaded;
             this.unloaded = unloaded;
         }
 
         @Override
-        public String toString() {
+        public String toString()
+        {
             return "SegmentStatistics [loaded=" + this.loaded + ", unloaded=" + this.unloaded + "]";
         }
     }

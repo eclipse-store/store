@@ -9,36 +9,26 @@ package test.eclipse.store.collections.lazy.hashmap;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
+import static org.junit.jupiter.api.Assertions.*;
+
+import java.util.*;
+import java.util.Map.Entry;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.eclipse.serializer.collections.lazy.LazyHashMap;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Random;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertIterableEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-public class LazyHashMapTest {
+public class LazyHashMapTest
+{
 
     @Test
-    void addNullObject() {
+    void addNullObject()
+    {
         LazyHashMap<String, String> map = new LazyHashMap<>();
 
         map.put("Key 1", null);
@@ -49,7 +39,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void addSingleValueToEmptyMap() {
+    void addSingleValueToEmptyMap()
+    {
         LazyHashMap<String, String> map = new LazyHashMap<>();
 
         map.put("Key 1", "Value 1");
@@ -60,7 +51,8 @@ public class LazyHashMapTest {
 
 
     @Test
-    void addManyIntKey() {
+    void addManyIntKey()
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
 
         for (int i = 0; i < 100; i++) {
@@ -74,7 +66,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void addManyStringKey() {
+    void addManyStringKey()
+    {
         LazyHashMap<String, String> map = new LazyHashMap<>();
 
         for (int i = 0; i < 100; i++) {
@@ -89,7 +82,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void removeFromFront() {
+    void removeFromFront()
+    {
         LazyHashMap<String, String> map = new LazyHashMap<>();
 
         for (int i = 0; i < 100; i++) {
@@ -104,7 +98,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void removeFromBack() {
+    void removeFromBack()
+    {
         LazyHashMap<String, String> map = new LazyHashMap<>();
 
         for (int i = 0; i < 100; i++) {
@@ -119,7 +114,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void removeRandom() {
+    void removeRandom()
+    {
         LazyHashMap<String, String> map = new LazyHashMap<>();
 
         final int numElements = 100;
@@ -147,7 +143,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void removeKeyValue() {
+    void removeKeyValue()
+    {
         LazyHashMap<String, String> map = new LazyHashMap<>();
 
         for (int i = 0; i < 100; i++) {
@@ -162,7 +159,8 @@ public class LazyHashMapTest {
 
 
     @Test
-    void replace() {
+    void replace()
+    {
         LazyHashMap<String, String> map = new LazyHashMap<>();
         final String putResult = map.put("Key", "Value");
         assertEquals(null, putResult);
@@ -177,7 +175,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void replaceIfEqual() {
+    void replaceIfEqual()
+    {
         LazyHashMap<String, String> map = new LazyHashMap<>();
         final String putResult = map.put("Key", "Value");
         assertEquals(null, putResult);
@@ -196,7 +195,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void forEach() {
+    void forEach()
+    {
         LazyHashMap<String, String> map = new LazyHashMap<>();
 
         for (int i = 0; i < 100; i++) {
@@ -210,7 +210,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void entrySet() {
+    void entrySet()
+    {
         LazyHashMap<String, String> map = new LazyHashMap<>();
 
         for (int i = 0; i < 100; i++) {
@@ -223,7 +224,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void entrySetRemove() {
+    void entrySetRemove()
+    {
         LazyHashMap<String, String> map = new LazyHashMap<>();
 
         for (int i = 0; i < 100; i++) {
@@ -240,7 +242,8 @@ public class LazyHashMapTest {
 
 
     @Test
-    void iteratorKeySet() {
+    void iteratorKeySet()
+    {
         LazyHashMap<String, String> map = new LazyHashMap<>();
 
         for (int i = 0; i < 100; i++) {
@@ -266,7 +269,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void iteratorKeySetRemove() {
+    void iteratorKeySetRemove()
+    {
 
         LazyHashMap<String, String> map = new LazyHashMap<>();
 
@@ -294,7 +298,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void iteratorKeySetRemoveAll() {
+    void iteratorKeySetRemoveAll()
+    {
 
         LazyHashMap<String, String> map = new LazyHashMap<>();
 
@@ -324,7 +329,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void removeNull() {
+    void removeNull()
+    {
         LazyHashMap<String, String> map = new LazyHashMap<>();
 
         map.put("Entry 0", null);
@@ -335,7 +341,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void replaceNull() {
+    void replaceNull()
+    {
         LazyHashMap<String, String> map = new LazyHashMap<>();
         map.put("Entry 0", null);
         assertNull(map.replace("Entry 0", "Hello World"));
@@ -343,7 +350,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void replaceWithNull() {
+    void replaceWithNull()
+    {
         LazyHashMap<String, String> map = new LazyHashMap<>();
         map.put("Entry 0", "Hello World");
         assertEquals("Hello World", map.replace("Entry 0", null));
@@ -351,7 +359,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    public void containsKeyNull() {
+    public void containsKeyNull()
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
         map.put(105, null);
         map.put(5, null);
@@ -363,7 +372,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    public void getValueNull() {
+    public void getValueNull()
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
         map.put(105, null);
         map.put(5, null);
@@ -373,7 +383,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void copyTest() throws CloneNotSupportedException {
+    void copyTest() throws CloneNotSupportedException
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
         for (int i = 0; i < 100; i++) {
             map.put(i, "Value " + i);
@@ -411,7 +422,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void clearTest() {
+    void clearTest()
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
         for (int i = 0; i < 100; i++) {
             map.put(i, "Value " + i);
@@ -428,7 +440,8 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void addAfterClear() {
+    void addAfterClear()
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
         for (int i = 0; i < 100; i++) {
             map.put(i, "Value " + i);
@@ -445,37 +458,43 @@ public class LazyHashMapTest {
     }
 
     @Test
-    void getFromEmptyMap() {
+    void getFromEmptyMap()
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
         assertNull(map.get(1));
     }
 
     @Test
-    void containsKeyEmptyMap() {
+    void containsKeyEmptyMap()
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
         assertFalse(map.containsKey(1));
     }
 
     @Test
-    void removeFromEmptyMap() {
+    void removeFromEmptyMap()
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
         assertNull(map.remove(1));
     }
 
     @Test
-    void replaceFromEmptyMap() {
+    void replaceFromEmptyMap()
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
         assertNull(map.replace(1, "non"));
     }
 
     @Test
-    void replaceIfEqualsFromEmptyMap() {
+    void replaceIfEqualsFromEmptyMap()
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
         assertFalse(map.replace(1, "non", "new"));
     }
 
     @Test
-    void ReplaceAll() {
+    void ReplaceAll()
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
         map.put(1, "Entry 1");
         assertThrows(UnsupportedOperationException.class, () ->

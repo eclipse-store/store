@@ -9,12 +9,13 @@ package test.eclipse.store.legacy.legacy.cross.data;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
-public class ByteLegacy2 {
+public class ByteLegacy2
+{
 
     private float byteTo_float;
     private double byteTo_double;
@@ -28,15 +29,18 @@ public class ByteLegacy2 {
     private Byte bytToByte;
     private byte copyByteTo_byte;
 
-    public ByteLegacy2() {
+    public ByteLegacy2()
+    {
     }
 
-    public double getByteTo_double() {
+    public double getByteTo_double()
+    {
         return byteTo_double;
     }
 
     @Override
-    public String toString() {
+    public String toString()
+    {
         return "ByteLegacy2{" +
                 "byteTo_float=" + byteTo_float +
                 ", byteTo_double=" + byteTo_double +

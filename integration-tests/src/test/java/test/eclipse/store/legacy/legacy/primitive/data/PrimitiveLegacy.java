@@ -9,12 +9,13 @@ package test.eclipse.store.legacy.legacy.primitive.data;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
-public class PrimitiveLegacy {
+public class PrimitiveLegacy
+{
 
     private static final byte SAMPLE_BYTE = 100;
     private static final short SAMPLE_SHORT = 50;
@@ -35,17 +36,20 @@ public class PrimitiveLegacy {
     private boolean booleanValue;
     private char charValue;
 
-    public PrimitiveLegacy() {
+    public PrimitiveLegacy()
+    {
         super();
     }
 
-    public static PrimitiveLegacy fillSample() {
+    public static PrimitiveLegacy fillSample()
+    {
         PrimitiveLegacy p = new PrimitiveLegacy();
         p.fillSampleData();
         return p;
     }
 
-    public void fillSampleData() {
+    public void fillSampleData()
+    {
         this.byteValue = SAMPLE_BYTE;
         this.shortValue = SAMPLE_SHORT;
         this.intValue = SAMPLE_INT;
@@ -56,41 +60,50 @@ public class PrimitiveLegacy {
         this.charValue = SAMPLE_CHAR;
     }
 
-    public byte getByteValue() {
+    public byte getByteValue()
+    {
         return byteValue;
     }
 
-    public short getShortValue() {
+    public short getShortValue()
+    {
         return shortValue;
     }
 
-    public int getIntValue() {
+    public int getIntValue()
+    {
         return intValue;
     }
 
-    public long getLongValue() {
+    public long getLongValue()
+    {
         return longValue;
     }
 
-    public float getFloatValue() {
+    public float getFloatValue()
+    {
         return floatValue;
     }
 
-    public double getDoubleValue() {
+    public double getDoubleValue()
+    {
         return doubleValue;
     }
 
-    public boolean isBooleanValue() {
+    public boolean isBooleanValue()
+    {
         return booleanValue;
     }
 
-    public char getCharValue() {
+    public char getCharValue()
+    {
         return charValue;
     }
 
 
     @Override
-    public int hashCode() {
+    public int hashCode()
+    {
         final int prime = 31;
         int result = 1;
         result = prime * result + (booleanValue ? 1231 : 1237);
@@ -107,7 +120,8 @@ public class PrimitiveLegacy {
     }
 
     @Override
-    public String toString() {
+    public String toString()
+    {
         return "{" +
                 "byteValue=" + byteValue +
                 ", shortValue=" + shortValue +
@@ -121,7 +135,8 @@ public class PrimitiveLegacy {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(Object o)
+    {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         PrimitiveLegacy that = (PrimitiveLegacy) o;

@@ -9,7 +9,7 @@ package test.eclipse.store.various.collections;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -17,7 +17,9 @@ package test.eclipse.store.various.collections;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
@@ -26,17 +28,17 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Round-trip tests for java.util.List.of(...) (JDK 9).
- *
+ * <p>
  * Backing types observed on JDK 17:
- *   List.of()              -> java.util.ImmutableCollections$ListN
- *   List.of(x)             -> java.util.ImmutableCollections$List12
- *   List.of(x, y)          -> java.util.ImmutableCollections$List12
- *   List.of(x, y, z, ...)  -> java.util.ImmutableCollections$ListN
- *
+ * List.of()              -> java.util.ImmutableCollections$ListN
+ * List.of(x)             -> java.util.ImmutableCollections$List12
+ * List.of(x, y)          -> java.util.ImmutableCollections$List12
+ * List.of(x, y, z, ...)  -> java.util.ImmutableCollections$ListN
+ * <p>
  * Eclipse Serializer ships BinaryHandlerImmutableCollectionsList12 but no
  * handler for ListN, so every size != 1,2 hits a generic fallback or fails.
  * The empty List.of() is also ListN, so it is *not* covered by the List12 handler.
- *
+ * <p>
  * Each test asserts a strict round-trip: the reloaded instance must equal
  * the original by value, preserve iteration order, and remain immutable
  * (mutating it must still throw UnsupportedOperationException).
@@ -197,9 +199,9 @@ public class ListOfTest
     void listOfNestedTest()
     {
         List<List<String>> nested = List.of(
-            List.of("a", "b"),
-            List.of("c", "d", "e"),
-            List.of()
+                List.of("a", "b"),
+                List.of("c", "d", "e"),
+                List.of()
         );
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(nested, workDir)) {

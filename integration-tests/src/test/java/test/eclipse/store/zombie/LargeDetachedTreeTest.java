@@ -9,7 +9,7 @@ package test.eclipse.store.zombie;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -48,9 +48,9 @@ import org.junit.jupiter.api.io.TempDir;
  * scaled behaviour.
  */
 @Disabled("Slow (~13 s) and timing-sensitive due to System.gc() reliance; "
-    + "scaled reproducer of the registry-safety-net zombie pattern. "
-    + "The single-holder variant (RegistrySafetyNetZombieTest) is the "
-    + "canonical CI regression for the same root cause.")
+        + "scaled reproducer of the registry-safety-net zombie pattern. "
+        + "The single-holder variant (RegistrySafetyNetZombieTest) is the "
+        + "canonical CI regression for the same root cause.")
 public class LargeDetachedTreeTest
 {
     @TempDir
@@ -62,13 +62,17 @@ public class LargeDetachedTreeTest
     @AfterEach
     public void afterTest()
     {
-        if(this.reloaded != null)
-        {
-            try { this.reloaded.shutdown(); } catch(final Exception ignored) { }
+        if (this.reloaded != null) {
+            try {
+                this.reloaded.shutdown();
+            } catch (final Exception ignored) {
+            }
         }
-        if(this.storage != null && this.storage.isRunning())
-        {
-            try { this.storage.shutdown(); } catch(final Exception ignored) { }
+        if (this.storage != null && this.storage.isRunning()) {
+            try {
+                this.storage.shutdown();
+            } catch (final Exception ignored) {
+            }
         }
     }
 
@@ -87,13 +91,11 @@ public class LargeDetachedTreeTest
         this.storage = newStorage(zombieHandler);
         final PersistenceObjectRegistry registry = this.storage.persistenceManager().objectRegistry();
 
-        final ApplicationRoot appRoot   = new ApplicationRoot();
-        final Container       container = new Container("clearTestContainer");
-        for(int b = 0; b < 50; b++)
-        {
+        final ApplicationRoot appRoot = new ApplicationRoot();
+        final Container container = new Container("clearTestContainer");
+        for (int b = 0; b < 50; b++) {
             final Branch branch = new Branch("branch-" + b);
-            for(int l = 0; l < 20; l++)
-            {
+            for (int l = 0; l < 20; l++) {
                 branch.leaves.add(Lazy.Reference(new Leaf("leaf-" + b + "-" + l, b * 100 + l)));
             }
             container.branches.add(branch);
@@ -104,12 +106,9 @@ public class LargeDetachedTreeTest
 
         // Probes for selected leaves so we can verify Java GC cleared them.
         final List<WeakReference<Leaf>> probes = new ArrayList<>();
-        for(int b = 0; b < 50; b += 2)
-        {
-            for(int l = 0; l < 20; l += 2)
-            {
-                @SuppressWarnings("unchecked")
-                final Lazy<Leaf> lazy = (Lazy<Leaf>) container.branches.get(b).leaves.get(l);
+        for (int b = 0; b < 50; b += 2) {
+            for (int l = 0; l < 20; l += 2) {
+                @SuppressWarnings("unchecked") final Lazy<Leaf> lazy = (Lazy<Leaf>) container.branches.get(b).leaves.get(l);
                 probes.add(new WeakReference<>(lazy.get()));
             }
         }
@@ -120,46 +119,47 @@ public class LargeDetachedTreeTest
         this.storage.storeRoot();
 
         // Clear half the lazies (every 2nd branch, every 2nd leaf within).
-        for(int b = 0; b < 50; b += 2)
-        {
-            for(int l = 0; l < 20; l += 2)
-            {
+        for (int b = 0; b < 50; b += 2) {
+            for (int l = 0; l < 20; l += 2) {
                 Lazy.clear(heldContainer.branches.get(b).leaves.get(l));
             }
         }
 
         // Force Java GC and registry cleanup.
-        for(int i = 0; i < 30; i++)
-        {
+        for (int i = 0; i < 30; i++) {
             boolean allCleared = true;
-            for(final WeakReference<?> p : probes)
-            {
-                if(p.get() != null) { allCleared = false; break; }
+            for (final WeakReference<?> p : probes) {
+                if (p.get() != null) {
+                    allCleared = false;
+                    break;
+                }
             }
-            if(allCleared) { break; }
+            if (allCleared) {
+                break;
+            }
             System.gc();
             Thread.sleep(50);
         }
         long stillAlive = 0;
-        for(final WeakReference<?> p : probes)
-        {
-            if(p.get() != null) { stillAlive++; }
+        for (final WeakReference<?> p : probes) {
+            if (p.get() != null) {
+                stillAlive++;
+            }
         }
         assumeTrue(stillAlive < probes.size() / 2,
-            "JVM did not GC enough leaves to make this test meaningful (still alive: "
-                + stillAlive + " of " + probes.size() + ")");
+                "JVM did not GC enough leaves to make this test meaningful (still alive: "
+                        + stillAlive + " of " + probes.size() + ")");
 
         registry.cleanUp();
 
         // GC cycles. Pre-sweep gate must seed Container + Branch + remaining
         // Lazy entities; mark walks transitively to leaves; sweep keeps them.
-        for(int i = 0; i < 3; i++)
-        {
+        for (int i = 0; i < 3; i++) {
             this.storage.issueFullGarbageCollection();
             Thread.sleep(200);
             assertEquals(0, zombieHandler.count(),
-                "No zombies during cleared-lazies GC iter=" + i
-                    + ", got " + zombieHandler.oids());
+                    "No zombies during cleared-lazies GC iter=" + i
+                            + ", got " + zombieHandler.oids());
         }
 
         // Re-attach and reload.
@@ -168,7 +168,7 @@ public class LargeDetachedTreeTest
         this.storage.issueFullGarbageCollection();
         Thread.sleep(200);
         assertEquals(0, zombieHandler.count(),
-            "No zombies after re-attach with cleared lazies");
+                "No zombies after re-attach with cleared lazies");
 
         this.storage.shutdown();
 
@@ -176,16 +176,13 @@ public class LargeDetachedTreeTest
         this.reloaded = newStorage(reloadHandler);
         final ApplicationRoot reloadedRoot = (ApplicationRoot) this.reloaded.root();
 
-        for(int b = 0; b < 50; b++)
-        {
+        for (int b = 0; b < 50; b++) {
             final Branch branch = reloadedRoot.container.branches.get(b);
-            for(int l = 0; l < 20; l++)
-            {
-                @SuppressWarnings("unchecked")
-                final Lazy<Leaf> lazy = (Lazy<Leaf>) branch.leaves.get(l);
+            for (int l = 0; l < 20; l++) {
+                @SuppressWarnings("unchecked") final Lazy<Leaf> lazy = (Lazy<Leaf>) branch.leaves.get(l);
                 final Leaf leaf = lazy.get();
                 assertNotNull(leaf,
-                    "Leaf " + b + "-" + l + " must reload (data-loss check)");
+                        "Leaf " + b + "-" + l + " must reload (data-loss check)");
                 assertEquals(b * 100 + l, leaf.value);
             }
         }
@@ -193,31 +190,32 @@ public class LargeDetachedTreeTest
         this.reloaded.issueFullGarbageCollection();
         Thread.sleep(200);
         assertEquals(0, reloadHandler.count(),
-            "No zombies after reload + final GC");
+                "No zombies after reload + final GC");
     }
 
     private EmbeddedStorageManager newStorage(final CountingZombieOidHandler handler)
     {
         return EmbeddedStorage.Foundation(
-                Storage.ConfigurationBuilder()
-                    .setChannelCountProvider (Storage.ChannelCountProvider(1))
-                    .setHousekeepingController(Storage.HousekeepingController(50, 100_000_000))
-                    .setDataFileEvaluator    (Storage.DataFileEvaluator(1024, 8192, 1.0))
-                    .setStorageFileProvider  (Storage.FileProvider(this.tempDir))
-                    .createConfiguration()
-            )
-            .setGCZombieOidHandler(handler)
-            .start();
+                        Storage.ConfigurationBuilder()
+                                .setChannelCountProvider(Storage.ChannelCountProvider(1))
+                                .setHousekeepingController(Storage.HousekeepingController(50, 100_000_000))
+                                .setDataFileEvaluator(Storage.DataFileEvaluator(1024, 8192, 1.0))
+                                .setStorageFileProvider(Storage.FileProvider(this.tempDir))
+                                .createConfiguration()
+                )
+                .setGCZombieOidHandler(handler)
+                .start();
     }
 
     ///////////////////////////////////////////////////////////////////////////
     // data types //
-    ///////////////
+
+    /// ////////////
 
     public static class Leaf
     {
         public String label;
-        public int    value;
+        public int value;
 
         public Leaf(final String label, final int value)
         {
@@ -229,7 +227,7 @@ public class LargeDetachedTreeTest
 
     public static class Branch
     {
-        public String        label;
+        public String label;
         public List<Lazy<?>> leaves = new ArrayList<>();
 
         public Branch(final String label)
@@ -241,7 +239,7 @@ public class LargeDetachedTreeTest
 
     public static class Container
     {
-        public String       label;
+        public String label;
         public List<Branch> branches = new ArrayList<>();
 
         public Container(final String label)
@@ -259,14 +257,13 @@ public class LargeDetachedTreeTest
     static final class CountingZombieOidHandler implements StorageGCZombieOidHandler
     {
         final AtomicInteger zombieCount = new AtomicInteger();
-        final List<Long>    zombieOids  = new ArrayList<>();
+        final List<Long> zombieOids = new ArrayList<>();
 
         @Override
         public boolean handleZombieOid(final long objectId)
         {
             this.zombieCount.incrementAndGet();
-            synchronized(this.zombieOids)
-            {
+            synchronized (this.zombieOids) {
                 this.zombieOids.add(objectId);
             }
             return true;
@@ -279,8 +276,7 @@ public class LargeDetachedTreeTest
 
         public List<Long> oids()
         {
-            synchronized(this.zombieOids)
-            {
+            synchronized (this.zombieOids) {
                 return new ArrayList<>(this.zombieOids);
             }
         }

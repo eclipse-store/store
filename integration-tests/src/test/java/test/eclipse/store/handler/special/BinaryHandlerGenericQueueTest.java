@@ -9,7 +9,7 @@ package test.eclipse.store.handler.special;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -18,14 +18,15 @@ import static org.junit.jupiter.api.Assertions.assertIterableEquals;
 
 import java.util.PriorityQueue;
 
+import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 
-import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
-
-class BinaryHandlerGenericQueueTest extends AbstractSpecialHandlerTest {
+class BinaryHandlerGenericQueueTest extends AbstractSpecialHandlerTest
+{
 
     @Test
-    void binaryHandlerGenericQueueTest() {
+    void binaryHandlerGenericQueueTest()
+    {
         PriorityQueue<Integer> original = new PriorityQueue<>();
         original.add(100);
         PriorityQueue<Integer> copy = new PriorityQueue<>();

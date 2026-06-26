@@ -9,7 +9,7 @@ package test.eclipse.store.handler;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -21,21 +21,26 @@ import java.util.Date;
 import org.apache.commons.io.FileUtils;
 import org.junit.jupiter.api.Assertions;
 
-class BinaryHandlerFile extends AbstractHandlerTest<BinaryHandlerFile.FileData> {
+class BinaryHandlerFile extends AbstractHandlerTest<BinaryHandlerFile.FileData>
+{
 
-    BinaryHandlerFile() {
+    BinaryHandlerFile()
+    {
         super(FileData.class);
     }
 
     @Override
-    public void proveResult(FileData original, FileData copy) {
+    public void proveResult(FileData original, FileData copy)
+    {
         Assertions.assertEquals(original.getValue().getName(), copy.getValue().getName());
     }
 
-    static class FileData implements BinaryHandlerTestData {
+    static class FileData implements BinaryHandlerTestData
+    {
         File value;
 
-        public void fillSampleData() {
+        public void fillSampleData()
+        {
             try {
                 String fileName = String.valueOf(new Date().getTime());
                 value = File.createTempFile(fileName, ".txt", FileUtils.getTempDirectory());
@@ -44,7 +49,8 @@ class BinaryHandlerFile extends AbstractHandlerTest<BinaryHandlerFile.FileData> 
             }
         }
 
-        File getValue() {
+        File getValue()
+        {
             return value;
         }
     }

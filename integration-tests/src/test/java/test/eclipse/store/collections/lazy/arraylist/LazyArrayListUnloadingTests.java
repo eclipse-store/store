@@ -9,10 +9,15 @@ package test.eclipse.store.collections.lazy.arraylist;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.nio.file.Path;
 
 import org.eclipse.serializer.collections.lazy.LazyArrayList;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
@@ -20,15 +25,12 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.nio.file.Path;
-
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-public class LazyArrayListUnloadingTests {
+public class LazyArrayListUnloadingTests
+{
 
     @Test
-    void UnloadStored(@TempDir final Path path) {
+    void UnloadStored(@TempDir final Path path)
+    {
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(path)) {
             LazyArrayList<String> list = createLazyList(22);
@@ -43,7 +45,8 @@ public class LazyArrayListUnloadingTests {
     }
 
     @Test
-    void UnloadNotStored(@TempDir final Path path) {
+    void UnloadNotStored(@TempDir final Path path)
+    {
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(path)) {
             LazyArrayList<String> list = createLazyList(44);
@@ -56,7 +59,8 @@ public class LazyArrayListUnloadingTests {
     }
 
     @Test
-    void UnloadNotStored_reloadedStorage(@TempDir final Path path) {
+    void UnloadNotStored_reloadedStorage(@TempDir final Path path)
+    {
 
         try (final EmbeddedStorageManager storageReloaded = createReloadedStorageWithList(path)) {
             @SuppressWarnings("unchecked")
@@ -83,7 +87,8 @@ public class LazyArrayListUnloadingTests {
     }
 
 
-    static EmbeddedStorageManager createReloadedStorageWithList(final Path path) {
+    static EmbeddedStorageManager createReloadedStorageWithList(final Path path)
+    {
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(path)) {
             LazyArrayList<String> list = createLazyList(44);
             storage.setRoot(list);
@@ -93,7 +98,8 @@ public class LazyArrayListUnloadingTests {
     }
 
 
-    private static LazyArrayList<String> createLazyList(final int size) {
+    private static LazyArrayList<String> createLazyList(final int size)
+    {
         LazyArrayList<String> list = new LazyArrayList<>();
 
         for (int i = 0; i < size; i++) {

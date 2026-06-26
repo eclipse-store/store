@@ -9,7 +9,7 @@ package test.eclipse.store.various.jdk;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -45,19 +45,19 @@ public class BigIntegerTest
         }
     }
 
-	@Test
-	@Disabled("https://github.com/eclipse-store/store/issues/521")
-	void bigIntegerVariants()
-	{
-		BigInteger first = new BigInteger("12");
-		try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(first, tempDir)) {
-		}
+    @Test
+    @Disabled("https://github.com/eclipse-store/store/issues/521")
+    void bigIntegerVariants()
+    {
+        BigInteger first = new BigInteger("12");
+        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(first, tempDir)) {
+        }
 
-		BigInteger loaded = new BigInteger("123");
-		try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(loaded, tempDir)) {
-			assertEquals(first,  loaded, "should be equal after storing and reloading");
-		}
-	}
+        BigInteger loaded = new BigInteger("123");
+        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(loaded, tempDir)) {
+            assertEquals(first, loaded, "should be equal after storing and reloading");
+        }
+    }
 
     @Test
     void saveBigIntegerDataAndReload()
@@ -76,7 +76,7 @@ public class BigIntegerTest
         }
     }
 
-	private static class BigIntegerData
+    private static class BigIntegerData
     {
         private BigInteger value;
 

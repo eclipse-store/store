@@ -9,29 +9,30 @@ package test.eclipse.store.handler.special;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import static org.junit.jupiter.api.Assertions.assertIterableEquals;
+
+import java.nio.file.Path;
+import java.util.concurrent.CopyOnWriteArraySet;
 
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.concurrent.CopyOnWriteArraySet;
-
-import static org.junit.jupiter.api.Assertions.assertIterableEquals;
-
-public class BinaryHandlerCopyOnWriteArraySetUpdate {
+public class BinaryHandlerCopyOnWriteArraySetUpdate
+{
 
     @TempDir
     Path tempDir;
 
     @Test
-    public void binaryHandlerCopyOnWriteArraySetUpdateTest() {
+    public void binaryHandlerCopyOnWriteArraySetUpdateTest()
+    {
 
         CopyOnWriteArraySet<Integer> original = new CopyOnWriteArraySet<>();
         original.add(100);

@@ -9,7 +9,7 @@ package test.eclipse.store.handler;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -38,7 +38,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-public abstract class AbstractHandlerTest<T extends BinaryHandlerTestData> {
+public abstract class AbstractHandlerTest<T extends BinaryHandlerTestData>
+{
 
     private Class<T> aClass;
 
@@ -46,7 +47,8 @@ public abstract class AbstractHandlerTest<T extends BinaryHandlerTestData> {
 
     private Path actualDirectory;
 
-    public AbstractHandlerTest(Class<T> aClass) {
+    public AbstractHandlerTest(Class<T> aClass)
+    {
         this.aClass = aClass;
     }
 
@@ -54,7 +56,8 @@ public abstract class AbstractHandlerTest<T extends BinaryHandlerTestData> {
     public abstract void proveResult(T original, T copy);
 
     @Test
-    void saveAndLoadTest(@TempDir Path tempDir) throws IllegalAccessException, InstantiationException, NoSuchMethodException, InvocationTargetException {
+    void saveAndLoadTest(@TempDir Path tempDir) throws IllegalAccessException, InstantiationException, NoSuchMethodException, InvocationTargetException
+    {
         System.out.println(tempDir);
         System.out.println(this);
         T original = aClass.getDeclaredConstructor().newInstance();
@@ -67,7 +70,8 @@ public abstract class AbstractHandlerTest<T extends BinaryHandlerTestData> {
 
 
     @Test
-    void exportImportTest(@TempDir Path tempDir) throws IllegalAccessException, InstantiationException, InterruptedException, NoSuchMethodException, InvocationTargetException {
+    void exportImportTest(@TempDir Path tempDir) throws IllegalAccessException, InstantiationException, InterruptedException, NoSuchMethodException, InvocationTargetException
+    {
         //System.out.println(tempDir);
         //System.out.println(this);
         T original = aClass.getDeclaredConstructor().newInstance();
@@ -83,7 +87,7 @@ public abstract class AbstractHandlerTest<T extends BinaryHandlerTestData> {
 
         final NioFileSystem fs = NioFileSystem.New();
 
-        final ADirectory dir  = fs.ensureDirectoryPath(tempDir.toFile().getAbsolutePath());
+        final ADirectory dir = fs.ensureDirectoryPath(tempDir.toFile().getAbsolutePath());
 
 
         StorageEntityTypeExportStatistics exportResult = connection.exportTypes(
@@ -93,17 +97,16 @@ public abstract class AbstractHandlerTest<T extends BinaryHandlerTestData> {
         XSequence<Path> exportFiles = CQL
                 .from(exportResult.typeStatistics().values())
                 .project(s -> Paths.get(s.file().identifier()))
-                .execute()
-                ;
+                .execute();
         storage.shutdown();
 
         storage = startStorage(copy);
-        StorageConnection  loadConnection = storage.createConnection();
+        StorageConnection loadConnection = storage.createConnection();
 
         XEnum<AFile> importFiles = X.Enum();
 
         for (Path p : exportFiles) {
-            Path fullPath =  tempDir.resolve(p);
+            Path fullPath = tempDir.resolve(p);
 
             importFiles.add(fs.ensureFile(fullPath));
         }
@@ -114,14 +117,16 @@ public abstract class AbstractHandlerTest<T extends BinaryHandlerTestData> {
     }
 
     @AfterEach
-    void cleanStorage() throws IOException {
+    void cleanStorage() throws IOException
+    {
         if (null != storage && !storage.isShutdown()) {
             storage.shutdown();
         }
         FileUtils.deleteDirectory(actualDirectory.toFile());
     }
 
-    <O> O saveAndReload(O original, O loaded, Path targetDirectory) {
+    <O> O saveAndReload(O original, O loaded, Path targetDirectory)
+    {
         this.actualDirectory = targetDirectory.resolve(String.valueOf(System.currentTimeMillis()));
         storage = startStorage(original);
         storage.storeRoot();
@@ -131,7 +136,8 @@ public abstract class AbstractHandlerTest<T extends BinaryHandlerTestData> {
         return loaded;
     }
 
-    private EmbeddedStorageManager startStorage(Object root) {
+    private EmbeddedStorageManager startStorage(Object root)
+    {
         return EmbeddedStorage.start(root, actualDirectory);
     }
 }

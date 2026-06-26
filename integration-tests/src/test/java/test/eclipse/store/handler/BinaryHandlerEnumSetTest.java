@@ -9,7 +9,7 @@ package test.eclipse.store.handler;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -21,37 +21,45 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 
 @Disabled
-class BinaryHandlerEnumSetTest extends AbstractHandlerTest<BinaryHandlerEnumSetTest.EnumSetData> {
+class BinaryHandlerEnumSetTest extends AbstractHandlerTest<BinaryHandlerEnumSetTest.EnumSetData>
+{
 
-    BinaryHandlerEnumSetTest() {
+    BinaryHandlerEnumSetTest()
+    {
         super(EnumSetData.class);
     }
 
     @Override
-    public void proveResult(EnumSetData original, EnumSetData copy) {
+    public void proveResult(EnumSetData original, EnumSetData copy)
+    {
         Assertions.assertEquals(original.getOriginal(), copy.getOriginal());
     }
 
 
-    static enum Tasks {
+    static enum Tasks
+    {
         WORK(10), HOBBY(20);
 
         private int value;
 
-        Tasks(int value) {
+        Tasks(int value)
+        {
             this.value = value;
         }
     }
 
-    static class EnumSetData implements BinaryHandlerTestData {
+    static class EnumSetData implements BinaryHandlerTestData
+    {
         Set<Tasks> original;
 
         @Override
-        public void fillSampleData() {
+        public void fillSampleData()
+        {
             original = EnumSet.of(Tasks.WORK, Tasks.HOBBY);
         }
 
-        public Set<Tasks> getOriginal() {
+        public Set<Tasks> getOriginal()
+        {
             return original;
         }
     }

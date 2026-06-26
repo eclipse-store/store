@@ -9,22 +9,22 @@ package test.eclipse.store.handler.basic;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
 public enum BonusRegulierung
 {
-    Regulierung01(1) ,
-    Regulierung02(2) ,
-    Regulierung03(3) ,
-    Regulierung04(4) ,
-    Regulierung05(5) ,
-    Regulierung06(6) ,
-    Regulierung07(7) ,
-    Regulierung08(8) ,
-    Regulierung09(9) ,
+    Regulierung01(1),
+    Regulierung02(2),
+    Regulierung03(3),
+    Regulierung04(4),
+    Regulierung05(5),
+    Regulierung06(6),
+    Regulierung07(7),
+    Regulierung08(8),
+    Regulierung09(9),
     Regulierung10(10),
     Regulierung11(11),
     Regulierung12(12),
@@ -42,33 +42,32 @@ public enum BonusRegulierung
     Regulierung24(24);
 
 
-
     ///////////////////////////////////////////////////////////////////////////
     // static methods //
-    ///////////////////
+
+    /// ////////////////
 
     public static BonusRegulierung fromNummer(final int nummer)
     {
         // CHECKSTYLE.OFF: MagicNumber: Blanke Indexwerte.
-        switch(nummer)
-        {
-            case  1:
+        switch (nummer) {
+            case 1:
                 return Regulierung01;
-            case  2:
+            case 2:
                 return Regulierung02;
-            case  3:
+            case 3:
                 return Regulierung03;
-            case  4:
+            case 4:
                 return Regulierung04;
-            case  5:
+            case 5:
                 return Regulierung05;
-            case  6:
+            case 6:
                 return Regulierung06;
-            case  7:
+            case 7:
                 return Regulierung07;
-            case  8:
+            case 8:
                 return Regulierung08;
-            case  9:
+            case 9:
                 return Regulierung09;
             case 10:
                 return Regulierung10;
@@ -118,8 +117,7 @@ public enum BonusRegulierung
 
     public BonusRegulierung prev()
     {
-        if(this == first())
-        {
+        if (this == first()) {
             return null;
         }
         return fromNummer(this.nummer - 1);
@@ -127,8 +125,7 @@ public enum BonusRegulierung
 
     public BonusRegulierung next()
     {
-        if(this == last())
-        {
+        if (this == last()) {
             return null;
         }
         return fromNummer(this.nummer + 1);
@@ -160,18 +157,17 @@ public enum BonusRegulierung
     }
 
 
-
     ///////////////////////////////////////////////////////////////////////////
     // instance fields //
-    ////////////////////
+    /// /////////////////
 
     private final int nummer;
 
 
-
     ///////////////////////////////////////////////////////////////////////////
     // constructors //
-    /////////////////
+
+    /// //////////////
 
     private BonusRegulierung(final int nummer)
     {
@@ -179,10 +175,10 @@ public enum BonusRegulierung
     }
 
 
-
     ///////////////////////////////////////////////////////////////////////////
     // declared methods //
-    /////////////////////
+
+    /// //////////////////
 
     public int nummer()
     {
@@ -190,12 +186,10 @@ public enum BonusRegulierung
     }
 
 
-
     public BonusMonat monat()
     {
         // kann nicht als final member gecacht werden, da Monat das seinerseits mit Regulierung tut
-        switch(this)
-        {
+        switch (this) {
             case Regulierung01:
                 return BonusMonat.Februar;
             case Regulierung02:

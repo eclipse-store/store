@@ -9,20 +9,21 @@ package test.eclipse.store.handler;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import java.nio.file.Path;
+import java.util.PriorityQueue;
 
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.nio.file.Path;
-import java.util.PriorityQueue;
-
-public class BinaryHandlerPriorityQueueTest {
+public class BinaryHandlerPriorityQueueTest
+{
 
     @TempDir
     Path storagePath;
@@ -32,7 +33,8 @@ public class BinaryHandlerPriorityQueueTest {
      * Load empty PriorityQueue
      */
     @Test
-    public void saveAndLoadTest() {
+    public void saveAndLoadTest()
+    {
 
         PriorityQueue<Integer> queue = new PriorityQueue<>();
         PriorityQueue<Integer> copy = new PriorityQueue<>();

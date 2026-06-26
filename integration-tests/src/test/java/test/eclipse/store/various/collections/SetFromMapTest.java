@@ -9,7 +9,7 @@ package test.eclipse.store.various.collections;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -40,7 +40,7 @@ public class SetFromMapTest
 
         LinkedHashMap<String, Boolean> map = new LinkedHashMap<>(5);
 
-        stateDataField  = Collections.newSetFromMap(map);
+        stateDataField = Collections.newSetFromMap(map);
         stateDataField.add("one");
         stateDataField.add("two");
         stateDataField.add("three");
@@ -49,7 +49,7 @@ public class SetFromMapTest
         }
 
 
-        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start( workDir)) {
+        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(workDir)) {
             Set<String> set = (Set<String>) storageManager.root();
             //compare two sets
             assertIterableEquals(stateDataField, set);

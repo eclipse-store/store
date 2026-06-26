@@ -9,7 +9,7 @@ package test.eclipse.store.various;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -17,26 +17,26 @@ package test.eclipse.store.various;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
-import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
-
-public class BigListTest {
+public class BigListTest
+{
 
     @TempDir
     Path tempDir;
 
 
     @Test
-    void bigListSaveTest() {
+    void bigListSaveTest()
+    {
         int n = 1_000_000;
 
         List<String> list = IntStream.range(0, n)
@@ -56,7 +56,7 @@ public class BigListTest {
 
         }
         List<String> loaded = new ArrayList<>();
-        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(loaded, tempDir )) {
+        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(loaded, tempDir)) {
 
         }
         Assertions.assertIterableEquals(list, loaded);

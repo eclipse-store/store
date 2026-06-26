@@ -9,11 +9,21 @@ package test.eclipse.store.cache;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
+
+import javax.cache.Cache;
+import javax.cache.CacheManager;
+import javax.cache.Caching;
+import javax.cache.configuration.MutableConfiguration;
+import javax.cache.expiry.CreatedExpiryPolicy;
+import javax.cache.expiry.Duration;
+import javax.cache.spi.CachingProvider;
+import java.nio.file.Path;
+import java.util.concurrent.TimeUnit;
 
 import org.eclipse.serializer.reference.LazyReferenceManager;
 import org.eclipse.store.cache.types.CacheConfiguration;
@@ -23,25 +33,16 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import javax.cache.Cache;
-import javax.cache.CacheManager;
-import javax.cache.Caching;
-import javax.cache.configuration.MutableConfiguration;
-import javax.cache.expiry.CreatedExpiryPolicy;
-import javax.cache.expiry.Duration;
-import javax.cache.spi.CachingProvider;
 
-import java.nio.file.Path;
-import java.util.concurrent.TimeUnit;
-
-
-public class CacheEvictTest {
+public class CacheEvictTest
+{
 
     private static final String CACHED_VALUE = "one";
     private static final int KEY = 1;
 
     @Test
-    void cacheItemEvicted() throws InterruptedException {
+    void cacheItemEvicted() throws InterruptedException
+    {
         CachingProvider provider = Caching.getCachingProvider();
         CacheManager cacheManager = provider.getCacheManager();
 
@@ -61,7 +62,8 @@ public class CacheEvictTest {
     }
 
     @Test
-    void cacheItemEvictedWithStorage(@TempDir Path tempdir) throws InterruptedException {
+    void cacheItemEvictedWithStorage(@TempDir Path tempdir) throws InterruptedException
+    {
         EmbeddedStorageManager storageManager = EmbeddedStorage.start(tempdir);
 
         CachingProvider provider = Caching.getCachingProvider();

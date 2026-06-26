@@ -53,104 +53,104 @@ import org.junit.jupiter.api.io.TempDir;
  */
 public class EagerFieldEvaluatorTest
 {
-	@TempDir
-	Path storageDir;
+    @TempDir
+    Path storageDir;
 
-	@Test
-	void eagerAnnotatedFieldIsRewrittenOnLazyRootStore()
-	{
-		// --- 1) Initial setup: write the root with two holders carrying old values ---
-		try (EmbeddedStorageManager manager = newManager(storageDir)) {
-			final Root root = new Root();
-			root.eagerHolder = new Holder("eager-OLD");
-			root.lazyHolder = new Holder("lazy-OLD");
-			manager.setRoot(root);
-			manager.storeRoot();
-		}
+    @Test
+    void eagerAnnotatedFieldIsRewrittenOnLazyRootStore()
+    {
+        // --- 1) Initial setup: write the root with two holders carrying old values ---
+        try (EmbeddedStorageManager manager = newManager(storageDir)) {
+            final Root root = new Root();
+            root.eagerHolder = new Holder("eager-OLD");
+            root.lazyHolder = new Holder("lazy-OLD");
+            manager.setRoot(root);
+            manager.storeRoot();
+        }
 
-		// --- 2) Reopen, mutate both holders in place, then storeRoot() (lazy convenience) ---
-		try (EmbeddedStorageManager manager = newManager(storageDir)) {
-			final Root root = (Root) manager.root();
-			// Sanity check: persisted state from step 1.
-			assertEquals("eager-OLD", root.eagerHolder.value);
-			assertEquals("lazy-OLD", root.lazyHolder.value);
+        // --- 2) Reopen, mutate both holders in place, then storeRoot() (lazy convenience) ---
+        try (EmbeddedStorageManager manager = newManager(storageDir)) {
+            final Root root = (Root) manager.root();
+            // Sanity check: persisted state from step 1.
+            assertEquals("eager-OLD", root.eagerHolder.value);
+            assertEquals("lazy-OLD", root.lazyHolder.value);
 
-			// In-place mutation of an already-registered child object.
-			// A pure lazy walk from root would skip both holders.
-			root.eagerHolder.value = "eager-NEW";
-			root.lazyHolder.value = "lazy-NEW";
+            // In-place mutation of an already-registered child object.
+            // A pure lazy walk from root would skip both holders.
+            root.eagerHolder.value = "eager-NEW";
+            root.lazyHolder.value = "lazy-NEW";
 
-			// Lazy convenience store on the root. The per-field evaluator must
-			// force descent through Root#eagerHolder and re-write that Holder.
-			manager.storeRoot();
-		}
+            // Lazy convenience store on the root. The per-field evaluator must
+            // force descent through Root#eagerHolder and re-write that Holder.
+            manager.storeRoot();
+        }
 
-		// --- 3) Reopen again and verify what actually hit the disk ---
-		try (EmbeddedStorageManager manager = newManager(storageDir)) {
-			final Root root = (Root) manager.root();
+        // --- 3) Reopen again and verify what actually hit the disk ---
+        try (EmbeddedStorageManager manager = newManager(storageDir)) {
+            final Root root = (Root) manager.root();
 
-			// Eager-annotated field: must reflect the new value.
-			assertEquals("eager-NEW", root.eagerHolder.value,
-					"Field annotated with @StoreEager should have been re-written by the per-field eager evaluator.");
+            // Eager-annotated field: must reflect the new value.
+            assertEquals("eager-NEW", root.eagerHolder.value,
+                    "Field annotated with @StoreEager should have been re-written by the per-field eager evaluator.");
 
-			// Non-annotated field: lazy walk skipped the already-registered holder,
-			// so the in-place mutation must NOT have been persisted.
-			assertEquals("lazy-OLD", root.lazyHolder.value,
-					"Non-annotated field should follow lazy semantics: in-place mutation of a registered child must not be persisted by storeRoot().");
-		}
-	}
+            // Non-annotated field: lazy walk skipped the already-registered holder,
+            // so the in-place mutation must NOT have been persisted.
+            assertEquals("lazy-OLD", root.lazyHolder.value,
+                    "Non-annotated field should follow lazy semantics: in-place mutation of a registered child must not be persisted by storeRoot().");
+        }
+    }
 
-	private static EmbeddedStorageManager newManager(final Path dir)
-	{
-		return EmbeddedStorage.Foundation(dir)
-				.onConnectionFoundation(cf -> cf.setReferenceFieldEagerEvaluator(new StoreEagerEvaluator()))
-				.createEmbeddedStorageManager()
-				.start();
-	}
+    private static EmbeddedStorageManager newManager(final Path dir)
+    {
+        return EmbeddedStorage.Foundation(dir)
+                .onConnectionFoundation(cf -> cf.setReferenceFieldEagerEvaluator(new StoreEagerEvaluator()))
+                .createEmbeddedStorageManager()
+                .start();
+    }
 
-	// ----- Test fixtures -------------------------------------------------------------
+    // ----- Test fixtures -------------------------------------------------------------
 
-	@Retention(RetentionPolicy.RUNTIME)
-	@Target(ElementType.FIELD)
-	public @interface StoreEager
-	{
-		// marker
-	}
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.FIELD)
+    public @interface StoreEager
+    {
+        // marker
+    }
 
-	/**
-	 * Field evaluator that forces eager traversal for any field annotated with {@link StoreEager}.
-	 */
-	public static class StoreEagerEvaluator implements PersistenceEagerStoringFieldEvaluator
-	{
-		@Override
-		public boolean isEagerStoring(final Class<?> clazz, final Field field)
-		{
-			return field.isAnnotationPresent(StoreEager.class);
-		}
-	}
+    /**
+     * Field evaluator that forces eager traversal for any field annotated with {@link StoreEager}.
+     */
+    public static class StoreEagerEvaluator implements PersistenceEagerStoringFieldEvaluator
+    {
+        @Override
+        public boolean isEagerStoring(final Class<?> clazz, final Field field)
+        {
+            return field.isAnnotationPresent(StoreEager.class);
+        }
+    }
 
-	public static class Root
-	{
-		@StoreEager
-		Holder eagerHolder;
+    public static class Root
+    {
+        @StoreEager
+        Holder eagerHolder;
 
-		Holder lazyHolder;
-	}
+        Holder lazyHolder;
+    }
 
-	public static class Holder
-	{
+    public static class Holder
+    {
 
-		String value;
+        String value;
 
-		Holder()
-		{
-			// for deserialization
-		}
+        Holder()
+        {
+            // for deserialization
+        }
 
-		Holder(final String value)
-		{
-			this.value = value;
-		}
-	}
+        Holder(final String value)
+        {
+            this.value = value;
+        }
+    }
 }
 

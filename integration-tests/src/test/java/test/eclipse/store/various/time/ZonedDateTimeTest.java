@@ -9,7 +9,7 @@ package test.eclipse.store.various.time;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -33,7 +33,7 @@ public class ZonedDateTimeTest
     @Test
     void zonedDateTimeStoreAndReload()
     {
-        ZonedDateTime zdt = ZonedDateTime.of(2020,1,1,1,1,0,0, ZoneId.of("Europe/Prague"));
+        ZonedDateTime zdt = ZonedDateTime.of(2020, 1, 1, 1, 1, 0, 0, ZoneId.of("Europe/Prague"));
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(zdt, tempDir)) {
         }
@@ -48,7 +48,7 @@ public class ZonedDateTimeTest
     @Test
     void zonedDateTimeUpdateApiBehavior()
     {
-        ZonedDateTime zdt = ZonedDateTime.of(2020,1,1,1,1,0,0, ZoneId.of("Europe/Prague"));
+        ZonedDateTime zdt = ZonedDateTime.of(2020, 1, 1, 1, 1, 0, 0, ZoneId.of("Europe/Prague"));
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(zdt, tempDir)) {
         }
@@ -63,7 +63,7 @@ public class ZonedDateTimeTest
     @Test
     void saveZonedDateTimeDataAndReload()
     {
-        ZonedDateTime zdt = ZonedDateTime.of(2020,1,1,1,1,0,0, ZoneId.of("Europe/Prague"));
+        ZonedDateTime zdt = ZonedDateTime.of(2020, 1, 1, 1, 1, 0, 0, ZoneId.of("Europe/Prague"));
 
         ZonedDateTimeData root = new ZonedDateTimeData(zdt);
 

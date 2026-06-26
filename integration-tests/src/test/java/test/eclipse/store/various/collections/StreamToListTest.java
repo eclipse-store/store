@@ -9,7 +9,7 @@ package test.eclipse.store.various.collections;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -29,16 +29,16 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Round-trip tests for the unmodifiable lists produced by:
- *   Stream.toList()                          (JDK 16)
- *   Collectors.toUnmodifiableList()          (JDK 10)
- *   Collectors.toUnmodifiableSet()           (JDK 10)
- *   Collectors.toUnmodifiableMap(...)        (JDK 10)
- *
+ * Stream.toList()                          (JDK 16)
+ * Collectors.toUnmodifiableList()          (JDK 10)
+ * Collectors.toUnmodifiableSet()           (JDK 10)
+ * Collectors.toUnmodifiableMap(...)        (JDK 10)
+ * <p>
  * On JDK 17 every Stream.toList() invocation returns
  * java.util.ImmutableCollections$ListN regardless of size — even for
  * 0 and 1 element. The List12 handler therefore never applies and these
  * collections always go through the generic / fallback path.
- *
+ * <p>
  * The reloaded collection must remain unmodifiable: a successful add()
  * means the type was silently downgraded to ArrayList/HashSet/HashMap
  * during persistence, which is a behavior bug.
@@ -144,7 +144,7 @@ public class StreamToListTest
     void collectorsToUnmodifiableListTest()
     {
         List<String> list = Stream.of("a", "b", "c", "d")
-            .collect(Collectors.toUnmodifiableList());
+                .collect(Collectors.toUnmodifiableList());
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(list, workDir)) {
         }
@@ -161,7 +161,7 @@ public class StreamToListTest
     void collectorsToUnmodifiableSetTest()
     {
         Set<String> set = Stream.of("a", "b", "c", "d")
-            .collect(Collectors.toUnmodifiableSet());
+                .collect(Collectors.toUnmodifiableSet());
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(set, workDir)) {
         }
@@ -179,7 +179,7 @@ public class StreamToListTest
     void collectorsToUnmodifiableMapTest()
     {
         Map<String, Integer> map = Stream.of("a", "b", "c", "d")
-            .collect(Collectors.toUnmodifiableMap(s -> s, String::length));
+                .collect(Collectors.toUnmodifiableMap(s -> s, String::length));
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(map, workDir)) {
         }

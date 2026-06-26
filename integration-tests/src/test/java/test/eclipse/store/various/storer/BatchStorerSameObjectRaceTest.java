@@ -9,7 +9,7 @@ package test.eclipse.store.various.storer;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -38,42 +38,42 @@ import org.junit.jupiter.api.io.TempDir;
 
 
 /**
-  * Integration stress test that intentionally lacks synchronization to provoke
-  * race conditions when storing the same object concurrently.
-  *
-  * Purpose:
-  * - Produce persistent storage containing inconsistent / "zombie" elements
-  *   useful for debugging and reproducing concurrency bugs in the storage layer.
-  * - Serve as a manual, long-running reproduction scenario rather than a unit test.
-  *
-  * Notes:
-  * - The test is disabled by default and intended for manual execution only.
-  * - Mutates the same object from multiple threads and calls `store` / `flush`
-  *   concurrently without coordination. This is deliberate; do not "fix" application
-  *   logic here — the repository uses this to expose issues in the underlying library.
-  */
+ * Integration stress test that intentionally lacks synchronization to provoke
+ * race conditions when storing the same object concurrently.
+ * <p>
+ * Purpose:
+ * - Produce persistent storage containing inconsistent / "zombie" elements
+ * useful for debugging and reproducing concurrency bugs in the storage layer.
+ * - Serve as a manual, long-running reproduction scenario rather than a unit test.
+ * <p>
+ * Notes:
+ * - The test is disabled by default and intended for manual execution only.
+ * - Mutates the same object from multiple threads and calls `store` / `flush`
+ * concurrently without coordination. This is deliberate; do not "fix" application
+ * logic here — the repository uses this to expose issues in the underlying library.
+ */
 
 @Disabled("only manual launch, takes to long, produce zombies")
 public class BatchStorerSameObjectRaceTest
 {
     private static final Duration TEST_DURATION = Duration.ofMinutes(3);
-    private static final int      STORE_THREADS = 8;
-    private static final int      FLUSH_THREADS = 2;
+    private static final int STORE_THREADS = 8;
+    private static final int FLUSH_THREADS = 2;
 
     @TempDir
     Path tempDir;
 
     static class SharedState
     {
-        int          version;
-        String       label;
+        int version;
+        String label;
         List<String> tags;
 
         SharedState()
         {
             this.version = 0;
-            this.label   = "v0";
-            this.tags    = new ArrayList<>();
+            this.label = "v0";
+            this.tags = new ArrayList<>();
             this.tags.add("initial");
         }
     }
@@ -96,20 +96,17 @@ public class BatchStorerSameObjectRaceTest
 
         System.out.println("Starting same-object race test (" + TEST_DURATION.toMinutes() + " min)...");
 
-        try (EmbeddedStorageManager storage = EmbeddedStorage.start(root, tempDir))
-        {
+        try (EmbeddedStorageManager storage = EmbeddedStorage.start(root, tempDir)) {
             storage.storeRoot();
 
             try (BatchStorer storer = storage.createBatchStorer(
                     BatchStorer.Controller(50, Duration.ofMillis(200)),
                     Duration.ofMillis(30)
-            ))
-            {
+            )) {
                 final ExecutorService executor =
                         Executors.newFixedThreadPool(STORE_THREADS + FLUSH_THREADS);
 
-                for (int t = 0; t < STORE_THREADS; t++)
-                {
+                for (int t = 0; t < STORE_THREADS; t++) {
                     final int idx = t;
                     executor.submit(() ->
                     {
@@ -121,10 +118,8 @@ public class BatchStorerSameObjectRaceTest
                         }
 
                         int iteration = 0;
-                        while (!stop.get())
-                        {
-                            try
-                            {
+                        while (!stop.get()) {
+                            try {
                                 root.shared.version = iteration;
                                 root.shared.label = "t" + idx + "-v" + iteration;
                                 root.shared.tags = new ArrayList<>();
@@ -135,31 +130,28 @@ public class BatchStorerSameObjectRaceTest
                                 storer.store(root);
                                 storeCalls.incrementAndGet();
                                 iteration++;
-                            }
-                            catch (final Exception e)
-                            {
+                            } catch (final Exception e) {
                                 if (firstError.compareAndSet(null, e)) e.printStackTrace();
                             }
                         }
                     });
                 }
 
-                for (int t = 0; t < FLUSH_THREADS; t++)
-                {
+                for (int t = 0; t < FLUSH_THREADS; t++) {
                     executor.submit(() ->
                     {
-                        try { startLatch.await(); }
-                        catch (final InterruptedException e) { Thread.currentThread().interrupt(); return; }
+                        try {
+                            startLatch.await();
+                        } catch (final InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
 
-                        while (!stop.get())
-                        {
-                            try
-                            {
+                        while (!stop.get()) {
+                            try {
                                 storer.flush();
                                 flushCalls.incrementAndGet();
-                            }
-                            catch (final Exception e)
-                            {
+                            } catch (final Exception e) {
                                 if (firstError.compareAndSet(null, e)) e.printStackTrace();
                             }
                         }
@@ -181,8 +173,7 @@ public class BatchStorerSameObjectRaceTest
         }
 
         System.out.println("Reloading storage from disk...");
-        try (EmbeddedStorageManager reloadStorage = EmbeddedStorage.start(tempDir))
-        {
+        try (EmbeddedStorageManager reloadStorage = EmbeddedStorage.start(tempDir)) {
             final Root reloaded = (Root) reloadStorage.root();
             assertNotNull(reloaded, "Root must not be null");
             assertNotNull(reloaded.shared, "SharedState must not be null");

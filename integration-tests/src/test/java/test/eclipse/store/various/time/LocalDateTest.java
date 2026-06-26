@@ -9,7 +9,7 @@ package test.eclipse.store.various.time;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -37,9 +37,9 @@ public class LocalDateTest
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(ldt, tempDir)) {
         }
 
-		LocalDate ldt2 = null;
+        LocalDate ldt2 = null;
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(tempDir)) {
-			LocalDate localDate = (LocalDate) storageManager.root();
+            LocalDate localDate = (LocalDate) storageManager.root();
 
             assertEquals(ldt, localDate, "LocalDateTime should be equal after storing and reloading");
         }
@@ -58,23 +58,26 @@ public class LocalDateTest
         LocalDateRoot loadedRoot = new LocalDateRoot(ldt2);
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(loadedRoot, tempDir)) {
 
-            assertEquals(originalRoot.getDate(),loadedRoot.getDate(), "LocalDateTime should be equal after storing and reloading");
+            assertEquals(originalRoot.getDate(), loadedRoot.getDate(), "LocalDateTime should be equal after storing and reloading");
         }
     }
 
-   private class LocalDateRoot
+    private class LocalDateRoot
     {
         private LocalDate date;
 
-        public LocalDateRoot(LocalDate date) {
+        public LocalDateRoot(LocalDate date)
+        {
             this.date = date;
         }
 
-        public LocalDate getDate() {
+        public LocalDate getDate()
+        {
             return date;
         }
 
-        public void setDate(LocalDate date) {
+        public void setDate(LocalDate date)
+        {
             this.date = date;
         }
     }
@@ -82,15 +85,15 @@ public class LocalDateTest
     @Test
     void saveLocalDateTimeDataTest()
     {
-		LocalDate ldt = LocalDate.of(2020, 1, 1);
+        LocalDate ldt = LocalDate.of(2020, 1, 1);
 
-		LocalDateData root = new LocalDateData(ldt);
+        LocalDateData root = new LocalDateData(ldt);
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(root, tempDir)) {
             storageManager.storeRoot();
         }
 
-		LocalDateData loadedRoot = new LocalDateData();
+        LocalDateData loadedRoot = new LocalDateData();
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(loadedRoot, tempDir)) {
             assertEquals(ldt, loadedRoot.getValue(), "LocalDateTimeData should be equal after storing and reloading");
         }

@@ -9,7 +9,7 @@ package test.eclipse.store.various.storer;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -37,21 +37,21 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Scenario 2: concurrent flush() from multiple threads.
- *
+ * <p>
  * Writers feed data into a single BatchStorer while a separate pool of flush
  * threads hammers storer.flush() in a tight loop.  The goal is to expose race
  * conditions between data accumulation and flushing inside BatchStorer.
- *
+ * <p>
  * After the stress phase the storage is reloaded and basic integrity is
  * verified.
  */
 @Disabled("only manual launch, takes to long")
 public class BatchStorerConcurrentFlushTest
 {
-    private static final int      WRITER_THREADS    = 4;
-    private static final int      FLUSH_THREADS     = 4;
-    private static final int      INITIAL_LIST_SIZE = 500;
-    private static final Duration TEST_DURATION     = Duration.ofMinutes(5);
+    private static final int WRITER_THREADS = 4;
+    private static final int FLUSH_THREADS = 4;
+    private static final int INITIAL_LIST_SIZE = 500;
+    private static final Duration TEST_DURATION = Duration.ofMinutes(5);
 
     @TempDir
     Path tempDir;
@@ -59,63 +59,64 @@ public class BatchStorerConcurrentFlushTest
     static class DataItem
     {
         final int id;
-        String    value;
-        int       revision;
+        String value;
+        int revision;
 
         DataItem(final int id, final String value)
         {
-            this.id       = id;
-            this.value    = value;
+            this.id = id;
+            this.value = value;
             this.revision = 0;
         }
 
-        void update(final String v) { this.value = v; this.revision++; }
+        void update(final String v)
+        {
+            this.value = v;
+            this.revision++;
+        }
     }
 
     @Test
     void concurrentFlushStressTest() throws InterruptedException
     {
         final List<DataItem> data = new ArrayList<>();
-        for (int i = 0; i < INITIAL_LIST_SIZE; i++)
-        {
+        for (int i = 0; i < INITIAL_LIST_SIZE; i++) {
             data.add(new DataItem(i, "initial-" + i));
         }
 
-        final AtomicBoolean  stop       = new AtomicBoolean(false);
+        final AtomicBoolean stop = new AtomicBoolean(false);
         final CountDownLatch startLatch = new CountDownLatch(1);
-        final AtomicLong     flushCalls = new AtomicLong(0);
-        final AtomicLong     storeCalls = new AtomicLong(0);
+        final AtomicLong flushCalls = new AtomicLong(0);
+        final AtomicLong storeCalls = new AtomicLong(0);
         final AtomicReference<Throwable> firstError = new AtomicReference<>();
 
         System.out.println("Starting concurrent flush stress test (" + TEST_DURATION.toMinutes() + " min)...");
 
-        try (EmbeddedStorageManager storage = EmbeddedStorage.start(data, tempDir))
-        {
+        try (EmbeddedStorageManager storage = EmbeddedStorage.start(data, tempDir)) {
             storage.storeRoot();
 
             try (BatchStorer storer = storage.createBatchStorer(
                     BatchStorer.Controller(10_000, Duration.ofSeconds(2)),
                     Duration.ofMillis(50)
-            ))
-            {
+            )) {
                 final ExecutorService executor =
                         Executors.newFixedThreadPool(WRITER_THREADS + FLUSH_THREADS);
 
-                for (int t = 0; t < WRITER_THREADS; t++)
-                {
+                for (int t = 0; t < WRITER_THREADS; t++) {
                     final int idx = t;
                     executor.submit(() ->
                     {
-                        try { startLatch.await(); }
-                        catch (final InterruptedException e) { Thread.currentThread().interrupt(); return; }
+                        try {
+                            startLatch.await();
+                        } catch (final InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
 
                         int iteration = 0;
-                        while (!stop.get())
-                        {
-                            try
-                            {
-                                synchronized (data)
-                                {
+                        while (!stop.get()) {
+                            try {
+                                synchronized (data) {
                                     data.add(new DataItem(data.size(), "w" + idx + "-" + iteration));
                                     storer.store(data);
                                     storeCalls.incrementAndGet();
@@ -128,9 +129,7 @@ public class BatchStorerConcurrentFlushTest
                                 }
                                 iteration++;
                                 Thread.yield();
-                            }
-                            catch (final Exception e)
-                            {
+                            } catch (final Exception e) {
                                 firstError.compareAndSet(null, e);
                                 e.printStackTrace();
                             }
@@ -138,23 +137,22 @@ public class BatchStorerConcurrentFlushTest
                     });
                 }
 
-                for (int t = 0; t < FLUSH_THREADS; t++)
-                {
+                for (int t = 0; t < FLUSH_THREADS; t++) {
                     executor.submit(() ->
                     {
-                        try { startLatch.await(); }
-                        catch (final InterruptedException e) { Thread.currentThread().interrupt(); return; }
+                        try {
+                            startLatch.await();
+                        } catch (final InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
 
-                        while (!stop.get())
-                        {
-                            try
-                            {
+                        while (!stop.get()) {
+                            try {
                                 storer.flush();
                                 flushCalls.incrementAndGet();
                                 Thread.yield();
-                            }
-                            catch (final Exception e)
-                            {
+                            } catch (final Exception e) {
                                 firstError.compareAndSet(null, e);
                                 e.printStackTrace();
                             }
@@ -176,16 +174,13 @@ public class BatchStorerConcurrentFlushTest
 
         assertNull(firstError.get(), "Unexpected exception during stress: " + firstError.get());
 
-        try (EmbeddedStorageManager reloadStorage = EmbeddedStorage.start(tempDir))
-        {
-            @SuppressWarnings("unchecked")
-            final List<DataItem> reloaded = (List<DataItem>) reloadStorage.root();
+        try (EmbeddedStorageManager reloadStorage = EmbeddedStorage.start(tempDir)) {
+            @SuppressWarnings("unchecked") final List<DataItem> reloaded = (List<DataItem>) reloadStorage.root();
 
             assertFalse(reloaded.isEmpty(), "Reloaded list must not be empty");
 
             int nulls = 0;
-            for (int i = 0; i < reloaded.size(); i++)
-            {
+            for (int i = 0; i < reloaded.size(); i++) {
                 if (reloaded.get(i) == null) nulls++;
             }
             System.out.println("Reloaded size: " + reloaded.size() + " | null items: " + nulls);

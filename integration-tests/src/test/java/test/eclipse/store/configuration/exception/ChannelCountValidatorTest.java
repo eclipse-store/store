@@ -9,10 +9,12 @@ package test.eclipse.store.configuration.exception;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import java.nio.file.Path;
 
 import org.eclipse.store.storage.embedded.configuration.types.EmbeddedStorageConfigurationBuilder;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
@@ -21,18 +23,19 @@ import org.eclipse.store.storage.exceptions.StorageExceptionStructureValidation;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+
 import test.eclipse.store.configuration.Customer;
 import test.eclipse.store.configuration.CustomerGenerator;
 
-import java.nio.file.Path;
-
-public class ChannelCountValidatorTest {
+public class ChannelCountValidatorTest
+{
 
     @TempDir
     Path location;
 
     @Test
-    public void channelCountDowngradeValidatorTest() {
+    public void channelCountDowngradeValidatorTest()
+    {
         final Customer customer = CustomerGenerator.generateNewCustomer();
 
         EmbeddedStorageConfigurationBuilder configuration = EmbeddedStorageConfigurationBuilder.New();
@@ -48,7 +51,8 @@ public class ChannelCountValidatorTest {
     }
 
     @Test
-    public void channelCountUpgradeValidatorTest() {
+    public void channelCountUpgradeValidatorTest()
+    {
         final Customer customer = CustomerGenerator.generateNewCustomer();
 
         EmbeddedStorageManager start = EmbeddedStorage.start(customer, location);

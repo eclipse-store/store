@@ -9,7 +9,7 @@ package test.eclipse.store.monitoring;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -71,16 +71,17 @@ public class MonitoringBaseTest
             Set<ObjectName> names = server.queryNames(name, null);
             Assertions.assertNotEquals(0, names.size());
 
-            ObjectRegistryMonitorMBean proxy = JMX.newMBeanProxy(server, new ObjectName("org.eclipse.store:storage="+managerName+",name=ObjectRegistry"), ObjectRegistryMonitorMBean.class);
+            ObjectRegistryMonitorMBean proxy = JMX.newMBeanProxy(server, new ObjectName("org.eclipse.store:storage=" + managerName + ",name=ObjectRegistry"), ObjectRegistryMonitorMBean.class);
             Assertions.assertNotEquals(0, proxy.getSize());
 
-            Object invokeResult = server.getAttribute(new ObjectName("org.eclipse.store:storage="+managerName+",name=ObjectRegistry"), "Size");
+            Object invokeResult = server.getAttribute(new ObjectName("org.eclipse.store:storage=" + managerName + ",name=ObjectRegistry"), "Size");
             Assertions.assertNotEquals(0, invokeResult);
         }
 
     }
 
-    synchronized long getNanoTime() {
-    	return System.nanoTime();
+    synchronized long getNanoTime()
+    {
+        return System.nanoTime();
     }
 }

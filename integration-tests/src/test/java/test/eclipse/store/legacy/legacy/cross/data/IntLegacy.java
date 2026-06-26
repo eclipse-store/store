@@ -9,12 +9,13 @@ package test.eclipse.store.legacy.legacy.cross.data;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
-public class IntLegacy {
+public class IntLegacy
+{
 
     private int to_float;
     private int to_double;
@@ -26,10 +27,12 @@ public class IntLegacy {
     private int to_char;
     private int toInteger;
 
-    public IntLegacy() {
+    public IntLegacy()
+    {
     }
 
-    public static IntLegacy fillSample() {
+    public static IntLegacy fillSample()
+    {
         IntLegacy legacy = new IntLegacy();
 
         legacy.to_float = 1;
@@ -44,80 +47,99 @@ public class IntLegacy {
         return legacy;
     }
 
-    public int getTo_float() {
+    public int getTo_float()
+    {
         return to_float;
     }
 
-    public void setTo_float(int to_float) {
+    public void setTo_float(int to_float)
+    {
         this.to_float = to_float;
     }
 
-    public int getTo_double() {
+    public int getTo_double()
+    {
         return to_double;
     }
 
-    public void setTo_double(int to_double) {
+    public void setTo_double(int to_double)
+    {
         this.to_double = to_double;
     }
 
-    public int getTo_short() {
+    public int getTo_short()
+    {
         return to_short;
     }
 
-    public void setTo_short(int to_short) {
+    public void setTo_short(int to_short)
+    {
         this.to_short = to_short;
     }
 
-    public int getTo_long() {
+    public int getTo_long()
+    {
         return to_long;
     }
 
-    public void setTo_long(int to_long) {
+    public void setTo_long(int to_long)
+    {
         this.to_long = to_long;
     }
 
-    public int getTo_byte() {
+    public int getTo_byte()
+    {
         return to_byte;
     }
 
-    public void setTo_byte(int to_byte) {
+    public void setTo_byte(int to_byte)
+    {
         this.to_byte = to_byte;
     }
 
-    public int getTo_int() {
+    public int getTo_int()
+    {
         return to_int;
     }
 
-    public void setTo_int(int to_int) {
+    public void setTo_int(int to_int)
+    {
         this.to_int = to_int;
     }
 
-    public int getTo_boolean() {
+    public int getTo_boolean()
+    {
         return to_boolean;
     }
 
-    public void setTo_boolean(int to_boolean) {
+    public void setTo_boolean(int to_boolean)
+    {
         this.to_boolean = to_boolean;
     }
 
-    public int getTo_char() {
+    public int getTo_char()
+    {
         return to_char;
     }
 
-    public void setTo_char(int to_char) {
+    public void setTo_char(int to_char)
+    {
         this.to_char = to_char;
     }
 
-    public int getToInteger() {
+    public int getToInteger()
+    {
         return toInteger;
     }
 
-    public void setToInteger(int toInteger) {
+    public void setToInteger(int toInteger)
+    {
         this.toInteger = toInteger;
     }
 
     @Override
-    public String toString() {
+    public String toString()
+    {
         return "IntLegacy{" +
                 "to_float=" + to_float +
                 ", to_double=" + to_double +

@@ -9,7 +9,7 @@ package test.eclipse.store.collections.lazy.hashmap;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -23,15 +23,18 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 
 import net.datafaker.Faker;
 
-public class Util {
+public class Util
+{
 
     static Faker faker = new Faker();
 
-    public static LazyHashMap<Integer, String> generateMap(Integer count) {
+    public static LazyHashMap<Integer, String> generateMap(Integer count)
+    {
         return generateMap(count, 0);
     }
 
-    public static LazyHashMap<Integer, String> generateMap(Integer count, int keyStart) {
+    public static LazyHashMap<Integer, String> generateMap(Integer count, int keyStart)
+    {
 
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
 
@@ -44,11 +47,13 @@ public class Util {
         return map;
     }
 
-    public static HashMap<Integer, String> generateHashMap(Integer count) {
+    public static HashMap<Integer, String> generateHashMap(Integer count)
+    {
         return generateHashMap(count, 0);
     }
 
-    public static HashMap<Integer, String> generateHashMap(Integer count, int keyStart) {
+    public static HashMap<Integer, String> generateHashMap(Integer count, int keyStart)
+    {
 
         HashMap<Integer, String> map = new HashMap<>();
 
@@ -61,14 +66,16 @@ public class Util {
         return map;
     }
 
-    public static <K, V> EmbeddedStorageManager startStorage(LazyHashMap<K, V> root, final Path path) {
+    public static <K, V> EmbeddedStorageManager startStorage(LazyHashMap<K, V> root, final Path path)
+    {
         final EmbeddedStorageManager storage = EmbeddedStorage
                 .Foundation(path)
                 .start(root);
         return storage;
     }
 
-    public static <K, V> EmbeddedStorageManager startStorage(final Path path) {
+    public static <K, V> EmbeddedStorageManager startStorage(final Path path)
+    {
         final EmbeddedStorageManager storage = EmbeddedStorage
                 .Foundation(path)
                 .start();

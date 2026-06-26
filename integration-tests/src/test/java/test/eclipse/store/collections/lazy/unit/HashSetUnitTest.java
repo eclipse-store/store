@@ -9,35 +9,36 @@ package test.eclipse.store.collections.lazy.unit;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import org.eclipse.serializer.collections.lazy.LazyHashSet;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-public class HashSetUnitTest {
+public class HashSetUnitTest
+{
 
     @Test
-    void lazyHashSetConstructor() {
+    void lazyHashSetConstructor()
+    {
         LazyHashSet<String> lazyHashSet = new LazyHashSet<>();
         assertNotNull(lazyHashSet);
     }
 
     @Test
-    void lazyHashSetConstructor_maxSegmentSize() {
+    void lazyHashSetConstructor_maxSegmentSize()
+    {
         LazyHashSet<String> lazyHashSet = new LazyHashSet<>(10);
         assertNotNull(lazyHashSet);
     }
 
     @Test
-    void iteratorTest() {
+    void iteratorTest()
+    {
         LazyHashSet<String> lazyHashSet = Util.generateLazyHashSet(10, 100);
         for (String s : lazyHashSet) {
             assertNotNull(s);
@@ -45,13 +46,15 @@ public class HashSetUnitTest {
     }
 
     @Test
-    void sizeTest() {
+    void sizeTest()
+    {
         LazyHashSet<String> lazyHashSet = Util.generateLazyHashSet(10, 100);
         assertEquals(100, lazyHashSet.size());
     }
 
     @Test
-    void isEmpty() {
+    void isEmpty()
+    {
         LazyHashSet<String> lazyHashSet = new LazyHashSet<>();
         assertTrue(lazyHashSet.isEmpty());
         lazyHashSet = Util.generateLazyHashSet(10, 100);
@@ -59,7 +62,8 @@ public class HashSetUnitTest {
     }
 
     @Test
-    void contains() {
+    void contains()
+    {
         String value = "Hi Microstream";
 
         LazyHashSet<String> lazyHashSet = Util.generateLazyHashSet(10, 100);
@@ -68,7 +72,8 @@ public class HashSetUnitTest {
     }
 
     @Test
-    void remove() {
+    void remove()
+    {
         String value = "Hi Microstream";
         LazyHashSet<String> lazyHashSet = Util.generateLazyHashSet(10, 100);
         lazyHashSet.add(value);
@@ -77,7 +82,8 @@ public class HashSetUnitTest {
     }
 
     @Test
-    void clear() {
+    void clear()
+    {
         LazyHashSet<String> lazyHashSet = Util.generateLazyHashSet(10, 100);
         lazyHashSet.clear();
         assertTrue(lazyHashSet.isEmpty());

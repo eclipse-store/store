@@ -9,17 +9,13 @@ package test.eclipse.store.collections.lazy.arraylist;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
-import org.eclipse.serializer.collections.lazy.LazyArrayList;
-import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
-import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
-import org.junit.jupiter.api.Disabled;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -28,13 +24,19 @@ import java.util.Spliterator;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import org.eclipse.serializer.collections.lazy.LazyArrayList;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-public class SpliteratorTest {
+public class SpliteratorTest
+{
 
     @Test
-    void createSpliterator() {
+    void createSpliterator()
+    {
 
         final ArrayList<String> arrayList = new ArrayList<>(10);
         for (int i = 0; i < 10; i++) {
@@ -64,7 +66,8 @@ public class SpliteratorTest {
     }
 
     @Test
-    void createSpliteratorRecursive() {
+    void createSpliteratorRecursive()
+    {
 
         final int maxSegmentSize = 4;
         final int numElements = 20;
@@ -82,7 +85,8 @@ public class SpliteratorTest {
 
 
     @Test
-    void lateBinding() {
+    void lateBinding()
+    {
 
         final int maxSegmentSize = 4;
         final int numElements = 20;
@@ -105,7 +109,8 @@ public class SpliteratorTest {
     }
 
     @Test
-    void readStreamAndCloseTest(@TempDir final Path path) {
+    void readStreamAndCloseTest(@TempDir final Path path)
+    {
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(path)) {
             final LazyArrayList<ListEntry> lazyList = Util.createLazyList(3, 25);
 
@@ -132,7 +137,8 @@ public class SpliteratorTest {
 
     @Test
     @Disabled
-    void deleteStreamTest(@TempDir final Path path) {
+    void deleteStreamTest(@TempDir final Path path)
+    {
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(path)) {
             final LazyArrayList<ListEntry> lazyList = Util.createLazyList(3, 25);
 
@@ -155,7 +161,8 @@ public class SpliteratorTest {
     }
 
 
-    private List<Spliterator<ListEntry>> splitAll(final Spliterator<ListEntry> spliterator) {
+    private List<Spliterator<ListEntry>> splitAll(final Spliterator<ListEntry> spliterator)
+    {
         final List<Spliterator<ListEntry>> spliterators = new ArrayList<>();
         final Spliterator<ListEntry> split = spliterator.trySplit();
 

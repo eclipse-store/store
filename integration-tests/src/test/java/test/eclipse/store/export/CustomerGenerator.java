@@ -9,22 +9,25 @@ package test.eclipse.store.export;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
 import net.datafaker.Faker;
 
-public class CustomerGenerator {
+public class CustomerGenerator
+{
 
     private static Faker faker = new Faker();
 
-    private CustomerGenerator() {
+    private CustomerGenerator()
+    {
         // prevent instantiate
     }
 
-    public static Customer generateNewCustomer() {
+    public static Customer generateNewCustomer()
+    {
         return new Customer(faker.name().firstName(), faker.name().lastName(), faker.address().streetName(), faker.address().streetAddressNumber());
     }
 }

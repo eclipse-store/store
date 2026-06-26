@@ -9,7 +9,7 @@ package test.eclipse.store.various.text;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -33,7 +33,7 @@ public class ChoiceFormatTest
     void choiceFormatStoreAndReload()
     {
         double[] limits = {0, 1, 5};
-        String[] formats = {"zero","one","many"};
+        String[] formats = {"zero", "one", "many"};
         ChoiceFormat cf = new ChoiceFormat(limits, formats);
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(cf, tempDir)) {
@@ -49,7 +49,7 @@ public class ChoiceFormatTest
     void choiceFormatAsFieldInDataClass()
     {
         double[] limits = {0, 1, 5};
-        String[] formats = {"zero","one","many"};
+        String[] formats = {"zero", "one", "many"};
         ChoiceFormat cf = new ChoiceFormat(limits, formats);
 
         ChoiceData root = new ChoiceData(cf);
@@ -88,7 +88,7 @@ public class ChoiceFormatTest
     void choiceFormatWithBoundaryValues()
     {
         double[] limits = {0, 1, 5};
-        String[] formats = {"zero","one","many"};
+        String[] formats = {"zero", "one", "many"};
         ChoiceFormat cf = new ChoiceFormat(limits, formats);
 
         ChoiceData root = new ChoiceData(cf);

@@ -9,7 +9,7 @@ package test.eclipse.store.geo;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -28,31 +28,30 @@ import test.eclipse.store.geo.data.generator.GeneratorAT;
 
 public class GeoTest
 {
-	@TempDir
-	Path tempDir;
+    @TempDir
+    Path tempDir;
 
-	//@RepeatedTest(10)
-	@Test
-	void geoDataStoreTest()
-	{
-		Geo geo = Generator.generateGeo();
-		try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(geo, tempDir)) {
-		}
+    //@RepeatedTest(10)
+    @Test
+    void geoDataStoreTest()
+    {
+        Geo geo = Generator.generateGeo();
+        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(geo, tempDir)) {
+        }
 
 
+        Geo loadedGeo = new Geo();
 
-		Geo loadedGeo = new Geo();
-
-		Geo finalLoadedGeo = loadedGeo;
-		try (EmbeddedStorageManager storageManager =  EmbeddedStorage.start(tempDir)) {
-			loadedGeo = (Geo) storageManager.root();
-			//System.out.println(loadedGeo.toString());
-			for (int i = 0; i < 100; i++) {
-				Country austria = new Country("Austria", GeneratorAT.generateATStates());
-				loadedGeo.getCountries().add(austria);
-				storageManager.store(loadedGeo.getCountries());
-			}
-		}
+        Geo finalLoadedGeo = loadedGeo;
+        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(tempDir)) {
+            loadedGeo = (Geo) storageManager.root();
+            //System.out.println(loadedGeo.toString());
+            for (int i = 0; i < 100; i++) {
+                Country austria = new Country("Austria", GeneratorAT.generateATStates());
+                loadedGeo.getCountries().add(austria);
+                storageManager.store(loadedGeo.getCountries());
+            }
+        }
 
 //		System.out.println("================= After adding Austria ================");
 //		try (EmbeddedStorageManager storageManager =  EmbeddedStorage.start(tempDir)) {
@@ -86,8 +85,7 @@ public class GeoTest
 //		}
 
 
-
-		// print all folder and files from tempdir;
+        // print all folder and files from tempdir;
 //		System.out.println("Files in tempDir:");
 //		try {
 //			java.nio.file.Files.walk(tempDir)
@@ -95,7 +93,7 @@ public class GeoTest
 //		} catch (Exception e) {
 //			e.printStackTrace();
 //		}
-	}
+    }
 
 
 }

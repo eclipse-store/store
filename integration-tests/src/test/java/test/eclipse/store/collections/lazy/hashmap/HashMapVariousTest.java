@@ -9,30 +9,33 @@ package test.eclipse.store.collections.lazy.hashmap;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.nio.file.Path;
 
 import org.eclipse.serializer.collections.lazy.LazyHashMap;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+
 import test.eclipse.serializer.fixtures.types.PrimitiveTypes;
 
-import java.nio.file.Path;
-
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-public class HashMapVariousTest {
+public class HashMapVariousTest
+{
 
     @TempDir
     Path location;
 
     @Test
-    void isSegmentModifiedTest() {
+    void isSegmentModifiedTest()
+    {
         LazyHashMap<Integer, String> map = new LazyHashMap<>();
         map.put(1, "ahoj");
 
@@ -56,7 +59,8 @@ public class HashMapVariousTest {
     }
 
     @Test
-    void isSegmentLoadedTest() {
+    void isSegmentLoadedTest()
+    {
         int count = 1;
         LazyHashMap<Integer, PrimitiveTypes> map = generateLazyHashMap(count);
 
@@ -84,7 +88,8 @@ public class HashMapVariousTest {
         }
     }
 
-    private static LazyHashMap<Integer, PrimitiveTypes> generateLazyHashMap(int count) {
+    private static LazyHashMap<Integer, PrimitiveTypes> generateLazyHashMap(int count)
+    {
         LazyHashMap<Integer, PrimitiveTypes> map = new LazyHashMap<>();
         for (int i = 0; i < count; i++) {
             PrimitiveTypes type = new PrimitiveTypes();

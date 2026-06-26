@@ -9,10 +9,17 @@ package test.eclipse.store.collections.lazy.arraylist;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.List;
+import java.util.function.Consumer;
 
 import org.eclipse.serializer.collections.lazy.LazyArrayList;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
@@ -20,24 +27,13 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.nio.file.Path;
-import java.util.Arrays;
-import java.util.List;
-import java.util.function.Consumer;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertIterableEquals;
-import static org.junit.jupiter.api.Assertions.assertNotSame;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-public class LazyArrayListPersistenceTest {
+public class LazyArrayListPersistenceTest
+{
 
 
     @Test
-    void nullElements(@TempDir final Path path) {
+    void nullElements(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(3, 7);
         lazyList.add(null);
         lazyList.add(null);
@@ -63,7 +59,8 @@ public class LazyArrayListPersistenceTest {
     }
 
     @Test
-    void lastIndexOf(@TempDir final Path path) {
+    void lastIndexOf(@TempDir final Path path)
+    {
 
         final LazyArrayList<ListEntry> lazyList = createLazyList(3, 7);
         lazyList.add(0, new ListEntry("added"));
@@ -80,7 +77,8 @@ public class LazyArrayListPersistenceTest {
     }
 
     @Test
-    void lastIndexOfNotFound(@TempDir final Path path) {
+    void lastIndexOfNotFound(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(3, 7);
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
@@ -94,7 +92,8 @@ public class LazyArrayListPersistenceTest {
 
 
     @Test
-    void indexOf(@TempDir final Path path) {
+    void indexOf(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(3, 7);
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
@@ -106,7 +105,8 @@ public class LazyArrayListPersistenceTest {
     }
 
     @Test
-    void indexOfNotFound(@TempDir final Path path) {
+    void indexOfNotFound(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(3, 7);
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
         }
@@ -118,7 +118,8 @@ public class LazyArrayListPersistenceTest {
 
 
     @Test
-    void get(@TempDir final Path path) {
+    void get(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(3, 7);
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
@@ -130,7 +131,8 @@ public class LazyArrayListPersistenceTest {
     }
 
     @Test
-    void contains(@TempDir final Path path) {
+    void contains(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(3, 7);
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
@@ -142,7 +144,8 @@ public class LazyArrayListPersistenceTest {
     }
 
     @Test
-    void consolidate(@TempDir final Path path) {
+    void consolidate(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(3, 7);
         lazyList.add(1, new ListEntry("added"));
         lazyList.add(4, new ListEntry("added"));
@@ -166,7 +169,8 @@ public class LazyArrayListPersistenceTest {
     }
 
     @Test
-    void clear(@TempDir final Path path) {
+    void clear(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(3, 7);
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
@@ -182,7 +186,8 @@ public class LazyArrayListPersistenceTest {
 
 
     @Test
-    void addAllAtIndex(@TempDir final Path path) {
+    void addAllAtIndex(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(3, 7);
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
@@ -203,7 +208,8 @@ public class LazyArrayListPersistenceTest {
     }
 
     @Test
-    void addAllAtEnd(@TempDir final Path path) {
+    void addAllAtEnd(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(3, 7);
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
 
@@ -225,7 +231,8 @@ public class LazyArrayListPersistenceTest {
     }
 
     @Test
-    void unloadPartialTest(@TempDir final Path path) {
+    void unloadPartialTest(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(3, 7);
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
 
@@ -251,7 +258,8 @@ public class LazyArrayListPersistenceTest {
     }
 
     @Test
-    void unloadAllTest(@TempDir final Path path) {
+    void unloadAllTest(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(3, 14);
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
 
@@ -267,7 +275,8 @@ public class LazyArrayListPersistenceTest {
     }
 
     @Test
-    void setElementInList(@TempDir final Path path) {
+    void setElementInList(@TempDir final Path path)
+    {
 
         final LazyArrayList<ListEntry> lazyList = createLazyList(5, 12);
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
@@ -290,7 +299,8 @@ public class LazyArrayListPersistenceTest {
      * @param path
      */
     @Test
-    void removeIndex(@TempDir final Path path) {
+    void removeIndex(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(5, 12);
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
@@ -306,7 +316,8 @@ public class LazyArrayListPersistenceTest {
     }
 
     @Test
-    void removeObject(@TempDir final Path path) {
+    void removeObject(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(5, 12);
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
@@ -320,7 +331,8 @@ public class LazyArrayListPersistenceTest {
     }
 
     @Test
-    void RemoveAll(@TempDir final Path path) {
+    void RemoveAll(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(3, 7);
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
 
@@ -341,7 +353,8 @@ public class LazyArrayListPersistenceTest {
     }
 
     @Test
-    void RemoveIf(@TempDir final Path path) {
+    void RemoveIf(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(3, 7);
 
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
@@ -363,7 +376,8 @@ public class LazyArrayListPersistenceTest {
     }
 
     @Test
-    void RetainAll(@TempDir final Path path) {
+    void RetainAll(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(3, 7);
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
 
@@ -384,7 +398,8 @@ public class LazyArrayListPersistenceTest {
     }
 
     @Test
-    void addToEmptyList(@TempDir final Path path) {
+    void addToEmptyList(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(5, 12);
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
 
@@ -393,7 +408,8 @@ public class LazyArrayListPersistenceTest {
     }
 
     @Test
-    void addAtIndex(@TempDir final Path path) {
+    void addAtIndex(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(5, 12);
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
 
@@ -409,7 +425,8 @@ public class LazyArrayListPersistenceTest {
     }
 
     @Test
-    void toObjectArray(@TempDir final Path path) {
+    void toObjectArray(@TempDir final Path path)
+    {
         final LazyArrayList<ListEntry> lazyList = createLazyList(5, 12);
         try (final EmbeddedStorageManager storage = EmbeddedStorage.start(lazyList, path)) {
 
@@ -426,7 +443,8 @@ public class LazyArrayListPersistenceTest {
     }
 
     @Test
-    void toTypedArray(@TempDir final Path path) {
+    void toTypedArray(@TempDir final Path path)
+    {
 
         final LazyArrayList<ListEntry> lazyList = createLazyList(5, 12);
 
@@ -446,7 +464,8 @@ public class LazyArrayListPersistenceTest {
     static LazyArrayList<ListEntry> loadAndCompare(final Path path,
                                                    final LazyArrayList<ListEntry> lazyList,
                                                    final Consumer<LazyArrayList<ListEntry>> f
-    ) {
+    )
+    {
 
         final LazyArrayList<ListEntry> lazyListReloaded = new LazyArrayList<>();
         try (final EmbeddedStorageManager storageReloaded = EmbeddedStorage.start(lazyListReloaded, path)) {
@@ -464,7 +483,8 @@ public class LazyArrayListPersistenceTest {
         return lazyListReloaded;
     }
 
-    static LazyArrayList<ListEntry> createLazyList(final int segmentSize, final int entries) {
+    static LazyArrayList<ListEntry> createLazyList(final int segmentSize, final int entries)
+    {
         final LazyArrayList<ListEntry> lazyList = new LazyArrayList<>(segmentSize);
 
         for (int i = 0; i < entries; i++) {

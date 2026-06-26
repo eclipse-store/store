@@ -9,14 +9,12 @@ package test.eclipse.store.zombie;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.lang.ref.WeakReference;
@@ -58,13 +56,15 @@ public class RegistrySafetyNetLazyZombieTest
     @AfterEach
     public void afterTest()
     {
-        if(this.reloaded != null)
-        {
-            try { this.reloaded.shutdown(); } catch(final Exception ignored) { /* best effort */ }
+        if (this.reloaded != null) {
+            try {
+                this.reloaded.shutdown();
+            } catch (final Exception ignored) { /* best effort */ }
         }
-        if(this.storage != null && this.storage.isRunning())
-        {
-            try { this.storage.shutdown(); } catch(final Exception ignored) { /* best effort */ }
+        if (this.storage != null && this.storage.isRunning()) {
+            try {
+                this.storage.shutdown();
+            } catch (final Exception ignored) { /* best effort */ }
         }
     }
 
@@ -75,15 +75,15 @@ public class RegistrySafetyNetLazyZombieTest
 
         // Phase 1: start storage, store root -> Lazy<Holder> -> Holder -> Payload
         this.storage = EmbeddedStorage.Foundation(
-                Storage.ConfigurationBuilder()
-                    .setChannelCountProvider (Storage.ChannelCountProvider(1))
-                    .setHousekeepingController(Storage.HousekeepingController(100, 1_000_000_000))
-                    .setDataFileEvaluator    (Storage.DataFileEvaluator(1024, 2048, 1.0))
-                    .setStorageFileProvider  (Storage.FileProvider(this.tempDir))
-                    .createConfiguration()
-            )
-            .setGCZombieOidHandler(zombieHandler)
-            .start();
+                        Storage.ConfigurationBuilder()
+                                .setChannelCountProvider(Storage.ChannelCountProvider(1))
+                                .setHousekeepingController(Storage.HousekeepingController(100, 1_000_000_000))
+                                .setDataFileEvaluator(Storage.DataFileEvaluator(1024, 2048, 1.0))
+                                .setStorageFileProvider(Storage.FileProvider(this.tempDir))
+                                .createConfiguration()
+                )
+                .setGCZombieOidHandler(zombieHandler)
+                .start();
 
         final PersistenceObjectRegistry registry = this.storage.persistenceManager().objectRegistry();
 
@@ -93,22 +93,21 @@ public class RegistrySafetyNetLazyZombieTest
         final WeakReference<Holder> holderProbe;
         {
             final Payload originalPayload = new Payload("ghost-via-lazy");
-            final Holder  originalHolder  = new Holder(originalPayload);
+            final Holder originalHolder = new Holder(originalPayload);
             root.lazyHolder = Lazy.Reference(originalHolder);
             this.storage.setRoot(root);
             this.storage.storeRoot();
 
-            holderOid    = registry.lookupObjectId(originalHolder);
-            payloadOid   = registry.lookupObjectId(originalPayload);
-            holderProbe  = new WeakReference<>(originalHolder);
+            holderOid = registry.lookupObjectId(originalHolder);
+            payloadOid = registry.lookupObjectId(originalPayload);
+            holderProbe = new WeakReference<>(originalHolder);
         }
-        assertNotEquals(Swizzling.notFoundId(), holderOid,  "Holder must be registered");
+        assertNotEquals(Swizzling.notFoundId(), holderOid, "Holder must be registered");
         assertNotEquals(Swizzling.notFoundId(), payloadOid, "Payload must be registered");
 
         // Phase 2: detach the Lazy from root in binary, keep Java ref to the Lazy itself.
         // This puts the Lazy entity in the registry-safety-net role.
-        @SuppressWarnings("unchecked")
-        final Lazy<Holder> lazyRef = (Lazy<Holder>) root.lazyHolder;
+        @SuppressWarnings("unchecked") final Lazy<Holder> lazyRef = (Lazy<Holder>) root.lazyHolder;
         root.lazyHolder = null;
         this.storage.storeRoot();
 
@@ -117,13 +116,12 @@ public class RegistrySafetyNetLazyZombieTest
         // the test still holds a strong Java reference to lazyRef.
         Lazy.clear(lazyRef);
 
-        for(int i = 0; i < 10 && holderProbe.get() != null; i++)
-        {
+        for (int i = 0; i < 10 && holderProbe.get() != null; i++) {
             System.gc();
             Thread.sleep(50);
         }
         assumeTrue(holderProbe.get() == null,
-            "JVM did not garbage-collect the Holder — test cannot proceed deterministically");
+                "JVM did not garbage-collect the Holder — test cannot proceed deterministically");
 
         // Reap cleared WeakReference entries.
         registry.cleanUp();
@@ -144,41 +142,41 @@ public class RegistrySafetyNetLazyZombieTest
         Thread.sleep(200);
 
         assertEquals(0, zombieHandler.count(),
-            "No zombie OIDs expected — got " + zombieHandler.count() + ": " + zombieHandler.oids());
+                "No zombie OIDs expected — got " + zombieHandler.count() + ": " + zombieHandler.oids());
 
         // Phase 7: shutdown and reload; verify the persisted graph is intact.
         this.storage.shutdown();
 
         final CountingZombieOidHandler reloadZombieHandler = new CountingZombieOidHandler();
         this.reloaded = EmbeddedStorage.Foundation(
-                Storage.ConfigurationBuilder()
-                    .setStorageFileProvider(Storage.FileProvider(this.tempDir))
-                    .createConfiguration()
-            )
-            .setGCZombieOidHandler(reloadZombieHandler)
-            .start();
+                        Storage.ConfigurationBuilder()
+                                .setStorageFileProvider(Storage.FileProvider(this.tempDir))
+                                .createConfiguration()
+                )
+                .setGCZombieOidHandler(reloadZombieHandler)
+                .start();
 
         final DataRoot reloadedRoot = (DataRoot) this.reloaded.root();
-        assertNotNull(reloadedRoot,                 "Reloaded root must not be null");
-        assertNotNull(reloadedRoot.lazyHolder,      "Reloaded lazyHolder must not be null");
+        assertNotNull(reloadedRoot, "Reloaded root must not be null");
+        assertNotNull(reloadedRoot.lazyHolder, "Reloaded lazyHolder must not be null");
 
-        @SuppressWarnings("unchecked")
-        final Lazy<Holder> reloadedLazy = (Lazy<Holder>) reloadedRoot.lazyHolder;
+        @SuppressWarnings("unchecked") final Lazy<Holder> reloadedLazy = (Lazy<Holder>) reloadedRoot.lazyHolder;
         final Holder reloadedHolder = reloadedLazy.get();
-        assertNotNull(reloadedHolder,           "Reloaded Holder via Lazy.get() must not be null");
-        assertNotNull(reloadedHolder.payload,   "Reloaded Payload must not be null");
+        assertNotNull(reloadedHolder, "Reloaded Holder via Lazy.get() must not be null");
+        assertNotNull(reloadedHolder.payload, "Reloaded Payload must not be null");
         assertEquals("ghost-via-lazy", reloadedHolder.payload.data);
 
         this.reloaded.issueFullGarbageCollection();
         Thread.sleep(200);
         assertEquals(0, reloadZombieHandler.count(),
-            "No zombie OIDs expected on reloaded storage — got " + reloadZombieHandler.count()
-                + ": " + reloadZombieHandler.oids());
+                "No zombie OIDs expected on reloaded storage — got " + reloadZombieHandler.count()
+                        + ": " + reloadZombieHandler.oids());
     }
 
     ///////////////////////////////////////////////////////////////////////////
     // data types //
-    ///////////////
+
+    /// ////////////
 
     public static class Holder
     {
@@ -212,14 +210,13 @@ public class RegistrySafetyNetLazyZombieTest
     static final class CountingZombieOidHandler implements StorageGCZombieOidHandler
     {
         final AtomicInteger zombieCount = new AtomicInteger();
-        final List<Long>    zombieOids  = new ArrayList<>();
+        final List<Long> zombieOids = new ArrayList<>();
 
         @Override
         public boolean handleZombieOid(final long objectId)
         {
             this.zombieCount.incrementAndGet();
-            synchronized(this.zombieOids)
-            {
+            synchronized (this.zombieOids) {
                 this.zombieOids.add(objectId);
             }
             return true;
@@ -232,8 +229,7 @@ public class RegistrySafetyNetLazyZombieTest
 
         public List<Long> oids()
         {
-            synchronized(this.zombieOids)
-            {
+            synchronized (this.zombieOids) {
                 return new ArrayList<>(this.zombieOids);
             }
         }
