@@ -32,7 +32,20 @@ gigaMap.update(person, p -> {
 gigaMap.store();
 ----
 
-NOTE: Changes made to entities directly (outside of `update` or `apply`) are not tracked by the GigaMap and must be stored manually.
+[WARNING]
+====
+GigaMap has no automatic change tracking. Changes made to entities *directly* (outside of `update`, `apply`, `set`, `replace`, `add` or `remove`) are not tracked, so they are neither stored automatically *nor reflected in the indices*.
+
+Mutating an indexed field directly and then calling `store()` persists the entity but leaves the indices stale: bitmap queries return wrong results, and Lucene searches fail *silently* (no error).
+
+Always mutate indexed entities through `update` / `apply`. To recover an index that has drifted out of sync — or after a bulk import that bypassed per-entity indexing — call `reindex()` to rebuild all indices from the current entity state, then `store()`:
+
+[source, java]
+----
+gigaMap.reindex(); // rebuild every index from current entity state
+gigaMap.store();
+----
+====
 
 === Why not `storageManager.store(gigaMap)`?
 

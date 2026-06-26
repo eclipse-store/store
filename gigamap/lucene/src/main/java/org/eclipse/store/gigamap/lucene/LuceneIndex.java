@@ -429,6 +429,20 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		{
 			// the GigaMap may already hold entities at the moment this index is registered; index them
 			// now so a full-text search sees pre-existing entities, not only those added afterwards.
+			this.internalRebuild(false);
+		}
+
+		@Override
+		public void internalReindex(final GigaMap<E> parentMap)
+		{
+			// Rebuild the whole index from the current entity state to recover from a stale index (e.g. an
+			// entity mutated directly instead of via update()/apply()). The existing documents are dropped
+			// first; otherwise this is the same batched back-fill as registration.
+			this.internalRebuild(true);
+		}
+
+		private void internalRebuild(final boolean clearFirst)
+		{
 			// Documents are added incrementally (no per-entity commit, no buffering of the whole corpus)
 			// and committed once at the end via optCommit, which honors the manual-commit contract: with
 			// context.autoCommit() == false the back-fill performs no commit, leaving durability to the
@@ -440,9 +454,15 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 				{
 					this.lazyInit();
 
+					if(clearFirst)
+					{
+						this.writer.deleteAll();
+					}
+
 					this.gigaMap.iterateIndexed(this::backfillDocument);
 
-					if(!this.gigaMap.isEmpty())
+					// On a rebuild also commit when the map is empty, so the deleteAll itself is flushed.
+					if(clearFirst || !this.gigaMap.isEmpty())
 					{
 						this.optCommit();
 					}

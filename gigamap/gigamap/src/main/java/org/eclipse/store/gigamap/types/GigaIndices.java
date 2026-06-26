@@ -254,7 +254,20 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 			}
 			this.markStateChangeChildren();
 		}
-		
+
+		void internalReindex()
+		{
+			// Rebuild every index group from the current entity state. Each group clears its data and
+			// re-indexes all entities of the parent map (see IndexGroup.Internal#internalReindex), so an
+			// index that drifted out of sync - e.g. because an indexed entity was mutated directly instead
+			// of via update()/apply() - is brought back in line.
+			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			{
+				indexGroup.internalReindex(this.parent);
+			}
+			this.markStateChangeChildren();
+		}
+
 		void internalUpdateIndices(
 			final long                         entityId          ,
 			final E                            replacedEntity    ,
