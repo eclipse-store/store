@@ -358,13 +358,12 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	public default E update(final long entityId, final Consumer<? super E> logic)
 	{
 		notNull(logic);
-		this.apply(entityId, e ->
+		// Return the entity from inside apply() so the lookup+update stay atomic under apply()'s lock.
+		return this.apply(entityId, e ->
 		{
 			logic.accept(e);
-			return null;
+			return e;
 		});
-
-		return this.get(entityId);
 	}
 
 	/**

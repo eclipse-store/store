@@ -97,7 +97,10 @@ long entityId = searchResultEntry.entityId();
 
 // update / apply by id — no bitmap index required
 gigaMap.update(entityId, p -> p.setLastName("Smith"));
-gigaMap.apply(entityId, p -> p.recompute());
+gigaMap.apply(entityId, p -> {
+    p.recompute();
+    return null;
+});
 
 // the index-free equivalents of replace / remove already exist:
 gigaMap.set(entityId, replacement);
