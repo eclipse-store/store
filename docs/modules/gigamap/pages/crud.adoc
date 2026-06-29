@@ -83,3 +83,26 @@ gigaMap.update(person, p -> {
 Entities modified through `update` (or `apply`) are automatically persisted when calling `store()`. See xref:persistence.adoc[] for details.
 
 WARNING: Because `update` / `apply` mutate the entity in place, a constraint violation triggered by the new state cannot be rolled back. The GigaMap therefore **removes** the offending entity from the map and rethrows the `ConstraintViolationException`. See xref:constraints.adoc#_constraint_violations[Constraints — Constraint Violations] for the full rollback semantics across CRUD operations.
+
+=== Updating by Entity Id
+
+Resolving an entity instance to its id (as done by `update(entity, …)`, `apply(entity, …)`, `replace(current, replacement)` and `remove(entity)`) relies on a *bitmap* index. A GigaMap that only has non-bitmap indices — for example a Lucene-only or vector-only map — therefore cannot use these entity-instance methods and would throw an `IllegalStateException`.
+
+For these maps, use the entityId-based overloads instead, which take the id directly and need no bitmap index. The required id is available from query and search results, e.g. via `GigaQuery.iterateIndexed(…)` / `executeWithId(…)` or the `entityId()` of a scored Lucene / vector search result.
+
+[source, java]
+----
+// id obtained from a Lucene/vector search result or a query
+long entityId = searchResultEntry.entityId();
+
+// update / apply by id — no bitmap index required
+gigaMap.update(entityId, p -> p.setLastName("Smith"));
+gigaMap.apply(entityId, p -> {
+    p.recompute();
+    return null;
+});
+
+// the index-free equivalents of replace / remove already exist:
+gigaMap.set(entityId, replacement);
+gigaMap.removeById(entityId);
+----

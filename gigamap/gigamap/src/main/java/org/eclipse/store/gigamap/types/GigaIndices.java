@@ -254,7 +254,20 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 			}
 			this.markStateChangeChildren();
 		}
-		
+
+		void internalReindex()
+		{
+			// Rebuild every index group from the current entity state. Each group clears its data and
+			// re-indexes all entities of the parent map (see IndexGroup.Internal#internalReindex), so an
+			// index that drifted out of sync - e.g. because an indexed entity was mutated directly instead
+			// of via update()/apply() - is brought back in line.
+			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			{
+				indexGroup.internalReindex(this.parent);
+			}
+			this.markStateChangeChildren();
+		}
+
 		void internalUpdateIndices(
 			final long                         entityId          ,
 			final E                            replacedEntity    ,
@@ -417,6 +430,34 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 				}
 				
 				this.indexGroups.add(indexGroup);
+
+				// let the freshly added group back-fill itself from entities that already exist in the
+				// map (no-op for most groups; only reached for a newly-added group, see the early return
+				// above). Not invoked on deserialization, which reconstructs groups via their handlers.
+				try
+				{
+					indexGroup.internalOnRegistered();
+				}
+				catch(final Throwable e)
+				{
+					// keep registration atomic: a failed back-fill must not leave a half-initialized group
+					// registered. Roll back the addition and release native resources the group may hold.
+					this.indexGroups.removeOne(indexGroup);
+					if(indexGroup instanceof Closeable)
+					{
+						try
+						{
+							((Closeable)indexGroup).close();
+						}
+						catch(final IOException suppressed)
+						{
+							e.addSuppressed(suppressed);
+						}
+					}
+					throw e;
+				}
+
+				// mark the change only after the group is fully and successfully registered.
 				this.markStateChangeInstance();
 
 				return category.indexType().cast(indexGroup);

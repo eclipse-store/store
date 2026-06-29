@@ -48,7 +48,7 @@
         <api.version>1</api.version>
         <javadoc.failed.on.error>false</javadoc.failed.on.error>
         <eclipse.serializer.version>5.0.0-SNAPSHOT</eclipse.serializer.version>
-        <failsafe.rerunFailingTestsCount>2</failsafe.rerunFailingTestsCount>
+        <slf4j.version>2.0.17</slf4j.version>
         <surefire.rerunFailingTestsCount>2</surefire.rerunFailingTestsCount>
     </properties>
 
@@ -95,7 +95,7 @@
             <dependency>
                 <groupId>org.slf4j</groupId>
                 <artifactId>slf4j-api</artifactId>
-                <version>2.0.17</version>
+                <version>${slf4j.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.junit.jupiter</groupId>
@@ -387,6 +387,12 @@
             <id>examples</id>
             <modules>
                 <module>examples</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>IT</id>
+            <modules>
+                <module>integration-tests</module>
             </modules>
         </profile>
         <profile>

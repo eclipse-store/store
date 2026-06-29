@@ -241,7 +241,10 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
      * finalizes recent additions, updates, or deletions of indexed entities.
      * <p>
      * Note: If {@link LuceneContext#autoCommit()} returns {@code true}, which is the default,
-     * this method doesn't need to be invoked explicitly.
+     * this method doesn't need to be invoked explicitly. When {@code autoCommit()} is
+     * {@code false}, pending changes are also committed automatically at each
+     * {@code GigaMap.store()} boundary, so an explicit call is only needed to commit between
+     * stores.
      */
     public void commit();
 	
@@ -339,12 +342,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 				synchronized(this.gigaMap)
 				{
 					this.lazyInit();
-				
-					final Document document = new Document();
-					document.add(new LongField(ENTITY_ID_FIELD, entityId, Store.YES));
-					this.context.documentPopulator().populate(document, entity);
-					
-					this.writer.addDocument(document);
+
+					this.writer.addDocument(this.toDocument(entityId, entity));
                     this.optCommit();
 				}
 			}
@@ -368,10 +367,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 					
 					for(final E entity : entities)
 					{
-						final Document document = new Document();
-						document.add(new LongField(ENTITY_ID_FIELD, currentEntityId++, Store.YES));
-						this.context.documentPopulator().populate(document, entity);
-						documents.add(document);
+						documents.add(this.toDocument(currentEntityId++, entity));
 					}
 					
 					this.writer.addDocuments(documents);
@@ -427,7 +423,79 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 				throw new IORuntimeException(e);
 			}
 		}
-		
+
+		@Override
+		public void internalOnRegistered()
+		{
+			// the GigaMap may already hold entities at the moment this index is registered; index them
+			// now so a full-text search sees pre-existing entities, not only those added afterwards.
+			this.internalRebuild(false);
+		}
+
+		@Override
+		public void internalReindex(final GigaMap<E> parentMap)
+		{
+			// Rebuild the whole index from the current entity state to recover from a stale index (e.g. an
+			// entity mutated directly instead of via update()/apply()). The existing documents are dropped
+			// first; otherwise this is the same batched back-fill as registration.
+			this.internalRebuild(true);
+		}
+
+		private void internalRebuild(final boolean clearFirst)
+		{
+			// Documents are added incrementally (no per-entity commit, no buffering of the whole corpus)
+			// and committed once at the end via optCommit, which honors the manual-commit contract: with
+			// context.autoCommit() == false the back-fill performs no commit, leaving durability to the
+			// user's explicit commit() (the near-real-time reader still makes the documents queryable in
+			// the meantime, just like internalAdd).
+			try
+			{
+				synchronized(this.gigaMap)
+				{
+					this.lazyInit();
+
+					if(clearFirst)
+					{
+						this.writer.deleteAll();
+					}
+
+					this.gigaMap.iterateIndexed(this::backfillDocument);
+
+					// On a rebuild also commit when the map is empty, so the deleteAll itself is flushed.
+					if(clearFirst || !this.gigaMap.isEmpty())
+					{
+						this.optCommit();
+					}
+				}
+			}
+			catch(final IOException e)
+			{
+				throw new IORuntimeException(e);
+			}
+		}
+
+		private void backfillDocument(final long entityId, final E entity)
+		{
+			// uses the GigaMap-assigned entityId (not a contiguous counter) so ENTITY_ID_FIELD stays the
+			// authoritative id that queryFor(entityId) relies on for later update/remove.
+			try
+			{
+				this.writer.addDocument(this.toDocument(entityId, entity));
+			}
+			catch(final IOException e)
+			{
+				throw new IORuntimeException(e);
+			}
+		}
+
+		private Document toDocument(final long entityId, final E entity)
+		{
+			final Document document = new Document();
+			document.add(new LongField(ENTITY_ID_FIELD, entityId, Store.YES));
+			this.context.documentPopulator().populate(document, entity);
+			return document;
+		}
+
 		@Override
 		public void internalPrepareIndicesUpdate(final E replacedEntity)
 		{
@@ -453,11 +521,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 				synchronized(this.gigaMap)
 				{
 					this.lazyInit();
-					
-					final Document document = new Document();
-					document.add(new LongField(ENTITY_ID_FIELD, entityId, Store.YES));
-					this.context.documentPopulator().populate(document, entity);
-					this.writer.updateDocuments(queryFor(entityId), List.of(document));
+
+					this.writer.updateDocuments(queryFor(entityId), List.of(this.toDocument(entityId, entity)));
                     this.optCommit();
 				}
 			}
@@ -791,6 +856,38 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
             }
 
 			this.markStateChangeChildren();
+        }
+
+        /**
+         * Couples the Lucene commit to the {@link GigaMap} store boundary when
+         * {@link LuceneContext#autoCommit()} is {@code false}: invoked by
+         * {@link BinaryHandlerLuceneIndexDefault#store} right before the index is serialized,
+         * it flushes and commits any pending writer changes so the persisted state reflects all
+         * mutations up to this {@code store()} exactly. For a graph directory this populates the
+         * {@link Default#fileEntries} map before it is read for serialization; for an external
+         * directory it syncs the on-disk index at the store boundary.
+         * <p>
+         * No-op when {@code autoCommit()} is {@code true} (the eager commits already ran), when
+         * the writer has not been initialized yet, or when there are no uncommitted changes.
+         */
+        void internalCommitOnStore()
+        {
+            synchronized(this.gigaMap)
+            {
+                if(!this.context.autoCommit()
+                    && this.writer != null
+                    && this.writer.hasUncommittedChanges())
+                {
+                    try
+                    {
+                        this.internalCommit();
+                    }
+                    catch(final IOException e)
+                    {
+                        throw new IORuntimeException(e);
+                    }
+                }
+            }
         }
 
         private void internalCommit() throws IOException

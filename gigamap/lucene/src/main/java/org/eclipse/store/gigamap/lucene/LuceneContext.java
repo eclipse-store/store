@@ -79,11 +79,41 @@ public interface LuceneContext<E>
 	public DocumentPopulator<E> documentPopulator();
 
     /**
-     * Determines whether the operations in this context are automatically committed
-     * to the underlying storage or require explicit commits.
+     * Determines whether index mutations are committed eagerly, immediately at mutation
+     * time, or only when explicitly requested.
+     * <p>
+     * The effect of this flag depends on the directory type (see {@link #directoryCreator()}):
+     * <table border="1">
+     *   <caption>{@code autoCommit} &times; directory type</caption>
+     *   <tr><th></th><th>{@code autoCommit == true} (default)</th><th>{@code autoCommit == false}</th></tr>
+     *   <tr>
+     *     <td><b>Embedded</b> (directory creator is {@code null}; index data lives in the
+     *         persisted object graph)</td>
+     *     <td>Each mutation commits into the in-memory graph; the data reaches disk only on
+     *         {@code GigaMap.store()}. Already consistent at store boundaries.</td>
+     *     <td>The writer is flushed and committed once, exactly at the {@code GigaMap.store()}
+     *         boundary, instead of after every mutation.</td>
+     *   </tr>
+     *   <tr>
+     *     <td><b>External</b> (e.g. {@link DirectoryCreator#MMap(java.nio.file.Path)};
+     *         index data lives on disk, outside the GigaMap storage)</td>
+     *     <td>Each mutation commits to disk immediately, decoupled from
+     *         {@code GigaMap.store()}: a mutation not followed by a store (or a crash in
+     *         between) leaves the on-disk index diverged from the persisted entities.</td>
+     *     <td>The writer is flushed and committed at the {@code GigaMap.store()} boundary,
+     *         giving store-aligned durability. A manual {@link LuceneIndex#commit()} is also
+     *         honored.</td>
+     *   </tr>
+     * </table>
+     * <p>
+     * Note: an external index is a separate persistence target from the GigaMap storage.
+     * Coupling its commit to {@code store()} aligns the two commits temporally but is not a
+     * single atomic transaction across both targets; a crash mid-{@code store()} can still
+     * diverge. An embedded (graph) index has no such gap, as it is part of the persisted graph.
      *
-     * @return true if the context is set to automatically commit changes;
-     *         false if manual commits are required.
+     * @return {@code true} (the default) to commit eagerly at mutation time;
+     *         {@code false} to couple commits to {@code GigaMap.store()} / explicit
+     *         {@link LuceneIndex#commit()}.
      */
     public default boolean autoCommit()
     {
@@ -179,31 +209,79 @@ public interface LuceneContext<E>
 		final DocumentPopulator<E> documentPopulator
 	)
 	{
+		return New(
+			        directoryCreator  ,
+			notNull(analyzerCreator  ),
+			notNull(documentPopulator),
+			true
+		);
+	}
+
+	/**
+	 * Creates a new instance of {@link LuceneContext} for handling Lucene operations, with
+	 * explicit control over the commit behavior.
+	 *
+	 * @param <E> the type of entity to be indexed and searched with the resulting {@link LuceneContext}
+	 * @param directoryCreator an implementation of {@link DirectoryCreator} responsible for
+	 *                         creating a directory where the Lucene index will be stored,
+	 *                         or <code>null</code> if the data should be stored inside the index
+	 * @param analyzerCreator an implementation of {@link AnalyzerCreator} responsible for
+	 *                        creating analyzers used for text processing in Lucene
+	 * @param documentPopulator an implementation of {@link DocumentPopulator} responsible for
+	 *                          mapping entity data into Lucene {@link Document} objects
+	 * @param autoCommit see {@link LuceneContext#autoCommit()}; pass {@code false} to couple
+	 *                   commits to {@code GigaMap.store()} / explicit {@link LuceneIndex#commit()}
+	 *                   instead of committing eagerly at mutation time
+	 * @return an instance of {@link LuceneContext} configured with the given parameters
+	 */
+	public static <E> LuceneContext<E> New(
+		final DirectoryCreator     directoryCreator ,
+		final AnalyzerCreator      analyzerCreator  ,
+		final DocumentPopulator<E> documentPopulator,
+		final boolean              autoCommit
+	)
+	{
 		return new Default<>(
 			        directoryCreator  ,
 			notNull(analyzerCreator  ),
-			notNull(documentPopulator)
+			notNull(documentPopulator),
+			autoCommit
 		);
 	}
-	
-	
-	
+
+
+
 	public class Default<E> implements LuceneContext<E>
 	{
 		private final DirectoryCreator     directoryCreator;
 		private final AnalyzerCreator      analyzerCreator;
 		private final DocumentPopulator<E> documentPopulator;
-		
+		// Inverted on purpose: a field added to this persisted type defaults to false when an
+		// older store (without the field) is loaded. Storing manualCommit (not autoCommit) makes
+		// that false-default mean autoCommit()==true, preserving the legacy behavior on reload.
+		private final boolean              manualCommit;
+
 		Default(
 			final DirectoryCreator     directoryCreator ,
 			final AnalyzerCreator      analyzerCreator  ,
 			final DocumentPopulator<E> documentPopulator
 		)
 		{
+			this(directoryCreator, analyzerCreator, documentPopulator, true);
+		}
+
+		Default(
+			final DirectoryCreator     directoryCreator ,
+			final AnalyzerCreator      analyzerCreator  ,
+			final DocumentPopulator<E> documentPopulator,
+			final boolean              autoCommit
+		)
+		{
 			super();
 			this.directoryCreator  = directoryCreator ;
 			this.analyzerCreator   = analyzerCreator  ;
 			this.documentPopulator = documentPopulator;
+			this.manualCommit      = !autoCommit      ;
 		}
 
 		@Override
@@ -223,7 +301,13 @@ public interface LuceneContext<E>
 		{
 			return this.documentPopulator;
 		}
-		
+
+		@Override
+		public boolean autoCommit()
+		{
+			return !this.manualCommit;
+		}
+
 	}
 	
 }

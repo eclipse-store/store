@@ -64,6 +64,18 @@ import static org.eclipse.serializer.util.X.notNull;
  * Equality depends on the given {@link #equalator()}. By default, identity equality is used.
  * If you want value equality instead, you can use {@link XHashing#hashEqualityValue()} in the constructor methods,
  * or {@link Builder#withValueEquality()}.
+ * <p>
+ * <b>Keeping indices in sync:</b> GigaMap has no automatic change tracking. Any mutation that affects an
+ * indexed field must go through this collection's mutating methods ({@link #add(Object) add},
+ * {@link #remove(Object) remove}, {@link #set(long, Object) set}, {@link #replace(Object, Object) replace},
+ * {@link #update(long, Consumer) update}, {@link #apply(long, Function) apply}); only these re-run the
+ * indexers. Mutating an entity's indexed field <em>directly</em> leaves the indices stale - for bitmap indices
+ * this yields wrong query results, for Lucene indices it fails silently. A subsequent {@link #store()} does
+ * not fix this: it neither updates the indices nor implicitly persists the direct mutation (only entities
+ * mutated through {@code update} / {@code apply} are scheduled for storing; a directly mutated entity must be
+ * stored explicitly, as usual). To bring a single entity back in sync use {@link #update(long, Consumer)} /
+ * {@link #apply(long, Function)} (which also schedule the entity for storing); to rebuild every index from the
+ * current entity state use {@link #reindex()}.
  *
  * @param <E> the type of entities in this collection
  */
@@ -156,13 +168,15 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	/**
 	 * Removes the specified entity if present in this collection and returns its previously mapped id.
 	 * <p>
-	 * In order for this method to work, at least one bitmap index is needed. If no index is present an
-	 * {@link IllegalStateException} will be thrown.
+	 * Because the entity instance has to be resolved to its id first, at least one bitmap index is
+	 * needed for this method to work; if none is present an {@link IllegalStateException} is thrown.
+	 * Maps without a bitmap index (e.g. Lucene-only or vector-only maps) can use the entityId-based
+	 * {@link #removeById(long)} instead, passing an id obtained from a query or search result.
 	 * <p>
 	 * To get the best performance for this operation is the use of an identity index.
 	 * See {@link BitmapIndices#setIdentityIndices(IndexIdentifier...)}.
-	 * 
-	 * 
+	 *
+	 *
 	 * @param entity the entity to be removed
 	 * @return the previously mapped id of the entity, or -1 if none was removed
 	 * @throws IllegalStateException if no bitmap index is present
@@ -267,8 +281,10 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * Replaces the specified entity if present with a different one, updates the indices accordingly,
 	 * and returns its mapped id.
 	 * <p>
-	 * In order for this method to work, at least one bitmap index is needed. If no index is present an
-	 * {@link IllegalStateException} will be thrown.
+	 * Because the current entity instance has to be resolved to its id first, at least one bitmap index
+	 * is needed for this method to work; if none is present an {@link IllegalStateException} is thrown.
+	 * Maps without a bitmap index (e.g. Lucene-only or vector-only maps) can use the entityId-based
+	 * {@link #set(long, Object)} instead, passing an id obtained from a query or search result.
 	 * <p>
 	 * To get the best performance for this operation is the use of an identity index.
 	 * See {@link BitmapIndices#setIdentityIndices(IndexIdentifier...)}.
@@ -285,11 +301,16 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	/**
 	 * Updates the specified entity and the indices accordingly.
 	 * <p>
-	 * The entity is mutated in-place by the given logic. Both the index changes and the entity itself
-	 * are automatically persisted when {@link #store()} is called.
+	 * The entity is mutated in-place by the given logic. The entity itself, the changes to bitmap indices,
+	 * and the changes to embedded (graph) Lucene/vector indices are persisted when {@link #store()} is
+	 * called. An external-directory Lucene index instead commits on a schedule controlled by its
+	 * {@code LuceneContext.autoCommit} setting: by default ({@code autoCommit == true}) it commits
+	 * immediately at this method's call time, independently of {@link #store()}.
 	 * <p>
-	 * In order for this method to work, at least one bitmap index is needed. If no index is present an
-	 * {@link IllegalStateException} will be thrown.
+	 * Because the entity instance has to be resolved to its id first, at least one bitmap index is
+	 * needed for this method to work; if none is present an {@link IllegalStateException} is thrown.
+	 * Maps without a bitmap index (e.g. Lucene-only or vector-only maps) can use the entityId-based
+	 * {@link #update(long, Consumer)} instead, passing an id obtained from a query or search result.
 	 * <p>
 	 * To get the best performance for this operation is the use of an identity index.
 	 * See {@link BitmapIndices#setIdentityIndices(IndexIdentifier...)}.
@@ -324,15 +345,59 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 
 		return current;
 	}
-	
+
+	/**
+	 * Updates the entity mapped to the given id and the indices accordingly.
+	 * <p>
+	 * The entity is mutated in-place by the given logic. The entity itself, the changes to bitmap indices,
+	 * and the changes to embedded (graph) Lucene/vector indices are persisted when {@link #store()} is
+	 * called. An external-directory Lucene index instead commits on a schedule controlled by its
+	 * {@code LuceneContext.autoCommit} setting: by default ({@code autoCommit == true}) it commits
+	 * immediately at this method's call time, independently of {@link #store()}.
+	 * <p>
+	 * Unlike {@link #update(Object, Consumer)}, this variant takes the entity id directly and therefore
+	 * needs <b>no</b> bitmap index. It is the recommended way to trigger reindexing on maps that only
+	 * have non-bitmap indices (e.g. Lucene-only or vector-only maps). Suitable ids are available from
+	 * query and search results, e.g. via {@link GigaQuery#iterateIndexed(EntryConsumer)} /
+	 * {@link GigaQuery#executeWithId(EntryConsumer)} or the {@code entityId()} of a scored search result.
+	 * <p>
+	 * <b>Behavior on constraint violation (potential data loss):</b> identical to
+	 * {@link #apply(long, Function)}: if the post-update state violates a registered constraint, a
+	 * {@link ConstraintViolationException ConstraintViolationException} is thrown <em>and the entity is
+	 * removed from this GigaMap</em>, because the in-place mutation cannot be rolled back.
+	 *
+	 * @param entityId the id of the entity to be updated
+	 * @param logic the update logic to be executed
+	 * @return the updated entity
+	 * @throws IllegalArgumentException if no entity is mapped to the given id
+	 * @throws ConstraintViolationException if the post-update state
+	 *         violates a registered constraint; the entity is removed from the map before this is thrown
+	 * @see #reindex()
+	 */
+	public default E update(final long entityId, final Consumer<? super E> logic)
+	{
+		notNull(logic);
+		// Return the entity from inside apply() so the lookup+update stay atomic under apply()'s lock.
+		return this.apply(entityId, e ->
+		{
+			logic.accept(e);
+			return e;
+		});
+	}
+
 	/**
 	 * Applies the specified logic for the given entity and updates the indices accordingly.
 	 * <p>
-	 * The entity is mutated in-place by the given logic. Both the index changes and the entity itself
-	 * are automatically persisted when {@link #store()} is called.
+	 * The entity is mutated in-place by the given logic. The entity itself, the changes to bitmap indices,
+	 * and the changes to embedded (graph) Lucene/vector indices are persisted when {@link #store()} is
+	 * called. An external-directory Lucene index instead commits on a schedule controlled by its
+	 * {@code LuceneContext.autoCommit} setting: by default ({@code autoCommit == true}) it commits
+	 * immediately at this method's call time, independently of {@link #store()}.
 	 * <p>
-	 * In order for this method to work, at least one bitmap index is needed. If no index is present an
-	 * {@link IllegalStateException} will be thrown.
+	 * Because the entity instance has to be resolved to its id first, at least one bitmap index is
+	 * needed for this method to work; if none is present an {@link IllegalStateException} is thrown.
+	 * Maps without a bitmap index (e.g. Lucene-only or vector-only maps) can use the entityId-based
+	 * {@link #apply(long, Function)} instead, passing an id obtained from a query or search result.
 	 * <p>
 	 * To get the best performance for this operation is the use of an identity index.
 	 * See {@link BitmapIndices#setIdentityIndices(IndexIdentifier...)}.
@@ -358,7 +423,71 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 *         thrown
 	 */
 	public <R> R apply(E current, Function<? super E, R> logic);
-	
+
+	/**
+	 * Applies the specified logic to the entity mapped to the given id and updates the indices accordingly.
+	 * <p>
+	 * The entity is mutated in-place by the given logic. The entity itself, the changes to bitmap indices,
+	 * and the changes to embedded (graph) Lucene/vector indices are persisted when {@link #store()} is
+	 * called. An external-directory Lucene index instead commits on a schedule controlled by its
+	 * {@code LuceneContext.autoCommit} setting: by default ({@code autoCommit == true}) it commits
+	 * immediately at this method's call time, independently of {@link #store()}.
+	 * <p>
+	 * Unlike {@link #apply(Object, Function)}, this variant takes the entity id directly and therefore
+	 * needs <b>no</b> bitmap index. It is the recommended way to trigger reindexing on maps that only
+	 * have non-bitmap indices (e.g. Lucene-only or vector-only maps). Suitable ids are available from
+	 * query and search results, e.g. via {@link GigaQuery#iterateIndexed(EntryConsumer)} /
+	 * {@link GigaQuery#executeWithId(EntryConsumer)} or the {@code entityId()} of a scored search result.
+	 * <p>
+	 * <b>Behavior on constraint violation (potential data loss):</b> if the post-application state of the
+	 * entity violates a registered constraint, a
+	 * {@link ConstraintViolationException ConstraintViolationException}
+	 * is thrown <em>and the entity is removed from this GigaMap</em>. Because {@code logic} mutates the
+	 * entity in place, the previous state is no longer available and cannot be restored — removing the
+	 * entry is the only way to keep the map consistent. The thrown exception carries the offending entity
+	 * and its id (via {@code violatingEntity} and {@code entityId}); callers that need to recover can
+	 * re-add the entity after correcting the violation, or use {@link #set(long, Object) set} when
+	 * non-destructive semantics are required.
+	 *
+	 * @param entityId the id of the entity the logic is applied to
+	 * @param logic the logic to be executed
+	 * @return the result of the given logic
+	 * @throws IllegalArgumentException if no entity is mapped to the given id
+	 * @throws ConstraintViolationException if the post-application
+	 *         state violates a registered constraint; the entity is removed from the map before this is
+	 *         thrown
+	 * @see #reindex()
+	 */
+	public <R> R apply(long entityId, Function<? super E, R> logic);
+
+	/**
+	 * Rebuilds all registered indices (bitmap, Lucene, vector, ...) from the current state of the
+	 * entities contained in this map.
+	 * <p>
+	 * GigaMap has no automatic change tracking. When an entity's indexed fields are mutated <em>directly</em>
+	 * (i.e. not through {@link #update(long, Consumer) update} / {@link #apply(long, Function) apply} /
+	 * {@link #set(long, Object) set} / {@link #replace(Object, Object) replace}), its index entries are
+	 * <b>not</b> updated and therefore become stale. For bitmap indices this typically surfaces as wrong query
+	 * results; for Lucene indices it fails silently. This method is the recovery path for such situations, and
+	 * is also useful after a bulk operation that bypassed per-entity indexing.
+	 * <p>
+	 * The rebuild drops each index' data and re-indexes every entity from its current state; a per-entity
+	 * update replay would be insufficient because the previous index key of a directly mutated entity is no
+	 * longer available.
+	 * <p>
+	 * This rebuilds only the index structures; it does <b>not</b> store the entities themselves. A directly
+	 * mutated entity must still be persisted explicitly (mutating via {@code update} / {@code apply} does this
+	 * for you), otherwise a reload would restore the old entity state behind the rebuilt index. Call
+	 * {@link #store()} afterwards to persist the rebuilt bitmap and embedded (graph) Lucene/vector indices. An
+	 * external-directory Lucene index is committed during the rebuild when its {@code LuceneContext.autoCommit}
+	 * is {@code true} (the default), otherwise at the next {@link #store()} boundary. On a very large map this
+	 * can be an expensive operation, as it iterates all entities once per index group.
+	 *
+	 * @see #update(long, Consumer)
+	 * @see #apply(long, Function)
+	 */
+	public void reindex();
+
 	/**
 	 * Releases all strong references to on-demand loaded data.
 	 */
@@ -649,6 +778,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * Entities mutated through the {@link #update} or {@link #apply} methods are automatically included in the
 	 * store operation. However, changes made to entities directly (outside of these methods) are NOT stored
 	 * implicitly since it is not possible to automatically track changes made to objects outside the framework.
+	 * Such a direct mutation also leaves the indices stale, and this store does not re-run the indexers: bitmap
+	 * queries then return wrong results and Lucene searches fail silently. Mutate indexed entities via
+	 * {@link #update(long, Consumer)} / {@link #apply(long, Function)} (which update the indices and schedule
+	 * the entity for storing), or - if a mutation already bypassed them - store the affected entities yourself
+	 * and call {@link #reindex()} to rebuild the indices from the current entity state before storing.
 	 * <p>
 	 * <b>Note on concurrency:</b><br>
 	 * Using this method guarantees concurrency safety since it locks the {@link GigaMap} instance internally.<br>
@@ -1696,7 +1830,12 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			
 			if(indicesCollector.isEmpty())
 			{
-				throw new IllegalStateException("Cannot perform entity-related searching without at least one index.");
+				throw new IllegalStateException(
+					"This GigaMap has no bitmap index, so an entity instance cannot be resolved to its id. "
+					+ "Register a bitmap index, or use the entityId-based methods "
+					+ "(apply(long, ...), update(long, ...), set(long, ...), removeById(long)) instead - "
+					+ "entityIds are available from query and search results."
+				);
 			}
 			
 			return indicesCollector;
@@ -1865,13 +2004,43 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			this.validateForCRUD(current);
 			notNull(logic);
 			this.ensureMutability();
-			
+
 			final long entityId = this.lookupEntityIdPeeking(current, this.determineIdentityLookupIndices());
 			if(entityId < 0)
 			{
 				throw new IllegalArgumentException("Entity not found");
 			}
-			
+
+			return this.internalApply(entityId, current, logic);
+		}
+
+		@Override
+		public final synchronized <R> R apply(final long entityId, final Function<? super E, R> logic)
+		{
+			notNull(logic);
+			this.ensureMutability();
+			this.validateEntityId(entityId);
+
+			// Resolves the entity directly via its id, so no (bitmap) index is required. This is the
+			// only update path available to maps that have solely non-bitmap indices (e.g. Lucene, vector).
+			final E current = this.get(entityId);
+			if(current == null)
+			{
+				throw new IllegalArgumentException("Entity not found for id: " + entityId);
+			}
+
+			return this.internalApply(entityId, current, logic);
+		}
+
+		@Override
+		public final synchronized void reindex()
+		{
+			this.ensureMutability();
+			this.indices.internalReindex();
+		}
+
+		private <R> R internalApply(final long entityId, final E current, final Function<? super E, R> logic)
+		{
 			try
 			{
 				final R result = this.indices.internalUpdateIndices(entityId, current, logic, this.constraints.custom());
@@ -1900,7 +2069,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				throw e;
 			}
 		}
-		
+
 		private void ensureMutability()
 		{
 			while(this.checkingIsReadOnly())
