@@ -95,6 +95,30 @@ public interface IndexGroup<E> extends GigaMap.Component<E>
 			// no-op
 		}
 
+		/**
+		 * Rebuilds this group's index data from scratch, using the current state of all entities in the
+		 * given parent map. Invoked by {@link GigaMap#reindex()} to recover from an index that drifted out
+		 * of sync - typically because an indexed entity was mutated directly instead of through
+		 * {@link GigaMap#update(long, java.util.function.Consumer)} /
+		 * {@link GigaMap#apply(long, java.util.function.Function)}.
+		 * <p>
+		 * A full rebuild (clear + re-add) rather than a per-entity update replay is required because after a
+		 * direct mutation the previous index key is no longer available, so only re-indexing from the
+		 * current state is correct.
+		 * <p>
+		 * The default implementation drops all data via {@link #internalRemoveAll()} and re-adds every
+		 * entity via {@link #internalAdd(long, Object)}, which is correct for in-memory groups (e.g. bitmap,
+		 * vector). Groups with an external commit cost (e.g. Lucene) should override this to batch the
+		 * re-add and commit once.
+		 *
+		 * @param parentMap the map whose entities this group indexes
+		 */
+		public default void internalReindex(final GigaMap<E> parentMap)
+		{
+			this.internalRemoveAll();
+			parentMap.iterateIndexed((entityId, entity) -> this.internalAdd(entityId, entity));
+		}
+
 		public void clearStateChangeMarkers();
 	}
 	
