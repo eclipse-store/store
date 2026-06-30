@@ -16,6 +16,7 @@ package org.eclipse.store.storage.types;
 
 import static org.eclipse.serializer.util.X.checkArrayRange;
 import static org.eclipse.serializer.util.X.notNull;
+import static org.eclipse.serializer.util.X.toBytes;
 
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
@@ -375,7 +376,7 @@ public interface StorageChunkChecksumCalculator
 		final byte[] actual = verifier.computeChecksumBytes(chunk);
 		if(!Arrays.equals(actual, expected))
 		{
-			reporter.onChecksumMismatch(fileNumber, address - chunkStart, StorageMetaRecord.kindOf(address), expected, actual);
+			reporter.onChecksumMismatch(fileNumber, walkerChunkStart, StorageMetaRecord.kindOf(address), expected, actual);
 		}
 		// chained: continue from the stored tip (== recomputed on match), the basis the writer chained from.
 		return chained ? expected : inboundTip;
@@ -612,15 +613,27 @@ public interface StorageChunkChecksumCalculator
 					else
 					{
 						final Algorithm verifier = this.algorithmsByKind.get(kind);
-						if(verifier == null || address + verifier.recordLength() > bufferBoundAddress)
-						{
-							// no algorithm for this KIND (drift / corrupt KIND), or truncated record.
-							reporter.onUnknownKind(fileNumber, kind);
-						}
-						else
+						if(verifier != null && address + verifier.recordLength() <= bufferBoundAddress)
 						{
 							chainTip   = verifyChunk(fileNumber, buffer, address, chunkStart, verifier, chainTip, reporter);
 							chunkStart = address + verifier.recordLength();
+						}
+						else
+						{
+							// no algorithm for this KIND (drift / corrupt KIND), or a truncated record.
+							reporter.onUnknownKind(fileNumber, kind);
+							// Mirror StorageMetaRecordRegistry.dispatch: an unknown KIND reached AFTER the
+							// FileHeaderV1 was parsed is a genuine forward-compat record, so advance the chunk
+							// boundary past it (|LENGTH| == -itemLength) — otherwise a later covering record's
+							// stored start would no longer match the walker's cursor, raising a false
+							// CHUNK_BOUNDARY_MISMATCH / UNCOVERED_DATA. A truncated KNOWN record (verifier != null)
+							// leaves chunkStart unadvanced, mirroring ChunkChecksumHandler.onLoad's report-and-skip;
+							// so does an unknown KIND before the header is parsed (a corrupted/lost FileHeaderV1),
+							// so the drift still surfaces instead of loading silently.
+							if(verifier == null && headerKind != 0L)
+							{
+								chunkStart = address - itemLength;
+							}
 						}
 					}
 				}
@@ -736,7 +749,7 @@ public interface StorageChunkChecksumCalculator
 		/**
 		 * CRC32C algorithm: non-cryptographic integrity checksum, hardware-accelerated, zero-copy on
 		 * direct buffers. Detects accidental corruption; <b>not</b> collision-resistant or tamper-evident.
-		 * Emits {@code ChunkChecksumCRC32CV1} records (16 B).
+		 * Emits {@code ChunkChecksumCRC32CV1} records (20 B).
 		 */
 		public final class Crc32c implements Algorithm
 		{
@@ -786,13 +799,6 @@ public interface StorageChunkChecksumCalculator
 			// static methods //
 			///////////////////
 
-			private static byte[] intToBytes(final int value)
-			{
-				return new byte[]{(byte)(value >>> 24), (byte)(value >>> 16), (byte)(value >>> 8), (byte)value};
-			}
-
-
-
 			///////////////////////////////////////////////////////////////////////////
 			// declared methods //
 			/////////////////////
@@ -832,7 +838,7 @@ public interface StorageChunkChecksumCalculator
 				notNull(chunk);
 				this.crc.reset();
 				this.crc.update(chunk.duplicate());
-				return intToBytes((int)this.crc.getValue());
+				return toBytes((int)this.crc.getValue());
 			}
 
 			@Override
@@ -840,10 +846,10 @@ public interface StorageChunkChecksumCalculator
 			{
 				// Byte-order note: the CRC is persisted as a 4-byte int in NATIVE order (writeRecord uses
 				// target.putInt on a native-order direct buffer) and read back via the matching native
-				// get_int, so the round-trip recovers the same int value. intToBytes (big-endian) is applied
+				// get_int, so the round-trip recovers the same int value. X.toBytes (big-endian) is applied
 				// to that int value on BOTH the read and compute sides purely to obtain comparable byte[]s —
 				// it does not pin the on-disk layout, which is native-endian. Comparison is self-consistent.
-				return intToBytes(XMemory.get_int(recordAddress + OFFSET_CRC));
+				return toBytes(XMemory.get_int(recordAddress + OFFSET_CRC));
 			}
 
 			@Override
@@ -863,14 +869,14 @@ public interface StorageChunkChecksumCalculator
 
 
 		/**
-		 * Chained SHA-256 algorithm: cryptographic and tamper-evident like {@link Sha256}, but each chunk's
+		 * Chained SHA-256 algorithm: cryptographic and tamper-evident (SHA-256), but each chunk's
 		 * stored hash folds in the previous chunk's hash &mdash; {@code tip_i = SHA-256(tip_{i-1} || chunk_i)},
 		 * seeded by the file's {@code FileHeaderV1.chainRoot} ({@code tip_0}). Altering any chunk invalidates
 		 * that chunk and every chunk after it in the same file, so reordering, insertion, deletion or
 		 * substitution of chunks <i>within a file</i> is detectable &mdash; not just bit-rot of a single chunk.
 		 * The chain is re-seeded per file from that file's own header, so it does not span files: deleting or
 		 * reordering whole data files (as housekeeping legitimately does) is not detected by the chain. Emits
-		 * {@code ChunkChecksumChainedV1} records (44 B; same envelope+hash layout as {@code ChunkChecksumV1},
+		 * {@code ChunkChecksumChainedV1} records (48 B; same envelope+hash layout as {@code ChunkChecksumV1},
 		 * distinguished purely by KIND).
 		 * <p>
 		 * <b>Chaining is SHA-256 only.</b> A chained CRC32C is forgeable (CRC is linear and not

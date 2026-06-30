@@ -180,17 +180,7 @@ public interface StorageIntegrityCheckResult
 			}
 			if(this.expected != null && this.actual != null)
 			{
-				vs.add(": expected ").add(toHex(this.expected)).add(", got ").add(toHex(this.actual));
-			}
-			return vs.toString();
-		}
-
-		private static String toHex(final byte[] bytes)
-		{
-			final VarString vs = VarString.New();
-			for(final byte b : bytes)
-			{
-				vs.add(Character.forDigit((b >> 4) & 0xF, 16)).add(Character.forDigit(b & 0xF, 16));
+				vs.add(": expected ").addHexDec(this.expected).add(", got ").addHexDec(this.actual);
 			}
 			return vs.toString();
 		}

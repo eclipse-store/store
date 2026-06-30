@@ -390,7 +390,7 @@ public interface StorageDataChunkValidator
 
 				// The resulting file (chunk + FileHeaderV1 + trailing chunk-checksum) must fit
 				// in a 2 GiB direct buffer so it remains loadable on the read path.
-				if(commitSize + this.freshFileMetaReserve > Integer.MAX_VALUE)
+				if(commitSize + this.freshFileMetaReserve >= Integer.MAX_VALUE)
 				{
 					throw new StorageExceptionCommitSizeExceeded(
 						channelIndex, commitSize + this.freshFileMetaReserve);
@@ -465,10 +465,10 @@ public interface StorageDataChunkValidator
 					commitSize += bb.limit();
 				}
 
-				if(commitSize >= Integer.MAX_VALUE)
+				if(commitSize + this.freshFileMetaReserve >= Integer.MAX_VALUE)
 				{
 					// also enforce the 2 GiB load-buffer cap so this validator is a superset of MaxFileSize
-					throw new StorageExceptionCommitSizeExceeded(channelIndex, commitSize);
+					throw new StorageExceptionCommitSizeExceeded(channelIndex, commitSize + this.freshFileMetaReserve);
 				}
 				if(commitSize + this.freshFileMetaReserve > this.fileMaximumSize)
 				{

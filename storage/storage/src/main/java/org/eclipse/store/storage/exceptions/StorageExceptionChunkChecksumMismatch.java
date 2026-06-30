@@ -14,6 +14,8 @@ package org.eclipse.store.storage.exceptions;
  * #L%
  */
 
+import org.eclipse.serializer.chars.VarString;
+
 /**
  * Raised when a chunk-checksum meta record's stored hash does not match the checksum recomputed over the
  * chunk's preceding bytes during load-time verification. Indicates either bit-rot on the underlying
@@ -97,16 +99,8 @@ public class StorageExceptionChunkChecksumMismatch extends StorageExceptionConsi
 
 	private static String toHex(final byte[] bytes)
 	{
-		if(bytes == null)
-		{
-			return "(null)";
-		}
-		final StringBuilder sb = new StringBuilder(bytes.length * 2);
-		for(final byte b : bytes)
-		{
-			sb.append(Character.forDigit((b >> 4) & 0xF, 16))
-			  .append(Character.forDigit( b       & 0xF, 16));
-		}
-		return sb.toString();
+		return bytes == null
+			? "(null)"
+			: VarString.New().addHexDec(bytes).toString();
 	}
 }

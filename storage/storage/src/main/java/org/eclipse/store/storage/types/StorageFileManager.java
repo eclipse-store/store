@@ -481,11 +481,13 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 					}
 
 					// Nothing to transfer yet. Roll over to the next head file ONLY if the current head
-					// already holds reclaimable entity bytes; rolling over a head that has only protocol
-					// overhead (FileHeaderV1 / ChunkChecksumV1) produces an identically-shaped successor
-					// and loops forever. dataLength(), not totalLength(), because the latter is non-zero
-					// once a FileHeaderV1 is emitted.
-					if(headFile.dataLength() != 0L)
+					// already holds relocatable content (live entity bytes OR reclaimable gap bytes); rolling
+					// over a head that has only protocol overhead (FileHeaderV1 / ChunkChecksumV1) produces an
+					// identically-shaped successor and loops forever. Subtract metaLength() rather than testing
+					// dataLength(): totalLength() is non-zero once a FileHeaderV1 is emitted, but an all-gap head
+					// (every entity GC'd) still has reclaimable gap bytes and must roll over, as it did before
+					// the checksum feature (old guard: totalLength() != 0).
+					if(headFile.totalLength() - headFile.metaLength() != 0L)
 					{
 						this.createNextStorageFile();
 						return;
@@ -875,7 +877,7 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			// Defence in depth: even on a fresh head (dataLength == 0) we refuse to produce a file
 			// that the load path can no longer read back into a single 2 GiB direct buffer. This
 			// guards against a user wiring a no-op validator that bypasses MaxFileSize.
-			if(projectedTotal > Integer.MAX_VALUE)
+			if(projectedTotal >= Integer.MAX_VALUE)
 			{
 				throw new StorageExceptionCommitSizeExceeded(this.channelIndex(), projectedTotal);
 			}
@@ -1386,7 +1388,11 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			// continuousCoverage: if emit is on but the head file is not covered by the primary kind (a
 			// legacy file, or one written by a different algorithm), roll over now so new writes land in a
 			// covered file instead of extending an unprotected tail. A no-op once the head is already covered.
-			if(this.chunkChecksumCalculator.policy().continuousCoverage()
+			// Skipped in read-only mode: createNextStorageFile() writes a FileHeaderV1 + transaction-log
+			// entry that a disabled WriteController would reject, and no chunks are ever appended in
+			// read-only mode anyway, so ensuring future writes land covered is moot.
+			if(this.writeController.isWritable()
+				&& this.chunkChecksumCalculator.policy().continuousCoverage()
 				&& !this.chunkChecksumCalculator.coversChunkWrites(this.headFile))
 			{
 				this.createNextStorageFile();
@@ -2332,7 +2338,7 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			// here turns a silently-unloadable oversized file into a clean, rolled-back import error.
 			final long checksumReserve = this.chunkChecksumCalculator.reservedLengthFor(this.headFile);
 			final long projectedLength = this.importHelper.importHeadFileLength + length + checksumReserve;
-			if(projectedLength > Integer.MAX_VALUE)
+			if(projectedLength >= Integer.MAX_VALUE)
 			{
 				throw new StorageExceptionCommitSizeExceeded(this.channelIndex(), projectedLength);
 			}
