@@ -2,6 +2,8 @@
 
 This section provides recommended configurations and examples for common use cases.
 
+NOTE: Whenever an indexed entity changes, mutate it through `update` / `apply` so the Lucene index is kept in sync — a direct field change is not tracked and leaves searches stale. See xref:indexing/lucene/advanced.adoc#_reindexing[Reindexing] for recovery.
+
 == Product Catalog Search
 
 Enable customers to search products by name, description, or other attributes.

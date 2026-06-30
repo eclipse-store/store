@@ -27,7 +27,7 @@ public interface StorageEntityTypeHandler extends PersistenceTypeDefinition
 {
 	public long simpleReferenceCount();
 
-	public void iterateReferences(long entityCacheAddress, PersistenceObjectIdAcceptor acceptor);
+	public void iterateReferences(long entityCacheAddress, long entityLength, PersistenceObjectIdAcceptor acceptor);
 
 	public void validateEntity(long length, long typeId, long objectId);
 
@@ -152,6 +152,7 @@ public interface StorageEntityTypeHandler extends PersistenceTypeDefinition
 		@Override
 		public final void iterateReferences(
 			final long                        entityCacheAddress,
+			final long                        entityLength      ,
 			final PersistenceObjectIdAcceptor acceptor
 		)
 		{
@@ -163,8 +164,11 @@ public interface StorageEntityTypeHandler extends PersistenceTypeDefinition
 			}
 			else
 			{
+				// bound = first address past the entity (cache allocation is [entityCacheAddress, +entityLength)),
+				// so the variable-length traversers reject corrupted list lengths/counts instead of reading OOB
 				BinaryReferenceTraverser.iterateReferences(
 					Binary.toEntityContentOffset(entityCacheAddress),
+					entityCacheAddress + entityLength,
 					this.referenceTraversers,
 					acceptor
 				);
