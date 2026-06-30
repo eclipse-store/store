@@ -16,6 +16,7 @@ package org.eclipse.store.storage.types;
 
 import static org.eclipse.serializer.util.X.checkArrayRange;
 import static org.eclipse.serializer.util.X.notNull;
+import static org.eclipse.serializer.util.X.toBytes;
 
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
@@ -180,6 +181,22 @@ public interface StorageChunkChecksumCalculator
 	 */
 	public void verifyDataFile(StorageLiveDataFile.Default file, ByteBuffer buffer, StorageChecksumAnomalyReporter reporter);
 
+	/**
+	 * Streaming variant of {@link #verifyDataFile} for a data file too large to hold resident: reads the file in
+	 * windows of {@code window}'s capacity rather than requiring the whole file in one buffer, bounding the
+	 * integrity check's direct-memory use to one window per channel regardless of the configured data-file size.
+	 * Produces exactly the same anomalies as {@link #verifyDataFile} (and the load walk): each covering record's
+	 * chunk hash is recomputed incrementally over its bytes via {@link Algorithm#beginChunk(byte[])} /
+	 * {@link Algorithm#updateChunk(ByteBuffer)} / {@link Algorithm#finishChunk()}, so a single chunk larger than
+	 * the window still verifies. <b>Side-effect-free</b>: never mutates {@code file}.
+	 *
+	 * @param file         the data file being re-verified (read only; never mutated).
+	 * @param verifyLength the number of bytes to verify from the file start (the caller bounds the head file).
+	 * @param window       a reusable direct buffer used as the sliding read window; its capacity is the window size.
+	 * @param reporter     the sink for detected anomalies; must be non-{@code null}.
+	 */
+	public void verifyDataFileStreaming(StorageLiveDataFile.Default file, long verifyLength, ByteBuffer window, StorageChecksumAnomalyReporter reporter);
+
 
 
 	///////////////////////////////////////////////////////////////////////////
@@ -321,6 +338,23 @@ public interface StorageChunkChecksumCalculator
 
 
 	/**
+	 * Shared framing cross-check (file-relative offsets), used by both the resident {@link #verifyChunk} and the
+	 * streaming {@link Default#verifyDataFileStreaming} so the two cannot diverge: a covering record is consistent
+	 * with the walk when its stored chunk start equals the walker's reconstructed chunk start and the record does
+	 * not precede that start (a corrupted entity LENGTH otherwise leaves the stored start != cursor, or drives the
+	 * chunk start past the record). When inconsistent, {@code [chunkStart, record)} is wrong and must not be hashed.
+	 */
+	private static boolean isChunkFramingConsistent(
+		final int  storedChunkStart,
+		final long walkerChunkStart,
+		final long recordOffset
+	)
+	{
+		return storedChunkStart == walkerChunkStart && recordOffset >= walkerChunkStart;
+	}
+
+
+	/**
 	 * Shared, side-effect-free verification of one covering record's chunk {@code [chunkStart, address)} against
 	 * the stored checksum, used by both the load-time {@link ChunkChecksumHandler} and the on-demand
 	 * {@link Default#verifyDataFile} so the two cannot diverge. Touches no {@link StorageLiveDataFile}:
@@ -347,9 +381,10 @@ public interface StorageChunkChecksumCalculator
 		// than hash it (and never slice a negative length).
 		final int  storedChunkStart = StorageMetaRecord.readChunkChecksumChunkStart(address);
 		final long walkerChunkStart = chunkStart - bufferStartAddress;
-		if(storedChunkStart != walkerChunkStart || address < chunkStart)
+		final long recordOffset     = address - bufferStartAddress;
+		if(!isChunkFramingConsistent(storedChunkStart, walkerChunkStart, recordOffset))
 		{
-			reporter.onChunkBoundaryMismatch(fileNumber, address - bufferStartAddress, storedChunkStart, walkerChunkStart);
+			reporter.onChunkBoundaryMismatch(fileNumber, recordOffset, storedChunkStart, walkerChunkStart);
 			return chained ? verifier.readStoredChecksumBytes(address) : inboundTip;
 		}
 
@@ -375,7 +410,7 @@ public interface StorageChunkChecksumCalculator
 		final byte[] actual = verifier.computeChecksumBytes(chunk);
 		if(!Arrays.equals(actual, expected))
 		{
-			reporter.onChecksumMismatch(fileNumber, address - chunkStart, StorageMetaRecord.kindOf(address), expected, actual);
+			reporter.onChecksumMismatch(fileNumber, walkerChunkStart, StorageMetaRecord.kindOf(address), expected, actual);
 		}
 		// chained: continue from the stored tip (== recomputed on match), the basis the writer chained from.
 		return chained ? expected : inboundTip;
@@ -570,6 +605,14 @@ public interface StorageChunkChecksumCalculator
 
 			for(long address = bufferStartAddress; address < bufferBoundAddress;)
 			{
+				// A trailing remnant shorter than an entity LENGTH prefix cannot be a valid item; reading 8 bytes
+				// would read past the verified region. The startup load walk (StorageEntityInitializer) throws on
+				// this; the on-demand check instead stops and lets the end-of-walk coverage check report the
+				// uncovered tail. A well-formed file ends exactly on an item boundary, so this never trips there.
+				if(bufferBoundAddress - address < Long.BYTES)
+				{
+					break;
+				}
 				final long itemLength = Binary.getEntityLengthRawValue(address);
 				if(itemLength > 0)
 				{
@@ -612,15 +655,27 @@ public interface StorageChunkChecksumCalculator
 					else
 					{
 						final Algorithm verifier = this.algorithmsByKind.get(kind);
-						if(verifier == null || address + verifier.recordLength() > bufferBoundAddress)
-						{
-							// no algorithm for this KIND (drift / corrupt KIND), or truncated record.
-							reporter.onUnknownKind(fileNumber, kind);
-						}
-						else
+						if(verifier != null && address + verifier.recordLength() <= bufferBoundAddress)
 						{
 							chainTip   = verifyChunk(fileNumber, buffer, address, chunkStart, verifier, chainTip, reporter);
 							chunkStart = address + verifier.recordLength();
+						}
+						else
+						{
+							// no algorithm for this KIND (drift / corrupt KIND), or a truncated record.
+							reporter.onUnknownKind(fileNumber, kind);
+							// Mirror StorageMetaRecordRegistry.dispatch: an unknown KIND reached AFTER the
+							// FileHeaderV1 was parsed is a genuine forward-compat record, so advance the chunk
+							// boundary past it (|LENGTH| == -itemLength) — otherwise a later covering record's
+							// stored start would no longer match the walker's cursor, raising a false
+							// CHUNK_BOUNDARY_MISMATCH / UNCOVERED_DATA. A truncated KNOWN record (verifier != null)
+							// leaves chunkStart unadvanced, mirroring ChunkChecksumHandler.onLoad's report-and-skip;
+							// so does an unknown KIND before the header is parsed (a corrupted/lost FileHeaderV1),
+							// so the drift still surfaces instead of loading silently.
+							if(verifier == null && headerKind != 0L)
+							{
+								chunkStart = address - itemLength;
+							}
 						}
 					}
 				}
@@ -642,6 +697,237 @@ public interface StorageChunkChecksumCalculator
 				reporter.onUncoveredData(fileNumber, chunkStart - bufferStartAddress);
 			}
 			reporter.onFileWalkComplete(fileNumber);
+		}
+
+		@Override
+		public final void verifyDataFileStreaming(
+			final StorageLiveDataFile.Default    file        ,
+			final long                           verifyLength,
+			final ByteBuffer                     window      ,
+			final StorageChecksumAnomalyReporter reporter
+		)
+		{
+			final long         fileNumber = file.number();
+			final WindowReader reader     = new WindowReader(file, window, verifyLength);
+
+			// Per-file header state reconstructed from disk into LOCALS (the live file is never mutated) — the same
+			// reconstruction verifyDataFile does, but driven over a sliding read window instead of a resident buffer.
+			long    headerKind  = 0L;   // 0 == no FileHeaderV1 parsed (legacy file)
+			byte[]  chainTip    = null; // running chained tip, seeded from the parsed header's chainRoot
+			boolean hasLiveData = false;
+
+			// Start of the current chunk's bytes (file offset); advances past the FileHeaderV1 and each covering record.
+			long chunkStart = 0L;
+
+			for(long walkCursor = 0L; walkCursor < verifyLength;)
+			{
+				// A trailing remnant shorter than an entity LENGTH prefix cannot be a valid item; reading 8 bytes
+				// would read past the verified region (into stale window slack). Stop and let the end-of-walk
+				// coverage check report the uncovered tail — the same condition the startup load walk rejects.
+				// A well-formed file ends exactly on an item boundary, so this never trips there.
+				if(verifyLength - walkCursor < Long.BYTES)
+				{
+					break;
+				}
+				final long itemLength = Binary.getEntityLengthRawValue(reader.ensureResident(walkCursor, Long.BYTES));
+				if(itemLength > 0)
+				{
+					// data entity: part of the current chunk. Its bytes are hashed lazily as the raw range
+					// [chunkStart, record) at the covering record (feed), so nothing is fed here.
+					hasLiveData = true;
+					walkCursor += itemLength;
+					continue;
+				}
+				if(itemLength == 0)
+				{
+					throw new StorageExceptionConsistency("Zero length data item.");
+				}
+
+				// negative-length entry: legacy opaque gap, or a structured meta record (mirror the envelope guard
+				// in verifyDataFile before reading the marker/KIND).
+				if(walkCursor + StorageMetaRecord.OFFSET_PAYLOAD <= verifyLength
+					&& StorageMetaRecord.isMetaRecord(reader.ensureResident(walkCursor, StorageMetaRecord.OFFSET_PAYLOAD)))
+				{
+					final long kind = StorageMetaRecord.kindOf(reader.ensureResident(walkCursor, StorageMetaRecord.OFFSET_PAYLOAD));
+					if(kind == StorageMetaRecord.KIND_FileHeaderV1)
+					{
+						if(walkCursor + StorageMetaRecord.LENGTH_FILEHEADERV1 > verifyLength)
+						{
+							// truncated header
+							reporter.onUnknownKind(fileNumber, StorageMetaRecord.KIND_FileHeaderV1);
+						}
+						else if(headerKind != 0L)
+						{
+							// second/misplaced header: report, do not re-seed (would rebase every following chunk).
+							reporter.onUnknownKind(fileNumber, StorageMetaRecord.KIND_FileHeaderV1);
+							chunkStart = walkCursor + StorageMetaRecord.LENGTH_FILEHEADERV1;
+						}
+						else
+						{
+							final FileHeaderV1Payload header = StorageMetaRecord.readFileHeaderV1(
+								reader.ensureResident(walkCursor, StorageMetaRecord.LENGTH_FILEHEADERV1)
+							);
+							headerKind = header.chunkChecksumKind();
+							chainTip   = header.chainRoot(); // seed the running tip; chunks advance it
+							chunkStart = walkCursor + StorageMetaRecord.LENGTH_FILEHEADERV1;
+						}
+					}
+					else
+					{
+						final Algorithm verifier = this.algorithmsByKind.get(kind);
+						if(verifier != null && walkCursor + verifier.recordLength() <= verifyLength)
+						{
+							// covering record: re-verify the chunk [chunkStart, walkCursor). Mirrors verifyChunk, but
+							// the chunk bytes are streamed into the digest in windows (begin/feed/finish) rather than
+							// sliced from a resident buffer, so a chunk larger than the window still verifies. Dispatch
+							// the Algorithm by the record's on-disk KIND (the record bytes are read BEFORE feeding,
+							// since feed slides the window away from the record).
+							final int    recordLen        = checkArrayRange(verifier.recordLength());
+							final long   recordAddress     = reader.ensureResident(walkCursor, recordLen);
+							final int    storedChunkStart  = StorageMetaRecord.readChunkChecksumChunkStart(recordAddress);
+							final byte[] expected          = verifier.readStoredChecksumBytes(recordAddress);
+							final boolean chained           = verifier.isChained();
+
+							if(isChunkFramingConsistent(storedChunkStart, chunkStart, walkCursor))
+							{
+								// resolve the chained seed exactly as verifyChunk: a chained covering record with no
+								// parsed FileHeaderV1 means the header was lost/corrupted — report and verify against
+								// the initial seed so a real defect still surfaces as a checksum mismatch.
+								byte[] seed = chained ? chainTip : null;
+								if(chained && seed == null)
+								{
+									reporter.onMissingHeader(fileNumber);
+									seed = verifier.initialSeed();
+								}
+								verifier.beginChunk(seed);
+								reader.feed(verifier, chunkStart, walkCursor); // hash [chunkStart, record) in windows
+								final byte[] actual = verifier.finishChunk();
+								if(!Arrays.equals(actual, expected))
+								{
+									reporter.onChecksumMismatch(fileNumber, chunkStart, kind, expected, actual);
+								}
+								// chained: continue from the stored tip (== recomputed on match), the writer's basis.
+								chainTip = chained ? expected : chainTip;
+							}
+							else
+							{
+								reporter.onChunkBoundaryMismatch(fileNumber, walkCursor, storedChunkStart, chunkStart);
+								if(chained)
+								{
+									chainTip = expected; // re-anchor from the stored tip
+								}
+							}
+							chunkStart = walkCursor + recordLen;
+						}
+						else
+						{
+							// no algorithm for this KIND (drift / corrupt KIND), or a truncated record.
+							reporter.onUnknownKind(fileNumber, kind);
+							// Same forward-compat rule as verifyDataFile: advance past an unknown KIND only once a
+							// FileHeaderV1 has been parsed; otherwise leave chunkStart so the drift still surfaces.
+							if(verifier == null && headerKind != 0L)
+							{
+								chunkStart = walkCursor - itemLength;
+							}
+						}
+					}
+				}
+
+				// advance by the on-disk |LENGTH| regardless (legacy gaps and meta records alike). Gap bytes inside a
+				// chunk are not fed here; the covering record's feed of [chunkStart, record) covers them as raw bytes.
+				walkCursor -= itemLength;
+			}
+
+			// per-file coverage checks (identical to verifyDataFile, in file-relative offsets).
+			if(headerKind == 0L)
+			{
+				if(hasLiveData)
+				{
+					reporter.onMissingHeader(fileNumber);
+				}
+			}
+			else if(chunkStart < verifyLength)
+			{
+				reporter.onUncoveredData(fileNumber, chunkStart);
+			}
+			reporter.onFileWalkComplete(fileNumber);
+		}
+
+		/**
+		 * Sliding read window over a data file for {@link #verifyDataFileStreaming}: keeps at most one window of the
+		 * file resident in the supplied direct buffer and serves both the forward framing walk (small fixed reads via
+		 * {@link #ensureResident(long, int)}) and the incremental chunk hashing (the raw chunk range via
+		 * {@link #feed(Algorithm, long, long)}). Reads never pass {@code fileLength} (the caller's bounded verify
+		 * length), so the head file is read only up to its committed length. Single-threaded (one channel).
+		 */
+		private static final class WindowReader
+		{
+			private final StorageLiveDataFile.Default file         ;
+			private final ByteBuffer                  buffer       ;
+			private final long                        bufferAddress;
+			private final int                         capacity     ;
+			private final long                        fileLength   ;
+			private       long                        windowOffset ; // file offset of buffer[0]; -1 == empty
+			private       long                        windowLength ; // resident byte count
+
+			WindowReader(final StorageLiveDataFile.Default file, final ByteBuffer buffer, final long fileLength)
+			{
+				super();
+				this.file          = file                                  ;
+				this.buffer        = buffer                                ;
+				this.bufferAddress = XMemory.getDirectByteBufferAddress(buffer);
+				this.capacity      = buffer.capacity()                     ;
+				this.fileLength    = fileLength                            ;
+				this.windowOffset  = -1L                                   ;
+				this.windowLength  = 0L                                    ;
+			}
+
+			private void refill(final long offset)
+			{
+				final long toRead = Math.min(this.capacity, this.fileLength - offset);
+				this.buffer.clear();
+				this.buffer.limit(checkArrayRange(toRead));
+				this.file.readBytes(this.buffer, offset, toRead);
+				this.windowOffset = offset;
+				this.windowLength = toRead;
+			}
+
+			/**
+			 * Ensures {@code [offset, offset+need)} is resident ({@code need} fits the window capacity) and returns
+			 * the off-heap address of {@code offset}. The address is valid only until the next refill (any
+			 * {@code ensureResident}/{@code feed} that slides the window).
+			 */
+			long ensureResident(final long offset, final int need)
+			{
+				if(this.windowOffset < 0L
+					|| offset < this.windowOffset
+					|| offset + need > this.windowOffset + this.windowLength)
+				{
+					this.refill(offset);
+				}
+				return this.bufferAddress + (offset - this.windowOffset);
+			}
+
+			/**
+			 * Feeds the raw byte range {@code [from, to)} into {@code verifier}'s open chunk, reading the range in
+			 * windows. This is how a chunk larger than the window is hashed.
+			 */
+			void feed(final Algorithm verifier, long from, final long to)
+			{
+				while(from < to)
+				{
+					if(this.windowOffset < 0L
+						|| from < this.windowOffset
+						|| from >= this.windowOffset + this.windowLength)
+					{
+						this.refill(from);
+					}
+					final long windowEnd = this.windowOffset + this.windowLength;
+					final long n         = Math.min(to, windowEnd) - from;
+					verifier.updateChunk(XMemory.slice(this.buffer, from - this.windowOffset, n));
+					from += n;
+				}
+			}
 		}
 
 	}
@@ -731,12 +1017,42 @@ public interface StorageChunkChecksumCalculator
 			return new byte[StorageMetaRecord.LENGTH_HASH_SHA256];
 		}
 
+		/**
+		 * Begins an incremental chunk hash for the streaming verify path (a chunk too large to hold resident).
+		 * Resets this algorithm's running digest and, for chained kinds, folds in {@code seed} (the running tip)
+		 * exactly as one-shot {@link #computeChecksumBytes(ByteBuffer)} does. Followed by zero or more
+		 * {@link #updateChunk(ByteBuffer)} calls and one {@link #finishChunk()}. Abandoning an open chunk (no
+		 * {@code finishChunk}) is safe: the next {@code beginChunk} resets the digest. Default throws: only
+		 * verifying algorithms support it (the no-op {@code None} is never verified).
+		 */
+		public default void beginChunk(final byte[] seed)
+		{
+			throw new UnsupportedOperationException();
+		}
+
+		/**
+		 * Feeds one window of the current chunk's bytes into the hash opened by {@link #beginChunk(byte[])}.
+		 */
+		public default void updateChunk(final ByteBuffer partial)
+		{
+			throw new UnsupportedOperationException();
+		}
+
+		/**
+		 * Finalizes the chunk hash opened by {@link #beginChunk(byte[])} and returns its bytes; for chained kinds
+		 * this also advances the running tip to the returned hash, mirroring {@link #computeChecksumBytes(ByteBuffer)}.
+		 */
+		public default byte[] finishChunk()
+		{
+			throw new UnsupportedOperationException();
+		}
+
 
 
 		/**
 		 * CRC32C algorithm: non-cryptographic integrity checksum, hardware-accelerated, zero-copy on
 		 * direct buffers. Detects accidental corruption; <b>not</b> collision-resistant or tamper-evident.
-		 * Emits {@code ChunkChecksumCRC32CV1} records (16 B).
+		 * Emits {@code ChunkChecksumCRC32CV1} records (20 B).
 		 */
 		public final class Crc32c implements Algorithm
 		{
@@ -786,13 +1102,6 @@ public interface StorageChunkChecksumCalculator
 			// static methods //
 			///////////////////
 
-			private static byte[] intToBytes(final int value)
-			{
-				return new byte[]{(byte)(value >>> 24), (byte)(value >>> 16), (byte)(value >>> 8), (byte)value};
-			}
-
-
-
 			///////////////////////////////////////////////////////////////////////////
 			// declared methods //
 			/////////////////////
@@ -832,7 +1141,25 @@ public interface StorageChunkChecksumCalculator
 				notNull(chunk);
 				this.crc.reset();
 				this.crc.update(chunk.duplicate());
-				return intToBytes((int)this.crc.getValue());
+				return toBytes((int)this.crc.getValue());
+			}
+
+			@Override
+			public void beginChunk(final byte[] seed)
+			{
+				this.crc.reset(); // non-chained: seed ignored
+			}
+
+			@Override
+			public void updateChunk(final ByteBuffer partial)
+			{
+				this.crc.update(partial.duplicate());
+			}
+
+			@Override
+			public byte[] finishChunk()
+			{
+				return toBytes((int)this.crc.getValue());
 			}
 
 			@Override
@@ -840,10 +1167,10 @@ public interface StorageChunkChecksumCalculator
 			{
 				// Byte-order note: the CRC is persisted as a 4-byte int in NATIVE order (writeRecord uses
 				// target.putInt on a native-order direct buffer) and read back via the matching native
-				// get_int, so the round-trip recovers the same int value. intToBytes (big-endian) is applied
+				// get_int, so the round-trip recovers the same int value. X.toBytes (big-endian) is applied
 				// to that int value on BOTH the read and compute sides purely to obtain comparable byte[]s —
 				// it does not pin the on-disk layout, which is native-endian. Comparison is self-consistent.
-				return intToBytes(XMemory.get_int(recordAddress + OFFSET_CRC));
+				return toBytes(XMemory.get_int(recordAddress + OFFSET_CRC));
 			}
 
 			@Override
@@ -863,14 +1190,14 @@ public interface StorageChunkChecksumCalculator
 
 
 		/**
-		 * Chained SHA-256 algorithm: cryptographic and tamper-evident like {@link Sha256}, but each chunk's
+		 * Chained SHA-256 algorithm: cryptographic and tamper-evident (SHA-256), but each chunk's
 		 * stored hash folds in the previous chunk's hash &mdash; {@code tip_i = SHA-256(tip_{i-1} || chunk_i)},
 		 * seeded by the file's {@code FileHeaderV1.chainRoot} ({@code tip_0}). Altering any chunk invalidates
 		 * that chunk and every chunk after it in the same file, so reordering, insertion, deletion or
 		 * substitution of chunks <i>within a file</i> is detectable &mdash; not just bit-rot of a single chunk.
 		 * The chain is re-seeded per file from that file's own header, so it does not span files: deleting or
 		 * reordering whole data files (as housekeeping legitimately does) is not detected by the chain. Emits
-		 * {@code ChunkChecksumChainedV1} records (44 B; same envelope+hash layout as {@code ChunkChecksumV1},
+		 * {@code ChunkChecksumChainedV1} records (48 B; same envelope+hash layout as {@code ChunkChecksumV1},
 		 * distinguished purely by KIND).
 		 * <p>
 		 * <b>Chaining is SHA-256 only.</b> A chained CRC32C is forgeable (CRC is linear and not
@@ -1020,6 +1347,31 @@ public interface StorageChunkChecksumCalculator
 				this.digest.update(this.tip);          // fold in the previous tip
 				this.digest.update(chunk.duplicate());
 				return this.tip = this.digest.digest();// advance and return the new tip
+			}
+
+			@Override
+			public void beginChunk(final byte[] seed)
+			{
+				// reset (clears any bytes from an abandoned chunk) and fold in the running tip, exactly as the
+				// one-shot computeChecksumBytes does via digest.update(this.tip). `seed` is the resolved running
+				// tip (never null for a chained verify: the caller substitutes initialSeed() on a missing header).
+				this.digest.reset();
+				if(seed != null)
+				{
+					this.digest.update(seed);
+				}
+			}
+
+			@Override
+			public void updateChunk(final ByteBuffer partial)
+			{
+				this.digest.update(partial.duplicate());
+			}
+
+			@Override
+			public byte[] finishChunk()
+			{
+				return this.tip = this.digest.digest(); // advance and return the new tip (mirrors computeChecksumBytes)
 			}
 
 			@Override

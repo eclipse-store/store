@@ -128,6 +128,13 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		// the only reason for this limit is to have an int instead of a long for the item's file position.
 		static final int MAX_FILE_LENGTH = Integer.MAX_VALUE;
 
+		// Upper bound for the on-demand integrity check's per-channel verify buffer. A data file at or below this
+		// size is read whole (the proven resident verifyDataFile walk); a larger one is streamed in windows of this
+		// size (verifyDataFileStreaming), so peak direct memory of a full integrity check is channelCount × this
+		// value regardless of the configured data-file maximum size (which can be raised toward the ~2 GiB cap).
+		// 8 MiB matches StorageDataFileEvaluator.defaultFileMaximumSize(), so default-sized stores never stream.
+		static final int INTEGRITY_VERIFY_BUFFER_LIMIT = 8 * 1024 * 1024;
+
 		// (22.05.2015 TM)TODO: Debug Flag to disable file cleanup for testing
 		private static final boolean DEBUG_ENABLE_FILE_CLEANUP = true;
 
@@ -481,11 +488,13 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 					}
 
 					// Nothing to transfer yet. Roll over to the next head file ONLY if the current head
-					// already holds reclaimable entity bytes; rolling over a head that has only protocol
-					// overhead (FileHeaderV1 / ChunkChecksumV1) produces an identically-shaped successor
-					// and loops forever. dataLength(), not totalLength(), because the latter is non-zero
-					// once a FileHeaderV1 is emitted.
-					if(headFile.dataLength() != 0L)
+					// already holds relocatable content (live entity bytes OR reclaimable gap bytes); rolling
+					// over a head that has only protocol overhead (FileHeaderV1 / ChunkChecksumV1) produces an
+					// identically-shaped successor and loops forever. Subtract metaLength() rather than testing
+					// dataLength(): totalLength() is non-zero once a FileHeaderV1 is emitted, but an all-gap head
+					// (every entity GC'd) still has reclaimable gap bytes and must roll over, as it did before
+					// the checksum feature (old guard: totalLength() != 0).
+					if(headFile.totalLength() - headFile.metaLength() != 0L)
 					{
 						this.createNextStorageFile();
 						return;
@@ -874,7 +883,9 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			final long projectedTotal  = this.headFile.totalLength() + chunkSize + checksumReserve;
 			// Defence in depth: even on a fresh head (dataLength == 0) we refuse to produce a file
 			// that the load path can no longer read back into a single 2 GiB direct buffer. This
-			// guards against a user wiring a no-op validator that bypasses MaxFileSize.
+			// guards against a user wiring a no-op validator that bypasses MaxFileSize. Strict '>' to
+			// match the load limit (StorageEntityInitializer rejects only > Integer.MAX_VALUE, and
+			// X.checkArrayRange accepts exactly Integer.MAX_VALUE) and the chunkSize guards above.
 			if(projectedTotal > Integer.MAX_VALUE)
 			{
 				throw new StorageExceptionCommitSizeExceeded(this.channelIndex(), projectedTotal);
@@ -1386,7 +1397,11 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			// continuousCoverage: if emit is on but the head file is not covered by the primary kind (a
 			// legacy file, or one written by a different algorithm), roll over now so new writes land in a
 			// covered file instead of extending an unprotected tail. A no-op once the head is already covered.
-			if(this.chunkChecksumCalculator.policy().continuousCoverage()
+			// Skipped in read-only mode: createNextStorageFile() writes a FileHeaderV1 + transaction-log
+			// entry that a disabled WriteController would reject, and no chunks are ever appended in
+			// read-only mode anyway, so ensuring future writes land covered is moot.
+			if(this.writeController.isWritable()
+				&& this.chunkChecksumCalculator.policy().continuousCoverage()
 				&& !this.chunkChecksumCalculator.coversChunkWrites(this.headFile))
 			{
 				this.createNextStorageFile();
@@ -1792,6 +1807,19 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 				result
 			);
 
+			// One bounded buffer per channel serves the whole scan: files within the cap are read whole (the proven
+			// resident walk), larger files are streamed in windows of this same buffer. Sized to the largest in-scope
+			// file but never above INTEGRITY_VERIFY_BUFFER_LIMIT, so peak direct memory stays channelCount × cap.
+			long maxScopeLength = 0L;
+			for(final long scopeLength : this.integrityScopeLengths)
+			{
+				if(scopeLength > maxScopeLength)
+				{
+					maxScopeLength = scopeLength;
+				}
+			}
+			final int bufferSize = X.checkArrayRange(Math.min((long)INTEGRITY_VERIFY_BUFFER_LIMIT, maxScopeLength));
+
 			ByteBuffer buffer = null;
 			try
 			{
@@ -1828,20 +1856,23 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 						if(verifyLength > 0L)
 						{
-							final int len = X.checkArrayRange(verifyLength);
-							if(buffer == null || buffer.capacity() < len)
+							if(buffer == null)
 							{
-								if(buffer != null)
-								{
-									XMemory.deallocateDirectByteBuffer(buffer);
-								}
-								buffer = XMemory.allocateDirectNative(Math.max(len, XMemory.defaultBufferSize()));
+								buffer = XMemory.allocateDirectNative(bufferSize);
 							}
-							buffer.clear();
-							buffer.limit(len);
-							file.readBytes(buffer, 0, verifyLength);
-
-							this.chunkChecksumCalculator.verifyDataFile(file, buffer, reporter);
+							if(verifyLength <= INTEGRITY_VERIFY_BUFFER_LIMIT)
+							{
+								// fits the buffer: read the whole file and use the proven resident walk.
+								buffer.clear();
+								buffer.limit(X.checkArrayRange(verifyLength));
+								file.readBytes(buffer, 0, verifyLength);
+								this.chunkChecksumCalculator.verifyDataFile(file, buffer, reporter);
+							}
+							else
+							{
+								// larger than the cap: stream the verify in windows of this buffer (bounded memory).
+								this.chunkChecksumCalculator.verifyDataFileStreaming(file, verifyLength, buffer, reporter);
+							}
 						}
 					}
 
