@@ -181,6 +181,12 @@ public class EclipseStoreProperties
     private String dataFileCleanupHeadFile;
 
     /**
+     * Per-chunk data-integrity checksum configuration. Bound from {@code org.eclipse.store.chunk-checksum.*}.
+     */
+    @NestedConfigurationProperty
+    private ChunkChecksum chunkChecksum;
+
+    /**
      * Is the {@code StorageManager} started when the CDI bean for the instance is created or not.
      * Be aware that when you don't rely on the autostart of the StorageManager, you are responsible for starting it
      * and might result in Exceptions when code is executed that relies on a started StorageManager.
@@ -498,6 +504,16 @@ public class EclipseStoreProperties
     public void setDataFileCleanupHeadFile(final String dataFileCleanupHeadFile)
     {
         this.dataFileCleanupHeadFile = dataFileCleanupHeadFile;
+    }
+
+    public ChunkChecksum getChunkChecksum()
+    {
+        return this.chunkChecksum;
+    }
+
+    public void setChunkChecksum(final ChunkChecksum chunkChecksum)
+    {
+        this.chunkChecksum = chunkChecksum;
     }
 
     public boolean isAutoStart()

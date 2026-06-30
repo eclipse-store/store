@@ -1019,7 +1019,12 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 
 		protected StorageDataChunkValidator.Provider2 ensureDataChunkValidatorProvider2()
 		{
-			return new StorageDataChunkValidator.MaxFileSize();
+			final StorageChunkChecksumCalculator calc =
+				this.getConfiguration().chunkChecksumProvider().createCalculator();
+			final long freshFileMetaReserve = calc.isWriting()
+				? calc.fileHeaderRecordLength() + calc.chunkChecksumRecordLength()
+				: 0L;
+			return new StorageDataChunkValidator.MaxFileSize(freshFileMetaReserve);
 		}
 
 		protected StorageChannelsCreator ensureChannelCreator()

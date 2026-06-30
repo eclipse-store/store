@@ -56,6 +56,7 @@ import org.eclipse.store.storage.types.StorageEntityTypeExportFileProvider;
 import org.eclipse.store.storage.types.StorageEntityTypeExportStatistics;
 import org.eclipse.store.storage.types.StorageEntityTypeHandler;
 import org.eclipse.store.storage.types.StorageIdAnalysis;
+import org.eclipse.store.storage.types.StorageIntegrityCheckResult;
 import org.eclipse.store.storage.types.StorageKillable;
 import org.eclipse.store.storage.types.StorageLiveFileProvider;
 import org.eclipse.store.storage.types.StorageManager;
@@ -567,6 +568,12 @@ public interface EmbeddedStorageManager extends StorageManager
 		public final boolean issueFileCheck(final long nanoTimeBudget)
 		{
 			return this.singletonConnection().issueFileCheck(nanoTimeBudget);
+		}
+
+		@Override
+		public final StorageIntegrityCheckResult issueIntegrityCheck(final long nanoTimeBudget)
+		{
+			return this.singletonConnection().issueIntegrityCheck(nanoTimeBudget);
 		}
 
 		@Override

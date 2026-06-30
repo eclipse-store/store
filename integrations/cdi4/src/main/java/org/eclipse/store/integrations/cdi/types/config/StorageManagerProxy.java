@@ -43,6 +43,7 @@ import org.eclipse.store.storage.types.StorageEntityCacheEvaluator;
 import org.eclipse.store.storage.types.StorageEntityTypeExportFileProvider;
 import org.eclipse.store.storage.types.StorageEntityTypeExportStatistics;
 import org.eclipse.store.storage.types.StorageEntityTypeHandler;
+import org.eclipse.store.storage.types.StorageIntegrityCheckResult;
 import org.eclipse.store.storage.types.StorageLiveFileProvider;
 import org.eclipse.store.storage.types.StorageManager;
 import org.eclipse.store.storage.types.StorageRawFileStatistics;
@@ -235,6 +236,12 @@ public class StorageManagerProxy extends UsageMarkable.Default implements Storag
     public boolean issueFileCheck(final long nanoTimeBudget)
     {
         return this.getStorageManager().issueFileCheck(nanoTimeBudget);
+    }
+
+    @Override
+    public StorageIntegrityCheckResult issueIntegrityCheck(final long nanoTimeBudget)
+    {
+        return this.getStorageManager().issueIntegrityCheck(nanoTimeBudget);
     }
 
     @Override

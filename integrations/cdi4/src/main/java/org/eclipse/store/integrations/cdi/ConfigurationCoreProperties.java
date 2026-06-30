@@ -219,6 +219,102 @@ public enum ConfigurationCoreProperties
 	DATA_FILE_CLEANUP_HEAD_FILE(
 			Constants.PREFIX + "data.file.cleanup.head.file",
 			EmbeddedStorageConfigurationPropertyNames.DATA_FILE_CLEANUP_HEAD_FILE
+	),
+
+	/**
+	 * Primary chunk-checksum algorithm: none, crc32c or sha256-chained. Default sha256-chained.
+	 */
+	CHUNK_CHECKSUM_ALGORITHM(
+			Constants.PREFIX + "chunk.checksum.algorithm",
+			EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ALGORITHM
+	),
+
+	/**
+	 * Chunk-checksum base policy profile: default, off, observe, strict or strict-tolerate-legacy. Default default.
+	 */
+	CHUNK_CHECKSUM_PROFILE(
+			Constants.PREFIX + "chunk.checksum.profile",
+			EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_PROFILE
+	),
+
+	/**
+	 * Initial chain seed (hex, 64 chars = 32 bytes) for the sha256-chained algorithm; unused otherwise.
+	 */
+	CHUNK_CHECKSUM_SEED(
+			Constants.PREFIX + "chunk.checksum.seed",
+			EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_SEED
+	),
+
+	/**
+	 * Expert override: whether to emit checksum records on write. Defaults to the profile's value.
+	 */
+	CHUNK_CHECKSUM_EMIT(
+			Constants.PREFIX + "chunk.checksum.emit",
+			EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_EMIT
+	),
+
+	/**
+	 * Expert override: whether to recompute and check checksum records on load. Defaults to the profile's value.
+	 */
+	CHUNK_CHECKSUM_VERIFY(
+			Constants.PREFIX + "chunk.checksum.verify",
+			EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_VERIFY
+	),
+
+	/**
+	 * Expert override: reaction (ignore / log / fail) to a checksum mismatch. Defaults to the profile's value.
+	 */
+	CHUNK_CHECKSUM_ON_CHECKSUM_MISMATCH(
+			Constants.PREFIX + "chunk.checksum.on.checksum.mismatch",
+			EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ON_CHECKSUM_MISMATCH
+	),
+
+	/**
+	 * Expert override: reaction (ignore / log / fail) to a chunk-boundary mismatch. Defaults to the profile's value.
+	 */
+	CHUNK_CHECKSUM_ON_BOUNDARY_MISMATCH(
+			Constants.PREFIX + "chunk.checksum.on.boundary.mismatch",
+			EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ON_BOUNDARY_MISMATCH
+	),
+
+	/**
+	 * Expert override: reaction (ignore / log / fail) to an unknown record kind. Defaults to the profile's value.
+	 */
+	CHUNK_CHECKSUM_ON_UNKNOWN_KIND(
+			Constants.PREFIX + "chunk.checksum.on.unknown.kind",
+			EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ON_UNKNOWN_KIND
+	),
+
+	/**
+	 * Expert override: reaction (ignore / log / fail) to a missing file header. Defaults to the profile's value.
+	 */
+	CHUNK_CHECKSUM_ON_MISSING_HEADER(
+			Constants.PREFIX + "chunk.checksum.on.missing.header",
+			EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ON_MISSING_HEADER
+	),
+
+	/**
+	 * Expert override: reaction (ignore / log / fail) to uncovered data. Defaults to the profile's value.
+	 */
+	CHUNK_CHECKSUM_ON_UNCOVERED_DATA(
+			Constants.PREFIX + "chunk.checksum.on.uncovered.data",
+			EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ON_UNCOVERED_DATA
+	),
+
+	/**
+	 * Expert override: whether missing/uncovered files are raised as anomalies. Defaults to the profile's value.
+	 */
+	CHUNK_CHECKSUM_REQUIRE_COVERAGE(
+			Constants.PREFIX + "chunk.checksum.require.coverage",
+			EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_REQUIRE_COVERAGE
+	),
+
+	/**
+	 * Expert override: whether enabling emit forces an immediately-covered head file. Defaults to the profile's value.
+	 */
+	CHUNK_CHECKSUM_CONTINUOUS_COVERAGE(
+			Constants.PREFIX + "chunk.checksum.continuous.coverage",
+			EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_CONTINUOUS_COVERAGE
 	);
 
 	private final String microProfile;

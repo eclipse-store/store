@@ -22,8 +22,10 @@ public interface StorageHousekeepingExecutor
 	public boolean performIssuedGarbageCollection(long nanoTimeBudget);
 	
 	public boolean performIssuedEntityCacheCheck(long nanoTimeBudget, StorageEntityCacheEvaluator evaluator);
-	
-	
+
+	public StorageIntegrityCheckResult performIssuedIntegrityCheck(long nanoTimeBudget, boolean freshScan);
+
+
 	public boolean performFileCleanupCheck(long nanoTimeBudget);
 	
 	public boolean performGarbageCollection(long nanoTimeBudget);

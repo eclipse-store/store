@@ -41,6 +41,21 @@ public interface StorageDataFileEvaluator extends StorageDataFileDissolvingEvalu
 	public int transactionFileMaximumSize();
 
 	/**
+	 * The soft target size (in bytes) for a single coalesced chunk produced by the coalescing
+	 * dissolution transfer. The transfer stops collecting live sub-runs once their combined length
+	 * reaches this value and emits the compacted chunk plus its covering checksum, which bounds the
+	 * transient transfer buffer (otherwise sized up to {@link #fileMaximumSize()}). A single entity
+	 * larger than the target still forms its own chunk. This does not affect file rollover (governed
+	 * by {@link #fileMaximumSize()}); a head file is still packed with multiple coalesced chunks up to
+	 * its maximum size.
+	 *
+	 * @return the coalesce chunk target size in bytes.
+	 *
+	 * @see StorageDataFileEvaluator.Defaults#defaultCoalesceChunkTargetBytes()
+	 */
+	public long coalesceChunkTargetBytes();
+
+	/**
 	 * Pseudo-constructor method to create a new {@link StorageDataFileEvaluator} instance
 	 * using default values specified by {@link StorageDataFileEvaluator.Defaults}.
 	 * <p>
@@ -284,8 +299,68 @@ public interface StorageDataFileEvaluator extends StorageDataFileDissolvingEvalu
 		final int     transactionFileMaximumSize
 	)
 	{
+		return New(
+			fileMinimumSize                              ,
+			fileMaximumSize                              ,
+			minimumUseRatio                              ,
+			cleanUpHeadFile                              ,
+			transactionFileMaximumSize                   ,
+			Defaults.defaultCoalesceChunkTargetBytes()
+		);
+	}
+
+	/**
+	 * Pseudo-constructor method to create a new {@link StorageDataFileEvaluator} instance
+	 * using the passed values.
+	 * <p>
+	 * For explanations and customizing values, see {@link StorageDataFileEvaluator#New(int, int, double)}.
+	 *
+	 * @param fileMinimumSize the minimum file size in bytes that a single storage file must have. Smaller files
+	 *        will be dissolved.
+	 *
+	 * @param fileMaximumSize the maximum file size in bytes that a single storage file may have. Larger files
+	 *        will be dissolved.<br>
+	 *        Note that a file can exceed this limit if it contains a single entity that already exceeds the limit.
+	 *
+	 * @param minimumUseRatio the ratio (value in ]0.0;1.0]) of non-gap data contained in a storage file to prevent
+	 *        the file from being dissolved.
+	 *
+	 * @param cleanUpHeadFile a flag defining whether the current head file (the only file actively written to)
+	 *        shall be subjected to file cleanups as well.
+	 *
+	 * @param transactionFileMaximumSize the maximum file size for transaction files. Lager files will
+	 *        be deleted and a new one will be created.
+	 *
+	 * @param coalesceChunkTargetBytes the soft target size in bytes for a single coalesced chunk produced by
+	 *        the dissolution transfer. See {@link StorageDataFileEvaluator#coalesceChunkTargetBytes()}.
+	 *
+	 * @return a new {@link StorageDataFileEvaluator} instance.
+	 *
+	 * @see StorageDataFileEvaluator#New()
+	 * @see StorageDataFileEvaluator#New(double)
+	 * @see StorageDataFileEvaluator#New(int, int)
+	 * @see StorageDataFileEvaluator#New(int, int, double)
+	 * @see StorageDataFileEvaluator.Defaults
+	 */
+	public static StorageDataFileEvaluator New(
+		final int     fileMinimumSize          ,
+		final int     fileMaximumSize          ,
+		final double  minimumUseRatio          ,
+		final boolean cleanUpHeadFile          ,
+		final int     transactionFileMaximumSize,
+		final long    coalesceChunkTargetBytes
+	)
+	{
 		Validation.validateParameters(fileMinimumSize, fileMaximumSize, minimumUseRatio, transactionFileMaximumSize);
-		return new Default(fileMinimumSize, fileMaximumSize, minimumUseRatio, cleanUpHeadFile, transactionFileMaximumSize);
+		Validation.validateCoalesceChunkTargetBytes(coalesceChunkTargetBytes);
+		return new Default(
+			fileMinimumSize           ,
+			fileMaximumSize           ,
+			minimumUseRatio           ,
+			cleanUpHeadFile           ,
+			transactionFileMaximumSize,
+			coalesceChunkTargetBytes
+		);
 	}
 
 
@@ -330,6 +405,31 @@ public interface StorageDataFileEvaluator extends StorageDataFileDissolvingEvalu
 		public static double useRatioMaximum()
 		{
 			return 1.0;
+		}
+
+		public static long minimumCoalesceChunkTargetBytes()
+		{
+			return 1L;
+		}
+
+		public static long maximumCoalesceChunkTargetBytes()
+		{
+			// the coalesced chunk is buffered in a single direct ByteBuffer, capped at the array range.
+			return Integer.MAX_VALUE;
+		}
+
+		public static void validateCoalesceChunkTargetBytes(final long coalesceChunkTargetBytes)
+		{
+			if(coalesceChunkTargetBytes < minimumCoalesceChunkTargetBytes()
+			|| coalesceChunkTargetBytes > maximumCoalesceChunkTargetBytes()
+			)
+			{
+				throw new IllegalArgumentException(
+					"Specified coalesce chunk target size of " + coalesceChunkTargetBytes
+					+ " is not in the valid range of ["
+					+ minimumCoalesceChunkTargetBytes() + ", " + maximumCoalesceChunkTargetBytes() + "]."
+				);
+			}
 		}
 
 		public static void validateParameters(
@@ -420,6 +520,15 @@ public interface StorageDataFileEvaluator extends StorageDataFileDissolvingEvalu
 		}
 
 		/**
+		 * @return {@code 1 * 1024 * 1024} (meaning a 1 MB coalesce chunk target size).
+		 */
+		public static long defaultCoalesceChunkTargetBytes()
+		{
+			// 1 MB in common byte magnitude
+			return 1 * 1024 * 1024;
+		}
+
+		/**
 		 * @return {@code 0.75} (meaning 75% minimum use ratio required).
 		 */
 		public static double defaultMinimumUseRatio()
@@ -446,6 +555,7 @@ public interface StorageDataFileEvaluator extends StorageDataFileDissolvingEvalu
 		private final double  minimumUseRatio;
 		private final boolean cleanupHeadFile;
 		private final int     transactionFileMaximumSize;
+		private final long    coalesceChunkTargetBytes;
 
 
 		///////////////////////////////////////////////////////////////////////////
@@ -457,7 +567,8 @@ public interface StorageDataFileEvaluator extends StorageDataFileDissolvingEvalu
 			final int     fileMaximumSize,
 			final double  minimumUseRatio,
 			final boolean cleanupHeadFile,
-			final int     transactionFileMaximumSize
+			final int     transactionFileMaximumSize,
+			final long    coalesceChunkTargetBytes
 		)
 		{
 			super();
@@ -466,6 +577,10 @@ public interface StorageDataFileEvaluator extends StorageDataFileDissolvingEvalu
 			this.minimumUseRatio            = minimumUseRatio;
 			this.cleanupHeadFile            = cleanupHeadFile;
 			this.transactionFileMaximumSize = transactionFileMaximumSize;
+			// a coalesced chunk is written as a single unit into one data file, so the (soft) coalesce
+			// target can never usefully exceed the (hard) file-size cap: clamp it. A target above
+			// fileMaximumSize would otherwise force every coalesced chunk into its own oversized file.
+			this.coalesceChunkTargetBytes   = Math.min(coalesceChunkTargetBytes, fileMaximumSize);
 		}
 
 
@@ -500,6 +615,12 @@ public interface StorageDataFileEvaluator extends StorageDataFileDissolvingEvalu
 		public final int transactionFileMaximumSize()
 		{
 			return this.transactionFileMaximumSize;
+		}
+
+		@Override
+		public final long coalesceChunkTargetBytes()
+		{
+			return this.coalesceChunkTargetBytes;
 		}
 
 		@Override
@@ -544,13 +665,19 @@ public interface StorageDataFileEvaluator extends StorageDataFileDissolvingEvalu
 
 		private boolean isAboveMaximumSize(final StorageLiveDataFile storageFile)
 		{
+			// hard upper bound on raw file size; any file above max gets dissolved. The only files
+			// legitimately exceeding max are single-entity files whose lone entity is itself larger
+			// than (max - meta); those are rescued by isGaplessSingleEntityFile below.
 			return storageFile.totalLength() > this.fileMaximumSize();
 		}
 
 		private boolean isGaplessSingleEntityFile(final StorageLiveDataFile storageFile)
 		{
-			// file has only one entity and contains no further gaps
-			return storageFile.hasSingleEntity() && storageFile.dataLength() == storageFile.totalLength();
+			// File has exactly one entity and no legacy gap (removed-entity) bytes. Meta-record bytes
+			// (FileHeaderV1, ChunkChecksumV1) are NOT gap, so they must be added in: the plain
+			// dataLength == totalLength equality is impossible once any meta record is present.
+			return storageFile.hasSingleEntity()
+				&& storageFile.dataLength() + storageFile.metaLength() == storageFile.totalLength();
 		}
 
 		@Override

@@ -31,6 +31,7 @@ public interface StorageChannelsCreator
 		StorageInitialDataFileNumberProvider       initialDataFileNumberProvider,
 		StorageExceptionHandler                    exceptionHandler             ,
 		StorageDataFileEvaluator                   fileDissolver                ,
+		StorageChunkChecksumProvider               chunkChecksumProvider        ,
 		StorageLiveFileProvider                    liveFileProvider             ,
 		StorageEntityCacheEvaluator                entityCacheEvaluator         ,
 		StorageTypeDictionary                      typeDictionary               ,
@@ -70,6 +71,7 @@ public interface StorageChannelsCreator
 			final StorageInitialDataFileNumberProvider       initialDataFileNumberProvider,
 			final StorageExceptionHandler                    exceptionHandler             ,
 			final StorageDataFileEvaluator                   dataFileEvaluator            ,
+			final StorageChunkChecksumProvider               chunkChecksumProvider        ,
 			final StorageLiveFileProvider                    liveFileProvider             ,
 			final StorageEntityCacheEvaluator                entityCacheEvaluator         ,
 			final StorageTypeDictionary                      typeDictionary               ,
@@ -142,18 +144,29 @@ public interface StorageChannelsCreator
 				cacheMonitors[i] = new EntityCacheMonitor(entityCache);
 				monitorManager.registerMonitor(cacheMonitors[i]);
 
+				// each channel owns its own meta-record registry; the chunk-checksum calculator registers its
+				// load-time handlers into it (any future meta-record feature registers into the same registry).
+				final StorageChunkChecksumCalculator chunkChecksumCalculator = chunkChecksumProvider.createCalculator();
+				final StorageChecksumAnomalyReporter reporter                = StorageChecksumAnomalyReporter.New(
+					chunkChecksumProvider.policy()
+				);
+				final StorageMetaRecordRegistry      metaRecordRegistry      = StorageMetaRecordRegistry.New(reporter);
+				chunkChecksumCalculator.registerMetaRecordHandlers(metaRecordRegistry, reporter);
+
 				// file manager to handle "file" IO (whatever "file" might be, might be a RDBMS binary table as well)
 				final StorageFileManager.Default fileManager = new StorageFileManager.Default(
-					i                               ,
-					initialDataFileNumberProvider   ,
-					timestampProvider               ,
-					liveFileProvider                ,
-					dataFileEvaluator               ,
-					entityCache                     ,
-					writeController                 ,
-					writerProvider.provideWriter(i) ,
-					readingDefaultBufferSizeProvider,
-					backupHandler                   ,
+					i                                       ,
+					initialDataFileNumberProvider           ,
+					timestampProvider                       ,
+					liveFileProvider                        ,
+					dataFileEvaluator                       ,
+					chunkChecksumCalculator                 ,
+					metaRecordRegistry                      ,
+					entityCache                             ,
+					writeController                         ,
+					writerProvider.provideWriter(i)         ,
+					readingDefaultBufferSizeProvider        ,
+					backupHandler                           ,
 					transactionFileCleanerCreator
 				);
 

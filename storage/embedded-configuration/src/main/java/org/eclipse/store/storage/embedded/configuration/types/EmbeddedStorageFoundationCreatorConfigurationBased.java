@@ -31,6 +31,10 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation;
 import org.eclipse.store.storage.types.Storage;
 import org.eclipse.store.storage.types.StorageChannelCountProvider;
+import org.eclipse.store.storage.types.StorageChunkChecksumPolicy;
+import org.eclipse.store.storage.types.StorageChunkChecksumPolicy.Anomaly;
+import org.eclipse.store.storage.types.StorageChunkChecksumPolicy.Reaction;
+import org.eclipse.store.storage.types.StorageChunkChecksumProvider;
 import org.eclipse.store.storage.types.StorageConfiguration;
 import org.eclipse.store.storage.types.StorageDataFileEvaluator;
 import org.eclipse.store.storage.types.StorageEntityCacheEvaluator;
@@ -142,8 +146,14 @@ public interface EmbeddedStorageFoundationCreatorConfigurationBased extends Embe
 				})
 			;
 
+			final StorageChunkChecksumProvider ccp = this.createChunkChecksumProvider();
+			if(ccp != null)
+			{
+				configBuilder.setChunkChecksumProvider(ccp);
+			}
+
 			foundation.setConfiguration(configBuilder.createConfiguration());
-			
+
 			return foundation;
 		}
 		
@@ -304,7 +314,149 @@ public interface EmbeddedStorageFoundationCreatorConfigurationBased extends Embe
 					.orElse(StorageEntityCacheEvaluator.Defaults.defaultCacheThreshold())
 			);
 		}
-		
+
+		/**
+		 * Builds a {@link StorageChunkChecksumProvider} from the {@code chunk-checksum-*} properties, or returns
+		 * {@code null} (the sentinel telling the caller to skip the setter and keep the framework default) when
+		 * none is present. The profile supplies a coherent base policy; any present per-axis override replaces
+		 * that axis and the result is handed to {@link StorageChunkChecksumPolicy#NewCustom} &mdash; whose own
+		 * fail-early validation is the only policy guard (no bespoke sanity layer). Two documented silent rules:
+		 * {@code algorithm=none} forces an off policy (profile / overrides ignored), and {@code seed} is unused
+		 * by any algorithm other than {@code sha256-chained}.
+		 */
+		private StorageChunkChecksumProvider createChunkChecksumProvider()
+		{
+			if(!this.hasAnyChunkChecksumProperty())
+			{
+				return null;
+			}
+
+			final String algorithm = this.configuration.opt(CHUNK_CHECKSUM_ALGORITHM).orElse("sha256-chained").trim().toLowerCase();
+
+			// none => off, regardless of profile / overrides (documented silent rule); short-circuit so a
+			// discarded policy can never throw.
+			if("none".equals(algorithm))
+			{
+				return StorageChunkChecksumProvider.NewNone();
+			}
+
+			final StorageChunkChecksumPolicy policy = this.createChunkChecksumPolicy();
+
+			switch(algorithm)
+			{
+				case "crc32c":
+					return StorageChunkChecksumProvider.NewCrc32c(policy);
+				case "sha256-chained":
+					return StorageChunkChecksumProvider.NewSha256Chained(
+						policy,
+						this.configuration.opt(CHUNK_CHECKSUM_SEED).map(this::parseChunkChecksumSeed).orElse(null)
+					);
+				default:
+					throw new ConfigurationException(
+						this.configuration,
+						"Unknown " + CHUNK_CHECKSUM_ALGORITHM + ": '" + algorithm
+						+ "' (expected none, crc32c or sha256-chained)."
+					);
+			}
+		}
+
+		private boolean hasAnyChunkChecksumProperty()
+		{
+			for(final String key : this.configuration.keys())
+			{
+				if(key.startsWith("chunk-checksum-"))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+
+		private StorageChunkChecksumPolicy createChunkChecksumPolicy()
+		{
+			final StorageChunkChecksumPolicy base = this.chunkChecksumProfile();
+
+			// Each axis defaults off the profile base; any present key overrides it. NewCustom re-validates the
+			// resulting tuple and throws on a contradiction (the only policy guard) — wrapped as a
+			// ConfigurationException by createEmbeddedStorageFoundation().
+			return StorageChunkChecksumPolicy.NewCustom(
+				this.configuration.optBoolean(CHUNK_CHECKSUM_EMIT)              .orElse(base.emit())              ,
+				this.configuration.optBoolean(CHUNK_CHECKSUM_VERIFY)            .orElse(base.verify())            ,
+				this.chunkChecksumReaction(CHUNK_CHECKSUM_ON_CHECKSUM_MISMATCH, base.reactionTo(Anomaly.CHECKSUM_MISMATCH))      ,
+				this.chunkChecksumReaction(CHUNK_CHECKSUM_ON_BOUNDARY_MISMATCH, base.reactionTo(Anomaly.CHUNK_BOUNDARY_MISMATCH)),
+				this.chunkChecksumReaction(CHUNK_CHECKSUM_ON_UNKNOWN_KIND     , base.reactionTo(Anomaly.UNKNOWN_KIND))           ,
+				this.chunkChecksumReaction(CHUNK_CHECKSUM_ON_MISSING_HEADER   , base.reactionTo(Anomaly.MISSING_HEADER))         ,
+				this.chunkChecksumReaction(CHUNK_CHECKSUM_ON_UNCOVERED_DATA   , base.reactionTo(Anomaly.UNCOVERED_DATA))         ,
+				this.configuration.optBoolean(CHUNK_CHECKSUM_REQUIRE_COVERAGE)   .orElse(base.requireCoverage())   ,
+				this.configuration.optBoolean(CHUNK_CHECKSUM_CONTINUOUS_COVERAGE).orElse(base.continuousCoverage())
+			);
+		}
+
+		private StorageChunkChecksumPolicy chunkChecksumProfile()
+		{
+			final String profile = this.configuration.opt(CHUNK_CHECKSUM_PROFILE).orElse("default").trim().toLowerCase();
+			switch(profile)
+			{
+				case "default":                return StorageChunkChecksumPolicy.New()                    ;
+				case "off":                    return StorageChunkChecksumPolicy.NewOff()                 ;
+				case "observe":                return StorageChunkChecksumPolicy.NewObserve()             ;
+				case "strict":                 return StorageChunkChecksumPolicy.NewStrict()              ;
+				case "strict-tolerate-legacy": return StorageChunkChecksumPolicy.NewStrictTolerateLegacy();
+				default:
+					throw new ConfigurationException(
+						this.configuration,
+						"Unknown " + CHUNK_CHECKSUM_PROFILE + ": '" + profile
+						+ "' (expected default, off, observe, strict or strict-tolerate-legacy)."
+					);
+			}
+		}
+
+		private Reaction chunkChecksumReaction(final String key, final Reaction defaultReaction)
+		{
+			return this.configuration.opt(key)
+				.map(token -> this.parseChunkChecksumReaction(key, token))
+				.orElse(defaultReaction);
+		}
+
+		private Reaction parseChunkChecksumReaction(final String key, final String token)
+		{
+			switch(token.trim().toLowerCase())
+			{
+				case "ignore": return Reaction.IGNORE;
+				case "log":    return Reaction.LOG   ;
+				case "fail":   return Reaction.FAIL  ;
+				default:
+					throw new ConfigurationException(
+						this.configuration,
+						"Unknown reaction for " + key + ": '" + token + "' (expected ignore, log or fail)."
+					);
+			}
+		}
+
+		private byte[] parseChunkChecksumSeed(final String hex)
+		{
+			final String s = hex.trim();
+			if(s.length() != 64)
+			{
+				throw new ConfigurationException(
+					this.configuration,
+					CHUNK_CHECKSUM_SEED + " must be a 64-character hex string (32 bytes), got length " + s.length() + "."
+				);
+			}
+			final byte[] out = new byte[s.length() / 2];
+			for(int i = 0; i < out.length; i++)
+			{
+				final int hi = Character.digit(s.charAt(i << 1)      , 16);
+				final int lo = Character.digit(s.charAt((i << 1) + 1), 16);
+				if(hi < 0 || lo < 0)
+				{
+					throw new ConfigurationException(this.configuration, CHUNK_CHECKSUM_SEED + " is not a valid hex string.");
+				}
+				out[i] = (byte)((hi << 4) | lo);
+			}
+			return out;
+		}
+
 	}
 	
 }

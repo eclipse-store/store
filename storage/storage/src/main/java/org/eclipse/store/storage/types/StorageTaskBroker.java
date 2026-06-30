@@ -95,6 +95,9 @@ public interface StorageTaskBroker
 	)
 		throws InterruptedException;
 
+	public StorageRequestTaskIntegrityCheck issueIntegrityCheck(long nanoTimeBudget, boolean freshScan)
+		throws InterruptedException;
+
 	public StorageRequestTaskTransactionsLogCleanup issueTransactionsLogCleanup()
 		throws InterruptedException;
 	
@@ -273,6 +276,23 @@ public interface StorageTaskBroker
 			final StorageRequestTaskFileCheck task = this.taskCreator.createFullFileCheckTask(
 				this.channelCount,
 				nanoTimeBudget,
+				this.operationController
+			);
+			this.enqueueTaskAndNotifyAll(task);
+			return task;
+		}
+
+		@Override
+		public final synchronized StorageRequestTaskIntegrityCheck issueIntegrityCheck(
+			final long    nanoTimeBudget,
+			final boolean freshScan
+		)
+			throws InterruptedException
+		{
+			final StorageRequestTaskIntegrityCheck task = this.taskCreator.createIntegrityCheckTask(
+				this.channelCount,
+				nanoTimeBudget,
+				freshScan,
 				this.operationController
 			);
 			this.enqueueTaskAndNotifyAll(task);

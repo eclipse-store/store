@@ -156,6 +156,7 @@ public interface StorageSystem extends StorageController
 		private final StorageConfiguration                       configuration                 ;
 		private final StorageInitialDataFileNumberProvider       initialDataFileNumberProvider ;
 		private final StorageDataFileEvaluator                   fileDissolver                 ;
+		private final StorageChunkChecksumProvider               chunkChecksumProvider         ;
 		private final StorageLiveFileProvider                    fileProvider                  ;
 		private final StorageWriteController                     writeController               ;
 		private final StorageFileWriter.Provider                 writerProvider                ;
@@ -264,6 +265,7 @@ public interface StorageSystem extends StorageController
 			this.operationController            = notNull(ocCreator.createOperationController(ccp, this));
 			this.initialDataFileNumberProvider  = notNull(initialDataFileNumberProvider)       ;
 			this.fileDissolver                  = storageConfiguration.dataFileEvaluator()     ;
+			this.chunkChecksumProvider          = storageConfiguration.chunkChecksumProvider();
 			this.fileProvider                   = storageConfiguration.fileProvider()          ;
 			this.entityCacheEvaluator           = storageConfiguration.entityCacheEvaluator()  ;
 			this.housekeepingController         = storageConfiguration.housekeepingController();
@@ -544,6 +546,7 @@ public interface StorageSystem extends StorageController
 				this.initialDataFileNumberProvider         ,
 				this.exceptionHandler                      ,
 				this.fileDissolver                         ,
+				this.chunkChecksumProvider                 ,
 				this.fileProvider                          ,
 				this.entityCacheEvaluator                  ,
 				this.typeDictionary                        ,
