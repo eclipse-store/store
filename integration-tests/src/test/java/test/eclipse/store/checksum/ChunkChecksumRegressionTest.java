@@ -29,6 +29,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
+import org.eclipse.serializer.configuration.types.ByteSize;
+import org.eclipse.serializer.configuration.types.ByteUnit;
 import org.eclipse.store.storage.embedded.configuration.types.EmbeddedStorageConfigurationBuilder;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageFoundation;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
@@ -38,6 +40,8 @@ import org.eclipse.store.storage.types.StorageIntegrityCheckResult.Finding;
 import org.eclipse.store.storage.types.StorageWriteControllerReadOnlyMode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Regression tests for fixes made to the storage chunk-checksum feature (PR #717 review).
@@ -165,8 +169,170 @@ class ChunkChecksumRegressionTest
 	}
 
 	///////////////////////////////////////////////////////////////////////////
+	// #4 -- bounded streaming verify for files larger than the integrity-check buffer cap
+	///////////////////////////////////////////////////////////////////////////////////////
+
+	// Mirrors StorageFileManager.INTEGRITY_VERIFY_BUFFER_LIMIT (package-private): files above this are verified
+	// via the windowed streaming walk instead of being read whole.
+	private static final int STREAMING_CAP = 8 * 1024 * 1024;
+
+	/**
+	 * A data file larger than the 8 MiB integrity-check buffer must be verified by the windowed streaming walk
+	 * (StorageChunkChecksumCalculator.verifyDataFileStreaming) without reading the whole file resident. This
+	 * stores a single ~20 MiB object, so its one covered chunk is larger than the window and is hashed
+	 * incrementally across windows. Asserts the intact file verifies clean and that corrupting a byte deep past
+	 * the first window is detected with the chunk's file offset (not its byte length). Run for both algorithms;
+	 * sha256-chained additionally exercises the running tip across windows.
+	 */
+	@ParameterizedTest
+	@ValueSource(strings = {"crc32c", "sha256-chained"})
+	void largeSingleChunkIsStreamedVerifiedAndCorruptionDetected(final String algorithm, @TempDir final Path workDir)
+		throws IOException
+	{
+		final Path storageDir = workDir.resolve("storage");
+
+		final int    payloadSize = 20 * 1024 * 1024; // > 8 MiB window: one chunk spanning multiple windows
+		final byte[] payload     = new byte[payloadSize];
+		for(int i = 0; i < payloadSize; i++)
+		{
+			payload[i] = (byte)(i * 31 + 7);
+		}
+
+		try(final EmbeddedStorageManager mgr = largeFileConfig(storageDir, "observe", algorithm)
+			.createEmbeddedStorageFoundation()
+			.createEmbeddedStorageManager(payload)
+			.start())
+		{
+			mgr.storeRoot();
+		}
+
+		final Path dataFile = largestDataFile(storageDir);
+		final long fileSize = Files.size(dataFile);
+		assertTrue(
+			fileSize > STREAMING_CAP,
+			"test must produce a data file larger than the streaming cap to exercise streaming; got " + fileSize
+		);
+
+		// intact: the streaming walk must report clean (no false anomalies across window boundaries)
+		try(final EmbeddedStorageManager mgr = largeFileConfig(storageDir, "observe", algorithm)
+			.createEmbeddedStorageFoundation()
+			.createEmbeddedStorageManager()
+			.start())
+		{
+			final StorageIntegrityCheckResult clean = mgr.issueFullIntegrityCheck();
+			assertTrue(clean.isClean(), "intact large file must verify clean via streaming; got: " + clean);
+		}
+
+		// corrupt a byte at the file midpoint (well past the 8 MiB window -> a later window is exercised)
+		final long corruptAt = fileSize / 2;
+		flipByte(dataFile, corruptAt);
+
+		final StorageIntegrityCheckResult result;
+		try(final EmbeddedStorageManager mgr = largeFileConfig(storageDir, "observe", algorithm)
+			.createEmbeddedStorageFoundation()
+			.createEmbeddedStorageManager()
+			.start())
+		{
+			result = mgr.issueFullIntegrityCheck();
+		}
+
+		assertFalse(result.isClean(), "corruption in a streamed large file must be detected");
+		final Finding mismatch = firstOf(result, Anomaly.CHECKSUM_MISMATCH);
+		assertNotNull(mismatch, "expected a CHECKSUM_MISMATCH finding, got: " + result);
+		assertTrue(
+			mismatch.position() >= 0L && mismatch.position() <= corruptAt,
+			"mismatch position must be the chunk's file offset (<= corrupted byte " + corruptAt + "), got "
+				+ mismatch.position()
+		);
+	}
+
+	/**
+	 * A large file made of several chunks (separate commits) exercises the streaming walk crossing window
+	 * boundaries at real chunk boundaries and, for sha256-chained, carrying the running tip from one chunk to the
+	 * next across windows. Asserts the intact file verifies clean, then that corruption in a later chunk is
+	 * detected.
+	 */
+	@ParameterizedTest
+	@ValueSource(strings = {"crc32c", "sha256-chained"})
+	void largeMultiChunkFileIsStreamedVerified(final String algorithm, @TempDir final Path workDir)
+		throws IOException
+	{
+		final Path storageDir = workDir.resolve("storage");
+
+		final int chunkPayload = 6 * 1024 * 1024; // 6 MiB per commit
+		final int commits      = 4;               // ~24 MiB across 4 chunks -> file > 8 MiB window
+
+		final ArrayList<byte[]> root = new ArrayList<>();
+		try(final EmbeddedStorageManager mgr = largeFileConfig(storageDir, "observe", algorithm)
+			.createEmbeddedStorageFoundation()
+			.createEmbeddedStorageManager(root)
+			.start())
+		{
+			mgr.storeRoot();
+			for(int c = 0; c < commits; c++)
+			{
+				final byte[] arr = new byte[chunkPayload];
+				for(int i = 0; i < chunkPayload; i++)
+				{
+					arr[i] = (byte)(i + c);
+				}
+				// keep each array reachable from the root so housekeeping GC cannot dissolve its data file
+				// between sessions; storing the updated root in its own commit yields one chunk + covering record
+				// per array (so the file ends up with several chunks spread across the streaming windows).
+				root.add(arr);
+				mgr.store(root);
+			}
+		}
+
+		final Path dataFile = largestDataFile(storageDir);
+		assertTrue(
+			Files.size(dataFile) > STREAMING_CAP,
+			"expected a data file larger than the streaming cap, got " + Files.size(dataFile)
+		);
+
+		// many covering records spread across windows must verify clean (tip carried across windows for chained)
+		try(final EmbeddedStorageManager mgr = largeFileConfig(storageDir, "observe", algorithm)
+			.createEmbeddedStorageFoundation()
+			.createEmbeddedStorageManager()
+			.start())
+		{
+			final StorageIntegrityCheckResult clean = mgr.issueFullIntegrityCheck();
+			assertTrue(clean.isClean(), "intact multi-chunk large file must verify clean via streaming; got: " + clean);
+		}
+
+		// corrupt a byte inside the last chunk (a later window) and assert detection
+		final long corruptAt = Files.size(dataFile) - chunkPayload / 2;
+		flipByte(dataFile, corruptAt);
+
+		try(final EmbeddedStorageManager mgr = largeFileConfig(storageDir, "observe", algorithm)
+			.createEmbeddedStorageFoundation()
+			.createEmbeddedStorageManager()
+			.start())
+		{
+			final StorageIntegrityCheckResult result = mgr.issueFullIntegrityCheck();
+			assertFalse(result.isClean(), "corruption in a later chunk of a streamed file must be detected");
+			assertNotNull(firstOf(result, Anomaly.CHECKSUM_MISMATCH), "expected a CHECKSUM_MISMATCH finding, got: " + result);
+		}
+	}
+
+	///////////////////////////////////////////////////////////////////////////
 	// helpers //
 	////////////
+
+	// Config with a large data-file maximum so a single growing head file exceeds the 8 MiB streaming cap.
+	private static EmbeddedStorageConfigurationBuilder largeFileConfig(
+		final Path   storageDir,
+		final String profile   ,
+		final String algorithm
+	)
+	{
+		return EmbeddedStorageConfigurationBuilder.New()
+			.setStorageDirectory(storageDir.toString())
+			.setChannelCount(1)
+			.setChunkChecksumProfile(profile)
+			.setChunkChecksumAlgorithm(algorithm)
+			.setDataFileMaximumSize(ByteSize.New(64, ByteUnit.MB));
+	}
 
 	private static EmbeddedStorageConfigurationBuilder checksumConfig(
 		final Path   storageDir,

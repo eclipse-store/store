@@ -128,6 +128,13 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		// the only reason for this limit is to have an int instead of a long for the item's file position.
 		static final int MAX_FILE_LENGTH = Integer.MAX_VALUE;
 
+		// Upper bound for the on-demand integrity check's per-channel verify buffer. A data file at or below this
+		// size is read whole (the proven resident verifyDataFile walk); a larger one is streamed in windows of this
+		// size (verifyDataFileStreaming), so peak direct memory of a full integrity check is channelCount × this
+		// value regardless of the configured data-file maximum size (which can be raised toward the ~2 GiB cap).
+		// 8 MiB matches StorageDataFileEvaluator.defaultFileMaximumSize(), so default-sized stores never stream.
+		static final int INTEGRITY_VERIFY_BUFFER_LIMIT = 8 * 1024 * 1024;
+
 		// (22.05.2015 TM)TODO: Debug Flag to disable file cleanup for testing
 		private static final boolean DEBUG_ENABLE_FILE_CLEANUP = true;
 
@@ -1798,6 +1805,19 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 				result
 			);
 
+			// One bounded buffer per channel serves the whole scan: files within the cap are read whole (the proven
+			// resident walk), larger files are streamed in windows of this same buffer. Sized to the largest in-scope
+			// file but never above INTEGRITY_VERIFY_BUFFER_LIMIT, so peak direct memory stays channelCount × cap.
+			long maxScopeLength = 0L;
+			for(final long scopeLength : this.integrityScopeLengths)
+			{
+				if(scopeLength > maxScopeLength)
+				{
+					maxScopeLength = scopeLength;
+				}
+			}
+			final int bufferSize = X.checkArrayRange(Math.min((long)INTEGRITY_VERIFY_BUFFER_LIMIT, maxScopeLength));
+
 			ByteBuffer buffer = null;
 			try
 			{
@@ -1834,20 +1854,23 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 						if(verifyLength > 0L)
 						{
-							final int len = X.checkArrayRange(verifyLength);
-							if(buffer == null || buffer.capacity() < len)
+							if(buffer == null)
 							{
-								if(buffer != null)
-								{
-									XMemory.deallocateDirectByteBuffer(buffer);
-								}
-								buffer = XMemory.allocateDirectNative(Math.max(len, XMemory.defaultBufferSize()));
+								buffer = XMemory.allocateDirectNative(bufferSize);
 							}
-							buffer.clear();
-							buffer.limit(len);
-							file.readBytes(buffer, 0, verifyLength);
-
-							this.chunkChecksumCalculator.verifyDataFile(file, buffer, reporter);
+							if(verifyLength <= INTEGRITY_VERIFY_BUFFER_LIMIT)
+							{
+								// fits the buffer: read the whole file and use the proven resident walk.
+								buffer.clear();
+								buffer.limit(X.checkArrayRange(verifyLength));
+								file.readBytes(buffer, 0, verifyLength);
+								this.chunkChecksumCalculator.verifyDataFile(file, buffer, reporter);
+							}
+							else
+							{
+								// larger than the cap: stream the verify in windows of this buffer (bounded memory).
+								this.chunkChecksumCalculator.verifyDataFileStreaming(file, verifyLength, buffer, reporter);
+							}
 						}
 					}
 
