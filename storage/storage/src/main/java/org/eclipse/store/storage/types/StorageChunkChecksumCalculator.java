@@ -605,6 +605,14 @@ public interface StorageChunkChecksumCalculator
 
 			for(long address = bufferStartAddress; address < bufferBoundAddress;)
 			{
+				// A trailing remnant shorter than an entity LENGTH prefix cannot be a valid item; reading 8 bytes
+				// would read past the verified region. The startup load walk (StorageEntityInitializer) throws on
+				// this; the on-demand check instead stops and lets the end-of-walk coverage check report the
+				// uncovered tail. A well-formed file ends exactly on an item boundary, so this never trips there.
+				if(bufferBoundAddress - address < Long.BYTES)
+				{
+					break;
+				}
 				final long itemLength = Binary.getEntityLengthRawValue(address);
 				if(itemLength > 0)
 				{
@@ -713,6 +721,14 @@ public interface StorageChunkChecksumCalculator
 
 			for(long walkCursor = 0L; walkCursor < verifyLength;)
 			{
+				// A trailing remnant shorter than an entity LENGTH prefix cannot be a valid item; reading 8 bytes
+				// would read past the verified region (into stale window slack). Stop and let the end-of-walk
+				// coverage check report the uncovered tail — the same condition the startup load walk rejects.
+				// A well-formed file ends exactly on an item boundary, so this never trips there.
+				if(verifyLength - walkCursor < Long.BYTES)
+				{
+					break;
+				}
 				final long itemLength = Binary.getEntityLengthRawValue(reader.ensureResident(walkCursor, Long.BYTES));
 				if(itemLength > 0)
 				{
