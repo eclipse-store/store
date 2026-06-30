@@ -293,7 +293,7 @@ public interface StorageEntityType<E extends StorageEntity>
 			final PersistenceObjectIdAcceptor  iterator
 		)
 		{
-			this.typeHandler.iterateReferences(entity.cacheAddress(), iterator);
+			this.typeHandler.iterateReferences(entity.cacheAddress(), entity.length, iterator);
 		}
 
 		@Override
