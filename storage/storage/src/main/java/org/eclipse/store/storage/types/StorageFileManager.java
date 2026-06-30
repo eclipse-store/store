@@ -883,8 +883,10 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			final long projectedTotal  = this.headFile.totalLength() + chunkSize + checksumReserve;
 			// Defence in depth: even on a fresh head (dataLength == 0) we refuse to produce a file
 			// that the load path can no longer read back into a single 2 GiB direct buffer. This
-			// guards against a user wiring a no-op validator that bypasses MaxFileSize.
-			if(projectedTotal >= Integer.MAX_VALUE)
+			// guards against a user wiring a no-op validator that bypasses MaxFileSize. Strict '>' to
+			// match the load limit (StorageEntityInitializer rejects only > Integer.MAX_VALUE, and
+			// X.checkArrayRange accepts exactly Integer.MAX_VALUE) and the chunkSize guards above.
+			if(projectedTotal > Integer.MAX_VALUE)
 			{
 				throw new StorageExceptionCommitSizeExceeded(this.channelIndex(), projectedTotal);
 			}
@@ -2361,7 +2363,7 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			// here turns a silently-unloadable oversized file into a clean, rolled-back import error.
 			final long checksumReserve = this.chunkChecksumCalculator.reservedLengthFor(this.headFile);
 			final long projectedLength = this.importHelper.importHeadFileLength + length + checksumReserve;
-			if(projectedLength >= Integer.MAX_VALUE)
+			if(projectedLength > Integer.MAX_VALUE)
 			{
 				throw new StorageExceptionCommitSizeExceeded(this.channelIndex(), projectedLength);
 			}
