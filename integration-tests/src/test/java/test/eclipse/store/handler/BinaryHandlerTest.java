@@ -35,13 +35,14 @@ public class BinaryHandlerTest
     public void saveAndLoadTest(TypeEnum type)
     {
 
-        EmbeddedStorageManager storageManager = EmbeddedStorage.start(type.getOriginal(), storagePath);
+        final var original = type.getOriginal();
+        EmbeddedStorageManager storageManager = EmbeddedStorage.start(original, storagePath);
         storageManager.shutdown();
 
         storageManager = EmbeddedStorage.start(storagePath);
         Object o = storageManager.root();
 
-        type.getOriginal().proveResults(o);
+        original.proveResults(o);
 
         storageManager.shutdown();
     }
