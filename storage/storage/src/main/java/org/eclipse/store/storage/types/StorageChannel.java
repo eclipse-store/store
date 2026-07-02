@@ -21,6 +21,7 @@ import static org.eclipse.serializer.util.X.notNull;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.function.Predicate;
 
 import org.eclipse.serializer.afs.types.AWritableFile;
@@ -38,6 +39,7 @@ import org.eclipse.serializer.typing.KeyValue;
 import org.eclipse.serializer.util.BufferSizeProviderIncremental;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.logging.Logging;
+import org.eclipse.store.storage.exceptions.StorageExceptionConsistencyDanglingReference;
 import org.eclipse.store.storage.monitoring.StorageChannelHousekeepingMonitor;
 import org.eclipse.store.storage.types.StorageAdjacencyDataExporter.AdjacencyFiles;
 import org.slf4j.Logger;
@@ -120,6 +122,33 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 	 * @return a key/value pair of the written buffers and their assigned on-disk storage positions.
 	 */
 	public KeyValue<ByteBuffer[], long[]> storeEntities(long timestamp, Chunk chunkData);
+
+	/**
+	 * Validates that each passed object id resolves to an existing entity in this channel. The ids are a
+	 * store's "trusted references": object ids the storer wrote into the data without storing the
+	 * referenced entity itself, trusting that it already exists.
+	 * <p>
+	 * Depending on the passed policy, missing entities are logged
+	 * ({@link StorageReferenceValidationPolicy#LOG}) or rejected by throwing a
+	 * {@link org.eclipse.store.storage.exceptions.StorageExceptionConsistencyDanglingReference}
+	 * ({@link StorageReferenceValidationPolicy#FAIL}), which fails the surrounding store task and rolls
+	 * the whole store back atomically.
+	 * <p>
+	 * This check is race-free with respect to the storage garbage collector: GC sweeping for a channel
+	 * runs exclusively on that channel's own thread between tasks, and this method is invoked on the same
+	 * thread inside the store task, before the store commits. An entity found here therefore cannot be
+	 * deleted before the surrounding store is committed.
+	 *
+	 * @param objectIds the trusted reference object ids assigned to this channel; may be {@code null} or empty.
+	 * @param policy    the validation policy to apply.
+	 */
+	public default void validateTrustedReferences(
+		final long[]                           objectIds,
+		final StorageReferenceValidationPolicy policy
+	)
+	{
+		// no-op by default
+	}
 
 	/**
 	 * Reverts the most recent {@link #storeEntities(long, Chunk) store} on this channel, discarding
@@ -866,6 +895,54 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			
 			// set new data flag, even if chunk has no data to account for (potential) data in other channels
 			return X.KeyValue(buffers, this.fileManager.storeChunks(timestamp, buffers));
+		}
+
+		@Override
+		public void validateTrustedReferences(
+			final long[]                           objectIds,
+			final StorageReferenceValidationPolicy policy
+		)
+		{
+			if(objectIds == null || objectIds.length == 0 || !policy.isValidating())
+			{
+				return;
+			}
+
+			long[] missing = null;
+			int    count   = 0;
+			for(final long objectId : objectIds)
+			{
+				if(this.entityCache.getEntry(objectId) == null)
+				{
+					if(missing == null)
+					{
+						missing = new long[objectIds.length];
+					}
+					missing[count++] = objectId;
+				}
+			}
+
+			if(missing == null)
+			{
+				return;
+			}
+
+			final long[] missingObjectIds = count == missing.length
+				? missing
+				: Arrays.copyOf(missing, count)
+			;
+
+			logger.error(
+				"StorageChannel#{} store references non-existing entities (dangling references): {}",
+				this.channelIndex,
+				Arrays.toString(missingObjectIds)
+			);
+			this.eventLogger.logStoreDetectedDanglingReferences(this.channelIndex, missingObjectIds);
+
+			if(policy.isFailing())
+			{
+				throw new StorageExceptionConsistencyDanglingReference(this.channelIndex, missingObjectIds);
+			}
 		}
 
 		@Override

@@ -121,6 +121,10 @@ They can be found as constants in `EmbeddedStorageConfigurationPropertyNames`.
 |xref:#transaction-file-maximum-size[transaction-file-maximum-size]
 |Maximum file size for each channels transactions log file. If this limit is exceeded the file wile be cleaned up during housekeeping. Default is 100 MiB. Maximum value is 1 GiB.
 |xref:#type-bytes[Bytes]
+
+|reference-validation
+|Store-time validation of references whose target entities are not part of the store itself (`off`, `log` or `fail`). With `log` (the default), a store referencing a non-existing entity (dangling reference) is logged as an error but proceeds; with `fail` such a store is rejected atomically; `off` disables the validation entirely (zero overhead). See xref:../data-integrity.adoc[Data Integrity] for the failure mode this guards against.
+|xref:#type-string[String]
 |===
 
 == Property Types
@@ -330,4 +334,7 @@ This list shows which property configures which type, used by the foundation typ
 
 | transaction-file-maximum-size
 | `StorageDataFileEvaluator`
+
+| reference-validation
+| `StorageReferenceValidationPolicy`
 |===

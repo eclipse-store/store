@@ -107,6 +107,21 @@ public interface StorageConfiguration
 		return StorageChunkChecksumProvider.New();
 	}
 
+	/**
+	 * Returns the {@link StorageReferenceValidationPolicy} governing store-time validation of trusted
+	 * reference object ids (references written into a store's data whose entities are not part of the
+	 * store itself). See {@link StorageReferenceValidationPolicy} for the failure mode this guards against.
+	 * <p>
+	 * Defined as a default method returning {@link StorageReferenceValidationPolicy#LOG} so that
+	 * pre-existing {@link StorageConfiguration} implementations remain source- and binary-compatible.
+	 *
+	 * @return the configured {@link StorageReferenceValidationPolicy}; never {@code null}.
+	 */
+	public default StorageReferenceValidationPolicy referenceValidationPolicy()
+	{
+		return StorageReferenceValidationPolicy.LOG;
+	}
+
 
 	/**
 	 * Pseudo-constructor method to create a new {@link StorageConfiguration} instance
@@ -210,14 +225,53 @@ public interface StorageConfiguration
 		final StorageChunkChecksumProvider  chunkChecksumProvider
 	)
 	{
+		return New(
+			channelCountProvider  ,
+			housekeepingController,
+			fileProvider          ,
+			dataFileEvaluator     ,
+			entityCacheEvaluator  ,
+			backupSetup           ,
+			chunkChecksumProvider ,
+			StorageReferenceValidationPolicy.LOG
+		);
+	}
+
+	/**
+	 * Pseudo-constructor method to create a new {@link StorageConfiguration} instance from the
+	 * passed strategy parts, including an explicit {@link StorageReferenceValidationPolicy}.
+	 *
+	 * @param channelCountProvider      the {@link StorageChannelCountProvider} to use; must be non-{@code null}.
+	 * @param housekeepingController    the {@link StorageHousekeepingController} to use; must be non-{@code null}.
+	 * @param fileProvider              the {@link StorageLiveFileProvider} to use; must be non-{@code null}.
+	 * @param dataFileEvaluator         the {@link StorageDataFileEvaluator} to use; must be non-{@code null}.
+	 * @param entityCacheEvaluator      the {@link StorageEntityCacheEvaluator} to use; must be non-{@code null}.
+	 * @param backupSetup               the {@link StorageBackupSetup} to use, or {@code null} to disable backup.
+	 * @param chunkChecksumProvider     the {@link StorageChunkChecksumProvider} to use; must be non-{@code null}.
+	 * @param referenceValidationPolicy the {@link StorageReferenceValidationPolicy} to use; must be non-{@code null}.
+	 *
+	 * @return a new {@link StorageConfiguration} instance with the passed parts.
+	 */
+	public static StorageConfiguration New(
+		final StorageChannelCountProvider      channelCountProvider     ,
+		final StorageHousekeepingController    housekeepingController   ,
+		final StorageLiveFileProvider          fileProvider             ,
+		final StorageDataFileEvaluator         dataFileEvaluator        ,
+		final StorageEntityCacheEvaluator      entityCacheEvaluator     ,
+		final StorageBackupSetup               backupSetup              ,
+		final StorageChunkChecksumProvider     chunkChecksumProvider    ,
+		final StorageReferenceValidationPolicy referenceValidationPolicy
+	)
+	{
 		return new StorageConfiguration.Default(
-			notNull(channelCountProvider)  ,
-			notNull(housekeepingController),
-			notNull(fileProvider)          ,
-			notNull(dataFileEvaluator)     ,
-			notNull(entityCacheEvaluator)  ,
-			mayNull(backupSetup)           ,
-			notNull(chunkChecksumProvider)
+			notNull(channelCountProvider)     ,
+			notNull(housekeepingController)   ,
+			notNull(fileProvider)             ,
+			notNull(dataFileEvaluator)        ,
+			notNull(entityCacheEvaluator)     ,
+			mayNull(backupSetup)              ,
+			notNull(chunkChecksumProvider)    ,
+			notNull(referenceValidationPolicy)
 		);
 	}
 
@@ -231,13 +285,14 @@ public interface StorageConfiguration
 		// instance fields //
 		////////////////////
 
-		private final StorageChannelCountProvider   channelCountProvider  ;
-		private final StorageHousekeepingController housekeepingController;
-		private final StorageLiveFileProvider           fileProvider          ;
-		private final StorageDataFileEvaluator      dataFileEvaluator     ;
-		private final StorageEntityCacheEvaluator   entityCacheEvaluator  ;
-		private final StorageBackupSetup            backupSetup           ;
-		private final StorageChunkChecksumProvider  chunkChecksumProvider ;
+		private final StorageChannelCountProvider      channelCountProvider     ;
+		private final StorageHousekeepingController    housekeepingController   ;
+		private final StorageLiveFileProvider          fileProvider             ;
+		private final StorageDataFileEvaluator         dataFileEvaluator        ;
+		private final StorageEntityCacheEvaluator      entityCacheEvaluator     ;
+		private final StorageBackupSetup               backupSetup              ;
+		private final StorageChunkChecksumProvider     chunkChecksumProvider    ;
+		private final StorageReferenceValidationPolicy referenceValidationPolicy;
 
 
 
@@ -246,23 +301,25 @@ public interface StorageConfiguration
 		/////////////////
 
 		Default(
-			final StorageChannelCountProvider   channelCountProvider  ,
-			final StorageHousekeepingController housekeepingController,
-			final StorageLiveFileProvider           fileProvider          ,
-			final StorageDataFileEvaluator      dataFileEvaluator     ,
-			final StorageEntityCacheEvaluator   entityCacheEvaluator  ,
-			final StorageBackupSetup            backupSetup           ,
-			final StorageChunkChecksumProvider  chunkChecksumProvider
+			final StorageChannelCountProvider      channelCountProvider     ,
+			final StorageHousekeepingController    housekeepingController   ,
+			final StorageLiveFileProvider          fileProvider             ,
+			final StorageDataFileEvaluator         dataFileEvaluator        ,
+			final StorageEntityCacheEvaluator      entityCacheEvaluator     ,
+			final StorageBackupSetup               backupSetup              ,
+			final StorageChunkChecksumProvider     chunkChecksumProvider    ,
+			final StorageReferenceValidationPolicy referenceValidationPolicy
 		)
 		{
 			super();
-			this.channelCountProvider   = channelCountProvider  ;
-			this.housekeepingController = housekeepingController;
-			this.entityCacheEvaluator   = entityCacheEvaluator  ;
-			this.fileProvider           = fileProvider          ;
-			this.dataFileEvaluator      = dataFileEvaluator     ;
-			this.backupSetup            = backupSetup           ;
-			this.chunkChecksumProvider  = chunkChecksumProvider ;
+			this.channelCountProvider      = channelCountProvider     ;
+			this.housekeepingController    = housekeepingController   ;
+			this.entityCacheEvaluator      = entityCacheEvaluator     ;
+			this.fileProvider              = fileProvider             ;
+			this.dataFileEvaluator         = dataFileEvaluator        ;
+			this.backupSetup               = backupSetup              ;
+			this.chunkChecksumProvider     = chunkChecksumProvider    ;
+			this.referenceValidationPolicy = referenceValidationPolicy;
 		}
 
 
@@ -314,6 +371,12 @@ public interface StorageConfiguration
 		}
 
 		@Override
+		public StorageReferenceValidationPolicy referenceValidationPolicy()
+		{
+			return this.referenceValidationPolicy;
+		}
+
+		@Override
 		public String toString()
 		{
 			return VarString.New()
@@ -325,6 +388,7 @@ public interface StorageConfiguration
 				.add(this.dataFileEvaluator     ).lf()
 				.add(this.backupSetup == null ? StorageBackupSetup.class.getName() + ": null": this.backupSetup).lf()
 				.add(this.chunkChecksumProvider ).lf()
+				.add(StorageReferenceValidationPolicy.class.getName()).add(": ").add(this.referenceValidationPolicy.name()).lf()
 				.toString()
 			;
 		}
@@ -484,6 +548,24 @@ public interface StorageConfiguration
 		public B setChunkChecksumProvider(StorageChunkChecksumProvider chunkChecksumProvider);
 
 		/**
+		 * Returns the currently configured {@link StorageReferenceValidationPolicy}.
+		 *
+		 * @return the current {@link StorageReferenceValidationPolicy}.
+		 */
+		public StorageReferenceValidationPolicy referenceValidationPolicy();
+
+		/**
+		 * Sets the {@link StorageReferenceValidationPolicy} to be used by the resulting configuration.
+		 * Passing {@code null} resets the value to the framework default
+		 * ({@link StorageReferenceValidationPolicy#LOG}).
+		 *
+		 * @param referenceValidationPolicy the new {@link StorageReferenceValidationPolicy}, or {@code null} to reset.
+		 *
+		 * @return this builder, for fluent chaining.
+		 */
+		public B setReferenceValidationPolicy(StorageReferenceValidationPolicy referenceValidationPolicy);
+
+		/**
 		 * Builds a new {@link StorageConfiguration} from the strategy parts currently held by this
 		 * builder.
 		 * <p>
@@ -509,13 +591,14 @@ public interface StorageConfiguration
 			// instance fields //
 			////////////////////
 
-			private StorageChannelCountProvider   channelCountProvider   = this.initializeChannelCountProvider();
-			private StorageHousekeepingController housekeepingController = this.initializeHousekeepingController();
-			private StorageLiveFileProvider       storageFileProvider    = this.initializeLiveFileProvider();
-			private StorageDataFileEvaluator      dataFileEvaluator      = this.initializeDataFileEvaluator();
-			private StorageEntityCacheEvaluator   entityCacheEvaluator   = this.initializeEntityCacheEvaluator();
-			private StorageChunkChecksumProvider  chunkChecksumProvider  = this.initializeChunkChecksumProvider();
-			private StorageBackupSetup            backupSetup           ; // optional
+			private StorageChannelCountProvider      channelCountProvider      = this.initializeChannelCountProvider();
+			private StorageHousekeepingController    housekeepingController    = this.initializeHousekeepingController();
+			private StorageLiveFileProvider          storageFileProvider       = this.initializeLiveFileProvider();
+			private StorageDataFileEvaluator         dataFileEvaluator         = this.initializeDataFileEvaluator();
+			private StorageEntityCacheEvaluator      entityCacheEvaluator      = this.initializeEntityCacheEvaluator();
+			private StorageChunkChecksumProvider     chunkChecksumProvider     = this.initializeChunkChecksumProvider();
+			private StorageReferenceValidationPolicy referenceValidationPolicy = this.initializeReferenceValidationPolicy();
+			private StorageBackupSetup               backupSetup              ; // optional
 			
 			
 			
@@ -562,6 +645,11 @@ public interface StorageConfiguration
 			protected StorageChunkChecksumProvider initializeChunkChecksumProvider()
 			{
 				return Storage.ChunkChecksumProvider();
+			}
+
+			protected StorageReferenceValidationPolicy initializeReferenceValidationPolicy()
+			{
+				return StorageReferenceValidationPolicy.LOG;
 			}
 			
 			@SuppressWarnings("unchecked")
@@ -682,16 +770,33 @@ public interface StorageConfiguration
 			}
 
 			@Override
+			public StorageReferenceValidationPolicy referenceValidationPolicy()
+			{
+				return this.referenceValidationPolicy;
+			}
+
+			@Override
+			public B setReferenceValidationPolicy(final StorageReferenceValidationPolicy referenceValidationPolicy)
+			{
+				this.referenceValidationPolicy = referenceValidationPolicy == null
+					? this.initializeReferenceValidationPolicy()
+					: referenceValidationPolicy
+				;
+				return this.$();
+			}
+
+			@Override
 			public StorageConfiguration createConfiguration()
 			{
 				return StorageConfiguration.New(
-					this.channelCountProvider  ,
-					this.housekeepingController,
-					this.storageFileProvider   ,
-					this.dataFileEvaluator     ,
-					this.entityCacheEvaluator  ,
-					this.backupSetup           ,
-					this.chunkChecksumProvider
+					this.channelCountProvider     ,
+					this.housekeepingController   ,
+					this.storageFileProvider      ,
+					this.dataFileEvaluator        ,
+					this.entityCacheEvaluator     ,
+					this.backupSetup              ,
+					this.chunkChecksumProvider    ,
+					this.referenceValidationPolicy
 				);
 			}
 			

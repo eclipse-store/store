@@ -82,6 +82,9 @@ public class EclipseStoreConfigConverter
     protected static final String DATA_FILE_MINIMUM_USE_RATIO = EmbeddedStorageConfigurationPropertyNames.DATA_FILE_MINIMUM_USE_RATIO;
     protected static final String DATA_FILE_CLEANUP_HEAD_FILE = EmbeddedStorageConfigurationPropertyNames.DATA_FILE_CLEANUP_HEAD_FILE;
 
+    // Field for the store-time reference validation (data integrity) configuration
+    protected static final String REFERENCE_VALIDATION = EmbeddedStorageConfigurationPropertyNames.REFERENCE_VALIDATION;
+
     // Fields for the chunk-checksum (data integrity) configuration
     protected static final String CHUNK_CHECKSUM_ALGORITHM = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ALGORITHM;
     protected static final String CHUNK_CHECKSUM_PROFILE = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_PROFILE;
@@ -146,6 +149,7 @@ public class EclipseStoreConfigConverter
         configValues.put(DATA_FILE_MAXIMUM_SIZE, properties.getDataFileMaximumSize());
         configValues.put(DATA_FILE_MINIMUM_USE_RATIO, properties.getDataFileMinimumUseRatio());
         configValues.put(DATA_FILE_CLEANUP_HEAD_FILE, properties.getDataFileCleanupHeadFile());
+        configValues.put(REFERENCE_VALIDATION, properties.getReferenceValidation());
 
         if (properties.getChunkChecksum() != null)
         {

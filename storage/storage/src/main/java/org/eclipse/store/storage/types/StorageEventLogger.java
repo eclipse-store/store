@@ -18,6 +18,7 @@ import static org.eclipse.serializer.util.X.notNull;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.Arrays;
 import java.util.function.Consumer;
 
 /**
@@ -133,8 +134,20 @@ public interface StorageEventLogger
 	{
 		// no-op by default
 	}
-	
-	
+
+	/**
+	 * Called when a store's data references object ids for which no entity exists in the storage
+	 * (dangling references), detected by the store-time reference validation.
+	 *
+	 * @param channelIndex the channel that detected the dangling references.
+	 * @param objectIds    the referenced object ids with no existing entity.
+	 */
+	public default void logStoreDetectedDanglingReferences(final int channelIndex, final long[] objectIds)
+	{
+		// no-op by default
+	}
+
+
 	/**
 	 * Creates a NoOp StorageEventLogger that does really nothing.
 	 * 
@@ -335,7 +348,16 @@ public interface StorageEventLogger
 		{
 			this.log("GC marking encountered zombie ObjectId " + objectId);
 		}
-		
+
+		@Override
+		public void logStoreDetectedDanglingReferences(final int channelIndex, final long[] objectIds)
+		{
+			this.log(
+				StorageChannel.class.getSimpleName() + '#' + channelIndex
+				+ " store references non-existing entities (dangling references): " + Arrays.toString(objectIds)
+			);
+		}
+
 		@Override
 		public void logGarbageCollectorNotNeeded()
 		{
@@ -460,7 +482,14 @@ public interface StorageEventLogger
 			this.first.logGarbageCollectorEncounteredZombieObjectId(objectId);
 			this.second.logGarbageCollectorEncounteredZombieObjectId(objectId);
 		}
-		
+
+		@Override
+		public void logStoreDetectedDanglingReferences(final int channelIndex, final long[] objectIds)
+		{
+			this.first.logStoreDetectedDanglingReferences(channelIndex, objectIds);
+			this.second.logStoreDetectedDanglingReferences(channelIndex, objectIds);
+		}
+
 	}
 	
 }

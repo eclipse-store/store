@@ -42,7 +42,9 @@ public interface StorageRequestTaskStoreEntities extends StorageRequestTask
 		// instance fields //
 		////////////////////
 
-		private final Binary data;
+		private final Binary                           data                      ;
+		private final StorageReferenceValidationPolicy referenceValidationPolicy ;
+		private final long[][]                         trustedObjectIdsPerChannel;
 
 
 
@@ -52,9 +54,58 @@ public interface StorageRequestTaskStoreEntities extends StorageRequestTask
 
 		Default(final long timestamp, final Binary data, final StorageOperationController controller)
 		{
+			this(timestamp, data, controller, StorageReferenceValidationPolicy.OFF);
+		}
+
+		Default(
+			final long                             timestamp                ,
+			final Binary                           data                     ,
+			final StorageOperationController       controller               ,
+			final StorageReferenceValidationPolicy referenceValidationPolicy
+		)
+		{
 			// every channel has to store at least a chunk header, so progress count is always equal to channel count
 			super(timestamp, data.channelCount(), controller);
-			this.data = data;
+			this.data                       = data;
+			this.referenceValidationPolicy  = referenceValidationPolicy;
+			this.trustedObjectIdsPerChannel = referenceValidationPolicy.isValidating()
+				? partitionPerChannel(data.trustedObjectIds(), data.channelCount())
+				: null
+			;
+		}
+
+		/**
+		 * Partitions the passed trusted object ids by their owning channel, using the same
+		 * objectId-to-channel hash the entity registry uses. Runs once on the issuing thread,
+		 * off the channel threads. Returns {@code null} if there is nothing to validate.
+		 */
+		private static long[][] partitionPerChannel(final long[] trustedObjectIds, final int channelCount)
+		{
+			if(trustedObjectIds == null || trustedObjectIds.length == 0)
+			{
+				return null;
+			}
+
+			final int   channelHashModulo = channelCount - 1;
+			final int[] counts            = new int[channelCount];
+			for(final long objectId : trustedObjectIds)
+			{
+				counts[StorageEntityCache.Default.oidChannelIndex(objectId, channelHashModulo)]++;
+			}
+
+			final long[][] perChannel = new long[channelCount][];
+			for(int i = 0; i < channelCount; i++)
+			{
+				perChannel[i] = new long[counts[i]];
+				counts[i] = 0;
+			}
+			for(final long objectId : trustedObjectIds)
+			{
+				final int channelIndex = StorageEntityCache.Default.oidChannelIndex(objectId, channelHashModulo);
+				perChannel[channelIndex][counts[channelIndex]++] = objectId;
+			}
+
+			return perChannel;
 		}
 
 
@@ -66,6 +117,16 @@ public interface StorageRequestTaskStoreEntities extends StorageRequestTask
 		@Override
 		protected final KeyValue<ByteBuffer[], long[]> internalProcessBy(final StorageChannel channel)
 		{
+			if(this.trustedObjectIdsPerChannel != null)
+			{
+				// validate before writing: a detected dangling reference fails this channel's processing,
+				// which causes the task-wide fail/rollback of whatever the other channels already wrote.
+				channel.validateTrustedReferences(
+					this.trustedObjectIdsPerChannel[channel.channelIndex()],
+					this.referenceValidationPolicy
+				);
+			}
+
 			return channel.storeEntities(this.timestamp(), this.data.channelChunk(channel.channelIndex()));
 		}
 

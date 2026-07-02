@@ -1070,7 +1070,8 @@ public interface StorageFoundation<F extends StorageFoundation<?>> extends Insta
 		protected StorageRequestTaskCreator ensureRequestTaskCreator()
 		{
 			return new StorageRequestTaskCreator.Default(
-				this.getTimestampProvider()
+				this.getTimestampProvider(),
+				this.getConfiguration().referenceValidationPolicy()
 			);
 		}
 

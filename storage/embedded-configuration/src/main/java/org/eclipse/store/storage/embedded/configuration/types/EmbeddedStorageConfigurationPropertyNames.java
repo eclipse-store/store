@@ -176,6 +176,17 @@ public interface EmbeddedStorageConfigurationPropertyNames
 	public final static String DATA_FILE_CLEANUP_HEAD_FILE   = "data-file-cleanup-head-file";
 
 	/**
+	 * Store-time validation of trusted reference object ids (references written into a store's data
+	 * whose entities are not part of the store itself): {@code off}, {@code log} or {@code fail}.
+	 * Default (unset) is {@code log}: detected dangling references are logged as an error but the
+	 * store proceeds. {@code fail} rejects such a store atomically; {@code off} disables collection
+	 * and validation entirely (zero overhead).
+	 *
+	 * @see EmbeddedStorageConfigurationBuilder#setReferenceValidation(String)
+	 */
+	public final static String REFERENCE_VALIDATION             = "reference-validation";
+
+	/**
 	 * Primary chunk-checksum algorithm: {@code none}, {@code crc32c} or
 	 * {@code sha256-chained}. When this key is unset but another {@code chunk-checksum-*} key is present,
 	 * the default is {@code sha256-chained}; setting no {@code chunk-checksum-*} key at all keeps the

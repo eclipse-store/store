@@ -41,6 +41,7 @@ import org.eclipse.store.storage.types.StorageEntityCacheEvaluator;
 import org.eclipse.store.storage.types.StorageFileNameProvider;
 import org.eclipse.store.storage.types.StorageHousekeepingController;
 import org.eclipse.store.storage.types.StorageLiveFileProvider;
+import org.eclipse.store.storage.types.StorageReferenceValidationPolicy;
 
 
 /**
@@ -151,6 +152,11 @@ public interface EmbeddedStorageFoundationCreatorConfigurationBased extends Embe
 			{
 				configBuilder.setChunkChecksumProvider(ccp);
 			}
+
+			this.configuration.opt(REFERENCE_VALIDATION)
+				.map(StorageReferenceValidationPolicy::parse)
+				.ifPresent(configBuilder::setReferenceValidationPolicy)
+			;
 
 			foundation.setConfiguration(configBuilder.createConfiguration());
 

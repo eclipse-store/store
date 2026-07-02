@@ -111,6 +111,27 @@ class EclipseStoreConfigConverterTest
     }
 
     @Test
+    void testReferenceValidationConversion()
+    {
+        final EclipseStoreProperties properties = new EclipseStoreProperties();
+        properties.setReferenceValidation("fail");
+
+        final Map<String, String> result = this.converter.convertConfigurationToMap(properties);
+
+        assertEquals("fail", result.get(EclipseStoreConfigConverter.REFERENCE_VALIDATION));
+    }
+
+    @Test
+    void testReferenceValidationUnsetIsRemoved()
+    {
+        final EclipseStoreProperties properties = new EclipseStoreProperties();
+
+        final Map<String, String> result = this.converter.convertConfigurationToMap(properties);
+
+        assertNull(result.get(EclipseStoreConfigConverter.REFERENCE_VALIDATION));
+    }
+
+    @Test
     void testChunkChecksumConversion()
     {
         final ChunkChecksum chunkChecksum = new ChunkChecksum();

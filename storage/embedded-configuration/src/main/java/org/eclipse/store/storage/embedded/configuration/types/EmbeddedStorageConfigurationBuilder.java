@@ -335,6 +335,15 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 	public EmbeddedStorageConfigurationBuilder setTransactionFileMaximumSize(ByteSize transactionFileMaximumSize);
 
 	/**
+	 * Store-time validation of trusted reference object ids: {@code off}, {@code log} or {@code fail}.
+	 * Default is {@code log}.
+	 *
+	 * @param referenceValidation the policy token
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setReferenceValidation(String referenceValidation);
+
+	/**
 	 * The primary chunk-checksum algorithm: {@code none}, {@code crc32c} or
 	 * {@code sha256-chained}. Default is {@code sha256-chained}. Setting any {@code chunk-checksum-*} property
 	 * activates declarative configuration of the feature; leaving them all unset keeps the framework default.
@@ -769,6 +778,14 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 		)
 		{
 			return this.set(TRANSACTION_FILE_MAXIMUM_SIZE, transactionFileMaximumSize.toString());
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setReferenceValidation(
+			final String referenceValidation
+		)
+		{
+			return this.set(REFERENCE_VALIDATION, referenceValidation);
 		}
 
 		@Override
