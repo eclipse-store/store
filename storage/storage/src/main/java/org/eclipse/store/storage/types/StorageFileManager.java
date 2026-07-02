@@ -1345,8 +1345,9 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			{
 				return;
 			}
-			
+
 			this.backupHandler.synchronize(inventory);
+			this.backupHandler.synchronizeRescuedFiles(this.channelIndex(), this.fileProvider);
 		}
 
 		private StorageIdAnalysis initializeForExistingFiles(

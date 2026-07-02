@@ -34,6 +34,14 @@ They can be found as constants in `EmbeddedStorageConfigurationPropertyNames`.
 |The backup file system configuration. See xref:storage-targets/index.adoc[storage targets] configuration.
 |xref:#type-complex[Complex]
 
+|backup-deletion-directory
+|If configured, files removed from the backup will be moved to this directory instead of being physically deleted. Mirrors files already present in the live `deletion-directory`.
+|xref:#type-string[String]
+
+|backup-truncation-directory
+|If configured, backup files that get truncated are copied into this directory. Mirrors files already present in the live `truncation-directory`.
+|xref:#type-string[String]
+
 |xref:#channel-count[channel-count]
 |The number of threads and number of directories used by the storage engine. Every thread has exclusive access to its directory. Default is `1`.
 |xref:#type-integer[Integer]
@@ -276,6 +284,12 @@ This list shows which property configures which type, used by the foundation typ
 
 | backup-filesystem
 | `StorageBackupSetup`
+
+| backup-deletion-directory
+| `StorageBackupFileProvider`
+
+| backup-truncation-directory
+| `StorageBackupFileProvider`
 
 | channel-count
 | `StorageChannelCountProvider`

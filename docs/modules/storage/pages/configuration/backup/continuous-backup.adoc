@@ -31,6 +31,32 @@ EmbeddedStorageManager storageManager = EmbeddedStorageConfigurationBuilder.New(
 backupDirectory = backupDir
 ----
 
+== Mirroring deletion and truncation directories
+
+When the live storage uses a `deletion-directory` and/or `truncation-directory`, configure the backup-side counterparts so the rescued files are also preserved on the backup side. Without this, files removed from the backup during housekeeping are physically deleted even though the live side keeps them for recovery.
+
+[source,java,title="Java"]
+----
+EmbeddedStorageManager storageManager = EmbeddedStorageConfigurationBuilder.New()
+	.setStorageDirectory("storageDir")
+	.setDeletionDirectory("storageDir/deleted")
+	.setTruncationDirectory("storageDir/truncated")
+	.setBackupDirectory("backupDir")
+	.setBackupDeletionDirectory("backupDir/deleted")
+	.setBackupTruncationDirectory("backupDir/truncated")
+	.createEmbeddedStorageFoundation()
+	.createEmbeddedStorageManager();
+----
+
+[source,text,title="external configuration:"]
+----
+backup-directory = backupDir
+backup-deletion-directory = backupDir/deleted
+backup-truncation-directory = backupDir/truncated
+----
+
+On startup, the backup is synchronized with the live deletion and truncation directories: any rescued file already present on the live side is copied to the backup-side counterpart if it isn't there yet. The check is idempotent and matches files by their parsed channel and file number.
+
 With {product-name} foundation classes:
 
 [source,java,title="Java"]
