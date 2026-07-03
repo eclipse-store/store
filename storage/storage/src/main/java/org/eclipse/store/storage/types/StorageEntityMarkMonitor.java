@@ -44,7 +44,32 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 	public void advanceMarking(StorageObjectIdMarkQueue objectIdMarkQueue, int amount);
 
 	public void clearPendingStoreUpdate(StorageEntityCache<?> channel);
-	
+
+	/**
+	 * Signals that the passed channel is currently collecting entity data for a load request.
+	 * While any channel has a pending load, {@link #isMarkingComplete()} reports {@code false},
+	 * preventing a sweep from being initiated in the middle of a load task.
+	 * <p>
+	 * This is the load-side counterpart to {@link #signalPendingStoreUpdate(StorageEntityCache)}:
+	 * entity data handed out by a load will be registered in the application's object registry
+	 * and thus be kept alive by the sweep-time safety net even if it is not reachable from the
+	 * persisted root. If that happens after the live object id seed of the current GC cycle ran,
+	 * the entity itself survives the sweep, but its references are never traversed, so entities
+	 * reachable only through it (e.g. the target of a not yet resolved lazy reference) get swept
+	 * and the surviving entity's persisted record dangles ("mid-cycle registration race").
+	 * Blocking sweep initiation for the duration of the load task gives the entity cache a stable
+	 * window to gc-protect and enqueue the collected entities
+	 * (see StorageEntityCache.Default#markEntityForLoadedData), guaranteeing their references are
+	 * marked before the sweep decides what to delete.
+	 */
+	public void signalPendingLoad(StorageEntityCache<?> channel);
+
+	/**
+	 * Clears the pending load state signaled via {@link #signalPendingLoad(StorageEntityCache)}
+	 * for the passed channel.
+	 */
+	public void clearPendingLoad(StorageEntityCache<?> channel);
+
 	public boolean isComplete();
 
 	public boolean isComplete(StorageEntityCache<?> channel);
@@ -214,6 +239,8 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 		private       long      pendingMarksCount      ;
 		private final boolean[] pendingStoreUpdates    ;
 		private       int       pendingStoreUpdateCount;
+		private final boolean[] pendingLoads           ;
+		private       int       pendingLoadCount       ;
 		
 		private final boolean[] needsSweep             ;
 		private       int       sweepingChannelCount   ;
@@ -294,6 +321,7 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			this.channelCount            = oidMarkQueues.length          ;
 			this.channelHash             = this.channelCount - 1         ;
 			this.pendingStoreUpdates     = new boolean[this.channelCount];
+			this.pendingLoads            = new boolean[this.channelCount];
 			this.needsSweep              = new boolean[this.channelCount];
 			this.channelRootOids         = new long   [this.channelCount];
 			this.liveObjectIdsIterator   = liveObjectIdsIterator         ;
@@ -333,9 +361,14 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			{
 				this.pendingStoreUpdates[i] = false;
 			}
-			
+			for(int i = 0; i < this.pendingLoads.length; i++)
+			{
+				this.pendingLoads[i] = false;
+			}
+
 			this.pendingMarksCount = 0;
 			this.pendingStoreUpdateCount = 0;
+			this.pendingLoadCount = 0;
 		}
 		
 		private void initializeSweepingState()
@@ -417,7 +450,10 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 		@Override
 		public final synchronized boolean isMarkingComplete()
 		{
-			return this.pendingMarksCount == 0 && this.pendingStoreUpdateCount == 0;
+			// pendingLoadCount > 0 defers sweep initiation while a load task is collecting entities,
+			// so that entities handed out to the application are gc-protected and their enqueued
+			// references are marked before any sweep (see #signalPendingLoad).
+			return this.pendingMarksCount == 0 && this.pendingStoreUpdateCount == 0 && this.pendingLoadCount == 0;
 		}
 
 		@Override
@@ -461,6 +497,28 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			{
 				this.pendingStoreUpdates[channel.channelIndex()] = false;
 				this.pendingStoreUpdateCount--;
+			}
+		}
+
+		@Override
+		public final synchronized void signalPendingLoad(final StorageEntityCache<?> channel)
+		{
+			// check array to ensure idempotence
+			if(!this.pendingLoads[channel.channelIndex()])
+			{
+				this.pendingLoads[channel.channelIndex()] = true;
+				this.pendingLoadCount++;
+			}
+		}
+
+		@Override
+		public final synchronized void clearPendingLoad(final StorageEntityCache<?> channel)
+		{
+			// check array to ensure idempotence
+			if(this.pendingLoads[channel.channelIndex()])
+			{
+				this.pendingLoads[channel.channelIndex()] = false;
+				this.pendingLoadCount--;
 			}
 		}
 
