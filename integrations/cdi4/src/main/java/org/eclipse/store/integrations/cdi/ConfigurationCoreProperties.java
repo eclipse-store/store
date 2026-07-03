@@ -230,6 +230,14 @@ public enum ConfigurationCoreProperties
 	),
 
 	/**
+	 * Reaction of the storage garbage collector to an encountered zombie object id: log or fail. Default log.
+	 */
+	GC_ZOMBIE_OID_HANDLING(
+			Constants.PREFIX + "gc.zombie.oid.handling",
+			EmbeddedStorageConfigurationPropertyNames.GC_ZOMBIE_OID_HANDLING
+	),
+
+	/**
 	 * Primary chunk-checksum algorithm: none, crc32c or sha256-chained. Default sha256-chained.
 	 */
 	CHUNK_CHECKSUM_ALGORITHM(

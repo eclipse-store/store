@@ -344,6 +344,15 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 	public EmbeddedStorageConfigurationBuilder setReferenceValidation(String referenceValidation);
 
 	/**
+	 * Reaction of the storage garbage collector to an encountered zombie object id:
+	 * {@code log} or {@code fail}. Default is {@code log}.
+	 *
+	 * @param gcZombieOidHandling the reaction token
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setGcZombieOidHandling(String gcZombieOidHandling);
+
+	/**
 	 * The primary chunk-checksum algorithm: {@code none}, {@code crc32c} or
 	 * {@code sha256-chained}. Default is {@code sha256-chained}. Setting any {@code chunk-checksum-*} property
 	 * activates declarative configuration of the feature; leaving them all unset keeps the framework default.
@@ -786,6 +795,14 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 		)
 		{
 			return this.set(REFERENCE_VALIDATION, referenceValidation);
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setGcZombieOidHandling(
+			final String gcZombieOidHandling
+		)
+		{
+			return this.set(GC_ZOMBIE_OID_HANDLING, gcZombieOidHandling);
 		}
 
 		@Override

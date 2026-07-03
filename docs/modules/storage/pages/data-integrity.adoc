@@ -350,6 +350,25 @@ Details and bounds:
 * Transitive dangling references (a healed instance itself referencing a missing id) are healed recursively, bounded by a maximum depth; the number of retry rounds is bounded by the channel count.
 * **Unhealable:** an unloaded `Lazy` reference's cached id has no in-memory instance — if such an id is missing, the data is genuinely gone and the store fails exactly like `fail` mode.
 
+== Zombie Object Id Escalation
+
+Reference validation guards *new* stores. A dangling reference that is *already persisted* (pre-existing corruption, crash artifacts, data written by older versions) is first noticed by the storage garbage collector's marking, when it walks a binary record and hits an object id with no entity — a *zombie object id*. By default this is only logged as a warning (and reported via `StorageEventLogger#logGarbageCollectorEncounteredZombieObjectId`); the first hard failure then typically happens at a much later load or restart, after housekeeping may have physically reclaimed related data.
+
+The `gc-zombie-oid-handling` configuration property (or `EmbeddedStorageFoundation#setGCZombieOidHandler(StorageGCZombieOidHandler.Strict())`) escalates this:
+
+[cols="1,3"]
+|===
+| Mode | Effect
+
+| `log` (default)
+| The zombie is WARN-logged and reported to the event logger; garbage collection continues.
+
+| `fail`
+| A `StorageExceptionConsistencyZombieOid` (carrying the object id) is thrown at mark time, halting the affected storage channel. This sacrifices availability for integrity visibility: the failure happens while the swept entity's bytes may still be physically present in the data files (the startup scanner can resurrect uncompacted entities), maximizing the chance of diagnosis and recovery.
+|===
+
+Treat any zombie warning as a data-integrity alarm: it means a dangling reference exists on disk, whatever its origin.
+
 == Limitations
 
 * Verification runs automatically only at startup; it does not re-check individual lazy/cache loads during normal operation. A running storage can be re-verified explicitly with an on-demand integrity check (see <<_on_demand_integrity_verification>>).

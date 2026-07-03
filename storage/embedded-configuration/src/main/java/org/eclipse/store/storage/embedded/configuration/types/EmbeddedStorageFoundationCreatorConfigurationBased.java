@@ -40,6 +40,7 @@ import org.eclipse.store.storage.types.StorageDataFileEvaluator;
 import org.eclipse.store.storage.types.StorageEntityCacheEvaluator;
 import org.eclipse.store.storage.types.StorageFileNameProvider;
 import org.eclipse.store.storage.types.StorageHousekeepingController;
+import org.eclipse.store.storage.types.StorageGCZombieOidHandler;
 import org.eclipse.store.storage.types.StorageLiveFileProvider;
 import org.eclipse.store.storage.types.StorageReferenceValidationPolicy;
 
@@ -157,6 +158,24 @@ public interface EmbeddedStorageFoundationCreatorConfigurationBased extends Embe
 				.map(StorageReferenceValidationPolicy::parse)
 				.ifPresent(configBuilder::setReferenceValidationPolicy)
 			;
+
+			this.configuration.opt(GC_ZOMBIE_OID_HANDLING).ifPresent(value ->
+			{
+				switch(value.trim().toLowerCase())
+				{
+					case "log":
+						// default behavior, nothing to set
+						break;
+					case "fail":
+						foundation.setGCZombieOidHandler(StorageGCZombieOidHandler.Strict());
+						break;
+					default:
+						throw new IllegalArgumentException(
+							"Invalid " + GC_ZOMBIE_OID_HANDLING + ": \"" + value
+							+ "\". Valid values are: log, fail."
+						);
+				}
+			});
 
 			foundation.setConfiguration(configBuilder.createConfiguration());
 

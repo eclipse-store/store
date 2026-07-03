@@ -125,6 +125,10 @@ They can be found as constants in `EmbeddedStorageConfigurationPropertyNames`.
 |reference-validation
 |Store-time validation of references whose target entities are not part of the store itself (`off`, `log`, `fail` or `heal`). With `log` (the default), a store referencing a non-existing entity (dangling reference) is logged as an error but proceeds; with `fail` such a store is rejected atomically; with `heal` a rejected store is additionally repaired automatically (the still-live referenced instances are re-stored under their existing object ids and the store is retried); `off` disables the validation entirely (zero overhead). See xref:../data-integrity.adoc[Data Integrity] for the failure mode this guards against.
 |xref:#type-string[String]
+
+|gc-zombie-oid-handling
+|Reaction of the storage garbage collector to an encountered zombie object id — a persisted binary record referencing a non-existing entity, i.e. a dangling reference already present in the storage (`log` or `fail`). With `log` (the default), the zombie is logged as a warning and reported to the event logger, and garbage collection continues; with `fail` a `StorageExceptionConsistencyZombieOid` is thrown, halting the affected channel while the evidence may still be recoverable. See xref:../data-integrity.adoc[Data Integrity].
+|xref:#type-string[String]
 |===
 
 == Property Types

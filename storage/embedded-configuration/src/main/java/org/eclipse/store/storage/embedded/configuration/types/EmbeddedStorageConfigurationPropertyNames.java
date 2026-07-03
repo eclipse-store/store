@@ -189,6 +189,18 @@ public interface EmbeddedStorageConfigurationPropertyNames
 	public final static String REFERENCE_VALIDATION             = "reference-validation";
 
 	/**
+	 * Reaction of the storage garbage collector to an encountered zombie object id (a persisted
+	 * binary record referencing a non-existing entity, i.e. a dangling reference already present in
+	 * the storage): {@code log} or {@code fail}. Default (unset) is {@code log}: the zombie is
+	 * WARN-logged and reported to the event logger, the garbage collection continues. {@code fail}
+	 * throws a {@code StorageExceptionConsistencyZombieOid}, halting the affected channel while the
+	 * evidence may still be recoverable (diagnosis-focused deployments).
+	 *
+	 * @see EmbeddedStorageConfigurationBuilder#setGcZombieOidHandling(String)
+	 */
+	public final static String GC_ZOMBIE_OID_HANDLING           = "gc-zombie-oid-handling";
+
+	/**
 	 * Primary chunk-checksum algorithm: {@code none}, {@code crc32c} or
 	 * {@code sha256-chained}. When this key is unset but another {@code chunk-checksum-*} key is present,
 	 * the default is {@code sha256-chained}; setting no {@code chunk-checksum-*} key at all keeps the
