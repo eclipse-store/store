@@ -93,6 +93,23 @@ public interface StorageRequestTaskGarbageCollection extends StorageRequestTask
 		}
 
 		@Override
+		protected final void cleanUp(final StorageChannel channel)
+		{
+			/*
+			 * The follow-up task is normally chained by succeed(). If the garbage collection fails
+			 * (e.g. a throwing StorageGCZombieOidHandler or an error during marking), succeed() never
+			 * runs and the task chain would be severed: every subsequently enqueued task - including
+			 * a shutdown - is attached behind the unreachable follow-up task, while the channel keeps
+			 * waiting on THIS task's next pointer until its full housekeeping-interval timeout expires.
+			 * Repair the linkage here, in the always-executed per-channel cleanup.
+			 */
+			if(this.hasProblems() && this.actualTask != null && this.next() == null)
+			{
+				this.setActualTask(); // synchronized and idempotent across channels
+			}
+		}
+
+		@Override
 		public final boolean result()
 		{
 			return this.completed;
