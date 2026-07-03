@@ -379,35 +379,45 @@ The skip costs nothing: the next wave starts with `resetCompletion` (which clear
 
 So the seed runs on `Dirty → HotComplete` (the cold mark cycle within the wave gets app-state roots) but is skipped on `HotComplete → ColdComplete` (idle transition).
 
-### 10.2. Pre-sweep gate (defense in depth, runs at most once per GC cycle)
+### 10.2. Pre-sweep gate + registration-version check
 
-`completeSweep` runs *after* a sweep has already executed. That means it cannot protect the very first sweep of a freshly-armed GC cycle, when no prior post-sweep seed exists yet (e.g. cycle 0 right after startup, or any cycle following a `resetCompletion()` triggered by a store).
+`completeSweep` runs *after* a sweep has already executed. That means it cannot protect the very first sweep of a freshly-armed GC cycle, when no prior post-sweep seed exists yet (e.g. cycle 0 right after startup, or any cycle following a `resetCompletion()` triggered by a store). And a seed that *did* run can be **stale** by sweep time: the application can register new objects (most importantly by *loading* them) after the seed ran — the mid-cycle registration race, §10.4.
 
-To close that gap, `callToSweepRequired` performs a **pre-sweep gate** the first time it observes `isMarkingComplete()` in a cycle:
+To close both gaps, `callToSweepRequired` runs a **seed/verify loop** before every sweep initiation:
 
 ```java
 // StorageEntityMarkMonitor.Default#callToSweepRequired (simplified)
-if(!this.liveOidsSeededForCurrentCycle && this.liveObjectIdsIterator != null)
+if(this.liveObjectIdsIterator != null)
 {
-    this.liveOidsSeededForCurrentCycle = true;
-    this.enqueueLiveApplicationOids(this.liveObjectIdsIterator);
-
-    // If seeding raised pendingMarksCount, marking is no longer complete:
-    // tell the caller to keep marking before the sweep is initiated.
-    if(!this.isMarkingComplete())
+    while(!this.liveOidsSeededForCurrentCycle
+        || this.liveObjectIdsIterator.registrationVersion() != this.seedRegistrationVersion
+    )
     {
-        return false;
+        this.liveOidsSeededForCurrentCycle = true;
+        // snapshot BEFORE iterating: a registration racing with the seed is either
+        // included in the iteration or bumps the version past the snapshot and is
+        // caught by the next compare. Snapshot-after-seed could miss one forever.
+        this.seedRegistrationVersion = this.liveObjectIdsIterator.registrationVersion();
+        this.enqueueLiveApplicationOids(this.liveObjectIdsIterator);
+
+        // If seeding raised pendingMarksCount, marking is no longer complete:
+        // tell the caller to keep marking before the sweep is initiated.
+        if(!this.isMarkingComplete())
+        {
+            return false;
+        }
+        // Otherwise (empty registry / all already marked) the loop re-checks
+        // version stability, then falls through to sweep.
     }
-    // Otherwise (empty registry / all already marked) fall through to sweep.
 }
 ```
 
-The `liveOidsSeededForCurrentCycle` flag makes this a *one-shot* gate per cycle: it is set to `true` here and cleared on every store via `resetCompletion()` and on every channel reset via `initialize()` (so a shutdown/restart starts the next cycle with the gate armed). That means:
+The `liveOidsSeededForCurrentCycle` flag now means "the seed ran *at least once* this cycle" (set here, cleared on every store via `resetCompletion()` and on every channel reset via `initialize()`); the *staleness* of the seed is guarded separately by the registration-version compare. That means:
 
-- The hot-phase pre-sweep does fire on cycle entry → registry-only-kept entities become mark roots before any sweep runs.
-- The cold-phase pre-sweep skips, because the post-hot-sweep seed (10.1) already established the same mark roots, and the subsequent cold mark phase has just drained them. Re-seeding here would only add work.
+- The hot-phase pre-sweep fires on cycle entry → registry-only-kept entities become mark roots before any sweep runs.
+- The cold-phase pre-sweep does not re-fire via the flag (the post-hot-sweep seed (10.1) already established the mark roots), but the **version compare still runs** at the cold sweep's initiation — registrations landing between the hot sweep and the cold sweep are caught against the snapshot taken by the post-sweep seed.
 
-The `resetMarkQueues()` invariant (which throws if any queue still has elements) is preserved: pre-sweep seeding either drains in the next mark slice (returning `false` here) or contributes zero new OIDs; only when the queues are empty does control reach `resetMarkQueues` + `initiateSweep`.
+The `resetMarkQueues()` invariant (which throws if any queue still has elements) is preserved: seeding either drains in the next mark slice (returning `false` here) or contributes zero new OIDs; only when the queues are empty does control reach `resetMarkQueues` + `initiateSweep`. Termination: a seed of a non-empty registry raises `pendingMarksCount` and returns `false`, so the loop body only repeats immediately when the seed enqueued nothing — at most a couple of iterations per call.
 
 ### 10.3. Why both, and not just one
 
@@ -416,8 +426,32 @@ The `resetMarkQueues()` invariant (which throws if any queue still has elements)
 | First (hot) mark/sweep of a wave (wave 0 or post-`resetCompletion`) | pre-sweep gate (10.2) | post-sweep seed has not run yet in this wave |
 | Cold mark/sweep within the same wave | post-sweep seed at hot completion (10.1) | gate flag stays set for the rest of the wave; without 10.1 the cold mark phase would seed from no-one |
 | After cold completion (idle until next store) | nothing — by design | no follow-up mark cycle, so seeding would only park the registry in the mark queues; the next wave's pre-sweep gate (10.2) re-seeds when work resumes |
-| Race: OID enters registry between mark and sweep of same cycle | sweep-time `ObjectIdsSelector` predicate (shallow safety net) | per-entity, evaluated at sweep time, no transitivity needed because the entity's binary was just stored or just loaded and is consistent |
+| Race: OID enters registry between the seed and the sweep *initiation* | registration-version compare in the 10.2 seed/verify loop (both hot and cold sweep initiations) | the shallow sweep predicate alone is NOT enough: a *loaded* entity's binary can reference children that were neither loaded nor registered (e.g. an unloaded `Lazy`'s target) — see §10.4 |
+| Race: OID enters registry after sweep *initiation*, before/between per-channel sweeps | sweep-time `ObjectIdsSelector` predicate (shallow safety net) only — **residual window**, see §10.4 | entities *stored* in that window are safe anyway (store-time gray-marks + `resetCompletion`); entities *loaded* in that window are the remaining theoretical exposure; per-channel sweeps themselves run under the registry mutex, so no interleaving within a channel |
 | Case (b) entry (cleared `WeakReference`, hash-table entry not yet reaped) on the housekeeping GC path | id-only criterion shared by 10.1 / 10.2 mark seed and 3.4 sweep predicate | the housekeeping path calls neither `cleanUp()` (only fires on storer-merge) nor `consolidate()` (only fires on `issueGarbageCollection`); without the shared criterion, sweep would keep the case (b) entry while mark skipped it, leaving its stored binary references unwalked — see §8 |
+
+### 10.4. The mid-cycle registration race
+
+Found 2026-07-03, reproduced deterministically by `MidCycleRegistrationRaceTest` (integration-tests, `test.eclipse.store.gc`). The failure chain, with an orphaned on-disk graph `X(Parent) → L(unloaded Lazy) → Y(Payload)` whose Java instances were collected and reaped from the registry:
+
+1. A GC cycle runs its live-OID seed — X/L/Y are not in the registry, so none is seeded or marked.
+2. The application **loads X by OID** (retained id, stale navigation, `Lazy.get()`). The load registers X and its eagerly built — but unloaded — Lazy instance L in the registry, *after* the seed, *before* the sweep. Y is never registered: an unloaded Lazy does not build its target.
+3. Sweep: X and L survive via the shallow id-only predicate; Y (white, unregistered) is deleted. L's persisted binary now references a nonexistent entity.
+4. Next mark walks L's record → zombie OID; the next reload / `Lazy.get()` throws `StorageExceptionConsistency: No entity found for objectId Y`.
+
+The former §10.3 justification for this window ("the entity's binary was just loaded and is consistent, no transitivity needed") is exactly what step 2 disproves: the binary *is* consistent, but its referenced child is neither loaded, registered, nor marked.
+
+**The fix** is the registration-version check of §10.2:
+
+- `DefaultObjectRegistry` (serializer) increments a `volatile long registrationVersion` at its single new-association choke point (`synchPutNewEntry`) — all register paths funnel there, including re-binding an id whose weak entry was cleared; lookups, updates and removals do not count (a removal cannot make an unmarked entity rescuable).
+- The version is published lock-free (volatile read via `PersistenceObjectRegistry#registrationVersion()` → `LiveObjectIdsIterator#registrationVersion()` → `EmbeddedStorageObjectRegistryCallback`), so the mark monitor never takes the registry mutex to read it.
+- The monitor snapshots the version at **both** seed sites (pre-sweep gate 10.2 and post-sweep seed 10.1) and compares before every sweep initiation; a mismatch re-runs the seed and lets the mark phase drain the new roots transitively before any deletion.
+
+Trade-offs and boundaries:
+
+- **Starvation**: continuous registrations defer the sweep indefinitely across calls — the same trade-off as continuous stores deferring completion via `resetCompletion()`. Deliberately unbounded: sweeping with a stale seed would re-open the race.
+- **Custom registries**: `PersistenceObjectRegistry#registrationVersion()` defaults to a constant `0` ("registrations never observable") — correct for registries that never gain entries (e.g. the REST adapter's disabled registry), but runtime-mutable custom implementations must override it or they keep pre-fix behavior.
+- **Residual window (honestly)**: the compare happens at sweep *initiation*. A registration landing after `initiateSweep()` but before/between the per-channel sweeps is still covered only by the shallow predicate. This cannot be fully closed post-hoc — a channel may already have deleted the child. Mitigating: each channel's entire sweep runs under the registry mutex (registrations cannot interleave *within* a channel sweep), so the residual exposure is the initiation→first-sweep gap and the between-channel gaps in multi-channel setups — orders of magnitude narrower than the whole mark phase, and not reachable via the load path the test exercises. A further hardening (version check at sweep entry + cooperative wave abort) is possible but changes wave-state invariants and is deliberately not part of this fix.
 
 ### Interface layering
 
