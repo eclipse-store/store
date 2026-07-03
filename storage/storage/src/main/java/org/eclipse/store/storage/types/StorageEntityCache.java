@@ -462,6 +462,26 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			}
 		}
 
+		final void registerPendingImportUpdate()
+		{
+			synchronized(this.markMonitor)
+			{
+				/*
+					 * Mirrors the store path's gc coordination (see #registerPendingStoreUpdate and
+					 * #postStorePutEntities) for the import commit: signal first so no sweep can be
+					 * initiated while the import registers its entities, re-arm the gc completion
+					 * state, and cache the pending sweep state for #markEntityForChangedData.
+					 * The cached state is stable for the duration of the import commit: sweep
+					 * initiation is blocked by the pending store update, and an already initiated
+					 * sweep for this channel can only be executed by this channel's own thread,
+					 * which is busy processing the import task.
+					 */
+				this.markMonitor.signalPendingStoreUpdate(this);
+				this.markMonitor.resetCompletion();
+				this.hasUpdatePendingSweep = this.markMonitor.isPendingSweep(this);
+			}
+		}
+
 		final void registerPendingLoad()
 		{
 			synchronized(this.markMonitor)
@@ -716,7 +736,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		 * by the GC and should actually not be necessary, however as the effort to do it at this point is rather minimal, it's done
 		 * nonetheless.
 		 */
-		private void markEntityForChangedData(final StorageEntity.Default entry)
+		final void markEntityForChangedData(final StorageEntity.Default entry)
 		{
 			/*
 			 * (01.08.2016 TM)NOTE:
