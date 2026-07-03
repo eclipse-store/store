@@ -222,7 +222,7 @@ public enum ConfigurationCoreProperties
 	),
 
 	/**
-	 * Store-time validation of trusted reference object ids: off, log or fail. Default log.
+	 * Store-time validation of trusted reference object ids: off, log, fail or heal. Default log.
 	 */
 	REFERENCE_VALIDATION(
 			Constants.PREFIX + "reference.validation",

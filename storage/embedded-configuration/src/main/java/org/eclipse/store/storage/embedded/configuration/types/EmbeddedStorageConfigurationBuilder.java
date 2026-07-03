@@ -335,8 +335,8 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 	public EmbeddedStorageConfigurationBuilder setTransactionFileMaximumSize(ByteSize transactionFileMaximumSize);
 
 	/**
-	 * Store-time validation of trusted reference object ids: {@code off}, {@code log} or {@code fail}.
-	 * Default is {@code log}.
+	 * Store-time validation of trusted reference object ids: {@code off}, {@code log}, {@code fail}
+	 * or {@code heal}. Default is {@code log}.
 	 *
 	 * @param referenceValidation the policy token
 	 * @return this

@@ -16,6 +16,7 @@ package org.eclipse.store.storage.exceptions;
 
 import java.util.Arrays;
 
+import org.eclipse.serializer.persistence.exceptions.PersistenceDanglingReferences;
 import org.eclipse.serializer.util.X;
 
 /**
@@ -28,11 +29,15 @@ import org.eclipse.serializer.util.X;
  * The store was rejected atomically; the storage remains fully usable. To resolve, re-store the
  * referenced objects so their data exists again &mdash; e.g. include them explicitly in the store
  * ({@code storer.storeAll(parent, child)}) or store them with an eager storer &mdash; and retry.
+ * With the {@code heal} validation policy, the storer performs that repair automatically and this
+ * exception only surfaces when healing is impossible (no live instance for a missing id).
  * <p>
  * Note that at the caller, this exception is wrapped: it appears as the cause of a
  * {@code PersistenceExceptionTransfer} / {@code StorageException} chain.
  */
-public class StorageExceptionConsistencyDanglingReference extends StorageExceptionConsistency
+public class StorageExceptionConsistencyDanglingReference
+extends StorageExceptionConsistency
+implements PersistenceDanglingReferences
 {
 	///////////////////////////////////////////////////////////////////////////
 	// instance fields //
@@ -76,6 +81,7 @@ public class StorageExceptionConsistencyDanglingReference extends StorageExcepti
 	/**
 	 * @return the referenced object ids for which no entity exists (a defensive copy).
 	 */
+	@Override
 	public long[] missingObjectIds()
 	{
 		return this.missingObjectIds.clone();

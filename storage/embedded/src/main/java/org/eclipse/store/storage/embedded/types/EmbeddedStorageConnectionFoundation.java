@@ -28,6 +28,7 @@ import org.eclipse.serializer.persistence.types.PersistenceManager;
 import org.eclipse.serializer.persistence.types.PersistenceStorer;
 import org.eclipse.serializer.reference.Reference;
 import org.eclipse.store.storage.types.StorageConnection;
+import org.eclipse.store.storage.types.StorageReferenceValidationPolicy;
 import org.eclipse.store.storage.types.StorageRequestAcceptor;
 import org.eclipse.store.storage.types.StorageSystem;
 import org.eclipse.store.storage.types.StorageWriteController;
@@ -400,11 +401,15 @@ extends BinaryPersistenceFoundation<F>
 		@Override
 		protected BinaryStorer.Creator ensureStorerCreator()
 		{
+			// capture/heal derive from the storage-side validation policy; single config knob.
+			final StorageReferenceValidationPolicy referenceValidationPolicy =
+				this.getStorageSystem().configuration().referenceValidationPolicy();
+
 			return BinaryStorer.Creator(
 				this.getStorageSystem().channelCountProvider(),
-				this.isByteOrderMismatch(),
-				// capture is only worthwhile when the storage-side validation is enabled; single config knob.
-				this.getStorageSystem().configuration().referenceValidationPolicy().isValidating()
+				this.isByteOrderMismatch()                    ,
+				referenceValidationPolicy.isValidating()      ,
+				referenceValidationPolicy.isHealing()
 			);
 		}
 
