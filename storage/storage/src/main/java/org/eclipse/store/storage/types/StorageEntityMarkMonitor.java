@@ -91,6 +91,14 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 
 	public void enqueue(StorageObjectIdMarkQueue objectIdMarkQueue, long objectId);
 
+	/**
+	 * Bulk variant of {@link #enqueue(StorageObjectIdMarkQueue, long)}: registers {@code amount}
+	 * objectIds from the passed buffer with the central pending marks count in a single
+	 * synchronization step and enqueues them into the passed queue. Used by batching callers
+	 * (e.g. the load-time gc protection) to avoid acquiring the mark monitor once per objectId.
+	 */
+	public void enqueueBulk(StorageObjectIdMarkQueue objectIdMarkQueue, long[] objectIds, int amount);
+
 
 	/**
 	 * Reset to a clean initial state, ready to be used.
@@ -786,6 +794,26 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			this.incrementPendingMarksCount();
 			// no need to keep the lock longer than necessary or nested with the queue lock.
 			objectIdMarkQueue.enqueue(objectId);
+		}
+
+		@Override
+		public final void enqueueBulk(
+			final StorageObjectIdMarkQueue objectIdMarkQueue,
+			final long[]                   objectIds        ,
+			final int                      amount
+		)
+		{
+			if(amount <= 0)
+			{
+				return;
+			}
+
+			synchronized(this)
+			{
+				this.pendingMarksCount += amount;
+			}
+			// no need to keep the lock longer than necessary or nested with the queue lock.
+			objectIdMarkQueue.enqueueBulk(objectIds, amount);
 		}
 
 		@Override

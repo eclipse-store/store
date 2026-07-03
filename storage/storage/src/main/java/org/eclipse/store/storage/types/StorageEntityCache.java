@@ -95,6 +95,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		        final StorageEntityCacheEvaluator        entityCacheEvaluator;
 		private final StorageTypeDictionary              typeDictionary      ;
 		private final long[]                             markingOidBuffer    ;
+		private final long[]                             loadMarkingOidBuffer;
 		private final StorageGCZombieOidHandler          zombieOidHandler    ;
 		private final StorageRootOidSelector             rootOidSelector     ;
 		private final RootEntityRootOidSelectionIterator rootEntityIterator  ;
@@ -119,6 +120,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		private boolean hasUpdatePendingSweep;
 		private boolean hasLoadPendingSweep  ;
 		private boolean loadMarkingRequired  ;
+		private int     loadMarkingOidCount  ;
 		
 		// Statistics for debugging / monitoring / checking to compare with other channels and with the markmonitor
 		private long sweepGeneration, lastSweepStart, lastSweepEnd;
@@ -177,6 +179,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			
 			this.channelHashModulo  = channelCount - 1;
 			this.markingOidBuffer   = new long[markingBufferLength];
+			this.loadMarkingOidBuffer = new long[markingBufferLength];
 			this.rootEntityIterator = new RootEntityRootOidSelectionIterator(rootOidSelector);
 			this.typeHead           = new StorageEntityType.Default(this.channelIndex);
 			
@@ -239,6 +242,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			this.resetLiveCursor();
 
 			this.usedCacheSize  = 0L;
+			this.loadMarkingOidCount = 0;
 
 			// create a new root type instance on every clear. Everything else is not worth the reset&register-hassle.
 			this.rootType       = this.getType(this.rootTypeId);
@@ -477,6 +481,13 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		final void clearPendingLoad()
 		{
 			// (see clearPendingStoreUpdate) potentially gets called after reset(), so it must be accordingly robust.
+
+			/*
+			 * Flush BEFORE releasing the pending load signal: the buffered gray-marked entities'
+			 * objectIds must be registered as pending marks while sweep initiation is still blocked,
+			 * otherwise the sweep gate could initiate a sweep before their references are traversed.
+			 */
+			this.flushLoadMarkingOids();
 
 			this.loadMarkingRequired = false;
 			this.hasLoadPendingSweep = false;
@@ -825,13 +836,38 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			{
 				entry.markGray();
 
-				// must mark via mark monitor to keep central mark count consistent. NEVER directly via the queue!
-				this.markMonitor.enqueue(this.oidMarkQueue, entry.objectId());
+				/*
+				 * Batched enqueue: loads can collect a huge number of entities; registering every
+				 * objectId with the central pending marks count individually would acquire the mark
+				 * monitor once per entity. The buffer is flushed when full and - crucially - in
+				 * clearPendingLoad() BEFORE the pending load signal is released, so the sweep gate
+				 * observes the pending marks before it could ever initiate a sweep.
+				 * Buffering gray-marked but not yet enqueued entities is safe for the task duration:
+				 * sweep initiation is blocked while the pending load is signaled, and this channel's
+				 * own marking cannot run concurrently (single channel thread, busy with this task).
+				 */
+				this.loadMarkingOidBuffer[this.loadMarkingOidCount] = entry.objectId();
+				if(++this.loadMarkingOidCount >= this.loadMarkingOidBuffer.length)
+				{
+					this.flushLoadMarkingOids();
+				}
 				return;
 			}
 
 			// entities without references
 			entry.markBlack();
+		}
+
+		private void flushLoadMarkingOids()
+		{
+			if(this.loadMarkingOidCount == 0)
+			{
+				return;
+			}
+
+			// must mark via mark monitor to keep central mark count consistent. NEVER directly via the queue!
+			this.markMonitor.enqueueBulk(this.oidMarkQueue, this.loadMarkingOidBuffer, this.loadMarkingOidCount);
+			this.loadMarkingOidCount = 0;
 		}
 
 
