@@ -38,15 +38,14 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 public class Main
 {
 	static final File workingdir = GetTempWorkDirectory("e008-LegacyTypeMappingExample");
-	static final String storageChannelFileName = "channel_0\\channel_0_1.dat";
-	
+
 	@SuppressWarnings("resource")
 	public static void main(final String[] args)
 	{
 		final EmbeddedStorageManager storage;
-				
+
 		//if no channel storage files are found a new storage is created
-		if(!Files.exists(Paths.get(workingdir.getPath(), storageChannelFileName)))
+		if(!Files.exists(Paths.get(workingdir.getPath(), "channel_0", "channel_0_1.dat")))
 		{
 			storage = EmbeddedStorage.Foundation(workingdir.toPath()).start();
 			final NicePlace myPlace = new NicePlace("Campground", "not far away");

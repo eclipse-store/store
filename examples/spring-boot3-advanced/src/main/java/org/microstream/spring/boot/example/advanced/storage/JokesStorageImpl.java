@@ -15,6 +15,7 @@ package org.microstream.spring.boot.example.advanced.storage;
  */
 
 import org.eclipse.serializer.persistence.types.Storer;
+import org.eclipse.store.integrations.spring.boot.types.concurrent.Mutex;
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Read;
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Write;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
@@ -27,6 +28,7 @@ import java.util.List;
 
 
 @Component
+@Mutex("jokes")
 public class JokesStorageImpl implements JokesStorage
 {
     private final EmbeddedStorageManager storageManager;
@@ -46,7 +48,7 @@ public class JokesStorageImpl implements JokesStorage
     {
         String joke;
         JokesRoot root = storageManager.root();
-        if (id > root.getJokes().size())
+        if (id < 0 || id >= root.getJokes().size())
         {
             throw new IllegalArgumentException("No jokes with this id");
         }
