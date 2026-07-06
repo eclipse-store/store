@@ -43,7 +43,7 @@ import org.junit.jupiter.api.io.TempDir;
  * surfaces as {@code StorageExceptionConsistency: No entity found for objectId}
  * after a restart.
  *
- * <p>Deterministic implementation of the issue's "Variant B" timeline — the
+ * <p>Implements the issue's "Variant B" timeline — the
  * framework severs the reference itself, no user threading fault involved:
  * <ol>
  * <li>{@code BinaryHandlerLazyDefault.store} calls {@code Lazy.$link} during
@@ -64,10 +64,15 @@ import org.junit.jupiter.api.io.TempDir;
  *     validation (acknowledged FIXME priv#74, {@code StorageChannel}).</li>
  * </ol>
  *
- * <p><b>This test asserts correct behavior and therefore FAILS while the defect
- * exists</b>: no zombie OID may appear and the re-attached referent must be
- * loadable after a restart. It passes once a fix lands (pinning lazily-skipped
- * targets, pre-write reference validation, or post-commit {@code $link}).
+ * <p><b>This test asserts correct behavior</b>: no zombie OID may appear and the
+ * re-attached referent must be loadable after a restart. On an unfixed build it
+ * fails whenever the JVM actually collects the referent inside the store→commit
+ * window — the usual outcome of the explicit GC loop, but not guaranteed: if the
+ * referent stays reachable (e.g. because a fixed storer pins it, or the JVM
+ * declines to collect), the window never opens and the test passes without
+ * exercising the defect. With a fix in place (pinning lazily-skipped targets,
+ * pre-write reference validation, or post-commit {@code $link}) it passes
+ * deterministically.
  *
  * <p>The companion test {@link #heldInstanceScenarioIsMitigatedBySafetyNet()}
  * documents the boundary of the defect: as long as the application holds the

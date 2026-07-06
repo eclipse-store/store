@@ -87,7 +87,6 @@ public class SkipPinningTest
 		final long                     payloadOid  ;
 		final WeakReference<Payload>   payloadProbe;
 		final Storer                   storer      ;
-		final Parent                   parent      ;
 		{
 			Payload x = new Payload("pinned payload");
 			root.payload = x;
@@ -99,8 +98,17 @@ public class SkipPinningTest
 
 			// long-lived storer: skip decision at store() time, binding only at commit() time.
 			storer = this.storage.createStorer();
-			parent = new Parent(x);
+			final Parent parent = new Parent(x);
 			storer.store(parent); // X is registry-known -> skipped, its oid written into the chunk
+
+			/*
+			 * Drop EVERY application-side strong path to X, including parent's field: the storer
+			 * holds parent itself strongly (regular store item), so a payload still referenced
+			 * through parent would keep X alive trivially and the pin assertion below would be
+			 * vacuous. parent's serialized state was captured by store() - clearing the field
+			 * afterwards does not alter what gets committed.
+			 */
+			parent.payload = null;
 
 			payloadProbe = new WeakReference<>(x);
 			x = null; // drop the last application reference inside this block
