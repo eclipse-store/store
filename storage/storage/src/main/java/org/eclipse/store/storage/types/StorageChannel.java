@@ -907,10 +907,19 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			final ChunksBuffer chunks = this.createLoadingChunksBuffer(resultArray);
 			if(!loadOids.isEmpty())
 			{
-				// progress must have been incremented accordingly at task creation time
-				loadOids.iterate(this.entityCollectorCreator.create(this.entityCache, chunks));
+				// block sweep initiation while collecting so handed-out entities can be gc-protected consistently
+				this.entityCache.registerPendingLoad();
+				try
+				{
+					// progress must have been incremented accordingly at task creation time
+					loadOids.iterate(this.entityCollectorCreator.create(this.entityCache, chunks));
+				}
+				finally
+				{
+					this.entityCache.clearPendingLoad();
+				}
 			}
-			
+
 			return chunks.complete();
 		}
 
@@ -929,8 +938,17 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			final ChunksBuffer chunks = this.createLoadingChunksBuffer(resultArray);
 			if(!loadTids.isEmpty())
 			{
-				// progress must have been incremented accordingly at task creation time
-				loadTids.iterate(new StorageEntityCollector.EntityCollectorByTid(this.entityCache, chunks));
+				// block sweep initiation while collecting so handed-out entities can be gc-protected consistently
+				this.entityCache.registerPendingLoad();
+				try
+				{
+					// progress must have been incremented accordingly at task creation time
+					loadTids.iterate(new StorageEntityCollector.EntityCollectorByTid(this.entityCache, chunks));
+				}
+				finally
+				{
+					this.entityCache.clearPendingLoad();
+				}
 			}
 			return chunks.complete();
 		}

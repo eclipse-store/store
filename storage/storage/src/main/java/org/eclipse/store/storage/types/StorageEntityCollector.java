@@ -118,10 +118,11 @@ public interface StorageEntityCollector extends _longProcedure
 				
 				throw new StorageExceptionConsistency("No entity found for objectId " + objectId);
 			}
+			this.entityCache.markEntityForLoadedData(entry);
 			entry.copyCachedData(this.dataCollector);
 			this.entityCache.checkForCacheClear(entry, System.currentTimeMillis());
 		}
-	
+
 	}
 
 	/**
@@ -176,6 +177,7 @@ public interface StorageEntityCollector extends _longProcedure
 				logger.warn("No entity found for ObjectID {}, continuing without throwing an exception!", objectId);
 				return;
 			}
+			this.entityCache.markEntityForLoadedData(entry);
 			entry.copyCachedData(this.dataCollector);
 			this.entityCache.checkForCacheClear(entry, System.currentTimeMillis());
 		}
@@ -226,6 +228,7 @@ public interface StorageEntityCollector extends _longProcedure
 			// all the type's entities are iterated and their data is collected
 			for(StorageEntity.Default entity = type.head; (entity = entity.typeNext) != null;)
 			{
+				this.entityCache.markEntityForLoadedData(entity);
 				entity.copyCachedData(this.dataCollector);
 				this.entityCache.checkForCacheClear(entity, System.currentTimeMillis());
 			}

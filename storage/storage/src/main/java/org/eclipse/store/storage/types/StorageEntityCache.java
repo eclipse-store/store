@@ -117,6 +117,8 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		
 		private long    usedCacheSize;
 		private boolean hasUpdatePendingSweep;
+		private boolean hasLoadPendingSweep  ;
+		private boolean loadMarkingRequired  ;
 		
 		// Statistics for debugging / monitoring / checking to compare with other channels and with the markmonitor
 		private long sweepGeneration, lastSweepStart, lastSweepEnd;
@@ -456,6 +458,31 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			}
 		}
 
+		final void registerPendingLoad()
+		{
+			synchronized(this.markMonitor)
+			{
+				/*
+				 * Signal first: as long as the pending load is signaled, no sweep can be initiated,
+				 * so the two states read below stay stable for the duration of the load task
+				 * (an already initiated sweep for this channel can only be executed by this channel's
+				 * own thread, which is busy processing the load task).
+				 */
+				this.markMonitor.signalPendingLoad(this);
+				this.loadMarkingRequired = !this.markMonitor.isComplete(this);
+				this.hasLoadPendingSweep = this.markMonitor.isPendingSweep(this);
+			}
+		}
+
+		final void clearPendingLoad()
+		{
+			// (see clearPendingStoreUpdate) potentially gets called after reset(), so it must be accordingly robust.
+
+			this.loadMarkingRequired = false;
+			this.hasLoadPendingSweep = false;
+			this.markMonitor.clearPendingLoad(this);
+		}
+
 		final long queryRootObjectId()
 		{
 			this.rootOidSelector.reset();
@@ -739,6 +766,63 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 				 * correctly anymore. In the very least, the gray state is a safety net of indicating:
 				 * The entity must not be collected, but it must be revisited.
 				 */
+				entry.markGray();
+
+				// must mark via mark monitor to keep central mark count consistent. NEVER directly via the queue!
+				this.markMonitor.enqueue(this.oidMarkQueue, entry.objectId());
+				return;
+			}
+
+			// entities without references
+			entry.markBlack();
+		}
+
+		/**
+		 * Load-side counterpart to {@link #markEntityForChangedData(StorageEntity.Default)}:
+		 * an entity whose data is handed out by a load request will be registered in the
+		 * application's object registry and thus be kept alive by the sweep-time safety net
+		 * even if it is not reachable from the persisted root. If that registration happens
+		 * after the live object id seed of the current GC cycle ran, the entity itself survives
+		 * the sweep, but its references are never traversed, so entities reachable only through
+		 * it (e.g. the target of a not yet resolved lazy reference) get swept and the surviving
+		 * entity's persisted record dangles, causing zombie OIDs and missing entities
+		 * ("No entity found for objectId") on later loads ("mid-cycle registration race").
+		 * <p>
+		 * Therefore, an unmarked entity handed out during an active GC cycle must be gc-protected
+		 * and, if referential, enqueued for reference traversal, analogous to changed data.
+		 * Sweep initiation is blocked for the duration of the load task
+		 * (see {@link #registerPendingLoad()}), so the marks enqueued here are guaranteed to be
+		 * processed before the sweep decides what to delete.
+		 */
+		final void markEntityForLoadedData(final StorageEntity.Default entry)
+		{
+			if(!this.loadMarkingRequired || entry.isGcMarked())
+			{
+				/*
+				 * No marking required if no GC cycle is in progress for this channel: no sweep can
+				 * occur before the next cycle, whose live object id seed covers the application-side
+				 * registration of this entity.
+				 * An already marked entity is safe from the sweep and its references are already
+				 * (enqueued to be) traversed.
+				 */
+				return;
+			}
+
+			if(this.hasLoadPendingSweep)
+			{
+				/*
+				 * Analogous to the pending sweep case in markEntityForChangedData: marking is
+				 * already complete, so no gray enqueuing (see comment there). The entity must
+				 * merely be saved from the imminent sweep; the post-sweep live object id seed
+				 * re-establishes it as a mark root via its application-side registration.
+				 */
+				entry.markBlack();
+				return;
+			}
+
+			// entities with references (see markEntityForChangedData on the gray state)
+			if(entry.hasReferences())
+			{
 				entry.markGray();
 
 				// must mark via mark monitor to keep central mark count consistent. NEVER directly via the queue!
