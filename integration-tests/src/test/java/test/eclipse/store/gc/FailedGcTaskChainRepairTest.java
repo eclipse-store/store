@@ -25,7 +25,6 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
 import org.eclipse.store.storage.types.Storage;
-import org.eclipse.store.storage.types.StorageGCZombieOidHandler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -37,7 +36,8 @@ import org.junit.jupiter.api.io.TempDir;
  * A prepended GC task ({@code issueGarbageCollection} / {@code exportChannels} with GC) chains its
  * follow-up task only in {@code succeed()}. Before the repair, a FAILING garbage collection (any
  * {@code Throwable} during a channel's GC processing — here provoked by a throwing
- * {@link StorageGCZombieOidHandler}) severed the task chain: every subsequently enqueued task —
+ * {@link org.eclipse.store.storage.types.StorageGCZombieOidHandler StorageGCZombieOidHandler})
+ * severed the task chain: every subsequently enqueued task —
  * including the shutdown — was attached behind the unreachable follow-up task, and the channel
  * kept waiting on the dead task's monitor for a FULL housekeeping interval. With the huge interval
  * configured below, the shutdown in this test would stall for an hour; the {@code @Timeout} turns
