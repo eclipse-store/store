@@ -1341,6 +1341,16 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			);
 		}
 
+		final void signalGcMarkingAbort()
+		{
+			this.markMonitor.signalGcMarkingAbort();
+		}
+
+		final void clearGcMarkingAbort()
+		{
+			this.markMonitor.clearGcMarkingAbort();
+		}
+
 		/**
 		 * Returns {@code true} if there are no more oids to mark and {@code false} if time ran out.
 		 * (Meaning the returned boolean effectively means "Was there enough time?")
@@ -1362,6 +1372,16 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			performGC:
 			while(System.nanoTime() < nanoTimeBudgetBound)
 			{
+				/*
+				 * A channel that failed mid-marking will never deliver its pending marks; since
+				 * the issued GC's time budget is effectively unbounded, waiting channels must
+				 * exit via this abort signal instead (see StorageEntityMarkMonitor).
+				 */
+				if(this.markMonitor.isGcMarkingAborted())
+				{
+					break performGC;
+				}
+
 				// call gc for the given time budget and evaluate result
 				if(!this.incrementalGarbageCollection(nanoTimeBudgetBound, channel))
 				{
@@ -1384,6 +1404,12 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 				waitForWork:
 				while(System.nanoTime() < nanoTimeBudgetBound)
 				{
+					// a failed channel's marks will never arrive - exit instead of waiting forever.
+					if(this.markMonitor.isGcMarkingAborted())
+					{
+						break performGC;
+					}
+
 					// check for completion on every attempt to wait for new work
 					if(this.markMonitor.isComplete(this))
 					{
