@@ -396,10 +396,26 @@ public class MidCycleRegistrationRaceTest
 		// ---------------------------------------------------------------
 		// Phase 6 - let the (re-seeded) mark and the sweep run to quiescence
 		// ---------------------------------------------------------------
+		/*
+		 * The wait loop is load-bearing for the DEFECT direction: the race needs the CURRENT
+		 * housekeeping cycle - whose seed missed X - to finish its mark and sweep naturally.
+		 * Driving GC explicitly here instead would start a FRESH cycle whose new seed includes
+		 * the just-registered X and L, masking the bug. The loop exits early once a zombie
+		 * surfaces (pre-fix outcome) or after the generous bound (fixed outcome).
+		 */
 		for(int i = 0; i < 30 && zombieHandler.zombieOids.isEmpty(); i++)
 		{
 			Thread.sleep(100);
 		}
+
+		/*
+		 * Deterministic quiescence AFTER the natural window has played out: a full issued GC
+		 * runs synchronously to cold completion (at least one full mark+sweep). This guarantees
+		 * the frozen-state checks below never pass vacuously because no sweep happened yet on a
+		 * slow machine - in the fixed case the graph must survive an actually-completed GC, in
+		 * the control case the orphan graph must actually be gone.
+		 */
+		this.storage.issueFullGarbageCollection();
 
 		// keep the stand-ins strongly referenced until here
 		assertNotNull(standInX);

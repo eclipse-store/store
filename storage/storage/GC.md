@@ -448,7 +448,7 @@ The former §10.3 justification for this window ("the entity's binary was just l
 **Layer 2 — the registration-version check** of §10.2 (covers ALL registration paths, including direct `registerObject` calls that never pass through the load collectors — import tooling, communication, application code):
 
 - `DefaultObjectRegistry` (serializer) increments a `volatile long registrationVersion` at its single new-association choke point (`synchPutNewEntry`) — all register paths funnel there, including re-binding an id whose weak entry was cleared; lookups, updates and removals do not count (a removal cannot make an unmarked entity rescuable).
-- The version is published lock-free (volatile read via `PersistenceObjectRegistry#registrationVersion()` → `LiveObjectIdsIterator#registrationVersion()` → `EmbeddedStorageObjectRegistryCallback`), so the mark monitor never takes the registry mutex to read it.
+- Reading the version never touches the registry mutex: `DefaultObjectRegistry#registrationVersion()` is a plain volatile read (the embedded callback wrapper `EmbeddedStorageObjectRegistryCallback#registrationVersion()` synchronizes on the callback itself for its late-init pattern, not on the registry), so the mark monitor's compare cannot contend with application-side registrations.
 - The monitor snapshots the version at **both** seed sites (pre-sweep gate 10.2 and post-sweep seed 10.1) and compares before every sweep initiation; a mismatch re-runs the seed and lets the mark phase drain the new roots transitively before any deletion.
 
 Trade-offs and boundaries:
