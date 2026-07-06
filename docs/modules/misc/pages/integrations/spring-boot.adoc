@@ -230,6 +230,14 @@ public class JokesStorageImpl implements JokesStorage
 }
 ----
 
+[CAUTION]
+====
+* *No lock upgrade:* a `@Read` method calling a `@Write` method guarded by the same lock deadlocks itself (`ReentrantReadWriteLock` cannot upgrade read to write).
+* Without `@Mutex`, *all* `@Read`/`@Write` methods in the application share one global lock — assign distinct `@Mutex` names for independent storages or subsystems.
+* With JDK interface proxies (`spring.aop.proxy-target-class=false`), a `@Mutex` present only on the implementation is not found and the global lock is used silently — annotate the interface, or keep the default class-based proxies.
+* Self-invocation (`this.someWriteMethod()`) bypasses the proxy and acquires no lock.
+====
+
 == Logging
 
 {product-name} Spring module supports standard Spring logging, so you can add this into your config:
