@@ -590,8 +590,31 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			final StorageEntity.Default entry;
 			if((entry = this.getEntry(objectId)) != null)
 			{
-				this.resetExistingEntityForUpdate(entry);
-				return entry;
+				if(entry.typeId() == type.typeId)
+				{
+					this.resetExistingEntityForUpdate(entry);
+					return entry;
+				}
+
+				/*
+				 * See #putEntity(long) on typeId changes. Defensive here: the import path
+				 * validates every record via #validateEntity beforehand, so this branch is
+				 * normally unreachable with a mismatching type.
+				 */
+				logger.warn(
+					"Entity {} typeId changed, old: {}, new: {} - disposing obsolete entry",
+					entry.objectId(),
+					entry.typeId(),
+					type.typeId
+				);
+				this.disposeObsoleteEntries(objectId, type.typeId);
+
+				final StorageEntity.Default remaining;
+				if((remaining = this.getEntry(objectId)) != null)
+				{
+					this.resetExistingEntityForUpdate(remaining);
+					return remaining;
+				}
 			}
 
 			return this.createEntity(objectId, type);
@@ -613,15 +636,38 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			if((entry = this.getEntry(Binary.getEntityObjectIdRawValue(entityAddress))) != null)
 			{
 				final long entityTypeId = Binary.getEntityTypeIdRawValue(entityAddress);
-				if(entry.typeId() == entityTypeId) {
+				if(entry.typeId() == entityTypeId)
+				{
 					this.resetExistingEntityForUpdate(entry);
 					return entry;
 				}
-				
-				logger.debug("Entity {} typeId changed, old: {}, new: {}",
+
+				/*
+				 * TypeId change: the routine result of re-storing a legacy-mapped instance after
+				 * type evolution. The registered entry belongs to an obsolete type version and
+				 * must be disposed like a sweep would dispose it BEFORE the new-type entry is
+				 * created. Otherwise two entries for the same objectId coexist: the obsolete one
+				 * is rescued every sweep by the id-only application safety net while the instance
+				 * is held; every OID hash table rebuild reverses the bucket chain order, so
+				 * lookups (loads AND gc marking) can resolve to the obsolete entry — serving
+				 * stale data and, worse, letting the sweep delete the CURRENT record (permanent
+				 * data loss); and the obsolete file record stays accounted as live content.
+				 */
+				logger.warn(
+					"Entity {} typeId changed, old: {}, new: {} - disposing obsolete entry",
 					entry.objectId(),
 					entry.typeId(),
-					entityTypeId);
+					entityTypeId
+				);
+				this.disposeObsoleteEntries(entry.objectId(), entityTypeId);
+
+				// a current-type entry may have been sitting behind an obsolete chain head
+				final StorageEntity.Default remaining;
+				if((remaining = this.getEntry(Binary.getEntityObjectIdRawValue(entityAddress))) != null)
+				{
+					this.resetExistingEntityForUpdate(remaining);
+					return remaining;
+				}
 			}
 
 			/* the added try-catch showed no change in performance in a test.
@@ -815,9 +861,68 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 
 			// 5.) mark entity as deleted
 			entity.setDeleted();
-						
+
 			// decrement size, otherwise the cache can't shrink
 			this.oidSize--;
+		}
+
+		/**
+		 * Disposes every registered entry for the passed objectId whose typeId differs from the
+		 * passed current typeId. Such entries are obsolete type versions left behind by a typeId
+		 * change (see {@link #putEntity(long)}) and must be removed exactly like a sweep removes
+		 * entities; there can be more than one (repeated type evolution), potentially in
+		 * different obsolete types.
+		 * <p>
+		 * Deleting requires the predecessor in the singly-linked type list, hence the disposal
+		 * runs as a {@link StorageEntityType.Default#removeAll} pass over each affected obsolete
+		 * type, which disposes all matching entries of that type in one iteration. The rescan
+		 * loop is necessary because the disposal mutates the OID hash chain being examined.
+		 */
+		final void disposeObsoleteEntries(final long objectId, final long currentTypeId)
+		{
+			scan:
+			while(true)
+			{
+				for(StorageEntity.Default e = this.getOidHashChainHead(objectId); e != null; e = e.hashNext)
+				{
+					if(e.objectId() == objectId && e.typeId() != currentTypeId)
+					{
+						e.typeInFile.type.removeAll(new ObsoleteEntityDeleter(objectId, currentTypeId));
+						continue scan;
+					}
+				}
+				return;
+			}
+		}
+
+		final class ObsoleteEntityDeleter implements StorageEntityType.Default.EntityDeleter
+		{
+			private final long objectId     ;
+			private final long currentTypeId;
+
+			ObsoleteEntityDeleter(final long objectId, final long currentTypeId)
+			{
+				super();
+				this.objectId      = objectId     ;
+				this.currentTypeId = currentTypeId;
+			}
+
+			@Override
+			public boolean test(final StorageEntity.Default entity)
+			{
+				return entity.objectId() == this.objectId && entity.typeId() != this.currentTypeId;
+			}
+
+			@Override
+			public void delete(
+				final StorageEntity.Default     entity        ,
+				final StorageEntityType.Default type          ,
+				final StorageEntity.Default     previousInType
+			)
+			{
+				Default.this.deleteEntity(entity, type, previousInType);
+			}
+
 		}
 
 		void checkForCacheClear(final StorageEntity.Default entry, final long evalTime)
