@@ -206,12 +206,21 @@ public class SkipPinningTest
 		 * The counterpart contract: the pin must die with the commit. With no other strong path
 		 * left, X must become collectable again - otherwise every long-lived or batching storer
 		 * would leak all skipped instances it ever referenced.
+		 * GC is not obliged to collect promptly on every JVM/CI configuration, so the loop
+		 * combines a generous deadline with bounded memory pressure to make collection of the
+		 * weakly reachable payload overwhelmingly likely before failing.
 		 */
 		boolean collected = false;
-		for(int i = 0; i < 20 && !(collected = payloadProbe.get() == null); i++)
+		final long deadline = System.currentTimeMillis() + 30_000;
+		while(!(collected = payloadProbe.get() == null) && System.currentTimeMillis() < deadline)
 		{
+			final byte[][] pressure = new byte[16][];
+			for(int i = 0; i < pressure.length; i++)
+			{
+				pressure[i] = new byte[1 << 20];
+			}
 			System.gc();
-			Thread.sleep(50);
+			Thread.sleep(100);
 		}
 		assertTrue(collected,
 			"the pin must be released on commit - the skipped instance is still strongly reachable");
