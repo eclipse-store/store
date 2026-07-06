@@ -62,6 +62,40 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 
 	public boolean isMarkingComplete();
 
+	/**
+	 * Signals that the marking of the currently issued garbage collection cannot complete
+	 * (a channel failed mid-marking and will never deliver its pending marks). Channels waiting
+	 * inside an issued garbage collection for other channels' marks must exit promptly instead
+	 * of waiting forever. Marking state itself (mark queues, pending marks count) is left
+	 * untouched; the abandoned marks are drained by the failed channel's subsequent
+	 * (housekeeping) garbage collection runs.
+	 * <p>
+	 * Default is a no-op for custom implementations (issued garbage collections then keep the
+	 * pre-existing behavior of waiting for the time budget).
+	 */
+	public default void signalGcMarkingAbort()
+	{
+		// no-op by default
+	}
+
+	/**
+	 * Clears an abort signaled via {@link #signalGcMarkingAbort()}. Called once per issued
+	 * garbage collection task before any channel starts processing it, arming the new attempt.
+	 */
+	public default void clearGcMarkingAbort()
+	{
+		// no-op by default
+	}
+
+	/**
+	 * @return whether {@link #signalGcMarkingAbort()} has been signaled for the current issued
+	 * garbage collection attempt.
+	 */
+	public default boolean isGcMarkingAborted()
+	{
+		return false;
+	}
+
 	public StorageReferenceMarker provideReferenceMarker(StorageEntityCache<?> channel);
 
 	public void enqueue(StorageObjectIdMarkQueue objectIdMarkQueue, long objectId);
@@ -214,6 +248,16 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 		private       long      pendingMarksCount      ;
 		private final boolean[] pendingStoreUpdates    ;
 		private       int       pendingStoreUpdateCount;
+
+		/*
+		 * Set when a channel fails mid-marking during an ISSUED garbage collection: its pending
+		 * marks will never be delivered, so sibling channels waiting for them must exit instead
+		 * of waiting forever (the issued GC's time budget is effectively unbounded). Cleared
+		 * once per issued GC task before processing starts. Deliberately does NOT touch
+		 * pendingMarksCount or the mark queues: the abandoned marks are durable channel state
+		 * that the failed channel's subsequent (housekeeping) GC runs drain consistently.
+		 */
+		private boolean gcMarkingAborted;
 		
 		private final boolean[] needsSweep             ;
 		private       int       sweepingChannelCount   ;
@@ -354,6 +398,34 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			this.gcHotPhaseComplete            = true ;
 			this.gcColdPhaseComplete           = true ;
 			this.liveOidsSeededForCurrentCycle  = false;
+			this.gcMarkingAborted               = false;
+		}
+
+		@Override
+		public final synchronized void signalGcMarkingAbort()
+		{
+			this.gcMarkingAborted = true;
+
+			// wake all channels potentially waiting on their mark queue for other channels' marks.
+			for(final StorageObjectIdMarkQueue queue : this.oidMarkQueues)
+			{
+				synchronized(queue)
+				{
+					queue.notifyAll();
+				}
+			}
+		}
+
+		@Override
+		public final synchronized void clearGcMarkingAbort()
+		{
+			this.gcMarkingAborted = false;
+		}
+
+		@Override
+		public final synchronized boolean isGcMarkingAborted()
+		{
+			return this.gcMarkingAborted;
 		}
 		
 		private void initializeGenerationalState()

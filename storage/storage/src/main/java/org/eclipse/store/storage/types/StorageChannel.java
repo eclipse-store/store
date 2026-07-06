@@ -168,6 +168,27 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 	public boolean issuedGarbageCollection(long nanoTimeBudget);
 
 	/**
+	 * Signals that the marking of the currently issued garbage collection cannot complete
+	 * because a channel failed mid-marking. Sibling channels waiting for that channel's marks
+	 * exit promptly instead of waiting out the (effectively unbounded) time budget.
+	 * Default is a no-op; see {@link StorageEntityMarkMonitor#signalGcMarkingAbort()}.
+	 */
+	public default void signalGarbageCollectionAbort()
+	{
+		// no-op by default
+	}
+
+	/**
+	 * Clears a previously signaled garbage collection abort, arming a new issued garbage
+	 * collection attempt. Default is a no-op; see
+	 * {@link StorageEntityMarkMonitor#clearGcMarkingAbort()}.
+	 */
+	public default void clearGarbageCollectionAbort()
+	{
+		// no-op by default
+	}
+
+	/**
 	 * Issues a file-cleanup check to this channel with the passed time budget.
 	 *
 	 * @param nanoTimeBudget the maximum amount of time, in nanoseconds, this channel is allowed to
@@ -613,6 +634,18 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		public final boolean issuedGarbageCollection(final long nanoTimeBudget)
 		{
 			return this.housekeepingBroker.performIssuedGarbageCollection(this, nanoTimeBudget);
+		}
+
+		@Override
+		public final void signalGarbageCollectionAbort()
+		{
+			this.entityCache.signalGcMarkingAbort();
+		}
+
+		@Override
+		public final void clearGarbageCollectionAbort()
+		{
+			this.entityCache.clearGcMarkingAbort();
 		}
 
 		@Override
