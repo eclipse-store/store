@@ -2227,12 +2227,20 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 					final StorageEntity.Default actual = entityCache.putEntity(entity.objectId(), entity.type());
 					actual.updateStorageInformation(entity.length(), X.checkArrayRange(loopFileLength));
 					headFile.appendEntry(actual);
+					/*
+					 * Account the entity's bytes immediately instead of bulk-adding copyLength after
+					 * the loop: a later record of this same import may dispose this just-appended
+					 * entry again (same objectId under a changed typeId, see putEntity), and its
+					 * removal decrements fileDataLength for these very bytes - deferred accounting
+					 * would let fileDataLength transiently under-count.
+					 */
+					headFile.increaseContentLength(entity.length());
 					loopFileLength += entity.length();
 				}
 			}
 
+			// content length was already accounted per entity in the loop above
 			final long copyLength = loopFileLength - oldTotalLength;
-			headFile.increaseContentLength(copyLength);
 
 			// The imported entity bytes were appended contiguously (zero-copy transfer) with no covering
 			// ChunkChecksumV1. Emit one now over the whole imported run [oldTotalLength, loopFileLength)

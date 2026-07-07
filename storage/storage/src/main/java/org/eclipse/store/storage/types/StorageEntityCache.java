@@ -125,6 +125,9 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		
 		private long    usedCacheSize;
 		private boolean hasUpdatePendingSweep;
+
+		// obsolete typeIds already warned about on a typeId change (see #handleTypeIdChange)
+		private final Set_long warnedObsoleteTypeIds = Set_long.New();
 		private boolean hasLoadPendingSweep  ;
 		private boolean loadMarkingRequired  ;
 		
@@ -247,6 +250,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			this.resetLiveCursor();
 
 			this.usedCacheSize  = 0L;
+			this.warnedObsoleteTypeIds.clear();
 
 			// create a new root type instance on every clear. Everything else is not worth the reset&register-hassle.
 			this.rootType       = this.getType(this.rootTypeId);
@@ -737,8 +741,29 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			final StorageEntity.Default entry;
 			if((entry = this.getEntry(objectId)) != null)
 			{
-				this.resetExistingEntityForUpdate(entry);
-				return entry;
+				if(entry.typeId() == type.typeId)
+				{
+					this.resetExistingEntityForUpdate(entry);
+					return entry;
+				}
+
+				/*
+				 * See #handleTypeIdChange. On the import path, #validateEntity rejects a typeId
+				 * mismatch against an already registered entry — but validation runs as a separate
+				 * phase before any record of the same import is registered, so an import source
+				 * containing the same objectId under two different typeIds passes validation for
+				 * both records and reaches this branch with the second one. That is anomalous
+				 * enough (unlike the routine bulk-migration case on the store path, which
+				 * #handleTypeIdChange throttles to once per obsolete typeId) to warrant a
+				 * per-entity warning.
+				 */
+				logger.warn(
+					"Imported entity {} changes its typeId from {} to {} within the same import",
+					objectId,
+					entry.typeId(),
+					type.typeId
+				);
+				this.handleTypeIdChange(entry, type.typeId);
 			}
 
 			return this.createEntity(objectId, type);
@@ -760,15 +785,22 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			if((entry = this.getEntry(Binary.getEntityObjectIdRawValue(entityAddress))) != null)
 			{
 				final long entityTypeId = Binary.getEntityTypeIdRawValue(entityAddress);
-				if(entry.typeId() == entityTypeId) {
+				if(entry.typeId() == entityTypeId)
+				{
 					this.resetExistingEntityForUpdate(entry);
 					return entry;
 				}
-				
-				logger.debug("Entity {} typeId changed, old: {}, new: {}",
-					entry.objectId(),
-					entry.typeId(),
-					entityTypeId);
+
+				/*
+				 * Resolve (and thereby validate) the new typeId BEFORE the destructive disposal:
+				 * #getType throws for an unresolvable typeId, and such a failure must leave the
+				 * registered entry intact instead of rendering the objectId unresolvable.
+				 * The result is discarded; the createEntity call below re-fetches it cheaply
+				 * from the then-registered type table.
+				 */
+				this.getType(entityTypeId);
+
+				this.handleTypeIdChange(entry, entityTypeId);
 			}
 
 			/* the added try-catch showed no change in performance in a test.
@@ -782,6 +814,11 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 					Binary.getEntityObjectIdRawValue(entityAddress),
 					this.getType(Binary.getEntityTypeIdRawValue(entityAddress))
 				);
+			}
+			catch(final StorageExceptionConsistency e)
+			{
+				// deliberate fail-loud invariant violation (see #createEntity); must not be masked by the generic wrapper below
+				throw e;
 			}
 			catch(final Exception e)
 			{
@@ -976,6 +1013,28 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 				this.enlargeOidHashTable();
 			}
 
+			/*
+			 * Hard invariant: at most one entry may ever be registered per objectId. Every caller
+			 * must have handled an existing entry beforehand (update reuse, obsolete-entry
+			 * disposal on a typeId change, initialization deduplication). A silently created
+			 * duplicate would cause stale reads and let the GC sweep the current record (see
+			 * #handleTypeIdChange), so a violation must fail loudly here, at the single point
+			 * where the duplicate would be created. The guard walk reuses the chain head lookup
+			 * needed for the insertion below anyway, costing only the walk of the bucket chain.
+			 */
+			final StorageEntity.Default chainHead = this.getOidHashChainHead(objectId);
+			for(StorageEntity.Default e = chainHead; e != null; e = e.hashNext)
+			{
+				if(e.objectId() == objectId)
+				{
+					throw new StorageExceptionConsistency(
+						"Duplicate entity entry for objectId " + objectId
+						+ ": already registered with typeId " + e.typeId()
+						+ ", to be created with typeId " + type.typeId + "."
+					);
+				}
+			}
+
 			// create and put entry
 			final StorageEntity.Default entity;
 			this.setOidHashChainHead(
@@ -983,7 +1042,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 				entity = StorageEntity.Default.New(
 					objectId,
 					type.dummy,
-					this.getOidHashChainHead(objectId),
+					chainHead,
 					type.hasReferences(),
 					type.simpleReferenceDataCount()
 				)
@@ -1019,9 +1078,94 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 
 			// 5.) mark entity as deleted
 			entity.setDeleted();
-						
+
 			// decrement size, otherwise the cache can't shrink
 			this.oidSize--;
+		}
+
+		/**
+		 * Handles a typeId change for a registered entity: the routine result of re-storing a
+		 * legacy-mapped instance after type evolution. The registered entry belongs to an
+		 * obsolete type version and must be disposed like a sweep would dispose it BEFORE the
+		 * new-type entry is created. Otherwise two entries for the same objectId coexist: the
+		 * obsolete one is rescued every sweep by the id-only application safety net while the
+		 * instance is held; every OID hash table rebuild reverses the bucket chain order, so
+		 * lookups (loads AND gc marking) can resolve to the obsolete entry — serving stale data
+		 * and, worse, letting the sweep delete the CURRENT record (permanent data loss); and the
+		 * obsolete file record stays accounted as live content.
+		 * <p>
+		 * The passed entry is the only entry registered for its objectId (enforced by the
+		 * duplicate guard in {@link #createEntity}), so disposing it suffices; the caller must
+		 * create the new-type entry afterwards.
+		 * <p>
+		 * Deleting requires the predecessor in the singly-linked type list, hence the disposal
+		 * runs as a {@link StorageEntityType.Default#removeFirst} walk over the obsolete type,
+		 * stopping at the entry: a full {@link StorageEntityType.Default#removeAll} pass per
+		 * re-stored entity would make bulk migrations quadratic in the obsolete type's size.
+		 */
+		private void handleTypeIdChange(final StorageEntity.Default entry, final long currentTypeId)
+		{
+			/*
+			 * Since a type change affects every re-stored legacy instance of that type, warning
+			 * per entity would flood the logs during bulk migrations. Warn once per obsolete
+			 * typeId, keep the per-entity detail on debug level.
+			 */
+			if(this.warnedObsoleteTypeIds.add(entry.typeId()))
+			{
+				logger.warn(
+					"Entity type changed from typeId {} to typeId {} - disposing obsolete entity entries"
+					+ " (logged once per obsolete typeId, per-entity details on debug level)",
+					entry.typeId(),
+					currentTypeId
+				);
+			}
+			logger.debug("Entity {} typeId changed, old: {}, new: {} - disposing obsolete entry",
+				entry.objectId(),
+				entry.typeId(),
+				currentTypeId
+			);
+
+			if(!entry.typeInFile.type.removeFirst(new ObsoleteEntityDeleter(entry)))
+			{
+				/*
+				 * The entry's absence from its own type chain means corrupted chain state: fail
+				 * loudly instead of proceeding to create a second entry for a still-registered
+				 * objectId (which the guard in #createEntity would reject anyway, but with a
+				 * misleading message).
+				 */
+				throw new StorageExceptionConsistency(
+					"Entity " + entry.objectId() + " with typeId " + entry.typeId()
+					+ " is not contained in its type's entity chain."
+				);
+			}
+		}
+
+		final class ObsoleteEntityDeleter implements StorageEntityType.Default.EntityDeleter
+		{
+			private final StorageEntity.Default subject;
+
+			ObsoleteEntityDeleter(final StorageEntity.Default subject)
+			{
+				super();
+				this.subject = subject;
+			}
+
+			@Override
+			public boolean test(final StorageEntity.Default entity)
+			{
+				return entity == this.subject;
+			}
+
+			@Override
+			public void delete(
+				final StorageEntity.Default     entity        ,
+				final StorageEntityType.Default type          ,
+				final StorageEntity.Default     previousInType
+			)
+			{
+				Default.this.deleteEntity(entity, type, previousInType);
+			}
+
 		}
 
 		void checkForCacheClear(final StorageEntity.Default entry, final long evalTime)
