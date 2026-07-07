@@ -248,8 +248,8 @@ extends StorageDataFile, StorageLiveChannelFile<StorageLiveDataFile>, StorageCre
 				for(TypeInFile next; entries != null; entries = next)
 				{
 					next = entries.hashNext;
-					entries.hashNext = newSlots[System.identityHashCode(entries) & newModulo];
-					newSlots[System.identityHashCode(entries) & newModulo] = entries;
+					entries.hashNext = newSlots[System.identityHashCode(entries.type) & newModulo];
+					newSlots[System.identityHashCode(entries.type) & newModulo] = entries;
 				}
 			}
 			this.typeInFileSlots = newSlots;
