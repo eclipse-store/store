@@ -77,11 +77,18 @@ public enum StorageReferenceValidationPolicy
 	 *
 	 * @return the parsed policy.
 	 *
-	 * @throws IllegalArgumentException on any other value.
+	 * @throws IllegalArgumentException on {@code null} or any other value.
 	 */
 	public static StorageReferenceValidationPolicy parse(final String value)
 	{
-		switch(value.trim().toLowerCase())
+		if(value == null)
+		{
+			throw new IllegalArgumentException(
+				"Reference validation policy must not be null. Valid values are: off, log, fail."
+			);
+		}
+		// Locale.ROOT: config parsing must not depend on the platform locale (e.g. Turkish dotless i).
+		switch(value.trim().toLowerCase(java.util.Locale.ROOT))
 		{
 			case "off" : return OFF ;
 			case "log" : return LOG ;

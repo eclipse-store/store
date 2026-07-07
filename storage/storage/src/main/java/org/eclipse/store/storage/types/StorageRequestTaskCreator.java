@@ -152,7 +152,8 @@ public interface StorageRequestTaskCreator
 
 		public Default(final StorageTimestampProvider timestampProvider)
 		{
-			this(timestampProvider, StorageReferenceValidationPolicy.OFF);
+			// falls back to the documented product default (see StorageConfiguration).
+			this(timestampProvider, StorageReferenceValidationPolicy.LOG);
 		}
 
 		public Default(

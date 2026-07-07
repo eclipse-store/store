@@ -54,7 +54,8 @@ public interface StorageRequestTaskStoreEntities extends StorageRequestTask
 
 		Default(final long timestamp, final Binary data, final StorageOperationController controller)
 		{
-			this(timestamp, data, controller, StorageReferenceValidationPolicy.OFF);
+			// falls back to the documented product default (see StorageConfiguration).
+			this(timestamp, data, controller, StorageReferenceValidationPolicy.LOG);
 		}
 
 		Default(

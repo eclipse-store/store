@@ -51,8 +51,9 @@ public class StorageExceptionConsistencyDanglingReference extends StorageExcepti
 	)
 	{
 		super(buildMessage(channelIndex, missingObjectIds));
-		this.channelIndex     = channelIndex    ;
-		this.missingObjectIds = missingObjectIds;
+		this.channelIndex     = channelIndex            ;
+		// defensive copy: the exception state must stay immutable for later logging/inspection.
+		this.missingObjectIds = missingObjectIds.clone();
 	}
 
 
@@ -70,11 +71,11 @@ public class StorageExceptionConsistencyDanglingReference extends StorageExcepti
 	}
 
 	/**
-	 * @return the referenced object ids for which no entity exists.
+	 * @return the referenced object ids for which no entity exists (a defensive copy).
 	 */
 	public long[] missingObjectIds()
 	{
-		return this.missingObjectIds;
+		return this.missingObjectIds.clone();
 	}
 
 	private static String buildMessage(final int channelIndex, final long[] missingObjectIds)
