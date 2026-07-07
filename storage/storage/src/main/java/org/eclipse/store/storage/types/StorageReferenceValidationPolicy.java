@@ -102,7 +102,7 @@ public enum StorageReferenceValidationPolicy
 		if(value == null)
 		{
 			throw new IllegalArgumentException(
-				"Reference validation policy must not be null. Valid values are: off, log, fail."
+				"Reference validation policy must not be null. Valid values are: off, log, fail, heal."
 			);
 		}
 		// Locale.ROOT: config parsing must not depend on the platform locale (e.g. Turkish dotless i).
