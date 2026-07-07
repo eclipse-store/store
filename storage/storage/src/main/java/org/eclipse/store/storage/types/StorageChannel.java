@@ -281,8 +281,14 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 	 * per {@link #prepareImportData()} after the import task has ultimately completed, no matter
 	 * the outcome (committed or rolled back). Idempotent and robust if the preparation never ran
 	 * or failed halfway.
+	 * <p>
+	 * The default implementation is a no-op for {@link StorageChannel} implementations whose
+	 * {@link #prepareImportData()} does not register any garbage collection coordination state.
 	 */
-	public void cleanupImportData();
+	public default void cleanupImportData()
+	{
+		// no-op by default. To be overridden by implementations that register gc state in prepareImportData().
+	}
 
 	/**
 	 * Exports every entity of the passed type owned by this channel into the passed file.

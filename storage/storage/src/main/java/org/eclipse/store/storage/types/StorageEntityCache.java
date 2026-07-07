@@ -558,6 +558,8 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 					}
 					catch(final InterruptedException e)
 					{
+						// restore the flag so the channel thread's outer logic still sees the interrupt
+						Thread.currentThread().interrupt();
 						throw new StorageException(
 							"Channel #" + this.channelIndex
 							+ " interrupted while quiescing a pending garbage collection sweep for a data import.",

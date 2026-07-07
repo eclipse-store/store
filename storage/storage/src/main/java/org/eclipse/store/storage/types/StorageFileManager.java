@@ -2204,13 +2204,13 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			      long loopFileLength = oldTotalLength;
 
 			/*
-			 * GC coordination, mirroring the store path (see StorageEntityCache#postStorePutEntities):
+			 * GC coordination, mirroring the store path (see StorageEntityCache.Default#postStorePutEntities):
 			 * without it, an import committed during an active GC cycle registers entities whose
 			 * references are never traversed (no gray enqueuing) and does not block the imminent
 			 * sweep - a pre-existing entity referenced only by imported data can then be swept,
 			 * leaving a dangling reference on disk ("No entity found for objectId" on load).
 			 * The task-scoped signal bracket (held from prepareImportData until the task's cleanUp,
-			 * see StorageEntityCache#registerPendingImportUpdate) guarantees that no sweep is
+			 * see StorageEntityCache.Default#registerPendingImportUpdate) guarantees that no sweep is
 			 * flagged or can be initiated while the entities register here.
 			 */
 			entityCache.registerImportCommit();

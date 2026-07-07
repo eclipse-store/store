@@ -317,7 +317,7 @@ public interface StorageRequestTaskImportData<S> extends StorageRequestTask
 			 * signal the channel to prepare for the import
 			 * (register the import with the gc, keep current head file and create a new one).
 			 * Deliberately called outside the entityCaches lock: the preparation may quiesce a
-			 * pending gc sweep (see StorageEntityCache#registerPendingImportUpdate), which must
+			 * pending gc sweep (see StorageEntityCache.Default#registerPendingImportUpdate), which must
 			 * not be serialized across channels by the shared array's monitor.
 			 */
 			final StorageEntityCache.Default entityCache = channel.prepareImportData();
