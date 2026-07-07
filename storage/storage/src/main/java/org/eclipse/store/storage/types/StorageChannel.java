@@ -959,11 +959,25 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 				: Arrays.copyOf(missing, count)
 			;
 
-			logger.error(
-				"StorageChannel#{} store references non-existing entities (dangling references): {}",
-				this.channelIndex,
-				Arrays.toString(missingObjectIds)
-			);
+			if(policy.isHealing())
+			{
+				// under heal, a rejection is EXPECTED to be repaired by the storer - WARN, not ERROR.
+				// If healing gives up, the failure surfaces loudly via the thrown exception anyway.
+				logger.warn(
+					"StorageChannel#{} store references non-existing entities (dangling references): {}"
+					+ " - rejecting for the storer to heal.",
+					this.channelIndex,
+					Arrays.toString(missingObjectIds)
+				);
+			}
+			else
+			{
+				logger.error(
+					"StorageChannel#{} store references non-existing entities (dangling references): {}",
+					this.channelIndex,
+					Arrays.toString(missingObjectIds)
+				);
+			}
 			this.eventLogger.logStoreDetectedDanglingReferences(this.channelIndex, missingObjectIds);
 
 			if(policy.isFailing())

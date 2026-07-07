@@ -340,7 +340,7 @@ References registered via `Storer#skip` variants are an explicit user assertion 
 
 === Automatic Self-Healing
 
-With `reference-validation=heal`, a store rejected for dangling references is repaired automatically and transparently: a dangling id is an id whose *data* is missing while the referenced *instance* is still alive in application memory — so the storer re-serializes that instance **under its existing object id** in a compensating store, then retries the original store. The retried data is byte-identical (the already-serialized buffers are reused), so the repair is invisible to the caller apart from a WARN log per healing round.
+With `reference-validation=heal`, a store rejected for dangling references is repaired automatically and transparently: a dangling id is an id whose *data* is missing while the referenced *instance* is still alive in application memory — so the storer re-serializes that instance **under its existing object id** in a compensating store, then retries the original store. The retried data is byte-identical (the already-serialized buffers are reused), so the repair is invisible to the caller apart from WARN-level logging per healing round (one entry from the rejecting channel, one from the healing storer; the `StorageEventLogger` dangling-reference event still fires per attempt for monitoring).
 
 Details and bounds:
 
