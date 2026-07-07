@@ -490,6 +490,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 
 	/**
 	 * Releases all strong references to on-demand loaded data.
+	 * <p>
+	 * Segments containing changes that have not been stored yet are retained: releasing them
+	 * would silently discard the in-memory mutations (the subsequent {@link #store()} could not
+	 * see them anymore) while index and size updates would still be persisted, corrupting the
+	 * stored state. Call {@link #store()} first to be able to release everything.
 	 */
 	public void release();
 	
@@ -2361,12 +2366,19 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			this.ensureMutability();
 			for(final Lazy<?> e : this.level3.segments)
 			{
-				if(e != null && e.isStored())
+				/*
+				 * A used-marked entry pins a segment carrying changes that have not been stored yet
+				 * (see markChanged/clearChildrenStateChangeMarkers). Clearing it would discard the
+				 * in-memory mutations and their change flags: the subsequent store would silently
+				 * skip the evicted segment while still persisting the index/size updates, leaving
+				 * permanently divergent data. Such segments are retained until stored.
+				 */
+				if(e != null && e.isStored() && !e.isUsed())
 				{
 					e.clear();
 				}
 			}
-			
+
 			this.clearAddingState();
 		}
 						
