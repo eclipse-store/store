@@ -748,9 +748,11 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 				}
 
 				/*
-				 * See #handleTypeIdChange. Defensive here: the import path validates every
-				 * record via #validateEntity beforehand, so this branch is normally
-				 * unreachable with a mismatching type.
+				 * See #handleTypeIdChange. On the import path, #validateEntity rejects a typeId
+				 * mismatch against an already registered entry — but validation runs as a separate
+				 * phase before any record of the same import is registered, so an import source
+				 * containing the same objectId under two different typeIds passes validation for
+				 * both records and reaches this branch with the second one.
 				 */
 				final StorageEntity.Default remaining;
 				if((remaining = this.handleTypeIdChange(objectId, entry.typeId(), type.typeId)) != null)
@@ -784,6 +786,15 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 					return entry;
 				}
 
+				/*
+				 * Resolve (and thereby validate) the new typeId BEFORE the destructive disposal:
+				 * #getType throws for an unresolvable typeId, and such a failure must leave the
+				 * registered entry intact instead of rendering the objectId unresolvable.
+				 * The result is discarded; the createEntity call below re-fetches it cheaply
+				 * from the then-registered type table.
+				 */
+				this.getType(entityTypeId);
+
 				final StorageEntity.Default remaining;
 				if((remaining = this.handleTypeIdChange(entry.objectId(), entry.typeId(), entityTypeId)) != null)
 				{
@@ -802,6 +813,11 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 					Binary.getEntityObjectIdRawValue(entityAddress),
 					this.getType(Binary.getEntityTypeIdRawValue(entityAddress))
 				);
+			}
+			catch(final StorageExceptionConsistency e)
+			{
+				// deliberate fail-loud invariant violation (see #createEntity); must not be masked by the generic wrapper below
+				throw e;
 			}
 			catch(final Exception e)
 			{
@@ -1119,9 +1135,12 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		 * different obsolete types.
 		 * <p>
 		 * Deleting requires the predecessor in the singly-linked type list, hence the disposal
-		 * runs as a {@link StorageEntityType.Default#removeAll} pass over each affected obsolete
-		 * type, which disposes all matching entries of that type in one iteration. The rescan
-		 * loop is necessary because the disposal mutates the OID hash chain being examined.
+		 * runs as a {@link StorageEntityType.Default#removeFirst} walk over the affected obsolete
+		 * type, stopping at the match: per obsolete type there is at most one entry for the
+		 * objectId (see the duplicate guard in {@link #createEntity}), so scanning past it would
+		 * only burn time — a full {@link StorageEntityType.Default#removeAll} pass per re-stored
+		 * entity makes bulk migrations quadratic in the obsolete type's size. The rescan loop is
+		 * necessary because the disposal mutates the OID hash chain being examined.
 		 *
 		 * @return the surviving entry with the passed current typeId, or {@code null} if none is
 		 *         registered.
@@ -1142,7 +1161,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 					}
 					if(e.typeId() != currentTypeId)
 					{
-						e.typeInFile.type.removeAll(deleter);
+						e.typeInFile.type.removeFirst(deleter);
 						continue scan;
 					}
 					survivor = e;

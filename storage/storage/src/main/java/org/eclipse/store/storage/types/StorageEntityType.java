@@ -263,6 +263,19 @@ public interface StorageEntityType<E extends StorageEntity>
 			return deleter;
 		}
 
+		public boolean removeFirst(final EntityDeleter deleter)
+		{
+			for(StorageEntity.Default last, entity = this.head; (entity = (last = entity).typeNext) != null;)
+			{
+				if(deleter.test(entity))
+				{
+					deleter.delete(entity, this, last);
+					return true;
+				}
+			}
+			return false;
+		}
+
 		@Override
 		public final StorageEntityTypeHandler typeHandler()
 		{
