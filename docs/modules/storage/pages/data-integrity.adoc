@@ -1,4 +1,6 @@
-= Data Integrity (Chunk Checksums)
+= Data Integrity
+
+{product-name} offers two independent data-integrity safeguards: per-chunk *checksums* that detect corruption of persisted bytes (this page, below), and store-time *reference validation* that detects dangling references before they are committed (see <<_reference_validation_dangling_references>>).
 
 {product-name} can protect the data in its storage files with per-chunk integrity checksums.
 Each time a batch of data (a "chunk") is written, a checksum covering those bytes is stored alongside it.
@@ -294,6 +296,44 @@ Chunk checksums are designed to detect accidental or partial corruption of persi
 If verification finds a corrupted chunk under a `FAIL` reaction, the start aborts with a `StorageExceptionChunkChecksumMismatch`, which reports the affected file, the chunk position and the expected versus actual hash. (The on-demand integrity check never throws; it collects anomalies into its result instead — see <<_on_demand_integrity_verification>>.)
 
 Off-line repair tooling that writes into a checksum-protected storage but cannot produce a compliant covered file (for example, configured with a mismatching algorithm) fails loudly with a `StorageExceptionChunkChecksumUnavailable` rather than silently appending unprotected data.
+
+== Reference Validation (Dangling References)
+
+Independent of chunk checksums, {product-name} can validate at *store time* that every reference a store writes actually points to an existing entity.
+
+A store's data may contain references to object ids whose entities are not part of the store itself: the storer found the referenced instance in its object registry (or an unloaded `Lazy` reference carries a cached id) and trusts that its data already exists in the storage.
+That trust can be wrong — most commonly when the storage-level garbage collector reclaimed the entity after its last persisted reference was removed, while the Java instance survived in application memory and was later re-attached to the graph.
+Without validation, such a store silently persists a *dangling reference* that only surfaces after a later restart as:
+
+----
+StorageExceptionConsistency: No entity found for objectId N
+----
+
+With validation enabled, the trusted reference ids travel with the store to the storage engine, and each channel checks them against its entity registry *inside the store task, before the data is written* — atomically with the store, so the check cannot be raced by garbage collection.
+
+The behavior is controlled by the `reference-validation` configuration property (see xref:configuration/properties.adoc[Properties]) or `StorageConfiguration.Builder#setReferenceValidationPolicy`:
+
+[cols="1,3"]
+|===
+| Mode | Effect
+
+| `log` (default)
+| Detected dangling references are logged as an error (and reported to the `StorageEventLogger` via `logStoreDetectedDanglingReferences`), but the store proceeds.
+
+| `fail`
+| A store containing dangling references is rejected atomically with a `StorageExceptionConsistencyDanglingReference` naming the missing object ids; nothing of the store is committed and the storage remains fully usable.
+
+| `off`
+| The ids are not collected at all — zero overhead, pre-feature behavior.
+|===
+
+[NOTE]
+====
+At the calling code, the rejection surfaces wrapped: the thrown exception is a `PersistenceExceptionTransfer` whose cause chain contains the `StorageExceptionConsistencyDanglingReference`.
+====
+
+To recover from a rejected store, make the missing entities exist again and retry: include the referenced instances explicitly in the same store (e.g. `storer.storeAll(parent, child)`) or store them with an eager storer first.
+References registered via `Storer#skip` variants are an explicit user assertion and are not validated.
 
 == Limitations
 

@@ -181,6 +181,12 @@ public class EclipseStoreProperties
     private String dataFileCleanupHeadFile;
 
     /**
+     * Store-time validation of trusted reference object ids: {@code off}, {@code log} or {@code fail}.
+     * Default is {@code log}.
+     */
+    private String referenceValidation;
+
+    /**
      * Per-chunk data-integrity checksum configuration. Bound from {@code org.eclipse.store.chunk-checksum.*}.
      */
     @NestedConfigurationProperty
@@ -504,6 +510,16 @@ public class EclipseStoreProperties
     public void setDataFileCleanupHeadFile(final String dataFileCleanupHeadFile)
     {
         this.dataFileCleanupHeadFile = dataFileCleanupHeadFile;
+    }
+
+    public String getReferenceValidation()
+    {
+        return this.referenceValidation;
+    }
+
+    public void setReferenceValidation(final String referenceValidation)
+    {
+        this.referenceValidation = referenceValidation;
     }
 
     public ChunkChecksum getChunkChecksum()

@@ -402,7 +402,9 @@ extends BinaryPersistenceFoundation<F>
 		{
 			return BinaryStorer.Creator(
 				this.getStorageSystem().channelCountProvider(),
-				this.isByteOrderMismatch()
+				this.isByteOrderMismatch(),
+				// capture is only worthwhile when the storage-side validation is enabled; single config knob.
+				this.getStorageSystem().configuration().referenceValidationPolicy().isValidating()
 			);
 		}
 

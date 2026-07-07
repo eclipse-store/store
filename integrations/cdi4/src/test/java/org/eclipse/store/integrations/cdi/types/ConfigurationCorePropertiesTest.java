@@ -164,6 +164,16 @@ class ConfigurationCorePropertiesTest
 	}
 
 	@Test
+	void shouldMapReferenceValidation()
+	{
+		final String keyMicroProfile = PREFIX + "reference.validation";
+		final Optional<ConfigurationCoreProperties> property = ConfigurationCoreProperties.get(keyMicroProfile);
+		Assertions.assertTrue(property.isPresent());
+		Assertions.assertEquals(ConfigurationCoreProperties.REFERENCE_VALIDATION, property.get());
+		Assertions.assertEquals("reference-validation", property.get().getEclipseStore(keyMicroProfile));
+	}
+
+	@Test
 	void shouldMapChunkChecksumAlgorithm()
 	{
 		final String keyMicroProfile = PREFIX + "chunk.checksum.algorithm";

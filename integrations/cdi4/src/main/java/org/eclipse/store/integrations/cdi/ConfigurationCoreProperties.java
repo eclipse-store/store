@@ -222,6 +222,14 @@ public enum ConfigurationCoreProperties
 	),
 
 	/**
+	 * Store-time validation of trusted reference object ids: off, log or fail. Default log.
+	 */
+	REFERENCE_VALIDATION(
+			Constants.PREFIX + "reference.validation",
+			EmbeddedStorageConfigurationPropertyNames.REFERENCE_VALIDATION
+	),
+
+	/**
 	 * Primary chunk-checksum algorithm: none, crc32c or sha256-chained. Default sha256-chained.
 	 */
 	CHUNK_CHECKSUM_ALGORITHM(

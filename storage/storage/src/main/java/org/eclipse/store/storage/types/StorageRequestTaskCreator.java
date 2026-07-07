@@ -141,7 +141,8 @@ public interface StorageRequestTaskCreator
 		// instance fields //
 		////////////////////
 
-		private final StorageTimestampProvider timestampProvider;
+		private final StorageTimestampProvider         timestampProvider        ;
+		private final StorageReferenceValidationPolicy referenceValidationPolicy;
 
 
 
@@ -151,8 +152,18 @@ public interface StorageRequestTaskCreator
 
 		public Default(final StorageTimestampProvider timestampProvider)
 		{
+			// falls back to the documented product default (see StorageConfiguration).
+			this(timestampProvider, StorageReferenceValidationPolicy.LOG);
+		}
+
+		public Default(
+			final StorageTimestampProvider         timestampProvider        ,
+			final StorageReferenceValidationPolicy referenceValidationPolicy
+		)
+		{
 			super();
-			this.timestampProvider = notNull(timestampProvider);
+			this.timestampProvider         = notNull(timestampProvider)        ;
+			this.referenceValidationPolicy = notNull(referenceValidationPolicy);
 		}
 
 
@@ -196,7 +207,8 @@ public interface StorageRequestTaskCreator
 			return new StorageRequestTaskStoreEntities.Default(
 				this.timestampProvider.currentNanoTimestamp(),
 				data,
-				operationController
+				operationController,
+				this.referenceValidationPolicy
 			);
 		}
 
