@@ -70,8 +70,16 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 	implements StorageEntityCache<StorageEntity.Default>, Unpersistable
 	{
 		private final static Logger logger = Logging.getLogger(StorageEntityCache.class);
-		
-		
+
+		/**
+		 * Backoff between retries of a sweep declined by a busy object registry while quiescing
+		 * for a data import (see {@link #registerPendingImportUpdate()}). Long enough to not
+		 * busy-spin a core under sustained registry contention, short enough to add no relevant
+		 * import latency (the default embedded registry implementation never declines).
+		 */
+		private static final long SWEEP_QUIESCE_RETRY_BACKOFF_MS = 1L;
+
+
 		private static boolean gcEnabled = true;
 				
 		public static void setGarbageCollectionEnabled(final boolean enabled)
@@ -533,8 +541,9 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			 * traversed before the next sweep decides what to delete.
 			 * The sweep declines (returns false) while the application's object registry cannot be
 			 * processed right now (the default embedded implementation never declines, custom
-			 * LiveObjectIdsHandler implementations may); retrying mirrors the housekeeping
-			 * behavior across its slices. An interrupt of the channel thread aborts the retry loop
+			 * LiveObjectIdsHandler implementations may); backing off briefly and retrying mirrors
+			 * the housekeeping behavior across its slices without busy-spinning a core under
+			 * sustained contention. An interrupt of the channel thread aborts the retry loop
 			 * (and thereby fails the import task; the gc signal above is released by the task's
 			 * cleanUp), so a persistently declining handler cannot block shutdown indefinitely.
 			 */
@@ -542,16 +551,19 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			{
 				if(!this.sweep())
 				{
-					if(Thread.currentThread().isInterrupted())
+					// sweep declined due to a busy object registry. Back off briefly and retry.
+					try
+					{
+						Thread.sleep(SWEEP_QUIESCE_RETRY_BACKOFF_MS);
+					}
+					catch(final InterruptedException e)
 					{
 						throw new StorageException(
 							"Channel #" + this.channelIndex
-							+ " interrupted while quiescing a pending garbage collection sweep for a data import."
+							+ " interrupted while quiescing a pending garbage collection sweep for a data import.",
+							e
 						);
 					}
-
-					// sweep declined due to a busy object registry. Yield and retry.
-					Thread.yield();
 				}
 			}
 		}
