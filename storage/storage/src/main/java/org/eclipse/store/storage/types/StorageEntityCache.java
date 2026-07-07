@@ -70,8 +70,16 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 	implements StorageEntityCache<StorageEntity.Default>, Unpersistable
 	{
 		private final static Logger logger = Logging.getLogger(StorageEntityCache.class);
-		
-		
+
+		/**
+		 * Backoff between retries of a sweep declined by a busy object registry while quiescing
+		 * for a data import (see {@link #registerPendingImportUpdate()}). Long enough to not
+		 * busy-spin a core under sustained registry contention, short enough to add no relevant
+		 * import latency (the default embedded registry implementation never declines).
+		 */
+		private static final long SWEEP_QUIESCE_RETRY_BACKOFF_MS = 1L;
+
+
 		private static boolean gcEnabled = true;
 				
 		public static void setGarbageCollectionEnabled(final boolean enabled)
@@ -487,6 +495,118 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			this.markMonitor.clearPendingLoad(this);
 		}
 
+		/**
+		 * Import counterpart to {@link #registerPendingStoreUpdate()}, called once per channel at the
+		 * very start of an import task's processing phase (see StorageChannel#prepareImportData) and
+		 * held until the task's ultimate cleanUp (see {@link #clearPendingImportUpdate()}). Signaling
+		 * in the processing phase (before the task's commit barrier) instead of at commit time closes
+		 * the per-channel signal gaps: no channel can return to housekeeping and initiate a new sweep
+		 * while any sibling channel has not yet registered its imported entities.
+		 * <p>
+		 * Additionally, a sweep that was already flagged for this channel when the import task started
+		 * is quiesced (executed) here, BEFORE any import data is copied or registered. Such a sweep
+		 * executes a marking decision that predates the import; letting it execute after the import
+		 * commit would delete pre-existing entities that the committed import durably references,
+		 * leaving dangling references on disk. Executing it here gives the import happens-before
+		 * semantics: it behaves as if it arrived after any sweep cycle that was already initiated when
+		 * the task started. An import record referencing an entity thereby condemned consequently
+		 * yields the same result as importing any stale reference: consistent deletion before the
+		 * import and zombie-OID diagnostics from the next mark phase, never a partial rescue.
+		 */
+		final void registerPendingImportUpdate()
+		{
+			synchronized(this.markMonitor)
+			{
+				/*
+				 * Signal first (mirrors the store path): as long as any channel's pending store
+				 * update is signaled, no new sweep can be initiated, and re-arm the gc completion
+				 * state since the import introduces new data.
+				 */
+				this.markMonitor.signalPendingStoreUpdate(this);
+				this.markMonitor.resetCompletion();
+			}
+
+			/*
+			 * Quiesce this channel's own already-flagged sweep, if any (see method javadoc).
+			 * Deliberately NOT gated on the gc-enabled switch: a flagged sweep belongs to a cycle
+			 * that was initiated while gc was enabled, and its marking decision predates the
+			 * import. Leaving it pending (e.g. because the switch is currently off) would let it
+			 * execute AFTER the import commit once gc is re-enabled, deleting pre-existing white
+			 * entities the committed import durably references - the exact defect this
+			 * coordination exists to prevent. Unlike the store path, imported data has no
+			 * in-memory graph, so the sweep-time application-registry safety net cannot be relied
+			 * on to rescue the referents.
+			 * Once quiesced, no sweep can be flagged again until the import task's cleanUp: sweep
+			 * initiation is blocked by the pending store update signaled above (and by those of the
+			 * sibling channels, which quiesce likewise before the task's commit barrier), and an
+			 * already flagged sweep for this channel can only be executed by this channel's own
+			 * thread, which processes the import task. Hence #markEntityForChangedData takes the
+			 * gray-enqueue path for all imported entities, guaranteeing their references are
+			 * traversed before the next sweep decides what to delete.
+			 * The sweep declines (returns false) while the application's object registry cannot be
+			 * processed right now (the default embedded implementation never declines, custom
+			 * LiveObjectIdsHandler implementations may); backing off briefly and retrying mirrors
+			 * the housekeeping behavior across its slices without busy-spinning a core under
+			 * sustained contention. An interrupt of the channel thread aborts the retry loop
+			 * (and thereby fails the import task; the gc signal above is released by the task's
+			 * cleanUp), so a persistently declining handler cannot block shutdown indefinitely.
+			 */
+			while(this.markMonitor.isPendingSweep(this))
+			{
+				if(!this.sweep())
+				{
+					// sweep declined due to a busy object registry. Back off briefly and retry.
+					try
+					{
+						Thread.sleep(SWEEP_QUIESCE_RETRY_BACKOFF_MS);
+					}
+					catch(final InterruptedException e)
+					{
+						// restore the flag so the channel thread's outer logic still sees the interrupt
+						Thread.currentThread().interrupt();
+						throw new StorageException(
+							"Channel #" + this.channelIndex
+							+ " interrupted while quiescing a pending garbage collection sweep for a data import.",
+							e
+						);
+					}
+				}
+			}
+		}
+
+		/**
+		 * Commit-time counterpart to {@link #registerPendingImportUpdate()}, called once per channel
+		 * at the start of the import commit (see StorageFileManager#commitImport), before the imported
+		 * entities are registered via {@link #putEntity(long, StorageEntityType.Default)} and
+		 * {@link #markEntityForChangedData(StorageEntity.Default)}.
+		 */
+		final void registerImportCommit()
+		{
+			synchronized(this.markMonitor)
+			{
+				/*
+				 * Reset the completion state again at commit time: a sweep quiesced in
+				 * #registerPendingImportUpdate (of this or a sibling channel) may have advanced the
+				 * gc completion state between import preparation and commit. Mirrors the equivalent
+				 * re-reset in #postStorePutEntities.
+				 * Also (re-)read the pending sweep state for #markEntityForChangedData. After the
+				 * unconditional quiesce it is always false (defensive re-read nonetheless): sweep
+				 * initiation is blocked by the import's pending store update held since the
+				 * preparation, and an already flagged sweep for this channel can only be executed
+				 * by this channel's own thread, which is busy processing the import task. The state
+				 * read here is stable for the duration of the import commit for the same reasons.
+				 */
+				this.markMonitor.resetCompletion();
+				this.hasUpdatePendingSweep = this.markMonitor.isPendingSweep(this);
+			}
+		}
+
+		final void clearPendingImportUpdate()
+		{
+			// (see clearPendingStoreUpdate) potentially gets called after reset(), so it must be accordingly robust.
+			this.clearPendingStoreUpdate();
+		}
+
 		final long queryRootObjectId()
 		{
 			this.rootOidSelector.reset();
@@ -725,7 +845,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		 * by the GC and should actually not be necessary, however as the effort to do it at this point is rather minimal, it's done
 		 * nonetheless.
 		 */
-		private void markEntityForChangedData(final StorageEntity.Default entry)
+		final void markEntityForChangedData(final StorageEntity.Default entry)
 		{
 			/*
 			 * (01.08.2016 TM)NOTE:
