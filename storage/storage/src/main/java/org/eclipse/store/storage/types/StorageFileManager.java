@@ -2203,6 +2203,18 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			final long oldTotalLength = this.headFile.totalLength();
 			      long loopFileLength = oldTotalLength;
 
+			/*
+			 * GC coordination, mirroring the store path (see StorageEntityCache#postStorePutEntities):
+			 * without it, an import committed during an active GC cycle registers entities whose
+			 * references are never traversed (no gray enqueuing) and does not block the imminent
+			 * sweep - a pre-existing entity referenced only by imported data can then be swept,
+			 * leaving a dangling reference on disk ("No entity found for objectId" on load).
+			 * The task-scoped signal bracket (held from prepareImportData until the task's cleanUp,
+			 * see StorageEntityCache#registerPendingImportUpdate) guarantees that no sweep is
+			 * flagged or can be initiated while the entities register here.
+			 */
+			entityCache.registerImportCommit();
+
 			// (05.01.2015 TM)TODO: batch copying must ensure that entity position limit of 2 GB is not exceeded
 			for(final StorageChannelImportBatch batch : this.importHelper.importBatches)
 			{
@@ -2212,6 +2224,12 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 					final StorageEntity.Default actual = entityCache.putEntity(entity.objectId(), entity.type());
 					actual.updateStorageInformation(entity.length(), X.checkArrayRange(loopFileLength));
 					headFile.appendEntry(actual);
+
+					// gc-protect the imported entity and enqueue it for reference traversal,
+					// exactly like stored/changed data (file position is set above, so the
+					// mark phase can load its reference data).
+					entityCache.markEntityForChangedData(actual);
+
 					loopFileLength += entity.length();
 				}
 			}

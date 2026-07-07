@@ -315,11 +315,15 @@ public interface StorageRequestTaskImportData<S> extends StorageRequestTask
 		{
 			/*
 			 * signal the channel to prepare for the import
-			 * (validate type dictionary, keep current head file and create a new one)
+			 * (register the import with the gc, keep current head file and create a new one).
+			 * Deliberately called outside the entityCaches lock: the preparation may quiesce a
+			 * pending gc sweep (see StorageEntityCache#registerPendingImportUpdate), which must
+			 * not be serialized across channels by the shared array's monitor.
 			 */
+			final StorageEntityCache.Default entityCache = channel.prepareImportData();
 			synchronized(this.entityCaches)
 			{
-				this.entityCaches[channel.channelIndex()] = channel.prepareImportData();
+				this.entityCaches[channel.channelIndex()] = entityCache;
 			}
 
 			/*
@@ -400,6 +404,18 @@ public interface StorageRequestTaskImportData<S> extends StorageRequestTask
 			// on failure/abort, signal channel to rollback (delete newly created files and revert to last head file)
 			this.cleanUpResources();
 			channel.rollbackImportData(this.problemForChannel(channel));
+		}
+
+		@Override
+		protected final void cleanUp(final StorageChannel channel)
+		{
+			/*
+			 * Ultimate cleanup, no matter the task outcome (committed, rolled back, aborted):
+			 * release the gc coordination signal acquired in StorageChannel#prepareImportData,
+			 * allowing sweeps to be initiated again. Idempotent and robust if the preparation
+			 * never ran or failed halfway.
+			 */
+			channel.cleanupImportData();
 		}
 
 		private void cleanUpResources()
