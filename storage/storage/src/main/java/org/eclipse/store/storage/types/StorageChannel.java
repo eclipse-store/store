@@ -168,6 +168,27 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 	public boolean issuedGarbageCollection(long nanoTimeBudget);
 
 	/**
+	 * Signals that the marking of the currently issued garbage collection cannot complete
+	 * because a channel failed mid-marking. Sibling channels waiting for that channel's marks
+	 * exit promptly instead of waiting out the (effectively unbounded) time budget.
+	 * Default is a no-op; see {@link StorageEntityMarkMonitor#signalGcMarkingAbort()}.
+	 */
+	public default void signalGarbageCollectionAbort()
+	{
+		// no-op by default
+	}
+
+	/**
+	 * Clears a previously signaled garbage collection abort, arming a new issued garbage
+	 * collection attempt. Default is a no-op; see
+	 * {@link StorageEntityMarkMonitor#clearGcMarkingAbort()}.
+	 */
+	public default void clearGarbageCollectionAbort()
+	{
+		// no-op by default
+	}
+
+	/**
 	 * Issues a file-cleanup check to this channel with the passed time budget.
 	 *
 	 * @param nanoTimeBudget the maximum amount of time, in nanoseconds, this channel is allowed to
@@ -616,6 +637,18 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		}
 
 		@Override
+		public final void signalGarbageCollectionAbort()
+		{
+			this.entityCache.signalGcMarkingAbort();
+		}
+
+		@Override
+		public final void clearGarbageCollectionAbort()
+		{
+			this.entityCache.clearGcMarkingAbort();
+		}
+
+		@Override
 		public boolean issuedFileCleanupCheck(final long nanoTimeBudget)
 		{
 			return this.housekeepingBroker.performIssuedFileCleanupCheck(this, nanoTimeBudget);
@@ -874,10 +907,19 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			final ChunksBuffer chunks = this.createLoadingChunksBuffer(resultArray);
 			if(!loadOids.isEmpty())
 			{
-				// progress must have been incremented accordingly at task creation time
-				loadOids.iterate(this.entityCollectorCreator.create(this.entityCache, chunks));
+				// block sweep initiation while collecting so handed-out entities can be gc-protected consistently
+				this.entityCache.registerPendingLoad();
+				try
+				{
+					// progress must have been incremented accordingly at task creation time
+					loadOids.iterate(this.entityCollectorCreator.create(this.entityCache, chunks));
+				}
+				finally
+				{
+					this.entityCache.clearPendingLoad();
+				}
 			}
-			
+
 			return chunks.complete();
 		}
 
@@ -896,8 +938,17 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			final ChunksBuffer chunks = this.createLoadingChunksBuffer(resultArray);
 			if(!loadTids.isEmpty())
 			{
-				// progress must have been incremented accordingly at task creation time
-				loadTids.iterate(new StorageEntityCollector.EntityCollectorByTid(this.entityCache, chunks));
+				// block sweep initiation while collecting so handed-out entities can be gc-protected consistently
+				this.entityCache.registerPendingLoad();
+				try
+				{
+					// progress must have been incremented accordingly at task creation time
+					loadTids.iterate(new StorageEntityCollector.EntityCollectorByTid(this.entityCache, chunks));
+				}
+				finally
+				{
+					this.entityCache.clearPendingLoad();
+				}
 			}
 			return chunks.complete();
 		}

@@ -41,4 +41,23 @@ public interface LiveObjectIdsIterator
 	 *                 storage mark monitor, which routes ids into per-channel mark queues.
 	 */
 	public void iterateLiveObjectIds(PersistenceObjectIdAcceptor acceptor);
+
+	/**
+	 * The application object registry's registration version (see
+	 * {@link org.eclipse.serializer.persistence.types.PersistenceObjectRegistry#registrationVersion()}):
+	 * changes whenever a new object id association is inserted. The storage GC snapshots this at
+	 * every live-OID mark seed and re-arms the seed before initiating a sweep if the version moved
+	 * — otherwise an entity registered <i>after</i> the seed but <i>before</i> the sweep would be
+	 * rescued only shallowly, and entities referenced solely from its persisted binary (e.g. an
+	 * unloaded lazy reference's target) would be swept (mid-cycle registration race).
+	 * <p>
+	 * The default returns a constant {@code 0}, meaning "registrations are never observable" —
+	 * implementations backed by a runtime-mutable registry must override this.
+	 *
+	 * @return the current registration version.
+	 */
+	public default long registrationVersion()
+	{
+		return 0L;
+	}
 }

@@ -42,7 +42,7 @@ public class JokesStorageImpl implements JokesStorage
     {
         String joke;
         Root root = storageManager.root();
-        if (id > root.getJokes().size())
+        if (id < 0 || id >= root.getJokes().size())
         {
             throw new IllegalArgumentException("No jokes with this id");
         }

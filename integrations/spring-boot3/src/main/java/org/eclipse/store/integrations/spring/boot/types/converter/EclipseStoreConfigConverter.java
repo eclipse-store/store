@@ -206,7 +206,7 @@ public class EclipseStoreConfigConverter
         }
         if (properties.getRedis() != null)
         {
-            values.put(ConfigKeys.REDIS_URI.value(), properties.getRedis().getUri());
+            values.put(this.composeKey(key, ConfigKeys.REDIS_URI.value()), properties.getRedis().getUri());
         }
         if (properties.getGooglecloud() != null)
         {
@@ -220,6 +220,10 @@ public class EclipseStoreConfigConverter
     private Map<String, String> prepareGoogleCloud(final Googlecloud googlecloud, final String key)
     {
         final Map<String, String> values = new HashMap<>();
+        if (googlecloud.getFirestore() == null)
+        {
+            return values;
+        }
         values.put(this.composeKey(key, ConfigKeys.GOOGLECLOUD_FIRESTORE_DATABASE_ID.value()), googlecloud.getFirestore().getDatabaseId());
         values.put(this.composeKey(key, ConfigKeys.GOOGLECLOUD_FIRESTORE_EMULATOR_HOST.value()), googlecloud.getFirestore().getEmulatorHost());
         values.put(this.composeKey(key, ConfigKeys.GOOGLECLOUD_FIRESTORE_HOST.value()), googlecloud.getFirestore().getHost());
@@ -235,14 +239,25 @@ public class EclipseStoreConfigConverter
     private Map<String, String> prepareOracleCloud(final Oraclecloud oraclecloud, final String key)
     {
         final Map<String, String> values = new HashMap<>();
-        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CONFIG_FILE_PATH.value()), oraclecloud.getObjectStorage().getConfigFile().getPath());
-        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CONFIG_FILE_PROFILE.value()), oraclecloud.getObjectStorage().getConfigFile().getProfile());
-        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CONFIG_FILE_CHARSET.value()), oraclecloud.getObjectStorage().getConfigFile().getCharset());
-        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CLIENT_CONNECTION_TIMEOUT_MILLIS.value()), oraclecloud.getObjectStorage().getClient().getConnectionTimeoutMillis());
-        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CLIENT_READ_TIMEOUT_MILLIS.value()), oraclecloud.getObjectStorage().getClient().getReadTimeoutMillis());
-        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CLIENT_MAX_ASYNC_THREADS.value()), oraclecloud.getObjectStorage().getClient().getMaxAsyncThreads());
-        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_REGION.value()), oraclecloud.getObjectStorage().getRegion());
-        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_ENDPOINT.value()), oraclecloud.getObjectStorage().getEndpoint());
+        final var objectStorage = oraclecloud.getObjectStorage();
+        if (objectStorage == null)
+        {
+            return values;
+        }
+        if (objectStorage.getConfigFile() != null)
+        {
+            values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CONFIG_FILE_PATH.value()), objectStorage.getConfigFile().getPath());
+            values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CONFIG_FILE_PROFILE.value()), objectStorage.getConfigFile().getProfile());
+            values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CONFIG_FILE_CHARSET.value()), objectStorage.getConfigFile().getCharset());
+        }
+        if (objectStorage.getClient() != null)
+        {
+            values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CLIENT_CONNECTION_TIMEOUT_MILLIS.value()), objectStorage.getClient().getConnectionTimeoutMillis());
+            values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CLIENT_READ_TIMEOUT_MILLIS.value()), objectStorage.getClient().getReadTimeoutMillis());
+            values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CLIENT_MAX_ASYNC_THREADS.value()), objectStorage.getClient().getMaxAsyncThreads());
+        }
+        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_REGION.value()), objectStorage.getRegion());
+        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_ENDPOINT.value()), objectStorage.getEndpoint());
         return values;
     }
 
@@ -250,13 +265,20 @@ public class EclipseStoreConfigConverter
     private Map<String, String> prepareAzure(final Azure azure, final String key)
     {
         final Map<String, String> values = new HashMap<>();
+        if (azure.getStorage() == null)
+        {
+            return values;
+        }
         values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CONNECTION_STRING.value()), azure.getStorage().getConnectionString());
         values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_ENCRYPTION_SCOPE.value()), azure.getStorage().getEncryptionScope());
-        values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_TYPE.value()), azure.getStorage().getCredentials().getType());
-        values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_USERNAME.value()), azure.getStorage().getCredentials().getUsername());
-        values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_PASSWORD.value()), azure.getStorage().getCredentials().getPassword());
-        values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_ACCOUNT_NAME.value()), azure.getStorage().getCredentials().getAccountMame());
-        values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_ACCOUNT_KEY.value()), azure.getStorage().getCredentials().getAccountKey());
+        if (azure.getStorage().getCredentials() != null)
+        {
+            values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_TYPE.value()), azure.getStorage().getCredentials().getType());
+            values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_USERNAME.value()), azure.getStorage().getCredentials().getUsername());
+            values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_PASSWORD.value()), azure.getStorage().getCredentials().getPassword());
+            values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_ACCOUNT_NAME.value()), azure.getStorage().getCredentials().getAccountName());
+            values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_ACCOUNT_KEY.value()), azure.getStorage().getCredentials().getAccountKey());
+        }
         return values;
     }
 
@@ -284,9 +306,12 @@ public class EclipseStoreConfigConverter
         values.put(this.composeKey(key, ConfigKeys.CACHE.value()), Boolean.toString(awsProperties.isCache()));
         values.put(this.composeKey(key, ConfigKeys.AWS_ENDPOINT_OVERRIDE.value()), awsProperties.getEndpointOverride());
         values.put(this.composeKey(key, ConfigKeys.AWS_REGION.value()), awsProperties.getRegion());
-        values.put(this.composeKey(key, ConfigKeys.AWS_CREDENTIALS_TYPE.value()), awsProperties.getCredentials().getType());
-        values.put(this.composeKey(key, ConfigKeys.AWS_CREDENTIALS_ACCESS_KEY_ID.value()), awsProperties.getCredentials().getAccessKeyId());
-        values.put(this.composeKey(key, ConfigKeys.AWS_CREDENTIALS_SECRET_ACCESS_KEY.value()), awsProperties.getCredentials().getSecretAccessKey());
+        if (awsProperties.getCredentials() != null)
+        {
+            values.put(this.composeKey(key, ConfigKeys.AWS_CREDENTIALS_TYPE.value()), awsProperties.getCredentials().getType());
+            values.put(this.composeKey(key, ConfigKeys.AWS_CREDENTIALS_ACCESS_KEY_ID.value()), awsProperties.getCredentials().getAccessKeyId());
+            values.put(this.composeKey(key, ConfigKeys.AWS_CREDENTIALS_SECRET_ACCESS_KEY.value()), awsProperties.getCredentials().getSecretAccessKey());
+        }
         return values;
     }
 

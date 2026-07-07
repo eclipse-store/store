@@ -32,6 +32,9 @@ import org.eclipse.store.storage.types.LiveObjectIdsHandler;
  *   <li><b>Sweep filter</b> via {@link #processSelected(ObjectIdsProcessor)} — during sweep the GC asks the
  *       registry "is this object id still held by the application?" as the final safety net against
  *       erroneous deletion.</li>
+ *   <li><b>Registration-version publication</b> via {@link #registrationVersion()} — a passive third role:
+ *       the GC snapshots the registry's registration version at every mark seed and re-arms the seed before
+ *       initiating a sweep if registrations happened in between (mid-cycle registration race).</li>
  * </ul>
  * In embedded mode the persistence layer that owns those live object ids is created later than the storage
  * layer, so this callback is registered with the storage upfront and is then
@@ -140,6 +143,15 @@ public interface EmbeddedStorageObjectRegistryCallback extends LiveObjectIdsHand
 
 			// efficient for embedded mode, but server mode should use #selectLiveObjectIds instead.
 			return this.objectRegistry.processLiveObjectIds(processor);
+		}
+
+		@Override
+		public synchronized long registrationVersion()
+		{
+			return this.objectRegistry == null
+				? 0L
+				: this.objectRegistry.registrationVersion()
+			;
 		}
 
 		@Override

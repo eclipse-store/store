@@ -44,7 +44,32 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 	public void advanceMarking(StorageObjectIdMarkQueue objectIdMarkQueue, int amount);
 
 	public void clearPendingStoreUpdate(StorageEntityCache<?> channel);
-	
+
+	/**
+	 * Signals that the passed channel is currently collecting entity data for a load request.
+	 * While any channel has a pending load, {@link #isMarkingComplete()} reports {@code false},
+	 * preventing a sweep from being initiated in the middle of a load task.
+	 * <p>
+	 * This is the load-side counterpart to {@link #signalPendingStoreUpdate(StorageEntityCache)}:
+	 * entity data handed out by a load will be registered in the application's object registry
+	 * and thus be kept alive by the sweep-time safety net even if it is not reachable from the
+	 * persisted root. If that happens after the live object id seed of the current GC cycle ran,
+	 * the entity itself survives the sweep, but its references are never traversed, so entities
+	 * reachable only through it (e.g. the target of a not yet resolved lazy reference) get swept
+	 * and the surviving entity's persisted record dangles ("mid-cycle registration race").
+	 * Blocking sweep initiation for the duration of the load task gives the entity cache a stable
+	 * window to gc-protect and enqueue the collected entities
+	 * (see StorageEntityCache.Default#markEntityForLoadedData), guaranteeing their references are
+	 * marked before the sweep decides what to delete.
+	 */
+	public void signalPendingLoad(StorageEntityCache<?> channel);
+
+	/**
+	 * Clears the pending load state signaled via {@link #signalPendingLoad(StorageEntityCache)}
+	 * for the passed channel.
+	 */
+	public void clearPendingLoad(StorageEntityCache<?> channel);
+
 	public boolean isComplete();
 
 	public boolean isComplete(StorageEntityCache<?> channel);
@@ -61,6 +86,40 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 	);
 
 	public boolean isMarkingComplete();
+
+	/**
+	 * Signals that the marking of the currently issued garbage collection cannot complete
+	 * (a channel failed mid-marking and will never deliver its pending marks). Channels waiting
+	 * inside an issued garbage collection for other channels' marks must exit promptly instead
+	 * of waiting forever. Marking state itself (mark queues, pending marks count) is left
+	 * untouched; the abandoned marks are drained by the failed channel's subsequent
+	 * (housekeeping) garbage collection runs.
+	 * <p>
+	 * Default is a no-op for custom implementations (issued garbage collections then keep the
+	 * pre-existing behavior of waiting for the time budget).
+	 */
+	public default void signalGcMarkingAbort()
+	{
+		// no-op by default
+	}
+
+	/**
+	 * Clears an abort signaled via {@link #signalGcMarkingAbort()}. Called once per issued
+	 * garbage collection task before any channel starts processing it, arming the new attempt.
+	 */
+	public default void clearGcMarkingAbort()
+	{
+		// no-op by default
+	}
+
+	/**
+	 * @return whether {@link #signalGcMarkingAbort()} has been signaled for the current issued
+	 * garbage collection attempt.
+	 */
+	public default boolean isGcMarkingAborted()
+	{
+		return false;
+	}
 
 	public StorageReferenceMarker provideReferenceMarker(StorageEntityCache<?> channel);
 
@@ -214,6 +273,18 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 		private       long      pendingMarksCount      ;
 		private final boolean[] pendingStoreUpdates    ;
 		private       int       pendingStoreUpdateCount;
+		private final boolean[] pendingLoads           ;
+		private       int       pendingLoadCount       ;
+
+		/*
+		 * Set when a channel fails mid-marking during an ISSUED garbage collection: its pending
+		 * marks will never be delivered, so sibling channels waiting for them must exit instead
+		 * of waiting forever (the issued GC's time budget is effectively unbounded). Cleared
+		 * once per issued GC task before processing starts. Deliberately does NOT touch
+		 * pendingMarksCount or the mark queues: the abandoned marks are durable channel state
+		 * that the failed channel's subsequent (housekeeping) GC runs drain consistently.
+		 */
+		private boolean gcMarkingAborted;
 		
 		private final boolean[] needsSweep             ;
 		private       int       sweepingChannelCount   ;
@@ -262,15 +333,29 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 		private final LiveObjectIdsIterator liveObjectIdsIterator;
 
 		/*
-		 * Flag indicating whether live application OIDs have already been seeded
-		 * into the mark queue by the pre-sweep gate for the current GC cycle.
+		 * Flag indicating whether live application OIDs have been seeded into the
+		 * mark queue at least once for the current GC cycle (pre-sweep gate).
 		 * Reset on resetCompletion() (which is invoked on every store, arming the
-		 * gate again for the next cycle). This ensures the pre-sweep seed runs at
-		 * most once per cycle: the cold-phase pre-sweep skip is safe because the
-		 * post-sweep seed of the preceding hot phase already established the same
-		 * mark roots for the cold mark phase.
+		 * gate again for the next cycle). Note that "at least once" is not "exactly
+		 * once": every sweep initiation additionally compares the application
+		 * registry's registration version against the snapshot taken at the last
+		 * seed (seedRegistrationVersion) and re-runs the seed if registrations
+		 * happened in between — see the seed/verify loop in callToSweepRequired().
 		 */
 		private boolean liveOidsSeededForCurrentCycle;
+
+		/*
+		 * Registration version of the application object registry observed when the
+		 * live-OID seed last ran (see LiveObjectIdsIterator#registrationVersion).
+		 * Compared against the current version before every sweep initiation: a
+		 * mismatch means the registry gained entries AFTER the seed (mid-cycle
+		 * registration race) — e.g. a load of an orphaned entity whose unloaded
+		 * lazy reference's target is neither loaded nor registered. Sweeping with
+		 * the stale seed would rescue the registered entities only shallowly and
+		 * delete their binary-referenced children, so the seed must be re-run and
+		 * transitively marked first. See GC.md §10.4.
+		 */
+		private long seedRegistrationVersion;
 
 
 
@@ -294,6 +379,7 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			this.channelCount            = oidMarkQueues.length          ;
 			this.channelHash             = this.channelCount - 1         ;
 			this.pendingStoreUpdates     = new boolean[this.channelCount];
+			this.pendingLoads            = new boolean[this.channelCount];
 			this.needsSweep              = new boolean[this.channelCount];
 			this.channelRootOids         = new long   [this.channelCount];
 			this.liveObjectIdsIterator   = liveObjectIdsIterator         ;
@@ -333,9 +419,14 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			{
 				this.pendingStoreUpdates[i] = false;
 			}
-			
+			for(int i = 0; i < this.pendingLoads.length; i++)
+			{
+				this.pendingLoads[i] = false;
+			}
+
 			this.pendingMarksCount = 0;
 			this.pendingStoreUpdateCount = 0;
+			this.pendingLoadCount = 0;
 		}
 		
 		private void initializeSweepingState()
@@ -354,6 +445,35 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			this.gcHotPhaseComplete            = true ;
 			this.gcColdPhaseComplete           = true ;
 			this.liveOidsSeededForCurrentCycle  = false;
+			this.seedRegistrationVersion        = 0L   ;
+			this.gcMarkingAborted               = false;
+		}
+
+		@Override
+		public final synchronized void signalGcMarkingAbort()
+		{
+			this.gcMarkingAborted = true;
+
+			// wake all channels potentially waiting on their mark queue for other channels' marks.
+			for(final StorageObjectIdMarkQueue queue : this.oidMarkQueues)
+			{
+				synchronized(queue)
+				{
+					queue.notifyAll();
+				}
+			}
+		}
+
+		@Override
+		public final synchronized void clearGcMarkingAbort()
+		{
+			this.gcMarkingAborted = false;
+		}
+
+		@Override
+		public final synchronized boolean isGcMarkingAborted()
+		{
+			return this.gcMarkingAborted;
 		}
 		
 		private void initializeGenerationalState()
@@ -417,7 +537,10 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 		@Override
 		public final synchronized boolean isMarkingComplete()
 		{
-			return this.pendingMarksCount == 0 && this.pendingStoreUpdateCount == 0;
+			// pendingLoadCount > 0 defers sweep initiation while a load task is collecting entities,
+			// so that entities handed out to the application are gc-protected and their enqueued
+			// references are marked before any sweep (see #signalPendingLoad).
+			return this.pendingMarksCount == 0 && this.pendingStoreUpdateCount == 0 && this.pendingLoadCount == 0;
 		}
 
 		@Override
@@ -461,6 +584,28 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			{
 				this.pendingStoreUpdates[channel.channelIndex()] = false;
 				this.pendingStoreUpdateCount--;
+			}
+		}
+
+		@Override
+		public final synchronized void signalPendingLoad(final StorageEntityCache<?> channel)
+		{
+			// check array to ensure idempotence
+			if(!this.pendingLoads[channel.channelIndex()])
+			{
+				this.pendingLoads[channel.channelIndex()] = true;
+				this.pendingLoadCount++;
+			}
+		}
+
+		@Override
+		public final synchronized void clearPendingLoad(final StorageEntityCache<?> channel)
+		{
+			// check array to ensure idempotence
+			if(this.pendingLoads[channel.channelIndex()])
+			{
+				this.pendingLoads[channel.channelIndex()] = false;
+				this.pendingLoadCount--;
 			}
 		}
 
@@ -523,22 +668,48 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			 * sweep, otherwise referenced entities not in the registry will be swept,
 			 * producing zombie OIDs on the next mark phase.
 			 *
-			 * If we haven't seeded yet, enqueue all live OIDs now and return false
-			 * (not ready to sweep), allowing the mark phase to process them first.
+			 * The loop covers, in one construct:
+			 * - the initial pre-sweep gate of a fresh cycle (flag not yet set),
+			 * - the MID-CYCLE REGISTRATION RACE: the registry gained entries after the last
+			 *   seed (registration version moved past the snapshot) — e.g. a load of an
+			 *   orphaned entity between seed and sweep registers the entity and its unloaded
+			 *   Lazy but never the Lazy's target; sweeping with the stale seed would rescue
+			 *   the registered entities only shallowly and delete the target. Re-run the
+			 *   seed so the mark phase walks the new roots transitively first,
+			 * - the cold cycle's verification against the post-sweep seed's snapshot
+			 *   (the flag stays set, but the version compare still runs).
+			 *
+			 * The snapshot is taken BEFORE iterating (load-bearing): a registration racing
+			 * with the seed iteration is then either included in the iteration or bumps the
+			 * version past the snapshot and is caught by the next compare. Snapshotting
+			 * after the seed could miss such a registration forever.
+			 *
+			 * Termination: a seed of a non-empty registry raises pendingMarksCount and
+			 * returns false; the loop body only repeats immediately when the seed enqueued
+			 * nothing, so it runs at most a couple of iterations per call. Continuous
+			 * registrations defer the sweep across calls — the same trade-off as continuous
+			 * stores deferring completion via resetCompletion(); proceeding with a stale
+			 * seed instead would re-open the race.
 			 */
-			if(!this.liveOidsSeededForCurrentCycle && this.liveObjectIdsIterator != null)
+			if(this.liveObjectIdsIterator != null)
 			{
-				this.liveOidsSeededForCurrentCycle = true;
-				this.enqueueLiveApplicationOids(this.liveObjectIdsIterator);
-
-				// If any OIDs were actually enqueued, marking is no longer complete.
-				// Return false so the caller continues marking before retrying sweep.
-				if(!this.isMarkingComplete())
+				while(!this.liveOidsSeededForCurrentCycle
+					|| this.liveObjectIdsIterator.registrationVersion() != this.seedRegistrationVersion
+				)
 				{
-					return false;
+					this.liveOidsSeededForCurrentCycle = true;
+					this.seedRegistrationVersion       = this.liveObjectIdsIterator.registrationVersion();
+					this.enqueueLiveApplicationOids(this.liveObjectIdsIterator);
+
+					// If any OIDs were actually enqueued, marking is no longer complete.
+					// Return false so the caller continues marking before retrying sweep.
+					if(!this.isMarkingComplete())
+					{
+						return false;
+					}
+					// If no OIDs were enqueued (empty registry / all already marked),
+					// the loop re-checks version stability and then falls through to sweep.
 				}
-				// If no OIDs were enqueued (empty registry / all already marked),
-				// fall through to proceed with sweep normally.
 			}
 
 			this.lastSweepStart = System.currentTimeMillis();
@@ -617,6 +788,13 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 				// pre-sweep gate (after resetCompletion()) will re-seed the registry anyway.
 				if(!this.gcColdPhaseComplete)
 				{
+					// snapshot BEFORE seeding (see callToSweepRequired): the cold cycle's sweep
+					// initiation compares against this snapshot to catch registrations landing
+					// in the hot-sweep -> cold-sweep window.
+					if(liveObjectIdsIterator != null)
+					{
+						this.seedRegistrationVersion = liveObjectIdsIterator.registrationVersion();
+					}
 					this.enqueueLiveApplicationOids(liveObjectIdsIterator);
 				}
 			}
