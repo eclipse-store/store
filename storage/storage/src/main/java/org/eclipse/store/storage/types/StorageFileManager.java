@@ -2215,8 +2215,11 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			 */
 			entityCache.registerImportCommit();
 
+			// kept alive across cleanupImportHelper for the post-durability marking pass below
+			final BulkList<StorageChannelImportBatch> importBatches = this.importHelper.importBatches;
+
 			// (05.01.2015 TM)TODO: batch copying must ensure that entity position limit of 2 GB is not exceeded
-			for(final StorageChannelImportBatch batch : this.importHelper.importBatches)
+			for(final StorageChannelImportBatch batch : importBatches)
 			{
 				// register each entity in the batch (possibly just one)
 				for(StorageChannelImportEntity entity = batch.first(); entity != null; entity = entity.next())
@@ -2224,12 +2227,6 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 					final StorageEntity.Default actual = entityCache.putEntity(entity.objectId(), entity.type());
 					actual.updateStorageInformation(entity.length(), X.checkArrayRange(loopFileLength));
 					headFile.appendEntry(actual);
-
-					// gc-protect the imported entity and enqueue it for reference traversal,
-					// exactly like stored/changed data (file position is set above, so the
-					// mark phase can load its reference data).
-					entityCache.markEntityForChangedData(actual);
-
 					loopFileLength += entity.length();
 				}
 			}
@@ -2252,6 +2249,26 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 				taskTimestamp          ,
 				loopFileLength + metaLength
 			);
+
+			/*
+			 * GC marking pass, deliberately AFTER the import became fully durable (transactions
+			 * entry written): gc-protect each imported entity and enqueue it for reference
+			 * traversal, exactly like stored/changed data (file positions were set in the
+			 * registration loop above, so the mark phase can load the reference data). If any
+			 * step above throws, no marks exist yet and the partially registered entities remain
+			 * white, exactly as before this coordination existed - the GC never actively
+			 * traverses a commit that did not complete. No sweep can interleave between
+			 * registration and this pass: the import's gc signal is held until the task's
+			 * cleanUp. The entities are guaranteed to still be registered here for the same
+			 * reason.
+			 */
+			for(final StorageChannelImportBatch batch : importBatches)
+			{
+				for(StorageChannelImportEntity entity = batch.first(); entity != null; entity = entity.next())
+				{
+					entityCache.markEntityForChangedData(entityCache.getEntry(entity.objectId()));
+				}
+			}
 		}
 
 		/**
