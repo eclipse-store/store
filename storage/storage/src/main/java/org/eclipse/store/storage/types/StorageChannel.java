@@ -903,6 +903,9 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			final StorageReferenceValidationPolicy policy
 		)
 		{
+			// fail fast on broken wiring; a null policy mid-validation would mask the actual store failure.
+			notNull(policy);
+
 			if(objectIds == null || objectIds.length == 0 || !policy.isValidating())
 			{
 				return;

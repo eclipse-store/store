@@ -16,6 +16,8 @@ package org.eclipse.store.storage.exceptions;
 
 import java.util.Arrays;
 
+import org.eclipse.serializer.util.X;
+
 /**
  * Thrown when a store's data references object ids for which no entity exists in the storage &mdash;
  * dangling references. The referenced instances were trusted to already exist (they were found in the
@@ -50,7 +52,8 @@ public class StorageExceptionConsistencyDanglingReference extends StorageExcepti
 		final long[] missingObjectIds
 	)
 	{
-		super(buildMessage(channelIndex, missingObjectIds));
+		// notNull: fail with a clear location instead of an NPE from message construction.
+		super(buildMessage(channelIndex, X.notNull(missingObjectIds)));
 		this.channelIndex     = channelIndex            ;
 		// defensive copy: the exception state must stay immutable for later logging/inspection.
 		this.missingObjectIds = missingObjectIds.clone();

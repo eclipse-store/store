@@ -18,6 +18,7 @@ import java.nio.ByteBuffer;
 
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.typing.KeyValue;
+import org.eclipse.serializer.util.X;
 
 public interface StorageRequestTaskStoreEntities extends StorageRequestTask
 {
@@ -68,7 +69,7 @@ public interface StorageRequestTaskStoreEntities extends StorageRequestTask
 			// every channel has to store at least a chunk header, so progress count is always equal to channel count
 			super(timestamp, data.channelCount(), controller);
 			this.data                       = data;
-			this.referenceValidationPolicy  = referenceValidationPolicy;
+			this.referenceValidationPolicy  = X.notNull(referenceValidationPolicy);
 			this.trustedObjectIdsPerChannel = referenceValidationPolicy.isValidating()
 				? partitionPerChannel(data.trustedObjectIds(), data.channelCount())
 				: null
