@@ -240,8 +240,13 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 
 	// (19.07.2014 TM)TODO: refactor storage typing to avoid classes in public API
 	/**
-	 * Prepares this channel to receive imported data by switching its file manager into import
-	 * mode and returning the entity cache that the importer will populate.
+	 * Prepares this channel to receive imported data by registering the import with the storage
+	 * garbage collector (blocking new sweeps for the whole import task and quiescing an already
+	 * flagged one, see StorageEntityCache.Default#registerPendingImportUpdate), switching its file
+	 * manager into import mode and returning the entity cache that the importer will populate.
+	 * <p>
+	 * Every preparation must be paired with a {@link #cleanupImportData()} call once the import
+	 * task has ultimately completed (committed or rolled back).
 	 *
 	 * @return the channel's entity cache, ready to receive imported entities.
 	 */
@@ -269,6 +274,21 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 	 * @param taskTimestamp the timestamp that identifies the import transaction.
 	 */
 	public void commitImportData(long taskTimestamp);
+
+	/**
+	 * Clears the garbage collection coordination state registered by
+	 * {@link #prepareImportData()}, releasing sweep initiation again. Must be called exactly once
+	 * per {@link #prepareImportData()} after the import task has ultimately completed, no matter
+	 * the outcome (committed or rolled back). Idempotent and robust if the preparation never ran
+	 * or failed halfway.
+	 * <p>
+	 * The default implementation is a no-op for {@link StorageChannel} implementations whose
+	 * {@link #prepareImportData()} does not register any garbage collection coordination state.
+	 */
+	public default void cleanupImportData()
+	{
+		// no-op by default. To be overridden by implementations that register gc state in prepareImportData().
+	}
 
 	/**
 	 * Exports every entity of the passed type owned by this channel into the passed file.
@@ -962,6 +982,8 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		@Override
 		public StorageEntityCache.Default prepareImportData()
 		{
+			// gc coordination first: block new sweeps for the task's duration, quiesce a flagged one
+			this.entityCache.registerPendingImportUpdate();
 			this.fileManager.prepareImport();
 			return this.entityCache;
 		}
@@ -982,6 +1004,12 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		public void commitImportData(final long taskTimestamp)
 		{
 			this.fileManager.commitImport(taskTimestamp);
+		}
+
+		@Override
+		public void cleanupImportData()
+		{
+			this.entityCache.clearPendingImportUpdate();
 		}
 
 		@Override
