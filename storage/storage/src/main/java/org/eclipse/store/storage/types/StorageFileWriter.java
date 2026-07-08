@@ -30,6 +30,13 @@ import org.eclipse.store.storage.exceptions.StorageExceptionIoWriting;
  */
 public interface StorageFileWriter
 {
+	/**
+	 * Validates that an IO operation processed exactly {@code specifiedByteCount} bytes,
+	 * since some implementations report a short count instead of throwing.
+	 *
+	 * @return the validated byte count.
+	 * @throws StorageExceptionIoWriting if the counts differ.
+	 */
 	public static long validateIoByteCount(final long specifiedByteCount, final long actualByteCount)
 	{
 		if(specifiedByteCount == actualByteCount)
@@ -72,9 +79,13 @@ public interface StorageFileWriter
 		final StorageLiveDataFile targetFile
 	)
 	{
-		return source.copyTo(targetFile, sourceOffset, copyLength);
+		// a short copy must fail loudly, not be reported as success.
+		return validateIoByteCount(
+			copyLength,
+			source.copyTo(targetFile, sourceOffset, copyLength)
+		);
 	}
-	
+
 	public default long writeTransfer(
 		final StorageLiveDataFile sourceFile  ,
 		final long                sourceOffset,
@@ -82,7 +93,11 @@ public interface StorageFileWriter
 		final StorageLiveDataFile targetFile
 	)
 	{
-		return sourceFile.copyTo(targetFile, sourceOffset, copyLength);
+		// a short copy must fail loudly, not be reported as success.
+		return validateIoByteCount(
+			copyLength,
+			sourceFile.copyTo(targetFile, sourceOffset, copyLength)
+		);
 	}
 	
 	public default long writeTransactionEntryCreate(

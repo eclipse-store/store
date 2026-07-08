@@ -541,7 +541,11 @@ public interface StorageEntity
 		@Override
 		public final long exportTo(final AWritableFile file)
 		{
-			return this.typeInFile.file.copyTo(file, this.storagePosition, this.length);
+			// a short copy must fail loudly, not produce a truncated export.
+			return StorageFileWriter.validateIoByteCount(
+				this.length,
+				this.typeInFile.file.copyTo(file, this.storagePosition, this.length)
+			);
 		}
 
 		@Override

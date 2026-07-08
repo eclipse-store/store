@@ -52,6 +52,19 @@ public interface StorageFileWriterBackupping extends StorageFileWriter
 		// methods //
 		////////////
 			
+		/**
+		 * Sum of remaining bytes across the buffers, computed before the write consumes them.
+		 */
+		private static long totalRemaining(final Iterable<? extends ByteBuffer> byteBuffers)
+		{
+			long total = 0L;
+			for(final ByteBuffer byteBuffer : byteBuffers)
+			{
+				total += byteBuffer.remaining();
+			}
+			return total;
+		}
+
 		@Override
 		public final long writeStore(
 			final StorageLiveDataFile            targetFile ,
@@ -59,11 +72,14 @@ public interface StorageFileWriterBackupping extends StorageFileWriter
 		)
 		{
 			final long oldTargetFileLength = targetFile.size();
-			final long byteCount = this.delegate.writeStore(targetFile, byteBuffers);
-						
+			final long byteCount = StorageFileWriter.validateIoByteCount(
+				totalRemaining(byteBuffers),
+				this.delegate.writeStore(targetFile, byteBuffers)
+			);
+
 			// backup item is enqueued and will be processed by the backup thread, which then decrements the user count.
 			this.itemEnqueuer.enqueueCopyingItem(targetFile, oldTargetFileLength, byteCount);
-			
+
 			return byteCount;
 		}
 		
@@ -76,12 +92,17 @@ public interface StorageFileWriterBackupping extends StorageFileWriter
 		)
 		{
 			final long oldTargetFileLength = targetFile.size();
-			this.delegate.writeImport(source, sourceOffset, copyLength, targetFile);
-			
+
+			// validate before enqueueing: no backup item for a short copy.
+			final long byteCount = StorageFileWriter.validateIoByteCount(
+				copyLength,
+				this.delegate.writeImport(source, sourceOffset, copyLength, targetFile)
+			);
+
 			// backup item is enqueued and will be processed by the backup thread, which then decrements the user count.
-			this.itemEnqueuer.enqueueCopyingItem(targetFile, oldTargetFileLength, copyLength);
-			
-			return copyLength;
+			this.itemEnqueuer.enqueueCopyingItem(targetFile, oldTargetFileLength, byteCount);
+
+			return byteCount;
 		}
 		
 		@Override
@@ -93,12 +114,17 @@ public interface StorageFileWriterBackupping extends StorageFileWriter
 		)
 		{
 			final long oldTargetFileLength = targetFile.size();
-			this.delegate.writeTransfer(sourceFile, sourceOffset, length, targetFile);
-			
+
+			// validate before enqueueing: no backup item for a short copy.
+			final long byteCount = StorageFileWriter.validateIoByteCount(
+				length,
+				this.delegate.writeTransfer(sourceFile, sourceOffset, length, targetFile)
+			);
+
 			// backup item is enqueued and will be processed by the backup thread, which then decrements the user count.
-			this.itemEnqueuer.enqueueCopyingItem(targetFile, oldTargetFileLength, length);
-			
-			return length;
+			this.itemEnqueuer.enqueueCopyingItem(targetFile, oldTargetFileLength, byteCount);
+
+			return byteCount;
 		}
 		
 		@Override
@@ -109,10 +135,13 @@ public interface StorageFileWriterBackupping extends StorageFileWriter
 		)
 		{
 			final long oldLength = transactionFile.size();
-			final long byteCount = this.delegate.writeTransactionEntryCreate(
-				transactionFile,
-				byteBuffers    ,
-				dataFile
+			final long byteCount = StorageFileWriter.validateIoByteCount(
+				totalRemaining(byteBuffers),
+				this.delegate.writeTransactionEntryCreate(
+					transactionFile,
+					byteBuffers    ,
+					dataFile
+				)
 			);
 			
 			// backup item is enqueued and will be processed by the backup thread, which then decrements the user count.
@@ -131,12 +160,15 @@ public interface StorageFileWriterBackupping extends StorageFileWriter
 		)
 		{
 			final long oldLength = transactionFile.size();
-			final long byteCount = this.delegate.writeTransactionEntryStore(
-				transactionFile,
-				byteBuffers    ,
-				dataFile       ,
-				dataFileOffset ,
-				storeLength
+			final long byteCount = StorageFileWriter.validateIoByteCount(
+				totalRemaining(byteBuffers),
+				this.delegate.writeTransactionEntryStore(
+					transactionFile,
+					byteBuffers    ,
+					dataFile       ,
+					dataFileOffset ,
+					storeLength
+				)
 			);
 			
 			// backup item is enqueued and will be processed by the backup thread, which then decrements the user count.
@@ -155,12 +187,15 @@ public interface StorageFileWriterBackupping extends StorageFileWriter
 		)
 		{
 			final long oldLength = transactionFile.size();
-			final long byteCount = this.delegate.writeTransactionEntryTransfer(
-				transactionFile,
-				byteBuffers    ,
-				dataFile       ,
-				dataFileOffset ,
-				storeLength
+			final long byteCount = StorageFileWriter.validateIoByteCount(
+				totalRemaining(byteBuffers),
+				this.delegate.writeTransactionEntryTransfer(
+					transactionFile,
+					byteBuffers    ,
+					dataFile       ,
+					dataFileOffset ,
+					storeLength
+				)
 			);
 			
 			// backup item is enqueued and will be processed by the backup thread, which then decrements the user count.
@@ -177,10 +212,13 @@ public interface StorageFileWriterBackupping extends StorageFileWriter
 		)
 		{
 			final long oldLength = transactionFile.size();
-			final long byteCount = this.delegate.writeTransactionEntryDelete(
-				transactionFile,
-				byteBuffers    ,
-				dataFile
+			final long byteCount = StorageFileWriter.validateIoByteCount(
+				totalRemaining(byteBuffers),
+				this.delegate.writeTransactionEntryDelete(
+					transactionFile,
+					byteBuffers    ,
+					dataFile
+				)
 			);
 			
 			// backup item is enqueued and will be processed by the backup thread, which then decrements the user count.
@@ -198,11 +236,14 @@ public interface StorageFileWriterBackupping extends StorageFileWriter
 		)
 		{
 			final long oldLength = transactionFile.size();
-			final long byteCount = this.delegate.writeTransactionEntryTruncate(
-				transactionFile,
-				byteBuffers    ,
-				file           ,
-				newFileLength
+			final long byteCount = StorageFileWriter.validateIoByteCount(
+				totalRemaining(byteBuffers),
+				this.delegate.writeTransactionEntryTruncate(
+					transactionFile,
+					byteBuffers    ,
+					file           ,
+					newFileLength
+				)
 			);
 			
 			// backup item is enqueued and will be processed by the backup thread, which then decrements the user count.
