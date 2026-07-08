@@ -66,6 +66,7 @@ public class MultiChannelHealTest
 	@Test
 	void danglingReferencesOnAllChannelsAreHealed()
 	{
+		final DanglingRefTestUtil.RecordingEventLogger recorder = new DanglingRefTestUtil.RecordingEventLogger();
 		this.storage = EmbeddedStorage.Foundation(
 				Storage.ConfigurationBuilder()
 					.setStorageFileProvider(Storage.FileProvider(this.tempDir))
@@ -73,6 +74,7 @@ public class MultiChannelHealTest
 					.setReferenceValidationPolicy(StorageReferenceValidationPolicy.HEAL)
 					.createConfiguration()
 			)
+			.setEventLogger(recorder)
 			.start();
 
 		final PersistenceObjectRegistry registry =
@@ -92,6 +94,12 @@ public class MultiChannelHealTest
 		final Parent parent = new Parent(children);
 
 		assertDoesNotThrow(() -> this.storage.store(parent), "multi-round healing must succeed");
+
+		// precondition: healing coverage requires actual rejections; a ghost can only be healed
+		// after its own channel rejected it, so every channel must have reported at least once.
+		DanglingRefTestUtil.assertRejectionsRecorded(recorder);
+		assertEquals(CHANNEL_COUNT, recorder.distinctReportingChannels(),
+			"every channel must have rejected (and thus healed) its own ghost");
 
 		for(int i = 0; i < CHANNEL_COUNT; i++)
 		{

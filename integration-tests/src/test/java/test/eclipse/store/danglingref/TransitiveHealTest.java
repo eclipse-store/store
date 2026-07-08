@@ -14,6 +14,7 @@ package test.eclipse.store.danglingref;
  * #L%
  */
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -60,12 +61,14 @@ public class TransitiveHealTest
 	@Test
 	void transitiveDanglingReferencesAreHealedRecursively()
 	{
+		final DanglingRefTestUtil.RecordingEventLogger recorder = new DanglingRefTestUtil.RecordingEventLogger();
 		this.storage = EmbeddedStorage.Foundation(
 				Storage.ConfigurationBuilder()
 					.setStorageFileProvider(Storage.FileProvider(this.tempDir))
 					.setReferenceValidationPolicy(StorageReferenceValidationPolicy.HEAL)
 					.createConfiguration()
 			)
+			.setEventLogger(recorder)
 			.start();
 
 		final PersistenceObjectRegistry registry =
@@ -88,6 +91,16 @@ public class TransitiveHealTest
 		 * recursively at depth + 1.
 		 */
 		assertDoesNotThrow(() -> this.storage.store(parent), "transitive healing must succeed");
+
+		// precondition: two heal rounds must have happened - the initial store rejected for the
+		// child, then the child's healing commit itself rejected for the grandchild. A single
+		// (or zero) rejection means the recursive path was not exercised.
+		DanglingRefTestUtil.assertRejectionsRecorded(recorder);
+		assertEquals(2, recorder.eventCount(), "exactly two heal rounds expected (child, then grandchild)");
+		assertArrayEquals(new long[]{fakeChildOid}, recorder.reportedObjectIds.get(0),
+			"round 1 must reject the ghost child");
+		assertArrayEquals(new long[]{fakeGrandchildOid}, recorder.reportedObjectIds.get(1),
+			"round 2 (the healing commit) must reject the ghost grandchild");
 
 		assertEquals(fakeChildOid,      registry.lookupObjectId(child)     );
 		assertEquals(fakeGrandchildOid, registry.lookupObjectId(grandchild));

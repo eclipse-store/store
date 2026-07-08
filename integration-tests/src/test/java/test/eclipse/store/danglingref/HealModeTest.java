@@ -14,6 +14,7 @@ package test.eclipse.store.danglingref;
  * #L%
  */
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -60,12 +61,14 @@ public class HealModeTest
 	@Test
 	void danglingReferenceIsHealedTransparently()
 	{
+		final DanglingRefTestUtil.RecordingEventLogger recorder = new DanglingRefTestUtil.RecordingEventLogger();
 		this.storage = EmbeddedStorage.Foundation(
 				Storage.ConfigurationBuilder()
 					.setStorageFileProvider(Storage.FileProvider(this.tempDir))
 					.setReferenceValidationPolicy(StorageReferenceValidationPolicy.HEAL)
 					.createConfiguration()
 			)
+			.setEventLogger(recorder)
 			.start();
 
 		final PersistenceObjectRegistry registry =
@@ -80,6 +83,11 @@ public class HealModeTest
 		// the plain lazy store skips the registry-known child; validation detects the missing
 		// entity, healing re-stores the child under fakeOid and the retry succeeds — transparently.
 		assertDoesNotThrow(() -> this.storage.store(parent), "heal mode must repair the store transparently");
+
+		// precondition: the store must actually have been rejected once, otherwise nothing was healed.
+		DanglingRefTestUtil.assertRejectionsRecorded(recorder);
+		assertArrayEquals(new long[]{fakeOid}, recorder.reportedObjectIds.get(0),
+			"the rejection must report exactly the ghost's object id");
 
 		// the healed child must have kept its object id.
 		assertEquals(fakeOid, registry.lookupObjectId(child), "the healed child must keep its object id");
