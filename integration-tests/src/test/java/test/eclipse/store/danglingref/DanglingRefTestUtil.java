@@ -15,6 +15,7 @@ package test.eclipse.store.danglingref;
  */
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -88,9 +89,9 @@ final class DanglingRefTestUtil
 	 */
 	static final class RecordingEventLogger implements StorageEventLogger
 	{
-		final List<long[]> reportedObjectIds = new ArrayList<>();
+		final List<long[]> reportedObjectIds = Collections.synchronizedList(new ArrayList<>());
 
-		private final Set<Integer> reportingChannels = new HashSet<>();
+		private final Set<Integer> reportingChannels = Collections.synchronizedSet(new HashSet<>());
 
 		@Override
 		public void logStoreDetectedDanglingReferences(final int channelIndex, final long[] objectIds)
