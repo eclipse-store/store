@@ -28,6 +28,7 @@ import org.eclipse.store.storage.types.Storage;
 import org.eclipse.store.storage.types.StorageReferenceValidationPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -35,6 +36,7 @@ import org.junit.jupiter.api.io.TempDir;
  * instance. The compensating store's own commit detects and heals the transitive dangling reference
  * (at healing depth + 1); the whole graph must be persisted intact.
  */
+@Timeout(60)
 public class TransitiveHealTest
 {
 	@TempDir

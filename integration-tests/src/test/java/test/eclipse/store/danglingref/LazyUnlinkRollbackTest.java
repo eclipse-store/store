@@ -32,6 +32,7 @@ import org.eclipse.store.storage.types.Storage;
 import org.eclipse.store.storage.types.StorageReferenceValidationPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -41,6 +42,7 @@ import org.junit.jupiter.api.io.TempDir;
  * disk — making it legally clearable and a later successful store would persist the phantom id.
  * The registered rollback hook must {@code $unlink} the Lazy on terminal commit failure.
  */
+@Timeout(60)
 public class LazyUnlinkRollbackTest
 {
 	@TempDir

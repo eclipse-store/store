@@ -31,6 +31,7 @@ import org.eclipse.store.storage.types.Storage;
 import org.eclipse.store.storage.types.StorageReferenceValidationPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -38,6 +39,7 @@ import org.junit.jupiter.api.io.TempDir;
  * to re-store — the data is genuinely gone. In heal mode such a store must still fail with the
  * typed exception (like fail mode), and the storage must remain usable.
  */
+@Timeout(60)
 public class UnhealableLazyHealTest
 {
 	@TempDir

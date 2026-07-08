@@ -29,6 +29,7 @@ import org.eclipse.store.storage.types.Storage;
 import org.eclipse.store.storage.types.StorageReferenceValidationPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -38,6 +39,7 @@ import org.junit.jupiter.api.io.TempDir;
  * rewind between rounds (peer channels that already wrote are rolled back and must rewrite
  * byte-identical data on retry).
  */
+@Timeout(60)
 public class MultiChannelHealTest
 {
 	static final int CHANNEL_COUNT = 4;
@@ -100,6 +102,15 @@ public class MultiChannelHealTest
 		DanglingRefTestUtil.assertRejectionsRecorded(recorder);
 		assertEquals(CHANNEL_COUNT, recorder.distinctReportingChannels(),
 			"every channel must have rejected (and thus healed) its own ghost");
+		/*
+		 * Pin the multi-ROUND retry: healing repairs only the surfaced (first failing) channel's
+		 * ids per round, while every channel still holding a ghost re-rejects on each retry -
+		 * 4+3+2+1 events for 4 channels. A validation aggregating all channels into one rejection
+		 * would heal everything in a single round (exactly CHANNEL_COUNT events) and silently
+		 * stop covering the round loop and the buffer rewind between rounds.
+		 */
+		assertEquals(CHANNEL_COUNT * (CHANNEL_COUNT + 1) / 2, recorder.eventCount(),
+			"one heal round per channel expected, with every remaining ghost channel re-rejecting per round");
 
 		for(int i = 0; i < CHANNEL_COUNT; i++)
 		{
@@ -118,7 +129,6 @@ public class MultiChannelHealTest
 					.createConfiguration()
 			)
 			.start();
-		@SuppressWarnings("unchecked")
 		final Parent reloaded = (Parent)this.storage.root();
 		assertNotNull(reloaded);
 		assertEquals(CHANNEL_COUNT, reloaded.children.size());

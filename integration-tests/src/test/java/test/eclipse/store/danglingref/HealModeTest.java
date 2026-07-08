@@ -17,17 +17,21 @@ package test.eclipse.store.danglingref;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 
 import org.eclipse.serializer.persistence.types.PersistenceObjectRegistry;
+import org.eclipse.serializer.reference.Lazy;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.eclipse.store.storage.types.Storage;
 import org.eclipse.store.storage.types.StorageReferenceValidationPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -35,6 +39,7 @@ import org.junit.jupiter.api.io.TempDir;
  * never-stored instance must succeed transparently — the storer re-stores the instance under its
  * existing object id and retries. The persisted graph must be fully intact after a restart.
  */
+@Timeout(60)
 public class HealModeTest
 {
 	@TempDir
@@ -78,7 +83,12 @@ public class HealModeTest
 		final Child child   = new Child("healed child");
 		registry.registerObject(fakeOid, child);
 
-		final Parent parent = new Parent(child);
+		// a fresh Lazy in the same store: its link (set during serialization, rolled back on
+		// terminal commit failure) must survive the intermediate, subsequently-healed rejection.
+		final Lazy<Payload> lazy   = Lazy.Reference(new Payload("lazy payload"));
+		final Parent        parent = new Parent(child, lazy);
+
+		assertFalse(lazy.isStored(), "precondition: a fresh Lazy must be unstored");
 
 		// the plain lazy store skips the registry-known child; validation detects the missing
 		// entity, healing re-stores the child under fakeOid and the retry succeeds — transparently.
@@ -88,6 +98,10 @@ public class HealModeTest
 		DanglingRefTestUtil.assertRejectionsRecorded(recorder);
 		assertArrayEquals(new long[]{fakeOid}, recorder.reportedObjectIds.get(0),
 			"the rejection must report exactly the ghost's object id");
+
+		// the healed store committed successfully, so the Lazy must remain linked: an $unlink
+		// rollback wrongly firing on the healed (non-terminal) rejection round would show here.
+		assertTrue(lazy.isStored(), "a successfully healed store must leave the fresh Lazy linked");
 
 		// the healed child must have kept its object id.
 		assertEquals(fakeOid, registry.lookupObjectId(child), "the healed child must keep its object id");
@@ -102,6 +116,8 @@ public class HealModeTest
 		assertNotNull(reloaded);
 		assertNotNull(reloaded.child, "the healed child must be loadable after restart");
 		assertEquals("healed child", reloaded.child.data);
+		assertNotNull(reloaded.lazy.get(), "the Lazy referent must be loadable after restart");
+		assertEquals("lazy payload", reloaded.lazy.get().data);
 	}
 
 
@@ -111,12 +127,25 @@ public class HealModeTest
 
 	public static class Parent
 	{
-		public Child child;
+		public Child         child;
+		public Lazy<Payload> lazy ;
 
-		public Parent(final Child child)
+		public Parent(final Child child, final Lazy<Payload> lazy)
 		{
 			super();
 			this.child = child;
+			this.lazy  = lazy ;
+		}
+	}
+
+	public static class Payload
+	{
+		public String data;
+
+		public Payload(final String data)
+		{
+			super();
+			this.data = data;
 		}
 	}
 
