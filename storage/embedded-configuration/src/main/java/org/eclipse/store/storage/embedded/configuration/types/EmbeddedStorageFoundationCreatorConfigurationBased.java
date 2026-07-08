@@ -17,6 +17,7 @@ package org.eclipse.store.storage.embedded.configuration.types;
 import static org.eclipse.serializer.util.X.notNull;
 
 import java.time.Duration;
+import java.util.Locale;
 import java.util.function.Supplier;
 
 import org.eclipse.serializer.afs.types.ADirectory;
@@ -161,7 +162,8 @@ public interface EmbeddedStorageFoundationCreatorConfigurationBased extends Embe
 
 			this.configuration.opt(GC_ZOMBIE_OID_HANDLING).ifPresent(value ->
 			{
-				switch(value.trim().toLowerCase())
+				// Locale.ROOT: config parsing must not depend on the platform locale.
+				switch(value.trim().toLowerCase(Locale.ROOT))
 				{
 					case "log":
 						// default behavior, nothing to set
@@ -170,9 +172,10 @@ public interface EmbeddedStorageFoundationCreatorConfigurationBased extends Embe
 						foundation.setGCZombieOidHandler(StorageGCZombieOidHandler.Strict());
 						break;
 					default:
-						throw new IllegalArgumentException(
-							"Invalid " + GC_ZOMBIE_OID_HANDLING + ": \"" + value
-							+ "\". Valid values are: log, fail."
+						throw new ConfigurationException(
+							this.configuration,
+							"Invalid " + GC_ZOMBIE_OID_HANDLING + ": '" + value
+							+ "' (expected log or fail)."
 						);
 				}
 			});
