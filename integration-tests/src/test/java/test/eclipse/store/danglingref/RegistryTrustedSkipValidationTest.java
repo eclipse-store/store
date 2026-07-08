@@ -23,8 +23,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
 
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
@@ -123,7 +121,7 @@ public class RegistryTrustedSkipValidationTest
 	@Test
 	void logModeReportsDanglingReferenceButCommits()
 	{
-		final RecordingEventLogger recorder = new RecordingEventLogger();
+		final DanglingRefTestUtil.RecordingEventLogger recorder = new DanglingRefTestUtil.RecordingEventLogger();
 		this.startStorage(StorageReferenceValidationPolicy.LOG, recorder);
 
 		final long  fakeOid = DanglingRefTestUtil.FAKE_OID_BASE + 1;
@@ -140,7 +138,7 @@ public class RegistryTrustedSkipValidationTest
 	@Test
 	void offModeIsSilent()
 	{
-		final RecordingEventLogger recorder = new RecordingEventLogger();
+		final DanglingRefTestUtil.RecordingEventLogger recorder = new DanglingRefTestUtil.RecordingEventLogger();
 		this.startStorage(StorageReferenceValidationPolicy.OFF, recorder);
 
 		final long  fakeOid = DanglingRefTestUtil.FAKE_OID_BASE + 2;
@@ -205,17 +203,4 @@ public class RegistryTrustedSkipValidationTest
 		}
 	}
 
-	static final class RecordingEventLogger implements StorageEventLogger
-	{
-		final List<long[]> reportedObjectIds = new ArrayList<>();
-
-		@Override
-		public void logStoreDetectedDanglingReferences(final int channelIndex, final long[] objectIds)
-		{
-			synchronized(this.reportedObjectIds)
-			{
-				this.reportedObjectIds.add(objectIds);
-			}
-		}
-	}
 }

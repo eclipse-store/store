@@ -32,6 +32,10 @@ package org.eclipse.store.storage.types;
  *       {@link StorageEventLogger}, but the store proceeds.</li>
  *   <li>{@link #FAIL} &mdash; the store is rejected atomically with a
  *       {@link org.eclipse.store.storage.exceptions.StorageExceptionConsistencyDanglingReference}.</li>
+ *   <li>{@link #HEAL} &mdash; like {@link #FAIL} storage-side, but the storer automatically repairs the
+ *       rejected store: it re-stores the still-live referenced instances under their existing object
+ *       ids and retries — transparently to the caller. Unhealable ids (e.g. an unloaded {@code Lazy}
+ *       reference's cached id, whose data is genuinely gone) still fail like {@link #FAIL}.</li>
  * </ul>
  */
 public enum StorageReferenceValidationPolicy
@@ -49,7 +53,13 @@ public enum StorageReferenceValidationPolicy
 	/**
 	 * Validate and reject a store containing dangling references atomically.
 	 */
-	FAIL;
+	FAIL,
+
+	/**
+	 * Validate, reject, and automatically heal: re-store the referenced instances under their
+	 * existing object ids and retry the store. Falls back to failing when healing is impossible.
+	 */
+	HEAL;
 
 
 	/**
@@ -65,13 +75,21 @@ public enum StorageReferenceValidationPolicy
 	 */
 	public boolean isFailing()
 	{
-		return this == FAIL;
+		return this == FAIL || this == HEAL;
+	}
+
+	/**
+	 * @return whether a rejected store is automatically healed and retried by the storer.
+	 */
+	public boolean isHealing()
+	{
+		return this == HEAL;
 	}
 
 
 	/**
-	 * Parses the external configuration value ({@code "off"}, {@code "log"} or {@code "fail"},
-	 * case-insensitive).
+	 * Parses the external configuration value ({@code "off"}, {@code "log"}, {@code "fail"} or
+	 * {@code "heal"}, case-insensitive).
 	 *
 	 * @param value the configuration value.
 	 *
@@ -84,7 +102,7 @@ public enum StorageReferenceValidationPolicy
 		if(value == null)
 		{
 			throw new IllegalArgumentException(
-				"Reference validation policy must not be null. Valid values are: off, log, fail."
+				"Reference validation policy must not be null. Valid values are: off, log, fail, heal."
 			);
 		}
 		// Locale.ROOT: config parsing must not depend on the platform locale (e.g. Turkish dotless i).
@@ -93,8 +111,9 @@ public enum StorageReferenceValidationPolicy
 			case "off" : return OFF ;
 			case "log" : return LOG ;
 			case "fail": return FAIL;
+			case "heal": return HEAL;
 			default    : throw new IllegalArgumentException(
-				"Invalid reference validation policy: \"" + value + "\". Valid values are: off, log, fail."
+				"Invalid reference validation policy: \"" + value + "\". Valid values are: off, log, fail, heal."
 			);
 		}
 	}

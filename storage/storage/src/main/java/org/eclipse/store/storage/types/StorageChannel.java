@@ -138,6 +138,10 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 	 * runs exclusively on that channel's own thread between tasks, and this method is invoked on the same
 	 * thread inside the store task, before the store commits. An entity found here therefore cannot be
 	 * deleted before the surrounding store is committed.
+	 * <p>
+	 * Contract for rejections: a failing validation reports ALL missing ids of this channel in one
+	 * exception (the complete miss list is collected before throwing). The storer-side self-healing
+	 * relies on this to bound its retry attempts at one healing round per channel.
 	 *
 	 * @param objectIds the trusted reference object ids assigned to this channel; may be {@code null} or empty.
 	 * @param policy    the validation policy to apply.
@@ -955,11 +959,25 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 				: Arrays.copyOf(missing, count)
 			;
 
-			logger.error(
-				"StorageChannel#{} store references non-existing entities (dangling references): {}",
-				this.channelIndex,
-				Arrays.toString(missingObjectIds)
-			);
+			if(policy.isHealing())
+			{
+				// under heal, a rejection is EXPECTED to be repaired by the storer - WARN, not ERROR.
+				// If healing gives up, the failure surfaces loudly via the thrown exception anyway.
+				logger.warn(
+					"StorageChannel#{} store references non-existing entities (dangling references): {}"
+					+ " - rejecting for the storer to heal.",
+					this.channelIndex,
+					Arrays.toString(missingObjectIds)
+				);
+			}
+			else
+			{
+				logger.error(
+					"StorageChannel#{} store references non-existing entities (dangling references): {}",
+					this.channelIndex,
+					Arrays.toString(missingObjectIds)
+				);
+			}
 			this.eventLogger.logStoreDetectedDanglingReferences(this.channelIndex, missingObjectIds);
 
 			if(policy.isFailing())

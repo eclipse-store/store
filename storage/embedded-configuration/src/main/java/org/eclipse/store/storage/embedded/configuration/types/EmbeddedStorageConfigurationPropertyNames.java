@@ -177,10 +177,12 @@ public interface EmbeddedStorageConfigurationPropertyNames
 
 	/**
 	 * Store-time validation of trusted reference object ids (references written into a store's data
-	 * whose entities are not part of the store itself): {@code off}, {@code log} or {@code fail}.
-	 * Default (unset) is {@code log}: detected dangling references are logged as an error but the
-	 * store proceeds. {@code fail} rejects such a store atomically; {@code off} disables collection
-	 * and validation entirely (zero overhead).
+	 * whose entities are not part of the store itself): {@code off}, {@code log}, {@code fail} or
+	 * {@code heal}. Default (unset) is {@code log}: detected dangling references are logged as an
+	 * error but the store proceeds. {@code fail} rejects such a store atomically; {@code heal}
+	 * additionally repairs it automatically (re-storing the still-live referenced instances under
+	 * their existing object ids and retrying); {@code off} disables collection and validation
+	 * entirely (zero overhead).
 	 *
 	 * @see EmbeddedStorageConfigurationBuilder#setReferenceValidation(String)
 	 */

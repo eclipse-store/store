@@ -323,6 +323,9 @@ The behavior is controlled by the `reference-validation` configuration property 
 | `fail`
 | A store containing dangling references is rejected atomically with a `StorageExceptionConsistencyDanglingReference` naming the missing object ids; nothing of the store is committed and the storage remains fully usable.
 
+| `heal`
+| Like `fail`, but the storer automatically repairs the rejected store — see <<_automatic_self_healing>>.
+
 | `off`
 | The ids are not collected at all — zero overhead, pre-feature behavior.
 |===
@@ -334,6 +337,18 @@ At the calling code, the rejection surfaces wrapped: the thrown exception is a `
 
 To recover from a rejected store, make the missing entities exist again and retry: include the referenced instances explicitly in the same store (e.g. `storer.storeAll(parent, child)`) or store them with an eager storer first.
 References registered via `Storer#skip` variants are an explicit user assertion and are not validated.
+
+=== Automatic Self-Healing
+
+With `reference-validation=heal`, a store rejected for dangling references is repaired automatically and transparently: a dangling id is an id whose *data* is missing while the referenced *instance* is still alive in application memory — so the storer re-serializes that instance **under its existing object id** in a compensating store, then retries the original store. The retried data is byte-identical (the already-serialized buffers are reused), so the repair is invisible to the caller apart from WARN-level logging per healing round (one entry from the rejecting channel, one from the healing storer; the `StorageEventLogger` dangling-reference event still fires per attempt for monitoring).
+
+Details and bounds:
+
+* Healing is *reactive*: it only runs when a store was actually rejected — the happy path is unchanged.
+* The healed data is the instance's *current* in-memory state (the storage had nothing for that id, so this is strictly an improvement).
+* The compensating store is a separate commit. If the retried store then fails for an unrelated reason, the healed entities are simply unreachable and are reclaimed by the storage garbage collector.
+* Transitive dangling references (a healed instance itself referencing a missing id) are healed recursively, bounded by a maximum depth; the number of retry rounds is bounded by the channel count.
+* **Unhealable:** an unloaded `Lazy` reference's cached id has no in-memory instance — if such an id is missing, the data is genuinely gone and the store fails exactly like `fail` mode.
 
 == Limitations
 

@@ -181,8 +181,8 @@ public class EclipseStoreProperties
     private String dataFileCleanupHeadFile;
 
     /**
-     * Store-time validation of trusted reference object ids: {@code off}, {@code log} or {@code fail}.
-     * Default is {@code log}.
+     * Store-time validation of trusted reference object ids: {@code off}, {@code log}, {@code fail}
+     * or {@code heal}. Default is {@code log}.
      */
     private String referenceValidation;
 
