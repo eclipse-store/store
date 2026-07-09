@@ -133,6 +133,14 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		
 		// Statistics for debugging / monitoring / checking to compare with other channels and with the markmonitor
 		private long sweepGeneration, lastSweepStart, lastSweepEnd;
+
+		/**
+		 * Set when a sweep attempt aborted mid-run with an exception (internal#83): the aborted
+		 * attempt has already reset an unknown prefix of the surviving (marked) entities back to
+		 * white, so re-executing the flagged sweep with normal delete semantics would delete
+		 * reachable entities. The next execution runs as a keep-all rescue sweep instead.
+		 */
+		private boolean sweepRescueNeeded;
 		
 		
 		// state 3.1: variable length content
@@ -1286,28 +1294,49 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		 */
 		final void sweep(final _longPredicate isReachableInApplication)
 		{
-			this.lastSweepStart = System.currentTimeMillis();
-			final StorageEntityType.Default typeHead = this.typeHead;
-
-			for(StorageEntityType.Default sweepType = typeHead; (sweepType = sweepType.next) != typeHead;)
+			try
 			{
-				// get next item and check for end of type (switch to next type required)
-				for(StorageEntity.Default item, last = sweepType.head; (item = last.typeNext) != null;)
+				this.lastSweepStart = System.currentTimeMillis();
+				final StorageEntityType.Default typeHead = this.typeHead;
+
+				for(StorageEntityType.Default sweepType = typeHead; (sweepType = sweepType.next) != typeHead;)
 				{
-					// actual sweep: white entities are deleted, non-white entities are marked white but not deleted
-					if(item.isGcMarked() || isReachableInApplication.test(item.objectId))
+					// get next item and check for end of type (switch to next type required)
+					for(StorageEntity.Default item, last = sweepType.head; (item = last.typeNext) != null;)
 					{
-						// reset to white and advance one item
-						(last = item).markWhite();
-					}
-					else
-					{
-						// otherwise white entity, so collect it
-						this.deleteEntity(item, sweepType, last);
+						// actual sweep: white entities are deleted, non-white entities are marked white but not deleted
+						if(item.isGcMarked() || isReachableInApplication.test(item.objectId))
+						{
+							// reset to white and advance one item
+							(last = item).markWhite();
+						}
+						else
+						{
+							// otherwise white entity, so collect it
+							this.deleteEntity(item, sweepType, last);
+						}
 					}
 				}
-			}
 
+				this.completeSweepBookkeeping();
+			}
+			catch(final Throwable t)
+			{
+				/*
+				 * The sweep aborted mid-run (realistically: the application-registry predicate threw,
+				 * e.g. a faulty custom registry implementation or an OutOfMemoryError). The entities
+				 * iterated so far were already reset to white regardless of their mark state, so this
+				 * still-flagged sweep must not be re-executed with delete semantics: it would delete
+				 * the reachable entities it whitened. Flag the channel for a keep-all rescue sweep
+				 * (see #sweep()) and propagate the failure to the caller.
+				 */
+				this.sweepRescueNeeded = true;
+				throw t;
+			}
+		}
+
+		private void completeSweepBookkeeping()
+		{
 			this.lastSweepEnd = System.currentTimeMillis();
 			this.sweepGeneration++;
 
@@ -1318,9 +1347,49 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			final long channelRootOid = this.queryRootObjectId();
 			this.markMonitor.completeSweep(this, this.rootOidSelector, channelRootOid, this.liveObjectIdsHandler);
 		}
+
+		/**
+		 * Keep-all re-execution of a sweep whose previous attempt aborted mid-run (internal#83).
+		 * The aborted attempt already whitened an unknown prefix of the surviving entities, so mark
+		 * state can no longer distinguish garbage from reachable data. This pass therefore deletes
+		 * nothing and consults no application predicate - making it exception-free by construction:
+		 * every entity is reset to white and the flagged sweep is completed consistently. The
+		 * following mark cycle re-establishes all marks from the roots and the registry seed;
+		 * garbage collection is merely deferred by one cycle.
+		 */
+		private void rescueSweep()
+		{
+			logger.warn(
+				"StorageChannel#{}: a previous sweep attempt aborted mid-run;"
+				+ " re-executing as a keep-all rescue sweep"
+				+ " (nothing is deleted, garbage collection is deferred to the next full mark cycle).",
+				this.channelIndex
+			);
+
+			this.lastSweepStart = System.currentTimeMillis();
+			final StorageEntityType.Default typeHead = this.typeHead;
+
+			for(StorageEntityType.Default sweepType = typeHead; (sweepType = sweepType.next) != typeHead;)
+			{
+				for(StorageEntity.Default item = sweepType.head; (item = item.typeNext) != null;)
+				{
+					item.markWhite();
+				}
+			}
+
+			this.completeSweepBookkeeping();
+
+			// cleared only after successful completion: a failure above re-runs the rescue.
+			this.sweepRescueNeeded = false;
+		}
 		
 		private boolean sweep()
 		{
+			if(this.sweepRescueNeeded)
+			{
+				this.rescueSweep();
+				return true;
+			}
 			return this.liveObjectIdsHandler.processSelected(new ApplicationCallback(this.typeHead));
 		}
 
