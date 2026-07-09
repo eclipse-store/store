@@ -51,22 +51,22 @@ import org.junit.jupiter.api.parallel.Isolated;
  * and clears the channel's sweep flag only at the very end. A TRANSIENT exception thrown partway
  * through the sweep (e.g. by a custom {@code LiveObjectIdsHandler} selector, or an OOM) leaves the
  * sweep flagged while the first K reachable entities are already white. Any re-execution of that
- * flagged sweep â€” housekeeping tick, import quiesce, or (since the task-chain repair) the next
- * issued GC â€” then deletes those K entities unless they happen to be application-registered:
+ * flagged sweep - housekeeping tick, import quiesce, or (since the task-chain repair) the next
+ * issued GC - then deletes those K entities unless they happen to be application-registered:
  * reachable entities gone, dangling references on disk. Permanent data loss.
  * <p>
  * Determinism: the transient failure is injected through the sweep-time application-registry
- * predicate. The predicate is consulted ONLY for white (unmarked) entities â€” the marked ones are
- * whitened without a predicate call â€” so arming the trap guarantees the throw happens exactly
+ * predicate. The predicate is consulted ONLY for white (unmarked) entities - the marked ones are
+ * whitened without a predicate call - so arming the trap guarantees the throw happens exactly
  * when the sweep reaches the planted white orphan W, strictly AFTER the reachable victim R
  * (same entity type, registered into the type chain before W) has already been whitened.
  * <p>
  * The victim R sits behind a Lazy whose Java instance is collected before the race: the mark
- * phase reaches R transitively through persisted binary references (root â†’ L â†’ R), so R is
+ * phase reaches R transitively through persisted binary references (root -> L -> R), so R is
  * properly marked, yet at re-execution time nothing application-side protects it.
  * <p>
  * The repro asserts the CORRECT behavior (no zombie for R, R loadable after restart), i.e. this
- * test is RED as long as the bug exists â€” the sweep-retry loss shows up as a zombie OID for R
+ * test is RED as long as the bug exists - the sweep-retry loss shows up as a zombie OID for R
  * during the second issued GC's marking and as a missing entity after restart.
  * <p>
  * {@code @Isolated} + flag restoration because {@code setGarbageCollectionEnabled} is a static,
@@ -112,7 +112,7 @@ public class PartialSweepRetryReproTest
 	/**
 	 * Delegating registry callback that injects a ONE-SHOT transient failure into the sweep-time
 	 * live-object-ids predicate. The predicate is consulted only for white entities, so the first
-	 * consult after arming is the sweep reaching the planted orphan W â€” by then every marked
+	 * consult after arming is the sweep reaching the planted orphan W - by then every marked
 	 * entity iterated before W (including the victim R) has already been whitened.
 	 * <p>
 	 * MUST forward {@code registrationVersion()}: the interface default is a constant 0, which

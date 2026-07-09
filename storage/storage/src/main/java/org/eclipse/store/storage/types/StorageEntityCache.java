@@ -1352,10 +1352,12 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		 * Keep-all re-execution of a sweep whose previous attempt aborted mid-run (internal#83).
 		 * The aborted attempt already whitened an unknown prefix of the surviving entities, so mark
 		 * state can no longer distinguish garbage from reachable data. This pass therefore deletes
-		 * nothing and consults no application predicate - making it exception-free by construction:
-		 * every entity is reset to white and the flagged sweep is completed consistently. The
-		 * following mark cycle re-establishes all marks from the roots and the registry seed;
-		 * garbage collection is merely deferred by one cycle.
+		 * nothing and consults no application predicate: the sweep pass itself is straight-line
+		 * pointer operations that cannot throw. The completion bookkeeping afterwards may still
+		 * throw (the mark monitor's completion interacts with the application registry); in that
+		 * case the flag stays set and the rescue simply re-runs on the next attempt - still without
+		 * deleting anything. The following mark cycle re-establishes all marks from the roots and
+		 * the registry seed; garbage collection is merely deferred by one cycle.
 		 */
 		private void rescueSweep()
 		{
