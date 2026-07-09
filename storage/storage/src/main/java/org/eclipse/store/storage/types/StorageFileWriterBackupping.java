@@ -259,6 +259,11 @@ public interface StorageFileWriterBackupping extends StorageFileWriter
 			final StorageFileProvider       fileProvider
 		)
 		{
+			// trim queued copy items for the bytes about to be removed BEFORE the physical truncate:
+			// processed afterwards they would copy a source range that no longer exists, throw, and
+			// escalate to a storage-wide disruption over an already-handled rollback.
+			this.itemEnqueuer.trimPendingCopyItemsBeyond(file, newLength);
+
 			// no user increment since only the identifier is required and the actual file can well be deleted.
 			this.delegate.truncate(file, newLength, fileProvider);
 			this.itemEnqueuer.enqueueTruncatingItem(file, newLength);
@@ -271,6 +276,11 @@ public interface StorageFileWriterBackupping extends StorageFileWriter
 			final StorageFileProvider    fileProvider
 		)
 		{
+			// cancel any still-queued item for this file BEFORE it physically disappears: a stale
+			// copy/truncate item processed afterwards would try to act on a source that no longer
+			// exists, throw, and register a storage-wide disruption over an intended deletion.
+			this.itemEnqueuer.cancelPendingItemsFor(file);
+
 			// no user increment since only the identifier is required and the actual file can well be deleted.
 			this.delegate.delete(file, writeController, fileProvider);
 			this.itemEnqueuer.enqueueDeletionItem(file);
