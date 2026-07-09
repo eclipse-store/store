@@ -2653,9 +2653,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // Always use the parent GigaMap's id space — that is the ordinal
             // space the HNSW graph is keyed on (via toOrdinal(entityId)) in
             // both embedded and computed-vector modes. The computed-mode
-            // vectorStore has its own monotonic id allocator that can drift
+            // vectorStore has its own monotonic id allocator that diverges
             // from the parent map's (e.g. when an index is registered against
-            // a parent with deletion holes), so it is unsafe as a stand-in.
+            // a parent with deletion holes, or when some entities have no
+            // embedding and so get no vectorStore entry at all), so it is
+            // unsafe as a stand-in. Note this is only about the highest-id
+            // bound: per-entity vector lookups no longer assume alignment —
+            // they resolve by VectorEntry.sourceEntityId (see lookupComputedVector).
             return this.parentMap().highestUsedId();
         }
 
