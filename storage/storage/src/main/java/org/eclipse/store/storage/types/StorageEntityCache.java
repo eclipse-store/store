@@ -1856,7 +1856,12 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			{
 				if(!this.sweep())
 				{
-					// sweep aborted due to locked object registry. Retry on next attempt.
+					/*
+					 * The object registry implementation rejected the live-id processing (see
+					 * PersistenceObjectRegistry#processLiveObjectIds: custom implementations may
+					 * reject instead of blocking; the default registry never does). Retry the
+					 * sweep on the next housekeeping attempt.
+					 */
 					return false;
 				}
 
