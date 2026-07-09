@@ -545,8 +545,12 @@ public interface StorageBackupHandler extends Runnable, StorageActivePart
 				
 				try
 				{
-					sourceFile.copyTo(backupTargetFile, sourcePosition, length);
-					
+					// a short copy must fail loudly, not pass as success.
+					StorageFileWriter.validateIoByteCount(
+						length,
+						sourceFile.copyTo(backupTargetFile, sourcePosition, length)
+					);
+
 					// (16.06.2020 TM)TODO: nasty instanceof
 					if(backupTargetFile instanceof StorageBackupDataFile)
 					{
