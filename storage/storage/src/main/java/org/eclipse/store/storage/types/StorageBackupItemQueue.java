@@ -109,6 +109,10 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 		@Override
 		public void trimPendingCopyItemsBeyond(final StorageLiveChannelFile<?> file, final long newLength)
 		{
+			// A start-only check (>= newLength) suffices: copy items are enqueued at exact write
+			// boundaries (sourcePosition == the file length before that write), and the only truncation
+			// that reaches here is a rollback to the committed length - itself a write boundary. So an
+			// item either lies fully below newLength or starts at/after it; none can straddle newLength.
 			this.removeMatching(item ->
 				item.sourceFile == file
 				&& item instanceof CopyItem
