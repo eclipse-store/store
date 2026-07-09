@@ -46,7 +46,7 @@ public interface StorageFileWriter
 
 		throw new StorageExceptionIoWriting(
 			"Inconsistent IO operation: actual byte count " + actualByteCount
-			+ " does not match the specified byte count if  " + specifiedByteCount + "."
+			+ " does not match the specified byte count of  " + specifiedByteCount + "."
 		);
 	}
 	
