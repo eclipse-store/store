@@ -293,11 +293,45 @@ public class TextVectorizer extends Vectorizer<Document>
 
 CAUTION: When using computed vectors with an external service, be aware of potential latency during indexing operations. Consider pre-computing embeddings and storing them in the entity for better performance.
 
-IMPORTANT: The `vectorize()` method must never return `null`. If it does, an `IllegalStateException` is thrown when the entity is added, updated, or re-indexed. If some entities cannot produce a vector, they should be excluded before adding them to the GigaMap, or the vectorizer must provide a fallback vector.
+IMPORTANT: By default the `vectorize()` method must never return `null`. If it does, an `IllegalStateException` is thrown when the entity is added, updated, or re-indexed -- this fail-fast behavior catches accidental bugs in vectorizer implementations.
+
+==== Entities Without an Embedding
+
+If some entities legitimately have no embedding, override `Vectorizer.allowsNullVectors()` to return `true`. A `null` vector then means "this entity has no embedding": the entity remains in the `GigaMap` and all of its other indices, but is excluded from the vector index's HNSW graph and never appears in vector search results. In computed mode no vector store entry is kept for it, and `getVector(entityId)` returns `null`.
+
+[source, java]
+----
+public class ProductVectorizer extends Vectorizer<Product>
+{
+    @Override
+    public float[] vectorize(Product product)
+    {
+        return product.embedding(); // may be null for products not yet embedded
+    }
+
+    @Override
+    public boolean allowsNullVectors()
+    {
+        return true;
+    }
+}
+----
+
+Vector transitions on update behave as follows:
+
+* non-null &rarr; `null`: the entity is removed from the vector index.
+* `null` &rarr; non-null: the entity is added to the vector index.
+* `null` &rarr; `null`: no-op.
+
+An entity whose vector is `null` cannot be used as a similarity query (`search(entity, k)`); doing so throws `IllegalArgumentException`.
+
+NOTE: When eventual indexing is enabled, an entity whose vector was just set to `null` may still appear in search results for a short window until the background worker applies the graph mutation -- the same consistency window that already applies to removals.
 
 === Batch Vectorization
 
 When adding multiple entities via `GigaMap.addAll()`, the vectorizer's `vectorizeAll()` method is called instead of `vectorize()` for each entity individually. The default implementation delegates to `vectorize()` one by one, but you can override it to use a more efficient batch API -- for example, sending all texts to an embedding service in a single request.
+
+The list returned by `vectorizeAll()` must have exactly the same size as the input, with positional correspondence (element _i_ is the vector of entity _i_). When `allowsNullVectors()` returns `true`, individual elements may be `null`; otherwise every element must be non-null.
 
 This is especially useful with external embedding APIs like LangChain4j, where a single batch call is significantly faster than many individual calls due to reduced network overhead and server-side batching.
 

@@ -35,15 +35,22 @@ public final class AnnotationVectorizer<E> extends Vectorizer<E>
 	private final Class<?> declaringClass;
 	private final String   memberName;
 	private final boolean  method;
+	private final boolean  allowNull;
 
 	private transient AccessibleObject member;
 
-	AnnotationVectorizer(final Class<?> declaringClass, final String memberName, final boolean method)
+	AnnotationVectorizer(
+		final Class<?> declaringClass,
+		final String   memberName,
+		final boolean  method,
+		final boolean  allowNull
+	)
 	{
 		super();
 		this.declaringClass = declaringClass;
 		this.memberName     = memberName;
 		this.method         = method;
+		this.allowNull      = allowNull;
 	}
 
 	private AccessibleObject member()
@@ -87,5 +94,11 @@ public final class AnnotationVectorizer<E> extends Vectorizer<E>
 	public boolean isEmbedded()
 	{
 		return true;
+	}
+
+	@Override
+	public boolean allowsNullVectors()
+	{
+		return this.allowNull;
 	}
 }

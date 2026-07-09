@@ -39,7 +39,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -422,14 +424,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      *                    must not be null
      * @param k           the number of nearest neighbors to return; must be positive
      * @return the search result containing up to k entries; never null
-     * @throws IllegalArgumentException if queryEntity is null or k &lt;= 0
-     * @throws NullPointerException if the vectorizer returns null for the entity
+     * @throws IllegalArgumentException if queryEntity is null, k &lt;= 0, or the vectorizer
+     *                                  returns null for the entity (an entity without an
+     *                                  embedding cannot be used as a similarity query)
      * @see #search(float[], int)
      * @see Vectorizer#vectorize(Object)
      */
     public default VectorSearchResult<E> search(final E queryEntity, final int k)
     {
-        return this.search(this.vectorizer().vectorize(queryEntity), k);
+        return this.search(this.requireQueryVector(queryEntity), k);
     }
 
     /**
@@ -440,11 +443,34 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * @param k               the number of nearest neighbors to return; must be positive
      * @param searchBeamWidth the beam width to use for this query; must be positive
      * @return the search result
+     * @throws IllegalArgumentException if the vectorizer returns null for the entity (an entity
+     *                                  without an embedding cannot be used as a similarity query)
      * @see #search(float[], int, int)
      */
     public default VectorSearchResult<E> search(final E queryEntity, final int k, final int searchBeamWidth)
     {
-        return this.search(this.vectorizer().vectorize(queryEntity), k, searchBeamWidth);
+        return this.search(this.requireQueryVector(queryEntity), k, searchBeamWidth);
+    }
+
+    /**
+     * Extracts the query vector from the given entity, rejecting a null result: an entity
+     * without an embedding has no meaningful similarity and cannot be used as a query.
+     *
+     * @param queryEntity the query entity
+     * @return the non-null query vector
+     * @throws IllegalArgumentException if the vectorizer returns null for the entity
+     */
+    private float[] requireQueryVector(final E queryEntity)
+    {
+        final float[] queryVector = this.vectorizer().vectorize(queryEntity);
+        if(queryVector == null)
+        {
+            throw new IllegalArgumentException(
+                "Query entity has no vector: the vectorizer returned null. "
+                    + "Entities without embeddings cannot be used as similarity queries."
+            );
+        }
+        return queryVector;
     }
 
     /**
@@ -614,7 +640,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * }</pre>
      *
      * @param entityId the entity ID whose vector to retrieve
-     * @return the vector as a float array, or {@code null} if no vector is found for the given entity ID
+     * @return the vector as a float array, or {@code null} if the entity has no vector — either
+     *         because no such entity is indexed, or because the entity has no embedding (when
+     *         the vectorizer {@link Vectorizer#allowsNullVectors() allows null vectors})
      */
     public float[] getVector(long entityId);
 
@@ -736,6 +764,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // GraphSearcher pool for thread-local reuse
         private transient ExplicitThreadLocal<GraphSearcher> inMemorySearcherPool;
 
+        // Non-null only for the duration of a graph rebuild from the computed-mode vector store.
+        // Maps ordinal (source entity id) -> raw vector for the entries being rebuilt. The
+        // rebuild runs during deserialization (complete()), when the vector store's own indices
+        // may not be wired yet, so scoring must not query the store — it reads this overlay
+        // instead. Cleared once the rebuild finishes, after which live lookups query the store.
+        private transient Map<Integer, float[]> rebuildOverlay;
+
         // Incremental on-disk mode: after disk reload, use disk index for search
         // and in-memory builder only for new mutations. Full rebuild deferred to persistToDisk().
         // Volatile: written under writeLock (reenterIncrementalMode, exitIncrementalMode)
@@ -842,7 +877,40 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return;
             }
 
-            this.addGraphNodesSequential(entries);
+            // Serve scoring from an in-memory overlay for the duration of the rebuild: this runs
+            // during deserialization, when the computed-mode vector store's indices may not yet be
+            // wired, so lookupComputedVector() must not query the store. (Embedded mode ignores the
+            // overlay — it scores via EntityBackedVectorValues over the parent map.)
+            final Map<Integer, float[]> overlay = new HashMap<>(entries.size());
+            for(final VectorEntry entry : entries)
+            {
+                overlay.put(toOrdinal(entry.sourceEntityId), entry.vector);
+            }
+            this.rebuildOverlay = overlay;
+            try
+            {
+                this.addGraphNodesSequential(entries);
+            }
+            finally
+            {
+                this.rebuildOverlay = null;
+            }
+        }
+
+        /**
+         * Resolves the raw vector for a graph ordinal (source entity id) in computed mode.
+         * During a rebuild the in-memory overlay is authoritative (the store's indices may not be
+         * ready); otherwise the entry is looked up by source entity id via the identity index.
+         */
+        private float[] lookupComputedVector(final int ordinal)
+        {
+            final Map<Integer, float[]> overlay = this.rebuildOverlay;
+            if(overlay != null)
+            {
+                return overlay.get(ordinal);
+            }
+            final VectorEntry entry = VectorEntry.lookup(this.vectorStore, ordinal);
+            return entry == null ? null : entry.vector;
         }
 
         private List<VectorEntry> collectStoredVectors()
@@ -854,15 +922,26 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.parentMap().iterateIndexed((entityId, entity) ->
                 {
                     final float[] vector = this.vectorize(entity);
-                    entries.add(new VectorEntry(entityId, vector));
+                    // Entities without an embedding (opted-in null vectors) are not graph nodes.
+                    if(vector != null)
+                    {
+                        entries.add(new VectorEntry(entityId, vector));
+                    }
                 });
             }
             else
             {
-                // Computed mode: rebuild from vector store
+                // Computed mode: rebuild from vector store. Null-vector entries are never
+                // stored, but keep a defensive filter in case of legacy data.
                 if(this.vectorStore != null && !this.vectorStore.isEmpty())
                 {
-                    this.vectorStore.iterate(entries::add);
+                    this.vectorStore.iterate(entry ->
+                    {
+                        if(entry.vector != null)
+                        {
+                            entries.add(entry);
+                        }
+                    });
                 }
             }
 
@@ -1157,9 +1236,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             if(vector == null)
             {
+                // Null means "this entity has no embedding" when the vectorizer opts in;
+                // it is then excluded from the graph. Otherwise fail fast.
+                if(this.vectorizer.allowsNullVectors())
+                {
+                    return null;
+                }
                 throw new IllegalStateException(
                     "Null vector returned from vectorizer in index \"" + this.name()
-                        + "\" (vectorizer: " + this.vectorizer.getClass().getName() + ")"
+                        + "\" (vectorizer: " + this.vectorizer.getClass().getName() + "). "
+                        + "Override Vectorizer.allowsNullVectors() to permit entities without embeddings."
                 );
             }
 
@@ -1234,6 +1320,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.ensureIndexInitialized();
 
             final float[] vector = this.vectorize(entity);
+
+            // Null vector (opted-in): the entity has no embedding — keep it out of the vector
+            // store and the graph entirely, so it never appears in search results.
+            if(vector == null)
+            {
+                return;
+            }
+
             final VectorEntry vectorEntry = new VectorEntry(entityId, vector);
 
             // Store based on vectorizer type
@@ -1290,18 +1384,43 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
             this.ensureIndexInitialized();
 
-            final float[] vector = this.vectorize(entity);
-            final VectorEntry vectorEntry = new VectorEntry(entityId, vector);
+            final float[]  vector   = this.vectorize(entity);
+            final int      ordinal  = toOrdinal(entityId);
+            final boolean  embedded = this.isEmbedded();
 
-            // Update based on vectorizer type
-            if(!this.isEmbedded())
+            // Update the computed-mode vector store to reflect the new (possibly absent) vector.
+            // Keyed by source entity id (not positionally), so the four vec/null transitions map
+            // cleanly onto add / replace / remove.
+            boolean changed = false;
+            if(!embedded)
             {
-                this.vectorStore.set(entityId, vectorEntry);
+                // Resolve the store-internal id by source entity id, then mutate via id-based
+                // ops (set / removeById). These avoid the like(...) key round-trip, which would
+                // reject a source entity id of 0 (encoded to the Long.MAX_VALUE sentinel).
+                final long storeId = VectorEntry.lookupId(this.vectorStore, entityId);
+                if(vector == null)
+                {
+                    // vec→null: drop the stored entry so the entity is no longer indexed.
+                    // null→null: nothing stored, nothing to do.
+                    if(storeId >= 0)
+                    {
+                        this.vectorStore.removeById(storeId);
+                        changed = true;
+                    }
+                }
+                else if(storeId >= 0)
+                {
+                    // vec→vec
+                    this.vectorStore.set(storeId, new VectorEntry(entityId, vector));
+                    changed = true;
+                }
+                else
+                {
+                    // null→vec: the entity gains an embedding.
+                    this.vectorStore.add(new VectorEntry(entityId, vector));
+                    changed = true;
+                }
             }
-
-            this.markStateChangeChildren();
-
-            final int ordinal = toOrdinal(entityId);
 
             // In incremental mode, mark the ordinal as deleted from disk graph
             // so disk search excludes the stale version immediately,
@@ -1313,8 +1432,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             if(this.isEventualIndexing())
             {
-                // Defer graph update to background thread
-                this.backgroundTaskManager.enqueueUpdate(vectorEntry);
+                // Defer graph update to background thread. applyGraphUpdate derives the actual
+                // transition (add / delete / delete+re-add) from the entry's vector nullness.
+                this.backgroundTaskManager.enqueueUpdate(new VectorEntry(entityId, vector));
+                this.markStateChangeChildren();
             }
             else
             {
@@ -1326,18 +1447,39 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.drainDeferredBuilderOps();
                 }
 
-                if(this.isEmbedded())
+                final boolean inGraph = this.index != null && this.index.containsNode(ordinal);
+
+                if(vector == null)
                 {
-                    // For embedded vectorizers: removeDeletedNodes() uses ForkJoinPool
-                    // whose workers call parentMap.get(), deadlocking with the GigaMap
-                    // monitor we hold. Instead, let the next optimize/persist cycle
-                    // rebuild the graph connections. The updated entity is already in
-                    // the GigaMap, so EntityBackedVectorValues will return the new
-                    // vector for similarity scoring during search.
+                    // vec→null / null→null: remove the node from the in-memory graph if present.
+                    // No removeDeletedNodes() — unnecessary (markNodeDeleted already excludes it
+                    // from liveNodes), and its ForkJoinPool would deadlock with the GigaMap
+                    // monitor we hold for embedded vectorizers.
+                    if(inGraph)
+                    {
+                        this.executeOrDeferBuilderOp(() -> this.builder.markNodeDeleted(ordinal));
+                        changed = true;
+                    }
+                }
+                else if(embedded)
+                {
+                    // vec→vec: leave the graph as-is — removeDeletedNodes() uses a ForkJoinPool
+                    // whose workers call parentMap.get(), deadlocking with the GigaMap monitor we
+                    // hold. The updated entity is already in the GigaMap, so
+                    // EntityBackedVectorValues returns the new vector during search, and the next
+                    // optimize/persist cycle rebuilds the graph connections.
+                    // null→vec: the node was never added — add it now. addGraphNode alone is
+                    // monitor-safe (no removeDeletedNodes), the same call internalAdd makes.
+                    if(!inGraph)
+                    {
+                        final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+                        this.executeOrDeferBuilderOp(() -> this.builder.addGraphNode(ordinal, vf));
+                    }
+                    changed = true;
                 }
                 else
                 {
-                    // For computed vectorizers: vectors are stored separately, so
+                    // Computed, non-null (vec→vec or null→vec): vectors are stored separately, so
                     // removeDeletedNodes() won't call parentMap.get(). Safe to inline.
                     final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
                     this.executeOrDeferBuilderOp(() ->
@@ -1349,10 +1491,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         }
                         this.builder.addGraphNode(ordinal, vf);
                     });
+                    changed = true;
                 }
 
-                // Mark dirty for background managers
-                this.markDirtyForBackgroundManagers(1);
+                if(changed)
+                {
+                    this.markStateChangeChildren();
+                    this.markDirtyForBackgroundManagers(1);
+                }
             }
         }
 
@@ -1386,10 +1532,24 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         /**
          * Adds vector entries to the index.
          */
-        private void addVectorEntries(final List<VectorEntry> entries)
+        private void addVectorEntries(final List<VectorEntry> entriesIncludingNulls)
         {
             // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
             this.ensureIndexInitialized();
+
+            // Drop entries without a vector (opted-in null embeddings): they get neither a
+            // vector store entry nor a graph node, so they never appear in search results.
+            // The kept entries carry their own sourceEntityId, so filtering does not disturb
+            // id alignment.
+            final List<VectorEntry> entries = entriesIncludingNulls.stream()
+                .filter(e -> e.vector != null)
+                .toList()
+            ;
+
+            if(entries.isEmpty())
+            {
+                return;
+            }
 
             if(!this.isEmbedded())
             {
@@ -1441,6 +1601,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             entries.forEach(entry ->
             {
+                if(entry.vector == null)
+                {
+                    // Entities without an embedding are excluded from the graph.
+                    return;
+                }
                 final int ordinal = toOrdinal(entry.sourceEntityId);
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
                 this.builder.addGraphNode(ordinal, vf);
@@ -1456,7 +1621,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final int ordinal = toOrdinal(entityId);
             if(!this.isEmbedded())
             {
-                this.vectorStore.removeById(entityId);
+                // Look up by source entity id rather than positionally; a never-indexed
+                // entity (null embedding) simply has no entry and nothing is removed.
+                final long storeId = VectorEntry.lookupId(this.vectorStore, entityId);
+                if(storeId >= 0)
+                {
+                    this.vectorStore.removeById(storeId);
+                }
             }
 
             this.markStateChangeChildren();
@@ -1552,7 +1723,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return this.vectorizer.vectorize(entity);
             }
 
-            final VectorEntry entry = this.vectorStore.get(entityId);
+            final VectorEntry entry = VectorEntry.lookup(this.vectorStore, entityId);
             if(entry == null)
             {
                 return null;
@@ -1574,6 +1745,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         private VectorSearchResult<E> doSearch(final float[] queryVector, final int k, final int rerankK)
         {
+            if(queryVector == null)
+            {
+                throw new IllegalArgumentException("Query vector must not be null");
+            }
             this.validateDimension(queryVector);
 
             // Acquire read lock — blocks during cleanup/persistence/removeAll/close,
@@ -1894,7 +2069,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.vectorTypeSupport
                 )
                 : new GigaMapBackedVectorValues.Caching(
-                    this.vectorStore,
+                    this::lookupComputedVector,
+                    () -> (int)this.vectorStore.size(),
                     this.configuration.dimension(),
                     this.vectorTypeSupport
                 );
@@ -2398,7 +2574,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.vectorTypeSupport
                 )
                 : new GigaMapBackedVectorValues(
-                    this.vectorStore,
+                    this::lookupComputedVector,
+                    () -> (int)this.vectorStore.size(),
                     this.configuration.dimension(),
                     this.vectorTypeSupport
                 );
@@ -2425,14 +2602,26 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(this.isEmbedded())
             {
                 this.parentMap().iterate(entity ->
-                    vectors.add(this.vectorTypeSupport.createFloatVector(this.vectorize(entity)))
-                );
+                {
+                    final float[] vector = this.vectorize(entity);
+                    // Skip entities without an embedding — they are not part of the graph and
+                    // must not feed PQ codebook training.
+                    if(vector != null)
+                    {
+                        vectors.add(this.vectorTypeSupport.createFloatVector(vector));
+                    }
+                });
             }
             else if(this.vectorStore != null)
             {
+                // Computed mode never stores null-vector entries; guard defensively anyway.
                 this.vectorStore.iterate(entry ->
-                    vectors.add(this.vectorTypeSupport.createFloatVector(entry.vector))
-                );
+                {
+                    if(entry.vector != null)
+                    {
+                        vectors.add(this.vectorTypeSupport.createFloatVector(entry.vector));
+                    }
+                });
             }
 
             return vectors;
@@ -2443,6 +2632,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public long getExpectedVectorCount()
         {
+            // Counts indexed entities, NOT graph nodes. In computed mode the two are equal
+            // (null-vector entities have no store entry). In embedded mode this can over-count
+            // when some entities have no embedding — that is fine for the disk metadata check,
+            // which compares this value against itself on write and read, and for the PQ
+            // training gate, which trains on the actually-collected (non-null) vectors.
             if(this.isEmbedded())
             {
                 return this.parentMap().size();
@@ -2475,6 +2669,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // Called from the background indexing worker thread (not from GigaMap's
             // synchronized methods), so we use builderLock.readLock() to coordinate
             // with cleanup (writeLock).
+            if(entry.vector == null)
+            {
+                // Entity has no embedding — nothing to add to the graph. Callers already
+                // filter these out; this is a defensive guard on the worker thread.
+                return;
+            }
             this.builderLock.readLock().lock();
             try
             {
@@ -2497,6 +2697,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 for(final var entry : entries)
                 {
+                    if(entry.vector == null)
+                    {
+                        // Entity has no embedding — excluded from the graph.
+                        continue;
+                    }
                     final int ordinal = toOrdinal(entry.sourceEntityId);
                     final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
                     this.builder.addGraphNode(ordinal, vf);
@@ -2515,8 +2720,25 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             try
             {
                 final int ordinal = toOrdinal(entry.sourceEntityId);
-                this.builder.markNodeDeleted(ordinal);
-                this.builder.removeDeletedNodes();
+                final boolean inGraph = this.index != null && this.index.containsNode(ordinal);
+
+                if(entry.vector == null)
+                {
+                    // vec→null / null→null: remove the node if present, otherwise nothing to do.
+                    if(inGraph)
+                    {
+                        this.builder.markNodeDeleted(ordinal);
+                    }
+                    return;
+                }
+
+                // vec→vec: delete the stale node then re-add. null→vec: the node is absent,
+                // so add it directly without the (invalid) delete.
+                if(inGraph)
+                {
+                    this.builder.markNodeDeleted(ordinal);
+                    this.builder.removeDeletedNodes();
+                }
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
                 this.builder.addGraphNode(ordinal, vf);
             }
@@ -2532,7 +2754,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.readLock().lock();
             try
             {
-                this.builder.markNodeDeleted(ordinal);
+                // Guard against removing a never-indexed entity (e.g. one that never had an
+                // embedding): markNodeDeleted on an absent node would fail.
+                if(this.index != null && this.index.containsNode(ordinal))
+                {
+                    this.builder.markNodeDeleted(ordinal);
+                }
             }
             finally
             {

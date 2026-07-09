@@ -299,7 +299,7 @@ VectorIndex<Document> index = vectorIndices.get("embeddings");
 
 == Limitations
 
-* *Null vectors are not accepted*: The `Vectorizer.vectorize()` method must never return `null`. If it does, an `IllegalStateException` is thrown. Ensure that every entity added to the GigaMap can produce a valid vector.
+* *Null vectors are rejected by default*: `Vectorizer.vectorize()` must not return `null` unless the vectorizer opts in via `Vectorizer.allowsNullVectors()`. By default a `null` vector throws an `IllegalStateException`. When opted in, a `null` vector means the entity has no embedding: it stays in the GigaMap but is excluded from the vector index and never appears in search results (see xref:indexing/jvector/advanced.adoc[Advanced Topics]).
 * *~2.1 billion vectors per index*: JVector uses `int` for graph node ordinals. For larger datasets, implement sharding across multiple indices.
 * *PQ compression requires maxDegree=32*: FusedPQ algorithm constraint (auto-enforced).
 

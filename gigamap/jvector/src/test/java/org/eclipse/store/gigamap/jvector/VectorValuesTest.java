@@ -174,7 +174,9 @@ class VectorValuesTest
         @Test
         void testSize()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
+                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
+                .build();
             vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
             vectorStore.add(new VectorEntry(1L, new float[]{4.0f, 5.0f, 6.0f}));
             vectorStore.add(new VectorEntry(2L, new float[]{7.0f, 8.0f, 9.0f}));
@@ -189,7 +191,9 @@ class VectorValuesTest
         @Test
         void testSizeEmptyStore()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
+                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
+                .build();
 
             final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
                 vectorStore, 3, vectorTypeSupport
@@ -201,7 +205,9 @@ class VectorValuesTest
         @Test
         void testDimension()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
+                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
+                .build();
 
             final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
                 vectorStore, 128, vectorTypeSupport
@@ -213,7 +219,9 @@ class VectorValuesTest
         @Test
         void testGetVectorValidOrdinal()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
+                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
+                .build();
             vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
             vectorStore.add(new VectorEntry(1L, new float[]{4.0f, 5.0f, 6.0f}));
 
@@ -234,7 +242,9 @@ class VectorValuesTest
         @Test
         void testGetVectorNonExistentOrdinalReturnsNull()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
+                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
+                .build();
             vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
 
             final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
@@ -249,7 +259,9 @@ class VectorValuesTest
         void testGetVectorConvertsToVectorFloat()
         {
             final VectorEntry originalVector = new VectorEntry(0L, new float[]{1.5f, 2.5f, 3.5f});
-            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
+                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
+                .build();
             vectorStore.add(originalVector);
 
             final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
@@ -268,7 +280,9 @@ class VectorValuesTest
         @Test
         void testIsValueSharedReturnsFalse()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
+                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
+                .build();
 
             final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
                 vectorStore, 3, vectorTypeSupport
@@ -280,7 +294,9 @@ class VectorValuesTest
         @Test
         void testCopyReturnsNewInstance()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
+                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
+                .build();
             vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
 
             final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
@@ -297,7 +313,9 @@ class VectorValuesTest
         @Test
         void testCopySharesUnderlyingStore()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
+                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
+                .build();
             vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
 
             final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
@@ -305,8 +323,9 @@ class VectorValuesTest
             );
             final GigaMapBackedVectorValues copy = (GigaMapBackedVectorValues) values.copy();
 
-            // Both should access the same underlying GigaMap
-            assertSame(values.vectorStore, copy.vectorStore);
+            // The copy shares the same underlying lookup, so it resolves the same vectors.
+            assertNotSame(values, copy);
+            assertEquals(values.getVector(0).get(0), copy.getVector(0).get(0), 0.001f);
         }
     }
 
@@ -318,7 +337,9 @@ class VectorValuesTest
         @Test
         void testCachingInheritsBaseProperties()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
+                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
+                .build();
             vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
             vectorStore.add(new VectorEntry(1L, new float[]{4.0f, 5.0f, 6.0f}));
 
@@ -334,7 +355,9 @@ class VectorValuesTest
         @Test
         void testGetVectorCachesResult()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
+                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
+                .build();
             vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
 
             final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
@@ -352,7 +375,9 @@ class VectorValuesTest
         @Test
         void testGetVectorCachesMultipleOrdinals()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
+                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
+                .build();
             vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
             vectorStore.add(new VectorEntry(1L, new float[]{4.0f, 5.0f, 6.0f}));
             vectorStore.add(new VectorEntry(2L, new float[]{7.0f, 8.0f, 9.0f}));
@@ -379,7 +404,9 @@ class VectorValuesTest
         @Test
         void testGetVectorNonExistentReturnsNull()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
+                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
+                .build();
             vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
 
             final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
@@ -392,7 +419,9 @@ class VectorValuesTest
         @Test
         void testCopyReturnsNewCachingInstance()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
+                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
+                .build();
             vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
 
             final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
@@ -409,7 +438,9 @@ class VectorValuesTest
         @Test
         void testCopyHasIndependentCache()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
+                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
+                .build();
             vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
 
             final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
@@ -435,7 +466,9 @@ class VectorValuesTest
         @Test
         void testCachingSharesUnderlyingStore()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
+                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
+                .build();
             vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
 
             final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
@@ -444,14 +477,17 @@ class VectorValuesTest
             final GigaMapBackedVectorValues.Caching copy =
                 (GigaMapBackedVectorValues.Caching) values.copy();
 
-            // Both should access the same underlying GigaMap
-            assertSame(values.vectorStore, copy.vectorStore);
+            // The copy shares the same underlying lookup, so it resolves the same vectors.
+            assertNotSame(values, copy);
+            assertEquals(values.getVector(0).get(0), copy.getVector(0).get(0), 0.001f);
         }
 
         @Test
         void testCachingExtendsGigaMapBackedVectorValues()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.New();
+            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
+                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
+                .build();
             vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
 
             final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(

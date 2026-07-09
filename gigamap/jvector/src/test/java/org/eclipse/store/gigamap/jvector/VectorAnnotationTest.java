@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class VectorAnnotationTest
@@ -40,6 +41,17 @@ class VectorAnnotationTest
 	{
 		@Vector(dimension = 4)
 		String notAVector;
+	}
+
+	static class Nullable
+	{
+		@Vector(dimension = 4, similarity = VectorSimilarityFunction.COSINE, allowNull = true)
+		float[] vector;
+
+		Nullable(final float[] vector)
+		{
+			this.vector = vector;
+		}
 	}
 
 	static class Conflict
@@ -158,6 +170,37 @@ class VectorAnnotationTest
 				.register(VectorAnnotationHandler.New())
 				.generateIndices(map)
 		);
+	}
+
+	@Test
+	void vectorAnnotationAllowNullExcludesEntitiesWithoutEmbedding()
+	{
+		final GigaMap<Nullable> map = GigaMap.New();
+		IndexerGenerator.AnnotationBased(Nullable.class)
+			.register(VectorAnnotationHandler.New())
+			.generateIndices(map);
+
+		final long idA = map.add(new Nullable(new float[]{1, 0, 0, 0}));
+		final long idNull = map.add(new Nullable(null));
+		map.add(new Nullable(new float[]{0, 1, 0, 0}));
+
+		final VectorIndex<Nullable> index = map.index().get(VectorIndices.class).get("vector");
+		assertEquals(2, index.search(new float[]{1, 0, 0, 0}, 10).size(),
+			"the entity without an embedding must be excluded from search");
+		assertEquals(idA, index.search(new float[]{1, 0, 0, 0}, 1).stream().findFirst().orElseThrow().entityId());
+		assertNull(index.getVector(idNull));
+	}
+
+	@Test
+	void vectorAnnotationDefaultRejectsNull()
+	{
+		final GigaMap<Item> map = GigaMap.New();
+		IndexerGenerator.AnnotationBased(Item.class)
+			.register(VectorAnnotationHandler.New())
+			.generateIndices(map);
+
+		// Item's @Vector does not set allowNull, so a null embedding must fail fast.
+		assertThrows(IllegalStateException.class, () -> map.add(new Item(null)));
 	}
 
 	@Test
