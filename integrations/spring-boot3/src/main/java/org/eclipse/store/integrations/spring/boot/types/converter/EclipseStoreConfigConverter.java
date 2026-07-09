@@ -85,6 +85,9 @@ public class EclipseStoreConfigConverter
     // Field for the store-time reference validation (data integrity) configuration
     protected static final String REFERENCE_VALIDATION = EmbeddedStorageConfigurationPropertyNames.REFERENCE_VALIDATION;
 
+    // Field for the GC zombie object id reaction (data integrity) configuration
+    protected static final String GC_ZOMBIE_OID_HANDLING = EmbeddedStorageConfigurationPropertyNames.GC_ZOMBIE_OID_HANDLING;
+
     // Fields for the chunk-checksum (data integrity) configuration
     protected static final String CHUNK_CHECKSUM_ALGORITHM = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ALGORITHM;
     protected static final String CHUNK_CHECKSUM_PROFILE = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_PROFILE;
@@ -150,6 +153,7 @@ public class EclipseStoreConfigConverter
         configValues.put(DATA_FILE_MINIMUM_USE_RATIO, properties.getDataFileMinimumUseRatio());
         configValues.put(DATA_FILE_CLEANUP_HEAD_FILE, properties.getDataFileCleanupHeadFile());
         configValues.put(REFERENCE_VALIDATION, properties.getReferenceValidation());
+        configValues.put(GC_ZOMBIE_OID_HANDLING, properties.getGcZombieOidHandling());
 
         if (properties.getChunkChecksum() != null)
         {

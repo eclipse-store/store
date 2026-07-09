@@ -187,6 +187,12 @@ public class EclipseStoreProperties
     private String referenceValidation;
 
     /**
+     * Reaction of the storage garbage collector to an encountered zombie object id:
+     * {@code log} or {@code fail}. Default is {@code log}.
+     */
+    private String gcZombieOidHandling;
+
+    /**
      * Per-chunk data-integrity checksum configuration. Bound from {@code org.eclipse.store.chunk-checksum.*}.
      */
     @NestedConfigurationProperty
@@ -520,6 +526,16 @@ public class EclipseStoreProperties
     public void setReferenceValidation(final String referenceValidation)
     {
         this.referenceValidation = referenceValidation;
+    }
+
+    public String getGcZombieOidHandling()
+    {
+        return this.gcZombieOidHandling;
+    }
+
+    public void setGcZombieOidHandling(final String gcZombieOidHandling)
+    {
+        this.gcZombieOidHandling = gcZombieOidHandling;
     }
 
     public ChunkChecksum getChunkChecksum()

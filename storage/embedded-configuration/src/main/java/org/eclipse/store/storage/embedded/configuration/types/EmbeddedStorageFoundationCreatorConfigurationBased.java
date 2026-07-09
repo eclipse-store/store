@@ -17,6 +17,7 @@ package org.eclipse.store.storage.embedded.configuration.types;
 import static org.eclipse.serializer.util.X.notNull;
 
 import java.time.Duration;
+import java.util.Locale;
 import java.util.function.Supplier;
 
 import org.eclipse.serializer.afs.types.ADirectory;
@@ -40,6 +41,7 @@ import org.eclipse.store.storage.types.StorageDataFileEvaluator;
 import org.eclipse.store.storage.types.StorageEntityCacheEvaluator;
 import org.eclipse.store.storage.types.StorageFileNameProvider;
 import org.eclipse.store.storage.types.StorageHousekeepingController;
+import org.eclipse.store.storage.types.StorageGCZombieOidHandler;
 import org.eclipse.store.storage.types.StorageLiveFileProvider;
 import org.eclipse.store.storage.types.StorageReferenceValidationPolicy;
 
@@ -157,6 +159,26 @@ public interface EmbeddedStorageFoundationCreatorConfigurationBased extends Embe
 				.map(StorageReferenceValidationPolicy::parse)
 				.ifPresent(configBuilder::setReferenceValidationPolicy)
 			;
+
+			this.configuration.opt(GC_ZOMBIE_OID_HANDLING).ifPresent(value ->
+			{
+				// Locale.ROOT: config parsing must not depend on the platform locale.
+				switch(value.trim().toLowerCase(Locale.ROOT))
+				{
+					case "log":
+						// default behavior, nothing to set
+						break;
+					case "fail":
+						foundation.setGCZombieOidHandler(StorageGCZombieOidHandler.Strict());
+						break;
+					default:
+						throw new ConfigurationException(
+							this.configuration,
+							"Invalid " + GC_ZOMBIE_OID_HANDLING + ": '" + value
+							+ "' (expected log or fail)."
+						);
+				}
+			});
 
 			foundation.setConfiguration(configBuilder.createConfiguration());
 
