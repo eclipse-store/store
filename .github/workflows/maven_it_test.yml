@@ -35,6 +35,27 @@ jobs:
     - name: Run integration tests
       run: mvn -P IT -B test -pl integration-tests --no-transfer-progress --file pom.xml -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
 
+    - name: Dump crash evidence to log
+      if: failure()
+      run: |
+        echo "===== surefire dumpstream / dump files ====="
+        find . -path '*/target/surefire-reports/*' \( -name '*.dumpstream' -o -name '*.dump' \) \
+          -print -exec cat {} \; || true
+        echo "===== JVM fatal error logs (hs_err) ====="
+        find . -name 'hs_err_pid*.log' -print -exec cat {} \; || true
+
+    - name: Upload crash evidence
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: crash-evidence-integration-tests
+        path: |
+          **/target/surefire-reports/*.dumpstream
+          **/target/surefire-reports/*.dump
+          **/hs_err_pid*.log
+        if-no-files-found: ignore
+        retention-days: 14
+
     - name: Report JUnit results (dorny - surefire)
       if: always()
       uses: dorny/test-reporter@v2
