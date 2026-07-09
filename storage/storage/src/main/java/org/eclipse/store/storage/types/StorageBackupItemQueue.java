@@ -91,12 +91,100 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 		)
 		{
 			item.sourceFile.registerUsage(this);
-			
+
 			// no try-catch with unregisterUsage required since the following code is too simple to fail.
 			synchronized(this.head)
 			{
 				this.tail = this.tail.next = item;
 				this.head.notifyAll();
+			}
+		}
+
+		@Override
+		public void cancelPendingItemsFor(final StorageLiveChannelFile<?> file)
+		{
+			this.removeMatching(item -> item.sourceFile == file);
+		}
+
+		@Override
+		public void trimPendingCopyItemsBeyond(final StorageLiveChannelFile<?> file, final long newLength)
+		{
+			// A start-only check (>= newLength) suffices: copy items are enqueued at exact write
+			// boundaries (sourcePosition == the file length before that write), and the only truncation
+			// that reaches here is a rollback to the committed length - itself a write boundary. So an
+			// item either lies fully below newLength or starts at/after it; none can straddle newLength.
+			this.removeMatching(item ->
+				item.sourceFile == file
+				&& item instanceof CopyItem
+				&& ((CopyItem)item).sourcePosition >= newLength
+			);
+		}
+
+		/**
+		 * Unlinks {@code current} (whose predecessor in the chain is {@code previous}) and fixes
+		 * {@code tail} if {@code current} was the last item. Callers must hold {@code this.head}'s
+		 * monitor. Shared by {@link #processNextItem}'s single-item pop and {@link #removeMatching}'s
+		 * arbitrary-position removal, so a future change to the tail-fixup invariant only has one
+		 * place to get right.
+		 */
+		private void unlink(final Item previous, final Item current)
+		{
+			previous.next = current.next;
+			if(current == this.tail)
+			{
+				this.tail = previous;
+			}
+		}
+
+		/**
+		 * Removes every still-queued item matching {@code predicate} and releases the usage each
+		 * held, without processing them. Only reaches items still sitting in the queue; one
+		 * already popped by the backup thread and mid-processing is outside this lock and not
+		 * covered (an accepted, narrow residual race window).
+		 * <p>
+		 * The queue lock is a leaf (see {@link #processNextItem}): file-monitor calls
+		 * (registerUsage/unregisterUsage) must never run while it is held, otherwise the queue
+		 * lock and a {@code StorageLiveFile} monitor can be acquired in opposite orders by the
+		 * housekeeping channel and the backup handler and deadlock. Removed items are therefore
+		 * collected into a separate chain (reusing their own {@code next} field, now free) and
+		 * their usage released only after the lock is released.
+		 */
+		private void removeMatching(final java.util.function.Predicate<? super Item> predicate)
+		{
+			Item removedHead = null;
+			Item removedTail = null;
+
+			synchronized(this.head)
+			{
+				Item previous = this.head;
+				Item current  = this.head.next;
+				while(current != null)
+				{
+					final Item next = current.next;
+					if(predicate.test(current))
+					{
+						this.unlink(previous, current);
+						current.next = null;
+						if(removedHead == null)
+						{
+							removedHead = removedTail = current;
+						}
+						else
+						{
+							removedTail = removedTail.next = current;
+						}
+					}
+					else
+					{
+						previous = current;
+					}
+					current = next;
+				}
+			}
+
+			for(Item item = removedHead; item != null; item = item.next)
+			{
+				item.sourceFile.unregisterUsage(this);
 			}
 		}
 
@@ -134,12 +222,7 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 				}
 
 				itemToBeProcessed = this.head.next;
-
-				if((this.head.next = itemToBeProcessed.next) == null)
-				{
-					// queue has been processed completely, reset to initial state of appending directly to the head.
-					this.tail = this.head;
-				}
+				this.unlink(this.head, itemToBeProcessed);
 			}
 
 			try

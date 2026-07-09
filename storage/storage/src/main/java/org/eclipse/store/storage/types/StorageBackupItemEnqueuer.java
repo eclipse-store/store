@@ -30,5 +30,30 @@ public interface StorageBackupItemEnqueuer
 	public void enqueueDeletionItem(
 		StorageLiveChannelFile<?> file
 	);
-	
+
+	/**
+	 * Removes every still-queued item referencing {@code file} and releases the usage each held,
+	 * without processing them. Used before a physical delete: once the file is gone, the backup
+	 * thread must not try to copy/truncate/delete a source that no longer exists.
+	 *
+	 * @param file the file whose pending items are no longer valid.
+	 */
+	public void cancelPendingItemsFor(
+		StorageLiveChannelFile<?> file
+	);
+
+	/**
+	 * Removes still-queued copy items for {@code file} whose source range starts at or beyond
+	 * {@code newLength} and releases the usage each held. Used before a physical truncate: a copy
+	 * item covering bytes the truncate is about to remove would otherwise be processed against a
+	 * source that no longer has them.
+	 *
+	 * @param file      the file being truncated.
+	 * @param newLength the file's new (shorter) length; copy items at or beyond it are invalid.
+	 */
+	public void trimPendingCopyItemsBeyond(
+		StorageLiveChannelFile<?> file     ,
+		long                      newLength
+	);
+
 }

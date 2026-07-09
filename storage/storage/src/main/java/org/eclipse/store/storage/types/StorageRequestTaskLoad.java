@@ -61,7 +61,15 @@ public interface StorageRequestTaskLoad extends StorageRequestTask
 			this.result[channel.channelIndex()] = result;
 			this.incrementCompletionProgress();
 		}
-		
+
+		@Override
+		protected void completeExceptionally(final StorageChannel channel) throws InterruptedException
+		{
+			// complete() above never waits on siblings, so reaching it directly on this channel's
+			// own failure is safe: the null result slot is harmless (already the array's default).
+			this.complete(channel, null);
+		}
+
 		@Override
 		public final ChunksBuffer result() throws StorageExceptionRequest
 		{

@@ -133,6 +133,14 @@ public interface StorageChannelSynchronizingTask extends StorageChannelTask
 			}
 		}
 
+		@Override
+		protected final void completeExceptionally(final StorageChannel channel)
+		{
+			// own failure means fail() regardless of siblings, so unlike complete() this must NOT
+			// waitOnProcessing() first - see the contract for why waiting here would deadlock.
+			this.synchronizedComplete(channel, null);
+		}
+
 
 		public static final class Dummy extends AbstractCompletingTask<Void> implements StorageRequestTask
 		{
