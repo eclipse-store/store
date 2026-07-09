@@ -228,14 +228,16 @@ public class PartialSweepRetryReproTest
 
 		assertTrue(outcome.zombieOids.isEmpty(), "no zombies expected, got: " + outcome.zombieOids);
 		assertEquals("keep", outcome.victimData, "the reachable victim must survive untouched");
+		assertTrue(outcome.orphanCollected, "the detached orphan must have been collected");
 	}
 
 	static final class Outcome
 	{
-		long             victimOid     ;
-		String           victimData    ;
-		List<Long>       zombieOids    ;
-		RuntimeException restartFailure;
+		long             victimOid      ;
+		String           victimData     ;
+		boolean          orphanCollected;
+		List<Long>       zombieOids     ;
+		RuntimeException restartFailure ;
 	}
 
 	private Outcome run(final boolean injectTransientSweepFailure) throws Exception
@@ -349,6 +351,23 @@ public class PartialSweepRetryReproTest
 		this.storage.issueFullGarbageCollection();
 		this.storage.issueFullFileCheck();
 
+		/*
+		 * The orphan W (actual garbage) must have been collected by now. Checked on the RUNNING
+		 * storage, where the entity cache is authoritative - after a restart the startup scanner
+		 * may resurrect logically-deleted-but-not-yet-compacted entities, which would make a
+		 * post-restart check nondeterministic. Loading a collected oid fails on the storage side.
+		 */
+		boolean orphanCollected;
+		try
+		{
+			orphanCollected = this.storage.persistenceManager().getObject(wOid) == null;
+		}
+		catch(final RuntimeException e)
+		{
+			// "No entity found for objectId W" - the entity is gone, which is what we assert
+			orphanCollected = true;
+		}
+
 		// ---------------------------------------------------------------
 		// Phase 5 - freeze, restart, inspect what physically survived
 		// ---------------------------------------------------------------
@@ -356,8 +375,9 @@ public class PartialSweepRetryReproTest
 		this.storage.shutdown();
 
 		final Outcome outcome = new Outcome();
-		outcome.victimOid  = rOid;
-		outcome.zombieOids = new ArrayList<>(zombieHandler.zombieOids);
+		outcome.victimOid       = rOid;
+		outcome.orphanCollected = orphanCollected;
+		outcome.zombieOids      = new ArrayList<>(zombieHandler.zombieOids);
 
 		/*
 		 * Pre-fix, the loss can be broader than the single victim: the failed sweep attempt

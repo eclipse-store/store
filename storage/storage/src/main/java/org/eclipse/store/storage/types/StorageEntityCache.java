@@ -135,10 +135,11 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		private long sweepGeneration, lastSweepStart, lastSweepEnd;
 
 		/**
-		 * Set when a sweep attempt aborted mid-run with an exception (internal#83): the aborted
-		 * attempt has already reset an unknown prefix of the surviving (marked) entities back to
-		 * white, so re-executing the flagged sweep with normal delete semantics would delete
-		 * reachable entities. The next execution runs as a keep-all rescue sweep instead.
+		 * Set when a sweep attempt failed with an exception before the sweep flag was cleared
+		 * (internal#83) - whether mid-iteration or in the completion bookkeeping afterwards. The
+		 * attempt may have already reset an unknown prefix of the surviving (marked) entities back
+		 * to white, so re-executing the still-flagged sweep with normal delete semantics could
+		 * delete reachable entities. The next execution runs as a keep-all rescue sweep instead.
 		 */
 		private boolean sweepRescueNeeded;
 		
@@ -1323,12 +1324,14 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			catch(final Throwable t)
 			{
 				/*
-				 * The sweep aborted mid-run (realistically: the application-registry predicate threw,
-				 * e.g. a faulty custom registry implementation or an OutOfMemoryError). The entities
-				 * iterated so far were already reset to white regardless of their mark state, so this
-				 * still-flagged sweep must not be re-executed with delete semantics: it would delete
-				 * the reachable entities it whitened. Flag the channel for a keep-all rescue sweep
-				 * (see #sweep()) and propagate the failure to the caller.
+				 * The sweep attempt failed before its flag was cleared (realistically: the
+				 * application-registry predicate threw mid-iteration, e.g. a faulty custom registry
+				 * implementation or an OutOfMemoryError; or the completion bookkeeping failed). The
+				 * entities iterated before the failure were already reset to white regardless of
+				 * their mark state, so the still-flagged sweep must not be re-executed with delete
+				 * semantics: it could delete the reachable entities the failed attempt whitened.
+				 * Flag the channel for a keep-all rescue sweep (see #sweep()) and propagate the
+				 * failure to the caller.
 				 */
 				this.sweepRescueNeeded = true;
 				throw t;
@@ -1349,7 +1352,8 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		}
 
 		/**
-		 * Keep-all re-execution of a sweep whose previous attempt aborted mid-run (internal#83).
+		 * Keep-all re-execution of a sweep whose previous attempt failed before completing
+		 * (internal#83).
 		 * The aborted attempt already whitened an unknown prefix of the surviving entities, so mark
 		 * state can no longer distinguish garbage from reachable data. This pass therefore deletes
 		 * nothing and consults no application predicate: the sweep pass itself is straight-line
@@ -1362,7 +1366,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		private void rescueSweep()
 		{
 			logger.warn(
-				"StorageChannel#{}: a previous sweep attempt aborted mid-run;"
+				"StorageChannel#{}: a previous sweep attempt failed before completing;"
 				+ " re-executing as a keep-all rescue sweep"
 				+ " (nothing is deleted, garbage collection is deferred to the next full mark cycle).",
 				this.channelIndex
