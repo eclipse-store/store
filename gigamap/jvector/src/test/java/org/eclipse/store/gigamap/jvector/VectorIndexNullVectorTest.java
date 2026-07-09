@@ -518,6 +518,19 @@ class VectorIndexNullVectorTest
     }
 
     @Test
+    void searchByNullEntity_throws()
+    {
+        final GigaMap<Doc> map = GigaMap.New();
+        final VectorIndex<Doc> index = newIndex(map, new NullableComputedVectorizer());
+        map.add(new Doc("v", basis(0)));
+
+        // A null query entity must surface as IllegalArgumentException per the API contract,
+        // not a NullPointerException from the vectorizer.
+        assertThrows(IllegalArgumentException.class, () -> index.search((Doc)null, 5));
+        assertThrows(IllegalArgumentException.class, () -> index.search((Doc)null, 5, 50));
+    }
+
+    @Test
     void nullQueryVector_throws()
     {
         final GigaMap<Doc> map = GigaMap.New();

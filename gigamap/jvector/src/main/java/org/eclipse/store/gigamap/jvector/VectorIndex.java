@@ -452,15 +452,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     }
 
     /**
-     * Extracts the query vector from the given entity, rejecting a null result: an entity
-     * without an embedding has no meaningful similarity and cannot be used as a query.
+     * Extracts the query vector from the given entity, rejecting both a null entity and a null
+     * result: an entity without an embedding has no meaningful similarity and cannot be used as
+     * a query.
      *
-     * @param queryEntity the query entity
+     * @param queryEntity the query entity; must not be null
      * @return the non-null query vector
-     * @throws IllegalArgumentException if the vectorizer returns null for the entity
+     * @throws IllegalArgumentException if the entity is null, or the vectorizer returns null for it
      */
     private float[] requireQueryVector(final E queryEntity)
     {
+        if(queryEntity == null)
+        {
+            throw new IllegalArgumentException("Query entity must not be null");
+        }
         final float[] queryVector = this.vectorizer().vectorize(queryEntity);
         if(queryVector == null)
         {
