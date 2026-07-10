@@ -154,8 +154,14 @@ public interface StorageFile
 	/**
 	 * Forces previously written bytes of this file to physical storage (fsync). No-op on backends
 	 * that are already durable on write.
+	 * <p>
+	 * Default no-op for source/binary backward compatibility; {@link StorageFile.Abstract} overrides
+	 * this to force through the underlying writable file.
 	 */
-	public void synchronize();
+	public default void synchronize()
+	{
+		// no-op; see StorageFile.Abstract for the effective implementation
+	}
 
 
 //	public void pull(AWritableFile fileToMove);
