@@ -40,6 +40,7 @@ import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.storage.exceptions.StorageException;
 import org.eclipse.store.storage.exceptions.StorageExceptionCommitSizeExceeded;
 import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
+import org.eclipse.store.storage.exceptions.StorageExceptionIncompleteTransactionsEntry;
 import org.eclipse.store.storage.exceptions.StorageExceptionIoReading;
 import org.eclipse.store.storage.exceptions.StorageExceptionIoWriting;
 import org.eclipse.store.storage.exceptions.StorageExceptionIoWritingChunk;
@@ -273,6 +274,10 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 
 		private StorageTransactionsFileCleaner transactionFileCleaner;
+
+		// initialization rewrote the transactions file past the backup queue: the backup copy
+		// can then be stale at equal length, so its synchronization must rebuild unconditionally
+		private boolean transactionsFileRestored;
 
 
 		///////////////////////////////////////////////////////////////////////////
@@ -1094,6 +1099,13 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		{
 			final StorageLiveTransactionsFile file = this.createTransactionsFile();
 
+			// heal an interrupted transaction-log compaction
+			this.transactionsFileRestored = StorageTransactionsFileCleaner.recoverInterruptedCompaction(
+				file.file()         ,
+				this.channelIndex() ,
+				this.writeController
+			);
+
 			if(!file.exists())
 			{
 				/* (11.09.2014 TM)TODO: missing transactions file handler function
@@ -1105,15 +1117,48 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 			try
 			{
-				final StorageTransactionsAnalysis.EntryAggregator
-					aggregator = file.processBy(new StorageTransactionsAnalysis.EntryAggregator(this.channelIndex()));
-				return aggregator.yield(file);
+				try
+				{
+					final StorageTransactionsAnalysis.EntryAggregator
+						aggregator = file.processBy(new StorageTransactionsAnalysis.EntryAggregator(this.channelIndex()));
+					return aggregator.yield(file);
+				}
+				catch(final StorageExceptionIncompleteTransactionsEntry e)
+				{
+					this.truncateTornTransactionsFileTail(file, e);
+					final StorageTransactionsAnalysis.EntryAggregator
+						aggregator = file.processBy(new StorageTransactionsAnalysis.EntryAggregator(this.channelIndex()));
+					return aggregator.yield(file);
+				}
 			}
 			catch(final Exception e)
 			{
 				StorageClosableFile.close(file, e);
 				throw new StorageException(e);
 			}
+		}
+
+		/**
+		 * A torn trailing entry is the expected artifact of a crash during an append: the content
+		 * before it is intact and the torn entry's transaction never completed. Truncate it away,
+		 * like a torn data file tail.
+		 */
+		private void truncateTornTransactionsFileTail(
+			final StorageLiveTransactionsFile                 file ,
+			final StorageExceptionIncompleteTransactionsEntry cause
+		)
+		{
+			if(!this.writeController.isWritable())
+			{
+				throw cause;
+			}
+			logger.warn(
+				"Channel {}: truncating torn transactions file tail at position {}",
+				this.channelIndex(),
+				cause.position(),
+				cause
+			);
+			this.writer.truncate(file, cause.position(), this.fileProvider);
 		}
 
 		private long validateStorageDataFilesLength(
@@ -1346,12 +1391,50 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		
 		private void initializeBackupHandler(final StorageInventory inventory)
 		{
-			if(!this.initializeBackupHandler())
+			if(this.backupHandler == null)
 			{
 				return;
 			}
-			
+
+			if(this.transactionsFileRestored)
+			{
+				// invalidate the backup transactions file at the source, BEFORE the handler
+				// registers its file inventory: the synchronization below then rebuilds it
+				// regardless of the handler implementation
+				this.deleteBackupTransactionsFile();
+			}
+
+			this.initializeBackupHandler();
 			this.backupHandler.synchronize(inventory);
+		}
+
+		private void deleteBackupTransactionsFile()
+		{
+			final StorageBackupFileProvider backupFileProvider =
+				this.backupHandler.setup().backupFileProvider();
+			final StorageBackupTransactionsFile backupTransactionsFile =
+				backupFileProvider.provideBackupTransactionsFile(this.channelIndex());
+			final AFile backupFile = backupTransactionsFile.file();
+			if(!backupFile.exists())
+			{
+				return;
+			}
+
+			// mirror the backup handler's own deletion semantics: rescue-move when configured.
+			// Raw, released AFS accesses: a retained lease would collide with the handler's
+			// own file wrapper during the subsequent synchronization.
+			final AFile deletionTargetFile = backupFileProvider.provideDeletionTargetFile(backupTransactionsFile);
+			AFS.executeWriting(backupFile, wf ->
+			{
+				if(deletionTargetFile == null)
+				{
+					wf.delete();
+				}
+				else
+				{
+					AFS.executeWriting(deletionTargetFile, targetWf -> wf.moveTo(targetWf));
+				}
+			});
 		}
 
 		private StorageIdAnalysis initializeForExistingFiles(
