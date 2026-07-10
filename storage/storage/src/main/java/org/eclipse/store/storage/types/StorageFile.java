@@ -151,6 +151,13 @@ public interface StorageFile
 	public long writeBytes(Iterable<? extends ByteBuffer> buffers);
 
 
+	/**
+	 * Forces previously written bytes of this file to physical storage (fsync). No-op on backends
+	 * that are already durable on write.
+	 */
+	public void synchronize();
+
+
 //	public void pull(AWritableFile fileToMove);
 
 
@@ -440,7 +447,20 @@ public interface StorageFile
 				throw new StorageExceptionIoWriting(e);
 			}
 		}
-		
+
+		@Override
+		public final synchronized void synchronize()
+		{
+			try
+			{
+				this.ensureWritable().synchronize();
+			}
+			catch(final Exception e)
+			{
+				throw new StorageExceptionIoWriting(e);
+			}
+		}
+
 		@Override
 		public final synchronized long copyTo(
 			final StorageFile target

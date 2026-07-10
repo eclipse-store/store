@@ -824,6 +824,11 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 		final void createNextStorageFile()
 		{
+			// Durability floor: the outgoing head is now complete and will not be appended again.
+			// Forcing it here means a power loss can strand at most the current head's tail, never a
+			// sealed (long-committed) file. Also covers a head that received transferred bytes and
+			// then rolled over mid-dissolution.
+			this.headFile.synchronize();
 			this.createNewStorageFile(this.headFile.number() + 1);
 		}
 		
@@ -2115,7 +2120,16 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			this.writeTransactionsEntryFileDeletion(file, this.timestampProvider.currentNanoTimestamp());
 
 			// (12.08.2020 TM)FIXME: priv#351: where and how to check whether files may be deleted? Here? Weird!
-			
+
+			// Durability barrier (power-loss safety): before the source file is physically unlinked,
+			// (a) the current head file must hold the relocated bytes durably - sealed heads were
+			// already forced at their rollover, this covers the not-yet-rolled current head - and
+			// (b) the transactions file must hold the transfer + deletion entries durably, so a crash
+			// can never leave the source unlinked while the records that relocated its data, or the
+			// record explaining its absence, are still in page cache.
+			this.headFile.synchronize();
+			this.fileTransactions.synchronize();
+
 			// physically delete file after the transactions entry is ensured
 			this.writer.delete(file, this.writeController, this.fileProvider);
 		}
