@@ -326,6 +326,14 @@ class VectorValuesTest
             // The copy shares the same underlying lookup, so it resolves the same vectors.
             assertNotSame(values, copy);
             assertEquals(values.getVector(0).get(0), copy.getVector(0).get(0), 0.001f);
+
+            // Mutate the backing store AFTER copying: both instances must observe the new
+            // entry, proving the copy shares the live store rather than a snapshot.
+            vectorStore.add(new VectorEntry(1L, new float[]{4.0f, 5.0f, 6.0f}));
+            assertNotNull(values.getVector(1));
+            assertNotNull(copy.getVector(1));
+            assertEquals(4.0f, values.getVector(1).get(0), 0.001f);
+            assertEquals(4.0f, copy.getVector(1).get(0), 0.001f);
         }
     }
 
@@ -480,6 +488,16 @@ class VectorValuesTest
             // The copy shares the same underlying lookup, so it resolves the same vectors.
             assertNotSame(values, copy);
             assertEquals(values.getVector(0).get(0), copy.getVector(0).get(0), 0.001f);
+
+            // Mutate the backing store AFTER copying: both instances must observe the new
+            // entry, proving the copy shares the live store rather than a snapshot. Use an
+            // ordinal neither instance has resolved yet, so per-instance caches don't mask
+            // the lookup.
+            vectorStore.add(new VectorEntry(1L, new float[]{4.0f, 5.0f, 6.0f}));
+            assertNotNull(values.getVector(1));
+            assertNotNull(copy.getVector(1));
+            assertEquals(4.0f, values.getVector(1).get(0), 0.001f);
+            assertEquals(4.0f, copy.getVector(1).get(0), 0.001f);
         }
 
         @Test
