@@ -45,6 +45,16 @@ public interface StorageTransactionsFileCleaner
 	public void compactTransactionsFile(boolean checkSize);
 
 	/**
+	 * Whether {@link #compactTransactionsFile(boolean)} would actually compact under the passed
+	 * size-check mode, without performing any work. Lets callers avoid requesting durability
+	 * barriers for a compaction that would be skipped anyway.
+	 *
+	 * @param checkSize the size-check mode, see {@link #compactTransactionsFile(boolean)}.
+	 * @return whether a compaction is due.
+	 */
+	public boolean requiresCompaction(boolean checkSize);
+
+	/**
 	 * Heals a compaction that was interrupted by a crash. A complete swap file (length and
 	 * checksum match its header) is the authoritative state of an interrupted rewrite and is
 	 * restored into the transactions file; an incomplete one means the live file was never
@@ -74,8 +84,11 @@ public interface StorageTransactionsFileCleaner
 		/////////////////
 
 		/**
-		 * Captures the per-file values the {@link StorageTransactionsAnalysis.EntryAggregator}
-		 * validates but does not retain: creation and deletion timestamps and lengths.
+		 * Captures the values the {@link StorageTransactionsAnalysis.EntryAggregator} validates
+		 * but does not retain: creation and deletion timestamps and lengths, and the transfer
+		 * entries logged after the latest store. The latter must survive the compaction
+		 * verbatim: the initialization's rollback guard reads their source files from the
+		 * reloaded log.
 		 */
 		private static final class EntrySupplements
 		{
@@ -87,7 +100,16 @@ public interface StorageTransactionsFileCleaner
 				long deletionFileLength;
 			}
 
-			final LinkedHashMap<Long, FileSupplement> files = new LinkedHashMap<>();
+			static final class TransferSupplement
+			{
+				long fileLength      ;
+				long timeStamp       ;
+				long sourceFileNumber;
+				long sourceFileOffset;
+			}
+
+			final LinkedHashMap<Long, FileSupplement> files              = new LinkedHashMap<>();
+			final BulkList<TransferSupplement>        postStoreTransfers = BulkList.New()      ;
 
 			void accept(final long address)
 			{
@@ -99,6 +121,9 @@ public interface StorageTransactionsFileCleaner
 						supplement.creationTimeStamp  = Logic.getEntryTimestamp(address);
 						supplement.creationFileLength = Logic.getFileLength(address);
 						this.files.put(Logic.getFileNumber(address), supplement);
+						// transfers into the now closed file are absorbed into its length; only
+						// transfers above the current head's latest store need reproducing
+						this.postStoreTransfers.clear();
 						break;
 					}
 					case Logic.TYPE_FILE_DELETION:
@@ -111,9 +136,29 @@ public interface StorageTransactionsFileCleaner
 						}
 						break;
 					}
+					case Logic.TYPE_STORE:
+					{
+						this.postStoreTransfers.clear();
+						break;
+					}
+					case Logic.TYPE_TRANSFER:
+					{
+						final TransferSupplement transfer = new TransferSupplement();
+						transfer.fileLength       = Logic.getFileLength(address)   ;
+						transfer.timeStamp        = Logic.getEntryTimestamp(address);
+						transfer.sourceFileNumber = Logic.getFileNumber(address)   ;
+						transfer.sourceFileOffset = Logic.getSpecialOffset(address);
+						this.postStoreTransfers.add(transfer);
+						break;
+					}
+					case Logic.TYPE_FILE_TRUNCATION:
+					{
+						// the truncation already cut any transfers above the new length
+						this.postStoreTransfers.clear();
+						break;
+					}
 					default:
 					{
-						// stores, transfers and truncations are fully covered by the aggregator
 						break;
 					}
 				}
@@ -127,28 +172,39 @@ public interface StorageTransactionsFileCleaner
 		}
 
 		/**
-		 * The assembled compacted log plus the section boundaries the writer needs: creation
-		 * entries in {@code [0, storesOffset)}, store entries in {@code [storesOffset,
-		 * deletionsOffset)}, deletion entries in {@code [deletionsOffset, buffer limit)}.
+		 * The assembled compacted log plus its contiguous, type-homogeneous sections, each
+		 * written through the matching mirrored writer call.
 		 */
 		private static final class CompactedContent
 		{
-			final ByteBuffer buffer          ;
-			final int        storesOffset    ;
-			final int        deletionsOffset ;
-			final long       headLatestLength;
+			static final class Section
+			{
+				final byte type ;
+				final int  start;
+				final int  end  ;
+
+				Section(final byte type, final int start, final int end)
+				{
+					super();
+					this.type  = type ;
+					this.start = start;
+					this.end   = end  ;
+				}
+			}
+
+			final ByteBuffer        buffer          ;
+			final BulkList<Section> sections        ;
+			final long              headLatestLength;
 
 			CompactedContent(
-				final ByteBuffer buffer          ,
-				final int        storesOffset    ,
-				final int        deletionsOffset ,
-				final long       headLatestLength
+				final ByteBuffer        buffer          ,
+				final BulkList<Section> sections        ,
+				final long              headLatestLength
 			)
 			{
 				super();
 				this.buffer           = buffer          ;
-				this.storesOffset     = storesOffset    ;
-				this.deletionsOffset  = deletionsOffset ;
+				this.sections         = sections        ;
 				this.headLatestLength = headLatestLength;
 			}
 		}
@@ -444,6 +500,11 @@ public interface StorageTransactionsFileCleaner
 		private final StorageFileWriter storageFileWriter;
 		private final StorageLiveFileProvider fileProvider;
 
+		// the log's length after the last completed compaction; the log is append-only between
+		// compactions, so an unchanged length means unchanged content whose compaction would be
+		// a verbatim no-op. -1 = no compaction happened yet this session.
+		private long lastCompactedLength = -1;
+
 
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
@@ -504,6 +565,7 @@ public interface StorageTransactionsFileCleaner
 				{
 					// already compacted: rewriting byte-identical content would only churn the
 					// swap file, two fsyncs and the backup queue on every housekeeping cycle
+					this.lastCompactedLength = this.storageLiveTransactionsFile.size();
 					return;
 				}
 
@@ -551,6 +613,8 @@ public interface StorageTransactionsFileCleaner
 						);
 					}
 				}
+
+				this.lastCompactedLength = this.storageLiveTransactionsFile.size();
 			}
 			finally
 			{
@@ -596,14 +660,16 @@ public interface StorageTransactionsFileCleaner
 
 		/**
 		 * Assembles the compacted log into one buffer (content length = buffer limit): one
-		 * FileCreation entry per still existing file, carrying the file's latest length - the
-		 * pattern the initialization's derive fallback boots from. Only the head file keeps
-		 * store entries: its two anchors, reproduced verbatim, so cross-channel crash
-		 * reconciliation behaves exactly as with the uncompacted log.
+		 * FileCreation entry per still existing file, carrying the file's latest length - the pattern
+		 * the initialization's derive fallback boots from. The head file keeps its store anchors and
+		 * post-store transfers, so the reloaded reconciliation state (both anchors, transfer sources)
+		 * matches the uncompacted log's. A store-less head collapses both anchors at its creation; to
+		 * reproduce that, the latest-store anchor is emitted in the preceding file's group - stamping
+		 * it under the head would let a reconciliation that cannot agree on it silently keep or
+		 * truncate content the uncompacted log guards loudly.
 		 * <p>
-		 * Deletion entries come after all per-file groups: on reload, a file is registered only
-		 * once the next file's creation entry is reached, so an inline deletion entry would not
-		 * find its file yet.
+		 * Deletion entries come after all per-file groups: on reload a file is registered only when
+		 * the next file's creation entry is reached, so an inline deletion would not find its file.
 		 */
 		private CompactedContent assembleCompactedContent(
 			final StorageTransactionsAnalysis analysis   ,
@@ -628,15 +694,29 @@ public interface StorageTransactionsFileCleaner
 				}
 			}
 
+			final long latestTs = analysis.headFileLatestTimestamp();
+			final long lcTs     = analysis.headFileLastConsistentStoreTimestamp();
+			final long lcLen    = analysis.headFileLastConsistentStoreLength();
+
+			// store timestamps are strictly increasing, so a head with an own store separates the
+			// anchors while a store-less head carries both collapsed onto the latest timestamp
+			final boolean headHasOwnStore = latestTs > 0 && lcTs < latestTs;
+
 			// upper bound; the actual content length is set as the buffer's limit after assembly
 			final long maximumLength = files.size() * (long)(
 				Logic.entryLengthFileCreation() + Logic.entryLengthFileDeletion()
-			) + 2L * Logic.entryLengthStore();
+			)
+				+ 3L * Logic.entryLengthStore()
+				+ supplements.postStoreTransfers.size() * (long)Logic.entryLengthTransfer()
+			;
 
 			final ByteBuffer content = XMemory.allocateDirectNative(X.checkArrayRange(maximumLength));
 			final long       address = XMemory.getDirectByteBufferAddress(content);
 
-			int offset = 0;
+			final BulkList<CompactedContent.Section> sections = BulkList.New();
+
+			int offset       = 0;
+			int sectionStart = 0;
 			for(final StorageTransactionEntry file : files)
 			{
 				if(file != headFile)
@@ -647,41 +727,76 @@ public interface StorageTransactionsFileCleaner
 					offset += Logic.entryLengthFileCreation();
 				}
 			}
+			offset = addSection(sections, Logic.TYPE_FILE_CREATION, sectionStart, offset);
 
-			final long latestTs = analysis.headFileLatestTimestamp();
-			final long lcTs     = analysis.headFileLastConsistentStoreTimestamp();
+			final boolean headFollowsClosedFile = files.size() > 1;
+			if(!headHasOwnStore && latestTs > 0 && headFollowsClosedFile)
+			{
+				/*
+				 * The anchor collapse must be reproduced: the latest store happened before the
+				 * head's creation, so its entry belongs to the preceding file's group (with that
+				 * file's final length as its coordinate). On reload, the head's creation entry
+				 * then re-collapses both anchors exactly like the uncompacted log did.
+				 */
+				final StorageTransactionEntry lastClosedFile = files.at(files.size() - 2);
+				sectionStart = offset;
+				Logic.initializeEntryStore(address + offset);
+				Logic.setEntryStore(address + offset, lastClosedFile.length(), latestTs);
+				offset = addSection(sections, Logic.TYPE_STORE, sectionStart, offset + Logic.entryLengthStore());
+			}
 
-			/*
-			 * The head's creation entry carries the last consistent store length: it seeds the
-			 * reloaded rollback anchor when both anchors collapse onto one timestamp
-			 * (store-less head - equal-timestamp store entries cannot be written), so a
-			 * reconciliation degenerating to timestamp 0 truncates to the correct length.
-			 * With two anchors, the first store entry overwrites it anyway.
-			 */
+			// the head's creation entry carries the pre-latest-store length: it seeds the
+			// reloaded rollback anchor until (and unless) a store entry overwrites it
+			sectionStart = offset;
 			Logic.initializeEntryFileCreation(address + offset);
 			Logic.setEntryFileCreation(
 				address + offset,
-				analysis.headFileLastConsistentStoreLength(),
+				lcLen,
 				supplements.get(headFile.fileNumber()).creationTimeStamp,
 				headFile.fileNumber()
 			);
-			offset += Logic.entryLengthFileCreation();
+			offset = addSection(sections, Logic.TYPE_FILE_CREATION, sectionStart, offset + Logic.entryLengthFileCreation());
 
-			final int storesOffset = offset;
-			if(latestTs > 0)
+			sectionStart = offset;
+			if(headHasOwnStore)
 			{
-				if(lcTs > 0 && lcTs < latestTs)
+				if(lcTs > 0)
 				{
 					Logic.initializeEntryStore(address + offset);
-					Logic.setEntryStore(address + offset, analysis.headFileLastConsistentStoreLength(), lcTs);
+					Logic.setEntryStore(address + offset, lcLen, lcTs);
 					offset += Logic.entryLengthStore();
 				}
+				// the store's own length; transfers logged above it are reproduced behind it
 				Logic.initializeEntryStore(address + offset);
-				Logic.setEntryStore(address + offset, analysis.headFileLatestLength(), latestTs);
+				Logic.setEntryStore(address + offset, analysis.headFileLatestStoreOwnLength(), latestTs);
 				offset += Logic.entryLengthStore();
 			}
+			else if(latestTs > 0 && !headFollowsClosedFile)
+			{
+				// no preceding group can host the anchor (its file was removed): keep it under
+				// the head with the head's base coordinate
+				Logic.initializeEntryStore(address + offset);
+				Logic.setEntryStore(address + offset, lcLen, latestTs);
+				offset += Logic.entryLengthStore();
+			}
+			offset = addSection(sections, Logic.TYPE_STORE, sectionStart, offset);
 
-			final int deletionsOffset = offset;
+			sectionStart = offset;
+			for(final EntrySupplements.TransferSupplement transfer : supplements.postStoreTransfers)
+			{
+				Logic.initializeEntryTransfer(address + offset);
+				Logic.setEntryTransfer(
+					address + offset,
+					transfer.fileLength      ,
+					transfer.timeStamp       ,
+					transfer.sourceFileNumber,
+					transfer.sourceFileOffset
+				);
+				offset += Logic.entryLengthTransfer();
+			}
+			offset = addSection(sections, Logic.TYPE_TRANSFER, sectionStart, offset);
+
+			sectionStart = offset;
 			for(final StorageTransactionEntry file : files)
 			{
 				if(file.isDeleted())
@@ -692,43 +807,73 @@ public interface StorageTransactionsFileCleaner
 					offset += Logic.entryLengthFileDeletion();
 				}
 			}
+			offset = addSection(sections, Logic.TYPE_FILE_DELETION, sectionStart, offset);
+
 			content.limit(offset);
 
-			return new CompactedContent(content, storesOffset, deletionsOffset, analysis.headFileLatestLength());
+			return new CompactedContent(content, sections, analysis.headFileLatestLength());
+		}
+
+		private static int addSection(
+			final BulkList<CompactedContent.Section> sections,
+			final byte                               type    ,
+			final int                                start   ,
+			final int                                end
+		)
+		{
+			if(end > start)
+			{
+				sections.add(new CompactedContent.Section(type, start, end));
+			}
+			return end;
 		}
 
 		/**
-		 * Writes the assembled content into the truncated live file: three contiguous,
+		 * Writes the assembled content into the truncated live file: contiguous,
 		 * type-homogeneous sections, one mirrored writer call each, preserving writer semantics
 		 * such as backup mirroring.
 		 */
 		private void writeCompactedContent(final CompactedContent compacted)
 		{
-			if(compacted.storesOffset > 0)
+			for(final CompactedContent.Section section : compacted.sections)
 			{
-				this.storageFileWriter.writeTransactionEntryCreate(
-					this.storageLiveTransactionsFile,
-					sectionView(compacted.buffer, 0, compacted.storesOffset),
-					null
-				);
-			}
-			if(compacted.deletionsOffset > compacted.storesOffset)
-			{
-				this.storageFileWriter.writeTransactionEntryStore(
-					this.storageLiveTransactionsFile,
-					sectionView(compacted.buffer, compacted.storesOffset, compacted.deletionsOffset),
-					null,
-					0,
-					compacted.headLatestLength
-				);
-			}
-			if(compacted.buffer.limit() > compacted.deletionsOffset)
-			{
-				this.storageFileWriter.writeTransactionEntryDelete(
-					this.storageLiveTransactionsFile,
-					sectionView(compacted.buffer, compacted.deletionsOffset, compacted.buffer.limit()),
-					null
-				);
+				final Iterable<? extends ByteBuffer> view =
+					sectionView(compacted.buffer, section.start, section.end);
+				switch(section.type)
+				{
+					case Logic.TYPE_FILE_CREATION:
+					{
+						this.storageFileWriter.writeTransactionEntryCreate(
+							this.storageLiveTransactionsFile, view, null
+						);
+						break;
+					}
+					case Logic.TYPE_STORE:
+					{
+						this.storageFileWriter.writeTransactionEntryStore(
+							this.storageLiveTransactionsFile, view, null, 0, compacted.headLatestLength
+						);
+						break;
+					}
+					case Logic.TYPE_TRANSFER:
+					{
+						this.storageFileWriter.writeTransactionEntryTransfer(
+							this.storageLiveTransactionsFile, view, null, 0, compacted.headLatestLength
+						);
+						break;
+					}
+					case Logic.TYPE_FILE_DELETION:
+					{
+						this.storageFileWriter.writeTransactionEntryDelete(
+							this.storageLiveTransactionsFile, view, null
+						);
+						break;
+					}
+					default:
+					{
+						throw new StorageException("Unhandled compacted section type: " + section.type);
+					}
+				}
 			}
 		}
 
@@ -737,17 +882,32 @@ public interface StorageTransactionsFileCleaner
 		/////////////////////
 
 		@Override
+		public boolean requiresCompaction(final boolean checkSize)
+		{
+			// unchanged length since the last compaction = unchanged content = verbatim no-op:
+			// skips the acceptor's retry after the flush barrier's completion already compacted,
+			// and the every-cycle recompaction of a compacted log still above the size limit.
+			if(this.storageLiveTransactionsFile.size() == this.lastCompactedLength)
+			{
+				return false;
+			}
+			return !checkSize
+				|| this.storageLiveTransactionsFile.size() > this.transactionFileSizeLimit
+			;
+		}
+
+		@Override
 		public void compactTransactionsFile(final boolean checkSize)
 		{
-			if(checkSize == true && this.storageLiveTransactionsFile.size() > this.transactionFileSizeLimit)
+			if(!this.requiresCompaction(checkSize))
+			{
+				return;
+			}
+			if(checkSize)
 			{
 				logger.info("Transaction file {} size exceeds limit of {} bytes", this.storageLiveTransactionsFile.identifier(), this.transactionFileSizeLimit);
-				this.compactTransactionsFileInternal();
 			}
-			else if(!checkSize)
-			{
-				this.compactTransactionsFileInternal();
-			}
+			this.compactTransactionsFileInternal();
 		}
 
 	}

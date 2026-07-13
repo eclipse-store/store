@@ -667,6 +667,12 @@ public interface EmbeddedStorageManager extends StorageManager
 		{
 			this.singletonConnection().issueTransactionsLogCleanup();
 		}
+
+		@Override
+		public boolean issueStorageFlush()
+		{
+			return this.singletonConnection().issueStorageFlush();
+		}
 		
 		@Override
 		public List<AdjacencyFiles> exportAdjacencyData(

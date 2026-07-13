@@ -27,9 +27,9 @@ public interface StorageRequestTaskTransactionsLogCleanup extends StorageRequest
 		// instance fields //
 		////////////////////
 
-	    boolean completed;
+		final StorageChannelSynchronizingTask.ChannelResults completed;
 
-	    
+
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
 		/////////////////
@@ -41,6 +41,7 @@ public interface StorageRequestTaskTransactionsLogCleanup extends StorageRequest
 		)
 		{
 			super(timestamp, channelCount, controller);
+			this.completed = new ChannelResults(channelCount);
 		}
 
 
@@ -52,14 +53,14 @@ public interface StorageRequestTaskTransactionsLogCleanup extends StorageRequest
 		@Override
 		protected final Void internalProcessBy(final StorageChannel channel)
 		{
-			this.completed = channel.issuedTransactionsLogCleanup();
+			this.completed.set(channel.channelIndex(), channel.issuedTransactionsLogCleanup());
 			return null;
 		}
 
 		@Override
 		public final boolean result()
 		{
-			return this.completed;
+			return this.completed.allTrue();
 		}
 
 	}

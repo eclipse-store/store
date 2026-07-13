@@ -32,11 +32,14 @@ import org.eclipse.serializer.collections.XSort;
 import org.eclipse.serializer.collections.types.XGettingSequence;
 import org.eclipse.serializer.exceptions.MultiCauseException;
 import org.eclipse.serializer.memory.XMemory;
+import org.eclipse.serializer.time.XTime;
 import org.eclipse.serializer.typing.Disposable;
+import org.eclipse.serializer.typing.KeyValue;
 import org.eclipse.serializer.typing.XTypes;
 import org.eclipse.serializer.util.BufferSizeProvider;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.logging.Logging;
+import org.eclipse.store.storage.types.StorageTransactionsAnalysis.Logic;
 import org.eclipse.store.storage.exceptions.StorageException;
 import org.eclipse.store.storage.exceptions.StorageExceptionCommitSizeExceeded;
 import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
@@ -257,6 +260,25 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 		// cleared in reset() directly, but kind of irrelevant.
 		private int pendingFileDeletes;
+
+		// all channel-local, written only by the channel thread; cleared in reset().
+		// durability gate state, see StorageRequestTaskStorageFlush:
+		// - lastWrittenStoreTimestamp: highest store timestamp written to the transactions log.
+		// - allDurableStoreTimestamp: every store below it is fully durable on every channel
+		//   (learned from this channel's own participation in a completed storage-flush task).
+		// - durabilityDeferredDeletes: file number -> guard timestamp frozen at the first
+		//   deletion attempt, so ongoing stores cannot defer a deletion forever.
+		private long lastWrittenStoreTimestamp;
+		private long allDurableStoreTimestamp ;
+		private boolean storageFlushRequested ;
+		// an UNCONDITIONAL (checkSize=false) log cleanup deferred by the durability gate: it must be
+		// completed unconditionally at barrier completion, not downgraded to the size-gated check.
+		private boolean unconditionalCompactionPending;
+		// set whenever this channel rolls a file over; polled (and cleared) by the current task so its
+		// completion barrier can make the sealed store durable on every channel (eager rollover
+		// durability - prevents a baseline collapse onto a not-yet-all-durable store).
+		private boolean rolloverOccurred;
+		private final EqHashTable<Long, Long> durabilityDeferredDeletes = EqHashTable.New();
 		
 		
 		// state 3.1: variable length content
@@ -821,12 +843,208 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 		private void checkForNewFile()
 		{
-			if(this.headFile.needsRetirement(this.dataFileEvaluator))
+			if(this.headFile == null || !this.headFile.needsRetirement(this.dataFileEvaluator))
 			{
-				this.createNextStorageFile();
+				return;
+			}
+
+			// Prompt, ungated rollover: files stay ~fileMaximumSize (no over-fill, no single-channel
+			// starvation). Eager durability comes from the store-task barrier fsync and the
+			// housekeeping/flush-completion pass; a residual below-baseline is a loud fail-stop in recovery.
+			this.createNextStorageFile();
+		}
+
+		/**
+		 * Synchronizes this channel's storage files: head data file first, then the transactions
+		 * log - a durable store entry whose chunk bytes are still volatile would fail the next
+		 * start's length validation, so data must reach the medium before its metadata (the same
+		 * order the deletion barrier uses). Sealed data files were already synchronized at their
+		 * rollover. Processing part of {@link StorageRequestTaskStorageFlush}.
+		 */
+		final boolean flushStorage()
+		{
+			if(!this.writeController.isWritable())
+			{
+				// read-only: nothing was synchronized, so the all-durable watermark must not advance
+				// and the durability gates keep deferring. Deliberately NO re-arm of the flush request
+				// here: this method cannot tell a gate-requested barrier from a PURE public one, and a
+				// pure barrier must not manufacture a request (it would produce a maintenance pass no
+				// gate ever asked for). A skipped gate barrier loses nothing - its adjacent maintenance
+				// still runs, and every gate with deferred work re-arms the request itself.
+				return false;
+			}
+			this.synchronizeStorageFiles();
+			return true;
+		}
+
+		/**
+		 * Synchronizes the head data file, then the transactions log - data before its metadata, so
+		 * a durable store entry never precedes its own chunk bytes on the medium. Unguarded: the
+		 * deletion barrier must synchronize regardless of {@link StorageWriteController#isWritable()}
+		 * (the source file is about to be unlinked), so it calls this directly; {@link #flushStorage()}
+		 * wraps it in the writability guard.
+		 */
+		private void synchronizeStorageFiles()
+		{
+			if(this.headFile != null)
+			{
+				this.headFile.synchronize();
+			}
+			if(this.fileTransactions != null)
+			{
+				this.fileTransactions.synchronize();
 			}
 		}
 
+		/**
+		 * Called after an all-channel storage flush completed successfully: every store below
+		 * the passed task timestamp is fully durable on every channel, so deferred file
+		 * lifecycle events below it may proceed with the next housekeeping check.
+		 * <p>
+		 * Pure watermark raise. Deliberately does NOT clear {@link #storageFlushRequested}: both
+		 * barrier flavors run this, but only the gate-requested one provides the maintenance slot
+		 * the request demands - a PURE public barrier clearing the request would strand the
+		 * deferred work it promises (e.g. an unconditional log compaction that periodic size-gated
+		 * passes can never pick up). The clear happens in
+		 * {@link #executeDurabilityCoveredMaintenance(long)}, the request's actual fulfillment.
+		 */
+		final void commitStorageFlush(final long allDurableTimestamp)
+		{
+			if(allDurableTimestamp > this.allDurableStoreTimestamp)
+			{
+				this.allDurableStoreTimestamp = allDurableTimestamp;
+			}
+		}
+
+		/**
+		 * Whether the passed store timestamp is durable on every channel - the single durability
+		 * predicate the rollover, deletion and compaction gates share.
+		 */
+		private boolean isStoreDurable(final long storeTimestamp)
+		{
+			return storeTimestamp <= this.allDurableStoreTimestamp;
+		}
+
+		/**
+		 * Executes the durability-gated maintenance this channel may have deferred, at the one
+		 * moment the gates pass by construction: within the storage-flush task's processing
+		 * (post-completion, after the watermark raise) this channel cannot yet have processed any
+		 * store task queued behind the flush, so its latest written store is provably durable on
+		 * every channel - and stays so for the whole
+		 * pass. Waiting for the next housekeeping cycle instead would race the next store under
+		 * sustained traffic: a store per cycle re-defers the periodic dissolution forever, so this
+		 * completion pass is the ONLY reclamation slot under sustained traffic and must run at the
+		 * full housekeeping file-check budget - a token slice here caps the reclamation rate far
+		 * below the write rate and lets garbage accumulate without bound.
+		 *
+		 * @param nanoTimeBudget the time budget for the file-cleanup pass - the caller passes the
+		 *        housekeeping file-check time budget.
+		 */
+		final void executeDurabilityCoveredMaintenance(final long nanoTimeBudget)
+		{
+			// This pass IS the fulfillment of a pending flush request, so the request is cleared
+			// here and only here - never at the bare watermark raise (commitStorageFlush), which a
+			// PURE public barrier also performs without providing this slot. Cleared only when the
+			// watermark caught up (a skipped barrier raised nothing); the gates below re-arm it for
+			// any work they must defer again.
+			if(this.isStoreDurable(this.lastWrittenStoreTimestamp))
+			{
+				this.storageFlushRequested = false;
+			}
+
+			// both entry points are self-guarded no-ops when nothing is pending
+			this.checkForNewFile();
+			// Honor a deferred UNCONDITIONAL (checkSize=false) log cleanup unconditionally: an explicit
+			// issueTransactionsLogCleanup() promises compaction regardless of the log's current size, so
+			// completing it size-gated would silently skip a below-limit garbage-heavy log. Consumed
+			// here (the store is durable by construction at barrier completion, so it no longer defers).
+			final boolean checkSize = !this.unconditionalCompactionPending;
+			this.unconditionalCompactionPending = false;
+			this.internalTransactionFileCheck(checkSize);
+
+			// the deferred dissolution/deletion work at the configured file-check budget, see above.
+			// The deadline is taken fresh so a slow compaction above cannot starve the cleanup pass.
+			// Skipped if cleanup is off.
+			if(this.isFileCleanupEnabled())
+			{
+				this.internalCheckForCleanup(
+					XTime.calculateNanoTimeBudgetBound(nanoTimeBudget),
+					this.dataFileEvaluator
+				);
+			}
+		}
+
+		final boolean pollStorageFlushRequest()
+		{
+			if(!this.storageFlushRequested)
+			{
+				return false;
+			}
+			// read-only: leave the request armed and do not signal an enqueue. A barrier issued now
+			// would only skip on every channel, churning one futile all-channel rendezvous per
+			// housekeeping cycle for the whole read-only window; it fires on the first cycle after
+			// writability returns instead.
+			if(!this.writeController.isWritable())
+			{
+				return false;
+			}
+			// cleared on poll: one enqueued task per request; a still-failing gate re-requests
+			this.storageFlushRequested = false;
+			return true;
+		}
+
+		final void requestStorageFlush()
+		{
+			this.storageFlushRequested = true;
+		}
+
+		/**
+		 * Gates the physical deletion of a dissolved file (transactions entry and unlink alike)
+		 * on all-channel durability: rolling back a not-everywhere-durable store truncates the
+		 * transfers logged above it, and their bytes are then re-acquired from the source files
+		 * - which must therefore still exist. Deferred deletions are revisited by the file
+		 * cleanup cursor once the requested storage flush raised the watermark.
+		 */
+		private boolean deletionDurabilityGatePassed(final StorageLiveDataFile.Default file)
+		{
+			Long guardTimestamp = this.durabilityDeferredDeletes.get(file.number());
+			if(guardTimestamp == null)
+			{
+				guardTimestamp = this.lastWrittenStoreTimestamp;
+			}
+			if(this.isStoreDurable(guardTimestamp))
+			{
+				this.durabilityDeferredDeletes.removeFor(file.number());
+				return true;
+			}
+			this.durabilityDeferredDeletes.put(file.number(), guardTimestamp);
+			this.storageFlushRequested = true;
+			return false;
+		}
+
+		private boolean isDurabilityDeferred(final StorageLiveDataFile.Default file)
+		{
+			return this.durabilityDeferredDeletes.get(file.number()) != null;
+		}
+
+		/**
+		 * Retires the head file and opens its successor. The new file-creation entry collapses the
+		 * reload's rollback baseline onto the latest store, so recovery can never cut below it: a
+		 * consensus below a channel's head-file baseline is a loud fail-stop
+		 * ({@link #reconcileForHeadOnlyRecovery}), recovery being head-file only.
+		 * <p>
+		 * No caller gates this on durability; instead every rollover is made EAGERLY durable, so the
+		 * store the baseline collapses onto is all-channel durable before a crash:
+		 * <ul>
+		 *   <li>a rollover during a store task is fsync'd on every channel at that task's completion
+		 *       barrier (see {@code StorageRequestTaskStoreEntities});</li>
+		 *   <li>a rollover with no following store (housekeeping dissolution, import) requests a flush
+		 *       and is fsync'd at the flush-barrier completion ({@link #executeDurabilityCoveredMaintenance(long)}).</li>
+		 * </ul>
+		 * A NEW caller MUST preserve this: sealing a not-yet-all-durable store with no fsync catching up
+		 * before a crash lets a power loss leave a consensus below the new baseline that BRICKS the
+		 * storage (permanent startup refusal), not merely degraded recovery.
+		 */
 		final void createNextStorageFile()
 		{
 			// Durability floor: the outgoing head is now complete and will not be appended again.
@@ -835,6 +1053,30 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			// then rolled over mid-dissolution.
 			this.headFile.synchronize();
 			this.createNewStorageFile(this.headFile.number() + 1);
+
+			// Eager rollover durability: the new file's creation entry collapses the recovery baseline
+			// onto the latest store, which must be all-channel durable before a crash (else a power loss
+			// leaves an unrecoverable consensus below the baseline).
+			// (1) flag the rollover so the current task's completion barrier makes it durable everywhere;
+			//     also covers a housekeeping rollover picked up by the next store task.
+			// (2) if the sealed store is not yet all-durable, request a flush so a rollover with no
+			//     following store on this channel (housekeeping / import) still becomes durable soon.
+			this.rolloverOccurred = true;
+			if(!this.isStoreDurable(this.lastWrittenStoreTimestamp))
+			{
+				this.storageFlushRequested = true;
+			}
+		}
+
+		/**
+		 * Reads and clears the rollover flag: whether this channel rolled a file over since the last
+		 * poll. Called once per task on the channel thread, so the plain read-and-clear is race-free.
+		 */
+		final boolean pollRolloverOccurred()
+		{
+			final boolean occurred = this.rolloverOccurred;
+			this.rolloverOccurred = false;
+			return occurred;
 		}
 		
 		private long ensureHeadFileTotalLength()
@@ -1278,17 +1520,23 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			final StorageChannel   parent
 		)
 		{
+			// a consensus store below this channel's head baseline (a sealed-file store), or a
+			// data-bearing file orphaned above the log's head, is a multi-file divergence; reduce it
+			// to the head-only path (remove the files above the cut, truncate the log to the store),
+			// so everything below runs unchanged on the head-only case.
+			final StorageInventory inventory =
+				this.reconcileForHeadOnlyRecovery(consistentStoreTimestamp, storageInventory);
 
 			final EqHashTable<Long, StorageDataInventoryFile> supplementedMissingEmptyFiles = EqHashTable.New();
-			
+
 			// validate file lengths, even in case of no files, to validate transactions entries to that state
 			final long unregisteredEmptyLastFileNumber = this.validateStorageDataFilesLength(
-				storageInventory,
+				inventory,
 				supplementedMissingEmptyFiles
 			);
-			
+
 			final StorageInventory effectiveStorageInventory = this.determineEffectiveStorageInventory(
-				storageInventory,
+				inventory,
 				supplementedMissingEmptyFiles
 			);
 
@@ -1351,7 +1599,90 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 				}
 			}
 		}
-		
+
+		/**
+		 * Head-file-only recovery guard, run before validation. Recovery only ever cuts within the head
+		 * file, so a consensus store below this channel's head-file baseline (in a sealed, earlier file)
+		 * is not repairable and is refused loudly - a rollover sealed a not-yet-all-durable store (made
+		 * rare by eager rollover durability) or a channel directory was restored from an older
+		 * generation. A data file orphaned above the log head by a crash mid-rollover is removed (a
+		 * recoverable artifact). No-op when the consensus lies in the head file and no orphan sits above.
+		 */
+		private StorageInventory reconcileForHeadOnlyRecovery(
+			final long             consistentStoreTimestamp,
+			final StorageInventory storageInventory
+		)
+		{
+			final StorageTransactionsAnalysis tf = storageInventory.transactionsFileAnalysis();
+			if(tf == null || tf.isEmpty() || consistentStoreTimestamp <= 0)
+			{
+				return storageInventory;
+			}
+
+			// cheap pre-checks so anomaly handling runs only for a genuine divergence:
+			// (a) the consensus lies below the head baseline (a sealed-file store -> fail-stop), or
+			// (b) ANY file sits above the highest file the log knows (an orphan from an interrupted
+			//     rollover -> remove it). Include 0-byte orphans: a crash between creating the successor
+			//     and writing its FILE_CREATION entry leaves a file the log never recorded, else picked
+			//     up as the head on re-read.
+			// File creations use strictly increasing numbers, so the log's highest file is its last entry.
+			final long maxLoggedFileNumber = tf.transactionsFileEntries().values().peek().fileNumber();
+			boolean orphanFileAboveLog = false;
+			for(final StorageDataInventoryFile file : storageInventory.dataFiles().values())
+			{
+				if(file.number() > maxLoggedFileNumber)
+				{
+					orphanFileAboveLog = true;
+					break;
+				}
+			}
+			if(consistentStoreTimestamp >= tf.headFileBaselineTimestamp() && !orphanFileAboveLog)
+			{
+				return storageInventory;
+			}
+
+			// A consensus below the head-file baseline lies in a sealed, earlier file and is NOT
+			// repairable by the head-only rollback. Refuse loudly rather than span: eager rollover
+			// durability makes a power loss practically never produce this, and the remaining cause -
+			// a directory restored from an older generation - must not silently discard the intact
+			// channels' committed data.
+			if(consistentStoreTimestamp < tf.headFileBaselineTimestamp())
+			{
+				throw new StorageExceptionConsistency(
+					this.channelIndex() + " consensus store timestamp " + consistentStoreTimestamp
+					+ " lies below this channel's head-file baseline " + tf.headFileBaselineTimestamp()
+					+ ": below-baseline divergence. Recovery is head-file only - a rollover sealed a"
+					+ " not-yet-all-durable store, or a channel directory was restored from an older"
+					+ " generation. Refusing to start rather than discard committed data."
+				);
+			}
+
+			// consensus IS head-recoverable, but a data file is orphaned above the log head: an
+			// interrupted rollover created the physical successor before its FILE_CREATION entry reached
+			// the log. Remove it (and its backup copy); the head-only recovery below then proceeds.
+			if(!this.writeController.isWritable())
+			{
+				throw new StorageExceptionConsistency(
+					this.channelIndex() + " an orphaned data file above the log head cannot be removed in read-only mode"
+				);
+			}
+			for(final StorageDataInventoryFile file : storageInventory.dataFiles().values())
+			{
+				if(file.number() > maxLoggedFileNumber)
+				{
+					AFS.executeWriting(file.file(), wf ->
+					{
+						if(wf.exists())
+						{
+							wf.delete();
+						}
+					});
+					this.deleteBackupDataFile(file.number());
+				}
+			}
+			return this.readStorage();
+		}
+
 		protected StorageInventory determineEffectiveStorageInventory(
 			final StorageInventory                            storageInventory             ,
 			final EqHashTable<Long, StorageDataInventoryFile> supplementedMissingEmptyFiles
@@ -1408,33 +1739,58 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			this.backupHandler.synchronize(inventory);
 		}
 
+		/**
+		 * Mirrors a recovery-time data-file removal to the backup - used when
+		 * {@link #reconcileForHeadOnlyRecovery} removes an orphan file left above the log head by an
+		 * interrupted rollover - with the same rescue-move / raw-delete semantics as
+		 * {@link #deleteBackupTransactionsFile()}. Runs during recovery, before the backup handler
+		 * registers its inventory, so the subsequent synchronization no longer sees the backup as ahead
+		 * of the primary and a restore no longer resurrects the removed file.
+		 */
+		private void deleteBackupDataFile(final long fileNumber)
+		{
+			if(this.backupHandler == null)
+			{
+				return;
+			}
+			this.deleteBackupFile(
+				this.backupHandler.setup().backupFileProvider().provideBackupDataFile(this.channelIndex(), fileNumber),
+				"backup data file"
+			);
+		}
+
 		private void deleteBackupTransactionsFile()
 		{
-			final StorageBackupFileProvider backupFileProvider =
-				this.backupHandler.setup().backupFileProvider();
-			final StorageBackupTransactionsFile backupTransactionsFile =
-				backupFileProvider.provideBackupTransactionsFile(this.channelIndex());
-			final AFile backupFile = backupTransactionsFile.file();
-			if(!backupFile.exists())
+			this.deleteBackupFile(
+				this.backupHandler.setup().backupFileProvider().provideBackupTransactionsFile(this.channelIndex()),
+				"backup transactions file"
+			);
+		}
+
+		/**
+		 * Removes a backup file during recovery with the backup handler's own deletion semantics:
+		 * rescue-move when a deletion target is configured, otherwise a raw delete. Raw, released AFS
+		 * accesses - a retained lease would collide with the handler's own file wrapper during the
+		 * subsequent synchronization. A silently retained file would defeat the removal (at equal length
+		 * the synchronization keeps the stale backup content), so a failed raw delete throws.
+		 */
+		private void deleteBackupFile(final StorageBackupChannelFile backupFile, final String description)
+		{
+			final AFile file = backupFile.file();
+			if(!file.exists())
 			{
 				return;
 			}
 
-			// mirror the backup handler's own deletion semantics: rescue-move when configured.
-			// Raw, released AFS accesses: a retained lease would collide with the handler's
-			// own file wrapper during the subsequent synchronization.
-			final AFile deletionTargetFile = backupFileProvider.provideDeletionTargetFile(backupTransactionsFile);
-			AFS.executeWriting(backupFile, wf ->
+			final AFile deletionTargetFile =
+				this.backupHandler.setup().backupFileProvider().provideDeletionTargetFile(backupFile);
+			AFS.executeWriting(file, wf ->
 			{
 				if(deletionTargetFile == null)
 				{
 					if(wf.exists() && !wf.delete())
 					{
-						// a silently retained file would defeat the invalidation: at equal
-						// length, the synchronization would keep the stale backup content
-						throw new StorageException(
-							"Could not delete backup transactions file " + backupFile.toPathString()
-						);
+						throw new StorageException("Could not delete " + description + " " + file.toPathString());
 					}
 				}
 				else
@@ -1484,7 +1840,7 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			this.ensureTransactionsFile(taskTimestamp, storageInventory, unregisteredEmptyLastFileNumber);
 
 			// special-case handle the last file
-			this.handleLastFile(this.headFile, lastFileLength);
+			this.handleLastFile(this.headFile, lastFileLength, consistentStoreTimestamp);
 
 			// check if last file is over-sized and should be retired right away.
 			this.checkForNewFile();
@@ -1526,16 +1882,177 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			}
 			else if(tFileAnalysis.headFileLastConsistentStoreTimestamp() == consistentStoreTimestamp)
 			{
-				// note: covers a successful transfer (which is channel-local) that happened after the store as well!
-				return tFileAnalysis.headFileLastConsistentStoreLength();
+				// common case of a one-store divergence: the cut length is already derived
+				return this.validatedCutLength(tFileAnalysis, tFileAnalysis.headFileLastConsistentStoreLength());
 			}
 			else
+			{
+				/*
+				 * Consensus below both retained anchors: divergence by more than one store, or
+				 * every head store rolled back onto the head's creation baseline. The cut length
+				 * is the consensus store's recorded head length advanced over the channel-local
+				 * transfers that followed it (incl. across a baseline collapse onto it). It is
+				 * re-read from the log only in this rare case instead of being retained in
+				 * memory - a head file can accumulate millions of store entries. The baseline
+				 * case must use the same folding: cutting at the raw creation length would cut
+				 * below transfers logged between the head's creation and its first store.
+				 */
+				return this.validatedCutLength(
+					tFileAnalysis,
+					this.readStoreAnchorLength(tFileAnalysis, consistentStoreTimestamp)
+				);
+			}
+		}
+
+		/**
+		 * Determines, in one pass over this channel's transactions log, the head length to roll back
+		 * to for the passed consistent store timestamp: the store's recorded length advanced over any
+		 * channel-local transfers and truncations logged before the next store (the same folding
+		 * {@code handleEntryStore} / {@code handleEntryFileTruncation} apply). Missing a transfer would
+		 * cut below relocated bytes {@link #validatedCutLength} must keep; missing a truncation would
+		 * cut above truncated-away bytes and load stale data.
+		 * <p>
+		 * The consensus store's window survives the log events that collapse onto it: a recovery
+		 * truncation stamped with its timestamp re-opens the window at the cut length, and a file
+		 * creation while the window is open re-anchors at the new head's creation length (the
+		 * baseline collapse) - so transfers logged after either event still fold into the anchor.
+		 */
+		private long readStoreAnchorLength(
+			final StorageTransactionsAnalysis tFileAnalysis           ,
+			final long                        consistentStoreTimestamp
+		)
+		{
+			final long[]    anchorLength = {-1L}  ;
+			final boolean[] capturing    = {false};
+			tFileAnalysis.transactionsFile().processBy((address, availableEntryLength) ->
+			{
+				if(availableEntryLength < 0)
+				{
+					return true; // gap / comment, signaled by the read loop
+				}
+				if(availableEntryLength < Logic.getEntryLength(address))
+				{
+					// entry cut by the read-window boundary: re-read at this position
+					return false;
+				}
+				switch(Logic.getEntryType(address))
+				{
+					case Logic.TYPE_FILE_CREATION:
+					{
+						/*
+						 * A creation collapses the rollback baseline onto the current store. If that
+						 * is the consensus store (window open), the anchor moves into the new head's
+						 * coordinates - its creation length - and the window stays open for the
+						 * transfers that follow (exactly the collapse handleEntryFileCreation applies).
+						 * Otherwise prior hits belong to a closed file and are invalid as head cut
+						 * coordinates.
+						 */
+						anchorLength[0] = capturing[0] ? Logic.getFileLength(address) : -1L;
+						return true;
+					}
+					case Logic.TYPE_STORE:
+					{
+						if(Logic.getEntryTimestamp(address) == consistentStoreTimestamp)
+						{
+							// anchor at this store's length, then extend it over the transfers that
+							// follow until the next store - they are channel-local and kept, exactly
+							// as handleEntryStore folds them into lastConsistentStoreLength.
+							anchorLength[0] = Logic.getFileLength(address);
+							capturing[0]    = true;
+						}
+						else
+						{
+							// a different store ends the matched store's transfer window
+							capturing[0] = false;
+						}
+						return true;
+					}
+					case Logic.TYPE_TRANSFER:
+					{
+						// channel-local growth inside the window; last one wins.
+						if(capturing[0])
+						{
+							anchorLength[0] = Logic.getFileLength(address);
+						}
+						return true;
+					}
+					case Logic.TYPE_FILE_TRUNCATION:
+					{
+						/*
+						 * A recovery truncation stamped with the consensus store's timestamp collapses
+						 * the head back onto that store (see handleLastFile), so the anchor re-opens at
+						 * the cut length and transfers logged after it belong to the survivor's window
+						 * again - exactly as handleEntryFileTruncation stamps the survivor on a deep cut.
+						 * Missing this re-open would cut below such a transfer's bytes: a spurious
+						 * fail-stop when its source file is already deleted (validatedCutLength).
+						 */
+						if(Logic.getEntryTimestamp(address) == consistentStoreTimestamp)
+						{
+							anchorLength[0] = Logic.getFileLength(address);
+							capturing[0]    = true;
+						}
+						else if(capturing[0])
+						{
+							// a cut inside the open window; last length wins.
+							anchorLength[0] = Logic.getFileLength(address);
+						}
+						return true;
+					}
+					case Logic.TYPE_FILE_DELETION:
+					{
+						// length-neutral for the head file (source-file deletion); never moves the anchor.
+						// Enumerated so the default below can fail-loud on any unclassified type.
+						return true;
+					}
+					default:
+					{
+						// all length-affecting entry types are handled above; an unclassified one here
+						// could hide a truncated head, so refuse rather than risk a stale cut.
+						throw new StorageExceptionConsistency(
+							"Unexpected transactions entry type " + Logic.getEntryType(address)
+							+ " while re-reading the rollback anchor of channel " + this.channelIndex()
+						);
+					}
+				}
+			});
+
+			if(anchorLength[0] < 0)
 			{
 				// should never happen because of all the validations before
 				throw new StorageExceptionConsistency(
 					"Inconsistent last timestamps in last file of channel " + this.channelIndex()
 				);
 			}
+			return anchorLength[0];
+		}
+
+		/**
+		 * Guards the rollback of unconfirmed stores: transfers whose bytes lie above the cut are
+		 * truncated with the stores' chunks and recovered from their source files
+		 * ({@link StorageTransactionsAnalysis#headFileTransfers()}). If such a source file is
+		 * already deleted, truncating would destroy the transferred entities' last copy -
+		 * refuse to initialize instead of losing committed data silently.
+		 */
+		private long validatedCutLength(final StorageTransactionsAnalysis tFileAnalysis, final long cutLength)
+		{
+			for(final KeyValue<Long, Long> transfer : tFileAnalysis.headFileTransfers())
+			{
+				if(transfer.value() <= cutLength)
+				{
+					continue; // below the cut: survives the truncation
+				}
+				final StorageTransactionEntry sourceFile = tFileAnalysis.transactionsFileEntries().get(transfer.key());
+				if(sourceFile == null || sourceFile.isDeleted())
+				{
+					throw new StorageExceptionConsistency(
+						"Channel " + this.channelIndex() + " cannot roll back its unconfirmed latest stores:"
+						+ " a transfer logged above the rollback point has the already deleted file "
+						+ transfer.key() + " as its source, so truncating the transferred bytes"
+						+ " would destroy their last copy."
+					);
+				}
+			}
+			return cutLength;
 		}
 								
 		private void initializeForNoFiles(final long taskTimestamp, final StorageInventory storageInventory)
@@ -1658,6 +2175,7 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 				headFileNewTotalLength      ,
 				timestamp
 			);
+			this.lastWrittenStoreTimestamp = timestamp;
 			this.writer.writeTransactionEntryStore(
 				this.fileTransactions    ,
 				this.entryBufferWrapStore,
@@ -1755,6 +2273,16 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			
 			// at this point, it is either 0 already or it won't matter since everything has been cleared.
 			this.pendingFileDeletes = 0;
+
+			// durability gate state: cleared timestamps make the gates pass trivially, which is
+			// correct after a reset - everything readable at initialization is the reconciled
+			// baseline, and only stores of the new session can be subject to a rollback.
+			this.lastWrittenStoreTimestamp      = 0;
+			this.allDurableStoreTimestamp       = 0;
+			this.storageFlushRequested          = false;
+			this.unconditionalCompactionPending = false;
+			this.rolloverOccurred               = false;
+			this.durabilityDeferredDeletes.clear();
 		}
 		
 		/**
@@ -1778,18 +2306,21 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		}
 
 		final void handleLastFile(
-			final StorageLiveDataFile.Default lastFile      ,
-			final long                        lastFileLength
+			final StorageLiveDataFile.Default lastFile              ,
+			final long                        lastFileLength        ,
+			final long                        survivorStoreTimestamp
 		)
 		{
 			if(lastFileLength != lastFile.size())
 			{
 				// reaching here means in any case that the file has to be truncated and its header must be updated
 
-				final long timestamp = this.timestampProvider.currentNanoTimestamp();
-				
-				// write truncation entry (BEFORE the actual truncate)
-				this.writeTransactionsEntryFileTruncation(lastFile, timestamp, lastFileLength);
+				// Stamp the truncation entry with the surviving (consensus) store's timestamp, not a fresh
+				// one: a deep rollback cuts below the anchors the log replay retains, and
+				// handleEntryFileTruncation recovers the survivor's timestamp from this entry so
+				// headFileLatestTimestamp (the consensus key) no longer names a rolled-back store. For a
+				// shallow cut the length-matched anchor drives the reset, so this timestamp is safe there too.
+				this.writeTransactionsEntryFileTruncation(lastFile, survivorStoreTimestamp, lastFileLength);
 
 				// (20.06.2014 TM)TODO: truncator function to give a chance to evaluate / rescue the doomed data
 				this.writer.truncate(lastFile, lastFileLength, this.fileProvider);
@@ -2105,22 +2636,37 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 				// delete pending file and do special case checking. This never applies to head files automatically
 				if(!this.fileCleanupCursor.hasUsers())
 				{
-					// an iterable (non-detached) file with no users can only mean a pending delete.
-					if(!this.fileCleanupCursor.executeIfUnsuedData(this.pendingDeleter))
+					// durability gate: a deferred file is skipped and revisited after the flush
+					if(this.deletionDurabilityGatePassed(this.fileCleanupCursor))
 					{
-						// should a new usage have been registered right after checking, then break and try again later
-						break;
-					}
-					
-					// account for special case of removed file being the anchor file (sadly redundant to below)
-					if(this.fileCleanupCursor == cycleAnchorFile)
-					{
-						this.fileCleanupCursor = cycleAnchorFile = cycleAnchorFile.next;
-						continue;
+						// an iterable (non-detached) file with no users can only mean a pending delete.
+						if(!this.fileCleanupCursor.executeIfUnsuedData(this.pendingDeleter))
+						{
+							// should a new usage have been registered right after checking, then break and try again later
+							break;
+						}
+
+						// account for special case of removed file being the anchor file (sadly redundant to below)
+						if(this.fileCleanupCursor == cycleAnchorFile)
+						{
+							this.fileCleanupCursor = cycleAnchorFile = cycleAnchorFile.next;
+							continue;
+						}
 					}
 				}
 				else if(fileDissolver.needsDissolving(this.fileCleanupCursor))
 				{
+					// Eager rollover durability: dissolving transfers live chains into the head may roll it
+					// over, collapsing the recovery baseline onto the head's latest store. Defer the whole
+					// dissolution while that store is not yet all-channel durable, so no rollover seals a
+					// non-durable store; request a flush, and the deferred dissolution then runs at the
+					// flush-barrier completion (executeDurabilityCoveredMaintenance), where it is durable.
+					if(!this.isStoreDurable(this.lastWrittenStoreTimestamp))
+					{
+						this.storageFlushRequested = true;
+						break;
+					}
+
 					if(this.fileCleanupCursor == this.headFile)
 					{
 						this.createNextStorageFile();
@@ -2128,12 +2674,17 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 					if(!this.incrementalDissolveStorageFile(this.fileCleanupCursor, nanoTimeBudgetBound))
 					{
-						continue;
+						if(!this.isDurabilityDeferred(this.fileCleanupCursor))
+						{
+							continue;
+						}
+						// deletion deferred by the durability gate: advance past the file and
+						// revisit it once the requested flush raised the watermark
 					}
 					// file has been dissolved completely and deleted, do special case checking here as well.
 
 					// account for special case of removed file being the anchor file (sadly redundant to above)
-					if(this.fileCleanupCursor == cycleAnchorFile)
+					else if(this.fileCleanupCursor == cycleAnchorFile)
 					{
 						this.fileCleanupCursor = cycleAnchorFile = cycleAnchorFile.next;
 						continue;
@@ -2147,8 +2698,8 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 				// Advance to next file, abort if full cycle is completed.
 				if((this.fileCleanupCursor = this.fileCleanupCursor.next) == cycleAnchorFile)
 				{
-					// if there are still pending deletes, file house keeping cannot be turned off
-					if(this.pendingFileDeletes > 0)
+					// if there are still pending or durability-deferred deletes, file house keeping cannot be turned off
+					if(this.pendingFileDeletes > 0 || !this.durabilityDeferredDeletes.isEmpty())
 					{
 
 						// at least one more file is pending deletion
@@ -2174,6 +2725,13 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 			if(this.incrementalTransferEntities(file, nanoTimeBudgetBound))
 			{
+				// durability gate; the caller recognizes the deferral via isDurabilityDeferred
+				// and advances past the file instead of retrying within this check.
+				if(!this.deletionDurabilityGatePassed(file))
+				{
+					return false;
+				}
+
 				if(file.unregisterUsageClosingData(this, this.deleter))
 				{
 					return true;
@@ -2216,9 +2774,9 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			// already forced at their rollover, this covers the not-yet-rolled current head - and
 			// (b) the transactions file must hold the transfer + deletion entries durably, so a crash
 			// can never leave the source unlinked while the records that relocated its data, or the
-			// record explaining its absence, are still in page cache.
-			this.headFile.synchronize();
-			this.fileTransactions.synchronize();
+			// record explaining its absence, are still in page cache. Unguarded on purpose: this must
+			// run even in a non-writable state, since the file is being unlinked regardless.
+			this.synchronizeStorageFiles();
 
 			// physically delete file after the transactions entry is ensured
 			this.writer.delete(file, this.writeController, this.fileProvider);
@@ -2637,9 +3195,36 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			{
 				return true;
 			}
-			
+
+			// nothing to compact: never request a durability barrier for a no-op - a steadily
+			// storing application would otherwise enqueue one futile all-channel fsync barrier
+			// per housekeeping cycle
+			if(!this.transactionFileCleaner.requiresCompaction(checkSize))
+			{
+				return true;
+			}
+
+			/*
+			 * Compaction durability gate: compacting collapses the log's store history, which
+			 * the rollback of a not-everywhere-durable store might still need as its cut
+			 * coordinate. Deferred until a storage flush confirmed every own store durable on
+			 * all channels - collapsed history is then never rollback-relevant again.
+			 */
+			if(!this.isStoreDurable(this.lastWrittenStoreTimestamp))
+			{
+				this.storageFlushRequested = true;
+				// remember an UNCONDITIONAL request so its intent survives the deferral: the barrier
+				// completion must then compact regardless of size, not size-gated (see the contract of
+				// executeDurabilityCoveredMaintenance and issueTransactionsLogCleanup).
+				if(!checkSize)
+				{
+					this.unconditionalCompactionPending = true;
+				}
+				return false;
+			}
+
 			this.transactionFileCleaner.compactTransactionsFile(checkSize);
-			
+
 			return true;
 		}
 

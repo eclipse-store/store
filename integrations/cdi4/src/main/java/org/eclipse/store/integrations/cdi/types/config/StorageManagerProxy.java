@@ -263,6 +263,12 @@ public class StorageManagerProxy extends UsageMarkable.Default implements Storag
     }
 
     @Override
+    public boolean issueStorageFlush()
+    {
+        return this.getStorageManager().issueStorageFlush();
+    }
+
+    @Override
     public StorageRawFileStatistics createStorageStatistics()
     {
         return this.getStorageManager().createStorageStatistics();

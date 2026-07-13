@@ -79,7 +79,10 @@ public interface StorageRequestAcceptor
 
 	public void issueTransactionsLogCleanup()
 		throws InterruptedException;
-	 
+
+	public boolean issueStorageFlush()
+		throws InterruptedException;
+
 	// exporting //
 	
 	public List<AdjacencyFiles> exportAdjacencyData(long rootID, Path workingDir)
@@ -228,7 +231,21 @@ public interface StorageRequestAcceptor
 		public boolean issueFileCheck(final long nanoTimeBudget)
 			throws InterruptedException
 		{
-			return waitOnTask(this.taskBroker.issueFileCheck(nanoTimeBudget)).result();
+			boolean completed = waitOnTask(this.taskBroker.issueFileCheck(nanoTimeBudget)).result();
+
+			/*
+			 * A durability-gated deletion defers to the all-channel storage flush the check
+			 * itself enqueues (see StorageRequestTaskStorageFlush); the next pass then executes
+			 * it, so an unlimited-budget ("full") check retries to preserve its complete-in-one-
+			 * call semantics. Bounded: incompleteness from still-registered file users does not
+			 * resolve by repeating. Finite-budget checks keep their poll-and-continue contract.
+			 */
+			for(int retry = 0; !completed && nanoTimeBudget == Long.MAX_VALUE && retry < 2; retry++)
+			{
+				completed = waitOnTask(this.taskBroker.issueFileCheck(nanoTimeBudget)).result();
+			}
+
+			return completed;
 		}
 
 		@Override
@@ -239,10 +256,26 @@ public interface StorageRequestAcceptor
 		}
 
 		@Override
+		public boolean issueStorageFlush()
+			throws InterruptedException
+		{
+			// on demand, never coalesced: the returned durability must cover every store
+			// enqueued before this call, which an older pending barrier would not
+			return waitOnTask(this.taskBroker.issueOnDemandStorageFlush()).result();
+		}
+
+		@Override
 		public void issueTransactionsLogCleanup()
 			throws InterruptedException
 		{
-			waitOnTask(this.taskBroker.issueTransactionsLogCleanup());
+			boolean completed = waitOnTask(this.taskBroker.issueTransactionsLogCleanup()).result();
+
+			// the compaction durability gate defers to the storage flush the cleanup itself
+			// enqueues; the next pass then compacts. Bounded like issueFileCheck's retry.
+			for(int retry = 0; !completed && retry < 2; retry++)
+			{
+				completed = waitOnTask(this.taskBroker.issueTransactionsLogCleanup()).result();
+			}
 		}
 		
 		@Override
