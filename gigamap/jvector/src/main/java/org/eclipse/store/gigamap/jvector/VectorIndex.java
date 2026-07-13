@@ -792,8 +792,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // bitmaps (cheap, loads no VectorEntry / no vectors) once the store is queryable, falling back
         // to a positional store scan during the deserialization window when the index registry is not
         // yet wired. Deferring the build off the load path is what keeps incremental on-disk startup
-        // O(1) in the vector payload. Volatile: read lock-free by search threads (fast path), written
-        // under the vector store's own monitor (a leaf lock — see computedIdIndex()).
+        // O(1) in the vector payload.
+        //
+        // Concurrency: a ConcurrentHashMap. The volatile FIELD is published (assigned) once under the
+        // vector store's own monitor by the double-checked lazy build in computedIdIndex() (a leaf
+        // lock — see there); search threads read it lock-free. Per-entry put/remove by mutations are
+        // not synchronized on that monitor — they rely on the map's own thread-safety and are serialized
+        // against each other by the parent GigaMap monitor the mutation already holds.
         private transient volatile Map<Long, Long> computedIdIndex;
 
         // Incremental on-disk mode: after disk reload, use disk index for search
@@ -1538,8 +1543,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final boolean contentChanged;
             if(embedded)
             {
-                final float[] oldVector = replacedEntity == null ? null : this.vectorize(replacedEntity);
-                contentChanged = !(oldVector == null && vector == null); // null→null is the only no-op
+                // A non-null new vector is always a change (null→vec or vec→vec). Only a null new vector
+                // needs the old vector — to tell vec→null (a change) from null→null (the only no-op) —
+                // so re-vectorize replacedEntity solely on that path, not on the common non-null update.
+                contentChanged = vector != null
+                    || (replacedEntity != null && this.vectorize(replacedEntity) != null);
             }
             else
             {
@@ -2260,7 +2268,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // PQ encodeAll() builds a dense PQVectors of this length and FusedPQ / PQ search then
                     // index it by graph ordinal — an under-reported count skips/overflows high ordinals
                     // (IndexOutOfBoundsException). Match the graph's ordinal space (see getHighestEntityId()).
-                    () -> (int)(this.parentMap().highestUsedId() + 1),
+                    () -> Math.toIntExact(this.parentMap().highestUsedId() + 1),
                     this.configuration.dimension(),
                     this.vectorTypeSupport
                 );
@@ -2780,7 +2788,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // PQ encodeAll() builds a dense PQVectors of this length and FusedPQ / PQ search then
                     // index it by graph ordinal — an under-reported count skips/overflows high ordinals
                     // (IndexOutOfBoundsException). Match the graph's ordinal space (see getHighestEntityId()).
-                    () -> (int)(this.parentMap().highestUsedId() + 1),
+                    () -> Math.toIntExact(this.parentMap().highestUsedId() + 1),
                     this.configuration.dimension(),
                     this.vectorTypeSupport
                 );
