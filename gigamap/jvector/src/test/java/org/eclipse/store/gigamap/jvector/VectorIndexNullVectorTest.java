@@ -683,6 +683,53 @@ class VectorIndexNullVectorTest
         }
     }
 
+    // ==================== 10d. Finding #5 repro: on-disk delete + persist + reload ====================
+
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    void onDiskComputedDeleteThenReloadKeepsSurvivors(@TempDir final Path dir)
+    {
+        final Path storageDir = dir.resolve("storage");
+        final Path indexDir   = dir.resolve("index");
+        final VectorIndexConfiguration diskConfig = VectorIndexConfiguration.builder()
+            .dimension(DIM)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .build();
+
+        long v0;
+        long v2;
+        long v3;
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc> map = GigaMap.New();
+            storage.setRoot(map);
+            final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+                .add("embeddings", diskConfig, new NullableComputedVectorizer());
+
+            v0 = map.add(new Doc("v0", basis(0)));
+            final long v1 = map.add(new Doc("v1", basis(1)));
+            v2 = map.add(new Doc("v2", basis(2)));
+            v3 = map.add(new Doc("v3", basis(3)));
+            map.removeById(v1);
+            index.persistToDisk();
+            storage.storeRoot();
+        }
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc> map = storage.root();
+            final VectorIndex<Doc> index = map.index().get(VectorIndices.Category()).get("embeddings");
+
+            assertEquals(3, index.search(basis(0), 10).size(),
+                "all three survivors must remain searchable after delete+persist+reload");
+            assertEquals(v0, index.search(basis(0), 1).stream().findFirst().orElseThrow().entityId());
+            assertEquals(v2, index.search(basis(2), 1).stream().findFirst().orElseThrow().entityId());
+            assertEquals(v3, index.search(basis(3), 1).stream().findFirst().orElseThrow().entityId());
+        }
+    }
+
     // ==================== 11. Query by null-vector entity / null query ====================
 
     @Test
@@ -845,6 +892,68 @@ class VectorIndexNullVectorTest
             final VectorIndex<Doc> index = map.index().get(VectorIndices.Category()).get("embeddings");
             assertNotNull(index.getVector(knownId));
             assertFalse(index.search(map.get(knownId), 5).isEmpty());
+        }
+    }
+
+    /**
+     * Regression for the RAVV {@code size()} contract: in computed mode the graph ordinal is the
+     * source entity id, so with null embeddings (sparse ordinals) the highest ordinal exceeds the
+     * non-null vector count. When PQ compression is actually trained, {@code ProductQuantization
+     * .encodeAll(ravv)} builds a dense {@code PQVectors} of length {@code ravv.size()}; if
+     * {@code size()} is the count rather than the ordinal upper bound, the FusedPQ write / PQ search
+     * index that dense array by graph ordinal and blow past its end. Unlike
+     * {@link #pqCompressionExcludesNulls}, this test explicitly triggers training so the FusedPQ path
+     * is exercised.
+     */
+    @Test
+    @Timeout(value = 120, unit = TimeUnit.SECONDS)
+    @SuppressWarnings("unchecked")
+    void pqCompressionWithSparseOrdinals_trainedAndSearched(@TempDir final Path dir)
+    {
+        final int dim = 16;
+        final Path indexDir = dir.resolve("index");
+        final Random random = new Random(11);
+
+        final VectorIndexConfiguration pqConfig = VectorIndexConfiguration.builder()
+            .dimension(dim)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .enablePqCompression(true)
+            .pqSubspaces(dim / 4)
+            .build();
+
+        final GigaMap<Doc> map = GigaMap.New();
+        try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("embeddings", pqConfig, new NullableComputedVectorizer()))
+        {
+            // >256 vectored entities so PQ training triggers, with null embeddings interspersed so the
+            // highest graph ordinal (a real node) exceeds the non-null vector count.
+            for(int i = 0; i < 300; i++)
+            {
+                map.add(new Doc("v" + i, randomUnit(random, dim)));
+                if(i % 20 == 0)
+                {
+                    map.add(new Doc("none" + i, null)); // sparse ordinal gaps
+                }
+            }
+            final float[] known = randomUnit(random, dim);
+            final long knownId = map.add(new Doc("known", known)); // highest ordinal, a real node
+
+            // Force PQ training so persist writes FusedPQ (the path that indexes the dense PQ array by
+            // ordinal). Before the size() fix this threw IndexOutOfBoundsException while encoding /
+            // writing the highest-ordinal node (ordinal > non-null count); it must now complete,
+            // proving every graph ordinal up to highestUsedId is PQ-encoded and written.
+            ((VectorIndex.Internal<Doc>)index).trainCompressionIfNeeded();
+            index.persistToDisk();
+
+            // Approximate PQ search: assert it runs and yields only real (non-null) entities. (Exact
+            // top-1 identity isn't guaranteed under lossy PQ, so we don't assert the query is #1.)
+            final VectorSearchResult<Doc> result = index.search(known, 5);
+            assertFalse(result.isEmpty(), "PQ search over sparse ordinals must return results");
+            assertTrue(result.stream().allMatch(e -> index.getVector(e.entityId()) != null),
+                "no null-embedding entity may appear in PQ search results");
+            assertNotNull(index.getVector(knownId), "the highest-ordinal node remains stored and resolvable");
         }
     }
 

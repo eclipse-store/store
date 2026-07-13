@@ -50,7 +50,12 @@ class EntityBackedVectorValues<E> implements RandomAccessVectorValues
     @Override
     public int size()
     {
-        return (int)this.entityMap.size();
+        // The dense ordinal upper bound (getVector must be valid for [0, size())), not the entity
+        // count: the graph ordinal is the entity id, so deletion holes and null-embedding entities
+        // (still counted in entityMap.size()) push the highest ordinal beyond the count. Matching the
+        // id space keeps PQ encodeAll() (which builds a dense array of length size() and is indexed by
+        // ordinal) from skipping/overflowing high ordinals.
+        return (int)(this.entityMap.highestUsedId() + 1);
     }
 
     @Override

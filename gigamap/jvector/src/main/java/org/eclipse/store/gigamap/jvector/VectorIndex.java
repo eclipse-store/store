@@ -2254,7 +2254,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 )
                 : new GigaMapBackedVectorValues.Caching(
                     this::lookupComputedVector,
-                    () -> (int)this.vectorStore.size(),
+                    // RAVV size() is the dense ordinal upper bound (getVector must be valid for
+                    // [0, size())), NOT the vector count. Graph ordinals are source entity ids, so with
+                    // null embeddings / deletion holes the highest ordinal exceeds vectorStore.size().
+                    // PQ encodeAll() builds a dense PQVectors of this length and FusedPQ / PQ search then
+                    // index it by graph ordinal — an under-reported count skips/overflows high ordinals
+                    // (IndexOutOfBoundsException). Match the graph's ordinal space (see getHighestEntityId()).
+                    () -> (int)(this.parentMap().highestUsedId() + 1),
                     this.configuration.dimension(),
                     this.vectorTypeSupport
                 );
@@ -2768,7 +2774,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 )
                 : new GigaMapBackedVectorValues(
                     this::lookupComputedVector,
-                    () -> (int)this.vectorStore.size(),
+                    // RAVV size() is the dense ordinal upper bound (getVector must be valid for
+                    // [0, size())), NOT the vector count. Graph ordinals are source entity ids, so with
+                    // null embeddings / deletion holes the highest ordinal exceeds vectorStore.size().
+                    // PQ encodeAll() builds a dense PQVectors of this length and FusedPQ / PQ search then
+                    // index it by graph ordinal — an under-reported count skips/overflows high ordinals
+                    // (IndexOutOfBoundsException). Match the graph's ordinal space (see getHighestEntityId()).
+                    () -> (int)(this.parentMap().highestUsedId() + 1),
                     this.configuration.dimension(),
                     this.vectorTypeSupport
                 );

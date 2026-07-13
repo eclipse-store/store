@@ -34,6 +34,7 @@ import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.function.IntFunction;
 
@@ -324,8 +325,10 @@ interface DiskIndexManager extends Closeable
             }
             else
             {
-                // Use simple write for non-compressed indices
-                OnDiskGraphIndex.write(index, ravv, graphPath);
+                // Use simple write for non-compressed indices. Pass an identity ordinal map (not the
+                // default sequentialRenumbering) so on-disk node ids stay equal to the graph ordinals
+                // (= source entity ids) — see identityOrdinalMap.
+                OnDiskGraphIndex.write(index, ravv, identityOrdinalMap(index), graphPath);
             }
 
             // Write metadata
@@ -364,10 +367,15 @@ interface DiskIndexManager extends Closeable
                 new FusedPQ.State(view, pqVectors, nodeId)
             );
 
+            // Preserve graph ordinals on disk (identity map, not the default sequentialRenumbering)
+            // so on-disk node ids stay equal to the source entity ids the integration keys on.
+            final Map<Integer, Integer> ordinalMap = identityOrdinalMap(index);
+
             if(this.parallelOnDiskWrite)
             {
                 try(final OnDiskParallelGraphIndexWriter writer = new OnDiskParallelGraphIndexWriter.Builder(index, graphPath)
                     .withParallelDirectBuffers(true)
+                    .withMap(ordinalMap)
                     .with(inlineVectors)
                     .with(fusedPQ)
                     .build())
@@ -378,6 +386,7 @@ interface DiskIndexManager extends Closeable
             else
             {
                 try(final OnDiskGraphIndexWriter writer = new OnDiskGraphIndexWriter.Builder(index, graphPath)
+                    .withMap(ordinalMap)
                     .with(inlineVectors)
                     .with(fusedPQ)
                     .build())
@@ -391,6 +400,34 @@ interface DiskIndexManager extends Closeable
 
             LOG.info("Wrote index '{}' with FusedPQ compression ({} nodes, parallel={})",
                 this.name, index.size(0), this.parallelOnDiskWrite);
+        }
+
+        /**
+         * Builds an identity old→new ordinal map over the graph's present nodes, so the on-disk write
+         * PRESERVES graph ordinals (leaving {@code OMITTED} holes) instead of compacting them via the
+         * default {@code sequentialRenumbering}.
+         * <p>
+         * The whole {@link VectorIndex} integration keys on the invariant "graph ordinal == source
+         * entity id": search results are converted straight back to entity ids
+         * ({@code convertSearchResult}), computed-mode scoring resolves vectors by source entity id
+         * ({@code lookupComputedVector} / {@code computedIdIndex}), and incremental deletes track
+         * ordinals ({@code diskDeletedOrdinals}). Compacting to a dense 0..n-1 range would renumber
+         * disk nodes and scramble that mapping whenever the ordinal space has holes — i.e. after any
+         * null embedding or deletion. Preserving ordinals costs a placeholder slot per hole on disk,
+         * which is acceptable given entity ids are allocated densely.
+         */
+        private static Map<Integer, Integer> identityOrdinalMap(final OnHeapGraphIndex index)
+        {
+            final Map<Integer, Integer> map = new HashMap<>();
+            final int idUpperBound = index.getIdUpperBound();
+            for(int ordinal = 0; ordinal < idUpperBound; ordinal++)
+            {
+                if(index.containsNode(ordinal))
+                {
+                    map.put(ordinal, ordinal);
+                }
+            }
+            return map;
         }
 
         /**
