@@ -116,18 +116,32 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * Adds the specified element to this collection.
 	 * <p>
 	 * Null values are not allowed.
-	 * 
+	 * <p>
+	 * <b>Behavior on failure:</b> if a constraint is violated or an {@link Indexer} throws an
+	 * exception while the element is being indexed, the addition is rolled back and the exception
+	 * is rethrown: the element is not contained, {@link #size()} is unchanged and no index refers
+	 * to it. If the rollback itself encounters secondary failures (e.g. the broken indexer throws
+	 * again during cleanup), those are attached as suppressed exceptions and the affected id is
+	 * "burned", i.e. skipped for future additions, so that possibly remaining stale index entries
+	 * can never refer to another entity. Such remainders are cleaned up by {@link #reindex()}.
+	 *
 	 * @param element the element to add, not <code>null</code>
 	 * @return the assigned id
 	 * @throws IllegalArgumentException if element is <code>null</code>
 	 */
 	public long add(E element);
-	
+
 	/**
 	 * Adds all elements to this collection.
 	 * <p>
 	 * Null values are not allowed
-	 * 
+	 * <p>
+	 * <b>Behavior on failure:</b> the operation is atomic in the same way as {@link #add(Object)}:
+	 * if a constraint is violated or an {@link Indexer} throws an exception for any of the
+	 * elements, all elements added so far by this call are rolled back and the exception is
+	 * rethrown; secondary cleanup failures are attached as suppressed exceptions and the affected
+	 * ids are skipped for future additions.
+	 *
 	 * @param elements the elements to add
 	 * @return the last assigned id
 	 * @throws IllegalArgumentException if an element is <code>null</code>
@@ -159,7 +173,15 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	
 	/**
 	 * Removes the entitiy mapped to the specified id.
-	 * 
+	 * <p>
+	 * <b>Behavior on failure:</b> if an {@link Indexer} throws an exception while the entity's
+	 * index entries are being located for cleanup, the removal nevertheless completes: the entity
+	 * is removed from the map and {@link #size()} is decremented, the remaining indices are cleaned
+	 * best-effort, and the exception is rethrown afterwards (further failures attached as
+	 * suppressed exceptions). Entries left behind in the index whose indexer failed refer to a now
+	 * empty id and are invisible to queries; they are cleaned up by {@link #reindex()}. Aborting
+	 * instead would make an entity with a broken indexer permanently unremovable.
+	 *
 	 * @param entityId the id of the element to be deleted
 	 * @return the deleted element, or <code>null</code> if none was deleted
 	 */
@@ -175,7 +197,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * <p>
 	 * To get the best performance for this operation is the use of an identity index.
 	 * See {@link BitmapIndices#setIdentityIndices(IndexIdentifier...)}.
-	 *
+	 * <p>
+	 * <b>Behavior on failure:</b> identical to {@link #removeById(long)}: once the entity has been
+	 * resolved to its id, the removal completes even if an {@link Indexer} throws during index
+	 * cleanup, and the exception is rethrown afterwards. (A throw during the id resolution itself
+	 * happens before any mutation and leaves the map unchanged.)
 	 *
 	 * @param entity the entity to be removed
 	 * @return the previously mapped id of the entity, or -1 if none was removed
@@ -269,7 +295,15 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	/**
 	 * Replaces an entity if present in this collection, updates the indices accordingly,
 	 * and returns the old entity mapped to the specified id.
-	 * 
+	 * <p>
+	 * <b>Behavior on failure:</b> constraints are checked and the bitmap indices are updated
+	 * <em>before</em> the entity is replaced in the map's storage. If a constraint is violated or
+	 * an {@link Indexer} throws an exception while deriving the new entity's keys, the map is left
+	 * unchanged: the old entity stays in place and remains indexed. (On maps with additional,
+	 * non-bitmap index groups such as Lucene or vector indices, a failure in a group that is
+	 * processed after another group already updated can leave the groups diverged; such states are
+	 * repaired by {@link #reindex()}.)
+	 *
 	 * @param entityId the entity id to replace
 	 * @param entity the new entity
 	 * @return the old entity
@@ -290,6 +324,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * See {@link BitmapIndices#setIdentityIndices(IndexIdentifier...)}.
 	 * 
 	 * 
+	 * <p>
+	 * <b>Behavior on failure:</b> identical to {@link #set(long, Object)}: the map is left
+	 * unchanged if a constraint is violated or an {@link Indexer} throws while the indices are
+	 * being updated.
+	 *
 	 * @param current the entity to be removed
 	 * @param replacement the new entity instance
 	 * @return the mapped id of the entity
@@ -326,6 +365,13 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * (via {@code violatingEntity} and {@code entityId}); callers that need to recover can re-add the
 	 * entity after correcting the violation, or use {@code set} / {@code replace} instead when
 	 * non-destructive semantics are required.
+	 * <p>
+	 * <b>Behavior on other exceptions:</b> the same destructive-removal contract applies to any other
+	 * {@link RuntimeException} thrown by {@code logic} itself or by an {@link Indexer} once {@code logic}
+	 * may have (partially) mutated the entity: the entity is removed from the map and the original
+	 * exception is rethrown, with cleanup failures attached as suppressed exceptions. Only exceptions
+	 * thrown while the entity's <em>pre-update</em> state is being indexed (i.e. before {@code logic}
+	 * runs) abort cleanly and leave the map and the entity unchanged.
 	 *
 	 * @param current the entity to be updated
 	 * @param logic the update logic to be executed
@@ -364,7 +410,10 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * <b>Behavior on constraint violation (potential data loss):</b> identical to
 	 * {@link #apply(long, Function)}: if the post-update state violates a registered constraint, a
 	 * {@link ConstraintViolationException ConstraintViolationException} is thrown <em>and the entity is
-	 * removed from this GigaMap</em>, because the in-place mutation cannot be rolled back.
+	 * removed from this GigaMap</em>, because the in-place mutation cannot be rolled back. The same
+	 * destructive-removal contract applies to any other {@link RuntimeException} thrown by {@code logic}
+	 * or by an {@link Indexer} once {@code logic} may have mutated the entity; exceptions thrown while
+	 * the <em>pre-update</em> state is being indexed abort cleanly and leave the map unchanged.
 	 *
 	 * @param entityId the id of the entity to be updated
 	 * @param logic the update logic to be executed
@@ -413,6 +462,13 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * (via {@code violatingEntity} and {@code entityId}); callers that need to recover can re-add the
 	 * entity after correcting the violation, or use {@code set} / {@code replace} instead when
 	 * non-destructive semantics are required.
+	 * <p>
+	 * <b>Behavior on other exceptions:</b> the same destructive-removal contract applies to any other
+	 * {@link RuntimeException} thrown by {@code logic} itself or by an {@link Indexer} once {@code logic}
+	 * may have (partially) mutated the entity: the entity is removed from the map and the original
+	 * exception is rethrown, with cleanup failures attached as suppressed exceptions. Only exceptions
+	 * thrown while the entity's <em>pre-application</em> state is being indexed (i.e. before {@code logic}
+	 * runs) abort cleanly and leave the map and the entity unchanged.
 	 *
 	 * @param current the entity to be updated
 	 * @param logic the logic to be executed
@@ -448,6 +504,13 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * and its id (via {@code violatingEntity} and {@code entityId}); callers that need to recover can
 	 * re-add the entity after correcting the violation, or use {@link #set(long, Object) set} when
 	 * non-destructive semantics are required.
+	 * <p>
+	 * <b>Behavior on other exceptions:</b> the same destructive-removal contract applies to any other
+	 * {@link RuntimeException} thrown by {@code logic} itself or by an {@link Indexer} once {@code logic}
+	 * may have (partially) mutated the entity: the entity is removed from the map and the original
+	 * exception is rethrown, with cleanup failures attached as suppressed exceptions. Only exceptions
+	 * thrown while the entity's <em>pre-application</em> state is being indexed (i.e. before {@code logic}
+	 * runs) abort cleanly and leave the map and the entity unchanged.
 	 *
 	 * @param entityId the id of the entity the logic is applied to
 	 * @param logic the logic to be executed
@@ -1993,11 +2056,18 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			if(!this.equalator.equal(replacedEntity, entity))
 			{
 				this.constraints.check(entityId, replacedEntity, entity);
+
+				/*
+				 * The indices are updated BEFORE the storage slot is overwritten: the index update is
+				 * the last operation that runs user code (indexers deriving the new entity's keys), so
+				 * a throw from it must leave the map observably unchanged instead of storing an entity
+				 * whose keys the indices do not reflect.
+				 */
+				this.indices.internalUpdateIndices(entityId, replacedEntity, entity, this.constraints.custom());
+
 				level1.entities[level1Index] = entity;
 				level3.markChanged(level3Index);
 				level2.markChanged(level2Index);
-
-				this.indices.internalUpdateIndices(entityId, replacedEntity, entity, this.constraints.custom());
 			}
 			
 			return replacedEntity;
@@ -2046,9 +2116,16 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 
 		private <R> R internalApply(final long entityId, final E current, final Function<? super E, R> logic)
 		{
+			/*
+			 * Phase 1 runs all indexers on the entity's pre-mutation state. A throw here (e.g. from
+			 * a broken indexer) aborts cleanly: the entity has not been touched and the map is
+			 * observably unchanged.
+			 */
+			this.indices.internalPrepareUpdate(current);
+
 			try
 			{
-				final R result = this.indices.internalUpdateIndices(entityId, current, logic, this.constraints.custom());
+				final R result = this.indices.internalApplyUpdate(entityId, current, logic, this.constraints.custom());
 
 				// The entity was mutated in-place. Track it so that store() can explicitly
 				// re-persist the entity object (the storer won't re-persist it automatically
@@ -2061,16 +2138,26 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 
 				return result;
 			}
-			catch(final ConstraintViolationException e)
+			catch(final RuntimeException e)
 			{
 				this.ensureClearedAddingState();
 
 				/*
 				 * Since a state change done by a custom logic cannot be rolled back, there is no other choice
 				 * but to remove the entity from the map and report the entity and entityId to the calling
-				 * context in the exception.
+				 * context in the exception. This applies not only to constraint violations but to any
+				 * exception thrown by the update logic or an indexer once the logic may have run: in all
+				 * those cases the entity's state is unreliable. The removal completes best-effort;
+				 * cleanup failures are attached as suppressed exceptions.
 				 */
-				this.internalRemove(entityId);
+				try
+				{
+					this.internalRemove(entityId);
+				}
+				catch(final RuntimeException suppressed)
+				{
+					e.addSuppressed(suppressed);
+				}
 				throw e;
 			}
 		}
@@ -2119,12 +2206,23 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			this.validateForCRUD(element);
 			this.ensureMutability();
-			this.internalAdd(element);
-			
-			// all indices in all index groups have too be updated. Indices do NOT store by themselves!
-			this.indices.internalAdd(this.nextFreeId(), element);
-			
-			return this.baseAddingId + this.addingLevel1Index++;
+
+			final long entityId = this.nextFreeId();
+			try
+			{
+				this.internalAdd(element);
+				this.addingLevel1Index++;
+
+				// all indices in all index groups have too be updated. Indices do NOT store by themselves!
+				this.indices.internalAdd(entityId, element);
+
+				return entityId;
+			}
+			catch(final Exception e)
+			{
+				this.rollbackToEntityId(entityId, e);
+				throw e;
+			}
 		}
 		
 		final void checkConstraints(final long entityId, final E replacedEntity, final E entity)
@@ -2225,18 +2323,44 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			}
 			catch(final Exception e)
 			{
-				this.rollbackToEntityId(currentId);
+				this.rollbackToEntityId(currentId, e);
 				throw e;
 			}
 		}
-		
-		private void rollbackToEntityId(final long requiredCurrentId)
+
+		private void rollbackToEntityId(final long requiredCurrentId, final Exception cause)
 		{
 			this.clearAddingState();
-			while(this.highestUsedId() >= requiredCurrentId)
+
+			/*
+			 * The rollback must be exception-tolerant: internalRemove re-runs the indexers to locate
+			 * the entries to clean up, and the very indexer whose exception triggered this rollback
+			 * may throw again. Such secondary failures are attached to the causing exception as
+			 * suppressed exceptions instead of abandoning the rollback midway.
+			 */
+			boolean reclaimIds = true;
+			for(long id = this.highestUsedId(); id >= requiredCurrentId; id--)
 			{
-				this.internalRemove(this.highestUsedId());
-				this.baseAddingId--;
+				try
+				{
+					this.internalRemove(id);
+				}
+				catch(final RuntimeException e)
+				{
+					cause.addSuppressed(e);
+
+					/*
+					 * The failed cleanup may have left stale index entries for this id. Not reclaiming
+					 * it (and consequently all lower ids, since ids are assigned from a single counter)
+					 * guarantees that the stale entries can never alias a future entity: they keep
+					 * pointing at a permanently null slot and get repaired by reindex().
+					 */
+					reclaimIds = false;
+				}
+				if(reclaimIds)
+				{
+					this.baseAddingId--;
+				}
 			}
 		}
 					

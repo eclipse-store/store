@@ -15,7 +15,6 @@ package org.eclipse.store.gigamap.types;
  */
 
 import org.eclipse.store.gigamap.exceptions.BitmapIndicesException;
-import org.eclipse.store.gigamap.exceptions.ConstraintViolationException;
 import org.eclipse.store.gigamap.exceptions.UniqueConstraintViolationExceptionBitmap;
 import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.collections.BulkList;
@@ -805,41 +804,92 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		@Override
 		public final void internalAdd(final long entityId, final E entity)
 		{
-			for(final BitmapIndex.Internal<E, ?> index : this.bitmapIndices.values())
+			// mark in any case: a mid-loop throw from an indexer leaves already updated indices behind.
+			try
 			{
-				index.internalAdd(entityId, entity);
+				for(final BitmapIndex.Internal<E, ?> index : this.bitmapIndices.values())
+				{
+					index.internalAdd(entityId, entity);
+				}
 			}
-			this.markStateChangeChildren();
+			finally
+			{
+				this.markStateChangeChildren();
+			}
 		}
-		
+
 		@Override
 		public final void internalAddAll(final long firstEntityId, final Iterable<? extends E> entities)
 		{
-			for(final BitmapIndex.Internal<E, ?> index : this.bitmapIndices.values())
+			try
 			{
-				index.internalAddAll(firstEntityId, entities);
+				for(final BitmapIndex.Internal<E, ?> index : this.bitmapIndices.values())
+				{
+					index.internalAddAll(firstEntityId, entities);
+				}
 			}
-			this.markStateChangeChildren();
+			finally
+			{
+				this.markStateChangeChildren();
+			}
 		}
-		
+
 		@Override
 		public final void internalAddAll(final long firstEntityId, final E[] entities)
 		{
-			for(final BitmapIndex.Internal<E, ?> index : this.bitmapIndices.values())
+			try
 			{
-				index.internalAddAll(firstEntityId, entities);
+				for(final BitmapIndex.Internal<E, ?> index : this.bitmapIndices.values())
+				{
+					index.internalAddAll(firstEntityId, entities);
+				}
 			}
-			this.markStateChangeChildren();
+			finally
+			{
+				this.markStateChangeChildren();
+			}
 		}
-		
+
 		@Override
 		public final void internalRemove(final long entityId, final E entity)
 		{
-			for(final BitmapIndex.Internal<E, ?> index : this.bitmapIndices.values())
+			/*
+			 * Best-effort removal: a throwing indexer must not prevent the remaining indices from
+			 * being cleaned up, otherwise the entity (already removed from the map's storage by the
+			 * calling context) would leave orphaned entries in perfectly healthy indices. The first
+			 * exception is rethrown after all indices had their chance, subsequent failures are
+			 * attached as suppressed exceptions.
+			 */
+			RuntimeException first = null;
+			try
 			{
-				index.internalRemove(entityId, entity);
+				for(final BitmapIndex.Internal<E, ?> index : this.bitmapIndices.values())
+				{
+					try
+					{
+						index.internalRemove(entityId, entity);
+					}
+					catch(final RuntimeException e)
+					{
+						if(first == null)
+						{
+							first = e;
+						}
+						else
+						{
+							first.addSuppressed(e);
+						}
+					}
+				}
 			}
-			this.markStateChangeChildren();
+			finally
+			{
+				this.markStateChangeChildren();
+			}
+			if(first != null)
+			{
+				throw first;
+			}
 		}
 		
 		@Override
@@ -1155,33 +1205,39 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			final CustomConstraints<? super E> customConstraints
 		)
 		{
+			this.internalUpdateIndices(entityId, replacedEntity, entity, customConstraints, false);
+		}
+
+		@Override
+		public final void internalUpdateIndices(
+			final long                         entityId         ,
+			final E                            replacedEntity   ,
+			final E                            entity           ,
+			final CustomConstraints<? super E> customConstraints,
+			final boolean                      removeOnFailure
+		)
+		{
 			if(this.bitmapIndices.isEmpty())
 			{
 				// no-op
 				return;
 			}
 
+			/*
+			 * Phase 1: derive the new change handlers and run all checks. This is where all user code
+			 * (indexers, key equality, constraints) runs; no index state has been mutated, yet, since
+			 * handler derivation defers entry creation to changeInIndex (see NewKeyChangeChandler).
+			 */
 			try
 			{
 				// Derive state handlers for the new, potentially changed state
 				this.createChangeHandlers(this.cachedNewChangeHandlers, entity);
-				
+
 				if(customConstraints != null)
 				{
-					try
-					{
-						customConstraints.check(entityId, replacedEntity, entity);
-					}
-					catch(final ConstraintViolationException e)
-					{
-						for(final ChangeHandler cachedPrevChangeHandler : this.cachedPrevChangeHandlers)
-						{
-							cachedPrevChangeHandler.removeFromIndex(entityId);
-						}
-						throw e;
-					}
+					customConstraints.check(entityId, replacedEntity, entity);
 				}
-				
+
 				// Evaluate changes for each index
 				for(int i = 0; i < this.cachedPrevChangeHandlers.length; i++)
 				{
@@ -1191,27 +1247,47 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 						this.cachedNewChangeHandlers[i] = null;
 						continue;
 					}
-					try
+					if(this.cachedIsUniqueIndex[i])
 					{
-						if(this.cachedIsUniqueIndex[i])
+						if(this.cachedIndices[i].internalContains(entity))
 						{
-							if(this.cachedIndices[i].internalContains(entity))
-							{
-								throw new UniqueConstraintViolationExceptionBitmap(entityId, replacedEntity, entity, this.cachedIndices[i]);
-							}
+							throw new UniqueConstraintViolationExceptionBitmap(entityId, replacedEntity, entity, this.cachedIndices[i]);
 						}
 					}
-					catch(final ConstraintViolationException e)
+				}
+			}
+			catch(final RuntimeException e)
+			{
+				if(removeOnFailure)
+				{
+					/*
+					 * The calling context removes the in-place mutated entity from the map on failure,
+					 * so this entity's previous state must be de-indexed as well. The cached prev
+					 * handlers accomplish that without re-running any user code.
+					 */
+					try
 					{
 						for(final ChangeHandler cachedPrevChangeHandler : this.cachedPrevChangeHandlers)
 						{
 							cachedPrevChangeHandler.removeFromIndex(entityId);
 						}
-						throw e;
+					}
+					catch(final RuntimeException suppressed)
+					{
+						e.addSuppressed(suppressed);
+					}
+					finally
+					{
+						this.markStateChangeChildren();
 					}
 				}
-				
-				// Update Indices for all actual changes
+				// without removeOnFailure nothing was mutated, so no state change marking, either.
+				throw e;
+			}
+
+			// Phase 2: update indices for all actual changes. Runs no more user code apart from key hashing.
+			try
+			{
 				for(int i = 0; i < this.cachedNewChangeHandlers.length; i++)
 				{
 					// Skip index positions for unchanged values

@@ -63,7 +63,38 @@ public interface IndexGroup<E> extends GigaMap.Component<E>
 		 * @param entity new entity from which the key will be extracted
 		 */
 		public void internalUpdateIndices(long entityId, E replacedEntity, E entity, CustomConstraints<? super E> customConstraints);
-		
+
+		/**
+		 * Variant of {@link #internalUpdateIndices(long, Object, Object, CustomConstraints)} that
+		 * additionally states how a failure is to be handled.
+		 * <p>
+		 * With {@code removeOnFailure == true} the calling context signals that the entity was mutated
+		 * in place and will be removed from the map if the update fails, so on a failure this group
+		 * should de-index the entity's previous state (using the state prepared via
+		 * {@link #internalPrepareIndicesUpdate(Object)}) before propagating the exception. With
+		 * {@code false} the calling context guarantees that the entity's previous state stays in place
+		 * on failure, so the group must leave its previous entries untouched.
+		 * <p>
+		 * The default implementation ignores the flag and delegates to the 4-arg variant, which is
+		 * correct for groups without such cleanup capability.
+		 *
+		 * @param entityId the entity's id
+		 * @param replacedEntity old entity
+		 * @param entity new entity from which the key will be extracted
+		 * @param customConstraints the custom constraints to check, may be {@code null}
+		 * @param removeOnFailure whether a failed update is followed by the entity's removal
+		 */
+		public default void internalUpdateIndices(
+			final long                         entityId         ,
+			final E                            replacedEntity   ,
+			final E                            entity           ,
+			final CustomConstraints<? super E> customConstraints,
+			final boolean                      removeOnFailure
+		)
+		{
+			this.internalUpdateIndices(entityId, replacedEntity, entity, customConstraints);
+		}
+
 		public void internalFinishIndicesUpdate();
 		
 		/**
