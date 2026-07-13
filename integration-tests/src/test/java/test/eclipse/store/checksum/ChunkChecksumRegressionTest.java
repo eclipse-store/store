@@ -65,8 +65,6 @@ class ChunkChecksumRegressionTest
 	@Test
 	void checksumMismatchReportsChunkFileOffsetNotByteLength(@TempDir final Path workDir) throws IOException
 	{
-		final Path storageDir = workDir.resolve("storage");
-
 		final int    payloadSize = 200_000;
 		final byte[] payload     = new byte[payloadSize];
 		for(int i = 0; i < payloadSize; i++)
@@ -75,23 +73,23 @@ class ChunkChecksumRegressionTest
 		}
 
 		// session 1: write with checksums emitting + verifying (observe = emit+verify, all anomalies LOG)
-		try(final EmbeddedStorageManager mgr = checksumConfig(storageDir, "observe", "crc32c")
+		try(final EmbeddedStorageManager mgr = checksumConfig(workDir, "observe", "crc32c")
 			.createEmbeddedStorageFoundation()
 			.createEmbeddedStorageManager(payload)
 			.start())
 		{
-			mgr.storeRoot();
+			// start() already stores the initial root graph; a storeRoot() here would duplicate the payload
 		}
 
 		// corrupt one byte deep inside the chunk (file midpoint is well past the header, inside the data)
-		final Path dataFile  = largestDataFile(storageDir);
+		final Path dataFile  = largestDataFile(workDir);
 		final long fileSize  = Files.size(dataFile);
 		final long corruptAt = fileSize / 2;
 		flipByte(dataFile, corruptAt);
 
 		// session 2: reopen and scan; observe logs the mismatch on load (no throw), the on-demand check collects it
 		final StorageIntegrityCheckResult result;
-		try(final EmbeddedStorageManager mgr = checksumConfig(storageDir, "observe", "crc32c")
+		try(final EmbeddedStorageManager mgr = checksumConfig(workDir, "observe", "crc32c")
 			.createEmbeddedStorageFoundation()
 			.createEmbeddedStorageManager()
 			.start())
@@ -127,13 +125,11 @@ class ChunkChecksumRegressionTest
 	@Test
 	void readOnlyOpenWithContinuousCoverageOverLegacyStoreDoesNotWrite(@TempDir final Path workDir) throws IOException
 	{
-		final Path storageDir = workDir.resolve("storage");
-
 		final ArrayList<String> root = new ArrayList<>(List.of("alpha", "beta", "gamma"));
 
 		// session 1: legacy store -- no chunk-checksum property set, so the engine default (off) is used
 		try(final EmbeddedStorageManager mgr = EmbeddedStorageConfigurationBuilder.New()
-			.setStorageDirectory(storageDir.toString())
+			.setStorageDirectory(workDir.toString())
 			.setChannelCount(1)
 			.createEmbeddedStorageFoundation()
 			.createEmbeddedStorageManager(root)
@@ -142,11 +138,11 @@ class ChunkChecksumRegressionTest
 			mgr.storeRoot();
 		}
 
-		final Map<String, Long> dataFilesBefore = dataFileSizes(storageDir);
+		final Map<String, Long> dataFilesBefore = dataFileSizes(workDir);
 
 		// session 2: reopen READ-ONLY with strict-tolerate-legacy (continuousCoverage = true, legacy tolerated)
 		final EmbeddedStorageFoundation<?> foundation =
-			checksumConfig(storageDir, "strict-tolerate-legacy", "sha256-chained")
+			checksumConfig(workDir, "strict-tolerate-legacy", "sha256-chained")
 				.createEmbeddedStorageFoundation();
 		final StorageWriteControllerReadOnlyMode readOnly =
 			new StorageWriteControllerReadOnlyMode(foundation.getWriteController());
@@ -163,7 +159,7 @@ class ChunkChecksumRegressionTest
 		assertNotNull(loadedRoot, "root must be loadable after a read-only reopen");
 		assertEquals(root, loadedRoot, "legacy data must be intact after a read-only reopen");
 		assertEquals(
-			dataFilesBefore, dataFileSizes(storageDir),
+			dataFilesBefore, dataFileSizes(workDir),
 			"read-only open with continuousCoverage must not have written or rolled over a data file"
 		);
 	}
@@ -189,8 +185,6 @@ class ChunkChecksumRegressionTest
 	void largeSingleChunkIsStreamedVerifiedAndCorruptionDetected(final String algorithm, @TempDir final Path workDir)
 		throws IOException
 	{
-		final Path storageDir = workDir.resolve("storage");
-
 		final int    payloadSize = 20 * 1024 * 1024; // > 8 MiB window: one chunk spanning multiple windows
 		final byte[] payload     = new byte[payloadSize];
 		for(int i = 0; i < payloadSize; i++)
@@ -198,15 +192,16 @@ class ChunkChecksumRegressionTest
 			payload[i] = (byte)(i * 31 + 7);
 		}
 
-		try(final EmbeddedStorageManager mgr = largeFileConfig(storageDir, "observe", algorithm)
+		try(final EmbeddedStorageManager mgr = largeFileConfig(workDir, "observe", algorithm)
 			.createEmbeddedStorageFoundation()
 			.createEmbeddedStorageManager(payload)
 			.start())
 		{
-			mgr.storeRoot();
+			// start() already stores the initial root graph; a storeRoot() here would duplicate the payload,
+			// leaving the file half gap and eligible for housekeeping dissolution mid-test
 		}
 
-		final Path dataFile = largestDataFile(storageDir);
+		final Path dataFile = largestDataFile(workDir);
 		final long fileSize = Files.size(dataFile);
 		assertTrue(
 			fileSize > STREAMING_CAP,
@@ -214,7 +209,7 @@ class ChunkChecksumRegressionTest
 		);
 
 		// intact: the streaming walk must report clean (no false anomalies across window boundaries)
-		try(final EmbeddedStorageManager mgr = largeFileConfig(storageDir, "observe", algorithm)
+		try(final EmbeddedStorageManager mgr = largeFileConfig(workDir, "observe", algorithm)
 			.createEmbeddedStorageFoundation()
 			.createEmbeddedStorageManager()
 			.start())
@@ -228,7 +223,7 @@ class ChunkChecksumRegressionTest
 		flipByte(dataFile, corruptAt);
 
 		final StorageIntegrityCheckResult result;
-		try(final EmbeddedStorageManager mgr = largeFileConfig(storageDir, "observe", algorithm)
+		try(final EmbeddedStorageManager mgr = largeFileConfig(workDir, "observe", algorithm)
 			.createEmbeddedStorageFoundation()
 			.createEmbeddedStorageManager()
 			.start())
@@ -257,13 +252,11 @@ class ChunkChecksumRegressionTest
 	void largeMultiChunkFileIsStreamedVerified(final String algorithm, @TempDir final Path workDir)
 		throws IOException
 	{
-		final Path storageDir = workDir.resolve("storage");
-
 		final int chunkPayload = 6 * 1024 * 1024; // 6 MiB per commit
 		final int commits      = 4;               // ~24 MiB across 4 chunks -> file > 8 MiB window
 
 		final ArrayList<byte[]> root = new ArrayList<>();
-		try(final EmbeddedStorageManager mgr = largeFileConfig(storageDir, "observe", algorithm)
+		try(final EmbeddedStorageManager mgr = largeFileConfig(workDir, "observe", algorithm)
 			.createEmbeddedStorageFoundation()
 			.createEmbeddedStorageManager(root)
 			.start())
@@ -284,14 +277,14 @@ class ChunkChecksumRegressionTest
 			}
 		}
 
-		final Path dataFile = largestDataFile(storageDir);
+		final Path dataFile = largestDataFile(workDir);
 		assertTrue(
 			Files.size(dataFile) > STREAMING_CAP,
 			"expected a data file larger than the streaming cap, got " + Files.size(dataFile)
 		);
 
 		// many covering records spread across windows must verify clean (tip carried across windows for chained)
-		try(final EmbeddedStorageManager mgr = largeFileConfig(storageDir, "observe", algorithm)
+		try(final EmbeddedStorageManager mgr = largeFileConfig(workDir, "observe", algorithm)
 			.createEmbeddedStorageFoundation()
 			.createEmbeddedStorageManager()
 			.start())
@@ -304,7 +297,7 @@ class ChunkChecksumRegressionTest
 		final long corruptAt = Files.size(dataFile) - chunkPayload / 2;
 		flipByte(dataFile, corruptAt);
 
-		try(final EmbeddedStorageManager mgr = largeFileConfig(storageDir, "observe", algorithm)
+		try(final EmbeddedStorageManager mgr = largeFileConfig(workDir, "observe", algorithm)
 			.createEmbeddedStorageFoundation()
 			.createEmbeddedStorageManager()
 			.start())
@@ -326,11 +319,7 @@ class ChunkChecksumRegressionTest
 		final String algorithm
 	)
 	{
-		return EmbeddedStorageConfigurationBuilder.New()
-			.setStorageDirectory(storageDir.toString())
-			.setChannelCount(1)
-			.setChunkChecksumProfile(profile)
-			.setChunkChecksumAlgorithm(algorithm)
+		return checksumConfig(storageDir, profile, algorithm)
 			.setDataFileMaximumSize(ByteSize.New(64, ByteUnit.MB));
 	}
 
@@ -340,11 +329,14 @@ class ChunkChecksumRegressionTest
 		final String algorithm
 	)
 	{
+		// tests corrupt/inspect data files by path, so housekeeping must never dissolve (delete) a file mid-test
 		return EmbeddedStorageConfigurationBuilder.New()
 			.setStorageDirectory(storageDir.toString())
 			.setChannelCount(1)
 			.setChunkChecksumProfile(profile)
-			.setChunkChecksumAlgorithm(algorithm);
+			.setChunkChecksumAlgorithm(algorithm)
+			.setDataFileMinimumUseRatio(0.1)
+			.setDataFileCleanupHeadFile(false);
 	}
 
 	private static Path largestDataFile(final Path storageDir) throws IOException
