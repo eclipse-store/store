@@ -438,12 +438,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * Searches for the k nearest neighbors to the given entity's vector with an explicit
      * per-query search beam width.
      *
-     * @param queryEntity     the query entity whose vector will be extracted via the vectorizer
+     * @param queryEntity     the query entity whose vector will be extracted via the vectorizer;
+     *                        must not be null
      * @param k               the number of nearest neighbors to return; must be positive
      * @param searchBeamWidth the beam width to use for this query; must be positive
      * @return the search result
-     * @throws IllegalArgumentException if the vectorizer returns null for the entity (an entity
-     *                                  without an embedding cannot be used as a similarity query)
+     * @throws IllegalArgumentException if queryEntity is null, {@code k} / {@code searchBeamWidth}
+     *                                  are not positive, or the vectorizer returns null for the
+     *                                  entity (an entity without an embedding cannot be used as
+     *                                  a similarity query)
      * @see #search(float[], int, int)
      */
     public default VectorSearchResult<E> search(final E queryEntity, final int k, final int searchBeamWidth)
