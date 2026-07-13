@@ -1446,10 +1446,18 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             if(this.isEventualIndexing())
             {
-                // Defer graph update to background thread. applyGraphUpdate derives the actual
-                // transition (add / delete / delete+re-add) from the entry's vector nullness.
-                this.backgroundTaskManager.enqueueUpdate(new VectorEntry(entityId, vector));
-                this.markStateChangeChildren();
+                // Computed-mode null→null (no store entry existed, vector still null) is a
+                // complete no-op — don't generate background work for it. The store and
+                // computedIdIndex are updated synchronously, so !changed is a reliable witness.
+                // Embedded mode has no synchronous witness for the old state (graph mutations
+                // are queued, so containsNode is racy against pending ops) and must always
+                // defer to applyGraphUpdate, which derives the actual transition
+                // (add / delete / delete+re-add) from the entry's vector nullness.
+                if(embedded || changed)
+                {
+                    this.backgroundTaskManager.enqueueUpdate(new VectorEntry(entityId, vector));
+                    this.markStateChangeChildren();
+                }
             }
             else
             {
@@ -1744,7 +1752,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return this.vectorizer.vectorize(entity);
             }
 
-            final VectorEntry entry = VectorEntry.lookup(this.vectorStore, entityId);
+            // Resolve via the fast source-id index when available (O(1), no query allocation,
+            // no dependency on the vector store's own indices being wired); fall back to the
+            // identity-index query only if this instance's transients are not initialized yet.
+            final Map<Long, Long> idIndex = this.computedIdIndex;
+            final VectorEntry entry;
+            if(idIndex != null)
+            {
+                final Long storeId = idIndex.get(entityId);
+                entry = storeId == null ? null : this.vectorStore.get(storeId);
+            }
+            else
+            {
+                entry = VectorEntry.lookup(this.vectorStore, entityId);
+            }
             if(entry == null)
             {
                 return null;

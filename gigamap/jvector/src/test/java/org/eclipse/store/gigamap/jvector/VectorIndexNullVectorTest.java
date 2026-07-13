@@ -381,6 +381,30 @@ class VectorIndexNullVectorTest
         }
     }
 
+    @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void nullToNullUpdate_eventual_computed_enqueuesNothing()
+    {
+        final GigaMap<Doc> map = GigaMap.New();
+        final VectorIndices<Doc> indices = map.index().register(VectorIndices.Category());
+        try(final VectorIndex<Doc> index = indices.add(
+            "embeddings", eventualConfig(), new NullableComputedVectorizer()))
+        {
+            map.add(new Doc("v", basis(0)));
+            final long c = map.add(new Doc("c", null));
+            drain(index);
+
+            // null→null is a documented no-op: it must not generate background work.
+            final VectorIndex.Default<Doc> def = (VectorIndex.Default<Doc>)index;
+            map.set(c, new Doc("c", null));
+            assertEquals(0, def.backgroundTaskManager.getPendingIndexingCount(),
+                "computed-mode null→null update must not enqueue a graph operation");
+
+            assertEquals(1, index.search(basis(0), 10).size());
+            assertNull(index.getVector(c));
+        }
+    }
+
     // ==================== 8. Remove of a never-indexed entity ====================
 
     @Test
