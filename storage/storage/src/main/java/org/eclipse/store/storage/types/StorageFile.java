@@ -151,6 +151,19 @@ public interface StorageFile
 	public long writeBytes(Iterable<? extends ByteBuffer> buffers);
 
 
+	/**
+	 * Forces previously written bytes of this file to physical storage (fsync). No-op on backends
+	 * that are already durable on write.
+	 * <p>
+	 * Default no-op for source/binary backward compatibility; {@link StorageFile.Abstract} overrides
+	 * this to force through the underlying writable file.
+	 */
+	public default void synchronize()
+	{
+		// no-op; see StorageFile.Abstract for the effective implementation
+	}
+
+
 //	public void pull(AWritableFile fileToMove);
 
 
@@ -440,7 +453,20 @@ public interface StorageFile
 				throw new StorageExceptionIoWriting(e);
 			}
 		}
-		
+
+		@Override
+		public final synchronized void synchronize()
+		{
+			try
+			{
+				this.ensureWritable().synchronize();
+			}
+			catch(final Exception e)
+			{
+				throw new StorageExceptionIoWriting(e);
+			}
+		}
+
 		@Override
 		public final synchronized long copyTo(
 			final StorageFile target
