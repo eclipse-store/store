@@ -557,6 +557,78 @@ class VectorIndexNullVectorTest
         }
     }
 
+    // ==================== 10b. Crash restart: vec→null must not survive a stale disk graph ====================
+
+    /**
+     * Regression guard for the disk-metadata blindness: a {@code vec→null} transition changes
+     * neither {@code parentMap().size()} nor {@code highestUsedId()}, so before the persisted
+     * structural-change counter the on-disk graph passed metadata validation after a crash between
+     * the transition (committed via {@code storeRoot()}) and the next {@code persistToDisk()} — the
+     * nulled entity kept appearing in search. {@code persistOnShutdown(false)} simulates the crash:
+     * {@code close()} must not persist the graph, leaving the {@code .meta} stale.
+     */
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    void crashRestartAfterVecToNull_rebuildsAndExcludesNulled(@TempDir final Path dir)
+    {
+        final Path storageDir = dir.resolve("storage");
+        final Path indexDir   = dir.resolve("index");
+
+        final VectorIndexConfiguration diskConfig = VectorIndexConfiguration.builder()
+            .dimension(DIM)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .persistOnShutdown(false) // simulate a crash: close() must not flush the graph to disk
+            .build();
+
+        final long v0;
+        final long v1;
+
+        // Phase A: two embedded vectors; persist graph + metadata, then commit the store.
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc> map = GigaMap.New();
+            storage.setRoot(map);
+            final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+                .add("embeddings", diskConfig, new NullableEmbeddedVectorizer());
+
+            v0 = map.add(new Doc("v0", basis(0)));
+            v1 = map.add(new Doc("v1", basis(1)));
+
+            index.persistToDisk(); // writes .graph + .meta (structuralModCount = 2)
+            storage.storeRoot();   // store also carries structuralModCount = 2
+            index.close();
+        }
+
+        // Phase B: null out v0 and commit the store WITHOUT persisting the graph, then "crash".
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc> map = storage.root();
+            final VectorIndex<Doc> index = map.index().get(VectorIndices.Category()).get("embeddings");
+
+            map.set(v0, new Doc("v0", null)); // vec→null: bumps structuralModCount to 3
+            map.store();                      // persist the mutation (+ counter 3); .meta still carries 2
+            index.close();                    // persistOnShutdown(false) → .meta stays stale
+        }
+
+        // Phase C: restart. The structuralModCount mismatch (store 3 vs .meta 2) must reject the
+        // stale disk graph and rebuild from the store, so v0 is gone from search.
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc> map = storage.root();
+            final VectorIndex<Doc> index = map.index().get(VectorIndices.Category()).get("embeddings");
+
+            assertNull(index.getVector(v0), "v0 lost its embedding");
+            final VectorSearchResult<Doc> result = index.search(basis(0), 10);
+            assertEquals(1, result.size(), "nulled entity must not survive a crash restart");
+            assertTrue(result.stream().noneMatch(e -> e.entityId() == v0),
+                "stale on-disk node must not reappear after a vec→null crash restart");
+            assertEquals(v1, index.search(basis(1), 1).stream().findFirst().orElseThrow().entityId());
+            index.close();
+        }
+    }
+
     // ==================== 11. Query by null-vector entity / null query ====================
 
     @Test

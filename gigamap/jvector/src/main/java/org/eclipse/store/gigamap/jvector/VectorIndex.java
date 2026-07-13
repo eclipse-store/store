@@ -758,6 +758,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // Key: entity ID (used as ordinal), Value: vector
         final GigaMap<VectorEntry> vectorStore;
 
+        // Persisted, monotonically increasing count of graph-affecting mutations (add / remove /
+        // vec↔null transition). It is the witness used to detect, on reload, whether the persisted
+        // GigaMap state has advanced past the on-disk graph: the value is stamped into the disk
+        // .meta at persist time and compared against the store-recovered value in
+        // DiskIndexManager.verifyMetadata. Unlike parentMap().size()/highestUsedId(), it changes on
+        // a vec↔null transition, so it catches the crash-restart window those proxies are blind to.
+        // Not transient — it must survive (de)serialization.
+        long structuralModCount;
+
         // HNSW graph components (transient - rebuilt on load)
         private transient VectorTypeSupport vectorTypeSupport;
         private transient GraphIndexBuilder builder          ;
@@ -1291,6 +1300,26 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             return this.parent.parentMap();
         }
 
+        /**
+         * Records a graph-affecting content change: bumps the persisted {@link #structuralModCount}
+         * (the crash-restart witness stamped into the disk {@code .meta}) and marks the index dirty
+         * for the next persist. Use in place of {@link #markStateChangeChildren()} at content
+         * mutation sites (add / remove / vec↔null transition); do NOT use it for {@code optimize()},
+         * which reshapes the graph without changing logical content and must not force a rebuild.
+         * <p>
+         * Marks BOTH the instance and children dirty: {@code structuralModCount} is a field of this
+         * instance, so it is only re-serialized when the instance itself is flagged
+         * ({@link AbstractStateChangeFlagged#isInstanceNewOrChanged()} gates {@code internalStore}) —
+         * {@code markStateChangeChildren()} alone would persist only children (e.g. the computed-mode
+         * {@code vectorStore}) and silently drop the counter.
+         */
+        private void markContentChanged()
+        {
+            this.structuralModCount++;
+            this.markStateChangeInstance();
+            this.markStateChangeChildren();
+        }
+
         @Override
         public VectorIndices<E> parent()
         {
@@ -1352,7 +1381,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.computedIdIndex.put(entityId, storeId);
             }
 
-            this.markStateChangeChildren();
+            this.markContentChanged();
 
             if(this.isEventualIndexing())
             {
@@ -1439,6 +1468,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
             }
 
+            // Persisted structural-change witness: driven by the logical (id→vector) transition,
+            // NOT the in-memory graph op below. In incremental mode an embedded vec→null removes a
+            // disk-resident node the in-memory builder never held, so the graph-op flag would miss
+            // it (and the crash-restart rebuild would not trigger); classify embedded transitions
+            // from the old vector instead. Computed mode's store block above already set `changed`
+            // precisely (the four transitions map onto add / set / remove / no-op).
+            final boolean contentChanged;
+            if(embedded)
+            {
+                final float[] oldVector = replacedEntity == null ? null : this.vectorize(replacedEntity);
+                contentChanged = !(oldVector == null && vector == null); // null→null is the only no-op
+            }
+            else
+            {
+                contentChanged = changed;
+            }
+
             // In incremental mode, mark the ordinal as deleted from disk graph
             // so disk search excludes the stale version immediately,
             // regardless of whether indexing is synchronous or eventual.
@@ -1459,7 +1505,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 if(embedded || changed)
                 {
                     this.backgroundTaskManager.enqueueUpdate(new VectorEntry(entityId, vector));
-                    this.markStateChangeChildren();
                 }
             }
             else
@@ -1540,9 +1585,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                 if(changed)
                 {
-                    this.markStateChangeChildren();
                     this.markDirtyForBackgroundManagers(1);
                 }
+            }
+
+            // Bump the persisted structural-change counter + mark the index dirty whenever the
+            // logical mapping changed — independent of whether an in-memory graph op ran, so an
+            // incremental-mode disk-node deletion (embedded vec→null) is still recorded and forces
+            // a crash-restart rebuild. null→null is the only case that skips this.
+            if(contentChanged)
+            {
+                this.markContentChanged();
             }
         }
 
@@ -1606,7 +1659,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
             }
 
-            this.markStateChangeChildren();
+            this.markContentChanged();
 
             if(this.isEventualIndexing())
             {
@@ -1681,7 +1734,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
             }
 
-            this.markStateChangeChildren();
+            this.markContentChanged();
 
             // In incremental mode, mark the ordinal as deleted from disk graph
             // so disk search excludes it immediately, even before background
@@ -1750,7 +1803,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                 // Reinitialize the index (this will also restart background managers if configured)
                 this.initializeIndex();
-                this.markStateChangeChildren();
+                this.markContentChanged();
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
@@ -2725,6 +2778,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // bound: per-entity vector lookups no longer assume alignment —
             // they resolve by VectorEntry.sourceEntityId (see lookupComputedVector).
             return this.parentMap().highestUsedId();
+        }
+
+        @Override
+        public long getStructuralModCount()
+        {
+            // The persisted witness stamped into the disk .meta at write time and compared on
+            // reload. Unlike count/highestId it changes on vec↔null transitions, closing the
+            // crash-restart window where a stale on-disk graph would otherwise be accepted.
+            return this.structuralModCount;
         }
 
         // ================================================================

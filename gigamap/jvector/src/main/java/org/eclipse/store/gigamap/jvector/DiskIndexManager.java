@@ -58,12 +58,16 @@ interface DiskIndexManager extends Closeable
      *   <li>{@code 1} — version, dimension, vectorCount.</li>
      *   <li>{@code 2} — adds highestEntityId to detect count-collision corruption
      *       (equal numbers of additions and removals between persists).</li>
+     *   <li>{@code 3} — adds structuralModCount, a persisted counter bumped on every
+     *       graph-affecting mutation (including vec↔null transitions, which leave count
+     *       and highestEntityId unchanged). Catches the crash-restart window where the
+     *       store advanced past the on-disk graph but the two proxies stayed equal.</li>
      * </ul>
      * Bumping this constant invalidates existing on-disk indices; they are
      * rebuilt from the GigaMap-stored source vectors on first load — no data
      * loss, but a one-time cold-start cost.
      */
-    final static int GRAPH_FILE_VERSION = 2;
+    final static int GRAPH_FILE_VERSION = 3;
 
     /**
      * File extension for graph files.
@@ -142,6 +146,18 @@ interface DiskIndexManager extends Closeable
          * @return the highest allocated entity id, or {@code -1} if no entities exist
          */
         public long getHighestEntityId();
+
+        /**
+         * Returns a monotonically increasing count of graph-affecting mutations
+         * (add / remove / vec↔null transition). Unlike {@link #getExpectedVectorCount()}
+         * and {@link #getHighestEntityId()}, this value changes on a vec↔null transition,
+         * so comparing the store-recovered value against the one stamped into the disk
+         * {@code .meta} detects the crash-restart window where a stale on-disk graph would
+         * otherwise be accepted (a nulled entity still returned, a new embedding missing).
+         *
+         * @return the persisted structural-change counter
+         */
+        public long getStructuralModCount();
     }
 
 
@@ -273,6 +289,17 @@ interface DiskIndexManager extends Closeable
                     return false;
                 }
 
+                final long structuralModCount = dis.readLong();
+                final long expectedStructuralModCount = this.provider.getStructuralModCount();
+                if(structuralModCount != expectedStructuralModCount)
+                {
+                    // The store advanced past the on-disk graph since it was written (e.g. a
+                    // vec↔null transition committed via storeRoot() but not yet persistToDisk()).
+                    // Reject the disk graph so it is rebuilt from the current source vectors.
+                    LOG.debug("Structural mod count mismatch: expected {}, got {}", expectedStructuralModCount, structuralModCount);
+                    return false;
+                }
+
                 return true;
             }
         }
@@ -377,6 +404,7 @@ interface DiskIndexManager extends Closeable
                 dos.writeInt(this.dimension);
                 dos.writeLong(this.provider.getExpectedVectorCount());
                 dos.writeLong(this.provider.getHighestEntityId());
+                dos.writeLong(this.provider.getStructuralModCount());
             }
         }
 

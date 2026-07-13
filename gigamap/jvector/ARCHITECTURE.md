@@ -331,7 +331,7 @@ Both handlers' parents (`AbstractBinaryHandlerStateChangeFlagged`) call `storeCh
 - `VectorIndex.Internal<E>` — public + GigaMap-internal API
 - `BackgroundTaskManager.Callback` — the seam where background ops apply graph mutations and trigger optimize/persist
 - `PQCompressionManager.VectorProvider` — supplies vectors for codebook training
-- `DiskIndexManager.IndexStateProvider` — supplies metadata (`expectedVectorCount`, `highestEntityId`) for on-disk format verification
+- `DiskIndexManager.IndexStateProvider` — supplies metadata (`expectedVectorCount`, `highestEntityId`, `structuralModCount`) for on-disk format verification
 
 ### Diagram 4 — Initialization sequence
 
@@ -702,7 +702,7 @@ Bumping the version invalidates existing files; they are silently rebuilt from `
 1. `Files.createDirectories(indexDirectory)`.
 2. If `pqManager != null && pqManager.isTrained() && pqManager.getPQ() != null` → `writeIndexWithFusedPQ` (parallel or sequential depending on `parallelOnDiskWrite`).
 3. Otherwise → `OnDiskGraphIndex.write(index, ravv, graphPath)` (simple, no compression).
-4. `writeMetadata(metaPath)` — pulls `expectedVectorCount` and `highestEntityId` from the `IndexStateProvider` callback (= `VectorIndex.Default`).
+4. `writeMetadata(metaPath)` — pulls `expectedVectorCount`, `highestEntityId`, and `structuralModCount` from the `IndexStateProvider` callback (= `VectorIndex.Default`). The `.meta` layout is: `int version`, `int dimension`, `long expectedVectorCount`, `long highestEntityId`, `long structuralModCount` (version 3). On load, `verifyMetadata` rejects the disk graph — forcing a rebuild from source — if any of these diverges from the current store state; `structuralModCount` is what catches a vec↔null transition that left count/highestId unchanged.
 
 ### Load path
 
