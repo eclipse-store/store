@@ -137,7 +137,7 @@ extends AbstractBinaryHandlerStateChangeFlagged<VectorIndex.Default<?>>
         final Vectorizer<?> vectorizer = (Vectorizer<?>)data.readReference(
             BINARY_OFFSET_vectorizer, handler
         );
-        final GigaMap<float[]> vectorStore = (GigaMap<float[]>)data.readReference(
+        final GigaMap<VectorEntry> vectorStore = (GigaMap<VectorEntry>)data.readReference(
             BINARY_OFFSET_vectorStore, handler
         );
         // Legacy stores written before this field default to 0 here (the automatic legacy type

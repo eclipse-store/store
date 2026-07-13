@@ -1546,24 +1546,24 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 contentChanged = changed;
             }
 
-            // In incremental mode, mark the ordinal as deleted from disk graph
-            // so disk search excludes the stale version immediately,
-            // regardless of whether indexing is synchronous or eventual.
-            if(this.incrementalMode && this.diskDeletedOrdinals != null)
+            // In incremental mode, mark the ordinal as deleted from disk graph so disk search excludes
+            // the stale version immediately, regardless of whether indexing is synchronous or eventual.
+            // Gated on contentChanged: a null→null no-op has no stale disk version to exclude, and
+            // adding it would only bloat diskDeletedOrdinals and enlarge the boolean[maxOrdinal+1] mask
+            // rebuilt in createDiskAcceptBits() on every search.
+            if(contentChanged && this.incrementalMode && this.diskDeletedOrdinals != null)
             {
                 this.diskDeletedOrdinals.add(ordinal);
             }
 
             if(this.isEventualIndexing())
             {
-                // Computed-mode null→null (no store entry existed, vector still null) is a
-                // complete no-op — don't generate background work for it. The store and
-                // computedIdIndex are updated synchronously, so !changed is a reliable witness.
-                // Embedded mode has no synchronous witness for the old state (graph mutations
-                // are queued, so containsNode is racy against pending ops) and must always
-                // defer to applyGraphUpdate, which derives the actual transition
-                // (add / delete / delete+re-add) from the entry's vector nullness.
-                if(embedded || changed)
+                // Only a real (id→vector) transition needs background graph work. null→null is a no-op
+                // in both modes; contentChanged is the reliable synchronous witness (for embedded it is
+                // derived from the old vector above, so — unlike the raw graph-op flag — it is not racy
+                // against queued mutations). applyGraphUpdate then derives the actual transition
+                // (add / delete / delete+re-add) from the enqueued entry's vector nullness.
+                if(contentChanged)
                 {
                     this.backgroundTaskManager.enqueueUpdate(new VectorEntry(entityId, vector));
                 }
