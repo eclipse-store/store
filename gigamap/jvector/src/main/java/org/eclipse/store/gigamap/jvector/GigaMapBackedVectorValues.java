@@ -62,7 +62,7 @@ class GigaMapBackedVectorValues implements RandomAccessVectorValues
         final VectorTypeSupport    vectorTypeSupport
     )
     {
-        this(storeLookup(vectorStore), () -> (int)vectorStore.size(), dimension, vectorTypeSupport);
+        this(storeLookup(vectorStore), () -> Math.toIntExact(vectorStore.size()), dimension, vectorTypeSupport);
     }
 
     private static IntFunction<float[]> storeLookup(final GigaMap<VectorEntry> vectorStore)

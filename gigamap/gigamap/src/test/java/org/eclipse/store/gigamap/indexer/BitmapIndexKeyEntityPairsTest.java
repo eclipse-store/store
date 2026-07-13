@@ -14,6 +14,8 @@ package org.eclipse.store.gigamap.indexer;
  * #L%
  */
 
+import org.eclipse.store.gigamap.types.BinaryIndexerFloat;
+import org.eclipse.store.gigamap.types.BinaryIndexerInteger;
 import org.eclipse.store.gigamap.types.BinaryIndexerLong;
 import org.eclipse.store.gigamap.types.BitmapIndex;
 import org.eclipse.store.gigamap.types.GigaMap;
@@ -23,6 +25,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -110,5 +113,69 @@ class BitmapIndexKeyEntityPairsTest
 
         final Map<Long, Long> actual = pairsViaIterateKeyEntityPairs(map);
         assertEquals(0, actual.size(), "empty index must yield no pairs");
+    }
+
+    // ---- non-Long binary indexers: integer keys reconstruct, float fails fast ----
+
+    static final class IntEntity
+    {
+        final int value;
+        IntEntity(final int value) { this.value = value; }
+    }
+
+    static final class IntValueIndexer extends BinaryIndexerInteger.Abstract<IntEntity>
+    {
+        @Override public String name() { return "value"; }
+        @Override protected Integer getInteger(final IntEntity entity) { return entity.value; }
+    }
+
+    static final class FloatEntity
+    {
+        final float value;
+        FloatEntity(final float value) { this.value = value; }
+    }
+
+    static final class FloatValueIndexer extends BinaryIndexerFloat.Abstract<FloatEntity>
+    {
+        @Override public String name() { return "value"; }
+        @Override protected Float getFloat(final FloatEntity entity) { return entity.value; }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void reconstructsIntegerKeys_withSentinelAndNegatives()
+    {
+        final GigaMap<IntEntity> map = GigaMap.<IntEntity>Builder()
+            .withBitmapIdentityIndex(new IntValueIndexer())
+            .build();
+
+        // Zero (sentinel 1L<<32), negatives (unsigned upper half), Integer.MIN_VALUE (bit 31), positives.
+        map.addAll(java.util.List.of(
+            new IntEntity(0), new IntEntity(1), new IntEntity(-1),
+            new IntEntity(Integer.MIN_VALUE), new IntEntity(1_234_567_890)));
+
+        final Map<Long, Long> expected = new HashMap<>(); // entityId -> key (as long)
+        map.iterateIndexed((id, entity) -> expected.put(id, (long)entity.value));
+
+        final Map<Long, Long> actual = new HashMap<>();
+        final BitmapIndex<IntEntity, Long> index = map.index().bitmap().get(Long.class, "value");
+        index.iterateKeyEntityPairs((key, entityId) -> actual.put(entityId, key));
+
+        assertEquals(expected, actual, "integer keys must be reconstructed to their original values");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void floatIndex_failsFastAsUnsupported()
+    {
+        final GigaMap<FloatEntity> map = GigaMap.<FloatEntity>Builder()
+            .withBitmapIdentityIndex(new FloatValueIndexer())
+            .build();
+        map.add(new FloatEntity(1.5f));
+
+        final BitmapIndex<FloatEntity, Long> index = map.index().bitmap().get(Long.class, "value");
+        // Float's sortable-bit encoding has no binaryToKey inverse → fail fast, not emit encoded bits.
+        assertThrows(UnsupportedOperationException.class,
+            () -> index.iterateKeyEntityPairs((key, entityId) -> { }));
     }
 }
