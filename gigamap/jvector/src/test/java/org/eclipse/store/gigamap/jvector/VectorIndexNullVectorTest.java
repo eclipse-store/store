@@ -629,6 +629,60 @@ class VectorIndexNullVectorTest
         }
     }
 
+    // ==================== 10c. Deletion during persist Phase 2 (Finding #4) ====================
+
+    /**
+     * A sync-mode {@code vec→null} that lands in persist Phase 2 defers its graph-deletion op, which is
+     * drained only after {@code doPersistToDisk} swaps the in-memory builder (exit/reenter incremental).
+     * Before the fix the deferred {@code markNodeDeleted} hit the new empty builder and was lost, leaving
+     * the entity live on the reloaded disk graph until the next persist. The {@code persistPhase2TestHook}
+     * injects the delete deterministically into that exact window, on the persist thread — the same
+     * monitor / {@code cleanupInProgress} state a concurrent sync mutation would observe.
+     */
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    @SuppressWarnings("unchecked")
+    void deletionDuringPersistPhase2NotLost(@TempDir final Path indexDir)
+    {
+        final VectorIndexConfiguration diskConfig = VectorIndexConfiguration.builder()
+            .dimension(DIM)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .build();
+
+        final GigaMap<Doc> map = GigaMap.New();
+        try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("embeddings", diskConfig, new NullableComputedVectorizer()))
+        {
+            final long a = map.add(new Doc("a", basis(0)));
+            map.add(new Doc("b", basis(1)));
+            map.add(new Doc("c", basis(2)));
+            assertEquals(3, index.search(basis(0), 10).size());
+
+            // One-shot: null out 'a' during persist Phase 2 — after the parentMap monitor is released,
+            // before the builder is swapped (reenterIncrementalMode) and the deferred op is drained.
+            // Runs on the persist thread: the same cleanupInProgress / monitor state a concurrent sync
+            // mutation would observe, so it defers exactly as the bug requires.
+            final VectorIndex.Default<Doc> def = (VectorIndex.Default<Doc>)index;
+            def.persistPhase2TestHook = () ->
+            {
+                def.persistPhase2TestHook = null;
+                map.set(a, new Doc("a", null));
+            };
+
+            // This persist writes a,b,c to disk (captured before the hook), the hook defers a's delete,
+            // then the builder is swapped and the deferred op drained.
+            index.persistToDisk();
+
+            final VectorSearchResult<Doc> result = index.search(basis(0), 10);
+            assertEquals(2, result.size(), "nulled entity must not survive a persist-window deletion");
+            assertTrue(result.stream().noneMatch(e -> e.entityId() == a),
+                "deferred deletion drained after the builder swap must still exclude the entity");
+            assertNull(index.getVector(a));
+        }
+    }
+
     // ==================== 11. Query by null-vector entity / null query ====================
 
     @Test

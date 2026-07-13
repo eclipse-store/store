@@ -818,6 +818,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private transient volatile boolean                cleanupInProgress;
         private transient ConcurrentLinkedQueue<Runnable> deferredBuilderOps;
 
+        // Test-only seam: run once at the start of persist Phase 2 (parentMap monitor released,
+        // builder about to be swapped by reenterIncrementalMode). Lets a test deterministically inject
+        // a mutation into the exact window where a deferred builder op is drained after the swap.
+        // Null (and a no-op) in production. See VectorIndex(persist-window deletion) regression test.
+        transient volatile Runnable persistPhase2TestHook;
+
 
         ///////////////////////////////////////////////////////////////////////////
         // constructors //
@@ -1363,7 +1369,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * <p>
          * Marks BOTH the instance and children dirty: {@code structuralModCount} is a field of this
          * instance, so it is only re-serialized when the instance itself is flagged
-         * ({@link AbstractStateChangeFlagged#isInstanceNewOrChanged()} gates {@code internalStore}) —
+         * AbstractStateChangeFlagged#isInstanceNewOrChanged() gates {@code internalStore}) —
          * {@code markStateChangeChildren()} alone would persist only children (e.g. the computed-mode
          * {@code vectorStore}) and silently drop the counter.
          */
@@ -1580,9 +1586,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // No removeDeletedNodes() — unnecessary (markNodeDeleted already excludes it
                     // from liveNodes), and its ForkJoinPool would deadlock with the GigaMap
                     // monitor we hold for embedded vectorizers.
+                    // Route through internalMarkOrdinalDeleted so a deferral drained after a persist
+                    // builder swap still records the deletion (via diskDeletedOrdinals) instead of
+                    // no-op'ing against the new empty builder.
                     if(inGraph)
                     {
-                        this.executeOrDeferBuilderOp(() -> this.builder.markNodeDeleted(ordinal));
+                        this.executeOrDeferBuilderOp(() -> this.internalMarkOrdinalDeleted(ordinal));
                         changed = true;
                     }
                 }
@@ -1816,10 +1825,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                 // Mark deleted in the in-memory builder if the node exists there
                 // (e.g., added after disk reload). Disk-only nodes are excluded
-                // via diskDeletedOrdinals and won't be in the builder.
+                // via diskDeletedOrdinals and won't be in the builder. Route through
+                // internalMarkOrdinalDeleted so a deferral drained after a persist builder swap
+                // still records the deletion instead of no-op'ing against the new empty builder.
                 if(this.index != null && this.index.containsNode(ordinal))
                 {
-                    this.executeOrDeferBuilderOp(() -> this.builder.markNodeDeleted(ordinal));
+                    this.executeOrDeferBuilderOp(() -> this.internalMarkOrdinalDeleted(ordinal));
                 }
 
                 // Mark dirty for background managers
@@ -2435,6 +2446,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // background worker mutations, removeAll, and close.
                     // parentMap monitor is released, so ForkJoinPool workers and
                     // disk writer threads can call parentMap.get() for embedded vectors.
+
+                    // Test-only injection point: exercises the window where a sync mutation defers a
+                    // builder op that is drained only after the builder is swapped below. No-op in prod.
+                    final Runnable hook = this.persistPhase2TestHook;
+                    if(hook != null)
+                    {
+                        hook.run();
+                    }
+
                     capturedBuilder.cleanup();
                     capturedDiskMgr.writeIndex(capturedIndex, capturedRavv, capturedPqMgr);
 
@@ -2957,6 +2977,29 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // ================================================================
         // Builder operation deferral helpers
         // ================================================================
+
+        /**
+         * Marks a graph ordinal deleted, re-deriving the target from CURRENT state at execution time
+         * rather than from a captured builder reference. This matters when the op is deferred
+         * (via {@link #executeOrDeferBuilderOp}) during a persist and drained afterwards: {@code
+         * doPersistToDisk} swaps the in-memory builder (exit/reenter incremental mode) between deferral
+         * and drain, so a captured {@code builder.markNodeDeleted(ordinal)} would land on the new, empty
+         * builder and be lost — leaving the entity live on the reloaded disk graph until the next
+         * persist. Recording the deletion in {@link #diskDeletedOrdinals} (when incremental) makes it
+         * survive the swap; the in-builder {@code markNodeDeleted} is applied only when the node is
+         * actually present in the current builder.
+         */
+        private void internalMarkOrdinalDeleted(final int ordinal)
+        {
+            if(this.incrementalMode && this.diskDeletedOrdinals != null)
+            {
+                this.diskDeletedOrdinals.add(ordinal);
+            }
+            if(this.index != null && this.index.containsNode(ordinal))
+            {
+                this.builder.markNodeDeleted(ordinal);
+            }
+        }
 
         /**
          * Executes a builder operation immediately, or defers it if cleanup is in progress.
