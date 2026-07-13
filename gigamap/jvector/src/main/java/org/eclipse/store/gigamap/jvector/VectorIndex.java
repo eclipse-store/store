@@ -28,6 +28,7 @@ import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.serializer.persistence.binary.types.BinaryTypeHandler;
 import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.store.gigamap.types.AbstractStateChangeFlagged;
+import org.eclipse.store.gigamap.types.BitmapIndex;
 import org.eclipse.store.gigamap.types.GigaIndex;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.ScoredSearchResult;
@@ -785,11 +786,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // instead of an index query per call (which is far too costly on the hot scoring path),
         // while still resolving by source entity id so it stays correct when the store's id
         // allocator drifts from the parent's (deletion holes, or entities without an embedding
-        // that get no store entry). Rebuilt from the store by positional iteration — no index
-        // dependency — so it is safe to populate during deserialization (complete()). Null in
-        // embedded mode. Concurrent map: read by search threads, written by mutations (which are
-        // serialized by the parent GigaMap monitor).
-        private transient Map<Long, Long> computedIdIndex;
+        // that get no store entry). Null in embedded mode.
+        //
+        // Built lazily on first access via computedIdIndex(): from the vector store's identity index
+        // bitmaps (cheap, loads no VectorEntry / no vectors) once the store is queryable, falling back
+        // to a positional store scan during the deserialization window when the index registry is not
+        // yet wired. Deferring the build off the load path is what keeps incremental on-disk startup
+        // O(1) in the vector payload. Volatile: read lock-free by search threads (fast path), written
+        // under the vector store's own monitor (a leaf lock — see computedIdIndex()).
+        private transient volatile Map<Long, Long> computedIdIndex;
 
         // Incremental on-disk mode: after disk reload, use disk index for search
         // and in-memory builder only for new mutations. Full rebuild deferred to persistToDisk().
@@ -901,19 +906,66 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * (Re)builds the computed-mode {@link #computedIdIndex} from the vector store by positional
-         * iteration (no index query, so it is safe during deserialization). No-op for embedded mode.
+         * Returns the computed-mode {@link #computedIdIndex}, building it lazily on first access.
+         * {@code null} in embedded mode (or before the vector store exists).
+         * <p>
+         * The build is deferred out of {@code complete()}: at deserialization time the vector store's
+         * index registry is not yet queryable, and — more importantly — building eagerly there would
+         * reintroduce the O(n) I/O + heap spike that incremental on-disk mode exists to avoid. On first
+         * access the map is reconstructed cheaply from the identity index bitmaps (no {@link VectorEntry},
+         * no vectors); see {@link #buildComputedIdIndex()}.
+         * <p>
+         * Thread-safety: double-checked with {@link #computedIdIndex} volatile. The build holds the
+         * vector store's own monitor — a leaf lock independent of the parent GigaMap monitor and
+         * {@code builderLock}, so triggering it from a search (under {@code builderLock.readLock}) or a
+         * mutation (under the parent monitor) cannot deadlock. Mutations route their store lookups
+         * through this accessor too, so the map is present before any {@code put}/{@code get}.
          */
-        private void rebuildComputedIdIndex()
+        private Map<Long, Long> computedIdIndex()
         {
             if(this.isEmbedded() || this.vectorStore == null)
             {
-                this.computedIdIndex = null;
-                return;
+                return null;
             }
+            Map<Long, Long> idx = this.computedIdIndex;
+            if(idx == null)
+            {
+                synchronized(this.vectorStore)
+                {
+                    idx = this.computedIdIndex;
+                    if(idx == null)
+                    {
+                        this.computedIdIndex = idx = this.buildComputedIdIndex();
+                    }
+                }
+            }
+            return idx;
+        }
+
+        /**
+         * Builds the {@code sourceEntityId -> storeId} map. Preferred path: reconstruct it from the
+         * vector store's {@code sourceEntityId} identity index bitmaps via
+         * {@link org.eclipse.store.gigamap.types.BitmapIndex#iterateKeyEntityPairs}, loading no
+         * {@code VectorEntry} and therefore no stored vectors. Fallback (index registry not yet
+         * queryable, i.e. the {@code complete()} deserialization window): a positional store scan.
+         * The fallback is only reached by a non-incremental graph rebuild, which loads every vector
+         * anyway, so its value pass is not an added cost.
+         */
+        private Map<Long, Long> buildComputedIdIndex()
+        {
             final Map<Long, Long> index = new ConcurrentHashMap<>();
-            this.vectorStore.iterateIndexed((storeId, entry) -> index.put(entry.sourceEntityId, storeId));
-            this.computedIdIndex = index;
+            final BitmapIndex<VectorEntry, Long> idIndex = this.vectorStore.index().bitmap()
+                .get(Long.class, VectorEntry.SOURCE_ENTITY_ID_INDEXER.name());
+            if(idIndex != null)
+            {
+                // (key = sourceEntityId, entityId = storeId) — no value loaded.
+                idIndex.iterateKeyEntityPairs((sourceEntityId, storeId) -> index.put(sourceEntityId, storeId));
+            }
+            else
+            {
+                this.vectorStore.iterateIndexed((storeId, entry) -> index.put(entry.sourceEntityId, storeId));
+            }
+            return index;
         }
 
         /**
@@ -923,7 +975,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private float[] lookupComputedVector(final int ordinal)
         {
-            final Map<Long, Long> index = this.computedIdIndex;
+            final Map<Long, Long> index = this.computedIdIndex();
             final Long storeId = index == null ? null : index.get((long)ordinal);
             if(storeId == null)
             {
@@ -982,9 +1034,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.deferredBuilderOps = new ConcurrentLinkedQueue<>();
             }
 
-            // Build the computed-mode fast lookup index before the in-memory builder, whose
-            // rebuild scores nodes via lookupComputedVector().
-            this.rebuildComputedIdIndex();
+            // Reset the computed-mode fast lookup index; it is (re)built lazily on first access
+            // (see computedIdIndex()). Clearing here covers reinitialization after internalRemoveAll,
+            // where a stale map would otherwise survive. A non-incremental graph rebuild that follows
+            // triggers the lazy build itself via lookupComputedVector() during node scoring.
+            this.computedIdIndex = null;
 
             // Initialize PQ manager if compression enabled
             if(this.configuration.enablePqCompression())
@@ -1378,7 +1432,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(!this.isEmbedded())
             {
                 final long storeId = this.vectorStore.add(vectorEntry);
-                this.computedIdIndex.put(entityId, storeId);
+                this.computedIdIndex().put(entityId, storeId);
             }
 
             this.markContentChanged();
@@ -1441,7 +1495,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 // Resolve the store-internal id by source entity id via the fast index, then
                 // mutate via id-based ops (set / removeById / add), keeping the index in sync.
-                final Long storeId = this.computedIdIndex.get(entityId);
+                final Map<Long, Long> computedIdIndex = this.computedIdIndex();
+                final Long storeId = computedIdIndex.get(entityId);
                 if(vector == null)
                 {
                     // vec→null: drop the stored entry so the entity is no longer indexed.
@@ -1449,7 +1504,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     if(storeId != null)
                     {
                         this.vectorStore.removeById(storeId);
-                        this.computedIdIndex.remove(entityId);
+                        computedIdIndex.remove(entityId);
                         changed = true;
                     }
                 }
@@ -1463,7 +1518,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     // null→vec: the entity gains an embedding.
                     final long newStoreId = this.vectorStore.add(new VectorEntry(entityId, vector));
-                    this.computedIdIndex.put(entityId, newStoreId);
+                    computedIdIndex.put(entityId, newStoreId);
                     changed = true;
                 }
             }
@@ -1652,10 +1707,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 // Add individually to capture each store-internal id for the fast index; robust
                 // against hole reuse (a batch addAll only reports the last assigned id).
+                final Map<Long, Long> computedIdIndex = this.computedIdIndex();
                 for(final VectorEntry entry : entries)
                 {
                     final long storeId = this.vectorStore.add(entry);
-                    this.computedIdIndex.put(entry.sourceEntityId, storeId);
+                    computedIdIndex.put(entry.sourceEntityId, storeId);
                 }
             }
 
@@ -1726,11 +1782,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 // Resolve by source entity id via the fast index; a never-indexed entity
                 // (null embedding) simply has no entry and nothing is removed.
-                final Long storeId = this.computedIdIndex.get(entityId);
+                final Map<Long, Long> computedIdIndex = this.computedIdIndex();
+                final Long storeId = computedIdIndex.get(entityId);
                 if(storeId != null)
                 {
                     this.vectorStore.removeById(storeId);
-                    this.computedIdIndex.remove(entityId);
+                    computedIdIndex.remove(entityId);
                 }
             }
 
@@ -1827,10 +1884,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return this.vectorizer.vectorize(entity);
             }
 
-            // Resolve via the fast source-id index when available (O(1), no query allocation,
-            // no dependency on the vector store's own indices being wired); fall back to the
-            // identity-index query only if this instance's transients are not initialized yet.
-            final Map<Long, Long> idIndex = this.computedIdIndex;
+            // Resolve via the fast source-id index (built lazily on first access); fall back to a
+            // direct identity-index query only in the defensive case where it is unavailable.
+            final Map<Long, Long> idIndex = this.computedIdIndex();
             final VectorEntry entry;
             if(idIndex != null)
             {

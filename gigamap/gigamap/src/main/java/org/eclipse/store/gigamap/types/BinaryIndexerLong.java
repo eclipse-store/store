@@ -92,6 +92,17 @@ public interface BinaryIndexerLong<E> extends BinaryIndexerNumber<E, Long>
 			return number;
 		}
 
+		/**
+		 * Undoes the zero sentinel applied by {@link #toLong(Long)}: the stored
+		 * {@code Long.MAX_VALUE} bit pattern maps back to the key {@code 0}; all other
+		 * stored values are their own key.
+		 */
+		@Override
+		public Long binaryToKey(final long stored)
+		{
+			return stored == Long.MAX_VALUE ? 0L : stored;
+		}
+
 		protected abstract Long getLong(final E entity);
 
 	}

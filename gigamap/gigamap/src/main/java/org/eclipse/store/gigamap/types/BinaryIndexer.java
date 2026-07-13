@@ -49,6 +49,23 @@ public interface BinaryIndexer<E> extends Indexer<E, Long>
 	 * @return the long identifier corresponding to the given entity
 	 */
 	public long indexBinary(E entity);
+
+	/**
+	 * Reconstructs the index key from the raw {@code long} bit pattern that a binary bitmap index
+	 * stores for an entity — the inverse of {@link #indexBinary(Object)}'s internal encoding. This
+	 * lets {@link BitmapIndex#iterateKeyEntityPairs(java.util.function.ObjLongConsumer)} recover the
+	 * key for each entity from the index's per-bit-position bitmaps without loading the entity itself.
+	 * <p>
+	 * The default is the identity mapping. Indexers that reserve a sentinel bit pattern (e.g.
+	 * {@link BinaryIndexerLong}'s zero sentinel) must override this to undo it.
+	 *
+	 * @param stored the raw stored {@code long} bit pattern
+	 * @return the reconstructed key
+	 */
+	public default Long binaryToKey(final long stored)
+	{
+		return stored;
+	}
 	
 	/**
 	 * Creates an equality condition for the given key. This condition checks whether

@@ -18,7 +18,10 @@ import org.eclipse.serializer.branching.ThrowBreak;
 import org.eclipse.serializer.collections.XSort;
 import org.eclipse.serializer.persistence.types.Storer;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.ObjLongConsumer;
 import java.util.function.Predicate;
 
 
@@ -215,8 +218,66 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 				}
 				logic.accept(entry.key());
 			}
-			
+
 			return logic;
+		}
+	}
+
+	@Override
+	public void iterateKeyEntityPairs(final ObjLongConsumer<? super Long> consumer)
+	{
+		final BinaryIndexer<? super I> indexer = this.indexer;
+		if(indexer == null)
+		{
+			// sub indices are their own sub indexer and carry no key-encoding to invert.
+			throw new UnsupportedOperationException(
+				"iterateKeyEntityPairs is not supported without a binary indexer"
+			);
+		}
+
+		synchronized(this.parentMap())
+		{
+			@SuppressWarnings("unchecked")
+			final GigaMap.Default<E> parent = (GigaMap.Default<E>)this.parentMap();
+			final long idBound = parent.nextFreeId();
+
+			// entityId (position in the owning GigaMap) -> stored long, accumulated bit by bit.
+			// A binary index keeps no whole key: bit position i's bitmap holds the ids whose stored
+			// long has bit i set, so the key is reconstructed by OR-ing 1L<<i over the positions that
+			// contain each id. No entity is loaded — only the index's own bitmaps are read.
+			final Map<Long, Long> storedByEntityId = new HashMap<>();
+
+			final BitmapEntry<E, I, Long>[] entries = this.entries;
+			for(int i = 0; i < entries.length; i++)
+			{
+				final BitmapEntry<E, I, Long> entry = entries[i];
+				if(entry == null)
+				{
+					continue;
+				}
+				final long bit = 1L << i; // == arrayIndexToKey(i)
+				final BitmapResult[] results = {entry.createResult()};
+
+				// Bare id collector, mirroring GigaMap.Default#materializeEntityIds: no resolver, no
+				// reader-lifecycle registration — it only walks the bitmap segments for entity ids.
+				final AbstractBitmapIterating<E> collector = new AbstractBitmapIterating<E>(
+					EntityIdMatcher.NoOp(), 0, idBound, results, -1
+				)
+				{
+					@Override
+					protected boolean handleEntityId(final long entityId)
+					{
+						storedByEntityId.merge(entityId, bit, (a, b) -> a | b);
+						return false; // keep iterating
+					}
+				};
+				collector.execute();
+			}
+
+			for(final Map.Entry<Long, Long> e : storedByEntityId.entrySet())
+			{
+				consumer.accept(indexer.binaryToKey(e.getValue()), e.getKey());
+			}
 		}
 	}
 	
