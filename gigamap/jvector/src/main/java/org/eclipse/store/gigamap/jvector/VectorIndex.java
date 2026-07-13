@@ -1488,18 +1488,37 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
                 else if(embedded)
                 {
-                    // vec→vec: leave the graph as-is — removeDeletedNodes() uses a ForkJoinPool
-                    // whose workers call parentMap.get(), deadlocking with the GigaMap monitor we
-                    // hold. The updated entity is already in the GigaMap, so
-                    // EntityBackedVectorValues returns the new vector during search, and the next
-                    // optimize/persist cycle rebuilds the graph connections.
-                    // null→vec: the node was never added — add it now. addGraphNode alone is
-                    // monitor-safe (no removeDeletedNodes), the same call internalAdd makes.
+                    // Three distinct embedded, non-null transitions, distinguished by graph state.
+                    // Note containsNode() alone is NOT enough: jvector's markNodeDeleted() only sets
+                    // a deleted bit and leaves the node in layer 0, so containsNode() stays true for
+                    // a marked-deleted node. A prior vec→null in this same session (without an
+                    // intervening optimize) leaves the node present-but-deleted, which is a third
+                    // case the plain !inGraph guard would silently mis-handle.
                     if(!inGraph)
                     {
+                        // null→vec: the node was never added (or a prior optimize physically removed
+                        // it) — add it now. addGraphNode alone is monitor-safe (no removeDeletedNodes),
+                        // the same call internalAdd makes.
                         final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
                         this.executeOrDeferBuilderOp(() -> this.builder.addGraphNode(ordinal, vf));
                     }
+                    else if(this.index.getDeletedNodes().get(ordinal))
+                    {
+                        // vec→null→vec on the SAME entity: the node is still present but marked
+                        // deleted. Resurrect it by clearing the deleted bit — monitor-safe (no
+                        // ForkJoinPool), unlike removeDeletedNodes()+addGraphNode, whose workers
+                        // call parentMap.get() and would deadlock with the GigaMap monitor we hold.
+                        // The node keeps its (now stale) neighbor links and search re-scores it live
+                        // from the entity via EntityBackedVectorValues — identical to the vec→vec
+                        // "leave as-is" contract below; the next optimize/persist rebuilds connections.
+                        // Without this, the entity would stay excluded from liveNodes() forever.
+                        this.executeOrDeferBuilderOp(() -> this.index.getDeletedNodes().clear(ordinal));
+                    }
+                    // else vec→vec: leave the graph as-is — removeDeletedNodes() uses a ForkJoinPool
+                    // whose workers call parentMap.get(), deadlocking with the GigaMap monitor we
+                    // hold. The updated entity is already in the GigaMap, so EntityBackedVectorValues
+                    // returns the new vector during search, and the next optimize/persist cycle
+                    // rebuilds the graph connections.
                     changed = true;
                 }
                 else

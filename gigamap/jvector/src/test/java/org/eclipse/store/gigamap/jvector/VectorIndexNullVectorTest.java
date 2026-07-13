@@ -337,6 +337,25 @@ class VectorIndexNullVectorTest
         map.set(b, new Doc("b", basis(3)));
         assertEquals(b, index.search(basis(3), 1).stream().findFirst().orElseThrow().entityId());
         assertNotNull(index.getVector(b));
+
+        // vec -> null -> vec on the SAME entity that WAS in the graph. Regression guard: jvector's
+        // markNodeDeleted only sets a deleted bit and leaves the node in layer 0, so containsNode
+        // stays true; a naive re-add guard would skip resurrection and b would vanish permanently.
+        // Searchable before the cycle: {c=basis(2), b=basis(3)} (a is null).
+        map.set(b, new Doc("b", null)); // vec -> null: b disappears
+        assertNull(index.getVector(b));
+        final VectorSearchResult<Doc> afterNullB = index.search(basis(0), 10);
+        assertEquals(1, afterNullB.size());
+        assertTrue(afterNullB.stream().noneMatch(e -> e.entityId() == b),
+            "entity whose vector became null must not appear");
+
+        map.set(b, new Doc("b", basis(3))); // null -> vec: b must REAPPEAR without reload
+        assertNotNull(index.getVector(b));
+        final VectorSearchResult<Doc> afterReaddB = index.search(basis(0), 10);
+        assertEquals(2, afterReaddB.size(), "entity must reappear after a vec->null->vec cycle");
+        assertTrue(afterReaddB.stream().anyMatch(e -> e.entityId() == b),
+            "resurrected entity must be searchable again");
+        assertEquals(b, index.search(basis(3), 1).stream().findFirst().orElseThrow().entityId());
     }
 
     // ==================== 7. Update transitions (eventual indexing) ====================
@@ -362,7 +381,7 @@ class VectorIndexNullVectorTest
         try(final VectorIndex<Doc> index = indices.add("embeddings", eventualConfig(), vectorizer))
         {
             final long a = map.add(new Doc("a", basis(0)));
-            map.add(new Doc("b", basis(1)));
+            final long b = map.add(new Doc("b", basis(1)));
             final long c = map.add(new Doc("c", null));
             drain(index);
             assertEquals(2, index.search(basis(0), 10).size());
@@ -378,6 +397,18 @@ class VectorIndexNullVectorTest
             assertEquals(2, result.size());
             assertTrue(result.stream().noneMatch(e -> e.entityId() == a));
             assertEquals(c, index.search(basis(2), 1).stream().findFirst().orElseThrow().entityId());
+
+            // vec -> null -> vec on the SAME entity that WAS in the graph. The eventual path
+            // already re-adds correctly (markNodeDeleted + removeDeletedNodes + addGraphNode);
+            // lock that in alongside the sync-mode regression guard. Searchable: {b, c}.
+            map.set(b, new Doc("b", null));    // vec -> null
+            map.set(b, new Doc("b", basis(1))); // null -> vec: b must reappear
+            drain(index);
+            final VectorSearchResult<Doc> afterCycle = index.search(basis(0), 10);
+            assertEquals(2, afterCycle.size(), "entity must reappear after a vec->null->vec cycle");
+            assertTrue(afterCycle.stream().anyMatch(e -> e.entityId() == b),
+                "resurrected entity must be searchable again");
+            assertEquals(b, index.search(basis(1), 1).stream().findFirst().orElseThrow().entityId());
         }
     }
 
