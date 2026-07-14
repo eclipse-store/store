@@ -46,9 +46,13 @@ public interface IndexerTemporal<E, K, T extends Temporal> extends Indexer<E, K>
 
 	/**
 	 * Creates a condition which checks if the key is not equal to a given point in time.
-	 * Entities with a null key are included (a null key is "not equal" to any concrete value).
+	 * <p>
+	 * For a non-null {@code other}, entities with a null key <b>are</b> included (a null key is "not
+	 * equal" to any concrete value). When {@code other} is null this is instead equivalent to
+	 * {@link IndexIdentifier#notNull()}, i.e. it matches all non-null keys and <b>excludes</b>
+	 * null-key entities.
 	 *
-	 * @param other the value to check against, may be null (equivalent to {@link IndexIdentifier#notNull()})
+	 * @param other the value to check against; may be null (then equivalent to {@link IndexIdentifier#notNull()})
 	 * @return a new negated condition
 	 */
 	public default <S extends E> Condition<S> not(final T other)
@@ -58,8 +62,12 @@ public interface IndexerTemporal<E, K, T extends Temporal> extends Indexer<E, K>
 
 	/**
 	 * Creates a condition which checks if the key is equal to any of the given points in time.
+	 * <p>
+	 * A null element is permitted and matches entities with a null key (it delegates to
+	 * {@link #is(Temporal)}, which treats null as {@link IndexIdentifier#isNull()}).
 	 *
-	 * @param others the values to check against, not null and not empty
+	 * @param others the values to check against; the array itself must not be null or empty, but
+	 *               individual elements may be null (to also match entities with a null key)
 	 * @return a new condition representing the containment check
 	 */
 	@SuppressWarnings("unchecked")
@@ -79,9 +87,14 @@ public interface IndexerTemporal<E, K, T extends Temporal> extends Indexer<E, K>
 
 	/**
 	 * Creates a condition which checks if the key is not equal to any of the given points in time.
-	 * Entities with a null key are included unless {@code null} is among the given values.
+	 * <p>
+	 * Entities with a null key are included <b>unless</b> {@code null} is among the given values:
+	 * a null element makes {@link #in(Temporal...)} match null keys, so negating it then excludes
+	 * them.
 	 *
-	 * @param others the values to check against, not null and not empty
+	 * @param others the values to check against; the array itself must not be null or empty, but
+	 *               individual elements may be null (a null element excludes null-key entities from
+	 *               the result)
 	 * @return a new negated condition representing the containment check
 	 */
 	@SuppressWarnings("unchecked")
