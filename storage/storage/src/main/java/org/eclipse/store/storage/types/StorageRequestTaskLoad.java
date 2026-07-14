@@ -21,6 +21,23 @@ public interface StorageRequestTaskLoad extends StorageRequestTask
 {
 	public ChunksBuffer result() throws StorageExceptionRequest;
 
+	/**
+	 * Arms the task-scoped pending-load gate (internal#85): the task keeps the passed mark monitor so
+	 * that it can clear the gate when it has completed on all channels (or on the enqueue-failure
+	 * path). Called by the task broker at enqueue, before the task is signaled and made visible to any
+	 * channel. Returns whether the gate was armed; the broker only signals (and, on failure, clears)
+	 * the gate when this returned {@code true}, so a load-task implementation that does not clear the
+	 * gate cannot cause it to leak. Default returns {@code false} (not armed), preserving pre-existing
+	 * behavior for implementations that do not participate.
+	 *
+	 * @param markMonitor the shared mark monitor whose gate this task will clear on completion.
+	 * @return {@code true} if this task will clear the gate on completion.
+	 */
+	public default boolean registerPendingLoadTaskGate(final StorageEntityMarkMonitor markMonitor)
+	{
+		return false;
+	}
+
 
 
 	public abstract class Abstract extends StorageChannelTask.Abstract<ChunksBuffer>
@@ -30,8 +47,10 @@ public interface StorageRequestTaskLoad extends StorageRequestTask
 		// instance fields //
 		////////////////////
 
-		private final ChunksBuffer[]          result     ;
-		private final StorageEntityMarkMonitor markMonitor;
+		private final    ChunksBuffer[]          result     ;
+		// set by the broker at enqueue via registerPendingLoadTaskGate(), before the task is published
+		// to any channel; read in onLastCompletion() on the (later) completing channel thread.
+		private volatile StorageEntityMarkMonitor markMonitor;
 
 
 
@@ -42,16 +61,21 @@ public interface StorageRequestTaskLoad extends StorageRequestTask
 		protected Abstract(
 			final long                       timestamp   ,
 			final int                        channelCount,
-			final StorageOperationController controller  ,
-			final StorageEntityMarkMonitor   markMonitor
+			final StorageOperationController controller
 		)
 		{
 			super(timestamp, channelCount, controller);
-			this.result      = new ChunksBuffer[channelCount];
-			this.markMonitor = markMonitor;
+			this.result = new ChunksBuffer[channelCount];
 		}
 
-		
+		@Override
+		public boolean registerPendingLoadTaskGate(final StorageEntityMarkMonitor markMonitor)
+		{
+			this.markMonitor = markMonitor;
+			return true;
+		}
+
+
 
 		///////////////////////////////////////////////////////////////////////////
 		// methods //

@@ -466,25 +466,36 @@ public interface StorageTaskBroker
 		}
 
 		/**
-		 * Signal the task-scoped pending-load gate for a load task and enqueue it. The gate is signaled
-		 * BEFORE the task becomes visible to any channel (internal#85): a channel mid-housekeeping when
-		 * the load is enqueued then observes the gate at its next sweep-initiation check and cannot
-		 * initiate a sweep in the enqueue -> pickup gap. It is cleared once the task has completed on all
-		 * channels (StorageRequestTaskLoad#onLastCompletion). If the enqueue itself fails (e.g.
-		 * StorageExceptionNotRunning while processing is disabled), the task will never be processed to
-		 * completion, so the gate is released here to avoid leaking pendingLoadTaskCount.
+		 * Arm the task-scoped pending-load gate for a load task and enqueue it. The task is given the
+		 * shared mark monitor (so it can clear the gate when it completes on all channels, via
+		 * {@link StorageRequestTaskLoad.Abstract#onLastCompletion()}), then the gate is signaled BEFORE
+		 * the task becomes visible to any channel (internal#85): a channel mid-housekeeping when the load
+		 * is enqueued then observes the gate at its next sweep-initiation check and cannot initiate a
+		 * sweep in the enqueue -> pickup gap. If the task does not arm the gate (a custom load task that
+		 * would not clear it - see {@link StorageRequestTaskLoad#registerPendingLoadTaskGate}), the gate
+		 * is not signaled, so it cannot leak. If the enqueue itself fails (e.g. StorageExceptionNotRunning
+		 * while processing is disabled), the task will never be processed to completion, so the gate is
+		 * released here.
 		 */
-		private void enqueueLoadTaskAndNotifyAll(final StorageTask task, final StorageEntityMarkMonitor markMonitor)
-			throws InterruptedException
+		private void enqueueLoadTaskAndNotifyAll(final StorageRequestTaskLoad task) throws InterruptedException
 		{
-			markMonitor.signalPendingLoadTask();
+			// entityMarkMonitor() throws if the system is not running; do it before signaling anything.
+			final StorageEntityMarkMonitor markMonitor = this.storageSystem.entityMarkMonitor();
+			final boolean armed = task.registerPendingLoadTaskGate(markMonitor);
+			if(armed)
+			{
+				markMonitor.signalPendingLoadTask();
+			}
 			try
 			{
 				this.enqueueTaskAndNotifyAll(task);
 			}
 			catch(final Throwable t)
 			{
-				markMonitor.clearPendingLoadTask();
+				if(armed)
+				{
+					markMonitor.clearPendingLoadTask();
+				}
 				throw t;
 			}
 		}
@@ -498,11 +509,10 @@ public interface StorageTaskBroker
 			this.validateChannelCount(loadOids.length);
 
 			// task creation must be called AFTER acquiring the lock to ensure temporal consistency in the task chain
-			final StorageEntityMarkMonitor markMonitor = this.storageSystem.entityMarkMonitor();
 			final StorageRequestTaskLoadByOids task = this.taskCreator.createLoadTaskByOids(
-				loadOids, this.operationController, markMonitor
+				loadOids, this.operationController
 			);
-			this.enqueueLoadTaskAndNotifyAll(task, markMonitor);
+			this.enqueueLoadTaskAndNotifyAll(task);
 			return task;
 		}
 
@@ -510,11 +520,10 @@ public interface StorageTaskBroker
 		public final synchronized StorageRequestTaskLoadRoots enqueueRootsLoadTask() throws InterruptedException
 		{
 			// task creation must be called AFTER acquiring the lock to ensure temporal consistency in the task chain
-			final StorageEntityMarkMonitor markMonitor = this.storageSystem.entityMarkMonitor();
 			final StorageRequestTaskLoadRoots task = this.taskCreator.createRootsLoadTask(
-				this.channelCount, this.operationController, markMonitor
+				this.channelCount, this.operationController
 			);
-			this.enqueueLoadTaskAndNotifyAll(task, markMonitor);
+			this.enqueueLoadTaskAndNotifyAll(task);
 			return task;
 		}
 
@@ -525,11 +534,10 @@ public interface StorageTaskBroker
 			throws InterruptedException
 		{
 			// task creation must be called AFTER acquiring the lock to ensure temporal consistency in the task chain
-			final StorageEntityMarkMonitor markMonitor = this.storageSystem.entityMarkMonitor();
 			final StorageRequestTaskLoadByTids task = this.taskCreator.createLoadTaskByTids(
-				loadTids, this.channelCount, this.operationController, markMonitor
+				loadTids, this.channelCount, this.operationController
 			);
-			this.enqueueLoadTaskAndNotifyAll(task, markMonitor);
+			this.enqueueLoadTaskAndNotifyAll(task);
 			return task;
 		}
 

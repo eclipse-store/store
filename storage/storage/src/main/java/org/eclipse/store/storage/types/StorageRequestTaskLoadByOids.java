@@ -34,14 +34,9 @@ public interface StorageRequestTaskLoadByOids extends StorageRequestTaskLoad
 		// constructors //
 		/////////////////
 
-		Default(
-			final long                       timestamp  ,
-			final PersistenceIdSet[]         oidList    ,
-			final StorageOperationController controller ,
-			final StorageEntityMarkMonitor   markMonitor
-		)
+		Default(final long timestamp, final PersistenceIdSet[] oidList, final StorageOperationController controller)
 		{
-			super(timestamp, oidList.length, controller, markMonitor);
+			super(timestamp, oidList.length, controller);
 			this.oidList = oidList;
 		}
 

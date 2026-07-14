@@ -39,21 +39,18 @@ public interface StorageRequestTaskCreator
 
 	public StorageRequestTaskLoadByOids createLoadTaskByOids(
 		PersistenceIdSet[]         loadOids           ,
-		StorageOperationController operationController ,
-		StorageEntityMarkMonitor   markMonitor
+		StorageOperationController operationController
 	);
 
 	public StorageRequestTaskLoadRoots createRootsLoadTask(
 		int                        channelCount       ,
-		StorageOperationController operationController ,
-		StorageEntityMarkMonitor   markMonitor
+		StorageOperationController operationController
 	);
 
 	public StorageRequestTaskLoadByTids createLoadTaskByTids(
 		PersistenceIdSet           loadTids           ,
 		int                        channelCount       ,
-		StorageOperationController operationController ,
-		StorageEntityMarkMonitor   markMonitor
+		StorageOperationController operationController
 	);
 
 	public default StorageRequestTaskExportEntitiesByType createExportTypesTask(
@@ -218,30 +215,26 @@ public interface StorageRequestTaskCreator
 		@Override
 		public StorageRequestTaskLoadByOids createLoadTaskByOids(
 			final PersistenceIdSet[]         loadOids           ,
-			final StorageOperationController operationController ,
-			final StorageEntityMarkMonitor   markMonitor
+			final StorageOperationController operationController
 		)
 		{
 			return new StorageRequestTaskLoadByOids.Default(
 				this.timestampProvider.currentNanoTimestamp(),
 				loadOids,
-				operationController,
-				markMonitor
+				operationController
 			);
 		}
 
 		@Override
 		public StorageRequestTaskLoadRoots createRootsLoadTask(
 			final int                        channelCount       ,
-			final StorageOperationController operationController ,
-			final StorageEntityMarkMonitor   markMonitor
+			final StorageOperationController operationController
 		)
 		{
 			return new StorageRequestTaskLoadRoots.Default(
 				this.timestampProvider.currentNanoTimestamp(),
 				channelCount,
-				operationController,
-				markMonitor
+				operationController
 			);
 		}
 
@@ -249,16 +242,14 @@ public interface StorageRequestTaskCreator
 		public StorageRequestTaskLoadByTids createLoadTaskByTids(
 			final PersistenceIdSet           loadTids           ,
 			final int                        channelCount       ,
-			final StorageOperationController operationController ,
-			final StorageEntityMarkMonitor   markMonitor
+			final StorageOperationController operationController
 		)
 		{
 			return new StorageRequestTaskLoadByTids.Default(
 				this.timestampProvider.currentNanoTimestamp(),
 				loadTids,
 				channelCount,
-				operationController,
-				markMonitor
+				operationController
 			);
 		}
 

@@ -34,15 +34,9 @@ public interface StorageRequestTaskLoadByTids extends StorageRequestTaskLoad
 		// constructors //
 		/////////////////
 
-		Default(
-			final long                       timestamp   ,
-			final PersistenceIdSet           tidList     ,
-			final int                        channelCount,
-			final StorageOperationController controller  ,
-			final StorageEntityMarkMonitor   markMonitor
-		)
+		Default(final long timestamp, final PersistenceIdSet tidList, final int channelCount, final StorageOperationController controller)
 		{
-			super(timestamp, channelCount, controller, markMonitor);
+			super(timestamp, channelCount, controller);
 			this.tidList = tidList;
 		}
 
