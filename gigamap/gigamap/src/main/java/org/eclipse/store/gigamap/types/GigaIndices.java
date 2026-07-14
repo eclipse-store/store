@@ -212,38 +212,88 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 		protected final void internalAdd(final long entityId, final E entity)
 		{
 			notNull(entity);
-			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			// mark in any case: a mid-loop throw from an indexer leaves already updated groups behind.
+			try
 			{
-				indexGroup.internalAdd(entityId, entity);
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					indexGroup.internalAdd(entityId, entity);
+				}
 			}
-			this.markStateChangeChildren();
+			finally
+			{
+				this.markStateChangeChildren();
+			}
 		}
-		
+
 		protected final void internalAddAll(final long firstEntityId, final Iterable<? extends E> entities)
 		{
-			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			try
 			{
-				indexGroup.internalAddAll(firstEntityId, entities);
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					indexGroup.internalAddAll(firstEntityId, entities);
+				}
 			}
-			this.markStateChangeChildren();
+			finally
+			{
+				this.markStateChangeChildren();
+			}
 		}
-		
+
 		protected final void internalAddAll(final long firstEntityId, final E[] entities)
 		{
-			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			try
 			{
-				indexGroup.internalAddAll(firstEntityId, entities);
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					indexGroup.internalAddAll(firstEntityId, entities);
+				}
 			}
-			this.markStateChangeChildren();
+			finally
+			{
+				this.markStateChangeChildren();
+			}
 		}
-		
+
 		protected final void internalRemove(final long entityId, final E entity)
 		{
-			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			/*
+			 * Best-effort removal across all index groups, mirroring BitmapIndices#internalRemove:
+			 * a throwing indexer in one group must not prevent the other groups from being cleaned
+			 * up. The first exception is rethrown at the end, subsequent failures are attached as
+			 * suppressed exceptions.
+			 */
+			RuntimeException first = null;
+			try
 			{
-				indexGroup.internalRemove(entityId, entity);
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					try
+					{
+						indexGroup.internalRemove(entityId, entity);
+					}
+					catch(final RuntimeException e)
+					{
+						if(first == null)
+						{
+							first = e;
+						}
+						else
+						{
+							first.addSuppressed(e);
+						}
+					}
+				}
 			}
-			this.markStateChangeChildren();
+			finally
+			{
+				this.markStateChangeChildren();
+			}
+			if(first != null)
+			{
+				throw first;
+			}
 		}
 		
 		protected void internalRemoveAll()
@@ -282,7 +332,12 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 					indexGroup.internalPrepareIndicesUpdate(replacedEntity);
 					try
 					{
-						indexGroup.internalUpdateIndices(entityId, replacedEntity, entity, customConstraints);
+						/*
+						 * removeOnFailure == false: the calling context (set/replace) keeps the replaced
+						 * entity in place when the update fails, so the previous index entries must
+						 * remain untouched.
+						 */
+						indexGroup.internalUpdateIndices(entityId, replacedEntity, entity, customConstraints, false);
 					}
 					finally
 					{
@@ -295,38 +350,140 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 				this.markStateChangeChildren();
 			}
 		}
-		
-		<R> R internalUpdateIndices(
+
+		/**
+		 * First phase of an in-place entity update: derives the change handlers for the entity's
+		 * current (pre-mutation) state in all index groups. This runs all indexers, i.e. user code,
+		 * but does not mutate any index state: a throw here leaves the map completely unchanged,
+		 * already prepared groups are released again and nothing gets state-change marked.
+		 */
+		void internalPrepareUpdate(final E entity)
+		{
+			int prepared = 0;
+			try
+			{
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					indexGroup.internalPrepareIndicesUpdate(entity);
+					prepared++;
+				}
+			}
+			catch(final RuntimeException e)
+			{
+				int i = 0;
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					if(i++ >= prepared)
+					{
+						break;
+					}
+					try
+					{
+						indexGroup.internalFinishIndicesUpdate();
+					}
+					catch(final RuntimeException suppressed)
+					{
+						e.addSuppressed(suppressed);
+					}
+				}
+				throw e;
+			}
+		}
+
+		/**
+		 * Second phase of an in-place entity update: executes the mutating logic and updates all
+		 * index groups from the entity's resulting state. Must be preceded by a successful
+		 * {@link #internalPrepareUpdate(Object)}.
+		 */
+		<R> R internalApplyUpdate(
 			final long                         entityId         ,
 			final E                            entity           ,
 			final Function<? super E, R>       logic            ,
 			final CustomConstraints<? super E> customConstraints
 		)
 		{
-			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
-			{
-				indexGroup.internalPrepareIndicesUpdate(entity);
-			}
-			
 			try
 			{
-				final R result = logic.apply(entity);
-				
+				R result;
+				try
+				{
+					result = logic.apply(entity);
+				}
+				catch(final RuntimeException e)
+				{
+					/*
+					 * The logic threw: the entity's state is unreliable and the calling context will
+					 * remove the entity. The indices are still updated from the entity's current state
+					 * so that the subsequent removal, which re-derives the keys from that same state,
+					 * can locate all entries. This runs best-effort per group so every group gets its
+					 * chance to align; a group whose own update fails de-indexes its previous entries
+					 * via the prepared change handlers instead (removeOnFailure) and the failure is
+					 * attached as a suppressed exception. Custom constraints are not checked; the
+					 * entity is doomed either way.
+					 */
+					for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+					{
+						try
+						{
+							indexGroup.internalUpdateIndices(entityId, entity, entity, null, true);
+						}
+						catch(final RuntimeException suppressed)
+						{
+							e.addSuppressed(suppressed);
+						}
+					}
+					throw e;
+				}
+
 				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
 				{
-					indexGroup.internalUpdateIndices(entityId, entity, entity, customConstraints);
+					/*
+					 * removeOnFailure == true: the calling context removes the in-place mutated entity
+					 * from the map when the update fails, so on failure a group must de-index the
+					 * entity's previous state via its prepared change handlers.
+					 */
+					indexGroup.internalUpdateIndices(entityId, entity, entity, customConstraints, true);
 				}
-				
+
+				this.internalFinishUpdate(null);
+
 				return result;
+			}
+			catch(final RuntimeException e)
+			{
+				this.internalFinishUpdate(e);
+				throw e;
 			}
 			finally
 			{
-				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				this.markStateChangeChildren();
+			}
+		}
+
+		private void internalFinishUpdate(final RuntimeException primary)
+		{
+			RuntimeException first = primary;
+			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			{
+				try
 				{
 					indexGroup.internalFinishIndicesUpdate();
 				}
-				
-				this.markStateChangeChildren();
+				catch(final RuntimeException e)
+				{
+					if(first == null)
+					{
+						first = e;
+					}
+					else
+					{
+						first.addSuppressed(e);
+					}
+				}
+			}
+			if(primary == null && first != null)
+			{
+				throw first;
 			}
 		}
 					
