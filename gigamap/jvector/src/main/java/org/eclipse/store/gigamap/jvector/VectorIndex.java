@@ -929,12 +929,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * Rebuilds the in-memory graph from the store exactly once, lazily, on first access after a
          * load — the step deferred out of {@code complete()} (internal #87). Runs under the parent
          * GigaMap monitor: mutation / optimize / persist callers already hold it (reentrant), and the
-         * search path calls this before taking {@code builderLock.readLock()} (so it takes no read
-         * lock here and cannot deadlock a concurrent {@code internalRemoveAll}/{@code persistToDisk},
-         * which acquire the monitor then the write lock). Because every builder-swapping path
-         * (optimize / persistToDisk) also calls {@code ensureIndexInitialized()} before its swap, the
-         * first caller wins the rebuild under the monitor and publishes {@code graphRebuilt}; all
-         * others see the flag and skip. Skipped in incremental on-disk mode (the disk index serves
+         * search path calls this before taking {@code builderLock.readLock()}, so it never holds the
+         * read lock and the monitor at the same time.
+         * <p>
+         * Deadlock-free despite the builder-swapping paths using opposite lock orders
+         * ({@code internalRemoveAll}: monitor then {@code builderLock.writeLock()};
+         * {@code doPersistToDisk}: write lock then monitor): the rebuild acquires NO
+         * {@code builderLock} while it holds the monitor — {@code addGraphNodesSequential} adds nodes
+         * to the builder directly, and {@code collectStoredVectors} only re-enters this monitor (and,
+         * in computed mode, the vector store's own leaf monitor). A thread rebuilding here therefore
+         * holds only the monitor and waits for no lock a write-lock holder needs, so it cannot sit in
+         * a monitor↔builderLock cycle.
+         * <p>
+         * Because every builder-swapping path also calls {@code ensureIndexInitialized()} before its
+         * swap, the first caller wins the rebuild under the monitor and publishes {@code graphRebuilt};
+         * all others see the flag and skip. Skipped in incremental on-disk mode (the disk index serves
          * search; the in-memory graph is rebuilt later by {@code exitIncrementalMode}).
          */
         private void ensureGraphRebuilt()
