@@ -160,8 +160,11 @@ extends AbstractBinaryHandlerStateChangeFlagged<VectorIndex.Default<?>>
         final PersistenceLoadHandler handler
     )
     {
-        // Reinitialize transient components after all fields are loaded
-        instance.ensureIndexInitialized();
+        // Reinitialize transient components after all fields are loaded. Only the nested-load-free
+        // setup runs here; the graph rebuild (which iterates the store and would perform a nested
+        // object-graph load inside this enclosing load's completeInstances phase — internal #87) is
+        // deferred to the first search/mutation via VectorIndex.ensureIndexInitialized().
+        instance.initializeAfterLoad();
     }
 
     // Provided only for PersistenceTypeHandler contract conformity. The standard store path

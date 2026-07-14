@@ -801,6 +801,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // against each other by the parent GigaMap monitor the mutation already holds.
         private transient volatile Map<Long, Long> computedIdIndex;
 
+        // One-shot guard for the deferred graph rebuild. The HNSW graph is transient and must be
+        // rebuilt from the store after deserialization, but that rebuild iterates the parent GigaMap
+        // / vector store (a nested object-graph load) and therefore may NOT run inside the enclosing
+        // deserialization's complete() phase (internal #87). So complete() only does the nested-load-
+        // free transient setup (initializeAfterLoad -> initializeIndex); the graph rebuild is deferred
+        // to the first search/mutation/optimize via ensureGraphRebuilt(), which runs it exactly once
+        // under the parent GigaMap monitor (see there). Volatile: fast-path read lock-free; the actual
+        // rebuild + set happens under synchronized(parentMap()). Also set true by the runtime rebuild
+        // in exitIncrementalMode() so it is not repeated.
+        private transient volatile boolean                   graphRebuilt       ;
+
         // Incremental on-disk mode: after disk reload, use disk index for search
         // and in-memory builder only for new mutations. Full rebuild deferred to persistToDisk().
         // Volatile: written under writeLock (reenterIncrementalMode, exitIncrementalMode)
@@ -881,8 +892,27 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Ensures the transient HNSW index is initialized.
-         * Called after deserialization to rebuild the graph.
+         * Nested-load-free transient setup run from the binary handler's {@code complete()} during
+         * deserialization: (re)creates the transient managers, locks and (empty) in-memory builder,
+         * and, for on-disk indices, loads the disk graph. It deliberately does NOT rebuild the
+         * in-memory graph from the store, because that rebuild iterates the parent GigaMap / vector
+         * store (a nested object-graph load) which must not run inside the enclosing load's
+         * completeInstances phase (internal #87). The rebuild is deferred to first access via
+         * {@link #ensureGraphRebuilt()}.
+         */
+        void initializeAfterLoad()
+        {
+            final boolean diskLoaded = this.diskManager != null && this.diskManager.isLoaded();
+            if(this.builder == null && !diskLoaded)
+            {
+                this.initializeIndex();
+            }
+            // graph rebuild intentionally deferred to first access — see ensureGraphRebuilt()
+        }
+
+        /**
+         * Ensures the transient HNSW index is initialized and its graph rebuilt from the store.
+         * Called at the start of every search / mutation / optimize / persist entry point.
          */
         void ensureIndexInitialized()
         {
@@ -890,14 +920,37 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(this.builder == null && !diskLoaded)
             {
                 this.initializeIndex();
+            }
 
-                if(!this.incrementalMode)
+            this.ensureGraphRebuilt();
+        }
+
+        /**
+         * Rebuilds the in-memory graph from the store exactly once, lazily, on first access after a
+         * load — the step deferred out of {@code complete()} (internal #87). Runs under the parent
+         * GigaMap monitor: mutation / optimize / persist callers already hold it (reentrant), and the
+         * search path calls this before taking {@code builderLock.readLock()} (so it takes no read
+         * lock here and cannot deadlock a concurrent {@code internalRemoveAll}/{@code persistToDisk},
+         * which acquire the monitor then the write lock). Because every builder-swapping path
+         * (optimize / persistToDisk) also calls {@code ensureIndexInitialized()} before its swap, the
+         * first caller wins the rebuild under the monitor and publishes {@code graphRebuilt}; all
+         * others see the flag and skip. Skipped in incremental on-disk mode (the disk index serves
+         * search; the in-memory graph is rebuilt later by {@code exitIncrementalMode}).
+         */
+        private void ensureGraphRebuilt()
+        {
+            if(this.graphRebuilt || this.incrementalMode)
+            {
+                return;
+            }
+            synchronized(this.parentMap())
+            {
+                if(this.graphRebuilt || this.incrementalMode)
                 {
-                    // Rebuild graph from stored data (after deserialization).
-                    // Skipped in incremental mode — disk index serves search,
-                    // in-memory builder only handles new mutations.
-                    this.rebuildGraphFromStore();
+                    return;
                 }
+                this.rebuildGraphFromStore();
+                this.graphRebuilt = true;
             }
         }
 
@@ -1950,6 +2003,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             this.validateDimension(queryVector);
 
+            // Ensure the (deferred) graph rebuild has run BEFORE acquiring the read lock: the
+            // rebuild gate takes the parent GigaMap monitor, and holding readLock while acquiring
+            // that monitor would risk the exact lock-ordering deadlock the read-lock note below
+            // warns about. Once rebuilt this is a lock-free volatile check.
+            this.ensureIndexInitialized();
+
             // Acquire read lock — blocks during cleanup/persistence/removeAll/close,
             // allows concurrent searches and GigaMap mutations.
             // No synchronized(parentMap) — avoids lock-ordering deadlock with
@@ -1957,8 +2016,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.readLock().lock();
             try
             {
-                this.ensureIndexInitialized();
-
                 final VectorFloat<?> query = this.vectorTypeSupport.createFloatVector(queryVector);
 
                 // Choose search strategy based on index mode
@@ -2571,6 +2628,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.initializeInMemoryBuilder();
             this.rebuildGraphFromStore();
             this.initializeSearcherPool();
+
+            // The full in-memory graph now exists: mark the (deferred) rebuild done so a later
+            // first-access ensureGraphRebuilt() does not rebuild a second time on top of this one.
+            this.graphRebuilt = true;
         }
 
         /**
