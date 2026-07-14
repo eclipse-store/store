@@ -23,6 +23,7 @@ import org.eclipse.serializer.typing.KeyValue;
 import org.eclipse.serializer.util.X;
 
 import java.util.function.Consumer;
+import java.util.function.ObjLongConsumer;
 import java.util.function.Predicate;
 
 
@@ -124,8 +125,30 @@ public interface BitmapIndex<E, K> extends IndexIdentifier<E, K>, GigaIndex<E>
 	 * @return the same {@link Consumer} instance passed as the parameter, after it has been applied to all keys
 	 */
 	public <C extends Consumer<? super K>> C iterateKeys(C logic);
-	
-	
+
+	/**
+	 * Iterates the {@code (key, entityId)} pairs held by this index — one call per indexed entity —
+	 * <b>without loading the indexed entities themselves</b>. The mapping is reconstructed from the
+	 * index's own bitmap structures, so this is cheap even for indices whose entities carry large
+	 * payloads.
+	 * <p>
+	 * Order is unspecified. The consumer receives the reconstructed key and the entity id
+	 * (the entity's position in the owning {@code GigaMap}).
+	 * <p>
+	 * Not every index family supports this yet; the default throws {@link UnsupportedOperationException}.
+	 * It is currently implemented by the binary (bit-sliced) indices.
+	 *
+	 * @param consumer receives {@code (key, entityId)} for each indexed entity; must not be null
+	 * @throws UnsupportedOperationException if this index family does not support pair enumeration
+	 */
+	public default void iterateKeyEntityPairs(final ObjLongConsumer<? super K> consumer)
+	{
+		throw new UnsupportedOperationException(
+			this.getClass().getSimpleName() + " does not support iterateKeyEntityPairs"
+		);
+	}
+
+
 	@Override
 	public default boolean test(final E entity, final K key)
 	{
@@ -299,7 +322,19 @@ public interface BitmapIndex<E, K> extends IndexIdentifier<E, K>, GigaIndex<E>
 		protected abstract K indexEntity(I entity);
 		
 		public abstract <C extends Consumer<? super K>> C iterateKeys(C logic);
-		
+
+		/**
+		 * See {@link BitmapIndex#iterateKeyEntityPairs(ObjLongConsumer)}. Concrete (not abstract) so
+		 * only the index families that support value-free pair enumeration need override it; the rest
+		 * inherit this unsupported default.
+		 */
+		public void iterateKeyEntityPairs(final ObjLongConsumer<? super K> consumer)
+		{
+			throw new UnsupportedOperationException(
+				this.getClass().getSimpleName() + " does not support iterateKeyEntityPairs"
+			);
+		}
+
 		public abstract boolean internalContains(I entity);
 		
 		

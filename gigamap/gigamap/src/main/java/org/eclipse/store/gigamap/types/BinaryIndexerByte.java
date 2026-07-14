@@ -61,6 +61,17 @@ public interface BinaryIndexerByte<E> extends BinaryIndexerNumber<E, Byte>
 			return Byte.toUnsignedLong(number);
 		}
 
+		/**
+		 * Inverse of {@link #toLong(Byte)}: the {@code 1L << Byte.SIZE} sentinel maps back to
+		 * {@code 0}; otherwise re-narrowing the stored unsigned value with {@code (byte)} recovers the
+		 * signed key.
+		 */
+		@Override
+		public Long binaryToKey(final long stored)
+		{
+			return stored == (1L << Byte.SIZE) ? 0L : (long)(byte)stored;
+		}
+
 		protected abstract Byte getByte(final E entity);
 
 	}

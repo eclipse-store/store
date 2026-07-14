@@ -28,6 +28,9 @@ public class Product
 
 |`onDisk`
 |Whether the index is stored on disk; requires a directory (see below). Defaults to `false`.
+
+|`allowNull`
+|Whether the annotated member may be `null` for some entities. When `true`, an entity with a `null` vector has no embedding: it stays in the `GigaMap` but is excluded from the vector index and never appears in search results. Defaults to `false` (a `null` vector throws). See xref:indexing/jvector/advanced.adoc[Advanced Topics].
 |===
 
 The vector is read from the entity on demand (embedded mode), so it is not stored a second time by the index.

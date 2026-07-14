@@ -69,4 +69,15 @@ public @interface Vector
 	 * @return true to store the index on disk
 	 */
 	public boolean onDisk() default false;
+
+	/**
+	 * Whether the annotated member may produce a {@code null} vector for some entities. When
+	 * {@code true}, an entity whose vector is {@code null} has no embedding: it remains in the
+	 * {@code GigaMap} but is excluded from the vector index and never appears in search results.
+	 * When {@code false} (default), a {@code null} vector throws an {@link IllegalStateException}.
+	 *
+	 * @return true to permit entities without an embedding
+	 * @see org.eclipse.store.gigamap.jvector.Vectorizer#allowsNullVectors()
+	 */
+	public boolean allowNull() default false;
 }

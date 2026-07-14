@@ -41,14 +41,16 @@ extends AbstractBinaryHandlerStateChangeFlagged<VectorIndex.Default<?>>
         BINARY_OFFSET_name             = BINARY_OFFSET_parent        + Binary.objectIdByteLength(),
         BINARY_OFFSET_configuration    = BINARY_OFFSET_name          + Binary.objectIdByteLength(),
         BINARY_OFFSET_vectorizer       = BINARY_OFFSET_configuration + Binary.objectIdByteLength(),
-        BINARY_OFFSET_vectorStore      = BINARY_OFFSET_vectorizer    + Binary.objectIdByteLength(),
-        BINARY_LENGTH                  = BINARY_OFFSET_vectorStore   + Binary.objectIdByteLength(),
+        BINARY_OFFSET_vectorStore        = BINARY_OFFSET_vectorizer    + Binary.objectIdByteLength(),
+        BINARY_OFFSET_structuralModCount = BINARY_OFFSET_vectorStore   + Binary.objectIdByteLength(),
+        BINARY_LENGTH                    = BINARY_OFFSET_structuralModCount + Long.BYTES,
 
-        MEMORY_OFFSET_parent           = getClassDeclaredFieldOffset(genericType(), "parent"       ),
-        MEMORY_OFFSET_name             = getClassDeclaredFieldOffset(genericType(), "name"         ),
-        MEMORY_OFFSET_configuration    = getClassDeclaredFieldOffset(genericType(), "configuration"),
-        MEMORY_OFFSET_vectorizer       = getClassDeclaredFieldOffset(genericType(), "vectorizer"   ),
-        MEMORY_OFFSET_vectorStore      = getClassDeclaredFieldOffset(genericType(), "vectorStore"  )
+        MEMORY_OFFSET_parent             = getClassDeclaredFieldOffset(genericType(), "parent"            ),
+        MEMORY_OFFSET_name               = getClassDeclaredFieldOffset(genericType(), "name"              ),
+        MEMORY_OFFSET_configuration      = getClassDeclaredFieldOffset(genericType(), "configuration"     ),
+        MEMORY_OFFSET_vectorizer         = getClassDeclaredFieldOffset(genericType(), "vectorizer"        ),
+        MEMORY_OFFSET_vectorStore        = getClassDeclaredFieldOffset(genericType(), "vectorStore"       ),
+        MEMORY_OFFSET_structuralModCount = getClassDeclaredFieldOffset(genericType(), "structuralModCount")
     ;
 
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -73,11 +75,12 @@ extends AbstractBinaryHandlerStateChangeFlagged<VectorIndex.Default<?>>
         super(
             genericType(),
             CustomFields(
-                CustomField(VectorIndices.class           , "parent"          ),
-                CustomField(String.class                  , "name"            ),
-                CustomField(VectorIndexConfiguration.class, "configuration"   ),
-                CustomField(Vectorizer.class              , "vectorizer"      ),
-                CustomField(GigaMap.class                 , "vectorStore"     )
+                CustomField(VectorIndices.class           , "parent"            ),
+                CustomField(String.class                  , "name"              ),
+                CustomField(VectorIndexConfiguration.class, "configuration"     ),
+                CustomField(Vectorizer.class              , "vectorizer"        ),
+                CustomField(GigaMap.class                 , "vectorStore"       ),
+                CustomField(long.class                    , "structuralModCount")
             )
         );
     }
@@ -101,6 +104,7 @@ extends AbstractBinaryHandlerStateChangeFlagged<VectorIndex.Default<?>>
         data.storeReference(BINARY_OFFSET_configuration, handler, instance.configuration);
         data.storeReference(BINARY_OFFSET_vectorizer   , handler, instance.vectorizer   );
         data.storeReference(BINARY_OFFSET_vectorStore  , handler, instance.vectorStore  );
+        data.store_long    (BINARY_OFFSET_structuralModCount, instance.structuralModCount);
     }
 
     @Override
@@ -133,15 +137,20 @@ extends AbstractBinaryHandlerStateChangeFlagged<VectorIndex.Default<?>>
         final Vectorizer<?> vectorizer = (Vectorizer<?>)data.readReference(
             BINARY_OFFSET_vectorizer, handler
         );
-        final GigaMap<float[]> vectorStore = (GigaMap<float[]>)data.readReference(
+        final GigaMap<VectorEntry> vectorStore = (GigaMap<VectorEntry>)data.readReference(
             BINARY_OFFSET_vectorStore, handler
         );
+        // Legacy stores written before this field default to 0 here (the automatic legacy type
+        // mapping zero-fills an added primitive), which is safe: any pre-existing on-disk graph is
+        // rebuilt anyway because GRAPH_FILE_VERSION was bumped, so a 0 is never compared to a stale .meta.
+        final long structuralModCount = data.read_long(BINARY_OFFSET_structuralModCount);
 
         XMemory.setObject(instance, MEMORY_OFFSET_parent       , parent       );
         XMemory.setObject(instance, MEMORY_OFFSET_name         , name         );
         XMemory.setObject(instance, MEMORY_OFFSET_configuration, configuration);
         XMemory.setObject(instance, MEMORY_OFFSET_vectorizer   , vectorizer   );
         XMemory.setObject(instance, MEMORY_OFFSET_vectorStore  , vectorStore  );
+        XMemory.set_long (instance, MEMORY_OFFSET_structuralModCount, structuralModCount);
     }
 
     @Override

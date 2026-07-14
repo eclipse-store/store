@@ -61,6 +61,17 @@ public interface BinaryIndexerShort<E> extends BinaryIndexerNumber<E, Short>
 			return Short.toUnsignedLong(number);
 		}
 
+		/**
+		 * Inverse of {@link #toLong(Short)}: the {@code 1L << Short.SIZE} sentinel maps back to
+		 * {@code 0}; otherwise re-narrowing the stored unsigned value with {@code (short)} recovers the
+		 * signed key.
+		 */
+		@Override
+		public Long binaryToKey(final long stored)
+		{
+			return stored == (1L << Short.SIZE) ? 0L : (long)(short)stored;
+		}
+
 		protected abstract Short getShort(final E entity);
 
 	}

@@ -133,7 +133,7 @@ public final class VectorAnnotationHandler<E> implements GigaIndexAnnotationHand
 		vectorIndices.ensure(
 			name,
 			builder.build(),
-			new AnnotationVectorizer<>(member.getDeclaringClass(), member.getName(), method)
+			new AnnotationVectorizer<>(member.getDeclaringClass(), member.getName(), method, annotation.allowNull())
 		);
 	}
 

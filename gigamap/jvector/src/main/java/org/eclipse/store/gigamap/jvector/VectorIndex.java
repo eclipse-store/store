@@ -28,6 +28,7 @@ import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.serializer.persistence.binary.types.BinaryTypeHandler;
 import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.store.gigamap.types.AbstractStateChangeFlagged;
+import org.eclipse.store.gigamap.types.BitmapIndex;
 import org.eclipse.store.gigamap.types.GigaIndex;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.ScoredSearchResult;
@@ -40,6 +41,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -422,29 +424,61 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      *                    must not be null
      * @param k           the number of nearest neighbors to return; must be positive
      * @return the search result containing up to k entries; never null
-     * @throws IllegalArgumentException if queryEntity is null or k &lt;= 0
-     * @throws NullPointerException if the vectorizer returns null for the entity
+     * @throws IllegalArgumentException if queryEntity is null, k &lt;= 0, or the vectorizer
+     *                                  returns null for the entity (an entity without an
+     *                                  embedding cannot be used as a similarity query)
      * @see #search(float[], int)
      * @see Vectorizer#vectorize(Object)
      */
     public default VectorSearchResult<E> search(final E queryEntity, final int k)
     {
-        return this.search(this.vectorizer().vectorize(queryEntity), k);
+        return this.search(this.requireQueryVector(queryEntity), k);
     }
 
     /**
      * Searches for the k nearest neighbors to the given entity's vector with an explicit
      * per-query search beam width.
      *
-     * @param queryEntity     the query entity whose vector will be extracted via the vectorizer
+     * @param queryEntity     the query entity whose vector will be extracted via the vectorizer;
+     *                        must not be null
      * @param k               the number of nearest neighbors to return; must be positive
      * @param searchBeamWidth the beam width to use for this query; must be positive
      * @return the search result
+     * @throws IllegalArgumentException if queryEntity is null, {@code k} / {@code searchBeamWidth}
+     *                                  are not positive, or the vectorizer returns null for the
+     *                                  entity (an entity without an embedding cannot be used as
+     *                                  a similarity query)
      * @see #search(float[], int, int)
      */
     public default VectorSearchResult<E> search(final E queryEntity, final int k, final int searchBeamWidth)
     {
-        return this.search(this.vectorizer().vectorize(queryEntity), k, searchBeamWidth);
+        return this.search(this.requireQueryVector(queryEntity), k, searchBeamWidth);
+    }
+
+    /**
+     * Extracts the query vector from the given entity, rejecting both a null entity and a null
+     * result: an entity without an embedding has no meaningful similarity and cannot be used as
+     * a query.
+     *
+     * @param queryEntity the query entity; must not be null
+     * @return the non-null query vector
+     * @throws IllegalArgumentException if the entity is null, or the vectorizer returns null for it
+     */
+    private float[] requireQueryVector(final E queryEntity)
+    {
+        if(queryEntity == null)
+        {
+            throw new IllegalArgumentException("Query entity must not be null");
+        }
+        final float[] queryVector = this.vectorizer().vectorize(queryEntity);
+        if(queryVector == null)
+        {
+            throw new IllegalArgumentException(
+                "Query entity has no vector: the vectorizer returned null. "
+                    + "Entities without embeddings cannot be used as similarity queries."
+            );
+        }
+        return queryVector;
     }
 
     /**
@@ -614,7 +648,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * }</pre>
      *
      * @param entityId the entity ID whose vector to retrieve
-     * @return the vector as a float array, or {@code null} if no vector is found for the given entity ID
+     * @return the vector as a float array, or {@code null} if the entity has no vector — either
+     *         because no such entity is indexed, or because the entity has no embedding (when
+     *         the vectorizer {@link Vectorizer#allowsNullVectors() allows null vectors})
      */
     public float[] getVector(long entityId);
 
@@ -723,6 +759,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // Key: entity ID (used as ordinal), Value: vector
         final GigaMap<VectorEntry> vectorStore;
 
+        // Persisted, monotonically increasing count of graph-affecting mutations (add / remove /
+        // vec↔null transition). It is the witness used to detect, on reload, whether the persisted
+        // GigaMap state has advanced past the on-disk graph: the value is stamped into the disk
+        // .meta at persist time and compared against the store-recovered value in
+        // DiskIndexManager.verifyMetadata. Unlike parentMap().size()/highestUsedId(), it changes on
+        // a vec↔null transition, so it catches the crash-restart window those proxies are blind to.
+        // Not transient — it must survive (de)serialization.
+        long structuralModCount;
+
         // HNSW graph components (transient - rebuilt on load)
         private transient VectorTypeSupport vectorTypeSupport;
         private transient GraphIndexBuilder builder          ;
@@ -735,6 +780,26 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         // GraphSearcher pool for thread-local reuse
         private transient ExplicitThreadLocal<GraphSearcher> inMemorySearcherPool;
+
+        // Computed-mode fast index: source entity id (graph ordinal) -> vector store's own
+        // internal entity id. Lets vector lookups use a direct, lazy vectorStore.get(internalId)
+        // instead of an index query per call (which is far too costly on the hot scoring path),
+        // while still resolving by source entity id so it stays correct when the store's id
+        // allocator drifts from the parent's (deletion holes, or entities without an embedding
+        // that get no store entry). Null in embedded mode.
+        //
+        // Built lazily on first access via computedIdIndex(): from the vector store's identity index
+        // bitmaps (cheap, loads no VectorEntry / no vectors) once the store is queryable, falling back
+        // to a positional store scan during the deserialization window when the index registry is not
+        // yet wired. Deferring the build off the load path is what keeps incremental on-disk startup
+        // O(1) in the vector payload.
+        //
+        // Concurrency: a ConcurrentHashMap. The volatile FIELD is published (assigned) once under the
+        // vector store's own monitor by the double-checked lazy build in computedIdIndex() (a leaf
+        // lock — see there); search threads read it lock-free. Per-entry put/remove by mutations are
+        // not synchronized on that monitor — they rely on the map's own thread-safety and are serialized
+        // against each other by the parent GigaMap monitor the mutation already holds.
+        private transient volatile Map<Long, Long> computedIdIndex;
 
         // Incremental on-disk mode: after disk reload, use disk index for search
         // and in-memory builder only for new mutations. Full rebuild deferred to persistToDisk().
@@ -757,6 +822,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // ensures any in-flight mutation completes before cleanup begins.
         private transient volatile boolean                cleanupInProgress;
         private transient ConcurrentLinkedQueue<Runnable> deferredBuilderOps;
+
+        // Test-only seam: run once at the start of persist Phase 2 (parentMap monitor released,
+        // builder about to be swapped by reenterIncrementalMode). Lets a test deterministically inject
+        // a mutation into the exact window where a deferred builder op is drained after the swap.
+        // Null (and a no-op) in production. See VectorIndex(persist-window deletion) regression test.
+        transient volatile Runnable persistPhase2TestHook;
 
 
         ///////////////////////////////////////////////////////////////////////////
@@ -845,6 +916,86 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.addGraphNodesSequential(entries);
         }
 
+        /**
+         * Returns the computed-mode {@link #computedIdIndex}, building it lazily on first access.
+         * {@code null} in embedded mode (or before the vector store exists).
+         * <p>
+         * The build is deferred out of {@code complete()}: at deserialization time the vector store's
+         * index registry is not yet queryable, and — more importantly — building eagerly there would
+         * reintroduce the O(n) I/O + heap spike that incremental on-disk mode exists to avoid. On first
+         * access the map is reconstructed cheaply from the identity index bitmaps (no {@link VectorEntry},
+         * no vectors); see {@link #buildComputedIdIndex()}.
+         * <p>
+         * Thread-safety: double-checked with {@link #computedIdIndex} volatile. The build holds the
+         * vector store's own monitor — a leaf lock independent of the parent GigaMap monitor and
+         * {@code builderLock}, so triggering it from a search (under {@code builderLock.readLock}) or a
+         * mutation (under the parent monitor) cannot deadlock. Mutations route their store lookups
+         * through this accessor too, so the map is present before any {@code put}/{@code get}.
+         */
+        private Map<Long, Long> computedIdIndex()
+        {
+            if(this.isEmbedded() || this.vectorStore == null)
+            {
+                return null;
+            }
+            Map<Long, Long> idx = this.computedIdIndex;
+            if(idx == null)
+            {
+                synchronized(this.vectorStore)
+                {
+                    idx = this.computedIdIndex;
+                    if(idx == null)
+                    {
+                        this.computedIdIndex = idx = this.buildComputedIdIndex();
+                    }
+                }
+            }
+            return idx;
+        }
+
+        /**
+         * Builds the {@code sourceEntityId -> storeId} map. Preferred path: reconstruct it from the
+         * vector store's {@code sourceEntityId} identity index bitmaps via
+         * {@link org.eclipse.store.gigamap.types.BitmapIndex#iterateKeyEntityPairs}, loading no
+         * {@code VectorEntry} and therefore no stored vectors. Fallback (index registry not yet
+         * queryable, i.e. the {@code complete()} deserialization window): a positional store scan.
+         * The fallback is only reached by a non-incremental graph rebuild, which loads every vector
+         * anyway, so its value pass is not an added cost.
+         */
+        private Map<Long, Long> buildComputedIdIndex()
+        {
+            final Map<Long, Long> index = new ConcurrentHashMap<>();
+            final BitmapIndex<VectorEntry, Long> idIndex = this.vectorStore.index().bitmap()
+                .get(Long.class, VectorEntry.SOURCE_ENTITY_ID_INDEXER.name());
+            if(idIndex != null)
+            {
+                // (key = sourceEntityId, entityId = storeId) — no value loaded.
+                idIndex.iterateKeyEntityPairs((sourceEntityId, storeId) -> index.put(sourceEntityId, storeId));
+            }
+            else
+            {
+                this.vectorStore.iterateIndexed((storeId, entry) -> index.put(entry.sourceEntityId, storeId));
+            }
+            return index;
+        }
+
+        /**
+         * Resolves the raw vector for a graph ordinal (source entity id) in computed mode via the
+         * {@link #computedIdIndex} and a direct, lazy {@code vectorStore.get(internalId)} — no index
+         * query on the hot scoring path. Returns {@code null} if the entity has no stored vector.
+         */
+        private float[] lookupComputedVector(final int ordinal)
+        {
+            final Map<Long, Long> index = this.computedIdIndex();
+            final Long storeId = index == null ? null : index.get((long)ordinal);
+            if(storeId == null)
+            {
+                return null;
+            }
+            final VectorEntry entry = this.vectorStore.get(storeId);
+            return entry == null ? null : entry.vector;
+        }
+
         private List<VectorEntry> collectStoredVectors()
         {
             final List<VectorEntry> entries = new ArrayList<>();
@@ -854,15 +1005,26 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.parentMap().iterateIndexed((entityId, entity) ->
                 {
                     final float[] vector = this.vectorize(entity);
-                    entries.add(new VectorEntry(entityId, vector));
+                    // Entities without an embedding (opted-in null vectors) are not graph nodes.
+                    if(vector != null)
+                    {
+                        entries.add(new VectorEntry(entityId, vector));
+                    }
                 });
             }
             else
             {
-                // Computed mode: rebuild from vector store
+                // Computed mode: rebuild from vector store. Null-vector entries are never
+                // stored, but keep a defensive filter in case of legacy data.
                 if(this.vectorStore != null && !this.vectorStore.isEmpty())
                 {
-                    this.vectorStore.iterate(entries::add);
+                    this.vectorStore.iterate(entry ->
+                    {
+                        if(entry.vector != null)
+                        {
+                            entries.add(entry);
+                        }
+                    });
                 }
             }
 
@@ -882,6 +1044,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 this.deferredBuilderOps = new ConcurrentLinkedQueue<>();
             }
+
+            // Reset the computed-mode fast lookup index; it is (re)built lazily on first access
+            // (see computedIdIndex()). Clearing here covers reinitialization after internalRemoveAll,
+            // where a stale map would otherwise survive. A non-incremental graph rebuild that follows
+            // triggers the lazy build itself via lookupComputedVector() during node scoring.
+            this.computedIdIndex = null;
 
             // Initialize PQ manager if compression enabled
             if(this.configuration.enablePqCompression())
@@ -1157,9 +1325,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             if(vector == null)
             {
+                // Null means "this entity has no embedding" when the vectorizer opts in;
+                // it is then excluded from the graph. Otherwise fail fast.
+                if(this.vectorizer.allowsNullVectors())
+                {
+                    return null;
+                }
                 throw new IllegalStateException(
                     "Null vector returned from vectorizer in index \"" + this.name()
-                        + "\" (vectorizer: " + this.vectorizer.getClass().getName() + ")"
+                        + "\" (vectorizer: " + this.vectorizer.getClass().getName() + "). "
+                        + "Override Vectorizer.allowsNullVectors() to permit entities without embeddings."
                 );
             }
 
@@ -1188,6 +1363,26 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         public final GigaMap<E> parentMap()
         {
             return this.parent.parentMap();
+        }
+
+        /**
+         * Records a graph-affecting content change: bumps the persisted {@link #structuralModCount}
+         * (the crash-restart witness stamped into the disk {@code .meta}) and marks the index dirty
+         * for the next persist. Use in place of {@link #markStateChangeChildren()} at content
+         * mutation sites (add / remove / vec↔null transition); do NOT use it for {@code optimize()},
+         * which reshapes the graph without changing logical content and must not force a rebuild.
+         * <p>
+         * Marks BOTH the instance and children dirty: {@code structuralModCount} is a field of this
+         * instance, so it is only re-serialized when the instance itself is flagged
+         * AbstractStateChangeFlagged#isInstanceNewOrChanged() gates {@code internalStore}) —
+         * {@code markStateChangeChildren()} alone would persist only children (e.g. the computed-mode
+         * {@code vectorStore}) and silently drop the counter.
+         */
+        private void markContentChanged()
+        {
+            this.structuralModCount++;
+            this.markStateChangeInstance();
+            this.markStateChangeChildren();
         }
 
         @Override
@@ -1234,15 +1429,24 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.ensureIndexInitialized();
 
             final float[] vector = this.vectorize(entity);
+
+            // Null vector (opted-in): the entity has no embedding — keep it out of the vector
+            // store and the graph entirely, so it never appears in search results.
+            if(vector == null)
+            {
+                return;
+            }
+
             final VectorEntry vectorEntry = new VectorEntry(entityId, vector);
 
             // Store based on vectorizer type
             if(!this.isEmbedded())
             {
-                this.vectorStore.add(vectorEntry);
+                final long storeId = this.vectorStore.add(vectorEntry);
+                this.computedIdIndex().put(entityId, storeId);
             }
 
-            this.markStateChangeChildren();
+            this.markContentChanged();
 
             if(this.isEventualIndexing())
             {
@@ -1290,31 +1494,87 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
             this.ensureIndexInitialized();
 
-            final float[] vector = this.vectorize(entity);
-            final VectorEntry vectorEntry = new VectorEntry(entityId, vector);
+            final float[]  vector   = this.vectorize(entity);
+            final int      ordinal  = toOrdinal(entityId);
+            final boolean  embedded = this.isEmbedded();
 
-            // Update based on vectorizer type
-            if(!this.isEmbedded())
+            // Update the computed-mode vector store to reflect the new (possibly absent) vector.
+            // Keyed by source entity id (not positionally), so the four vec/null transitions map
+            // cleanly onto add / replace / remove.
+            boolean changed = false;
+            if(!embedded)
             {
-                this.vectorStore.set(entityId, vectorEntry);
+                // Resolve the store-internal id by source entity id via the fast index, then
+                // mutate via id-based ops (set / removeById / add), keeping the index in sync.
+                final Map<Long, Long> computedIdIndex = this.computedIdIndex();
+                final Long storeId = computedIdIndex.get(entityId);
+                if(vector == null)
+                {
+                    // vec→null: drop the stored entry so the entity is no longer indexed.
+                    // null→null: nothing stored, nothing to do.
+                    if(storeId != null)
+                    {
+                        this.vectorStore.removeById(storeId);
+                        computedIdIndex.remove(entityId);
+                        changed = true;
+                    }
+                }
+                else if(storeId != null)
+                {
+                    // vec→vec (store-internal id unchanged)
+                    this.vectorStore.set(storeId, new VectorEntry(entityId, vector));
+                    changed = true;
+                }
+                else
+                {
+                    // null→vec: the entity gains an embedding.
+                    final long newStoreId = this.vectorStore.add(new VectorEntry(entityId, vector));
+                    computedIdIndex.put(entityId, newStoreId);
+                    changed = true;
+                }
             }
 
-            this.markStateChangeChildren();
+            // Persisted structural-change witness: driven by the logical (id→vector) transition,
+            // NOT the in-memory graph op below. In incremental mode an embedded vec→null removes a
+            // disk-resident node the in-memory builder never held, so the graph-op flag would miss
+            // it (and the crash-restart rebuild would not trigger); classify embedded transitions
+            // from the old vector instead. Computed mode's store block above already set `changed`
+            // precisely (the four transitions map onto add / set / remove / no-op).
+            final boolean contentChanged;
+            if(embedded)
+            {
+                // A non-null new vector is always a change (null→vec or vec→vec). Only a null new vector
+                // needs the old vector — to tell vec→null (a change) from null→null (the only no-op) —
+                // so re-vectorize replacedEntity solely on that path, not on the common non-null update.
+                contentChanged = vector != null
+                    || (replacedEntity != null && this.vectorize(replacedEntity) != null);
+            }
+            else
+            {
+                contentChanged = changed;
+            }
 
-            final int ordinal = toOrdinal(entityId);
-
-            // In incremental mode, mark the ordinal as deleted from disk graph
-            // so disk search excludes the stale version immediately,
-            // regardless of whether indexing is synchronous or eventual.
-            if(this.incrementalMode && this.diskDeletedOrdinals != null)
+            // In incremental mode, mark the ordinal as deleted from disk graph so disk search excludes
+            // the stale version immediately, regardless of whether indexing is synchronous or eventual.
+            // Gated on contentChanged: a null→null no-op has no stale disk version to exclude, and
+            // adding it would only bloat diskDeletedOrdinals and enlarge the boolean[maxOrdinal+1] mask
+            // rebuilt in createDiskAcceptBits() on every search.
+            if(contentChanged && this.incrementalMode && this.diskDeletedOrdinals != null)
             {
                 this.diskDeletedOrdinals.add(ordinal);
             }
 
             if(this.isEventualIndexing())
             {
-                // Defer graph update to background thread
-                this.backgroundTaskManager.enqueueUpdate(vectorEntry);
+                // Only a real (id→vector) transition needs background graph work. null→null is a no-op
+                // in both modes; contentChanged is the reliable synchronous witness (for embedded it is
+                // derived from the old vector above, so — unlike the raw graph-op flag — it is not racy
+                // against queued mutations). applyGraphUpdate then derives the actual transition
+                // (add / delete / delete+re-add) from the enqueued entry's vector nullness.
+                if(contentChanged)
+                {
+                    this.backgroundTaskManager.enqueueUpdate(new VectorEntry(entityId, vector));
+                }
             }
             else
             {
@@ -1326,18 +1586,61 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.drainDeferredBuilderOps();
                 }
 
-                if(this.isEmbedded())
+                final boolean inGraph = this.index != null && this.index.containsNode(ordinal);
+
+                if(vector == null)
                 {
-                    // For embedded vectorizers: removeDeletedNodes() uses ForkJoinPool
-                    // whose workers call parentMap.get(), deadlocking with the GigaMap
-                    // monitor we hold. Instead, let the next optimize/persist cycle
-                    // rebuild the graph connections. The updated entity is already in
-                    // the GigaMap, so EntityBackedVectorValues will return the new
-                    // vector for similarity scoring during search.
+                    // vec→null / null→null: remove the node from the in-memory graph if present.
+                    // No removeDeletedNodes() — unnecessary (markNodeDeleted already excludes it
+                    // from liveNodes), and its ForkJoinPool would deadlock with the GigaMap
+                    // monitor we hold for embedded vectorizers.
+                    // Route through internalMarkOrdinalDeleted so a deferral drained after a persist
+                    // builder swap still records the deletion (via diskDeletedOrdinals) instead of
+                    // no-op'ing against the new empty builder.
+                    if(inGraph)
+                    {
+                        this.executeOrDeferBuilderOp(() -> this.internalMarkOrdinalDeleted(ordinal));
+                        changed = true;
+                    }
+                }
+                else if(embedded)
+                {
+                    // Three distinct embedded, non-null transitions, distinguished by graph state.
+                    // Note containsNode() alone is NOT enough: jvector's markNodeDeleted() only sets
+                    // a deleted bit and leaves the node in layer 0, so containsNode() stays true for
+                    // a marked-deleted node. A prior vec→null in this same session (without an
+                    // intervening optimize) leaves the node present-but-deleted, which is a third
+                    // case the plain !inGraph guard would silently mis-handle.
+                    if(!inGraph)
+                    {
+                        // null→vec: the node was never added (or a prior optimize physically removed
+                        // it) — add it now. addGraphNode alone is monitor-safe (no removeDeletedNodes),
+                        // the same call internalAdd makes.
+                        final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+                        this.executeOrDeferBuilderOp(() -> this.builder.addGraphNode(ordinal, vf));
+                    }
+                    else if(this.index.getDeletedNodes().get(ordinal))
+                    {
+                        // vec→null→vec on the SAME entity: the node is still present but marked
+                        // deleted. Resurrect it by clearing the deleted bit — monitor-safe (no
+                        // ForkJoinPool), unlike removeDeletedNodes()+addGraphNode, whose workers
+                        // call parentMap.get() and would deadlock with the GigaMap monitor we hold.
+                        // The node keeps its (now stale) neighbor links and search re-scores it live
+                        // from the entity via EntityBackedVectorValues — identical to the vec→vec
+                        // "leave as-is" contract below; the next optimize/persist rebuilds connections.
+                        // Without this, the entity would stay excluded from liveNodes() forever.
+                        this.executeOrDeferBuilderOp(() -> this.index.getDeletedNodes().clear(ordinal));
+                    }
+                    // else vec→vec: leave the graph as-is — removeDeletedNodes() uses a ForkJoinPool
+                    // whose workers call parentMap.get(), deadlocking with the GigaMap monitor we
+                    // hold. The updated entity is already in the GigaMap, so EntityBackedVectorValues
+                    // returns the new vector during search, and the next optimize/persist cycle
+                    // rebuilds the graph connections.
+                    changed = true;
                 }
                 else
                 {
-                    // For computed vectorizers: vectors are stored separately, so
+                    // Computed, non-null (vec→vec or null→vec): vectors are stored separately, so
                     // removeDeletedNodes() won't call parentMap.get(). Safe to inline.
                     final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
                     this.executeOrDeferBuilderOp(() ->
@@ -1349,10 +1652,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         }
                         this.builder.addGraphNode(ordinal, vf);
                     });
+                    changed = true;
                 }
 
-                // Mark dirty for background managers
-                this.markDirtyForBackgroundManagers(1);
+                if(changed)
+                {
+                    this.markDirtyForBackgroundManagers(1);
+                }
+            }
+
+            // Bump the persisted structural-change counter + mark the index dirty whenever the
+            // logical mapping changed — independent of whether an in-memory graph op ran, so an
+            // incremental-mode disk-node deletion (embedded vec→null) is still recorded and forces
+            // a crash-restart rebuild. null→null is the only case that skips this.
+            if(contentChanged)
+            {
+                this.markContentChanged();
             }
         }
 
@@ -1386,17 +1701,38 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         /**
          * Adds vector entries to the index.
          */
-        private void addVectorEntries(final List<VectorEntry> entries)
+        private void addVectorEntries(final List<VectorEntry> entriesIncludingNulls)
         {
             // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
             this.ensureIndexInitialized();
 
-            if(!this.isEmbedded())
+            // Drop entries without a vector (opted-in null embeddings): they get neither a
+            // vector store entry nor a graph node, so they never appear in search results.
+            // The kept entries carry their own sourceEntityId, so filtering does not disturb
+            // id alignment.
+            final List<VectorEntry> entries = entriesIncludingNulls.stream()
+                .filter(e -> e.vector != null)
+                .toList()
+            ;
+
+            if(entries.isEmpty())
             {
-                this.vectorStore.addAll(entries);
+                return;
             }
 
-            this.markStateChangeChildren();
+            if(!this.isEmbedded())
+            {
+                // Add individually to capture each store-internal id for the fast index; robust
+                // against hole reuse (a batch addAll only reports the last assigned id).
+                final Map<Long, Long> computedIdIndex = this.computedIdIndex();
+                for(final VectorEntry entry : entries)
+                {
+                    final long storeId = this.vectorStore.add(entry);
+                    computedIdIndex.put(entry.sourceEntityId, storeId);
+                }
+            }
+
+            this.markContentChanged();
 
             if(this.isEventualIndexing())
             {
@@ -1441,6 +1777,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             entries.forEach(entry ->
             {
+                if(entry.vector == null)
+                {
+                    // Entities without an embedding are excluded from the graph.
+                    return;
+                }
                 final int ordinal = toOrdinal(entry.sourceEntityId);
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
                 this.builder.addGraphNode(ordinal, vf);
@@ -1456,10 +1797,18 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final int ordinal = toOrdinal(entityId);
             if(!this.isEmbedded())
             {
-                this.vectorStore.removeById(entityId);
+                // Resolve by source entity id via the fast index; a never-indexed entity
+                // (null embedding) simply has no entry and nothing is removed.
+                final Map<Long, Long> computedIdIndex = this.computedIdIndex();
+                final Long storeId = computedIdIndex.get(entityId);
+                if(storeId != null)
+                {
+                    this.vectorStore.removeById(storeId);
+                    computedIdIndex.remove(entityId);
+                }
             }
 
-            this.markStateChangeChildren();
+            this.markContentChanged();
 
             // In incremental mode, mark the ordinal as deleted from disk graph
             // so disk search excludes it immediately, even before background
@@ -1484,10 +1833,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                 // Mark deleted in the in-memory builder if the node exists there
                 // (e.g., added after disk reload). Disk-only nodes are excluded
-                // via diskDeletedOrdinals and won't be in the builder.
+                // via diskDeletedOrdinals and won't be in the builder. Route through
+                // internalMarkOrdinalDeleted so a deferral drained after a persist builder swap
+                // still records the deletion instead of no-op'ing against the new empty builder.
                 if(this.index != null && this.index.containsNode(ordinal))
                 {
-                    this.executeOrDeferBuilderOp(() -> this.builder.markNodeDeleted(ordinal));
+                    this.executeOrDeferBuilderOp(() -> this.internalMarkOrdinalDeleted(ordinal));
                 }
 
                 // Mark dirty for background managers
@@ -1528,7 +1879,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                 // Reinitialize the index (this will also restart background managers if configured)
                 this.initializeIndex();
-                this.markStateChangeChildren();
+                this.markContentChanged();
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
@@ -1552,7 +1903,19 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return this.vectorizer.vectorize(entity);
             }
 
-            final VectorEntry entry = this.vectorStore.get(entityId);
+            // Resolve via the fast source-id index (built lazily on first access); fall back to a
+            // direct identity-index query only in the defensive case where it is unavailable.
+            final Map<Long, Long> idIndex = this.computedIdIndex();
+            final VectorEntry entry;
+            if(idIndex != null)
+            {
+                final Long storeId = idIndex.get(entityId);
+                entry = storeId == null ? null : this.vectorStore.get(storeId);
+            }
+            else
+            {
+                entry = VectorEntry.lookup(this.vectorStore, entityId);
+            }
             if(entry == null)
             {
                 return null;
@@ -1574,6 +1937,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         private VectorSearchResult<E> doSearch(final float[] queryVector, final int k, final int rerankK)
         {
+            if(queryVector == null)
+            {
+                throw new IllegalArgumentException("Query vector must not be null");
+            }
+            // Enforce the documented k > 0 precondition here, the single funnel for every search
+            // overload (float[] and entity-based, with and without an explicit beam width), rather
+            // than letting a non-positive topK reach jvector's searcher.
+            if(k <= 0)
+            {
+                throw new IllegalArgumentException("k must be positive: " + k);
+            }
             this.validateDimension(queryVector);
 
             // Acquire read lock — blocks during cleanup/persistence/removeAll/close,
@@ -1894,7 +2268,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.vectorTypeSupport
                 )
                 : new GigaMapBackedVectorValues.Caching(
-                    this.vectorStore,
+                    this::lookupComputedVector,
+                    // RAVV size() is the dense ordinal upper bound (getVector must be valid for
+                    // [0, size())), NOT the vector count. Graph ordinals are source entity ids, so with
+                    // null embeddings / deletion holes the highest ordinal exceeds vectorStore.size().
+                    // PQ encodeAll() builds a dense PQVectors of this length and FusedPQ / PQ search then
+                    // index it by graph ordinal — an under-reported count skips/overflows high ordinals
+                    // (IndexOutOfBoundsException). Match the graph's ordinal space (see getHighestEntityId()).
+                    () -> Math.toIntExact(this.parentMap().highestUsedId() + 1),
                     this.configuration.dimension(),
                     this.vectorTypeSupport
                 );
@@ -2031,6 +2412,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     final RandomAccessVectorValues capturedRavv   ;
                     final PQCompressionManager     capturedPqMgr  ;
                     final DiskIndexManager         capturedDiskMgr;
+                    final DiskIndexManager.MetaState capturedMeta ;
 
                     final GraphIndexBuilder        capturedBuilder;
 
@@ -2079,6 +2461,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         );
                         capturedPqMgr   = this.pqManager;
                         capturedDiskMgr = this.diskManager;
+
+                        // Sample the .meta witnesses at the same instant the graph is captured, under
+                        // the monitor, so a Phase-2 vec↔null mutation cannot advance them past the
+                        // written graph (see DiskIndexManager.MetaState).
+                        capturedMeta    = new DiskIndexManager.MetaState(
+                            this.getExpectedVectorCount(),
+                            this.getHighestEntityId(),
+                            this.getStructuralModCount()
+                        );
                     }
 
                     // Phase 2: Cleanup and disk write outside synchronized(parentMap).
@@ -2086,8 +2477,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // background worker mutations, removeAll, and close.
                     // parentMap monitor is released, so ForkJoinPool workers and
                     // disk writer threads can call parentMap.get() for embedded vectors.
+
+                    // Test-only injection point: exercises the window where a sync mutation defers a
+                    // builder op that is drained only after the builder is swapped below. No-op in prod.
+                    final Runnable hook = this.persistPhase2TestHook;
+                    if(hook != null)
+                    {
+                        hook.run();
+                    }
+
                     capturedBuilder.cleanup();
-                    capturedDiskMgr.writeIndex(capturedIndex, capturedRavv, capturedPqMgr);
+                    capturedDiskMgr.writeIndex(capturedIndex, capturedRavv, capturedPqMgr, capturedMeta);
 
                     // After writing, re-enter incremental mode for fast subsequent operation
                     this.reenterIncrementalMode();
@@ -2398,7 +2798,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.vectorTypeSupport
                 )
                 : new GigaMapBackedVectorValues(
-                    this.vectorStore,
+                    this::lookupComputedVector,
+                    // RAVV size() is the dense ordinal upper bound (getVector must be valid for
+                    // [0, size())), NOT the vector count. Graph ordinals are source entity ids, so with
+                    // null embeddings / deletion holes the highest ordinal exceeds vectorStore.size().
+                    // PQ encodeAll() builds a dense PQVectors of this length and FusedPQ / PQ search then
+                    // index it by graph ordinal — an under-reported count skips/overflows high ordinals
+                    // (IndexOutOfBoundsException). Match the graph's ordinal space (see getHighestEntityId()).
+                    () -> Math.toIntExact(this.parentMap().highestUsedId() + 1),
                     this.configuration.dimension(),
                     this.vectorTypeSupport
                 );
@@ -2425,14 +2832,26 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(this.isEmbedded())
             {
                 this.parentMap().iterate(entity ->
-                    vectors.add(this.vectorTypeSupport.createFloatVector(this.vectorize(entity)))
-                );
+                {
+                    final float[] vector = this.vectorize(entity);
+                    // Skip entities without an embedding — they are not part of the graph and
+                    // must not feed PQ codebook training.
+                    if(vector != null)
+                    {
+                        vectors.add(this.vectorTypeSupport.createFloatVector(vector));
+                    }
+                });
             }
             else if(this.vectorStore != null)
             {
+                // Computed mode never stores null-vector entries; guard defensively anyway.
                 this.vectorStore.iterate(entry ->
-                    vectors.add(this.vectorTypeSupport.createFloatVector(entry.vector))
-                );
+                {
+                    if(entry.vector != null)
+                    {
+                        vectors.add(this.vectorTypeSupport.createFloatVector(entry.vector));
+                    }
+                });
             }
 
             return vectors;
@@ -2443,6 +2862,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public long getExpectedVectorCount()
         {
+            // Counts indexed entities, NOT graph nodes. In computed mode the two are equal
+            // (null-vector entities have no store entry). In embedded mode this can over-count
+            // when some entities have no embedding — that is fine for the disk metadata check,
+            // which compares this value against itself on write and read, and for the PQ
+            // training gate, which trains on the actually-collected (non-null) vectors.
             if(this.isEmbedded())
             {
                 return this.parentMap().size();
@@ -2459,10 +2883,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // Always use the parent GigaMap's id space — that is the ordinal
             // space the HNSW graph is keyed on (via toOrdinal(entityId)) in
             // both embedded and computed-vector modes. The computed-mode
-            // vectorStore has its own monotonic id allocator that can drift
+            // vectorStore has its own monotonic id allocator that diverges
             // from the parent map's (e.g. when an index is registered against
-            // a parent with deletion holes), so it is unsafe as a stand-in.
+            // a parent with deletion holes, or when some entities have no
+            // embedding and so get no vectorStore entry at all), so it is
+            // unsafe as a stand-in. Note this is only about the highest-id
+            // bound: per-entity vector lookups no longer assume alignment —
+            // they resolve by VectorEntry.sourceEntityId (see lookupComputedVector).
             return this.parentMap().highestUsedId();
+        }
+
+        @Override
+        public long getStructuralModCount()
+        {
+            // The persisted witness stamped into the disk .meta at write time and compared on
+            // reload. Unlike count/highestId it changes on vec↔null transitions, closing the
+            // crash-restart window where a stale on-disk graph would otherwise be accepted.
+            return this.structuralModCount;
         }
 
         // ================================================================
@@ -2475,6 +2912,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // Called from the background indexing worker thread (not from GigaMap's
             // synchronized methods), so we use builderLock.readLock() to coordinate
             // with cleanup (writeLock).
+            if(entry.vector == null)
+            {
+                // Entity has no embedding — nothing to add to the graph. Callers already
+                // filter these out; this is a defensive guard on the worker thread.
+                return;
+            }
             this.builderLock.readLock().lock();
             try
             {
@@ -2497,6 +2940,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 for(final var entry : entries)
                 {
+                    if(entry.vector == null)
+                    {
+                        // Entity has no embedding — excluded from the graph.
+                        continue;
+                    }
                     final int ordinal = toOrdinal(entry.sourceEntityId);
                     final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
                     this.builder.addGraphNode(ordinal, vf);
@@ -2515,8 +2963,25 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             try
             {
                 final int ordinal = toOrdinal(entry.sourceEntityId);
-                this.builder.markNodeDeleted(ordinal);
-                this.builder.removeDeletedNodes();
+                final boolean inGraph = this.index != null && this.index.containsNode(ordinal);
+
+                if(entry.vector == null)
+                {
+                    // vec→null / null→null: remove the node if present, otherwise nothing to do.
+                    if(inGraph)
+                    {
+                        this.builder.markNodeDeleted(ordinal);
+                    }
+                    return;
+                }
+
+                // vec→vec: delete the stale node then re-add. null→vec: the node is absent,
+                // so add it directly without the (invalid) delete.
+                if(inGraph)
+                {
+                    this.builder.markNodeDeleted(ordinal);
+                    this.builder.removeDeletedNodes();
+                }
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
                 this.builder.addGraphNode(ordinal, vf);
             }
@@ -2532,7 +2997,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.readLock().lock();
             try
             {
-                this.builder.markNodeDeleted(ordinal);
+                // Guard against removing a never-indexed entity (e.g. one that never had an
+                // embedding): markNodeDeleted on an absent node would fail.
+                if(this.index != null && this.index.containsNode(ordinal))
+                {
+                    this.builder.markNodeDeleted(ordinal);
+                }
             }
             finally
             {
@@ -2544,6 +3014,29 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // ================================================================
         // Builder operation deferral helpers
         // ================================================================
+
+        /**
+         * Marks a graph ordinal deleted, re-deriving the target from CURRENT state at execution time
+         * rather than from a captured builder reference. This matters when the op is deferred
+         * (via {@link #executeOrDeferBuilderOp}) during a persist and drained afterwards: {@code
+         * doPersistToDisk} swaps the in-memory builder (exit/reenter incremental mode) between deferral
+         * and drain, so a captured {@code builder.markNodeDeleted(ordinal)} would land on the new, empty
+         * builder and be lost — leaving the entity live on the reloaded disk graph until the next
+         * persist. Recording the deletion in {@link #diskDeletedOrdinals} (when incremental) makes it
+         * survive the swap; the in-builder {@code markNodeDeleted} is applied only when the node is
+         * actually present in the current builder.
+         */
+        private void internalMarkOrdinalDeleted(final int ordinal)
+        {
+            if(this.incrementalMode && this.diskDeletedOrdinals != null)
+            {
+                this.diskDeletedOrdinals.add(ordinal);
+            }
+            if(this.index != null && this.index.containsNode(ordinal))
+            {
+                this.builder.markNodeDeleted(ordinal);
+            }
+        }
 
         /**
          * Executes a builder operation immediately, or defers it if cleanup is in progress.

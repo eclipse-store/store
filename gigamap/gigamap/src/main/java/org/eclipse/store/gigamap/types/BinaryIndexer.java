@@ -49,6 +49,30 @@ public interface BinaryIndexer<E> extends Indexer<E, Long>
 	 * @return the long identifier corresponding to the given entity
 	 */
 	public long indexBinary(E entity);
+
+	/**
+	 * Reconstructs the index key from the raw {@code long} bit pattern that a binary bitmap index
+	 * stores for an entity — the inverse of {@link #indexBinary(Object)}'s internal encoding. This
+	 * lets {@link BitmapIndex#iterateKeyEntityPairs(java.util.function.ObjLongConsumer)} recover the
+	 * key for each entity from the index's per-bit-position bitmaps without loading the entity itself.
+	 * <p>
+	 * The default throws {@link UnsupportedOperationException}: since indexers generally apply a
+	 * non-identity encoding (unsigned mapping, zero sentinels, sortable float bits), a blanket identity
+	 * inverse would silently emit encoded/sentinel values instead of real keys. Each indexer whose
+	 * encoding can be inverted overrides this (currently {@link BinaryIndexerLong} and the integer
+	 * indexers); {@code iterateKeyEntityPairs} therefore fails fast on indexers that do not support
+	 * reconstruction rather than yielding wrong keys.
+	 *
+	 * @param stored the raw stored {@code long} bit pattern
+	 * @return the reconstructed key
+	 * @throws UnsupportedOperationException if this indexer's encoding cannot be inverted
+	 */
+	public default Long binaryToKey(final long stored)
+	{
+		throw new UnsupportedOperationException(
+			this.getClass().getSimpleName() + " does not support key reconstruction (binaryToKey)"
+		);
+	}
 	
 	/**
 	 * Creates an equality condition for the given key. This condition checks whether

@@ -61,6 +61,17 @@ public interface BinaryIndexerInteger<E> extends BinaryIndexerNumber<E, Integer>
 			return Integer.toUnsignedLong(number);
 		}
 
+		/**
+		 * Inverse of {@link #toLong(Integer)}: the {@code 1L << Integer.SIZE} sentinel maps back to
+		 * {@code 0}; every other stored value is the unsigned representation of the original int, so
+		 * re-narrowing its low 32 bits with {@code (int)} recovers the signed key.
+		 */
+		@Override
+		public Long binaryToKey(final long stored)
+		{
+			return stored == (1L << Integer.SIZE) ? 0L : (long)(int)stored;
+		}
+
 		protected abstract Integer getInteger(final E entity);
 
 	}
