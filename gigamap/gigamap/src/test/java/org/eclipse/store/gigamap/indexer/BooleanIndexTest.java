@@ -286,6 +286,47 @@ public class BooleanIndexTest
 
     }
 
+    @Test
+    void addWithoutInitialization_skipsBackfill_butIsFalseInvertsOverIdRange()
+    {
+        // Load-bearing test for lazy, no-back-fill per-value indexes (the mechanism CYROCK.DB's
+        // per-label boolean indexes rely on): a boolean index added AFTER entities already exist is
+        // NOT back-filled - its TRUE set stays empty - yet isFalse() still returns every entity,
+        // because it inverts the TRUE bitmap over the GigaMap's global id range, not over the set of
+        // entities this particular index has seen.
+        GigaMap<BooleanPerson> map = GigaMap.New();
+
+        // Populate BEFORE the index exists.
+        map.add(new BooleanPerson("Alice",   true));
+        map.add(new BooleanPerson("Bob",     false));
+        map.add(new BooleanPerson("Charlie", true));
+
+        // Register without back-fill. (For a real label index this is safe by construction: a brand
+        // new label has no pre-existing members. Here we deliberately violate that to prove the
+        // no-back-fill semantics - Alice/Charlie are true but were never indexed.)
+        map.index().bitmap().addWithoutInitialization(this.booleanPersonIndex);
+
+        // No back-fill: the pre-existing TRUE-valued entities are NOT in the TRUE set...
+        assertEquals(0, map.query(this.booleanPersonIndex.isTrue()).count());
+        // ...but isFalse() (inversion over the id range) still returns all three pre-existing entities.
+        assertEquals(3, map.query(this.booleanPersonIndex.isFalse()).count());
+
+        // Entities added AFTER the index are indexed normally.
+        map.add(new BooleanPerson("Dave", true));
+        assertEquals(1, map.query(this.booleanPersonIndex.isTrue()).count());   // only Dave
+        assertEquals(3, map.query(this.booleanPersonIndex.isFalse()).count());  // the three originals
+
+        // The semantics survive a persistence round-trip.
+        try (EmbeddedStorageManager manager = EmbeddedStorage.start(map, tempDir)) {
+            map.store();
+        }
+        try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
+            GigaMap<BooleanPerson> newMap = manager.root();
+            assertEquals(1, newMap.query(this.booleanPersonIndex.isTrue()).count());
+            assertEquals(3, newMap.query(this.booleanPersonIndex.isFalse()).count());
+        }
+    }
+
     private GigaMap<BooleanPerson> prepageGigaMap()
     {
         GigaMap<BooleanPerson> map = GigaMap.New();
