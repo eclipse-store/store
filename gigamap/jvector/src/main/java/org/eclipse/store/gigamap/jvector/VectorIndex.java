@@ -1941,6 +1941,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 throw new IllegalArgumentException("Query vector must not be null");
             }
+            // Enforce the documented k > 0 precondition here, the single funnel for every search
+            // overload (float[] and entity-based, with and without an explicit beam width), rather
+            // than letting a non-positive topK reach jvector's searcher.
+            if(k <= 0)
+            {
+                throw new IllegalArgumentException("k must be positive: " + k);
+            }
             this.validateDimension(queryVector);
 
             // Acquire read lock — blocks during cleanup/persistence/removeAll/close,

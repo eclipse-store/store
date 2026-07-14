@@ -844,6 +844,22 @@ class VectorIndexNullVectorTest
         assertThrows(IllegalArgumentException.class, () -> index.search((float[])null, 5));
     }
 
+    @Test
+    void nonPositiveK_throws()
+    {
+        final GigaMap<Doc> map = GigaMap.New();
+        final VectorIndex<Doc> index = newIndex(map, new NullableComputedVectorizer());
+        map.add(new Doc("v", basis(0)));
+
+        // k <= 0 must surface as IllegalArgumentException per the API contract, not flow into
+        // jvector's searcher as an invalid topK, across every search overload.
+        assertThrows(IllegalArgumentException.class, () -> index.search(basis(0), 0));
+        assertThrows(IllegalArgumentException.class, () -> index.search(basis(0), -1));
+        assertThrows(IllegalArgumentException.class, () -> index.search(basis(0), 0, 50));
+        assertThrows(IllegalArgumentException.class, () -> index.search(new Doc("v", basis(0)), -3));
+        assertThrows(IllegalArgumentException.class, () -> index.search(new Doc("v", basis(0)), 0, 50));
+    }
+
     // ==================== 12. Custom vectorizeAll with positional nulls ====================
 
     static class BatchNullableVectorizer extends Vectorizer<Doc>
