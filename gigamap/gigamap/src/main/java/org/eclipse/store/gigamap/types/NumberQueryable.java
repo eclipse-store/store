@@ -60,6 +60,13 @@ public interface NumberQueryable<E, K extends Number>
 	 * @param <S> the type of entity this condition applies to
 	 * @param keys the array of keys to compare to
 	 * @return a new condition representing the containment check
+	 *
+	 * @implNote When an explicitly built array is passed (rather than individual varargs
+	 * elements), its runtime component type must match the numeric key type {@code K}, e.g.
+	 * {@code new Integer[]{2016, 2018}} — <b>not</b> {@code new Object[]{2016, 2018}}. This typed
+	 * override generates a {@code checkcast} bridge method that casts the whole array to {@code K[]};
+	 * an {@code Object[]} (even one holding only well-typed elements) throws
+	 * {@link ClassCastException} in that bridge before any library code runs.
 	 */
 	@SuppressWarnings("unchecked")
 	public <S extends E> Condition<S> in(K... keys);
@@ -70,6 +77,10 @@ public interface NumberQueryable<E, K extends Number>
 	 * @param <S> the type of entity this condition applies to
 	 * @param keys the array of keys to compare to
 	 * @return a new condition representing the negated containment check
+	 *
+	 * @implNote See {@link #in(Number...)} — an explicitly built {@code keys} array must have runtime
+	 * component type {@code K} ({@code new Integer[]{...}}, not {@code new Object[]{...}}), otherwise
+	 * the {@code checkcast} bridge throws {@link ClassCastException}.
 	 */
 	@SuppressWarnings("unchecked")
 	public <S extends E> Condition<S> notIn(K... keys);
