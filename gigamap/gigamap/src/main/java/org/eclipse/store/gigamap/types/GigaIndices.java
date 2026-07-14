@@ -415,20 +415,22 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 					 * The logic threw: the entity's state is unreliable and the calling context will
 					 * remove the entity. The indices are still updated from the entity's current state
 					 * so that the subsequent removal, which re-derives the keys from that same state,
-					 * can locate all entries. A group whose update fails de-indexes its previous
-					 * entries via the prepared change handlers instead (removeOnFailure). Custom
-					 * constraints are not checked; the entity is doomed either way.
+					 * can locate all entries. This runs best-effort per group so every group gets its
+					 * chance to align; a group whose own update fails de-indexes its previous entries
+					 * via the prepared change handlers instead (removeOnFailure) and the failure is
+					 * attached as a suppressed exception. Custom constraints are not checked; the
+					 * entity is doomed either way.
 					 */
-					try
+					for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
 					{
-						for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+						try
 						{
 							indexGroup.internalUpdateIndices(entityId, entity, entity, null, true);
 						}
-					}
-					catch(final RuntimeException suppressed)
-					{
-						e.addSuppressed(suppressed);
+						catch(final RuntimeException suppressed)
+						{
+							e.addSuppressed(suppressed);
+						}
 					}
 					throw e;
 				}

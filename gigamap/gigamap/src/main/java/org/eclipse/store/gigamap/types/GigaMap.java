@@ -172,7 +172,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	public E peek(long entityId);
 	
 	/**
-	 * Removes the entitiy mapped to the specified id.
+	 * Removes the entity mapped to the specified id.
 	 * <p>
 	 * <b>Behavior on failure:</b> if an {@link Indexer} throws an exception while the entity's
 	 * index entries are being located for cleanup, the removal nevertheless completes: the entity
