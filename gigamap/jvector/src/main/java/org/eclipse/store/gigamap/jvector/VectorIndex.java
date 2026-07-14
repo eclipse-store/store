@@ -2405,6 +2405,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     final RandomAccessVectorValues capturedRavv   ;
                     final PQCompressionManager     capturedPqMgr  ;
                     final DiskIndexManager         capturedDiskMgr;
+                    final DiskIndexManager.MetaState capturedMeta ;
 
                     final GraphIndexBuilder        capturedBuilder;
 
@@ -2453,6 +2454,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         );
                         capturedPqMgr   = this.pqManager;
                         capturedDiskMgr = this.diskManager;
+
+                        // Sample the .meta witnesses at the same instant the graph is captured, under
+                        // the monitor, so a Phase-2 vec↔null mutation cannot advance them past the
+                        // written graph (see DiskIndexManager.MetaState).
+                        capturedMeta    = new DiskIndexManager.MetaState(
+                            this.getExpectedVectorCount(),
+                            this.getHighestEntityId(),
+                            this.getStructuralModCount()
+                        );
                     }
 
                     // Phase 2: Cleanup and disk write outside synchronized(parentMap).
@@ -2470,7 +2480,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     }
 
                     capturedBuilder.cleanup();
-                    capturedDiskMgr.writeIndex(capturedIndex, capturedRavv, capturedPqMgr);
+                    capturedDiskMgr.writeIndex(capturedIndex, capturedRavv, capturedPqMgr, capturedMeta);
 
                     // After writing, re-enter incremental mode for fast subsequent operation
                     this.reenterIncrementalMode();

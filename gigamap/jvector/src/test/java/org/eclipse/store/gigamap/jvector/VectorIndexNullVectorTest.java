@@ -683,6 +683,82 @@ class VectorIndexNullVectorTest
         }
     }
 
+    // ==================== 10c-crash. Persist-window crash restart: stale .meta must be rejected ====================
+
+    /**
+     * The persist-window variant of the crash-restart hole: {@code writeMetadata} used to read the
+     * witness values ({@code structuralModCount}, {@code expectedVectorCount}, {@code highestEntityId})
+     * LIVE during persist Phase 2, while the graph content was captured in Phase 1. A {@code
+     * vec→null} landing during the disk write (parentMap monitor released) bumps the counter
+     * BEFORE the {@code .meta} is written, so the {@code .meta} carries the post-mutation counter
+     * while the graph on disk still contains the nulled entity. After the store commit and a crash
+     * before the next persist, restart compares store counter == {@code .meta} counter → the stale
+     * graph is ACCEPTED and the nulled entity reappears in search. In-session the transient
+     * {@code diskDeletedOrdinals} masks this — only the restart exposes it.
+     * <p>
+     * Fix: the witness values are captured in Phase 1 alongside {@code capturedIndex} and stamped
+     * into the {@code .meta}, so a Phase-2 mutation yields a mismatch and forces the rebuild.
+     */
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    @SuppressWarnings("unchecked")
+    void crashRestartAfterPersistWindowVecToNull_rejectsStaleMeta(@TempDir final Path dir)
+    {
+        final Path storageDir = dir.resolve("storage");
+        final Path indexDir   = dir.resolve("index");
+
+        final VectorIndexConfiguration diskConfig = VectorIndexConfiguration.builder()
+            .dimension(DIM)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .persistOnShutdown(false) // simulate a crash: close() must not overwrite the stale .meta
+            .build();
+
+        final long v0;
+        final long v1;
+
+        // Phase A: two vectors; inject the vec→null into persist Phase 2 via the test hook, so the
+        // .meta is stamped with the post-mutation counter while the written graph still holds v0.
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc> map = GigaMap.New();
+            storage.setRoot(map);
+            final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+                .add("embeddings", diskConfig, new NullableEmbeddedVectorizer());
+
+            v0 = map.add(new Doc("v0", basis(0)));
+            v1 = map.add(new Doc("v1", basis(1)));
+
+            final VectorIndex.Default<Doc> def = (VectorIndex.Default<Doc>)index;
+            def.persistPhase2TestHook = () ->
+            {
+                def.persistPhase2TestHook = null;
+                map.set(v0, new Doc("v0", null)); // bumps structuralModCount before writeMetadata runs
+            };
+
+            index.persistToDisk(); // graph contains v0; .meta must reflect the Phase-1 counter
+            storage.storeRoot();   // commit the store, carrying the bumped counter
+            index.close();         // persistOnShutdown(false) → "crash", no corrective persist
+        }
+
+        // Phase B: restart. Store counter == live-read .meta counter (both post-mutation) would accept
+        // the stale graph; the Phase-1 capture makes the .meta lag the store, forcing a rebuild.
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc> map = storage.root();
+            final VectorIndex<Doc> index = map.index().get(VectorIndices.Category()).get("embeddings");
+
+            assertNull(index.getVector(v0), "v0 lost its embedding");
+            final VectorSearchResult<Doc> result = index.search(basis(0), 10);
+            assertTrue(result.stream().noneMatch(e -> e.entityId() == v0),
+                "entity nulled during persist Phase 2 must not survive a crash restart");
+            assertEquals(1, result.size(), "only v1 must remain searchable");
+            assertEquals(v1, index.search(basis(1), 1).stream().findFirst().orElseThrow().entityId());
+            index.close();
+        }
+    }
+
     // ==================== 10d. Finding #5 repro: on-disk delete + persist + reload ====================
 
     @Test

@@ -697,12 +697,12 @@ Bumping the version invalidates existing files; they are silently rebuilt from `
 
 ### Write path
 
-`DiskIndexManager.writeIndex(index, ravv, pqManager)`:
+`DiskIndexManager.writeIndex(index, ravv, pqManager, metaState)`:
 
 1. `Files.createDirectories(indexDirectory)`.
 2. If `pqManager != null && pqManager.isTrained() && pqManager.getPQ() != null` → `writeIndexWithFusedPQ` (parallel or sequential depending on `parallelOnDiskWrite`).
-3. Otherwise → `OnDiskGraphIndex.write(index, ravv, graphPath)` (simple, no compression).
-4. `writeMetadata(metaPath)` — pulls `expectedVectorCount`, `highestEntityId`, and `structuralModCount` from the `IndexStateProvider` callback (= `VectorIndex.Default`). The `.meta` layout is: `int version`, `int dimension`, `long expectedVectorCount`, `long highestEntityId`, `long structuralModCount` (version 3). On load, `verifyMetadata` rejects the disk graph — forcing a rebuild from source — if any of these diverges from the current store state; `structuralModCount` is what catches a vec↔null transition that left count/highestId unchanged.
+3. Otherwise → `OnDiskGraphIndex.write(index, ravv, identityOrdinalMap(index), graphPath)` (simple, no compression; identity map keeps on-disk node ids equal to graph ordinals).
+4. `writeMetadata(metaPath, metaState)` — stamps the `expectedVectorCount`, `highestEntityId`, and `structuralModCount` **captured in persist Phase 1** (the `DiskIndexManager.MetaState` sampled under the `parentMap` monitor next to `capturedIndex`), NOT re-read live from the `IndexStateProvider` — Phase 2 runs with the monitor released, so a live read could let a concurrent vec↔null mutation advance the witnesses past the written graph and reopen the crash-restart hole. The `.meta` layout is: `int version`, `int dimension`, `long expectedVectorCount`, `long highestEntityId`, `long structuralModCount` (version 3). On load, `verifyMetadata` (which still reads the `IndexStateProvider` live — it compares the persisted witness against the freshly-loaded store state) rejects the disk graph — forcing a rebuild from source — if any of these diverges; `structuralModCount` is what catches a vec↔null transition that left count/highestId unchanged.
 
 ### Load path
 

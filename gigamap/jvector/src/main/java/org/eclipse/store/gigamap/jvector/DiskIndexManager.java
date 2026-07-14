@@ -107,12 +107,15 @@ interface DiskIndexManager extends Closeable
      * @param index     the in-memory graph index
      * @param ravv      random access vector values for writing vectors
      * @param pqManager the PQ compression manager (may be null if compression disabled)
+     * @param metaState the {@code .meta} witness values captured together with {@code index}
+     *                  under the {@code parentMap} monitor (see {@link MetaState})
      * @throws IOException if writing fails
      */
     public void writeIndex(
         OnHeapGraphIndex         index    ,
         RandomAccessVectorValues ravv     ,
-        PQCompressionManager     pqManager
+        PQCompressionManager     pqManager,
+        MetaState                metaState
     ) throws IOException;
 
     /**
@@ -159,6 +162,38 @@ interface DiskIndexManager extends Closeable
          * @return the persisted structural-change counter
          */
         public long getStructuralModCount();
+    }
+
+
+    /**
+     * Immutable snapshot of the three {@code .meta} witness values.
+     * <p>
+     * These describe the <em>written graph</em>, so they must be sampled at the same instant the
+     * in-memory graph is captured — inside {@code synchronized(parentMap)} in persist Phase 1 — and
+     * then stamped verbatim into the {@code .meta}. Reading them live during Phase 2 (after the
+     * monitor is released) would let a {@code vec↔null} mutation landing mid-write advance
+     * {@link IndexStateProvider#getStructuralModCount() structuralModCount} before the metadata is
+     * written, stamping a post-mutation counter over a pre-mutation graph. A crash before the next
+     * persist would then leave the store counter equal to the {@code .meta} counter, so the stale
+     * graph would be wrongly accepted on restart (the nulled entity reappearing in search).
+     * Capturing all three keeps the {@code .meta} internally consistent with the captured graph.
+     */
+    public static final class MetaState
+    {
+        final long expectedVectorCount;
+        final long highestEntityId    ;
+        final long structuralModCount ;
+
+        public MetaState(
+            final long expectedVectorCount,
+            final long highestEntityId    ,
+            final long structuralModCount
+        )
+        {
+            this.expectedVectorCount = expectedVectorCount;
+            this.highestEntityId     = highestEntityId    ;
+            this.structuralModCount  = structuralModCount ;
+        }
     }
 
 
@@ -309,7 +344,8 @@ interface DiskIndexManager extends Closeable
         public void writeIndex(
             final OnHeapGraphIndex         index    ,
             final RandomAccessVectorValues ravv     ,
-            final PQCompressionManager     pqManager
+            final PQCompressionManager     pqManager,
+            final MetaState                metaState
         ) throws IOException
         {
             Files.createDirectories(this.indexDirectory);
@@ -331,8 +367,9 @@ interface DiskIndexManager extends Closeable
                 OnDiskGraphIndex.write(index, ravv, identityOrdinalMap(index), graphPath);
             }
 
-            // Write metadata
-            this.writeMetadata(metaPath);
+            // Write metadata using the witnesses captured with the graph in Phase 1 (see MetaState):
+            // NOT re-read live here, since Phase 2 runs with the parentMap monitor released.
+            this.writeMetadata(metaPath, metaState);
 
             LOG.info("Persisted index '{}' to disk with {} vectors", this.name, index.size(0));
         }
@@ -433,15 +470,15 @@ interface DiskIndexManager extends Closeable
         /**
          * Writes the metadata file.
          */
-        private void writeMetadata(final Path metaPath) throws IOException
+        private void writeMetadata(final Path metaPath, final MetaState metaState) throws IOException
         {
             try(final DataOutputStream dos = new DataOutputStream(new FileOutputStream(metaPath.toFile())))
             {
                 dos.writeInt(GRAPH_FILE_VERSION);
                 dos.writeInt(this.dimension);
-                dos.writeLong(this.provider.getExpectedVectorCount());
-                dos.writeLong(this.provider.getHighestEntityId());
-                dos.writeLong(this.provider.getStructuralModCount());
+                dos.writeLong(metaState.expectedVectorCount);
+                dos.writeLong(metaState.highestEntityId);
+                dos.writeLong(metaState.structuralModCount);
             }
         }
 
