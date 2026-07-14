@@ -465,6 +465,30 @@ public interface StorageTaskBroker
 			return task;
 		}
 
+		/**
+		 * Signal the task-scoped pending-load gate for a load task and enqueue it. The gate is signaled
+		 * BEFORE the task becomes visible to any channel (internal#85): a channel mid-housekeeping when
+		 * the load is enqueued then observes the gate at its next sweep-initiation check and cannot
+		 * initiate a sweep in the enqueue -> pickup gap. It is cleared once the task has completed on all
+		 * channels (StorageRequestTaskLoad#onLastCompletion). If the enqueue itself fails (e.g.
+		 * StorageExceptionNotRunning while processing is disabled), the task will never be processed to
+		 * completion, so the gate is released here to avoid leaking pendingLoadTaskCount.
+		 */
+		private void enqueueLoadTaskAndNotifyAll(final StorageTask task, final StorageEntityMarkMonitor markMonitor)
+			throws InterruptedException
+		{
+			markMonitor.signalPendingLoadTask();
+			try
+			{
+				this.enqueueTaskAndNotifyAll(task);
+			}
+			catch(final Throwable t)
+			{
+				markMonitor.clearPendingLoadTask();
+				throw t;
+			}
+		}
+
 		@Override
 		public final synchronized StorageRequestTaskLoadByOids enqueueLoadTaskByOids(
 			final PersistenceIdSet[] loadOids
@@ -478,13 +502,7 @@ public interface StorageTaskBroker
 			final StorageRequestTaskLoadByOids task = this.taskCreator.createLoadTaskByOids(
 				loadOids, this.operationController, markMonitor
 			);
-			// Signal the task-scoped pending-load gate BEFORE the task becomes visible to any channel
-			// (internal#85): a channel mid-housekeeping when the load is enqueued then observes the
-			// gate at its next sweep-initiation check and cannot initiate a sweep in the
-			// enqueue -> pickup gap. Cleared once the task completed on all channels (see the task's
-			// onLastCompletion).
-			markMonitor.signalPendingLoadTask();
-			this.enqueueTaskAndNotifyAll(task);
+			this.enqueueLoadTaskAndNotifyAll(task, markMonitor);
 			return task;
 		}
 
@@ -496,8 +514,7 @@ public interface StorageTaskBroker
 			final StorageRequestTaskLoadRoots task = this.taskCreator.createRootsLoadTask(
 				this.channelCount, this.operationController, markMonitor
 			);
-			markMonitor.signalPendingLoadTask(); // see enqueueLoadTaskByOids
-			this.enqueueTaskAndNotifyAll(task);
+			this.enqueueLoadTaskAndNotifyAll(task, markMonitor);
 			return task;
 		}
 
@@ -512,8 +529,7 @@ public interface StorageTaskBroker
 			final StorageRequestTaskLoadByTids task = this.taskCreator.createLoadTaskByTids(
 				loadTids, this.channelCount, this.operationController, markMonitor
 			);
-			markMonitor.signalPendingLoadTask(); // see enqueueLoadTaskByOids
-			this.enqueueTaskAndNotifyAll(task);
+			this.enqueueLoadTaskAndNotifyAll(task, markMonitor);
 			return task;
 		}
 
