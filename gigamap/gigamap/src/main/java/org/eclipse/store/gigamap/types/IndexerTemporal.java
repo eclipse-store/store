@@ -31,11 +31,65 @@ public interface IndexerTemporal<E, K, T extends Temporal> extends Indexer<E, K>
 	/**
 	 * Creates a condition which checks if the key is equal to a given point in time.
 	 *
-	 * @param other the value to check against, not null
+	 * @param other the value to check against, may be null to match entities with a null key
 	 * @return a new condition
+	 *
+	 * @implNote Temporal indexers are composite indexers whose key type is {@code Object[]}. Invoking
+	 * the generic {@link IndexIdentifier#is(Object)} through a raw or {@code Object}-typed
+	 * {@link IndexIdentifier} reference passes the logical value where an {@code Object[]} composite
+	 * key is expected and throws {@link ClassCastException} in the synthetic bridge method. Always use
+	 * this typed {@code is(T)} overload (and the typed {@link #not(Temporal)} / {@link #in(Temporal...)}
+	 * / {@link #notIn(Temporal...)} / {@link IndexIdentifier#isNull()} / {@link IndexIdentifier#notNull()}
+	 * methods) rather than the generic {@code Object[]}-keyed API.
 	 */
 	public <S extends E> Condition<S> is(T other);
-	
+
+	/**
+	 * Creates a condition which checks if the key is not equal to a given point in time.
+	 * Entities with a null key are included (a null key is "not equal" to any concrete value).
+	 *
+	 * @param other the value to check against, may be null (equivalent to {@link IndexIdentifier#notNull()})
+	 * @return a new negated condition
+	 */
+	public default <S extends E> Condition<S> not(final T other)
+	{
+		return new Condition.Not<>(this.is(other));
+	}
+
+	/**
+	 * Creates a condition which checks if the key is equal to any of the given points in time.
+	 *
+	 * @param others the values to check against, not null and not empty
+	 * @return a new condition representing the containment check
+	 */
+	@SuppressWarnings("unchecked")
+	public default <S extends E> Condition<S> in(final T... others)
+	{
+		if(others == null || others.length == 0)
+		{
+			throw new IllegalArgumentException("others must not be null or empty");
+		}
+		Condition<S> result = this.is(others[0]);
+		for(int i = 1; i < others.length; i++)
+		{
+			result = result.or(this.is(others[i]));
+		}
+		return others.length > 1 ? result.complete() : result;
+	}
+
+	/**
+	 * Creates a condition which checks if the key is not equal to any of the given points in time.
+	 * Entities with a null key are included unless {@code null} is among the given values.
+	 *
+	 * @param others the values to check against, not null and not empty
+	 * @return a new negated condition representing the containment check
+	 */
+	@SuppressWarnings("unchecked")
+	public default <S extends E> Condition<S> notIn(final T... others)
+	{
+		return new Condition.Not<>(this.in(others));
+	}
+
 	/**
 	 * Creates a condition which checks if the key is before a given point in time.
 	 *
