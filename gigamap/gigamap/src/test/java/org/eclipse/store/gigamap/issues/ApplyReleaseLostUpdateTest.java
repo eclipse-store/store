@@ -94,10 +94,11 @@ public class ApplyReleaseLostUpdateTest
 				// evicted the unpinned dirty segment.
 				map.release();
 
-				// Try hard to collect the mutated entity. Post-fix the pinned segment keeps it alive
-				// (probe stays non-null); pre-fix it becomes collectible. Either way the post-restart
-				// invariant below must hold, so a non-collecting GC does not make this test flaky.
-				forceGcUntilCollected(probe, 5_000);
+				// Give the pre-fix path a chance to collect the now-unreferenced mutated entity. Post-fix
+				// the pinned segment keeps it alive, so this returns as soon as its short budget is spent
+				// (it must not busy-wait for the full timeout on the fixed code). Either way the
+				// post-restart invariant below must hold, so a non-collecting GC does not make this flaky.
+				forceGcUntilCollected(probe, 10, 10);
 
 				map.store(); // pre-fix: silently skipped the dead WeakReference; index delta committed anyway
 			}
@@ -122,15 +123,17 @@ public class ApplyReleaseLostUpdateTest
 		}
 	}
 
-	private static void forceGcUntilCollected(final WeakReference<?> ref, final long timeoutMs)
+	private static void forceGcUntilCollected(final WeakReference<?> ref, final int maxCycles, final long sleepMs)
 	{
-		final long deadline = System.currentTimeMillis() + timeoutMs;
-		while(ref.get() != null && System.currentTimeMillis() < deadline)
+		// A single unreferenced small object is collected within the first cycle or two; a small bounded
+		// budget therefore reproduces the pre-fix collection without penalizing the fixed (pinned) path,
+		// which can never collect and would otherwise busy-wait for the whole budget.
+		for(int i = 0; i < maxCycles && ref.get() != null; i++)
 		{
 			System.gc();
 			try
 			{
-				Thread.sleep(50);
+				Thread.sleep(sleepMs);
 			}
 			catch(final InterruptedException e)
 			{
