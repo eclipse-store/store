@@ -427,7 +427,7 @@ The `resetMarkQueues()` invariant (which throws if any queue still has elements)
 | Cold mark/sweep within the same wave | post-sweep seed at hot completion (10.1) | gate flag stays set for the rest of the wave; without 10.1 the cold mark phase would seed from no-one |
 | After cold completion (idle until next store) | nothing — by design | no follow-up mark cycle, so seeding would only park the registry in the mark queues; the next wave's pre-sweep gate (10.2) re-seeds when work resumes |
 | Race: OID enters registry between the seed and the sweep *initiation* | registration-version compare in the 10.2 seed/verify loop (both hot and cold sweep initiations) | the shallow sweep predicate alone is NOT enough: a *loaded* entity's binary can reference children that were neither loaded nor registered (e.g. an unloaded `Lazy`'s target) — see §10.4 |
-| Race: OID enters registry after sweep *initiation*, before/between per-channel sweeps | sweep-time `ObjectIdsSelector` predicate (shallow safety net) only — **residual window**, see §10.4 | entities *stored* in that window are safe anyway (store-time gray-marks + `resetCompletion`); entities *loaded* in that window are the remaining theoretical exposure; per-channel sweeps themselves run under the registry mutex, so no interleaving within a channel |
+| Race: OID enters registry after sweep *initiation*, before/between per-channel sweeps | Layer 3 registrationVersion check at sweep entry → keep-all deferral (§10.4); shallow `ObjectIdsSelector` predicate as the last resort for the child-already-swept residual | a not-yet-swept channel detects the stale seed and defers (keep-all); the irreducible residual is a child whose channel already swept before the registration was observed — see §10.4; per-channel sweeps run under the registry mutex, so no interleaving within a channel |
 | Case (b) entry (cleared `WeakReference`, hash-table entry not yet reaped) on the housekeeping GC path | id-only criterion shared by 10.1 / 10.2 mark seed and 3.4 sweep predicate | the housekeeping path calls neither `cleanUp()` (only fires on storer-merge) nor `consolidate()` (only fires on `issueGarbageCollection`); without the shared criterion, sweep would keep the case (b) entry while mark skipped it, leaving its stored binary references unwalked — see §8 |
 
 ### 10.4. The mid-cycle registration race
@@ -445,6 +445,20 @@ The former §10.3 justification for this window ("the entity's binary was just l
 
 **Layer 1 — load-side marking + pending-load gate** (primary for loads): `StorageChannel.collectLoadByOids/Tids` signal a *pending load* on the mark monitor for the duration of the collection (`pendingLoadCount` participates in `isMarkingComplete()`, so no sweep can be *initiated* mid-load), and every entity handed out by a load is marked like changed data via `StorageEntityCache#markEntityForLoadedData` — gray-marked and enqueued (references walked transitively) during an active mark phase, black-marked if a sweep was already initiated. This protects the loaded graph **at hand-out time**, i.e. even before the application-side `BinaryLoader` registration happens — a gap the registry-based layer below cannot see.
 
+> **Multi-channel visibility gap ("variant 2", internal#85 "Window A") and its fix.** The per-channel
+> `pendingLoad` above is signaled only *around that channel's own collect*, and skipped entirely for a
+> channel whose oid subset of the load is empty (`if(!loadOids.isEmpty())`). At `channelCount ≥ 2` a
+> load already in flight is therefore **invisible** to a sibling channel's sweep-initiation check: the
+> empty-subset channel sees `pendingLoadCount == 0` and initiates a wave while another channel is still
+> about to serve the load — the exact "seed passed, then a load reheats X→L→Y" chain above, but on the
+> housekeeping path and re-armed on every wave boundary. Closed by a **task-scoped pending-load gate**:
+> `StorageEntityMarkMonitor#signalPendingLoadTask()` is signaled **once at load-task enqueue** (before
+> any channel is notified, in `StorageTaskBroker`) and cleared **once when the task completed on all
+> channels** (`StorageChannelTask#onLastCompletion`), and `pendingLoadTaskCount` joins the
+> `isMarkingComplete()` AND-chain. So no wave can *initiate* while any load task is in flight anywhere,
+> and Layer 1's gray-enqueue path (not the shallow black-mark) runs for the whole loaded graph. No
+> wave-state changes.
+
 **Layer 2 — the registration-version check** of §10.2 (covers ALL registration paths, including direct `registerObject` calls that never pass through the load collectors — import tooling, communication, application code):
 
 - `DefaultObjectRegistry` (serializer) increments a `volatile long registrationVersion` at its single new-association choke point (`synchPutNewEntry`) — all register paths funnel there, including re-binding an id whose weak entry was cleared; lookups, updates and removals do not count (a removal cannot make an unmarked entity rescuable).
@@ -455,7 +469,35 @@ Trade-offs and boundaries:
 
 - **Starvation**: continuous registrations defer the sweep indefinitely across calls — the same trade-off as continuous stores deferring completion via `resetCompletion()`. Deliberately unbounded: sweeping with a stale seed would re-open the race.
 - **Custom registries**: `PersistenceObjectRegistry#registrationVersion()` defaults to a constant `0` ("registrations never observable") — correct for registries that never gain entries (e.g. the REST adapter's disabled registry), but runtime-mutable custom implementations must override it or they keep pre-fix behavior.
-- **Residual window (honestly)**: both layers act before sweep *initiation*. A load or registration landing after `initiateSweep()` but before/between the per-channel sweeps is still covered only by the shallow predicate (layer 1's `hasLoadPendingSweep` branch black-marks the handed-out entity itself, but cannot rescue its not-yet-loaded children — e.g. an unloaded Lazy's target — in that already-initiated sweep). This cannot be fully closed post-hoc — a channel may already have deleted the child. Mitigating: each channel's entire sweep runs under the registry mutex (registrations cannot interleave *within* a channel sweep), so the residual exposure is the initiation→first-sweep gap and the between-channel gaps in multi-channel setups — orders of magnitude narrower than the whole mark phase, and not reachable via the load path the test exercises. A further hardening (version check at sweep entry + cooperative wave abort) is possible but changes wave-state invariants and is deliberately not part of this fix.
+- **Post-initiation window ("Window B") and Layer 3.** Layers 1–2 act before sweep *initiation*. A
+  registration landing after `initiateSweep()` but before/between the per-channel sweeps used to be
+  covered only by the shallow predicate (Layer 1's `hasLoadPendingSweep` branch black-marks the
+  handed-out entity but cannot rescue its not-yet-loaded children in that already-initiated sweep).
+  **Layer 3 — registrationVersion check at sweep entry (internal#85)** closes the rescuable part of
+  this window: at the very start of each channel's `sweep(_longPredicate)` — which runs *inside* the
+  registry mutex, so a registration cannot interleave with that channel's sweep —
+  `StorageEntityMarkMonitor#isSeedRegistrationStale(currentRegistrationVersion)` compares the
+  registry's current version (a lock-free volatile read) against the wave's `seedRegistrationVersion`
+  snapshot. On a mismatch the channel runs a **keep-all pass** (the `rescueSweep`/keep-all mechanism
+  of store#746 — markWhite everything, delete nothing) instead of the destructive loop; the wave's
+  post-sweep re-seed (§10.1) then enqueues the newly-registered roots and the following (cold) mark
+  cycle walks their binaries transitively — e.g. `X → L → Y` — so the child survives and collection
+  is merely deferred one cycle. The read is deliberately lock-free (no monitor lock while the channel
+  holds the registry mutex), so it adds no lock-ordering edge; and it defaults to *not stale* for
+  monitor implementations that do not track the version, preserving their behavior.
+- **Remaining residual (honestly, still not closeable post-hoc).** Layer 3 only defers channels that
+  have **not yet** swept. If the child `Y`'s channel sweeps *before* the reheating registration is
+  observed (e.g. `Y` on the first-sweeping channel), `Y` is already physically deleted and no later
+  keep-all can bring it back — the parent `X` is then kept (registry predicate) with a dangling
+  reference. This narrow case (`initiation → the child's own channel sweeps`, in multi-channel setups)
+  is the irreducible residual: closing it would require making the whole multi-channel sweep atomic
+  w.r.t. loads, or refusing the partial resurrection (letting `X` be swept too so the load fails
+  cleanly). Deliberately out of scope. Regression coverage: `MultiChannelSweepEntryRaceReproTest`
+  (rescuable subset — green with Layer 3) and the `@Disabled` race method of
+  `MultiChannelResidualWindowReproTest` (documents this irreducible sub-case).
+- **Starvation (Layer 3).** One mid-wave registration makes all not-yet-swept channels keep-all for
+  that wave; continuous registrations defer reclamation further — the same accepted trade-off as the
+  seed/verify loop's. No data loss, only delayed reclamation.
 
 ### Interface layering
 
@@ -472,8 +514,8 @@ Internal wiring (`StorageFoundation`, `StorageSystem`, `StorageChannelsCreator`,
 
 Read these together to see the full picture:
 
-- `StorageEntityCache.Default` — `sweep(_longPredicate)` (the safety-net keep-alive check), `incrementalMark` (the zombie detection site), `liveObjectIdsHandler` field.
-- `StorageEntityMarkMonitor.Default` — `completeSweep`, `determineAndEnqueueRootOid`, `enqueueLiveApplicationOids`, `acceptObjectId`/`enqueue`.
+- `StorageEntityCache.Default` — `sweep(_longPredicate)` (the safety-net keep-alive check, plus the Layer-3 sweep-entry staleness deferral, §10.4), `keepAllSweep`/`rescueSweep` (the keep-all pass), `incrementalMark` (the zombie detection site), `liveObjectIdsHandler` field.
+- `StorageEntityMarkMonitor.Default` — `completeSweep`, `determineAndEnqueueRootOid`, `enqueueLiveApplicationOids`, `acceptObjectId`/`enqueue`, `isMarkingComplete` (with `pendingLoadTaskCount`, the Window-A task-scoped gate), `isSeedRegistrationStale` / `seedRegistrationVersion` (Layer 3, §10.4).
 - `LiveObjectIdsHandler` — class-level javadoc giving the role-by-role comparison.
 - `EmbeddedStorageObjectRegistryCallback.Default` — `processSelected` (sweep filter) and `iterateLiveObjectIds` (mark seeding).
 - `DefaultObjectRegistry` (serializer) — `Entry extends WeakReference`, `synchContainsObjectId` vs `synchContainsLiveObject`, `processLiveObjectIds`, `cleanUp` (drains the `ReferenceQueue`, called from `PersistenceObjectManager.synchInternalMergeEntries`), `consolidate` (walks the entire hash table and reaps every cleared entry, called from `StorageConnection.Default#issueGarbageCollection`).

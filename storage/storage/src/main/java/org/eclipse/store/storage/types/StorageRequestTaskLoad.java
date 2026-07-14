@@ -30,18 +30,25 @@ public interface StorageRequestTaskLoad extends StorageRequestTask
 		// instance fields //
 		////////////////////
 
-		private final ChunksBuffer[] result;
-		
+		private final ChunksBuffer[]          result     ;
+		private final StorageEntityMarkMonitor markMonitor;
+
 
 
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
 		/////////////////
 
-		protected Abstract(final long timestamp, final int channelCount, final StorageOperationController controller)
+		protected Abstract(
+			final long                       timestamp   ,
+			final int                        channelCount,
+			final StorageOperationController controller  ,
+			final StorageEntityMarkMonitor   markMonitor
+		)
 		{
 			super(timestamp, channelCount, controller);
-			this.result = new ChunksBuffer[channelCount];
+			this.result      = new ChunksBuffer[channelCount];
+			this.markMonitor = markMonitor;
 		}
 
 		
@@ -68,6 +75,19 @@ public interface StorageRequestTaskLoad extends StorageRequestTask
 			// complete() above never waits on siblings, so reaching it directly on this channel's
 			// own failure is safe: the null result slot is harmless (already the array's default).
 			this.complete(channel, null);
+		}
+
+		@Override
+		protected void onLastCompletion()
+		{
+			// Release the task-scoped pending-load gate signaled at enqueue (internal#85). Runs
+			// exactly once, when the task has completed on all channels - by then every channel has
+			// finished its collect and enqueued its gray marks, so pendingMarksCount keeps
+			// isMarkingComplete() false until those are drained; the gate can be released safely.
+			if(this.markMonitor != null)
+			{
+				this.markMonitor.clearPendingLoadTask();
+			}
 		}
 
 		@Override

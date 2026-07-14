@@ -45,6 +45,13 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 {
 	public StorageTypeDictionary typeDictionary();
 
+	/**
+	 * The shared mark monitor coordinating this channel's GC with the others. All channels of a
+	 * storage system share the same instance, so it doubles as the system-wide handle used to
+	 * signal the task-scoped pending-load gate (see {@link StorageEntityMarkMonitor#signalPendingLoadTask()}).
+	 */
+	public StorageEntityMarkMonitor markMonitor();
+
 	public StorageEntityType<E> lookupType(long typeId);
 
 	public boolean incrementalEntityCacheCheck(long nanoTimeBudgetBound);
@@ -1297,6 +1304,25 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		{
 			try
 			{
+				/*
+				 * internal#85 (GC.md §10.4, "Window B"): if the application registry gained an entry
+				 * since this wave took its seed snapshot, the seed is stale for this channel. A
+				 * just-loaded orphan graph (e.g. a reheated parent whose unloaded Lazy target is
+				 * neither loaded nor marked, and lives on another channel) could be partially swept.
+				 * Defer this channel's collection with a keep-all pass; the wave's post-sweep re-seed
+				 * then marks the newly-reachable graph transitively before the next sweep deletes
+				 * anything. Race-free: this runs inside the registry mutex (via processSelected), so
+				 * registrations cannot interleave with this channel's sweep and the version is stable
+				 * for its whole duration. Liveness: one mid-wave registration makes all not-yet-swept
+				 * channels defer for that wave (collection deferred one cycle) - the same accepted
+				 * trade-off as the seed/verify loop's "continuous registrations defer the sweep".
+				 */
+				if(this.markMonitor.isSeedRegistrationStale(this.liveObjectIdsHandler.registrationVersion()))
+				{
+					this.keepAllSweep();
+					return;
+				}
+
 				this.lastSweepStart = System.currentTimeMillis();
 				final StorageEntityType.Default typeHead = this.typeHead;
 
@@ -1372,6 +1398,23 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 				this.channelIndex
 			);
 
+			this.keepAllSweep();
+
+			// cleared only after successful completion: a failure above re-runs the rescue.
+			this.sweepRescueNeeded = false;
+		}
+
+		/**
+		 * Keep-all sweep pass: reset every entity of this channel to white and delete nothing,
+		 * consulting no application predicate. Used both by {@link #rescueSweep()} (a previous attempt
+		 * failed mid-run, internal#83) and by the stale-seed deferral in {@link #sweep(_longPredicate)}
+		 * (internal#85). The pass itself is straight-line pointer operations that cannot throw; the
+		 * completion bookkeeping afterwards may still throw (mark monitor / registry interaction),
+		 * which the callers handle. Garbage collection is merely deferred: the following mark cycle
+		 * re-establishes marks from the roots and the registry seed.
+		 */
+		private void keepAllSweep()
+		{
 			this.lastSweepStart = System.currentTimeMillis();
 			final StorageEntityType.Default typeHead = this.typeHead;
 
@@ -1384,9 +1427,6 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			}
 
 			this.completeSweepBookkeeping();
-
-			// cleared only after successful completion: a failure above re-runs the rescue.
-			this.sweepRescueNeeded = false;
 		}
 		
 		private boolean sweep()
@@ -1541,6 +1581,12 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		public final StorageTypeDictionary typeDictionary()
 		{
 			return this.typeDictionary;
+		}
+
+		@Override
+		public final StorageEntityMarkMonitor markMonitor()
+		{
+			return this.markMonitor;
 		}
 
 		public void postStorePutEntities(

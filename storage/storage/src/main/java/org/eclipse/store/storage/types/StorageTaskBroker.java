@@ -119,6 +119,12 @@ public interface StorageTaskBroker
 		private final StorageRequestTaskCreator     taskCreator           ;
 		private final int                           channelCount          ;
 
+		// StorageSystem (NOT StorageManager) is safe to hold: it is a distinct object that does not
+		// reference the manager, so it does not affect the manager's auto-shutdown weak reachability.
+		// Used only to lazily reach the shared mark monitor at load-task enqueue time (the monitor
+		// does not yet exist when this broker is constructed - internal#85).
+		private final StorageSystem                 storageSystem         ;
+
 		private volatile StorageTask currentHead;
 
 
@@ -132,7 +138,8 @@ public interface StorageTaskBroker
 			final StorageOperationController    operationController   ,
 			final StorageDataFileEvaluator      fileEvaluator         ,
 			final StorageObjectIdRangeEvaluator objectIdRangeEvaluator,
-			final int                           channelCount
+			final int                           channelCount          ,
+			final StorageSystem                 storageSystem
 		)
 		{
 			super();
@@ -141,6 +148,7 @@ public interface StorageTaskBroker
 			this.fileEvaluator          = notNull(fileEvaluator);
 			this.objectIdRangeEvaluator = notNull(objectIdRangeEvaluator);
 			this.channelCount           =         channelCount;
+			this.storageSystem          = notNull(storageSystem);
 			this.currentHead            = new StorageTask.DummyTask();
 		}
 
@@ -464,9 +472,18 @@ public interface StorageTaskBroker
 			throws InterruptedException
 		{
 			this.validateChannelCount(loadOids.length);
-			
+
 			// task creation must be called AFTER acquiring the lock to ensure temporal consistency in the task chain
-			final StorageRequestTaskLoadByOids task = this.taskCreator.createLoadTaskByOids(loadOids, this.operationController);
+			final StorageEntityMarkMonitor markMonitor = this.storageSystem.entityMarkMonitor();
+			final StorageRequestTaskLoadByOids task = this.taskCreator.createLoadTaskByOids(
+				loadOids, this.operationController, markMonitor
+			);
+			// Signal the task-scoped pending-load gate BEFORE the task becomes visible to any channel
+			// (internal#85): a channel mid-housekeeping when the load is enqueued then observes the
+			// gate at its next sweep-initiation check and cannot initiate a sweep in the
+			// enqueue -> pickup gap. Cleared once the task completed on all channels (see the task's
+			// onLastCompletion).
+			markMonitor.signalPendingLoadTask();
 			this.enqueueTaskAndNotifyAll(task);
 			return task;
 		}
@@ -475,7 +492,11 @@ public interface StorageTaskBroker
 		public final synchronized StorageRequestTaskLoadRoots enqueueRootsLoadTask() throws InterruptedException
 		{
 			// task creation must be called AFTER acquiring the lock to ensure temporal consistency in the task chain
-			final StorageRequestTaskLoadRoots task = this.taskCreator.createRootsLoadTask(this.channelCount, this.operationController);
+			final StorageEntityMarkMonitor markMonitor = this.storageSystem.entityMarkMonitor();
+			final StorageRequestTaskLoadRoots task = this.taskCreator.createRootsLoadTask(
+				this.channelCount, this.operationController, markMonitor
+			);
+			markMonitor.signalPendingLoadTask(); // see enqueueLoadTaskByOids
 			this.enqueueTaskAndNotifyAll(task);
 			return task;
 		}
@@ -487,7 +508,11 @@ public interface StorageTaskBroker
 			throws InterruptedException
 		{
 			// task creation must be called AFTER acquiring the lock to ensure temporal consistency in the task chain
-			final StorageRequestTaskLoadByTids task = this.taskCreator.createLoadTaskByTids(loadTids, this.channelCount, this.operationController);
+			final StorageEntityMarkMonitor markMonitor = this.storageSystem.entityMarkMonitor();
+			final StorageRequestTaskLoadByTids task = this.taskCreator.createLoadTaskByTids(
+				loadTids, this.channelCount, this.operationController, markMonitor
+			);
+			markMonitor.signalPendingLoadTask(); // see enqueueLoadTaskByOids
 			this.enqueueTaskAndNotifyAll(task);
 			return task;
 		}
@@ -569,7 +594,8 @@ public interface StorageTaskBroker
 					storageSystem.operationController(),
 					storageSystem.configuration().dataFileEvaluator(),
 					storageSystem.objectIdRangeEvaluator(),
-					storageSystem.channelCountProvider().getChannelCount()
+					storageSystem.channelCountProvider().getChannelCount(),
+					storageSystem
 				);
 			}
 

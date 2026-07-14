@@ -66,7 +66,18 @@ public interface StorageSystem extends StorageController
 	 * and provides methods to validate, initialize, and look up type handlers and definitions.
 	 */
 	public StorageTypeDictionary typeDictionary();
-	
+
+	/**
+	 * Provides the shared {@link StorageEntityMarkMonitor} that coordinates the garbage collection
+	 * of all channels. The instance is created during startup and shared by every channel, so it
+	 * serves as the system-wide handle for the task-scoped pending-load gate
+	 * (see {@link StorageEntityMarkMonitor#signalPendingLoadTask()}). Only valid after startup has
+	 * created the channels.
+	 *
+	 * @return the shared mark monitor.
+	 */
+	public StorageEntityMarkMonitor entityMarkMonitor();
+
 	/**
 	 * Provides an instance of {@link StorageOperationController}, which manages
 	 * the state and operations of the storage system, including channel
@@ -784,6 +795,14 @@ public interface StorageSystem extends StorageController
 		public final StorageTypeDictionary typeDictionary()
 		{
 			return this.typeDictionary;
+		}
+
+		@Override
+		public final StorageEntityMarkMonitor entityMarkMonitor()
+		{
+			// The mark monitor is a singleton shared by all channels; read it from any channel.
+			// Only valid after startup created the channels (loads occur only then).
+			return this.channelKeepers[0].channel.markMonitor();
 		}
 
 		@Override
