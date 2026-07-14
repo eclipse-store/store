@@ -2050,6 +2050,14 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			{
 				final R result = this.indices.internalUpdateIndices(entityId, current, logic, this.constraints.custom());
 
+				// Mark the owning level1 segment as changed (like internalSet/remove do). This pins the
+				// segment via its usage marker so neither release() nor the LazyReferenceManager can evict
+				// it before the mutation is stored, keeping the mutated entity strongly reachable. Without
+				// this the entity's only strong root is the segment; an eviction + GC would let the store
+				// below silently skip the (then-dead) WeakReference while the index deltas commit anyway,
+				// permanently diverging the persisted indices from the entity.
+				this.markEntitySegmentChanged(entityId);
+
 				// The entity was mutated in-place. Track it so that store() can explicitly
 				// re-persist the entity object (the storer won't re-persist it automatically
 				// since the object reference/identity hasn't changed).
@@ -2073,6 +2081,18 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				this.internalRemove(entityId);
 				throw e;
 			}
+		}
+
+		private void markEntitySegmentChanged(final long entityId)
+		{
+			final GigaLevel3<E>       level3      = this.level3();
+			final int                 level3Index = this.toLevel3Index(entityId);
+			final Lazy<GigaLevel2<E>> lvl2Lazy    = level3.segments[level3Index];
+			final GigaLevel2<E>       level2      = lvl2Lazy.get();
+			final int                 level2Index = this.toLevel2Index(entityId);
+
+			level3.markChanged(level3Index);
+			level2.markChanged(level2Index);
 		}
 
 		private void ensureMutability()
@@ -2343,6 +2363,10 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 
 			// Entities mutated in-place via apply()/update() need to be explicitly re-stored
 			// since the storer won't pick them up automatically (same object reference/identity).
+			// Do NOT clear pendingEntityStores here: this runs before commit success, and clearing it
+			// eagerly (unlike the state-change markers, which are cleared in onAfterCommit) would drop
+			// the mutated entities on a failed commit + retry store(), while the re-stored segments and
+			// index deltas commit anyway. The list is cleared in onAfterCommit once the commit succeeds.
 			if(this.pendingEntityStores != null && !this.pendingEntityStores.isEmpty())
 			{
 				for(final WeakReference<E> ref : this.pendingEntityStores)
@@ -2353,7 +2377,6 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 						storer.store(entity);
 					}
 				}
-				this.pendingEntityStores.clear();
 			}
 
 			// must clear state change markers as soon as there is at least one either "changed" or "new" marker. So almost always.
