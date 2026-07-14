@@ -70,6 +70,42 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 	 */
 	public void clearPendingLoad(StorageEntityCache<?> channel);
 
+	/**
+	 * Signals that a load task is in flight, covering ALL channels for its entire lifetime.
+	 * While the count of pending load tasks is greater than zero, {@link #isMarkingComplete()}
+	 * reports {@code false}, so no sweep can be initiated on any channel while any load task is
+	 * being processed anywhere.
+	 * <p>
+	 * This is the task-scoped counterpart to the per-channel
+	 * {@link #signalPendingLoad(StorageEntityCache)}: the latter is signaled inside each channel's
+	 * own collect and is skipped entirely for a channel whose oid subset of the load is empty, so
+	 * an in-flight load is invisible to a sibling channel's sweep-initiation check (internal#85).
+	 * Signaling this task-scoped gate once at load-task enqueue (before any channel is notified)
+	 * and clearing it once when the task has been processed on all channels closes that
+	 * cross-channel visibility gap: no wave can initiate while a load is in flight, so the loaded
+	 * graph is fully gc-protected (its references gray-marked and traversed) before any sweep runs.
+	 * Reference-counted so concurrent load tasks are handled correctly.
+	 * <p>
+	 * Default is a no-op (paired with {@link #clearPendingLoadTask()}): custom implementations then
+	 * keep the pre-existing behavior (no task-scoped gate) and can opt in by overriding both, mirroring
+	 * {@link #signalGcMarkingAbort()} / {@link #isSeedRegistrationStale(long)}.
+	 */
+	public default void signalPendingLoadTask()
+	{
+		// no-op by default
+	}
+
+	/**
+	 * Clears the task-scoped pending load state signaled via {@link #signalPendingLoadTask()}.
+	 * Called exactly once per load task, when the task has completed on all channels (or once on the
+	 * enqueue-failure path). Default is a no-op, paired with the no-op default of
+	 * {@link #signalPendingLoadTask()}.
+	 */
+	public default void clearPendingLoadTask()
+	{
+		// no-op by default
+	}
+
 	public boolean isComplete();
 
 	public boolean isComplete(StorageEntityCache<?> channel);
@@ -86,6 +122,33 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 	);
 
 	public boolean isMarkingComplete();
+
+	/**
+	 * Reports whether the current sweep wave's live-OID seed has become stale relative to the passed
+	 * registration version, i.e. whether the application registry gained a new association after this
+	 * wave snapshotted its seed but before the calling channel executes its sweep (internal#85,
+	 * "Window B" / GC.md §10.4).
+	 * <p>
+	 * A channel calls this at the very start of its sweep, from inside the registry mutex (so the
+	 * version cannot change under it for the duration of that channel's sweep). If it returns
+	 * {@code true}, the seed no longer reflects what the application holds: a just-loaded orphan graph
+	 * (e.g. a reheated parent whose unloaded {@code Lazy} target is neither loaded nor marked) could be
+	 * partially swept. The channel then defers its collection with a keep-all pass instead of deleting,
+	 * so the wave's post-sweep re-seed can mark the newly-reachable graph transitively before the next
+	 * sweep decides what to delete.
+	 * <p>
+	 * The {@code currentRegistrationVersion} must be read by the caller (a lock-free volatile read via
+	 * {@link LiveObjectIdsIterator#registrationVersion()}); implementations must not acquire their own
+	 * monitor here, as the caller already holds the registry mutex and the seed path takes the monitor
+	 * before the registry (acquiring the monitor here would invert that order).
+	 * <p>
+	 * Default is {@code false} (never stale): correct for implementations that do not participate in
+	 * the registration-version protocol; they keep the pre-existing sweep behavior.
+	 */
+	public default boolean isSeedRegistrationStale(final long currentRegistrationVersion)
+	{
+		return false;
+	}
 
 	/**
 	 * Signals that the marking of the currently issued garbage collection cannot complete
@@ -275,6 +338,7 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 		private       int       pendingStoreUpdateCount;
 		private final boolean[] pendingLoads           ;
 		private       int       pendingLoadCount       ;
+		private       int       pendingLoadTaskCount   ;
 
 		/*
 		 * Set when a channel fails mid-marking during an ISSUED garbage collection: its pending
@@ -354,8 +418,12 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 		 * the stale seed would rescue the registered entities only shallowly and
 		 * delete their binary-referenced children, so the seed must be re-run and
 		 * transitively marked first. See GC.md §10.4.
+		 * <p>
+		 * Volatile: written under the monitor lock (callToSweepRequired / completeSweep) but read
+		 * lock-free by a sweeping channel in {@link #isSeedRegistrationStale(long)} (that read cannot
+		 * take the monitor lock — it runs while the channel holds the registry mutex, internal#85).
 		 */
-		private long seedRegistrationVersion;
+		private volatile long seedRegistrationVersion;
 
 
 
@@ -427,6 +495,7 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			this.pendingMarksCount = 0;
 			this.pendingStoreUpdateCount = 0;
 			this.pendingLoadCount = 0;
+			this.pendingLoadTaskCount = 0;
 		}
 		
 		private void initializeSweepingState()
@@ -537,10 +606,29 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 		@Override
 		public final synchronized boolean isMarkingComplete()
 		{
-			// pendingLoadCount > 0 defers sweep initiation while a load task is collecting entities,
-			// so that entities handed out to the application are gc-protected and their enqueued
-			// references are marked before any sweep (see #signalPendingLoad).
-			return this.pendingMarksCount == 0 && this.pendingStoreUpdateCount == 0 && this.pendingLoadCount == 0;
+			// pendingLoadCount > 0 defers sweep initiation while a channel is collecting entities for
+			// a load, and pendingLoadTaskCount > 0 defers it for the entire lifetime of any in-flight
+			// load task (from enqueue until processed on all channels, closing the cross-channel
+			// visibility gap of internal#85), so that entities handed out to the application are
+			// gc-protected and their references are marked before any sweep (see #signalPendingLoad
+			// and #signalPendingLoadTask).
+			return this.pendingMarksCount == 0 && this.pendingStoreUpdateCount == 0
+				&& this.pendingLoadCount == 0 && this.pendingLoadTaskCount == 0;
+		}
+
+		@Override
+		public final boolean isSeedRegistrationStale(final long currentRegistrationVersion)
+		{
+			/*
+			 * Deliberately NOT synchronized: the calling channel holds the registry mutex during its
+			 * sweep, and the seed path takes this monitor's lock BEFORE the registry lock; acquiring
+			 * the monitor lock here would invert that order and risk deadlock. A lock-free read is
+			 * sufficient and correct: seedRegistrationVersion is volatile and liveObjectIdsIterator is
+			 * final, and the sweep-initiation that set the snapshot happened-before this sweep runs.
+			 * currentRegistrationVersion is read by the caller (a volatile read via the iterator).
+			 */
+			return this.liveObjectIdsIterator != null
+				&& currentRegistrationVersion != this.seedRegistrationVersion;
 		}
 
 		@Override
@@ -606,6 +694,23 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			{
 				this.pendingLoads[channel.channelIndex()] = false;
 				this.pendingLoadCount--;
+			}
+		}
+
+		@Override
+		public final synchronized void signalPendingLoadTask()
+		{
+			this.pendingLoadTaskCount++;
+		}
+
+		@Override
+		public final synchronized void clearPendingLoadTask()
+		{
+			// floor guard: may get called after reset() zeroed the count (see clearPendingLoad),
+			// e.g. a load task completing after a storage reset. Must never go negative.
+			if(this.pendingLoadTaskCount > 0)
+			{
+				this.pendingLoadTaskCount--;
 			}
 		}
 

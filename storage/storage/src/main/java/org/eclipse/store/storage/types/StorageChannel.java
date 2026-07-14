@@ -75,6 +75,23 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 	public StorageTypeDictionary typeDictionary();
 
 	/**
+	 * Returns the shared {@link StorageEntityMarkMonitor} coordinating all channels' GC. All
+	 * channels share the same instance; it is used, among other things, as the system-wide handle
+	 * for the task-scoped pending-load gate (see {@link StorageEntityMarkMonitor#signalPendingLoadTask()}).
+	 * <p>
+	 * Default throws {@link UnsupportedOperationException} to preserve binary compatibility for
+	 * external {@link StorageChannel} implementations; the built-in implementation overrides it.
+	 *
+	 * @return the shared mark monitor.
+	 */
+	public default StorageEntityMarkMonitor markMonitor()
+	{
+		throw new UnsupportedOperationException(
+			"This " + StorageChannel.class.getSimpleName() + " implementation does not expose the mark monitor."
+		);
+	}
+
+	/**
 	 * Collects the entities for the passed object ids that belong to this channel into a
 	 * {@link ChunksBuffer}, which is appended to {@code channelChunks} at this channel's slot.
 	 *
@@ -1004,6 +1021,12 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		public final StorageTypeDictionary typeDictionary()
 		{
 			return this.entityCache.typeDictionary();
+		}
+
+		@Override
+		public final StorageEntityMarkMonitor markMonitor()
+		{
+			return this.entityCache.markMonitor();
 		}
 		
 		private ChunksBuffer createLoadingChunksBuffer(final ChunksBuffer[] channelChunks)

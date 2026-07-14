@@ -163,8 +163,26 @@ public interface StorageChannelTask extends StorageTask
 		public final synchronized void incrementCompletionProgress()
 		{
 			// may never get negative or something is seriously broken
-			this.remainingForCompletion--; // suffices as this method gets called by every manager thread exactly once.
+			// suffices as this method gets called by every manager thread exactly once.
+			if(--this.remainingForCompletion == 0)
+			{
+				// exactly once, when the last channel has completed the task (normal or exceptional
+				// path, since completeExceptionally routes here too). Runs under this task's lock,
+				// before waiters are woken.
+				this.onLastCompletion();
+			}
 			this.notifyAll();
+		}
+
+		/**
+		 * Hook fired exactly once, when the last channel has completed this task (i.e.
+		 * {@code remainingForCompletion} reaches zero), under the task lock and before any waiter is
+		 * notified. No-op by default; overridden e.g. by the load task to release its task-scoped
+		 * pending-load gate (see StorageRequestTaskLoad.Abstract).
+		 */
+		protected void onLastCompletion()
+		{
+			// no-op in general implementation
 		}
 
 		@Override

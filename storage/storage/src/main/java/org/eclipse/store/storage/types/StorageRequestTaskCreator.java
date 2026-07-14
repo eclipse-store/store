@@ -46,7 +46,7 @@ public interface StorageRequestTaskCreator
 		int                        channelCount       ,
 		StorageOperationController operationController
 	);
-	
+
 	public StorageRequestTaskLoadByTids createLoadTaskByTids(
 		PersistenceIdSet           loadTids           ,
 		int                        channelCount       ,
@@ -237,7 +237,7 @@ public interface StorageRequestTaskCreator
 				operationController
 			);
 		}
-		
+
 		@Override
 		public StorageRequestTaskLoadByTids createLoadTaskByTids(
 			final PersistenceIdSet           loadTids           ,

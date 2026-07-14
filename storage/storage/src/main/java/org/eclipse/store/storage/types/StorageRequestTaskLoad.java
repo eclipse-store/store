@@ -21,6 +21,23 @@ public interface StorageRequestTaskLoad extends StorageRequestTask
 {
 	public ChunksBuffer result() throws StorageExceptionRequest;
 
+	/**
+	 * Arms the task-scoped pending-load gate (internal#85): the task keeps the passed mark monitor so
+	 * that it can clear the gate when it has completed on all channels (or on the enqueue-failure
+	 * path). Called by the task broker at enqueue, before the task is signaled and made visible to any
+	 * channel. Returns whether the gate was armed; the broker only signals (and, on failure, clears)
+	 * the gate when this returned {@code true}, so a load-task implementation that does not clear the
+	 * gate cannot cause it to leak. Default returns {@code false} (not armed), preserving pre-existing
+	 * behavior for implementations that do not participate.
+	 *
+	 * @param markMonitor the shared mark monitor whose gate this task will clear on completion.
+	 * @return {@code true} if this task will clear the gate on completion.
+	 */
+	public default boolean registerPendingLoadTaskGate(final StorageEntityMarkMonitor markMonitor)
+	{
+		return false;
+	}
+
 
 
 	public abstract class Abstract extends StorageChannelTask.Abstract<ChunksBuffer>
@@ -30,21 +47,35 @@ public interface StorageRequestTaskLoad extends StorageRequestTask
 		// instance fields //
 		////////////////////
 
-		private final ChunksBuffer[] result;
-		
+		private final    ChunksBuffer[]          result     ;
+		// set by the broker at enqueue via registerPendingLoadTaskGate(), before the task is published
+		// to any channel; read in onLastCompletion() on the (later) completing channel thread.
+		private volatile StorageEntityMarkMonitor markMonitor;
+
 
 
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
 		/////////////////
 
-		protected Abstract(final long timestamp, final int channelCount, final StorageOperationController controller)
+		protected Abstract(
+			final long                       timestamp   ,
+			final int                        channelCount,
+			final StorageOperationController controller
+		)
 		{
 			super(timestamp, channelCount, controller);
 			this.result = new ChunksBuffer[channelCount];
 		}
 
-		
+		@Override
+		public boolean registerPendingLoadTaskGate(final StorageEntityMarkMonitor markMonitor)
+		{
+			this.markMonitor = markMonitor;
+			return true;
+		}
+
+
 
 		///////////////////////////////////////////////////////////////////////////
 		// methods //
@@ -68,6 +99,19 @@ public interface StorageRequestTaskLoad extends StorageRequestTask
 			// complete() above never waits on siblings, so reaching it directly on this channel's
 			// own failure is safe: the null result slot is harmless (already the array's default).
 			this.complete(channel, null);
+		}
+
+		@Override
+		protected void onLastCompletion()
+		{
+			// Release the task-scoped pending-load gate signaled at enqueue (internal#85). Runs
+			// exactly once, when the task has completed on all channels - by then every channel has
+			// finished its collect and enqueued its gray marks, so pendingMarksCount keeps
+			// isMarkingComplete() false until those are drained; the gate can be released safely.
+			if(this.markMonitor != null)
+			{
+				this.markMonitor.clearPendingLoadTask();
+			}
 		}
 
 		@Override

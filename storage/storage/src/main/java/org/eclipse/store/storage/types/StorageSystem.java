@@ -66,7 +66,26 @@ public interface StorageSystem extends StorageController
 	 * and provides methods to validate, initialize, and look up type handlers and definitions.
 	 */
 	public StorageTypeDictionary typeDictionary();
-	
+
+	/**
+	 * Provides the shared {@link StorageEntityMarkMonitor} that coordinates the garbage collection
+	 * of all channels. The instance is created during startup and shared by every channel, so it
+	 * serves as the system-wide handle for the task-scoped pending-load gate
+	 * (see {@link StorageEntityMarkMonitor#signalPendingLoadTask()}). Only valid after startup has
+	 * created the channels.
+	 * <p>
+	 * Default throws {@link UnsupportedOperationException} to preserve binary compatibility for
+	 * external {@link StorageSystem} implementations; the built-in implementation overrides it.
+	 *
+	 * @return the shared mark monitor.
+	 */
+	public default StorageEntityMarkMonitor entityMarkMonitor()
+	{
+		throw new UnsupportedOperationException(
+			"This " + StorageSystem.class.getSimpleName() + " implementation does not expose the mark monitor."
+		);
+	}
+
 	/**
 	 * Provides an instance of {@link StorageOperationController}, which manages
 	 * the state and operations of the storage system, including channel
@@ -784,6 +803,22 @@ public interface StorageSystem extends StorageController
 		public final StorageTypeDictionary typeDictionary()
 		{
 			return this.typeDictionary;
+		}
+
+		@Override
+		public final StorageEntityMarkMonitor entityMarkMonitor()
+		{
+			// The mark monitor is a singleton shared by all channels; read it from any channel. Only
+			// valid once startup has created the channels; guard with a deterministic exception rather
+			// than risking an NPE on channelKeepers[0] if called before startup or after teardown
+			// (internal#85 review). Loads - the only caller - occur only while running, so this never
+			// rejects a legitimate call.
+			final ChannelKeeper[] keepers = this.channelKeepers;
+			if(keepers.length == 0 || keepers[0] == null || !this.isRunning())
+			{
+				throw new StorageExceptionNotRunning();
+			}
+			return keepers[0].channel.markMonitor();
 		}
 
 		@Override
