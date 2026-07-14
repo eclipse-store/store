@@ -49,8 +49,16 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 	 * The shared mark monitor coordinating this channel's GC with the others. All channels of a
 	 * storage system share the same instance, so it doubles as the system-wide handle used to
 	 * signal the task-scoped pending-load gate (see {@link StorageEntityMarkMonitor#signalPendingLoadTask()}).
+	 * <p>
+	 * Default throws {@link UnsupportedOperationException} to preserve binary compatibility for
+	 * external {@link StorageEntityCache} implementations; the built-in implementation overrides it.
 	 */
-	public StorageEntityMarkMonitor markMonitor();
+	public default StorageEntityMarkMonitor markMonitor()
+	{
+		throw new UnsupportedOperationException(
+			"This " + StorageEntityCache.class.getSimpleName() + " implementation does not expose the mark monitor."
+		);
+	}
 
 	public StorageEntityType<E> lookupType(long typeId);
 

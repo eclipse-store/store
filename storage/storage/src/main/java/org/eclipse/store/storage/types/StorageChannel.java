@@ -78,10 +78,18 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 	 * Returns the shared {@link StorageEntityMarkMonitor} coordinating all channels' GC. All
 	 * channels share the same instance; it is used, among other things, as the system-wide handle
 	 * for the task-scoped pending-load gate (see {@link StorageEntityMarkMonitor#signalPendingLoadTask()}).
+	 * <p>
+	 * Default throws {@link UnsupportedOperationException} to preserve binary compatibility for
+	 * external {@link StorageChannel} implementations; the built-in implementation overrides it.
 	 *
 	 * @return the shared mark monitor.
 	 */
-	public StorageEntityMarkMonitor markMonitor();
+	public default StorageEntityMarkMonitor markMonitor()
+	{
+		throw new UnsupportedOperationException(
+			"This " + StorageChannel.class.getSimpleName() + " implementation does not expose the mark monitor."
+		);
+	}
 
 	/**
 	 * Collects the entities for the passed object ids that belong to this channel into a

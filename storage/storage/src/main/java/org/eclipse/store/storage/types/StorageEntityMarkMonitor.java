@@ -85,14 +85,26 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 	 * cross-channel visibility gap: no wave can initiate while a load is in flight, so the loaded
 	 * graph is fully gc-protected (its references gray-marked and traversed) before any sweep runs.
 	 * Reference-counted so concurrent load tasks are handled correctly.
+	 * <p>
+	 * Default is a no-op (paired with {@link #clearPendingLoadTask()}): custom implementations then
+	 * keep the pre-existing behavior (no task-scoped gate) and can opt in by overriding both, mirroring
+	 * {@link #signalGcMarkingAbort()} / {@link #isSeedRegistrationStale(long)}.
 	 */
-	public void signalPendingLoadTask();
+	public default void signalPendingLoadTask()
+	{
+		// no-op by default
+	}
 
 	/**
 	 * Clears the task-scoped pending load state signaled via {@link #signalPendingLoadTask()}.
-	 * Called exactly once per load task, when the task has completed on all channels.
+	 * Called exactly once per load task, when the task has completed on all channels (or once on the
+	 * enqueue-failure path). Default is a no-op, paired with the no-op default of
+	 * {@link #signalPendingLoadTask()}.
 	 */
-	public void clearPendingLoadTask();
+	public default void clearPendingLoadTask()
+	{
+		// no-op by default
+	}
 
 	public boolean isComplete();
 
