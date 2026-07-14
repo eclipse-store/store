@@ -192,7 +192,12 @@ public class VectorIndexNestedLoadReproTest
 					try
 					{
 						ready.countDown();
-						go.await();
+						// bounded wait so a worker never blocks indefinitely if the start signal
+						// is missed (e.g. the ready barrier below failed before countDown)
+						if(!go.await(30, TimeUnit.SECONDS))
+						{
+							return;
+						}
 						final VectorSearchResult<Doc> r = index.search(new float[]{1.0f, 0.0f, 0.0f}, 2);
 						assertEquals(2, r.size());
 					}
@@ -201,6 +206,8 @@ public class VectorIndexNestedLoadReproTest
 						failure.compareAndSet(null, t);
 					}
 				}, "first-search-" + i);
+				// daemon so a stuck worker can never keep the JVM (and the test suite) alive
+				pool[i].setDaemon(true);
 				pool[i].start();
 			}
 
