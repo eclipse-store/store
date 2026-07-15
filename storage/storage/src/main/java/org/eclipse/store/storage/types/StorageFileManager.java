@@ -1428,7 +1428,14 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			{
 				if(deletionTargetFile == null)
 				{
-					wf.delete();
+					if(wf.exists() && !wf.delete())
+					{
+						// a silently retained file would defeat the invalidation: at equal
+						// length, the synchronization would keep the stale backup content
+						throw new StorageException(
+							"Could not delete backup transactions file " + backupFile.toPathString()
+						);
+					}
 				}
 				else
 				{

@@ -339,7 +339,7 @@ public interface StorageTransactionsAnalysis
 					// loop is guaranteed to terminate as it depends on the buffer capacity and the file length
 					file.readBytes(buffer, currentFilePosition);
 
-					// buffer is guaranteed to be filled exactely to its limit in any case
+					// buffer is guaranteed to be filled exactly to its limit in any case
 					final long progress = processBufferedEntities(address, buffer.limit(), entryProcessor);
 					if(progress == 0)
 					{
