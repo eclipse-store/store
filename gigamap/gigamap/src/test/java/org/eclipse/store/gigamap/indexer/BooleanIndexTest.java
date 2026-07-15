@@ -289,8 +289,8 @@ public class BooleanIndexTest
     @Test
     void addWithoutInitialization_skipsBackfill_butIsFalseInvertsOverIdRange()
     {
-        // Load-bearing test for lazy, no-back-fill per-value indexes (the mechanism CYROCK.DB's
-        // per-label boolean indexes rely on): a boolean index added AFTER entities already exist is
+        // Load-bearing test for lazy, no-back-fill per-value indexes: 
+		// a boolean index added AFTER entities already exist is
         // NOT back-filled - its TRUE set stays empty - yet isFalse() still returns every entity,
         // because it inverts the TRUE bitmap over the GigaMap's global id range, not over the set of
         // entities this particular index has seen.
