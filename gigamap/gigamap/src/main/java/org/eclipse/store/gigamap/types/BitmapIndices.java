@@ -64,7 +64,32 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	 * @see Indexer#name()
 	 */
 	public <K> BitmapIndex<E, K> add(final Indexer<? super E, K> indexer);
-	
+
+	/**
+	 * Adds an {@link Indexer} to this group <b>without initializing it from the entities that are
+	 * already present</b> in the parent {@link GigaMap}.
+	 * <p>
+	 * Unlike {@link #add(Indexer)}, the newly registered index is <b>not</b> back-filled by
+	 * iterating the existing entities: it starts empty and only receives entries for entities that
+	 * are added or updated <i>after</i> this call.
+	 * <p>
+	 * <b>Advanced use — the caller is responsible for correctness.</b> This is only safe when it is
+	 * guaranteed that no entity currently present in the map would be indexed under a non-trivial
+	 * key by {@code indexer} — i.e. the index data would be empty even if it were back-filled. The
+	 * canonical case is a freshly introduced key that, by construction, no existing entity can carry
+	 * yet (e.g. a per-value index created the first time that value appears). Using this for an
+	 * indexer that <i>would</i> match already-present entities leaves the index inconsistent and
+	 * produces wrong query results. When in doubt, use {@link #add(Indexer)}.
+	 *
+	 * @param <K> the key type
+	 * @param indexer the indexing logic
+	 * @return the resulting, initially empty index
+	 * @throws IllegalArgumentException if {@code indexer} or its name is {@code null}
+	 * @throws RuntimeException if an indexer with the same name is already registered
+	 * @see #add(Indexer)
+	 */
+	public <K> BitmapIndex<E, K> addWithoutInitialization(final Indexer<? super E, K> indexer);
+
 	/**
 	 * Adds all indexers to this group.
 	 * <p>
@@ -918,6 +943,22 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			}
 		}
 
+		@Override
+		public <K> BitmapIndex<E, K> addWithoutInitialization(final Indexer<? super E, K> indexer)
+		{
+			synchronized(this.parentMap())
+			{
+				this.ensureMutable();
+				this.validateIndexToAdd(indexer);
+
+				final BitmapIndex.Internal<E, K> index = indexer.createFor(this);
+				this.internalAddBitmapIndex(index, false);
+				this.rebuildCache();
+
+				return index;
+			}
+		}
+
 		/**
 		 * Guards structural mutations against a read-only parent {@link GigaMap}. Must be called while
 		 * holding the parent-map lock.
@@ -1414,8 +1455,13 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		
 		private void internalAddBitmapIndex(final BitmapIndex.Internal<E, ?> index)
 		{
+			this.internalAddBitmapIndex(index, true);
+		}
+
+		private void internalAddBitmapIndex(final BitmapIndex.Internal<E, ?> index, final boolean initialize)
+		{
 			this.bitmapIndices.add(index.name(), index);
-			
+
 			// just to be safe and the performance cost is irrelevant for a structural element.
 			if(index.parent() != this)
 			{
@@ -1424,10 +1470,15 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 					this
 				);
 			}
-			
+
 			this.markStateChangeInstance();
-			
-			this.parent.iterateIndexed(index::internalAdd);
+
+			// initialize==false: caller guarantees no existing entity would be indexed, so the
+			// back-fill over the already-present entities is skipped (see addWithoutInitialization).
+			if(initialize)
+			{
+				this.parent.iterateIndexed(index::internalAdd);
+			}
 			this.parent.internalReportIndexGroupStateChange(this);
 		}
 		
