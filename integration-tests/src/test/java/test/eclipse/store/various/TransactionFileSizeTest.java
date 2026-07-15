@@ -69,6 +69,13 @@ public class TransactionFileSizeTest
 
         Customer customer = new Customer("first");
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(customer, location)) {
+            // ensure the log exceeds the compacted minimum (creation + two store anchors)
+            // before the first cleanup, so every cleanup strictly shrinks it
+            customer.setName(faker
+                    .name()
+                    .lastName());
+            storageManager.store(customer);
+
             for (int i = 0; i < 10; i++) {
                 customer.setName(faker
                         .name()
