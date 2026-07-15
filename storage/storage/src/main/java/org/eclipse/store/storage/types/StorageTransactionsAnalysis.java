@@ -33,6 +33,7 @@ import org.eclipse.serializer.exceptions.IndexBoundsException;
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.store.storage.exceptions.StorageException;
 import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
+import org.eclipse.store.storage.exceptions.StorageExceptionIncompleteTransactionsEntry;
 import org.eclipse.store.storage.exceptions.StorageExceptionIoReading;
 
 
@@ -321,27 +322,89 @@ public interface StorageTransactionsAnalysis
 			final ByteBuffer buffer  = XMemory.allocateDirectNativeDefault();
 			final long       address = XMemory.getDirectByteBufferAddress(buffer);
 
-			// process whole file part by part
-			while(currentFilePosition < boundPosition)
+			try
 			{
-				buffer.clear();
-
-				// end of file special case: adjust buffer limit if buffer would exceed the bounds
-				if(currentFilePosition + buffer.limit() >= boundPosition)
+				// process whole file part by part
+				while(currentFilePosition < boundPosition)
 				{
-					// cast (value range) safety is guaranteed by if above
-					buffer.limit((int)(boundPosition - currentFilePosition));
+					buffer.clear();
+
+					// end of file special case: adjust buffer limit if buffer would exceed the bounds
+					if(currentFilePosition + buffer.limit() >= boundPosition)
+					{
+						// cast (value range) safety is guaranteed by if above
+						buffer.limit((int)(boundPosition - currentFilePosition));
+					}
+
+					// loop is guaranteed to terminate as it depends on the buffer capacity and the file length
+					file.readBytes(buffer, currentFilePosition);
+
+					// buffer is guaranteed to be filled exactly to its limit in any case
+					final long progress = processBufferedEntities(address, buffer.limit(), entryProcessor);
+					if(progress == 0)
+					{
+						/*
+						 * The leading entry cannot be interpreted (incomplete, zero length or a
+						 * sub-header remainder); re-reading would yield the identical window and
+						 * loop forever. A remainder no larger than the largest entry, or one that
+						 * is completely zero-filled, is the expected artifact of a crash during an
+						 * append and healable by truncating it. Anything else is corruption amid
+						 * the content and must fail loudly: healing would silently discard the
+						 * unreachable remainder.
+						 */
+						if(boundPosition - currentFilePosition <= LENGTH_COMMON_MAXIMUM
+							|| isZeroFilled(file, currentFilePosition, boundPosition, buffer, address)
+						)
+						{
+							throw new StorageExceptionIncompleteTransactionsEntry(
+								currentFilePosition,
+								"Incomplete trailing transactions entry at position " + currentFilePosition
+								+ " of " + boundPosition + " in file " + file.toPathString()
+							);
+						}
+						throw new StorageExceptionConsistency(
+							"Unreadable transactions entry at position " + currentFilePosition
+							+ " of " + boundPosition + " in file " + file.toPathString()
+						);
+					}
+					currentFilePosition += progress;
 				}
 
-				// loop is guaranteed to terminate as it depends on the buffer capacity and the file length
-				file.readBytes(buffer, currentFilePosition);
-
-				// buffer is guaranteed to be filled exactely to its limit in any case
-				final long progress = processBufferedEntities(address, buffer.limit(), entryProcessor);
-				currentFilePosition += progress;
+				return entryProcessor;
 			}
+			finally
+			{
+				XMemory.deallocateDirectByteBuffer(buffer);
+			}
+		}
 
-			return entryProcessor;
+		private static boolean isZeroFilled(
+			final AReadableFile file    ,
+			final long          position,
+			final long          bound   ,
+			final ByteBuffer    buffer  ,
+			final long          address
+		)
+		{
+			long currentPosition = position;
+			while(currentPosition < bound)
+			{
+				buffer.clear();
+				if(currentPosition + buffer.limit() >= bound)
+				{
+					buffer.limit((int)(bound - currentPosition));
+				}
+				file.readBytes(buffer, currentPosition);
+				for(int i = 0; i < buffer.limit(); i++)
+				{
+					if(XMemory.get_byte(address + i) != 0)
+					{
+						return false;
+					}
+				}
+				currentPosition += buffer.limit();
+			}
+			return true;
 		}
 
 		private static long processBufferedEntities(
@@ -365,13 +428,20 @@ public interface StorageTransactionsAnalysis
 			// iterate over and process every complete entity record, skip all gaps, revert trailing complete entity
 			while(true) // loop gets terminated by end-of-data recognition logic specific to the found case
 			{
+				// an entry needs at least its length and type byte; a smaller remainder is either
+				// a window boundary (the caller re-reads) or a torn tail (the caller decides)
+				if(bufferBound - address < LENGTH_ENTRY_LENGTH + LENGTH_ENTRY_TYPE)
+				{
+					return address - startAddress;
+				}
+
 				// read length of current entry (actual or gap)
 				entryLength = getEntryLength(address); // implicit cast!
 
 				if(entryLength == 0)
 				{
-					// entity length may never be 0 or the iteration will hang forever
-					throw new StorageException("Zero length transactions entry.");
+					// cannot be advanced over; tail-or-corruption policy is decided by the caller
+					return address - startAddress;
 				}
 
 				// depending on the processor logic, incomplete entity data can still be enough (e.g. only needs header)

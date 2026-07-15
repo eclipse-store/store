@@ -40,6 +40,7 @@ import org.eclipse.serializer.util.BufferSizeProviderIncremental;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.storage.exceptions.StorageExceptionConsistencyDanglingReference;
+import org.eclipse.store.storage.exceptions.StorageExceptionTransactionsFileCompaction;
 import org.eclipse.store.storage.monitoring.StorageChannelHousekeepingMonitor;
 import org.eclipse.store.storage.types.StorageAdjacencyDataExporter.AdjacencyFiles;
 import org.slf4j.Logger;
@@ -742,7 +743,21 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		@Override
 		public boolean issuedTransactionsLogCleanup()
 		{
-			return this.housekeepingBroker.performTransactionFileCheck(this, false);
+			try
+			{
+				return this.housekeepingBroker.performTransactionFileCheck(this, false);
+			}
+			catch(final StorageExceptionTransactionsFileCompaction e)
+			{
+				/*
+				 * The live transaction log is broken and only the retained swap file can heal it
+				 * on the next initialization; any further append would be discarded by that heal.
+				 * Unlike ordinary task problems, this failure must therefore stop the channel.
+				 */
+				this.operationController.registerDisruption(e);
+				this.operationController.setChannelProcessingEnabled(false);
+				throw e;
+			}
 		}
 		
 		private long calculateSpecificHousekeepingTimeBudget(final long nanoTimeBudget)

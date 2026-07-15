@@ -275,12 +275,12 @@ public interface StorageConnection extends UsageMarkable, Persister
 	);
 
 	/**
-	 * Issue a cleanup of the transaction log to reduce size regardless of its current size.
-	 * 
-	 * To shrink the file size all store, transfer, and truncation entries are combined into one single store entry
-	 * for each storage files. FileCreation entries are kept, FileDeletion entries are kept
-	 * if the storage data file still exists on the file system. Otherwise, all entries related
-	 * to deleted files are removed if the storage data file does no more exist.
+	 * Issue a cleanup of the transaction log regardless of its current size.
+	 *
+	 * Each storage file is reduced to a single FileCreation entry carrying its latest length;
+	 * only the head file keeps its latest store timestamps. FileDeletion entries are kept if the
+	 * storage data file still exists on the file system; otherwise, all entries of the deleted
+	 * file are removed.
 	 */
 	public void issueTransactionsLogCleanup();
 

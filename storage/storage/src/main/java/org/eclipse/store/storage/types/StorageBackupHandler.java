@@ -238,7 +238,7 @@ public interface StorageBackupHandler extends Runnable, StorageActivePart
 		public void synchronize(final StorageInventory storageInventory)
 		{
 			logger.debug("Synchronizing backup with storage");
-			
+
 			try
 			{
 				this.trySynchronize(storageInventory);
@@ -514,7 +514,7 @@ public interface StorageBackupHandler extends Runnable, StorageActivePart
 
 			final long storageFileLength      = liveTransactionsFile.size();
 			final long backupTargetFileLength = backupTransactionFile.size();
-			
+
 			if(backupTargetFileLength != storageFileLength)
 			{
 				// on any mismatch, the backup transaction file is deleted (potentially moved&renamed) and rebuilt.
@@ -523,7 +523,7 @@ public interface StorageBackupHandler extends Runnable, StorageActivePart
 				this.copyFile(liveTransactionsFile, backupTransactionFileNew);
 			}
 		}
-				
+
 		private void copyFile(
 			final StorageFile       storageFile     ,
 			final StorageBackupFile backupTargetFile
