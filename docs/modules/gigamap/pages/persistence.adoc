@@ -70,6 +70,30 @@ synchronized (gigaMap) {
 
 This is the same principle as the classic problem with synchronized JDK collections like `Vector`: synchronizing individual methods is not sufficient when multiple operations need to be atomic. In this case, the entire store traversal must be protected from concurrent modifications.
 
+== Class evolution and indexed fields
+
+GigaMap's indices (bitmap, Lucene, vector) are a *derived cache*: their keys are computed from your entities by the indexers and are then persisted alongside the entities. On load the index keys are restored *verbatim from storage* — they are **not** recomputed from, or revalidated against, the entities.
+
+This matters when an *indexed* field's class layout evolves between releases. {product-name}'s serializer maps an evolved class to the new layout on load (see xref:storage:legacy-type-mapping/index.adoc[Legacy Type Mapping]). If an indexed field is renamed or retyped *without a value-preserving refactoring mapping*, the loaded entities carry shifted or defaulted field values while the persisted index still carries the pre-evolution keys. The index is now stale, and nothing detects this automatically.
+
+[WARNING]
+====
+Evolving an *indexed* field without a value-preserving refactoring mapping leaves the indices stale — with the same consequences as a direct (untracked) mutation, and potentially worse:
+
+* Queries return pre-evolution results: `is(oldValue)` still matches, `is(actualValue)` returns nothing.
+* A subsequent `update` / `apply` / `set` that writes the entity's true value can raise a stale-index error, or — for a field under a unique constraint — trigger a *phantom* unique-constraint violation. Because `apply` mutates the entity in place and cannot roll back, such a violation causes the entity to be **removed from the map** (see the `apply` javadoc), and the next `store()` persists that loss.
+
+After evolving an indexed field, rebuild every index from the current entity state with `reindex()` **before** running any query or update, then `store()`:
+
+[source, java]
+----
+gigaMap.reindex();   // rebuild every index from current entity state
+gigaMap.store();     // persist the rebuilt indices
+----
+
+If in doubt, prefer a value-preserving refactoring mapping for indexed fields, or call `reindex()` on first load after a release that changed an indexed field's name or type.
+====
+
 == Concurrency
 
 TIP: See xref:intro:concurrent-access.adoc[Concurrent Access] for the full conceptual treatment.
