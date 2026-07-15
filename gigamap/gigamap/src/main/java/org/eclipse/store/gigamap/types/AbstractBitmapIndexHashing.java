@@ -16,6 +16,8 @@ package org.eclipse.store.gigamap.types;
 
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.EqHashTable;
+import org.eclipse.store.gigamap.exceptions.BitmapIndexException;
+import org.eclipse.store.gigamap.exceptions.GigaIndexException;
 
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -219,7 +221,29 @@ public abstract class AbstractBitmapIndexHashing<E, I, K> extends BitmapIndex.Ab
 		@Override
 		public void removeFromIndex(final long entityId)
 		{
-			throw new Error("Removing an entityId for a new key may never be required.");
+			/*
+			 * Reaching this point means an existing entity is being de-indexed under a key for which
+			 * the index holds no entry. For a genuine new key that is impossible by construction (a new
+			 * key has no prior members), so this indicates the index is stale relative to the current
+			 * entity state: its persisted keys no longer match the keys re-derived from the loaded
+			 * entities. The typical causes are a direct (untracked) mutation of an indexed field, or
+			 * entity class evolution (an indexed field renamed/retyped across releases without a
+			 * value-preserving refactoring mapping), which leaves the persisted bitmaps carrying the
+			 * pre-evolution keys. The remedy is to rebuild the indices from the current entity state via
+			 * GigaMap.reindex() before further queries or updates. Formerly this threw a raw
+			 * java.lang.Error; it now throws a descriptive, catchable exception.
+			 */
+			final String message =
+				"Cannot remove entityId " + entityId + " for key \"" + this.newKey + "\": the index holds no"
+				+ " entry for this key, which means the index is stale relative to the current entity state"
+				+ " (e.g. after a direct mutation of an indexed field or entity class evolution). Rebuild the"
+				+ " indices from the current entity state via GigaMap.reindex(), then store().";
+			if(this.index instanceof BitmapIndex<?, ?> bitmapIndex)
+			{
+				throw new BitmapIndexException(message, bitmapIndex);
+			}
+			// sub-indices of a composite index are a GigaIndex but not a BitmapIndex
+			throw new GigaIndexException(message, (GigaIndex<?>)this.index);
 		}
 		
 		@Override

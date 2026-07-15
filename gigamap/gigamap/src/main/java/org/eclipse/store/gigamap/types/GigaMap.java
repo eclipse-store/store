@@ -463,6 +463,12 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * entity after correcting the violation, or use {@code set} / {@code replace} instead when
 	 * non-destructive semantics are required.
 	 * <p>
+	 * Note that a <em>stale index</em> can make this destructive path fire on an otherwise legitimate update:
+	 * if an indexed field was mutated directly, or the entity class was evolved (an indexed field renamed or
+	 * retyped without a value-preserving refactoring mapping), the persisted index keys no longer match the
+	 * entities, and writing an entity's true value can trigger a <em>phantom</em> constraint violation whose
+	 * removal is a real data loss. Rebuild the indices with {@link #reindex()} before updating in that case.
+	 * <p>
 	 * <b>Behavior on other exceptions:</b> the same destructive-removal contract applies to any other
 	 * {@link RuntimeException} thrown by {@code logic} itself or by an {@link Indexer} once {@code logic}
 	 * may have (partially) mutated the entity: the entity is removed from the map and the original
@@ -505,6 +511,12 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * re-add the entity after correcting the violation, or use {@link #set(long, Object) set} when
 	 * non-destructive semantics are required.
 	 * <p>
+	 * Note that a <em>stale index</em> can make this destructive path fire on an otherwise legitimate update:
+	 * if an indexed field was mutated directly, or the entity class was evolved (an indexed field renamed or
+	 * retyped without a value-preserving refactoring mapping), the persisted index keys no longer match the
+	 * entities, and writing an entity's true value can trigger a <em>phantom</em> constraint violation whose
+	 * removal is a real data loss. Rebuild the indices with {@link #reindex()} before updating in that case.
+	 * <p>
 	 * <b>Behavior on other exceptions:</b> the same destructive-removal contract applies to any other
 	 * {@link RuntimeException} thrown by {@code logic} itself or by an {@link Indexer} once {@code logic}
 	 * may have (partially) mutated the entity: the entity is removed from the map and the original
@@ -545,6 +557,13 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * external-directory Lucene index is committed during the rebuild when its {@code LuceneContext.autoCommit}
 	 * is {@code true} (the default), otherwise at the next {@link #store()} boundary. On a very large map this
 	 * can be an expensive operation, as it iterates all entities once per index group.
+	 * <p>
+	 * <b>Class evolution:</b> the indices are a derived cache whose keys are restored verbatim from storage on
+	 * load and are <em>not</em> revalidated against the entities. Evolving an <em>indexed</em> field (renaming
+	 * or retyping it across releases without a value-preserving refactoring mapping) therefore leaves the
+	 * indices stale in exactly the same way a direct mutation does: the loaded entities carry shifted/defaulted
+	 * values while the persisted index keeps the pre-evolution keys. This method is the recovery path for that
+	 * case too; call it (then {@link #store()}) before any query or update after such an evolution.
 	 *
 	 * @see #update(long, Consumer)
 	 * @see #apply(long, Function)
