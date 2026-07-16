@@ -18,6 +18,8 @@
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
         <junit-jupiter.version>6.0.3</junit-jupiter.version>
+        <!-- Extra JVM args for the test fork; JDK-specific values are set by the profiles below. -->
+        <extra.jvm.args></extra.jvm.args>
     </properties>
 
     <dependencyManagement>
@@ -159,6 +161,7 @@
                     <useModulePath>false</useModulePath>
                     <trimStackTrace>false</trimStackTrace>
                     <argLine>
+                        ${extra.jvm.args}
                         --add-opens java.base/java.lang=ALL-UNNAMED
                         --add-opens java.base/java.lang.ref=ALL-UNNAMED
                         --add-opens java.base/java.lang.reflect=ALL-UNNAMED
@@ -179,4 +182,21 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- Eclipse Serializer's low-level memory access (sun.misc.Unsafe / native-memory accessor)
+             is incompatible with JDK Lilliput compact object headers, which are enabled by default
+             on some JDK 25+ builds (e.g. SapMachine) and corrupt object headers, crashing the forked
+             test JVM during G1 GC. Disable them there. The flag does not exist before JDK 24, so it
+             must only be applied on JDK 25+ (matches microstream-test). -->
+        <profile>
+            <id>jdk25-plus</id>
+            <activation>
+                <jdk>[25,)</jdk>
+            </activation>
+            <properties>
+                <extra.jvm.args>-XX:-UseCompactObjectHeaders</extra.jvm.args>
+            </properties>
+        </profile>
+    </profiles>
 </project>
