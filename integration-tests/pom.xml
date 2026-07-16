@@ -159,6 +159,7 @@
                     <useModulePath>false</useModulePath>
                     <trimStackTrace>false</trimStackTrace>
                     <argLine>
+                        -XX:-UseCompactObjectHeaders
                         --add-opens java.base/java.lang=ALL-UNNAMED
                         --add-opens java.base/java.lang.ref=ALL-UNNAMED
                         --add-opens java.base/java.lang.reflect=ALL-UNNAMED
