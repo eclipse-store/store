@@ -934,20 +934,26 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 			{
 				// either null pointer or already decompressed/standalone level1 segment, keep as is.
 				setLevel1SegmentAddress(newLevel2Address, i, oldLevel1Address);
-
-				if(oldLevel1Address > 0L)
-				{
-					// Ownership of this standalone segment is TRANSFERRED to the new block (pointer copy,
-					// not a copy of the pointed-to native memory). Clear it in the old block so the
-					// subsequent deallocate(oldLevel2Address) in ensureDecompressed() does not free memory
-					// now owned by, and still referenced from, the new block (use-after-free + double free).
-					setLevel1SegmentAddress(level2Address, i, 0L);
-				}
 			}
 		}
-		
+
 		// totalLength and level3Index have already been set by allocation method above
-		
+
+		// The new block is now fully built, so ownership of the standalone (positive-pointer) level1
+		// segments can be transferred: they were copied into the new block above by pointer, not by
+		// value, so the caller's deallocate(level2Address) must NOT free them (that would be a
+		// use-after-free plus, on a later release, a double free via the new block). Clear them from the
+		// old block here. This runs only after the build loop has completed successfully: if an
+		// allocation above throws mid-build, the old block is left fully intact (only the partially
+		// built new block leaks), preserving the exception safety of the original transform.
+		for(int i = 0; i < level2IndexBound; i++)
+		{
+			if(getLevel1SegmentAddress(level2Address, i) > 0L)
+			{
+				setLevel1SegmentAddress(level2Address, i, 0L);
+			}
+		}
+
 		return newLevel2Address;
 	}
 	
