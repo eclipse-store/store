@@ -19,6 +19,7 @@ import static org.eclipse.serializer.util.X.notNull;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
 
@@ -491,31 +492,41 @@ public interface EmbeddedStorageManager extends StorageManager
 		 * that opts into shutdown participation. Enumerates the object registry, which holds only
 		 * already-materialized instances, so no {@code Lazy} subgraph is force-loaded. Best-effort: a
 		 * failing participant is logged and skipped so it cannot abort shutdown of the rest or of storage.
+		 * <p>
+		 * Participants are collected during the registry iteration and released afterwards, outside of it:
+		 * {@code releaseOnShutdown()} may block on application locks and await background-task termination,
+		 * which must not happen while the object registry is being iterated.
 		 */
 		private void releaseShutdownParticipants()
 		{
+			final List<PersistenceShutdownReleasable> participants = new ArrayList<>();
 			try
 			{
-				final PersistenceAcceptor releaser = (objectId, instance) ->
+				final PersistenceAcceptor collector = (objectId, instance) ->
 				{
 					if(instance instanceof PersistenceShutdownReleasable)
 					{
-						try
-						{
-							((PersistenceShutdownReleasable)instance).releaseOnShutdown();
-						}
-						catch(final Throwable t)
-						{
-							logger.error("Error releasing shutdown participant of type {}",
-								instance.getClass().getName(), t);
-						}
+						participants.add((PersistenceShutdownReleasable)instance);
 					}
 				};
-				this.connectionFoundation.getObjectRegistry().iterateEntries(releaser);
+				this.connectionFoundation.getObjectRegistry().iterateEntries(collector);
 			}
 			catch(final Throwable t)
 			{
-				logger.error("Error while releasing storage shutdown participants", t);
+				logger.error("Error while collecting storage shutdown participants", t);
+			}
+
+			for(final PersistenceShutdownReleasable participant : participants)
+			{
+				try
+				{
+					participant.releaseOnShutdown();
+				}
+				catch(final Throwable t)
+				{
+					logger.error("Error releasing shutdown participant of type {}",
+						participant.getClass().getName(), t);
+				}
 			}
 		}
 

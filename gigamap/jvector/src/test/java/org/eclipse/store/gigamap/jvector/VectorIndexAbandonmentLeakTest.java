@@ -24,10 +24,12 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.lang.ref.WeakReference;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -201,5 +203,45 @@ class VectorIndexAbandonmentLeakTest
 		assertTrue(backgroundThreadCount() <= before,
 			"EmbeddedStorageManager.shutdown() must close vector index groups so no '"
 				+ BG_THREAD_PREFIX + "' thread survives -- internal#104");
+	}
+
+	@Test
+	@Timeout(value = 120, unit = TimeUnit.SECONDS)
+	void storageShutdownDoesNotDeadlockWithOnDiskBackgroundPersist(@TempDir final Path dir) throws Exception
+	{
+		final int  before     = backgroundThreadCount();
+		final Path storageDir = dir.resolve("storage");
+		final Path indexDir   = dir.resolve("index");
+
+		// On-disk background index with unsaved changes and the default persistOnShutdown=true: on shutdown
+		// the background thread runs doPersistToDisk, which takes the builder write-lock and then the
+		// parentMap monitor. If the close path still held the monitor across index.close() (which also wants
+		// the write-lock), shutdown would dead-lock permanently -- @Timeout turns that into a failure.
+		final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+			.dimension(3)
+			.similarityFunction(VectorSimilarityFunction.COSINE)
+			.onDisk(true)
+			.indexDirectory(indexDir)
+			.persistenceIntervalMs(600_000L) // background persistence enabled; interval too long to tick in-test
+			.build();
+
+		final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir);
+		final GigaMap<Doc> map = GigaMap.New();
+		storage.setRoot(map);
+		final VectorIndices<Doc> vi = map.index().register(VectorIndices.Category());
+		vi.add("emb", config, new EmbeddingVectorizer());
+		addDocs(map);                                          // leaves unsaved (dirty) index changes
+		vi.get("emb").search(new float[]{1.0f, 0.0f, 0.0f}, 2); // force init + spawn the background thread
+		storage.storeRoot();
+
+		assertTrue(backgroundThreadCount() > before, "precondition: background thread must be running");
+
+		// Preemptive timeout: a hard monitor deadlock cannot be interrupted, so run shutdown on a separate
+		// thread that is abandoned on timeout, turning a regression into a clean failure instead of a hang.
+		assertTimeoutPreemptively(Duration.ofSeconds(30), () -> { storage.shutdown(); },
+			"storage.shutdown() dead-locked closing the on-disk background index -- internal#104");
+
+		assertTrue(backgroundThreadCount() <= before,
+			"shutdown must close the on-disk background index without dead-locking -- internal#104");
 	}
 }

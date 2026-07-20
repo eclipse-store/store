@@ -706,40 +706,51 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 		 * owning storage is shut down (see {@link GigaMap.Default#releaseOnShutdown()}). Best-effort: a
 		 * failure of one group does not prevent the others from being closed; the first failure is
 		 * rethrown (with the rest suppressed) once all groups have been attempted.
+		 * <p>
+		 * The closeable groups are collected under the {@code parentMap} monitor but closed <b>outside</b>
+		 * of it: a group's {@code close()} may acquire its own internal lock (e.g. a vector index's builder
+		 * write-lock) while a background task holds that lock and waits for the {@code parentMap} monitor,
+		 * so holding the monitor across {@code close()} would dead-lock.
 		 */
 		final void closeAllGroups()
 		{
+			final BulkList<Closeable> closeables = BulkList.New();
 			synchronized(this.parentMap())
 			{
-				RuntimeException problem = null;
 				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
 				{
 					if(indexGroup instanceof Closeable)
 					{
-						try
-						{
-							((Closeable)indexGroup).close();
-						}
-						catch(final Exception e)
-						{
-							if(problem == null)
-							{
-								problem = new RuntimeException(
-									"Failed to close one or more index groups on storage shutdown.",
-									e
-								);
-							}
-							else
-							{
-								problem.addSuppressed(e);
-							}
-						}
+						closeables.add((Closeable)indexGroup);
 					}
 				}
-				if(problem != null)
+			}
+
+			RuntimeException problem = null;
+			for(final Closeable closeable : closeables)
+			{
+				try
 				{
-					throw problem;
+					closeable.close();
 				}
+				catch(final Exception e)
+				{
+					if(problem == null)
+					{
+						problem = new RuntimeException(
+							"Failed to close one or more index groups on storage shutdown.",
+							e
+						);
+					}
+					else
+					{
+						problem.addSuppressed(e);
+					}
+				}
+			}
+			if(problem != null)
+			{
+				throw problem;
 			}
 		}
 
