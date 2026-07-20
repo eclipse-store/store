@@ -14,6 +14,7 @@ package org.eclipse.store.gigamap.jvector;
  * #L%
  */
 
+import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.EqHashTable;
 import org.eclipse.serializer.collections.types.XGettingTable;
 import org.eclipse.serializer.collections.types.XIterable;
@@ -331,6 +332,7 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
         @Override
         public boolean removeIndex(final String name)
         {
+            final VectorIndex.Internal<E> index;
             synchronized(this.parentMap())
             {
                 if(this.parent.isReadOnly())
@@ -339,32 +341,48 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
                         "Cannot remove vector index \"" + name + "\": the GigaMap is read-only."
                     );
                 }
-                final VectorIndex.Internal<E> index = this.vectorIndices.get(name);
+                index = this.vectorIndices.get(name);
                 if(index == null)
                 {
                     return false;
                 }
-                index.close(); // release background/disk/searcher resources before dropping the index
+            }
+            // Close the index outside the parentMap monitor: index.close() acquires the builder write-lock,
+            // while a background persist holds that lock and waits for the parentMap monitor — holding the
+            // monitor across close() would dead-lock. Drop the index from the registry only after close()
+            // succeeds, so a failing close leaves it registered (and re-closeable) rather than
+            // detached-but-unclosed.
+            index.close();
+            synchronized(this.parentMap())
+            {
                 this.vectorIndices.removeFor(name);
                 this.markStateChangeInstance();
                 this.parent.internalReportIndexGroupStateChange(this);
-                return true;
             }
+            return true;
         }
 
         /**
          * Closes all contained vector indices, releasing their native resources. Invoked when the
-         * whole vector index group is removed via {@link GigaIndices#remove(IndexCategory)}.
+         * whole vector index group is removed via {@link GigaIndices#remove(IndexCategory)} and on storage
+         * shutdown.
+         * <p>
+         * The indices are collected under the {@code parentMap} monitor but closed <b>outside</b> of it:
+         * {@code index.close()} acquires the builder write-lock, while a background persist holds that lock
+         * and waits for the {@code parentMap} monitor, so holding the monitor across {@code close()} would
+         * dead-lock.
          */
         @Override
         public void close()
         {
+            final BulkList<VectorIndex.Internal<E>> toClose;
             synchronized(this.parentMap())
             {
-                for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
-                {
-                    index.close();
-                }
+                toClose = BulkList.New(this.vectorIndices.values());
+            }
+            for(final VectorIndex.Internal<E> index : toClose)
+            {
+                index.close();
             }
         }
 

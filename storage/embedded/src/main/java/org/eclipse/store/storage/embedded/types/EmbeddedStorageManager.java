@@ -19,6 +19,7 @@ import static org.eclipse.serializer.util.X.notNull;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
 
@@ -30,12 +31,14 @@ import org.eclipse.serializer.collections.types.XGettingTable;
 import org.eclipse.serializer.monitoring.MonitoringManager;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.types.Persistence;
+import org.eclipse.serializer.persistence.types.PersistenceAcceptor;
 import org.eclipse.serializer.persistence.types.PersistenceManager;
 import org.eclipse.serializer.persistence.types.PersistenceObjectRegistry;
 import org.eclipse.serializer.persistence.types.PersistenceRootReference;
 import org.eclipse.serializer.persistence.types.PersistenceRoots;
 import org.eclipse.serializer.persistence.types.PersistenceRootsProvider;
 import org.eclipse.serializer.persistence.types.PersistenceRootsView;
+import org.eclipse.serializer.persistence.types.PersistenceShutdownReleasable;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDictionaryExporter;
 import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.serializer.persistence.types.Unpersistable;
@@ -464,6 +467,10 @@ public interface EmbeddedStorageManager extends StorageManager
 		@Override
 		public final synchronized boolean shutdown()
 		{
+			// Release shutdown-aware instances (e.g. GigaMaps closing their vector index groups) while
+			// the object registry is still populated and the storage system is still up.
+			this.releaseShutdownParticipants();
+
 			LazyReferenceManager.get().removeController(this);
 			final boolean result = this.storageSystem.shutdown();
 			if(!result)
@@ -478,6 +485,49 @@ public interface EmbeddedStorageManager extends StorageManager
 			registry.truncateAll();
 			Persistence.registerJavaConstants(registry);
 			return true;
+		}
+
+		/**
+		 * Invokes {@link PersistenceShutdownReleasable#releaseOnShutdown()} on every registered instance
+		 * that opts into shutdown participation. Enumerates the object registry, which holds only
+		 * already-materialized instances, so no {@code Lazy} subgraph is force-loaded. Best-effort: a
+		 * failing participant is logged and skipped so it cannot abort shutdown of the rest or of storage.
+		 * <p>
+		 * Participants are collected during the registry iteration and released afterwards, outside of it:
+		 * {@code releaseOnShutdown()} may block on application locks and await background-task termination,
+		 * which must not happen while the object registry is being iterated.
+		 */
+		private void releaseShutdownParticipants()
+		{
+			final List<PersistenceShutdownReleasable> participants = new ArrayList<>();
+			try
+			{
+				final PersistenceAcceptor collector = (objectId, instance) ->
+				{
+					if(instance instanceof PersistenceShutdownReleasable)
+					{
+						participants.add((PersistenceShutdownReleasable)instance);
+					}
+				};
+				this.connectionFoundation.getObjectRegistry().iterateEntries(collector);
+			}
+			catch(final Throwable t)
+			{
+				logger.error("Error while collecting storage shutdown participants", t);
+			}
+
+			for(final PersistenceShutdownReleasable participant : participants)
+			{
+				try
+				{
+					participant.releaseOnShutdown();
+				}
+				catch(final Throwable t)
+				{
+					logger.error("Error releasing shutdown participant of type {}",
+						participant.getClass().getName(), t);
+				}
+			}
 		}
 
 		@Override

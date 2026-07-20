@@ -1421,7 +1421,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		
 	// Unpersistable to force a custom type handler due to required initialization call.
 	public class Default<E>
-	implements   Internal<E>, EntityResolver<E>, Unpersistable, PersistenceCommitListener
+	implements   Internal<E>, EntityResolver<E>, Unpersistable, PersistenceCommitListener, PersistenceShutdownReleasable
 	{
 		static BinaryTypeHandler<GigaMap.Default<?>> provideTypeHandler()
 		{
@@ -1614,6 +1614,16 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		public final GigaIndices<E> index()
 		{
 			return this.indices;
+		}
+
+		@Override
+		public final void releaseOnShutdown()
+		{
+			// Closes Closeable index groups (e.g. vector indices: stops their background threads and
+			// frees off-heap/auxiliary-disk resources) when the owning storage is shut down, so callers
+			// need not close indices explicitly. Does not mutate the persistent graph; indices are
+			// transient and rebuilt on the next storage start.
+			this.indices.closeAllGroups();
 		}
 		
 		@Override
