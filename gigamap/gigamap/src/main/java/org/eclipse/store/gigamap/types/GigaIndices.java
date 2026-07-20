@@ -635,6 +635,7 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 
 		private boolean internalRemoveGroup(final Class<?> categoryType)
 		{
+			final IndexGroup.Internal<E> found;
 			synchronized(this.parentMap())
 			{
 				if(this.parent.isReadOnly())
@@ -644,60 +645,67 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 					);
 				}
 
-				IndexGroup.Internal<E> found = null;
+				IndexGroup.Internal<E> match = null;
 				// exact class match is checked first, then the general (e.g. interface) type, mirroring #get.
 				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
 				{
 					if(indexGroup.getClass() == categoryType)
 					{
-						found = indexGroup;
+						match = indexGroup;
 						break;
 					}
 				}
-				if(found == null)
+				if(match == null)
 				{
 					for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
 					{
 						if(categoryType.isAssignableFrom(indexGroup.getClass()))
 						{
-							found = indexGroup;
+							match = indexGroup;
 							break;
 						}
 					}
 				}
-				if(found == null)
+				if(match == null)
 				{
 					return false;
 				}
-				if(found instanceof BitmapIndices)
+				if(match instanceof BitmapIndices)
 				{
 					throw new IllegalArgumentException(
 						"The bitmap index group cannot be removed (it hosts the unique and custom constraints); "
 						+ "use BitmapIndices#removeIndex(String) to remove individual bitmap indices."
 					);
 				}
+				found = match;
+			}
 
-				// release resources
-				if(found instanceof Closeable)
+			// Release resources outside the parentMap monitor: a group's close() may acquire its own internal
+			// lock (e.g. a vector index's builder write-lock) while a background task holds that lock and waits
+			// for the parentMap monitor, so closing under the monitor could dead-lock. Drop the group from the
+			// registry only after close() succeeds, so a failing close leaves it registered (and re-closeable)
+			// rather than detached-but-unclosed.
+			if(found instanceof Closeable)
+			{
+				try
 				{
-					try
-					{
-						((Closeable)found).close();
-					}
-					catch(final IOException e)
-					{
-						throw new RuntimeException(
-							"Failed to close index group \"" + found.getClass().getName()
-							+ "\" while removing it.",
-							e
-						);
-					}
+					((Closeable)found).close();
 				}
+				catch(final IOException e)
+				{
+					throw new RuntimeException(
+						"Failed to close index group \"" + found.getClass().getName() + "\" while removing it.",
+						e
+					);
+				}
+			}
 
+			synchronized(this.parentMap())
+			{
 				this.indexGroups.removeOne(found);
 				this.markStateChangeInstance();
-				return true;
 			}
+			return true;
 		}
 
 		/**

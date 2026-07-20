@@ -346,14 +346,19 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
                 {
                     return false;
                 }
+            }
+            // Close the index outside the parentMap monitor: index.close() acquires the builder write-lock,
+            // while a background persist holds that lock and waits for the parentMap monitor — holding the
+            // monitor across close() would dead-lock. Drop the index from the registry only after close()
+            // succeeds, so a failing close leaves it registered (and re-closeable) rather than
+            // detached-but-unclosed.
+            index.close();
+            synchronized(this.parentMap())
+            {
                 this.vectorIndices.removeFor(name);
                 this.markStateChangeInstance();
                 this.parent.internalReportIndexGroupStateChange(this);
             }
-            // Close the detached index outside the parentMap monitor: index.close() acquires the builder
-            // write-lock, while a background persist holds that lock and waits for the parentMap monitor —
-            // holding the monitor across close() would dead-lock (internal#104 follow-up).
-            index.close();
             return true;
         }
 

@@ -33,8 +33,9 @@ import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Regression tests for internal#104: a background-enabled {@link VectorIndex} that is abandoned
- * without an explicit {@code close()} must not pin its object graph nor leak its daemon thread.
+ * Regression tests for the JVector background-index lifecycle: a background-enabled {@link VectorIndex}
+ * that is abandoned without an explicit {@code close()} must not pin its object graph nor leak its daemon
+ * thread, and closing indices on storage shutdown or removal must not dead-lock.
  * <p>
  * The manager holds the index through a {@link WeakReference} and a liveness watchdog self-terminates
  * the executor once the index has been collected, so a dropped index becomes fully reclaimable
@@ -96,6 +97,19 @@ class VectorIndexAbandonmentLeakTest
 			.build();
 	}
 
+	// On-disk index + background persistence: index.close() runs doPersistToDisk on the background thread,
+	// which is what turns "close under the parentMap monitor" into a deadlock.
+	private static VectorIndexConfiguration onDiskBackgroundConfig(final Path indexDir)
+	{
+		return VectorIndexConfiguration.builder()
+			.dimension(3)
+			.similarityFunction(VectorSimilarityFunction.COSINE)
+			.onDisk(true)
+			.indexDirectory(indexDir)
+			.persistenceIntervalMs(600_000L) // background persistence enabled; interval too long to tick in-test
+			.build();
+	}
+
 	private static void addDocs(final GigaMap<Doc> map)
 	{
 		map.add(new Doc(new float[]{1.0f, 0.0f, 0.0f}));
@@ -154,8 +168,7 @@ class VectorIndexAbandonmentLeakTest
 		assertTrue(awaitGc(() -> plainRef.get() == null, 30_000L),
 			"control: a vector index with no background feature must be collectable once abandoned");
 		assertTrue(awaitGc(() -> backgroundRef.get() == null, 30_000L),
-			"abandoned background-enabled vector index must not be pinned by its BackgroundTaskManager "
-				+ "tasks -- internal#104");
+			"abandoned background-enabled vector index must not be pinned by its BackgroundTaskManager tasks");
 		assertNull(backgroundRef.get());
 	}
 
@@ -177,7 +190,7 @@ class VectorIndexAbandonmentLeakTest
 		assertTrue(released,
 			"abandoning " + n + " background-enabled vector indices without close() leaked "
 				+ (backgroundThreadCount() - before) + " '" + BG_THREAD_PREFIX + "' threads; the "
-				+ "BackgroundTaskManager must self-terminate when its index is garbage-collected -- internal#104");
+				+ "BackgroundTaskManager must self-terminate when its index is garbage-collected");
 	}
 
 	@Test
@@ -202,34 +215,24 @@ class VectorIndexAbandonmentLeakTest
 
 		assertTrue(backgroundThreadCount() <= before,
 			"EmbeddedStorageManager.shutdown() must close vector index groups so no '"
-				+ BG_THREAD_PREFIX + "' thread survives -- internal#104");
+				+ BG_THREAD_PREFIX + "' thread survives");
 	}
 
 	@Test
 	@Timeout(value = 120, unit = TimeUnit.SECONDS)
 	void storageShutdownDoesNotDeadlockWithOnDiskBackgroundPersist(@TempDir final Path dir) throws Exception
 	{
-		final int  before     = backgroundThreadCount();
-		final Path storageDir = dir.resolve("storage");
-		final Path indexDir   = dir.resolve("index");
+		final int before = backgroundThreadCount();
 
 		// On-disk background index with unsaved changes and the default persistOnShutdown=true: on shutdown
 		// the background thread runs doPersistToDisk, which takes the builder write-lock and then the
 		// parentMap monitor. If the close path still held the monitor across index.close() (which also wants
-		// the write-lock), shutdown would dead-lock permanently -- @Timeout turns that into a failure.
-		final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
-			.dimension(3)
-			.similarityFunction(VectorSimilarityFunction.COSINE)
-			.onDisk(true)
-			.indexDirectory(indexDir)
-			.persistenceIntervalMs(600_000L) // background persistence enabled; interval too long to tick in-test
-			.build();
-
-		final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir);
+		// the write-lock), shutdown would dead-lock permanently.
+		final EmbeddedStorageManager storage = EmbeddedStorage.start(dir.resolve("storage"));
 		final GigaMap<Doc> map = GigaMap.New();
 		storage.setRoot(map);
 		final VectorIndices<Doc> vi = map.index().register(VectorIndices.Category());
-		vi.add("emb", config, new EmbeddingVectorizer());
+		vi.add("emb", onDiskBackgroundConfig(dir.resolve("index")), new EmbeddingVectorizer());
 		addDocs(map);                                          // leaves unsaved (dirty) index changes
 		vi.get("emb").search(new float[]{1.0f, 0.0f, 0.0f}, 2); // force init + spawn the background thread
 		storage.storeRoot();
@@ -239,9 +242,65 @@ class VectorIndexAbandonmentLeakTest
 		// Preemptive timeout: a hard monitor deadlock cannot be interrupted, so run shutdown on a separate
 		// thread that is abandoned on timeout, turning a regression into a clean failure instead of a hang.
 		assertTimeoutPreemptively(Duration.ofSeconds(30), () -> { storage.shutdown(); },
-			"storage.shutdown() dead-locked closing the on-disk background index -- internal#104");
+			"storage.shutdown() dead-locked closing the on-disk background index");
 
 		assertTrue(backgroundThreadCount() <= before,
-			"shutdown must close the on-disk background index without dead-locking -- internal#104");
+			"shutdown must close the on-disk background index without dead-locking");
+	}
+
+	@Test
+	@Timeout(value = 120, unit = TimeUnit.SECONDS)
+	void removeIndexDoesNotDeadlockWithOnDiskBackgroundPersist(@TempDir final Path dir) throws Exception
+	{
+		final int before = backgroundThreadCount();
+
+		try(final EmbeddedStorageManager storage = EmbeddedStorage.start(dir.resolve("storage")))
+		{
+			final GigaMap<Doc> map = GigaMap.New();
+			storage.setRoot(map);
+			final VectorIndices<Doc> vi = map.index().register(VectorIndices.Category());
+			vi.add("emb", onDiskBackgroundConfig(dir.resolve("index")), new EmbeddingVectorizer());
+			addDocs(map);
+			vi.get("emb").search(new float[]{1.0f, 0.0f, 0.0f}, 2); // force init + spawn the background thread
+			storage.storeRoot();
+
+			assertTrue(backgroundThreadCount() > before, "precondition: background thread must be running");
+
+			// removeIndex() closes the index; it must not hold the parentMap monitor across close().
+			assertTimeoutPreemptively(Duration.ofSeconds(30), () -> { vi.removeIndex("emb"); },
+				"removeIndex() dead-locked closing the on-disk background index");
+
+			assertNull(vi.get("emb"), "index must be removed");
+			assertTrue(backgroundThreadCount() <= before, "removeIndex must close the background index");
+		}
+	}
+
+	@Test
+	@Timeout(value = 120, unit = TimeUnit.SECONDS)
+	void removeGroupDoesNotDeadlockWithOnDiskBackgroundPersist(@TempDir final Path dir) throws Exception
+	{
+		final int before = backgroundThreadCount();
+
+		try(final EmbeddedStorageManager storage = EmbeddedStorage.start(dir.resolve("storage")))
+		{
+			final GigaMap<Doc> map = GigaMap.New();
+			storage.setRoot(map);
+			final VectorIndices<Doc> vi = map.index().register(VectorIndices.Category());
+			vi.add("emb", onDiskBackgroundConfig(dir.resolve("index")), new EmbeddingVectorizer());
+			addDocs(map);
+			vi.get("emb").search(new float[]{1.0f, 0.0f, 0.0f}, 2); // force init + spawn the background thread
+			storage.storeRoot();
+
+			assertTrue(backgroundThreadCount() > before, "precondition: background thread must be running");
+
+			// Whole-group removal closes each contained index; it must not hold the parentMap monitor across
+			// close() (internalRemoveGroup must detach under the monitor but close outside it).
+			assertTimeoutPreemptively(Duration.ofSeconds(30),
+				() -> { map.index().remove(VectorIndices.Category()); },
+				"index group removal dead-locked closing the on-disk background index");
+
+			assertNull(map.index().get(VectorIndices.Category()), "group must be removed");
+			assertTrue(backgroundThreadCount() <= before, "group removal must close the background index");
+		}
 	}
 }
