@@ -445,7 +445,7 @@ The former §10.3 justification for this window ("the entity's binary was just l
 
 **Layer 1 — load-side marking + pending-load gate** (primary for loads): `StorageChannel.collectLoadByOids/Tids` signal a *pending load* on the mark monitor for the duration of the collection (`pendingLoadCount` participates in `isMarkingComplete()`, so no sweep can be *initiated* mid-load), and every entity handed out by a load is marked like changed data via `StorageEntityCache#markEntityForLoadedData` — gray-marked and enqueued (references walked transitively) during an active mark phase, black-marked if a sweep was already initiated. This protects the loaded graph **at hand-out time**, i.e. even before the application-side `BinaryLoader` registration happens — a gap the registry-based layer below cannot see.
 
-> **Multi-channel visibility gap ("variant 2", internal#85 "Window A") and its fix.** The per-channel
+> **Multi-channel visibility gap ("variant 2", "Window A") and its fix.** The per-channel
 > `pendingLoad` above is signaled only *around that channel's own collect*, and skipped entirely for a
 > channel whose oid subset of the load is empty (`if(!loadOids.isEmpty())`). At `channelCount ≥ 2` a
 > load already in flight is therefore **invisible** to a sibling channel's sweep-initiation check: the
@@ -473,7 +473,7 @@ Trade-offs and boundaries:
   registration landing after `initiateSweep()` but before/between the per-channel sweeps used to be
   covered only by the shallow predicate (Layer 1's `hasLoadPendingSweep` branch black-marks the
   handed-out entity but cannot rescue its not-yet-loaded children in that already-initiated sweep).
-  **Layer 3 — registrationVersion check at sweep entry (internal#85)** closes the rescuable part of
+  **Layer 3 — registrationVersion check at sweep entry** closes the rescuable part of
   this window: at the very start of each channel's `sweep(_longPredicate)` — which runs *inside* the
   registry mutex, so a registration cannot interleave with that channel's sweep —
   `StorageEntityMarkMonitor#isSeedRegistrationStale(currentRegistrationVersion)` compares the

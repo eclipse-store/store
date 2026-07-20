@@ -50,8 +50,8 @@ import org.junit.jupiter.api.io.TempDir;
  * (there is no removal), the inflated count triggers further — again wrongly
  * keyed — rebuilds, and the hot {@code typeInFile()} lookup path degrades.
  *
- * <p>Unlike the sibling defect in {@code StorageEntityCache.putEntity}
- * (internal#77), this one is contained: {@code TypeInFile} is a pure
+ * <p>Unlike the sibling defect in {@code StorageEntityCache.putEntity},
+ * this one is contained: {@code TypeInFile} is a pure
  * (type, file) flyweight, lookups verify {@code t.type == type}, and nothing
  * iterates the table — so the impact is memory/CPU degradation, not data
  * corruption. The fix is to re-hash by {@code entries.type}.

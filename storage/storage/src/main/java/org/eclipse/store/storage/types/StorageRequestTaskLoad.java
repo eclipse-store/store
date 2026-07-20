@@ -22,7 +22,7 @@ public interface StorageRequestTaskLoad extends StorageRequestTask
 	public ChunksBuffer result() throws StorageExceptionRequest;
 
 	/**
-	 * Arms the task-scoped pending-load gate (internal#85): the task keeps the passed mark monitor so
+	 * Arms the task-scoped pending-load gate: the task keeps the passed mark monitor so
 	 * that it can clear the gate when it has completed on all channels (or on the enqueue-failure
 	 * path). Called by the task broker at enqueue, before the task is signaled and made visible to any
 	 * channel. Returns whether the gate was armed; the broker only signals (and, on failure, clears)
@@ -104,7 +104,7 @@ public interface StorageRequestTaskLoad extends StorageRequestTask
 		@Override
 		protected void onLastCompletion()
 		{
-			// Release the task-scoped pending-load gate signaled at enqueue (internal#85). Runs
+			// Release the task-scoped pending-load gate signaled at enqueue. Runs
 			// exactly once, when the task has completed on all channels - by then every channel has
 			// finished its collect and enqueued its gray marks, so pendingMarksCount keeps
 			// isMarkingComplete() false until those are drained; the gate can be released safely.

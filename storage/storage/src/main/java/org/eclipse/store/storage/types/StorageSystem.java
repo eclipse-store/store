@@ -810,8 +810,8 @@ public interface StorageSystem extends StorageController
 		{
 			// The mark monitor is a singleton shared by all channels; read it from any channel. Only
 			// valid once startup has created the channels; guard with a deterministic exception rather
-			// than risking an NPE on channelKeepers[0] if called before startup or after teardown
-			// (internal#85 review). Loads - the only caller - occur only while running, so this never
+			// than risking an NPE on channelKeepers[0] if called before startup or after teardown.
+			// Loads - the only caller - occur only while running, so this never
 			// rejects a legitimate call.
 			final ChannelKeeper[] keepers = this.channelKeepers;
 			if(keepers.length == 0 || keepers[0] == null || !this.isRunning())

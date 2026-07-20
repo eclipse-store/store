@@ -33,7 +33,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * Empirical verification of the internal#71 fix (store#744): short copies must fail loudly at
+ * Empirical verification of the fix (store#744): short copies must fail loudly at
  * every backup-relevant site, and the backupping writer must never enqueue a backup item for a
  * short copy (a wrong-length item would permanently diverge the backup).
  */

@@ -133,7 +133,7 @@ public class SkipPinningTest
 		assertNotNull(pinned,
 			"the storer must pin the skipped instance until commit - it was collected");
 
-		// the t1..t4 window of internal#73: reap attempt + full storage GC. With the pin alive,
+		// the t1..t4 window: reap attempt + full storage GC. With the pin alive,
 		// the registry entry stays and the safety net keeps X's entity on disk.
 		registry.cleanUp();
 		this.storage.issueFullGarbageCollection();

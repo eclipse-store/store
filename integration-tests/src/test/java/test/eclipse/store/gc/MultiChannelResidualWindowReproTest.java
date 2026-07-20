@@ -48,7 +48,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 
 /**
- * Reproducer for the MULTI-CHANNEL residual window of the storage GC (internal#85; GC.md §10.4):
+ * Reproducer for the MULTI-CHANNEL residual window of the storage GC (GC.md §10.4):
  * with channelCount >= 2, a load can straddle a sweep wave — one channel has already swept when
  * the load's collect runs on another channel. The handed-out entity X is black-marked shallowly
  * (no reference walk: the wave's mark queues must stay empty), its unloaded-Lazy target Y on the
@@ -216,7 +216,7 @@ public class MultiChannelResidualWindowReproTest
 	 * {@link MultiChannelSweepEntryRaceReproTest}. The control run below (whole orphan graph collected
 	 * consistently, no partial survival) stays enabled.
 	 */
-	@Disabled("internal#85 GC.md §10.4: child's channel sweeps before the reheating registration -"
+	@Disabled("GC.md §10.4: child's channel sweeps before the reheating registration -"
 		+ " fundamentally not closeable post-hoc (the child is already physically deleted); the"
 		+ " rescuable subset is covered by MultiChannelSweepEntryRaceReproTest")
 	@Test

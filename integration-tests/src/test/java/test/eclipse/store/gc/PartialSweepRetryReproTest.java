@@ -46,7 +46,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 
 /**
- * Reproducer for the <b>partial-sweep re-execution hazard</b> (internal#83): the sweep whitens
+ * Reproducer for the <b>partial-sweep re-execution hazard</b>: the sweep whitens
  * surviving (marked) entities AS IT GOES ({@code StorageEntityCache.Default.sweep}, whiten-as-you-go)
  * and clears the channel's sweep flag only at the very end. A TRANSIENT exception thrown partway
  * through the sweep (e.g. by a custom {@code LiveObjectIdsHandler} selector, or an OOM) leaves the
