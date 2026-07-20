@@ -122,8 +122,8 @@ public class BitmapIndexTest
     }
 
     /**
-     * Regression test for a use-after-free + double-free in the bitmap index off-heap memory
-     * (microstream-one/internal#102). Decompressing a partially-decompressed level2 segment used to
+     * Regression test for a use-after-free + double-free in the bitmap index off-heap memory.
+     * Decompressing a partially-decompressed level2 segment used to
      * transfer standalone level1 pointers into the new block while the old block still freed them,
      * producing silent, nondeterministic wrong query counts and, on a subsequent recompression, a
      * hard JVM crash (native heap corruption / double free). The lifecycle below reproduces the mixed
