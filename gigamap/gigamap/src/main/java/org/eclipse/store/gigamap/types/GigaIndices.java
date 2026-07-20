@@ -700,6 +700,49 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 			}
 		}
 
+		/**
+		 * Closes every {@link Closeable} index group, releasing background threads and auxiliary
+		 * resources, <b>without</b> removing the groups or mutating persistent state. Invoked when the
+		 * owning storage is shut down (see {@link GigaMap.Default#releaseOnShutdown()}). Best-effort: a
+		 * failure of one group does not prevent the others from being closed; the first failure is
+		 * rethrown (with the rest suppressed) once all groups have been attempted.
+		 */
+		final void closeAllGroups()
+		{
+			synchronized(this.parentMap())
+			{
+				RuntimeException problem = null;
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					if(indexGroup instanceof Closeable)
+					{
+						try
+						{
+							((Closeable)indexGroup).close();
+						}
+						catch(final Exception e)
+						{
+							if(problem == null)
+							{
+								problem = new RuntimeException(
+									"Failed to close one or more index groups on storage shutdown.",
+									e
+								);
+							}
+							else
+							{
+								problem.addSuppressed(e);
+							}
+						}
+					}
+				}
+				if(problem != null)
+				{
+					throw problem;
+				}
+			}
+		}
+
 		@Override
 		protected final void clearChildrenStateChangeMarkers()
 		{

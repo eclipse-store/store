@@ -30,12 +30,14 @@ import org.eclipse.serializer.collections.types.XGettingTable;
 import org.eclipse.serializer.monitoring.MonitoringManager;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.types.Persistence;
+import org.eclipse.serializer.persistence.types.PersistenceAcceptor;
 import org.eclipse.serializer.persistence.types.PersistenceManager;
 import org.eclipse.serializer.persistence.types.PersistenceObjectRegistry;
 import org.eclipse.serializer.persistence.types.PersistenceRootReference;
 import org.eclipse.serializer.persistence.types.PersistenceRoots;
 import org.eclipse.serializer.persistence.types.PersistenceRootsProvider;
 import org.eclipse.serializer.persistence.types.PersistenceRootsView;
+import org.eclipse.serializer.persistence.types.PersistenceShutdownReleasable;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDictionaryExporter;
 import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.serializer.persistence.types.Unpersistable;
@@ -464,6 +466,10 @@ public interface EmbeddedStorageManager extends StorageManager
 		@Override
 		public final synchronized boolean shutdown()
 		{
+			// Release shutdown-aware instances (e.g. GigaMaps closing their vector index groups) while
+			// the object registry is still populated and the storage system is still up.
+			this.releaseShutdownParticipants();
+
 			LazyReferenceManager.get().removeController(this);
 			final boolean result = this.storageSystem.shutdown();
 			if(!result)
@@ -478,6 +484,39 @@ public interface EmbeddedStorageManager extends StorageManager
 			registry.truncateAll();
 			Persistence.registerJavaConstants(registry);
 			return true;
+		}
+
+		/**
+		 * Invokes {@link PersistenceShutdownReleasable#releaseOnShutdown()} on every registered instance
+		 * that opts into shutdown participation. Enumerates the object registry, which holds only
+		 * already-materialized instances, so no {@code Lazy} subgraph is force-loaded. Best-effort: a
+		 * failing participant is logged and skipped so it cannot abort shutdown of the rest or of storage.
+		 */
+		private void releaseShutdownParticipants()
+		{
+			try
+			{
+				final PersistenceAcceptor releaser = (objectId, instance) ->
+				{
+					if(instance instanceof PersistenceShutdownReleasable)
+					{
+						try
+						{
+							((PersistenceShutdownReleasable)instance).releaseOnShutdown();
+						}
+						catch(final Throwable t)
+						{
+							logger.error("Error releasing shutdown participant of type {}",
+								instance.getClass().getName(), t);
+						}
+					}
+				};
+				this.connectionFoundation.getObjectRegistry().iterateEntries(releaser);
+			}
+			catch(final Throwable t)
+			{
+				logger.error("Error while releasing storage shutdown participants", t);
+			}
 		}
 
 		@Override

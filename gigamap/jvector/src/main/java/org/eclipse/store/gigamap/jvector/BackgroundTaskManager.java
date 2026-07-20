@@ -17,6 +17,7 @@ package org.eclipse.store.gigamap.jvector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.ref.WeakReference;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -42,6 +43,14 @@ import java.util.concurrent.atomic.AtomicLong;
 class BackgroundTaskManager
 {
     private static final Logger LOG = LoggerFactory.getLogger(BackgroundTaskManager.class);
+
+    /**
+     * Interval of the liveness watchdog that self-terminates the executor once the index
+     * (the {@link Callback}) has been garbage-collected. Kept short so an abandoned index's
+     * daemon thread is reclaimed promptly, independent of the (possibly long) optimization
+     * and persistence intervals. Each tick is only a weak {@code get()} plus a flag check.
+     */
+    private static final long WATCHDOG_INTERVAL_MS = 1_000L;
 
     // ========================================================================
     // Indexing Operations
@@ -151,9 +160,16 @@ class BackgroundTaskManager
     // Instance fields
     // ========================================================================
 
-    private final Callback                    callback ;
-    private final String                      name     ;
-    private final ScheduledExecutorService    executor ;
+    /**
+     * The index is held <b>weakly</b>: the executor's scheduled tasks (method references on this
+     * manager) would otherwise strongly pin the index — and through it the whole HNSW graph — for
+     * as long as the daemon thread lives. Holding it weakly lets an abandoned index (dropped
+     * without {@code close()}) become collectable; the liveness watchdog then self-terminates the
+     * executor once the referent is gone. Mirrors {@code EvictionManager.IntervalThread}.
+     */
+    private final WeakReference<Callback>     callbackRef ;
+    private final String                      name        ;
+    private final ScheduledExecutorService    executor    ;
 
     // Indexing queue and dedup flag
     private final ConcurrentLinkedQueue<IndexingOperation> indexingQueue         ;
@@ -169,6 +185,9 @@ class BackgroundTaskManager
     private final AtomicInteger persistenceChangeCount;
     private final int           persistenceMinChanges ;
     private ScheduledFuture<?>  persistenceTask       ;
+
+    // Liveness watchdog: self-terminates the executor when the index has been abandoned (GC'd)
+    private ScheduledFuture<?>  watchdogTask          ;
 
     private volatile boolean shutdown = false;
 
@@ -188,8 +207,8 @@ class BackgroundTaskManager
         final int      persistenceMinChanges
     )
     {
-        this.callback = callback;
-        this.name     = name    ;
+        this.callbackRef = new WeakReference<>(callback);
+        this.name        = name                         ;
 
         this.executor = Executors.newSingleThreadScheduledExecutor(r ->
         {
@@ -240,6 +259,16 @@ class BackgroundTaskManager
         {
             LOG.info("Eventual indexing enabled for index '{}'", name);
         }
+
+        // Always run the liveness watchdog. In eventual-indexing-only mode there is no recurring
+        // optimization/persistence task, so without this the idle executor thread would survive
+        // forever after the index is abandoned. The watchdog guarantees teardown in every mode.
+        this.watchdogTask = this.executor.scheduleAtFixedRate(
+            this::checkLiveness,
+            WATCHDOG_INTERVAL_MS,
+            WATCHDOG_INTERVAL_MS,
+            TimeUnit.MILLISECONDS
+        );
     }
 
     // ========================================================================
@@ -373,17 +402,8 @@ class BackgroundTaskManager
     {
         this.shutdown = true;
 
-        // Cancel scheduled tasks
-        if(this.optimizationTask != null)
-        {
-            this.optimizationTask.cancel(false);
-            this.optimizationTask = null;
-        }
-        if(this.persistenceTask != null)
-        {
-            this.persistenceTask.cancel(false);
-            this.persistenceTask = null;
-        }
+        // Cancel scheduled tasks (optimization, persistence, watchdog)
+        this.cancelScheduledTasks();
 
         // Perform final work if requested
         if(drainPending || optimizePending || persistPending)
@@ -426,6 +446,76 @@ class BackgroundTaskManager
         LOG.info("Background task manager shutdown for '{}'", this.name);
     }
 
+    /**
+     * Cancels the recurring scheduled tasks (optimization, persistence, watchdog) without
+     * touching the executor itself. Shared by {@link #shutdown} and {@link #selfTerminate}.
+     */
+    private void cancelScheduledTasks()
+    {
+        if(this.optimizationTask != null)
+        {
+            this.optimizationTask.cancel(false);
+            this.optimizationTask = null;
+        }
+        if(this.persistenceTask != null)
+        {
+            this.persistenceTask.cancel(false);
+            this.persistenceTask = null;
+        }
+        if(this.watchdogTask != null)
+        {
+            this.watchdogTask.cancel(false);
+            this.watchdogTask = null;
+        }
+    }
+
+    /**
+     * Resolves the weakly-held index. If it has been garbage-collected — meaning the index was
+     * abandoned without {@code close()} — this self-terminates the manager so the daemon thread
+     * and executor are reclaimed, and returns {@code null}. Callers running on the executor
+     * thread must skip their work when this returns {@code null}.
+     *
+     * @return the live {@link Callback}, or {@code null} if the index has been collected
+     */
+    private Callback liveCallback()
+    {
+        final Callback cb = this.callbackRef.get();
+        if(cb == null && !this.shutdown)
+        {
+            this.selfTerminate();
+        }
+        return cb;
+    }
+
+    /**
+     * Tears the manager down from within the executor thread after the index was abandoned.
+     * <p>
+     * Unlike {@link #shutdown}, this must not call {@code awaitTermination} — it runs on the very
+     * thread being shut down, so awaiting would dead-lock. It only cancels the recurring tasks,
+     * drops pending work and calls {@link ExecutorService#shutdown()}; the current task then
+     * returns and the daemon thread ends, making the executor and this manager collectable.
+     */
+    private void selfTerminate()
+    {
+        this.shutdown = true;
+        this.cancelScheduledTasks();
+        this.indexingQueue.clear();
+        this.executor.shutdown(); // no awaitTermination: we are on the executor thread
+        LOG.info("Background task manager self-terminated for abandoned index '{}'", this.name);
+    }
+
+    /**
+     * Liveness watchdog body. Resolving the weak reference self-terminates the manager when the
+     * index has been collected (see {@link #liveCallback()}).
+     */
+    private void checkLiveness()
+    {
+        if(!this.shutdown)
+        {
+            this.liveCallback();
+        }
+    }
+
     // ========================================================================
     // Internal methods — all run on the executor thread
     // ========================================================================
@@ -461,12 +551,18 @@ class BackgroundTaskManager
      */
     private void processAllPendingIndexingOps()
     {
+        final Callback cb = this.liveCallback();
+        if(cb == null)
+        {
+            return; // index abandoned; liveCallback() has already self-terminated the manager
+        }
+
         IndexingOperation op;
         while((op = this.indexingQueue.poll()) != null)
         {
             try
             {
-                op.execute(this.callback);
+                op.execute(cb);
             }
             catch(final Exception e)
             {
@@ -491,6 +587,12 @@ class BackgroundTaskManager
             return;
         }
 
+        final Callback cb = this.liveCallback();
+        if(cb == null)
+        {
+            return; // index abandoned; liveCallback() has already self-terminated the manager
+        }
+
         LOG.debug("Background optimizing index '{}' with {} changes",
             this.name, this.optimizationChangeCount.get());
 
@@ -499,7 +601,7 @@ class BackgroundTaskManager
             // Drain pending indexing ops inline (same thread, no deadlock)
             this.processAllPendingIndexingOps();
 
-            this.callback.doOptimize();
+            cb.doOptimize();
 
             this.optimizationChangeCount.set(0);
             this.optimizationCount.incrementAndGet();
@@ -528,6 +630,12 @@ class BackgroundTaskManager
             return;
         }
 
+        final Callback cb = this.liveCallback();
+        if(cb == null)
+        {
+            return; // index abandoned; liveCallback() has already self-terminated the manager
+        }
+
         LOG.debug("Background persisting index '{}' with {} changes",
             this.name, this.persistenceChangeCount.get());
 
@@ -536,7 +644,7 @@ class BackgroundTaskManager
             // Drain pending indexing ops inline (same thread, no deadlock)
             this.processAllPendingIndexingOps();
 
-            this.callback.doPersistToDisk();
+            cb.doPersistToDisk();
 
             this.persistenceChangeCount.set(0);
 
@@ -564,13 +672,21 @@ class BackgroundTaskManager
             this.processAllPendingIndexingOps();
         }
 
+        // Callback may be null if the index was concurrently collected; skip the graph-touching
+        // work in that case (nothing to persist/optimize once the index is gone).
+        final Callback cb = this.callbackRef.get();
+        if(cb == null)
+        {
+            return;
+        }
+
         if(optimizePending && this.optimizationChangeCount.get() > 0)
         {
             LOG.info("Optimizing pending changes for '{}' before shutdown ({} changes)",
                 this.name, this.optimizationChangeCount.get());
             try
             {
-                this.callback.doOptimize();
+                cb.doOptimize();
                 this.optimizationChangeCount.set(0);
                 this.optimizationCount.incrementAndGet();
             }
@@ -586,7 +702,7 @@ class BackgroundTaskManager
                 this.name, this.persistenceChangeCount.get());
             try
             {
-                this.callback.doPersistToDisk();
+                cb.doPersistToDisk();
                 this.persistenceChangeCount.set(0);
             }
             catch(final Exception e)

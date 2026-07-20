@@ -398,42 +398,43 @@ interface DiskIndexManager extends Closeable
                 new InlineVectors.State(ravv.getVector(nodeId))
             );
 
-            // Get a view for FusedPQ state creation
-            final var view = index.getView();
-            suppliers.put(FeatureId.FUSED_PQ, nodeId ->
-                new FusedPQ.State(view, pqVectors, nodeId)
-            );
-
-            // Preserve graph ordinals on disk (identity map, not the default sequentialRenumbering)
-            // so on-disk node ids stay equal to the source entity ids the integration keys on.
-            final Map<Integer, Integer> ordinalMap = identityOrdinalMap(index);
-
-            if(this.parallelOnDiskWrite)
+            // Get a view for FusedPQ state creation. Try-with-resources guarantees the view is
+            // closed even if ordinal mapping or the writer throws (the view is heap-only, so a
+            // leak on the throwing path would otherwise go unnoticed).
+            try(final var view = index.getView())
             {
-                try(final OnDiskParallelGraphIndexWriter writer = new OnDiskParallelGraphIndexWriter.Builder(index, graphPath)
-                    .withParallelDirectBuffers(true)
-                    .withMap(ordinalMap)
-                    .with(inlineVectors)
-                    .with(fusedPQ)
-                    .build())
+                suppliers.put(FeatureId.FUSED_PQ, nodeId ->
+                    new FusedPQ.State(view, pqVectors, nodeId)
+                );
+
+                // Preserve graph ordinals on disk (identity map, not the default sequentialRenumbering)
+                // so on-disk node ids stay equal to the source entity ids the integration keys on.
+                final Map<Integer, Integer> ordinalMap = identityOrdinalMap(index);
+
+                if(this.parallelOnDiskWrite)
                 {
-                    writer.write(suppliers);
+                    try(final OnDiskParallelGraphIndexWriter writer = new OnDiskParallelGraphIndexWriter.Builder(index, graphPath)
+                        .withParallelDirectBuffers(true)
+                        .withMap(ordinalMap)
+                        .with(inlineVectors)
+                        .with(fusedPQ)
+                        .build())
+                    {
+                        writer.write(suppliers);
+                    }
+                }
+                else
+                {
+                    try(final OnDiskGraphIndexWriter writer = new OnDiskGraphIndexWriter.Builder(index, graphPath)
+                        .withMap(ordinalMap)
+                        .with(inlineVectors)
+                        .with(fusedPQ)
+                        .build())
+                    {
+                        writer.write(suppliers);
+                    }
                 }
             }
-            else
-            {
-                try(final OnDiskGraphIndexWriter writer = new OnDiskGraphIndexWriter.Builder(index, graphPath)
-                    .withMap(ordinalMap)
-                    .with(inlineVectors)
-                    .with(fusedPQ)
-                    .build())
-                {
-                    writer.write(suppliers);
-                }
-            }
-
-            // Close the view after writing
-            view.close();
 
             LOG.info("Wrote index '{}' with FusedPQ compression ({} nodes, parallel={})",
                 this.name, index.size(0), this.parallelOnDiskWrite);
