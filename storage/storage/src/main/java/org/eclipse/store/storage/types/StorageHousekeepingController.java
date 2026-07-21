@@ -150,6 +150,22 @@ public interface StorageHousekeepingController
 					+ minimumHousekeepingTimeBudgetNs()+ "."
 				);
 			}
+			validateGarbageCollectionSweepThreshold(garbageCollectionSweepThreshold);
+		}
+
+		/**
+		 * Range-checks a garbage collection sweep threshold and throws {@link IllegalArgumentException}
+		 * if it is outside {@code [1, 127]}. The upper bound is mandatory: the sweep countdown is stored
+		 * in the negative range of {@link StorageEntity.Default}'s {@code gcState} byte, so a larger value
+		 * would let {@code gcState} underflow below {@link Byte#MIN_VALUE} and wrap around, corrupting the
+		 * GC state. Enforced both here (external configuration) and where the value enters the GC engine.
+		 *
+		 * @param garbageCollectionSweepThreshold the value to validate.
+		 * @throws IllegalArgumentException if the value is outside the valid range.
+		 */
+		public static void validateGarbageCollectionSweepThreshold(final int garbageCollectionSweepThreshold)
+			throws IllegalArgumentException
+		{
 			if(garbageCollectionSweepThreshold < minimumGarbageCollectionSweepThreshold()
 			|| garbageCollectionSweepThreshold > maximumGarbageCollectionSweepThreshold()
 			)

@@ -213,7 +213,10 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			this.oidMarkQueue         = notNull    (oidMarkQueue)     ;
 			this.eventLogger          =             eventLogger       ;
 			this.markingWaitTimeMs    = positive   (markingWaitTimeMs);
-			this.gcSweepThreshold     = positive   (gcSweepThreshold) ;
+			// must enforce the upper bound here too: a custom StorageHousekeepingController could return a
+			// value > 127, which would underflow the gcState byte during the sweep countdown (see #sweep).
+			StorageHousekeepingController.Validation.validateGarbageCollectionSweepThreshold(gcSweepThreshold);
+			this.gcSweepThreshold     = gcSweepThreshold                ;
 			
 			// derived values
 			

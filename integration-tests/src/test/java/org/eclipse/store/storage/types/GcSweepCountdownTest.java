@@ -206,6 +206,65 @@ public class GcSweepCountdownTest
 			"a sweep threshold above the maximum (127) must be rejected");
 	}
 
+	@Test
+	@Timeout(value = 120, unit = TimeUnit.SECONDS)
+	void startup_customControllerWithOutOfRangeSweepThreshold_isRejected()
+	{
+		// a custom StorageHousekeepingController bypasses the builder validation, so the entity cache must
+		// enforce the upper bound itself: an out-of-range value would underflow the gcState byte otherwise.
+		final StorageHousekeepingController badController = new StorageHousekeepingController()
+		{
+			private final StorageHousekeepingController delegate = StorageHousekeepingController.New();
+
+			@Override
+			public long housekeepingIntervalMs()
+			{
+				return this.delegate.housekeepingIntervalMs();
+			}
+
+			@Override
+			public long housekeepingTimeBudgetNs()
+			{
+				return this.delegate.housekeepingTimeBudgetNs();
+			}
+
+			@Override
+			public long garbageCollectionTimeBudgetNs()
+			{
+				return this.delegate.garbageCollectionTimeBudgetNs();
+			}
+
+			@Override
+			public long liveCheckTimeBudgetNs()
+			{
+				return this.delegate.liveCheckTimeBudgetNs();
+			}
+
+			@Override
+			public long fileCheckTimeBudgetNs()
+			{
+				return this.delegate.fileCheckTimeBudgetNs();
+			}
+
+			@Override
+			public int garbageCollectionSweepThreshold()
+			{
+				return 200; // out of range: would underflow the gcState byte
+			}
+		};
+
+		final EmbeddedStorageFoundation<?> foundation = EmbeddedStorage.Foundation(
+			Storage.ConfigurationBuilder()
+				.setChannelCountProvider(Storage.ChannelCountProvider(1))
+				.setHousekeepingController(badController)
+				.setStorageFileProvider(Storage.FileProvider(this.tempDir.resolve("db-bad")))
+				.createConfiguration()
+		);
+
+		assertThrows(RuntimeException.class, foundation::start,
+			"an out-of-range sweep threshold from a custom controller must be rejected at startup");
+	}
+
 
 	///////////////////////////////////////////////////////////////////////////
 	// white-box sweep progression //
@@ -310,8 +369,8 @@ public class GcSweepCountdownTest
 		// safety net no longer reports the target as live (same code path a store triggers; see GC.md §8).
 		registry.cleanUp();
 
-		// a single explicit full GC must reclaim it despite the sweep threshold of 3: the full GC runs
-		// enough complete mark+sweep cycles internally to drive the countdown all the way to deletion.
+		// a single explicit full GC must reclaim it despite the sweep threshold of 3: an issued full GC
+		// bypasses the countdown and deletes unmarked entities immediately (effective threshold 1).
 		this.storage.issueFullGarbageCollection();
 
 		assertNull(entityCache.getEntry(targetOid),
