@@ -79,7 +79,7 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 	 * This is the task-scoped counterpart to the per-channel
 	 * {@link #signalPendingLoad(StorageEntityCache)}: the latter is signaled inside each channel's
 	 * own collect and is skipped entirely for a channel whose oid subset of the load is empty, so
-	 * an in-flight load is invisible to a sibling channel's sweep-initiation check (internal#85).
+	 * an in-flight load is invisible to a sibling channel's sweep-initiation check.
 	 * Signaling this task-scoped gate once at load-task enqueue (before any channel is notified)
 	 * and clearing it once when the task has been processed on all channels closes that
 	 * cross-channel visibility gap: no wave can initiate while a load is in flight, so the loaded
@@ -126,8 +126,8 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 	/**
 	 * Reports whether the current sweep wave's live-OID seed has become stale relative to the passed
 	 * registration version, i.e. whether the application registry gained a new association after this
-	 * wave snapshotted its seed but before the calling channel executes its sweep (internal#85,
-	 * "Window B" / GC.md §10.4).
+	 * wave snapshotted its seed but before the calling channel executes its sweep
+	 * ("Window B" / GC.md §10.4).
 	 * <p>
 	 * A channel calls this at the very start of its sweep, from inside the registry mutex (so the
 	 * version cannot change under it for the duration of that channel's sweep). If it returns
@@ -421,7 +421,7 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 		 * <p>
 		 * Volatile: written under the monitor lock (callToSweepRequired / completeSweep) but read
 		 * lock-free by a sweeping channel in {@link #isSeedRegistrationStale(long)} (that read cannot
-		 * take the monitor lock — it runs while the channel holds the registry mutex, internal#85).
+		 * take the monitor lock — it runs while the channel holds the registry mutex).
 		 */
 		private volatile long seedRegistrationVersion;
 
@@ -609,7 +609,7 @@ public interface StorageEntityMarkMonitor extends PersistenceObjectIdAcceptor
 			// pendingLoadCount > 0 defers sweep initiation while a channel is collecting entities for
 			// a load, and pendingLoadTaskCount > 0 defers it for the entire lifetime of any in-flight
 			// load task (from enqueue until processed on all channels, closing the cross-channel
-			// visibility gap of internal#85), so that entities handed out to the application are
+			// visibility gap), so that entities handed out to the application are
 			// gc-protected and their references are marked before any sweep (see #signalPendingLoad
 			// and #signalPendingLoadTask).
 			return this.pendingMarksCount == 0 && this.pendingStoreUpdateCount == 0

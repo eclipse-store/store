@@ -46,7 +46,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 
 /**
- * Regression test for the <b>sweep-entry registration race</b> (internal#85 "Window B", the
+ * Regression test for the <b>sweep-entry registration race</b> ("Window B", the
  * residual documented in GC.md §10.4). This is the multi-channel continuation of
  * {@link MidCycleRegistrationRaceTest}: there the mid-cycle registration lands <i>before</i> the
  * sweep is initiated (caught by the pre-sweep re-seed of store#736); here it lands <i>after</i>

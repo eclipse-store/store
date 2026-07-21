@@ -122,7 +122,7 @@ public interface StorageTaskBroker
 		// StorageSystem (NOT StorageManager) is safe to hold: it is a distinct object that does not
 		// reference the manager, so it does not affect the manager's auto-shutdown weak reachability.
 		// Used only to lazily reach the shared mark monitor at load-task enqueue time (the monitor
-		// does not yet exist when this broker is constructed - internal#85).
+		// does not yet exist when this broker is constructed).
 		private final StorageSystem                 storageSystem         ;
 
 		private volatile StorageTask currentHead;
@@ -469,7 +469,7 @@ public interface StorageTaskBroker
 		 * Arm the task-scoped pending-load gate for a load task and enqueue it. The task is given the
 		 * shared mark monitor (so it can clear the gate when it completes on all channels, via
 		 * {@link StorageRequestTaskLoad.Abstract#onLastCompletion()}), then the gate is signaled BEFORE
-		 * the task becomes visible to any channel (internal#85): a channel mid-housekeeping when the load
+		 * the task becomes visible to any channel: a channel mid-housekeeping when the load
 		 * is enqueued then observes the gate at its next sweep-initiation check and cannot initiate a
 		 * sweep in the enqueue -> pickup gap. If the task does not arm the gate (a custom load task that
 		 * would not clear it - see {@link StorageRequestTaskLoad#registerPendingLoadTaskGate}), the gate

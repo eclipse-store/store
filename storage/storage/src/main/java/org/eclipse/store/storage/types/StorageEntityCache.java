@@ -151,7 +151,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 
 		/**
 		 * Set when a sweep attempt failed with an exception before the sweep flag was cleared
-		 * (internal#83) - whether mid-iteration or in the completion bookkeeping afterwards. The
+		 * - whether mid-iteration or in the completion bookkeeping afterwards. The
 		 * attempt may have already reset an unknown prefix of the surviving (marked) entities back
 		 * to white, so re-executing the still-flagged sweep with normal delete semantics could
 		 * delete reachable entities. The next execution runs as a keep-all rescue sweep instead.
@@ -1313,7 +1313,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			try
 			{
 				/*
-				 * internal#85 (GC.md §10.4, "Window B"): if the application registry gained an entry
+				 * GC.md §10.4, "Window B": if the application registry gained an entry
 				 * since this wave took its seed snapshot, the seed is stale for this channel. A
 				 * just-loaded orphan graph (e.g. a reheated parent whose unloaded Lazy target is
 				 * neither loaded nor marked, and lives on another channel) could be partially swept.
@@ -1386,8 +1386,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		}
 
 		/**
-		 * Keep-all re-execution of a sweep whose previous attempt failed before completing
-		 * (internal#83).
+		 * Keep-all re-execution of a sweep whose previous attempt failed before completing.
 		 * The aborted attempt already whitened an unknown prefix of the surviving entities, so mark
 		 * state can no longer distinguish garbage from reachable data. This pass therefore deletes
 		 * nothing and consults no application predicate: the sweep pass itself is straight-line
@@ -1415,8 +1414,8 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		/**
 		 * Keep-all sweep pass: reset every entity of this channel to white and delete nothing,
 		 * consulting no application predicate. Used both by {@link #rescueSweep()} (a previous attempt
-		 * failed mid-run, internal#83) and by the stale-seed deferral in {@link #sweep(_longPredicate)}
-		 * (internal#85). The pass itself is straight-line pointer operations that cannot throw; the
+		 * failed mid-run) and by the stale-seed deferral in {@link #sweep(_longPredicate)}.
+		 * The pass itself is straight-line pointer operations that cannot throw; the
 		 * completion bookkeeping afterwards may still throw (mark monitor / registry interaction),
 		 * which the callers handle. Garbage collection is merely deferred: the following mark cycle
 		 * re-establishes marks from the roots and the registry seed.

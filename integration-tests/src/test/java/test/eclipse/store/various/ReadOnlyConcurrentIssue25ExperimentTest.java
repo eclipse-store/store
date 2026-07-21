@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Experimental verification of microstream-one/internal#25:
+ * Experimental verification of the read-only concurrent-access behavior:
  * a second, read-only EmbeddedStorageManager on the same storage directory
  * within the same JVM while the first (writing) manager is still running.
  */
