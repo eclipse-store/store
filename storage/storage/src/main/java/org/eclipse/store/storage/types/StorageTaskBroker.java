@@ -16,6 +16,7 @@ package org.eclipse.store.storage.types;
 
 import static org.eclipse.serializer.util.X.notNull;
 
+import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.function.Predicate;
@@ -119,11 +120,15 @@ public interface StorageTaskBroker
 		private final StorageRequestTaskCreator     taskCreator           ;
 		private final int                           channelCount          ;
 
-		// StorageSystem (NOT StorageManager) is safe to hold: it is a distinct object that does not
-		// reference the manager, so it does not affect the manager's auto-shutdown weak reachability.
-		// Used only to lazily reach the shared mark monitor at load-task enqueue time (the monitor
-		// does not yet exist when this broker is constructed).
-		private final StorageSystem                 storageSystem         ;
+		// WEAK reference to the StorageSystem: the broker is reachable from the live,
+		// non-daemon channel threads (Thread -> StorageChannel -> taskBroker), so a strong reference
+		// here would keep the StorageSystem strongly reachable and defeat auto-shutdown-by-unreach-
+		// ability - the StorageOperationController's WeakReference<StorageSystem> could never clear,
+		// leaking the channel threads and the off-heap entity cache when an application drops its
+		// manager without shutdown(). Held only to lazily reach the shared mark monitor at load-task
+		// enqueue time (the monitor does not yet exist when this broker is constructed); during normal
+		// operation the application/manager keeps the system strongly reachable, so it resolves.
+		private final WeakReference<StorageSystem>  storageSystemReference;
 
 		private volatile StorageTask currentHead;
 
@@ -148,7 +153,7 @@ public interface StorageTaskBroker
 			this.fileEvaluator          = notNull(fileEvaluator);
 			this.objectIdRangeEvaluator = notNull(objectIdRangeEvaluator);
 			this.channelCount           =         channelCount;
-			this.storageSystem          = notNull(storageSystem);
+			this.storageSystemReference = new WeakReference<>(notNull(storageSystem));
 			this.currentHead            = new StorageTask.DummyTask();
 		}
 
@@ -479,8 +484,19 @@ public interface StorageTaskBroker
 		 */
 		private void enqueueLoadTaskAndNotifyAll(final StorageRequestTaskLoad task) throws InterruptedException
 		{
+			// resolve the system through the weak reference (internal#97): during normal operation the
+			// application/manager keeps it strongly reachable, so this returns non-null; a null means the
+			// storage was abandoned (GC'd) without shutdown(), where there is nothing to enqueue against.
+			final StorageSystem system = this.storageSystemReference.get();
+			if(system == null)
+			{
+				throw new StorageExceptionNotRunning(
+					"Storage is shut down: the StorageSystem has been garbage-collected"
+					+ " (the manager was abandoned without shutdown())."
+				);
+			}
 			// entityMarkMonitor() throws if the system is not running; do it before signaling anything.
-			final StorageEntityMarkMonitor markMonitor = this.storageSystem.entityMarkMonitor();
+			final StorageEntityMarkMonitor markMonitor = system.entityMarkMonitor();
 			final boolean armed = task.registerPendingLoadTaskGate(markMonitor);
 			if(armed)
 			{
