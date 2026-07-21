@@ -104,13 +104,25 @@ public interface StorageEntity
 		 * white: not yet marked, potentially unreachable/"condemned"
 		 *
 		 * For garbage collection algorithm, see http://en.wikipedia.org/wiki/Garbage_collection_(computer_science)
+		 *
+		 * The whole non-positive range below GC_INITIAL doubles as an unmarked-sweep countdown: an
+		 * unmarked entity is not deleted on the first sweep it is found white, but only after it has
+		 * stayed unmarked for a configurable number of consecutive sweeps. Every sweep that finds the
+		 * entity still unmarked decrements gcState further towards the negative floor (GC_WHITE, -2,
+		 * -3, ... down to -sweepThreshold), and the entity is deleted once it reaches that floor. Any
+		 * successful marking (markGray/markBlack) or a keep-alive sweep (markWhite) resets the
+		 * countdown. This is a probabilistic safety net against rare, transient GC concurrency races:
+		 * the chance that the same entity is erroneously left unmarked for N consecutive, independent
+		 * mark cycles drops exponentially. It reuses the otherwise unused negative gcState range, so it
+		 * costs no additional memory per entity (which matters with millions/billions of entities).
+		 * See StorageEntityCache.Default#sweep and #ageUnmarkedAndIsCondemned.
 		 */
 
 		// (14.07.2016 TM)TODO: remove useless initial state after switch to new StorageEntityCache implementation
 		static final byte GC_BLACK      = +2; // fully handled by marking
 		static final byte GC_GRAY       = +1; // marked but waiting for reference iteration marking
 		static final byte GC_INITIAL    =  0; // created/updated. Not marked, but not to be deleted in current GC round.
-		static final byte GC_WHITE      = -1; // not marked
+		static final byte GC_WHITE      = -1; // not marked (also the start of the unmarked-sweep countdown)
 
 
 		///////////////////////////////////////////////////////////////////////////
@@ -310,6 +322,37 @@ public interface StorageEntity
 		final boolean isGcMarked()
 		{
 			return this.gcState >= GC_INITIAL;
+		}
+
+		/**
+		 * Ages this unmarked ("white") entity by one sweep towards condemnation and reports whether it
+		 * is now condemned for deletion.
+		 * <p>
+		 * An unmarked entity must stay unmarked for {@code sweepThreshold} consecutive sweeps before it
+		 * is actually deleted; every successful marking (or keep-alive {@link #markWhite()}) resets the
+		 * countdown. The countdown reuses the free negative range of {@link #gcState} (from
+		 * {@link #GC_WHITE} down to {@code -sweepThreshold}), so it needs no extra per-entity memory.
+		 * This is a probabilistic safety net against rare, transient garbage-collection concurrency
+		 * races (a wrongly unmarked entity would have to be missed on {@code sweepThreshold} consecutive,
+		 * independent mark cycles to be lost).
+		 * <p>
+		 * Must only be called for entities that are not gc-marked, i.e. {@code gcState < GC_INITIAL}.
+		 *
+		 * @param sweepThreshold the number of consecutive unmarked sweeps required before deletion,
+		 *        in range {@code [1, 127]}. A value of {@code 1} deletes on the first unmarked sweep
+		 *        (the classic, countdown-less behavior).
+		 * @return {@code true} if the entity has now been unmarked for {@code sweepThreshold} consecutive
+		 *         sweeps and must be deleted, {@code false} if it is kept for another sweep.
+		 */
+		final boolean ageUnmarkedAndIsCondemned(final int sweepThreshold)
+		{
+			// gcState is in [-sweepThreshold, GC_WHITE] here; delete once it reached the -sweepThreshold floor.
+			if(this.gcState > -sweepThreshold)
+			{
+				this.gcState--;
+				return false;
+			}
+			return true;
 		}
 
 		final boolean hasOnlySimpleReferencesLoaded()

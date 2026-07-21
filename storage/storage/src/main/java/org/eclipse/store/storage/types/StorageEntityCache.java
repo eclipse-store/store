@@ -119,6 +119,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		private final StorageTypeDictionary              typeDictionary      ;
 		private final long[]                             markingOidBuffer    ;
 		private final StorageGCZombieOidHandler          zombieOidHandler    ;
+		private final int                                gcSweepThreshold    ; // consecutive unmarked sweeps before deletion
 		private final StorageRootOidSelector             rootOidSelector     ;
 		private final RootEntityRootOidSelectionIterator rootEntityIterator  ;
 		private final StorageEventLogger                 eventLogger         ;
@@ -145,6 +146,10 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		private final Set_long warnedObsoleteTypeIds = Set_long.New();
 		private boolean hasLoadPendingSweep  ;
 		private boolean loadMarkingRequired  ;
+
+		// true only while an explicitly issued (full) GC runs on this channel: its sweeps delete unmarked
+		// entities immediately (bypassing the countdown). Set and cleared on the channel's own thread.
+		private boolean issuedGcImmediateSweep;
 		
 		// Statistics for debugging / monitoring / checking to compare with other channels and with the markmonitor
 		private long sweepGeneration, lastSweepStart, lastSweepEnd;
@@ -192,7 +197,8 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			final StorageEventLogger          eventLogger         ,
 			final LiveObjectIdsHandler        liveObjectIdsHandler,
 			final long                        markingWaitTimeMs   ,
-			final int                         markingBufferLength
+			final int                         markingBufferLength ,
+			final int                         gcSweepThreshold
 		)
 		{
 			super();
@@ -207,6 +213,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			this.oidMarkQueue         = notNull    (oidMarkQueue)     ;
 			this.eventLogger          =             eventLogger       ;
 			this.markingWaitTimeMs    = positive   (markingWaitTimeMs);
+			this.gcSweepThreshold     = positive   (gcSweepThreshold) ;
 			
 			// derived values
 			
@@ -1334,21 +1341,29 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 				this.lastSweepStart = System.currentTimeMillis();
 				final StorageEntityType.Default typeHead = this.typeHead;
 
+				// an explicitly issued full GC collects immediately (threshold 1); background GC honors the countdown.
+				final int sweepThreshold = this.issuedGcImmediateSweep ? 1 : this.gcSweepThreshold;
+
 				for(StorageEntityType.Default sweepType = typeHead; (sweepType = sweepType.next) != typeHead;)
 				{
 					// get next item and check for end of type (switch to next type required)
 					for(StorageEntity.Default item, last = sweepType.head; (item = last.typeNext) != null;)
 					{
-						// actual sweep: white entities are deleted, non-white entities are marked white but not deleted
+						// actual sweep: white entities are aged towards deletion, non-white entities are marked white
 						if(item.isGcMarked() || isReachableInApplication.test(item.objectId))
 						{
-							// reset to white and advance one item
+							// reset to white (resets the unmarked-sweep countdown) and advance one item
 							(last = item).markWhite();
+						}
+						else if(item.ageUnmarkedAndIsCondemned(sweepThreshold))
+						{
+							// unmarked for the required number of consecutive sweeps now, so collect it
+							this.deleteEntity(item, sweepType, last);
 						}
 						else
 						{
-							// otherwise white entity, so collect it
-							this.deleteEntity(item, sweepType, last);
+							// still unmarked but not yet condemned: keep for another sweep and advance one item
+							last = item;
 						}
 					}
 				}
@@ -1841,7 +1856,36 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			{
 				return true;
 			}
-			
+
+			/*
+			 * An explicitly issued (full) garbage collection is a deliberate, complete reclaim and must
+			 * collect all actual garbage within this single call. It therefore bypasses the unmarked-sweep
+			 * countdown (see #sweep and gcSweepThreshold) and deletes unmarked entities on the first sweep,
+			 * exactly as before the countdown was introduced. The countdown remains fully in effect for the
+			 * incremental background garbage collection - the path exposed to concurrent application activity
+			 * and thus to the transient races the countdown guards against. (A countdown-honoring full GC
+			 * would have to run several complete mark+sweep cycles back-to-back, which cannot preserve the
+			 * multi-channel completion lockstep without a dedicated cross-channel barrier.)
+			 *
+			 * Set on this channel's own thread and read only by its own sweep on the same call stack, so no
+			 * synchronization is required; the finally guarantees it never leaks into a later background GC.
+			 */
+			this.issuedGcImmediateSweep = true;
+			try
+			{
+				return this.internalIssuedGarbageCollection(nanoTimeBudgetBound, channel);
+			}
+			finally
+			{
+				this.issuedGcImmediateSweep = false;
+			}
+		}
+
+		private boolean internalIssuedGarbageCollection(
+			final long           nanoTimeBudgetBound,
+			final StorageChannel channel
+		)
+		{
 			this.markMonitor.resetCompletion();
 
 			// check time budget first for explicitly issued calls.

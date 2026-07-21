@@ -141,6 +141,11 @@ public interface EmbeddedStorageConfigurationPropertyNames
 	public final static String HOUSEKEEPING_MAXIMUM_TIME_BUDGET = "housekeeping-maximum-time-budget";
 
 	/**
+	 * @see EmbeddedStorageConfigurationBuilder#setGarbageCollectionSweepThreshold(int)
+	 */
+	public final static String GC_SWEEP_THRESHOLD            = "gc-sweep-threshold";
+
+	/**
 	 * @see EmbeddedStorageConfigurationBuilder#setEntityCacheThreshold(long)
 	 */
 	public final static String ENTITY_CACHE_THRESHOLD        = "entity-cache-threshold";

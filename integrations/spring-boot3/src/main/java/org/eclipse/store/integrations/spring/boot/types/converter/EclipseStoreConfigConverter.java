@@ -71,6 +71,7 @@ public class EclipseStoreConfigConverter
     protected static final String HOUSEKEEPING_INCREASE_THRESHOLD = EmbeddedStorageConfigurationPropertyNames.HOUSEKEEPING_INCREASE_THRESHOLD;
     protected static final String HOUSEKEEPING_INCREASE_AMOUNT = EmbeddedStorageConfigurationPropertyNames.HOUSEKEEPING_INCREASE_AMOUNT;
     protected static final String HOUSEKEEPING_MAXIMUM_TIME_BUDGET = EmbeddedStorageConfigurationPropertyNames.HOUSEKEEPING_MAXIMUM_TIME_BUDGET;
+    protected static final String GC_SWEEP_THRESHOLD = EmbeddedStorageConfigurationPropertyNames.GC_SWEEP_THRESHOLD;
 
     // Fields for the entity cache configuration
     protected static final String ENTITY_CACHE_THRESHOLD = EmbeddedStorageConfigurationPropertyNames.ENTITY_CACHE_THRESHOLD;
@@ -146,6 +147,7 @@ public class EclipseStoreConfigConverter
         configValues.put(HOUSEKEEPING_INCREASE_THRESHOLD, properties.getHousekeepingIncreaseThreshold());
         configValues.put(HOUSEKEEPING_INCREASE_AMOUNT, properties.getHousekeepingIncreaseAmount());
         configValues.put(HOUSEKEEPING_MAXIMUM_TIME_BUDGET, properties.getHousekeepingMaximumTimeBudget());
+        configValues.put(GC_SWEEP_THRESHOLD, properties.getGcSweepThreshold());
         configValues.put(ENTITY_CACHE_THRESHOLD, properties.getEntityCacheThreshold());
         configValues.put(ENTITY_CACHE_TIMEOUT, properties.getEntityCacheTimeout());
         configValues.put(DATA_FILE_MINIMUM_SIZE, properties.getDataFileMinimumSize());

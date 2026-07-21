@@ -308,6 +308,36 @@ public final class Storage
 	}
 
 	/**
+	 * Creates a new {@link StorageHousekeepingController} including the garbage collection sweep threshold.
+	 * <p>
+	 * For a detailed explanation see {@link StorageHousekeepingController#New(long, long, int)}.
+	 *
+	 * @param housekeepingIntervalMs the interval in milliseconds that the storage threads shall
+	 *        execute their various housekeeping actions. Must be greater than zero.
+	 * @param housekeepingTimeBudgetNs the time budget in nanoseconds that each storage thread will use
+	 *        to perform a housekeeping action. Must not be negative.
+	 * @param garbageCollectionSweepThreshold the number of consecutive garbage-collection sweeps an
+	 *        entity must remain unmarked before it is deleted, in range {@code [1, 127]}.
+	 *
+	 * @return a new {@link StorageHousekeepingController} instance.
+	 *
+	 * @see Storage#HousekeepingController(long, long)
+	 * @see StorageHousekeepingController#New(long, long, int)
+	 */
+	public static final StorageHousekeepingController HousekeepingController(
+		final long housekeepingIntervalMs        ,
+		final long housekeepingTimeBudgetNs      ,
+		final int  garbageCollectionSweepThreshold
+	)
+	{
+		return StorageHousekeepingController.New(
+			housekeepingIntervalMs         ,
+			housekeepingTimeBudgetNs       ,
+			garbageCollectionSweepThreshold
+		);
+	}
+
+	/**
 	 * Creates a new {@link StorageEntityCacheEvaluator}.
 	 * <p>
 	 * For a detailed explanation see {@link StorageEntityCacheEvaluator#New()}.
