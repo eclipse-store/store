@@ -490,7 +490,10 @@ public interface StorageTaskBroker
 			final StorageSystem system = this.storageSystemReference.get();
 			if(system == null)
 			{
-				throw new StorageExceptionNotRunning();
+				throw new StorageExceptionNotRunning(
+					"Storage is shut down: the StorageSystem has been garbage-collected"
+					+ " (the manager was abandoned without shutdown())."
+				);
 			}
 			// entityMarkMonitor() throws if the system is not running; do it before signaling anything.
 			final StorageEntityMarkMonitor markMonitor = system.entityMarkMonitor();
