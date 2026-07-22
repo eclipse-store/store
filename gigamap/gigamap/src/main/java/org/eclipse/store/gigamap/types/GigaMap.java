@@ -2166,22 +2166,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			{
 				final R result = this.indices.internalApplyUpdate(entityId, current, logic, this.constraints.custom());
 
-				// Mark the owning level1 segment as changed (like internalSet/remove do). This pins the
-				// segment via its usage marker so neither release() nor the LazyReferenceManager can evict
-				// it before the mutation is stored, keeping the mutated entity strongly reachable. Without
-				// this the entity's only strong root is the segment; an eviction + GC would let the store
-				// below silently skip the (then-dead) WeakReference while the index deltas commit anyway,
-				// permanently diverging the persisted indices from the entity.
-				this.markEntitySegmentChanged(entityId);
-
-				// The entity was mutated in-place. Track it so that store() can explicitly
-				// re-persist the entity object (the storer won't re-persist it automatically
-				// since the object reference/identity hasn't changed).
-				if(this.pendingEntityStores == null)
-				{
-					this.pendingEntityStores = BulkList.New();
-				}
-				this.pendingEntityStores.add(new WeakReference<>(current));
+				this.retainMutatedEntity(entityId, current);
 
 				return result;
 			}
@@ -2199,6 +2184,15 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				 */
 				if(isStaleIndexFailure(e))
 				{
+					/*
+					 * The update logic already mutated the entity in place and we keep it. Give it the SAME
+					 * persistence bookkeeping as a successful mutation - pin the segment and track it for
+					 * re-storing - so a later reindex() + store() persists both the rebuilt index and the
+					 * mutated entity. Skipping this would let store() persist the rebuilt index while
+					 * silently skipping the (same-identity) entity, reintroducing entity/index divergence
+					 * after a restart.
+					 */
+					this.retainMutatedEntity(entityId, current);
 					throw e;
 				}
 
@@ -2266,6 +2260,30 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				}
 			}
 			return false;
+		}
+
+		/**
+		 * Records an in-place entity mutation (from {@code apply}) for persistence. Pins the owning
+		 * level1 segment via its usage marker so neither {@link #release()} nor the LazyReferenceManager
+		 * can evict it before the mutation is stored (without this the entity's only strong root is the
+		 * segment; an eviction + GC would let a later store silently skip the then-dead
+		 * {@link WeakReference} while index deltas commit anyway, diverging the persisted indices from the
+		 * entity). It also tracks the entity so {@link #store()} explicitly re-persists it, since the
+		 * storer won't - the object reference/identity hasn't changed.
+		 * <p>
+		 * Must be called for every retained in-place mutation, including the stale-index path that keeps
+		 * a mutated entity: otherwise {@code reindex()} + {@code store()} would persist the rebuilt index
+		 * while skipping the (same-identity) entity, reintroducing entity/index divergence after restart.
+		 */
+		private void retainMutatedEntity(final long entityId, final E current)
+		{
+			this.markEntitySegmentChanged(entityId);
+
+			if(this.pendingEntityStores == null)
+			{
+				this.pendingEntityStores = BulkList.New();
+			}
+			this.pendingEntityStores.add(new WeakReference<>(current));
 		}
 
 		private void markEntitySegmentChanged(final long entityId)

@@ -235,11 +235,15 @@ public class GigaMap88Test
 	/**
 	 * The destructive {@code apply()} fallback must not fire for a stale index: an {@code update()} (which
 	 * delegates to {@code apply()}) on a stale hashing index throws a {@link StaleIndexException} but must
-	 * retain the committed entity rather than removing it.
+	 * retain the committed entity rather than removing it. Additionally, the in-place mutation the failed
+	 * update already applied must be tracked for re-storing, so the documented {@code reindex()} +
+	 * {@code store()} recovery persists both the rebuilt index AND the mutated entity - otherwise a restart
+	 * would reintroduce entity/index divergence (the rebuilt index would reference a value the persisted
+	 * entity no longer carries).
 	 */
 	@Test
 	@Timeout(120)
-	void staleHashingIndexApplyMustNotDeleteEntity(@TempDir final Path dir) throws IOException
+	void staleHashingIndexApplyMustNotDeleteEntityAndRecoveryPersistsBoth(@TempDir final Path dir) throws IOException
 	{
 		final long id = seedAndEvolve(dir, new HashingCodeIndexer(), false);
 
@@ -250,7 +254,7 @@ public class GigaMap88Test
 			assertEquals(0, loaded.get(id).code, "sanity: field defaulted by evolution");
 
 			// update() -> apply(): the destructive path. A stale-index failure must escape as a
-			// StaleIndexException but must NOT delete the entity.
+			// StaleIndexException but must NOT delete the entity (which the logic mutated to code=7).
 			final RuntimeException ex = assertThrows(
 				RuntimeException.class,
 				() -> loaded.update(id, p -> p.code = 7)
@@ -260,16 +264,25 @@ public class GigaMap88Test
 				"a stale-index update failure must be a StaleIndexException; was: " + ex.getClass().getName()
 			);
 			assertNotNull(loaded.get(id), "apply()/update() against a stale index must not delete the committed entity");
+			assertEquals(7, loaded.get(id).code, "the in-place mutation must be retained");
 
+			// Documented recovery: rebuild the index from the current entity state, then store. This must
+			// persist both the rebuilt index and the (in-place mutated) entity.
+			loaded.reindex();
 			loaded.store();
 		}
 
-		// The entity survives the restart.
+		// After a restart both the entity value and the index must agree - no divergence.
 		try(final EmbeddedStorageManager storage = EmbeddedStorage.start(dir))
 		{
 			@SuppressWarnings("unchecked")
-			final GigaMap<Person> loaded = (GigaMap<Person>)storage.root();
+			final GigaMap<Person> loaded  = (GigaMap<Person>)storage.root();
+			final HashingCodeIndexer indexer = new HashingCodeIndexer();
+
 			assertNotNull(loaded.get(id), "the committed entity must survive the restart");
+			assertEquals(7, loaded.get(id).code, "the mutated entity value must have been persisted");
+			assertEquals(1, count(loaded, indexer.is(7)), "the entity must be reachable by its persisted value");
+			assertEquals(0, count(loaded, indexer.is(0)), "no stale index entry must remain after reindex + restart");
 		}
 	}
 
