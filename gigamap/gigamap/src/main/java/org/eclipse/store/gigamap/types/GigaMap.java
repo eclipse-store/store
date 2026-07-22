@@ -31,6 +31,7 @@ import org.eclipse.serializer.persistence.types.*;
 import org.eclipse.serializer.reference.Lazy;
 import org.eclipse.serializer.util.X;
 import org.eclipse.store.gigamap.exceptions.ConstraintViolationException;
+import org.eclipse.store.gigamap.exceptions.StaleIndexException;
 import org.eclipse.store.gigamap.types.GigaQuery.ConditionBuilder;
 import org.eclipse.store.gigamap.types.IterationThreadProvider.IterationLogicProvider;
 
@@ -463,11 +464,13 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * entity after correcting the violation, or use {@code set} / {@code replace} instead when
 	 * non-destructive semantics are required.
 	 * <p>
-	 * Note that a <em>stale index</em> can make this destructive path fire on an otherwise legitimate update:
-	 * if an indexed field was mutated directly, or the entity class was evolved (an indexed field renamed or
-	 * retyped without a value-preserving refactoring mapping), the persisted index keys no longer match the
-	 * entities, and writing an entity's true value can trigger a <em>phantom</em> constraint violation whose
-	 * removal is a real data loss. Rebuild the indices with {@link #reindex()} before updating in that case.
+	 * A <em>stale index</em> (persisted index keys no longer matching the entities, e.g. after a direct
+	 * mutation of an indexed field or entity class evolution) is treated as a special case so it can
+	 * <em>never</em> destroy a committed entity: a write of the entity's true value is not mistaken for a
+	 * duplicate merely because of the entity's own stale entry (a unique violation requires a
+	 * <em>different</em> entity), and if a stale index cannot be updated in place, this method retains the
+	 * entity and throws a {@link org.eclipse.store.gigamap.exceptions.StaleIndexException} instead of
+	 * removing it. Rebuild the indices with {@link #reindex()} to restore correct query results.
 	 * <p>
 	 * <b>Behavior on other exceptions:</b> the same destructive-removal contract applies to any other
 	 * {@link RuntimeException} thrown by {@code logic} itself or by an {@link Indexer} once {@code logic}
@@ -511,11 +514,13 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * re-add the entity after correcting the violation, or use {@link #set(long, Object) set} when
 	 * non-destructive semantics are required.
 	 * <p>
-	 * Note that a <em>stale index</em> can make this destructive path fire on an otherwise legitimate update:
-	 * if an indexed field was mutated directly, or the entity class was evolved (an indexed field renamed or
-	 * retyped without a value-preserving refactoring mapping), the persisted index keys no longer match the
-	 * entities, and writing an entity's true value can trigger a <em>phantom</em> constraint violation whose
-	 * removal is a real data loss. Rebuild the indices with {@link #reindex()} before updating in that case.
+	 * A <em>stale index</em> (persisted index keys no longer matching the entities, e.g. after a direct
+	 * mutation of an indexed field or entity class evolution) is treated as a special case so it can
+	 * <em>never</em> destroy a committed entity: a write of the entity's true value is not mistaken for a
+	 * duplicate merely because of the entity's own stale entry (a unique violation requires a
+	 * <em>different</em> entity), and if a stale index cannot be updated in place, this method retains the
+	 * entity and throws a {@link org.eclipse.store.gigamap.exceptions.StaleIndexException} instead of
+	 * removing it. Rebuild the indices with {@link #reindex()} to restore correct query results.
 	 * <p>
 	 * <b>Behavior on other exceptions:</b> the same destructive-removal contract applies to any other
 	 * {@link RuntimeException} thrown by {@code logic} itself or by an {@link Indexer} once {@code logic}
@@ -2180,6 +2185,19 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				this.ensureClearedAddingState();
 
 				/*
+				 * A stale index is a special case: the failure means the persisted index keys no longer
+				 * match the keys re-derived from the (e.g. class-evolved) entities, NOT that the entity's
+				 * data is bad. Removing the entity here would be a real data loss for a still-valid,
+				 * committed entity - and the removal itself, re-deriving the same stale keys, cannot even
+				 * de-index it correctly. So the committed entity is retained and the exception is rethrown,
+				 * directing the caller to rebuild the indices via reindex(). See StaleIndexException.
+				 */
+				if(isStaleIndexFailure(e))
+				{
+					throw e;
+				}
+
+				/*
 				 * Since a state change done by a custom logic cannot be rolled back, there is no other choice
 				 * but to remove the entity from the map and report the entity and entityId to the calling
 				 * context in the exception. This applies not only to constraint violations but to any
@@ -2197,6 +2215,31 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				}
 				throw e;
 			}
+		}
+
+		/**
+		 * Detects whether the given throwable (or anything in its cause / suppressed chain) is a
+		 * {@link StaleIndexException}, i.e. signals that an index is out of date rather than that the
+		 * entity's data is bad. Used to keep {@link #internalApply} from destroying a still-valid,
+		 * committed entity when only the index is stale.
+		 */
+		private static boolean isStaleIndexFailure(final Throwable t)
+		{
+			for(Throwable current = t; current != null; current = current.getCause())
+			{
+				if(current instanceof StaleIndexException)
+				{
+					return true;
+				}
+				for(final Throwable suppressed : current.getSuppressed())
+				{
+					if(suppressed instanceof StaleIndexException)
+					{
+						return true;
+					}
+				}
+			}
+			return false;
 		}
 
 		private void markEntitySegmentChanged(final long entityId)

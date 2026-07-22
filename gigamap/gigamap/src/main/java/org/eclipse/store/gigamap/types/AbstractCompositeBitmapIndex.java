@@ -337,6 +337,17 @@ implements BitmapIndex.TopLevel<E, KS>
 	@Override
 	public final boolean internalContains(final E entity)
 	{
+		return this.internalContains(entity, this.contains);
+	}
+
+	@Override
+	public final boolean internalContains(final E entity, final long excludedEntityId)
+	{
+		return this.internalContains(entity, new ContainsOtherBreaker<>(excludedEntityId));
+	}
+
+	private boolean internalContains(final E entity, final EntityResolver<E> containsBreaker)
+	{
 		final KS keys = this.indexer.index(entity, this.carrier());
 		if(this.isOversized(keys))
 		{
@@ -378,8 +389,8 @@ implements BitmapIndex.TopLevel<E, KS>
 		// if the entity might be contained, a full query result evaluation has to be performed. But without loading entities.
 		try
 		{
-			// contains function throws a Break on the first encounter of a match (aka entity is contained)
-			GigaMap.Default.execute(EntityIdMatcher.NoOp(), this.contains, results, 0, parentMap.highestUsedId() + 1, null);
+			// contains function throws a Break on the first encounter of a (non-excluded) match
+			GigaMap.Default.execute(EntityIdMatcher.NoOp(), containsBreaker, results, 0, parentMap.highestUsedId() + 1, null);
 		}
 		catch(final ThrowBreak b)
 		{

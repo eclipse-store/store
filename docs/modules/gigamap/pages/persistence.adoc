@@ -78,10 +78,10 @@ This matters when an *indexed* field's class layout evolves between releases. {p
 
 [WARNING]
 ====
-Evolving an *indexed* field without a value-preserving refactoring mapping leaves the indices stale — with the same consequences as a direct (untracked) mutation, and potentially worse:
+Evolving an *indexed* field without a value-preserving refactoring mapping leaves the indices stale — with the same consequences as a direct (untracked) mutation:
 
-* Queries return pre-evolution results: `is(oldValue)` still matches, `is(actualValue)` returns nothing.
-* A subsequent `update` / `apply` / `set` that writes the entity's true value can raise a stale-index error, or — for a field under a unique constraint — trigger a *phantom* unique-constraint violation. Because `apply` mutates the entity in place and cannot roll back, such a violation causes the entity to be **removed from the map** (see the `apply` javadoc), and the next `store()` persists that loss.
+* Queries return pre-evolution results: `is(oldValue)` still matches, `is(actualValue)` returns nothing. Only `reindex()` restores correct query results.
+* A subsequent `update` / `apply` / `set` that writes the entity's true value may fail with a `StaleIndexException`. The committed entity is **not** deleted by this: a stale index never causes a phantom unique-constraint violation against the entity's own entry, and a stale-index failure retains the entity rather than removing it. You still need to `reindex()` to make the index consistent again.
 
 After evolving an indexed field, rebuild every index from the current entity state with `reindex()` **before** running any query or update, then `store()`:
 

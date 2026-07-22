@@ -216,6 +216,26 @@ public interface BitmapIndex<E, K> extends IndexIdentifier<E, K>, GigaIndex<E>
 		
 		public boolean internalContains(E entity);
 
+		/**
+		 * Like {@link #internalContains(Object)}, but ignores the entity registered under
+		 * {@code excludedEntityId}. Used by the unique-constraint check during an update: a key held only
+		 * by the very entity being updated (e.g. its own stale entry after a class evolution) is not a
+		 * duplicate, so it must not be reported as a unique violation. Only a <em>different</em> entity
+		 * holding the key is a real violation.
+		 * <p>
+		 * The default implementation ignores {@code excludedEntityId} and delegates to
+		 * {@link #internalContains(Object)}; index kinds that can back a unique constraint override it to
+		 * honor the exclusion.
+		 *
+		 * @param entity the entity whose key is checked
+		 * @param excludedEntityId the entity id to exclude from the containment check
+		 * @return whether any entity other than {@code excludedEntityId} is indexed under the entity's key
+		 */
+		public default boolean internalContains(final E entity, final long excludedEntityId)
+		{
+			return this.internalContains(entity);
+		}
+
 		public BitmapResult internalQuery(K key);
 
 		public void clearStateChangeMarkers();
