@@ -448,16 +448,30 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 	public boolean internalContains(final I entity)
 	{
 		final long keys = this.indexBinary(entity);
-		
+
 		return this.internalContainsKeys(keys);
 	}
-	
+
+	// Not an @Override at this generic level (parameter is I, the interface uses E); in the concrete
+	// BinaryBitmapIndex<E> where I == E it implements BitmapIndex.Internal.internalContains(E, long).
+	public boolean internalContains(final I entity, final long excludedEntityId)
+	{
+		final long keys = this.indexBinary(entity);
+
+		return this.internalContainsKeys(keys, new ContainsOtherBreaker<>(excludedEntityId));
+	}
+
 	private boolean fitsInEntries(final long keys)
 	{
 		return (keys & this.entriesLengthCheckMask) == 0L;
 	}
-	
+
 	public final boolean internalContainsKeys(final long keys)
+	{
+		return this.internalContainsKeys(keys, this.contains);
+	}
+
+	private boolean internalContainsKeys(final long keys, final EntityResolver<I> containsBreaker)
 	{
 		if(!this.fitsInEntries(keys))
 		{
@@ -486,8 +500,8 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 		// if the entity might be contained, a full query result evaluation has to be performed. But without loading entities.
 		try
 		{
-			// contains function throws a Break on the first encounter of a match (aka entity is contained)
-			GigaMap.Default.execute(EntityIdMatcher.NoOp(), this.contains, results, 0, parentMap.highestUsedId() + 1, null);
+			// contains function throws a Break on the first encounter of a (non-excluded) match
+			GigaMap.Default.execute(EntityIdMatcher.NoOp(), containsBreaker, results, 0, parentMap.highestUsedId() + 1, null);
 		}
 		catch(final ThrowBreak b)
 		{

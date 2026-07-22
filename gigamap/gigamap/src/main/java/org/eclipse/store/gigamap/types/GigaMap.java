@@ -31,13 +31,19 @@ import org.eclipse.serializer.persistence.types.*;
 import org.eclipse.serializer.reference.Lazy;
 import org.eclipse.serializer.util.X;
 import org.eclipse.store.gigamap.exceptions.ConstraintViolationException;
+import org.eclipse.store.gigamap.exceptions.StaleIndexException;
 import org.eclipse.store.gigamap.types.GigaQuery.ConditionBuilder;
 import org.eclipse.store.gigamap.types.IterationThreadProvider.IterationLogicProvider;
 
 import java.lang.ref.WeakReference;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import java.util.Spliterator;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -463,11 +469,13 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * entity after correcting the violation, or use {@code set} / {@code replace} instead when
 	 * non-destructive semantics are required.
 	 * <p>
-	 * Note that a <em>stale index</em> can make this destructive path fire on an otherwise legitimate update:
-	 * if an indexed field was mutated directly, or the entity class was evolved (an indexed field renamed or
-	 * retyped without a value-preserving refactoring mapping), the persisted index keys no longer match the
-	 * entities, and writing an entity's true value can trigger a <em>phantom</em> constraint violation whose
-	 * removal is a real data loss. Rebuild the indices with {@link #reindex()} before updating in that case.
+	 * A <em>stale index</em> (persisted index keys no longer matching the entities, e.g. after a direct
+	 * mutation of an indexed field or entity class evolution) is treated as a special case so it can
+	 * <em>never</em> destroy a committed entity: a write of the entity's true value is not mistaken for a
+	 * duplicate merely because of the entity's own stale entry (a unique violation requires a
+	 * <em>different</em> entity), and if a stale index cannot be updated in place, this method retains the
+	 * entity and throws a {@link org.eclipse.store.gigamap.exceptions.StaleIndexException} instead of
+	 * removing it. Rebuild the indices with {@link #reindex()} to restore correct query results.
 	 * <p>
 	 * <b>Behavior on other exceptions:</b> the same destructive-removal contract applies to any other
 	 * {@link RuntimeException} thrown by {@code logic} itself or by an {@link Indexer} once {@code logic}
@@ -511,11 +519,13 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * re-add the entity after correcting the violation, or use {@link #set(long, Object) set} when
 	 * non-destructive semantics are required.
 	 * <p>
-	 * Note that a <em>stale index</em> can make this destructive path fire on an otherwise legitimate update:
-	 * if an indexed field was mutated directly, or the entity class was evolved (an indexed field renamed or
-	 * retyped without a value-preserving refactoring mapping), the persisted index keys no longer match the
-	 * entities, and writing an entity's true value can trigger a <em>phantom</em> constraint violation whose
-	 * removal is a real data loss. Rebuild the indices with {@link #reindex()} before updating in that case.
+	 * A <em>stale index</em> (persisted index keys no longer matching the entities, e.g. after a direct
+	 * mutation of an indexed field or entity class evolution) is treated as a special case so it can
+	 * <em>never</em> destroy a committed entity: a write of the entity's true value is not mistaken for a
+	 * duplicate merely because of the entity's own stale entry (a unique violation requires a
+	 * <em>different</em> entity), and if a stale index cannot be updated in place, this method retains the
+	 * entity and throws a {@link org.eclipse.store.gigamap.exceptions.StaleIndexException} instead of
+	 * removing it. Rebuild the indices with {@link #reindex()} to restore correct query results.
 	 * <p>
 	 * <b>Behavior on other exceptions:</b> the same destructive-removal contract applies to any other
 	 * {@link RuntimeException} thrown by {@code logic} itself or by an {@link Indexer} once {@code logic}
@@ -2156,28 +2166,35 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			{
 				final R result = this.indices.internalApplyUpdate(entityId, current, logic, this.constraints.custom());
 
-				// Mark the owning level1 segment as changed (like internalSet/remove do). This pins the
-				// segment via its usage marker so neither release() nor the LazyReferenceManager can evict
-				// it before the mutation is stored, keeping the mutated entity strongly reachable. Without
-				// this the entity's only strong root is the segment; an eviction + GC would let the store
-				// below silently skip the (then-dead) WeakReference while the index deltas commit anyway,
-				// permanently diverging the persisted indices from the entity.
-				this.markEntitySegmentChanged(entityId);
-
-				// The entity was mutated in-place. Track it so that store() can explicitly
-				// re-persist the entity object (the storer won't re-persist it automatically
-				// since the object reference/identity hasn't changed).
-				if(this.pendingEntityStores == null)
-				{
-					this.pendingEntityStores = BulkList.New();
-				}
-				this.pendingEntityStores.add(new WeakReference<>(current));
+				this.retainMutatedEntity(entityId, current);
 
 				return result;
 			}
 			catch(final RuntimeException e)
 			{
 				this.ensureClearedAddingState();
+
+				/*
+				 * A stale index is a special case: the failure means the persisted index keys no longer
+				 * match the keys re-derived from the (e.g. class-evolved) entities, NOT that the entity's
+				 * data is bad. Removing the entity here would be a real data loss for a still-valid,
+				 * committed entity - and the removal itself, re-deriving the same stale keys, cannot even
+				 * de-index it correctly. So the committed entity is retained and the exception is rethrown,
+				 * directing the caller to rebuild the indices via reindex(). See StaleIndexException.
+				 */
+				if(isStaleIndexFailure(e))
+				{
+					/*
+					 * The update logic already mutated the entity in place and we keep it. Give it the SAME
+					 * persistence bookkeeping as a successful mutation - pin the segment and track it for
+					 * re-storing - so a later reindex() + store() persists both the rebuilt index and the
+					 * mutated entity. Skipping this would let store() persist the rebuilt index while
+					 * silently skipping the (same-identity) entity, reintroducing entity/index divergence
+					 * after a restart.
+					 */
+					this.retainMutatedEntity(entityId, current);
+					throw e;
+				}
 
 				/*
 				 * Since a state change done by a custom logic cannot be rolled back, there is no other choice
@@ -2197,6 +2214,76 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				}
 				throw e;
 			}
+		}
+
+		/**
+		 * Detects whether the given throwable, or anything reachable through its cause and suppressed
+		 * throwables (recursively), is a {@link StaleIndexException} - i.e. signals that an index is out of
+		 * date rather than that the entity's data is bad. Used to keep {@link #internalApply} from
+		 * destroying a still-valid, committed entity when only the index is stale.
+		 * <p>
+		 * The JDK offers no ready-made utility for this ({@link Throwable} exposes only
+		 * {@link Throwable#getCause()} and {@link Throwable#getSuppressed()}), so the full graph is walked
+		 * here. An identity-based visited set guards against cyclic cause/suppressed graphs, mirroring how
+		 * {@link Throwable#printStackTrace()} avoids infinite loops internally.
+		 */
+		private static boolean isStaleIndexFailure(final Throwable t)
+		{
+			if(t == null)
+			{
+				return false;
+			}
+			// ArrayDeque forbids null elements, so only ever push non-null throwables (getCause() may be
+			// null; getSuppressed() never contains nulls).
+			final Set<Throwable>   seen  = Collections.newSetFromMap(new IdentityHashMap<>());
+			final Deque<Throwable> stack = new ArrayDeque<>();
+			stack.push(t);
+			while(!stack.isEmpty())
+			{
+				final Throwable current = stack.pop();
+				if(!seen.add(current))
+				{
+					continue;
+				}
+				if(current instanceof StaleIndexException)
+				{
+					return true;
+				}
+				final Throwable cause = current.getCause();
+				if(cause != null)
+				{
+					stack.push(cause);
+				}
+				for(final Throwable suppressed : current.getSuppressed())
+				{
+					stack.push(suppressed);
+				}
+			}
+			return false;
+		}
+
+		/**
+		 * Records an in-place entity mutation (from {@code apply}) for persistence. Pins the owning
+		 * level1 segment via its usage marker so neither {@link #release()} nor the LazyReferenceManager
+		 * can evict it before the mutation is stored (without this the entity's only strong root is the
+		 * segment; an eviction + GC would let a later store silently skip the then-dead
+		 * {@link WeakReference} while index deltas commit anyway, diverging the persisted indices from the
+		 * entity). It also tracks the entity so {@link #store()} explicitly re-persists it, since the
+		 * storer won't - the object reference/identity hasn't changed.
+		 * <p>
+		 * Must be called for every retained in-place mutation, including the stale-index path that keeps
+		 * a mutated entity: otherwise {@code reindex()} + {@code store()} would persist the rebuilt index
+		 * while skipping the (same-identity) entity, reintroducing entity/index divergence after restart.
+		 */
+		private void retainMutatedEntity(final long entityId, final E current)
+		{
+			this.markEntitySegmentChanged(entityId);
+
+			if(this.pendingEntityStores == null)
+			{
+				this.pendingEntityStores = BulkList.New();
+			}
+			this.pendingEntityStores.add(new WeakReference<>(current));
 		}
 
 		private void markEntitySegmentChanged(final long entityId)

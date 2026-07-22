@@ -812,8 +812,10 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 					// if old and new entity have equal keys, a replacement cannot be a unique violation.
 					continue;
 				}
-				
-				if(index.internalContains(entity))
+
+				// A key held only by the entity being updated (e.g. its own stale entry after a class
+				// evolution) is not a duplicate; only a different entity holding the key is a violation.
+				if(index.internalContains(entity, entityId))
 				{
 					if(createException)
 					{
@@ -1290,7 +1292,9 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 					}
 					if(this.cachedIsUniqueIndex[i])
 					{
-						if(this.cachedIndices[i].internalContains(entity))
+						// A key held only by the entity being updated (e.g. its own stale entry after a
+						// class evolution) is not a duplicate; only a different entity is a violation.
+						if(this.cachedIndices[i].internalContains(entity, entityId))
 						{
 							throw new UniqueConstraintViolationExceptionBitmap(entityId, replacedEntity, entity, this.cachedIndices[i]);
 						}
