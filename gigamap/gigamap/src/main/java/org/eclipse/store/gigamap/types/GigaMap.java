@@ -36,9 +36,14 @@ import org.eclipse.store.gigamap.types.GigaQuery.ConditionBuilder;
 import org.eclipse.store.gigamap.types.IterationThreadProvider.IterationLogicProvider;
 
 import java.lang.ref.WeakReference;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import java.util.Spliterator;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -2218,25 +2223,46 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		}
 
 		/**
-		 * Detects whether the given throwable (or anything in its cause / suppressed chain) is a
-		 * {@link StaleIndexException}, i.e. signals that an index is out of date rather than that the
-		 * entity's data is bad. Used to keep {@link #internalApply} from destroying a still-valid,
-		 * committed entity when only the index is stale.
+		 * Detects whether the given throwable, or anything reachable through its cause and suppressed
+		 * throwables (recursively), is a {@link StaleIndexException} - i.e. signals that an index is out of
+		 * date rather than that the entity's data is bad. Used to keep {@link #internalApply} from
+		 * destroying a still-valid, committed entity when only the index is stale.
+		 * <p>
+		 * The JDK offers no ready-made utility for this ({@link Throwable} exposes only
+		 * {@link Throwable#getCause()} and {@link Throwable#getSuppressed()}), so the full graph is walked
+		 * here. An identity-based visited set guards against cyclic cause/suppressed graphs, mirroring how
+		 * {@link Throwable#printStackTrace()} avoids infinite loops internally.
 		 */
 		private static boolean isStaleIndexFailure(final Throwable t)
 		{
-			for(Throwable current = t; current != null; current = current.getCause())
+			if(t == null)
 			{
+				return false;
+			}
+			// ArrayDeque forbids null elements, so only ever push non-null throwables (getCause() may be
+			// null; getSuppressed() never contains nulls).
+			final Set<Throwable>   seen  = Collections.newSetFromMap(new IdentityHashMap<>());
+			final Deque<Throwable> stack = new ArrayDeque<>();
+			stack.push(t);
+			while(!stack.isEmpty())
+			{
+				final Throwable current = stack.pop();
+				if(!seen.add(current))
+				{
+					continue;
+				}
 				if(current instanceof StaleIndexException)
 				{
 					return true;
 				}
+				final Throwable cause = current.getCause();
+				if(cause != null)
+				{
+					stack.push(cause);
+				}
 				for(final Throwable suppressed : current.getSuppressed())
 				{
-					if(suppressed instanceof StaleIndexException)
-					{
-						return true;
-					}
+					stack.push(suppressed);
 				}
 			}
 			return false;
