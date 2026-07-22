@@ -252,11 +252,15 @@ public abstract class AbstractBitmapIndexHashing<E, I, K> extends BitmapIndex.Ab
 		@Override
 		public void changeInIndex(final long entityId, final ChangeHandler prevEntityHandler)
 		{
-			// Create a new entry after all validations etc. have been passed.
+			// De-index the previous key FIRST. If that throws (notably the stale-index path above), no
+			// entry has been created for the new key yet, so the index is not left with a stray empty
+			// entry that would otherwise linger until the next reindex().
+			prevEntityHandler.removeFromIndex(entityId);
+
+			// Create the new entry only after the previous-key removal succeeded, then add the id. The
+			// removal is already done, so a no-op previous handler is passed.
 			final BitmapEntry<?, I, K> newEntry = this.index.internalEnsureEntryForKey(this.newKey);
-			
-			// EntityId gets added to the newly created entry just like an existing entry would.
-			newEntry.changeInIndex(entityId, prevEntityHandler);
+			newEntry.changeInIndex(entityId, NullChangeChandler.SINGLETON);
 		}
 		
 	}
