@@ -249,10 +249,11 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 				 */
 				final CopyItem copyItem = (CopyItem)itemToBeProcessed; // guarded: predicate is copy-item-only
 				logger.debug(
-					"Skipped an in-flight backup copy ({} @{}+{}) superseded by a truncation enqueued behind it",
+					"Skipped an in-flight backup copy ({} @{}+{}) superseded by a truncation or deletion enqueued behind it",
 					copyItem.sourceFile.identifier(),
 					copyItem.sourcePosition,
-					copyItem.length
+					copyItem.length,
+					e
 				);
 			}
 			finally
@@ -286,7 +287,7 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 					{
 						continue;
 					}
-					if(i instanceof TruncationItem && ((TruncationItem)i).length <= sourcePosition
+					if((i instanceof TruncationItem && ((TruncationItem)i).length <= sourcePosition)
 						|| i instanceof DeletionItem
 					)
 					{
