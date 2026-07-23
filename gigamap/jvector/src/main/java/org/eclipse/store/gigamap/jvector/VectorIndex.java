@@ -1189,7 +1189,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         this.configuration.minChangesBetweenOptimizations(),
                         backgroundPersistence,
                         this.configuration.persistenceIntervalMs(),
-                        this.configuration.minChangesBetweenPersists()
+                        this.configuration.minChangesBetweenPersists(),
+                        this.configuration.shutdownPersistTimeoutMillis()
                     );
                 }
             }
@@ -2441,16 +2442,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.backgroundTaskManager.drainQueue();
             }
 
-            this.doPersistToDisk();
+            this.doPersistToDisk(false);
         }
 
         /**
          * Core persistence logic without queue drain.
          * Called directly from the background task manager's executor thread
          * (where inline drain is already done) and from the public persistToDisk() method.
+         *
+         * @param onShutdown {@code true} when invoked on the shutdown path. In incremental mode a
+         *                   shutdown persist skips the O(n) full-graph consolidation entirely and
+         *                   relies on the load-time self-heal, so shutdown is never blocked by a
+         *                   rebuild that would be discarded anyway. {@code false} for
+         *                   background/explicit persistence, which consolidates as before.
          */
         @Override
-        public void doPersistToDisk()
+        public void doPersistToDisk(final boolean onShutdown)
         {
             if(!this.configuration.onDisk())
             {
@@ -2494,6 +2501,18 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         // rebuildGraphFromStore() does not race with in-flight mutations.
                         if(this.incrementalMode)
                         {
+                            if(onShutdown)
+                            {
+                                // The on-disk index is a derived cache. Skip the O(n) full-graph
+                                // consolidation on shutdown and let the load-time self-heal
+                                // (DiskIndexManager.verifyMetadata) rebuild from the store — the
+                                // source of truth — on the next boot. No vectors are lost, and
+                                // shutdown is not blocked by a rebuild that would be discarded
+                                // anyway. Full consolidation stays a background/explicit operation.
+                                LOG.info("Skipping full-graph consolidation for '{}' on shutdown; "
+                                    + "on-disk index self-heals from store on next load", this.name);
+                                return;
+                            }
                             this.exitIncrementalMode();
                         }
 
@@ -2795,7 +2814,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // optimization, no background persistence).
                 try
                 {
-                    this.doPersistToDisk();
+                    this.doPersistToDisk(true);
                 }
                 catch(final Exception e)
                 {

@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
@@ -3104,6 +3105,155 @@ class VectorIndexDiskTest
                         "After removeAll, only new documents should be found");
                 }
             }
+        }
+    }
+
+    /**
+     * Regression test for internal#112: an on-disk index in incremental mode with pending changes
+     * must NOT rebuild and rewrite the full graph on {@code close()} with {@code persistOnShutdown}.
+     * The graph file must stay byte-identical across the shutdown (no O(n) consolidation), and the
+     * changes must still be visible after reload thanks to the load-time self-heal from the store.
+     */
+    @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void testShutdownDoesNotRebuildGraphInIncrementalMode(@TempDir final Path tempDir) throws IOException
+    {
+        final int dimension = 32;
+        final Random random = new Random(42);
+
+        final Path indexDir   = tempDir.resolve("index");
+        final Path storageDir = tempDir.resolve("storage");
+        final Path graphPath  = indexDir.resolve("embeddings.graph");
+
+        final float[] needleVector = new float[dimension];
+        needleVector[0] = 1.0f;
+
+        byte[] graphBytesAfterPersist = null;
+
+        // Phase 1: create, persist once (enters incremental mode), apply incremental changes, then
+        // close with persistOnShutdown(true). The graph must not be rewritten by the shutdown.
+        {
+            try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+            {
+                final GigaMap<Document> gigaMap = GigaMap.New();
+                storage.setRoot(gigaMap);
+
+                final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+                final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+                    .dimension(dimension)
+                    .similarityFunction(VectorSimilarityFunction.COSINE)
+                    .onDisk(true)
+                    .indexDirectory(indexDir)
+                    .persistenceIntervalMs(60_000) // long interval — background persistence won't fire during the test
+                    .minChangesBetweenPersists(1)
+                    .persistOnShutdown(true)
+                    .build();
+
+                final VectorIndex<Document> index = vectorIndices.add(
+                    "embeddings", config, new ComputedDocumentVectorizer());
+
+                addRandomDocuments(gigaMap, random, dimension, 100, "original_");
+
+                // First persist writes the full graph and re-enters incremental mode.
+                index.persistToDisk();
+                storage.storeRoot();
+                assertTrue(Files.exists(graphPath), "Graph file should exist after the first persist");
+                graphBytesAfterPersist = Files.readAllBytes(graphPath);
+
+                // Apply incremental changes (in-memory builder + tombstones) — deliberately NOT persisted.
+                addRandomDocuments(gigaMap, random, dimension, 50, "added_");
+                gigaMap.add(new Document("needle", needleVector));
+                storage.storeRoot(); // commit to the store so the self-heal can rebuild them on reload
+
+                // Shutdown persist: in incremental mode this must skip the full-graph consolidation.
+                index.close();
+            }
+
+            // The graph file must be byte-identical: the shutdown did NOT rebuild + rewrite it.
+            assertArrayEquals(graphBytesAfterPersist, Files.readAllBytes(graphPath),
+                "Shutdown must not rewrite the graph while in incremental mode (no full-graph rebuild)");
+            // And it must not leave any temp file behind.
+            assertNoTempFiles(indexDir);
+        }
+
+        // Phase 2: reload — the on-disk graph is stale (store advanced past it), so the self-heal
+        // rebuilds from the store. All vectors, including the unpersisted incremental ones, are found.
+        {
+            try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+            {
+                final GigaMap<Document> gigaMap = storage.root();
+                final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
+                final VectorIndex<Document> index = vectorIndices.get("embeddings");
+
+                assertEquals(151, gigaMap.size());
+
+                final VectorSearchResult<Document> result = index.search(needleVector, 10);
+                boolean foundNeedle = false;
+                for(final ScoredSearchResult.Entry<Document> entry : result)
+                {
+                    if("needle".equals(entry.entity().content()))
+                    {
+                        foundNeedle = true;
+                        break;
+                    }
+                }
+                assertTrue(foundNeedle, "Self-heal must recover the unpersisted incremental changes from the store");
+            }
+        }
+    }
+
+    /**
+     * Fix for internal#112: {@link DiskIndexManager} writes the graph and meta via temp files and an
+     * atomic rename. A completed persist must leave no {@code .tmp} files behind, and the graph must
+     * load normally.
+     */
+    @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void testWriteIndexLeavesNoTempFiles(@TempDir final Path tempDir) throws IOException
+    {
+        final int dimension = 32;
+        final Random random = new Random(42);
+        final Path indexDir = tempDir.resolve("index");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .build();
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings", config, new ComputedDocumentVectorizer());
+        addRandomDocuments(gigaMap, random, dimension, 100, "doc_");
+
+        index.persistToDisk();
+
+        assertTrue(Files.exists(indexDir.resolve("embeddings.graph")), "Graph file should exist after persist");
+        assertTrue(Files.exists(indexDir.resolve("embeddings.meta")),  "Meta file should exist after persist");
+        assertNoTempFiles(indexDir);
+
+        index.close();
+    }
+
+    /**
+     * Asserts that no temporary write files ({@code *.graph.tmp} / {@code *.meta.tmp}) linger in the
+     * index directory after a persist.
+     */
+    private static void assertNoTempFiles(final Path indexDir) throws IOException
+    {
+        if(!Files.exists(indexDir))
+        {
+            return;
+        }
+        try(final var entries = Files.list(indexDir))
+        {
+            final List<String> tempFiles = entries
+                .map(p -> p.getFileName().toString())
+                .filter(n -> n.endsWith(".tmp"))
+                .toList();
+            assertTrue(tempFiles.isEmpty(), "No temp files should remain after persist, found: " + tempFiles);
         }
     }
 

@@ -52,6 +52,13 @@ class BackgroundTaskManager
      */
     private static final long WATCHDOG_INTERVAL_MS = 1_000L;
 
+    /**
+     * Short grace window awaited for the executor thread to terminate after {@link #shutdown} has
+     * requested it (or after an overrun triggers {@code shutdownNow()}). Bounds how long shutdown
+     * blocks once the final work is done or has been aborted.
+     */
+    private static final long EXECUTOR_TERMINATION_GRACE_SECONDS = 5L;
+
     // ========================================================================
     // Indexing Operations
     // ========================================================================
@@ -152,8 +159,13 @@ class BackgroundTaskManager
         /**
          * Core persistence logic without queue drain.
          * Called from the executor thread (inline drain already done).
+         *
+         * @param onShutdown {@code true} when invoked on the shutdown path, in which case a
+         *                   full-graph consolidation (exit incremental mode) must be skipped so
+         *                   shutdown is not blocked by an O(n) rebuild; {@code false} for
+         *                   background/explicit persistence, which may consolidate.
          */
-        void doPersistToDisk();
+        void doPersistToDisk(boolean onShutdown);
     }
 
     // ========================================================================
@@ -186,6 +198,9 @@ class BackgroundTaskManager
     private final int           persistenceMinChanges ;
     private ScheduledFuture<?>  persistenceTask       ;
 
+    // Upper bound on how long the shutdown persist may run on the executor before it is aborted.
+    private final long          shutdownPersistTimeoutMillis;
+
     // Liveness watchdog: self-terminates the executor when the index has been abandoned (GC'd)
     private ScheduledFuture<?>  watchdogTask          ;
 
@@ -204,11 +219,13 @@ class BackgroundTaskManager
         final int      optimizationMinChanges,
         final boolean  backgroundPersistence,
         final long     persistenceIntervalMs,
-        final int      persistenceMinChanges
+        final int      persistenceMinChanges,
+        final long     shutdownPersistTimeoutMillis
     )
     {
-        this.callbackRef = new WeakReference<>(callback);
-        this.name        = name                         ;
+        this.callbackRef                  = new WeakReference<>(callback);
+        this.name                         = name                        ;
+        this.shutdownPersistTimeoutMillis = shutdownPersistTimeoutMillis;
 
         this.executor = Executors.newSingleThreadScheduledExecutor(r ->
         {
@@ -406,12 +423,13 @@ class BackgroundTaskManager
         this.cancelScheduledTasks();
 
         // Perform final work if requested
+        boolean timedOut = false;
         if(drainPending || optimizePending || persistPending)
         {
             try
             {
                 this.executor.submit(() -> this.finalShutdownWork(drainPending, optimizePending, persistPending))
-                    .get(30, TimeUnit.SECONDS);
+                    .get(this.shutdownPersistTimeoutMillis, TimeUnit.MILLISECONDS);
             }
             catch(final InterruptedException e)
             {
@@ -423,15 +441,29 @@ class BackgroundTaskManager
             }
             catch(final TimeoutException e)
             {
-                LOG.warn("Shutdown work timed out for '{}'", this.name);
+                // The work is still running and has exceeded its budget. Because on-disk writes are
+                // atomic and the index self-heals from the store on next load, aborting it now is
+                // safe (no torn file, no data loss). Interrupt promptly rather than waiting a second
+                // full grace window, so shutdown is not pinned by work that is being discarded.
+                timedOut = true;
+                LOG.warn("Shutdown work timed out for '{}' after {} ms; aborting so shutdown can proceed "
+                    + "(on-disk index self-heals from store on next load)", this.name, this.shutdownPersistTimeoutMillis);
             }
         }
 
-        // Shutdown the executor
-        this.executor.shutdown();
+        // Shutdown the executor. If the final work overran its budget, interrupt it immediately;
+        // otherwise request a graceful shutdown and give in-flight work a short window to finish.
+        if(timedOut)
+        {
+            this.executor.shutdownNow();
+        }
+        else
+        {
+            this.executor.shutdown();
+        }
         try
         {
-            if(!this.executor.awaitTermination(30, TimeUnit.SECONDS))
+            if(!this.executor.awaitTermination(EXECUTOR_TERMINATION_GRACE_SECONDS, TimeUnit.SECONDS))
             {
                 LOG.warn("Background task executor did not terminate gracefully for '{}'", this.name);
                 this.executor.shutdownNow();
@@ -644,7 +676,7 @@ class BackgroundTaskManager
             // Drain pending indexing ops inline (same thread, no deadlock)
             this.processAllPendingIndexingOps();
 
-            cb.doPersistToDisk();
+            cb.doPersistToDisk(false);
 
             this.persistenceChangeCount.set(0);
 
@@ -702,7 +734,7 @@ class BackgroundTaskManager
                 this.name, this.persistenceChangeCount.get());
             try
             {
-                cb.doPersistToDisk();
+                cb.doPersistToDisk(true);
                 this.persistenceChangeCount.set(0);
             }
             catch(final Exception e)

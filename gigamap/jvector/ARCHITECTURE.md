@@ -503,7 +503,7 @@ Symmetric to update: `vectorStore.removeById(entityId)` (computed mode), enqueue
 
 ### 7.6 PersistToDisk
 
-The most intricate flow. `persistToDisk()` is a no-op for in-memory indices; on disk, it drains the queue and calls `doPersistToDisk()`.
+The most intricate flow. `persistToDisk()` is a no-op for in-memory indices; on disk, it drains the queue and calls `doPersistToDisk(onShutdown=false)`. The `onShutdown` flag distinguishes the shutdown path (see §7.7): in incremental mode a shutdown persist skips the O(n) full-graph consolidation entirely and relies on the load-time self-heal, rather than paying for a rebuild that shutdown would likely abort anyway.
 
 ### Diagram 7 — `doPersistToDisk()` two-phase protocol
 
@@ -518,32 +518,36 @@ sequenceDiagram
     participant DIM as captured diskManager
     participant FS as filesystem
 
-    Caller->>VI: doPersistToDisk()
+    Caller->>VI: doPersistToDisk(onShutdown)
     VI->>VI: cleanupInProgress = true
     VI->>L: writeLock().lock()
+
+    alt incrementalMode AND isIncrementalClean — no deletions, empty in-memory builder
+        VI->>VI: log "no incremental changes, skip"
+        VI-->>Caller: return — finally unlocks write lock, cleanupInProgress=false
+    end
 
     Note over VI,L: Phase 1: barrier + capture under parentMap monitor
 
     VI->>PM: synchronized(parentMap) {
     VI->>VI: ensureIndexInitialized()
     alt incrementalMode
-        alt no deletions AND empty in-memory builder
-            VI->>VI: log "no incremental changes, skip"
-            VI->>L: writeLock().unlock()
-            Note right of VI: cleanupInProgress=false<br/>(skip drain — nothing deferred)
+        alt onShutdown
+            VI->>VI: log "skip full-graph consolidation on shutdown"
+            VI-->>Caller: return — rely on load-time self-heal, no O(n) rebuild
         else
             VI->>VI: exitIncrementalMode()<br/>(close disk, full rebuild from vectorStore)
         end
     end
-    VI->>VI: capture builder, index, ravv (NullSafe), pqManager, diskManager
+    VI->>VI: capture builder, index, ravv (NullSafe), pqManager, diskManager, meta
     VI->>PM: }
 
     Note over VI,FS: Phase 2: cleanup + disk write outside parentMap
 
     VI->>Bx: cleanup()<br/>(ForkJoinPool may now call parentMap.get safely)
     VI->>DIM: writeIndex(index, ravv, pqManager)
-    DIM->>FS: write name.graph (+ FusedPQ feature if PQ trained)
-    DIM->>FS: write name.meta (version=2, dim, count, highestEntityId)
+    DIM->>FS: write name.graph.tmp then atomic rename (+ FusedPQ feature if PQ trained)
+    DIM->>FS: write name.meta.tmp then atomic rename (version=3, dim, count, highestEntityId, structuralModCount)
     VI->>VI: reenterIncrementalMode()<br/>(reload disk, reset in-memory builder, set incrementalMode=true)
     VI->>L: writeLock().unlock()
     VI->>VI: cleanupInProgress = false
@@ -554,14 +558,18 @@ Two key observations:
 
 - **Phase 1 holds `parentMap`; Phase 2 does not.** The synchronized block is a barrier that lets in-flight GigaMap mutations finish, captures all the references the disk writer will need, and (if applicable) tears down incremental mode. As soon as the references are captured, the monitor is released — `cleanup()` and `writeIndex()` are free to invoke ForkJoinPool/disk-writer threads that themselves call `parentMap.get()` (e.g., for embedded vectorizers). `builderLock.writeLock()` stays held throughout, so concurrent searches and background applies still block.
 - **Skip-on-clean shortcut**. `isIncrementalClean()` short-circuits when there are no `diskDeletedOrdinals` and the in-memory builder graph has zero nodes. Without this, every persist would tear down and rebuild the (unchanged) disk graph.
+- **Skip-consolidation-on-shutdown shortcut** (internal#112). When `onShutdown` is true and the index is in incremental mode with pending changes, the persist returns without calling `exitIncrementalMode()`. The full-graph rebuild is O(n) and would be discarded anyway (shutdown timeouts abort it, and the next boot rebuilds from the store regardless), so the shutdown persist skips it and relies on the load-time self-heal. Full consolidation stays a background/explicit operation.
+- **Atomic writes** (internal#112). `writeIndex()` writes `name.graph`/`name.meta` to `.tmp` siblings and atomically renames them into place (graph first, meta last). An interrupted persist — e.g. `shutdownNow()` mid-write — can therefore never leave a torn live graph or meta.
 
-`exitIncrementalMode()` closes the on-disk graph, clears `diskDeletedOrdinals`, closes the in-memory builder, and rebuilds a fresh full-graph builder from `vectorStore` (or by iterating `parentMap` for embedded mode). `reenterIncrementalMode()` reloads the just-written disk graph, initializes a fresh empty in-memory builder, sets `diskDeletedOrdinals = newKeySet()`, and finally flips `incrementalMode = true` (safe-publication ordering — state fields are written *before* the volatile flag).
+`exitIncrementalMode()` closes the on-disk graph, clears `diskDeletedOrdinals`, closes the in-memory builder, and rebuilds a fresh full-graph builder from `vectorStore` (or by iterating `parentMap` for embedded mode). It is **not** run on the shutdown path. `reenterIncrementalMode()` reloads the just-written disk graph, initializes a fresh empty in-memory builder, sets `diskDeletedOrdinals = newKeySet()`, and finally flips `incrementalMode = true` (safe-publication ordering — state fields are written *before* the volatile flag).
 
 ### 7.7 Close / shutdown
 
 `close()` calls `shutdownBackgroundTaskManager(drainPending=true, optimizeOnShutdown, persistOnShutdown)`. There is one important fall-through path:
 
-> **Commit `fa189228`**: if no background features are enabled, `backgroundTaskManager` is `null`. The pre-fix behavior was to skip persist entirely on close, silently dropping in-memory changes. The fix: when `backgroundTaskManager == null && persistOnShutdown && configuration.onDisk()`, call `doPersistToDisk()` directly so the pending changes are flushed before the index closes.
+> **Commit `fa189228`**: if no background features are enabled, `backgroundTaskManager` is `null`. The pre-fix behavior was to skip persist entirely on close, silently dropping in-memory changes. The fix: when `backgroundTaskManager == null && persistOnShutdown && configuration.onDisk()`, call `doPersistToDisk(onShutdown=true)` directly so the pending changes are flushed before the index closes.
+
+When a `backgroundTaskManager` exists, the shutdown persist runs on its executor via `finalShutdownWork`, which calls `doPersistToDisk(onShutdown=true)`. `BackgroundTaskManager.shutdown()` time-boxes this with `Future.get(shutdownPersistTimeoutMillis)` (configurable via `VectorIndexConfiguration.shutdownPersistTimeoutMillis()`, default 30s); on overrun it interrupts the executor promptly (`shutdownNow()`) rather than waiting a second grace window. Combined with the incremental skip and atomic writes above, this bounds how long shutdown can block and guarantees clean degradation (skip the write, self-heal on next boot) instead of a mid-write kill leaving a torn file.
 
 After background shutdown, `close()` acquires `builderLock.writeLock()` and tears down: searcher pools, builder, in-memory index, disk manager, PQ manager.
 
