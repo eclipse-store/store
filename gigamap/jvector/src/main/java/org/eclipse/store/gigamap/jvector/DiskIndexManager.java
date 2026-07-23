@@ -33,6 +33,7 @@ import org.slf4j.LoggerFactory;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Map;
@@ -79,6 +80,13 @@ interface DiskIndexManager extends Closeable
      * File extension for metadata files.
      */
     final static String META_FILE_EXT = ".meta";
+
+    /**
+     * Extension appended to a live file's name while it is being written. The graph and meta are
+     * written to {@code <name><ext>.tmp} and then atomically renamed onto the live path, so an
+     * interrupted write (e.g. {@code shutdownNow()} mid-persist) can never leave a torn live file.
+     */
+    final static String TEMP_FILE_EXT = ".tmp";
 
     /**
      * Returns whether a disk index is loaded and ready.
@@ -350,28 +358,101 @@ interface DiskIndexManager extends Closeable
         {
             Files.createDirectories(this.indexDirectory);
 
-            final Path graphPath = this.indexDirectory.resolve(this.name + GRAPH_FILE_EXT);
-            final Path metaPath  = this.indexDirectory.resolve(this.name + META_FILE_EXT );
+            final Path graphPath    = this.indexDirectory.resolve(this.name + GRAPH_FILE_EXT);
+            final Path metaPath      = this.indexDirectory.resolve(this.name + META_FILE_EXT );
+            final Path graphTempPath = this.indexDirectory.resolve(this.name + GRAPH_FILE_EXT + TEMP_FILE_EXT);
+            final Path metaTempPath  = this.indexDirectory.resolve(this.name + META_FILE_EXT  + TEMP_FILE_EXT);
 
-            // Write the graph with appropriate features
-            // pqManager is only non-null when PQ compression is enabled
-            if(pqManager != null && pqManager.isTrained() && pqManager.getPQ() != null)
+            // Write both files to temp paths first, then atomically rename them into place. This way an
+            // interrupted write (e.g. shutdownNow() mid-persist) leaves at most a stale temp file — never
+            // a torn live graph or meta. The temp files are cleaned up in the finally block.
+            try
             {
-                this.writeIndexWithFusedPQ(index, ravv, pqManager.getPQ(), graphPath);
-            }
-            else
-            {
-                // Use simple write for non-compressed indices. Pass an identity ordinal map (not the
-                // default sequentialRenumbering) so on-disk node ids stay equal to the graph ordinals
-                // (= source entity ids) — see identityOrdinalMap.
-                OnDiskGraphIndex.write(index, ravv, identityOrdinalMap(index), graphPath);
-            }
+                // Write the graph with appropriate features
+                // pqManager is only non-null when PQ compression is enabled
+                if(pqManager != null && pqManager.isTrained() && pqManager.getPQ() != null)
+                {
+                    this.writeIndexWithFusedPQ(index, ravv, pqManager.getPQ(), graphTempPath);
+                }
+                else
+                {
+                    // Use simple write for non-compressed indices. Pass an identity ordinal map (not the
+                    // default sequentialRenumbering) so on-disk node ids stay equal to the graph ordinals
+                    // (= source entity ids) — see identityOrdinalMap.
+                    OnDiskGraphIndex.write(index, ravv, identityOrdinalMap(index), graphTempPath);
+                }
 
-            // Write metadata using the witnesses captured with the graph in Phase 1 (see MetaState):
-            // NOT re-read live here, since Phase 2 runs with the parentMap monitor released.
-            this.writeMetadata(metaPath, metaState);
+                // Write metadata using the witnesses captured with the graph in Phase 1 (see MetaState):
+                // NOT re-read live here, since Phase 2 runs with the parentMap monitor released.
+                this.writeMetadata(metaTempPath, metaState);
+
+                // Commit: rename the graph first, then the meta last. The meta is the validity stamp
+                // that verifyMetadata reads first on load, so it must only become visible once the graph
+                // it describes is fully in place. A crash between the two renames leaves the graph new and
+                // the meta stale, which verifyMetadata rejects and self-heals from the store.
+                this.atomicMove(graphTempPath, graphPath);
+                this.atomicMove(metaTempPath, metaPath);
+            }
+            finally
+            {
+                // Remove any temp file left behind by a failed or interrupted write. Swallow cleanup
+                // errors so they cannot mask an in-flight write/move exception (which carries the real
+                // root cause); a leftover temp file is harmless and overwritten on the next persist.
+                this.deleteTempQuietly(graphTempPath);
+                this.deleteTempQuietly(metaTempPath);
+            }
 
             LOG.info("Persisted index '{}' to disk with {} vectors", this.name, index.size(0));
+        }
+
+        /**
+         * Deletes a temp file if present, logging (never throwing) on failure. Used from the cleanup
+         * {@code finally} of {@link #writeIndex}, where a thrown cleanup error would mask the real
+         * write/move failure.
+         */
+        private void deleteTempQuietly(final Path tempPath)
+        {
+            try
+            {
+                Files.deleteIfExists(tempPath);
+            }
+            catch(final IOException e)
+            {
+                LOG.warn("Failed to delete temp file '{}' after persist: {}", tempPath, e.getMessage());
+            }
+        }
+
+        /**
+         * Moves {@code source} onto {@code target}, atomically where the file system supports it,
+         * replacing any existing target.
+         * <p>
+         * Falls back to a plain replace-existing move when the atomic move is rejected. This is not
+         * just {@link java.nio.file.AtomicMoveNotSupportedException}: Windows throws
+         * {@link java.nio.file.AccessDeniedException} when asked to atomically replace an existing
+         * target. The {@code source} is a fully-written
+         * temp file, so the only cost of the non-atomic fallback is a narrow crash window in which the
+         * live file is missing — which the load-time self-heal simply rebuilds from the store.
+         */
+        private void atomicMove(final Path source, final Path target) throws IOException
+        {
+            try
+            {
+                Files.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            }
+            catch(final IOException atomicFailure)
+            {
+                LOG.debug("Atomic move rejected for '{}' ({}), falling back to non-atomic replace",
+                    target, atomicFailure.getClass().getSimpleName());
+                try
+                {
+                    Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+                }
+                catch(final IOException nonAtomicFailure)
+                {
+                    nonAtomicFailure.addSuppressed(atomicFailure);
+                    throw nonAtomicFailure;
+                }
+            }
         }
 
         /**

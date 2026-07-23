@@ -396,6 +396,27 @@ public interface VectorIndexConfiguration
     public boolean persistOnShutdown();
 
     /**
+     * Returns the maximum time in milliseconds the final shutdown work may run on the background
+     * task executor before it is aborted so application shutdown can proceed.
+     * <p>
+     * On {@code close()}, the final shutdown work — draining pending indexing operations and, if
+     * enabled, optimizing and persisting — runs on the background executor and is awaited for this
+     * long. If it does not finish in time, the executor is interrupted and shutdown continues. The
+     * dominant cost is the persist; because {@link #onDisk()} indices write their graph atomically
+     * and self-heal from the store on the next load, an aborted persist never loses data or leaves a
+     * torn file — it simply degrades to a rebuild on the next boot.
+     * <p>
+     * In incremental on-disk mode the shutdown persist returns immediately (no full-graph
+     * consolidation is performed on shutdown), so in practice this timeout only bounds a genuinely
+     * slow first-time (non-incremental) persist or an unexpectedly slow drain/optimize.
+     *
+     * @return the shutdown work timeout in milliseconds (default: 30000)
+     * @see #persistOnShutdown()
+     * @see #optimizeOnShutdown()
+     */
+    public long shutdownPersistTimeoutMillis();
+
+    /**
      * Returns the minimum number of changes required before triggering persistence.
      * <p>
      * This provides debouncing to avoid excessive disk I/O for small batches of changes.
@@ -950,6 +971,16 @@ public interface VectorIndexConfiguration
         public Builder persistOnShutdown(boolean persistOnShutdown);
 
         /**
+         * Sets the maximum time the final shutdown work (drain, optimize, persist) may run before it
+         * is aborted so shutdown can proceed.
+         *
+         * @param shutdownPersistTimeoutMillis the timeout in milliseconds (must be positive)
+         * @return this builder for method chaining
+         * @see VectorIndexConfiguration#shutdownPersistTimeoutMillis()
+         */
+        public Builder shutdownPersistTimeoutMillis(long shutdownPersistTimeoutMillis);
+
+        /**
          * Sets the minimum number of changes required before triggering persistence.
          *
          * @param minChangesBetweenPersists the minimum changes threshold (must be non-negative)
@@ -1033,6 +1064,11 @@ public interface VectorIndexConfiguration
              */
             private static final int FUSED_PQ_REQUIRED_MAX_DEGREE = 32;
 
+            /**
+             * Default upper bound (30s) on how long a shutdown persist may run before it is aborted.
+             */
+            private static final long DEFAULT_SHUTDOWN_PERSIST_TIMEOUT_MILLIS = 30_000L;
+
             private int                      dimension                    ;
             private VectorSimilarityFunction similarityFunction           ;
             private int                      maxDegree                    ;
@@ -1046,6 +1082,7 @@ public interface VectorIndexConfiguration
             private int                      pqSubspaces                  ;
             private long                     persistenceIntervalMs        ;
             private boolean                  persistOnShutdown            ;
+            private long                     shutdownPersistTimeoutMillis ;
             private int                      minChangesBetweenPersists    ;
             private long                     optimizationIntervalMs       ;
             private int                      minChangesBetweenOptimizations;
@@ -1068,6 +1105,7 @@ public interface VectorIndexConfiguration
                 this.pqSubspaces                   = 0;
                 this.persistenceIntervalMs         = 0;  // 0 = disabled
                 this.persistOnShutdown             = true;
+                this.shutdownPersistTimeoutMillis  = DEFAULT_SHUTDOWN_PERSIST_TIMEOUT_MILLIS;
                 this.minChangesBetweenPersists     = 100;
                 this.optimizationIntervalMs        = 0;  // 0 = disabled
                 this.minChangesBetweenOptimizations = 1000;
@@ -1176,6 +1214,13 @@ public interface VectorIndexConfiguration
             }
 
             @Override
+            public Builder shutdownPersistTimeoutMillis(final long shutdownPersistTimeoutMillis)
+            {
+                this.shutdownPersistTimeoutMillis = positive(shutdownPersistTimeoutMillis);
+                return this;
+            }
+
+            @Override
             public Builder minChangesBetweenPersists(final int minChangesBetweenPersists)
             {
                 if(minChangesBetweenPersists < 0)
@@ -1274,6 +1319,7 @@ public interface VectorIndexConfiguration
                     this.pqSubspaces,
                     this.persistenceIntervalMs,
                     this.persistOnShutdown,
+                    this.shutdownPersistTimeoutMillis,
                     this.minChangesBetweenPersists,
                     this.optimizationIntervalMs,
                     this.minChangesBetweenOptimizations,
@@ -1306,6 +1352,7 @@ public interface VectorIndexConfiguration
         private final int                      pqSubspaces                   ;
         private final long                     persistenceIntervalMs         ;
         private final boolean                  persistOnShutdown             ;
+        private final long                     shutdownPersistTimeoutMillis  ;
         private final int                      minChangesBetweenPersists     ;
         private final long                     optimizationIntervalMs        ;
         private final int                      minChangesBetweenOptimizations;
@@ -1327,6 +1374,7 @@ public interface VectorIndexConfiguration
             final int                      pqSubspaces                    ,
             final long                     persistenceIntervalMs          ,
             final boolean                  persistOnShutdown              ,
+            final long                     shutdownPersistTimeoutMillis   ,
             final int                      minChangesBetweenPersists      ,
             final long                     optimizationIntervalMs         ,
             final int                      minChangesBetweenOptimizations ,
@@ -1348,6 +1396,7 @@ public interface VectorIndexConfiguration
             this.pqSubspaces                    = pqSubspaces                                              ;
             this.persistenceIntervalMs          = persistenceIntervalMs                                    ;
             this.persistOnShutdown              = persistOnShutdown                                        ;
+            this.shutdownPersistTimeoutMillis   = shutdownPersistTimeoutMillis                             ;
             this.minChangesBetweenPersists      = minChangesBetweenPersists                                ;
             this.optimizationIntervalMs         = optimizationIntervalMs                                   ;
             this.minChangesBetweenOptimizations = minChangesBetweenOptimizations                           ;
@@ -1432,6 +1481,17 @@ public interface VectorIndexConfiguration
         public boolean persistOnShutdown()
         {
             return this.persistOnShutdown;
+        }
+
+        @Override
+        public long shutdownPersistTimeoutMillis()
+        {
+            // Guard against a non-positive value loaded from a pre-existing store (Eclipse Store
+            // fills a field added by schema evolution with 0); fall back to the default so a legacy
+            // config never yields a zero/immediate shutdown-persist timeout.
+            return this.shutdownPersistTimeoutMillis > 0
+                ? this.shutdownPersistTimeoutMillis
+                : Builder.Default.DEFAULT_SHUTDOWN_PERSIST_TIMEOUT_MILLIS;
         }
 
         @Override
