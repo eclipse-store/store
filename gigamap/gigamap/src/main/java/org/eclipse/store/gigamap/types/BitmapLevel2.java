@@ -915,26 +915,56 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 		setSegmentCount          (newLevel2Address, getSegmentCount(level2Address));           // unchanged, just copied.
 		setStandaloneSegmentCount(newLevel2Address, getStandaloneSegmentCount(level2Address)); // unchanged, just copied.
 				
-		for(int i = 0; i < level2IndexBound; i++)
+		try
 		{
-			final long oldLevel1Address;
-			if((oldLevel1Address = getLevel1SegmentAddress(level2Address, i)) < 0L)
+			for(int i = 0; i < level2IndexBound; i++)
 			{
-				// method do standalone segment count updating and pointer registering internally themselves.
-				if(oldLevel1Address == -1L)
+				final long oldLevel1Address;
+				if((oldLevel1Address = getLevel1SegmentAddress(level2Address, i)) < 0L)
 				{
-					allocateLevel1StandaloneSegmentFull(newLevel2Address, i);
+					// method do standalone segment count updating and pointer registering internally themselves.
+					if(oldLevel1Address == -1L)
+					{
+						allocateLevel1StandaloneSegmentFull(newLevel2Address, i);
+					}
+					else
+					{
+						decompressLevel1Segment(newLevel2Address, entryAddressUnmark(oldLevel1Address), i);
+					}
 				}
 				else
 				{
-					decompressLevel1Segment(newLevel2Address, entryAddressUnmark(oldLevel1Address), i);
+					// either null pointer or already decompressed/standalone level1 segment, keep as is.
+					setLevel1SegmentAddress(newLevel2Address, i, oldLevel1Address);
 				}
 			}
-			else
+		}
+		catch(final Throwable t)
+		{
+			// Exception safety for a mid-build allocation failure (e.g. OutOfMemoryError from the fresh level1
+			// allocations above). Free ONLY the freshly-allocated standalone segments plus the new block husk,
+			// then rethrow, leaving the old block fully intact so the live index stays consistent.
+			//
+			// A segment was freshly allocated at index i iff old[i] < 0 (a compressed or all-1-bits entry we
+			// expanded into a new standalone block) AND new[i] > 0 (the allocation succeeded and its pointer was
+			// registered on the new block). Indices with old[i] > 0 were copied BY POINTER and are still SHARED
+			// with the old block (the ownership-transfer second pass below has not run yet), so they must NOT be
+			// freed here: doing so would re-introduce the use-after-free / double-free that #765 fixed. Reading
+			// not-yet-built slots is safe because allocateNew zeroes the whole index array, so they read 0L. The
+			// new block itself is freed with a plain XMemory.free, NOT deallocate() (which would free the shared
+			// pointers too).
+			for(int i = 0; i < level2IndexBound; i++)
 			{
-				// either null pointer or already decompressed/standalone level1 segment, keep as is.
-				setLevel1SegmentAddress(newLevel2Address, i, oldLevel1Address);
+				final long newLevel1Address;
+				if(getLevel1SegmentAddress(level2Address, i) < 0L
+				&& (newLevel1Address = getLevel1SegmentAddress(newLevel2Address, i)) > 0L)
+				{
+					XMemory.free(newLevel1Address);
+				}
 			}
+			XMemory.free(newLevel2Address);
+
+			throw t;
 		}
 
 		// totalLength and level3Index have already been set by allocation method above
@@ -944,8 +974,8 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 		// value, so the caller's deallocate(level2Address) must NOT free them (that would be a
 		// use-after-free plus, on a later release, a double free via the new block). Clear them from the
 		// old block here. This runs only after the build loop has completed successfully: if an
-		// allocation above throws mid-build, the old block is left fully intact (only the partially
-		// built new block leaks), preserving the exception safety of the original transform.
+		// allocation above throws mid-build, the catch block above frees the partially built new block
+		// and the old block is left fully intact, preserving the exception safety of the transform.
 		for(int i = 0; i < level2IndexBound; i++)
 		{
 			if(getLevel1SegmentAddress(level2Address, i) > 0L)
