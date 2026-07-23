@@ -115,13 +115,10 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 		@Override
 		public void trimPendingCopyItemsBeyond(final StorageLiveChannelFile<?> file, final long newLength)
 		{
-			// A start-only check (>= newLength) suffices: copy items are enqueued at exact write
-			// boundaries (sourcePosition == the file length before that write), and every truncation
-			// that reaches here cuts at a write boundary (a store rollback to the committed length, or
-			// the transactions-log compaction's rewrite truncating to 0). So an
-			// item either lies fully below newLength or starts at/after it; none can straddle newLength.
-			// NOTE: this removes QUEUED items only - an item the backup thread already dequeued is
-			// handled by the obsolescence check in processNextItem when its read fails.
+			// A start-only check (>= newLength) suffices: copy items start at write boundaries and
+			// every truncation reaching here cuts at a write boundary, so an item lies fully below
+			// newLength or starts at/after it - none straddles it. Removes QUEUED items only; an
+			// already-dequeued in-flight copy is absorbed by processNextItem when its read fails.
 			this.removeMatching(item ->
 				item.sourceFile == file
 				&& item instanceof CopyItem
@@ -245,13 +242,10 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 					throw e;
 				}
 				/*
-				 * The item was in flight while the channel truncated (or deleted) its source at or
-				 * below the copied range - the pre-truncation trim only surgeries QUEUED items, an
-				 * already dequeued one is invisible to it. The failed copy contributes nothing to
-				 * the backup's final state: the truncating item still queued behind it discards the
-				 * range anyway and the subsequent items re-append the rewritten content, so
-				 * skipping is a semantic no-op. Failing loudly here would disrupt the whole storage
-				 * over a self-reconciling state.
+				 * An in-flight copy the trim could not reach failed because its source was truncated
+				 * (or deleted) at/below the copied range. The truncating item queued behind it
+				 * discards that range and later items re-append the rewritten content, so skipping is
+				 * a no-op; failing loudly would disrupt the whole storage over a self-reconciling state.
 				 */
 				final CopyItem copyItem = (CopyItem)itemToBeProcessed; // guarded: predicate is copy-item-only
 				logger.debug(
@@ -271,13 +265,11 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 		}
 
 		/**
-		 * Whether the passed (just failed, formerly in-flight) item's copied range is discarded by
-		 * a truncation - or the whole file by a deletion - still queued behind it. Queue order
-		 * makes this exact: the superseding item was enqueued after the passed item was dequeued
-		 * (the pre-truncation trim removes all queued copy items for the range first), and the
-		 * single processing thread cannot have processed it yet. Ranges never straddle a
-		 * truncation boundary (copy items are enqueued at write boundaries and truncations cut at
-		 * write boundaries), so the position comparison suffices.
+		 * Whether a truncation discarding the passed copy item's range - or a deletion of its whole
+		 * file - is still queued behind it. {@link StorageFileWriterBackupping} enqueues the
+		 * superseding item before the physical truncate/delete that fails the copy, so a failed
+		 * in-flight copy always finds it here. Ranges never straddle a truncation boundary, so
+		 * comparing the start position suffices.
 		 */
 		private boolean isSupersededByPendingItem(final Item item)
 		{
