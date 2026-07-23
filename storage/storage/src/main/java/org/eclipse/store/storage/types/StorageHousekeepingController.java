@@ -77,10 +77,17 @@ public interface StorageHousekeepingController
 	 * actually deleted. A value of {@code 1} deletes an unmarked entity on the first sweep (the classic
 	 * behavior); higher values keep unreachable entities for that many sweeps as a probabilistic safety
 	 * net against rare, transient GC concurrency races, at the cost of reclaiming garbage slightly later.
+	 * <p>
+	 * Declared as a {@code default} method returning {@link Defaults#defaultGarbageCollectionSweepThreshold()}
+	 * so that pre-existing custom {@link StorageHousekeepingController} implementations keep compiling and
+	 * running unchanged (adding an abstract method would be a source- and binary-incompatible change).
 	 *
 	 * @return the number of consecutive unmarked sweeps before an entity is collected, in range {@code [1, 127]}.
 	 */
-	public int garbageCollectionSweepThreshold();
+	public default int garbageCollectionSweepThreshold()
+	{
+		return Defaults.defaultGarbageCollectionSweepThreshold();
+	}
 
 
 
