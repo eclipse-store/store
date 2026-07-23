@@ -260,6 +260,18 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 	public EmbeddedStorageConfigurationBuilder setHousekeepingMaximumTimeBudget(Duration housekeepingMaximumTimeBudget);
 
 	/**
+	 * The number of consecutive garbage-collection sweeps an entity must remain unmarked before it is
+	 * actually deleted. A value of <code>1</code> deletes an unmarked entity on the first sweep (the
+	 * classic behavior); higher values keep unreachable entities for that many sweeps as a probabilistic
+	 * safety net against rare, transient garbage-collection concurrency races, at the cost of reclaiming
+	 * garbage slightly later. Valid range is <code>[1, 127]</code>, default is <code>3</code>.
+	 *
+	 * @param garbageCollectionSweepThreshold the new sweep threshold
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setGarbageCollectionSweepThreshold(int garbageCollectionSweepThreshold);
+
+	/**
 	 * Abstract threshold value for the lifetime of entities in the cache. See
 	 * {@link StorageEntityCacheEvaluator#New(long, long)}. Default is <code>1.000.000.000</code>.
 	 *
@@ -731,6 +743,14 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 		)
 		{
 			return this.set(HOUSEKEEPING_MAXIMUM_TIME_BUDGET, housekeepingMaximumTimeBudget.toString());
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setGarbageCollectionSweepThreshold(
+			final int garbageCollectionSweepThreshold
+		)
+		{
+			return this.set(GC_SWEEP_THRESHOLD, Integer.toString(garbageCollectionSweepThreshold));
 		}
 
 		@Override

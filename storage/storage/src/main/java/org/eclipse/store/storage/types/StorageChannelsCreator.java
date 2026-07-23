@@ -102,6 +102,7 @@ public interface StorageChannelsCreator
 			final long markingWaitTimeMs        =    10;
 			final int  loadingBufferSize        =  XMemory.defaultBufferSize();
 			final int  readingDefaultBufferSize =  XMemory.defaultBufferSize();
+			final int  gcSweepThreshold         =  housekeepingController.garbageCollectionSweepThreshold();
 
 			final StorageChannel.Default[] channels = new StorageChannel.Default[channelCount];
 
@@ -138,7 +139,8 @@ public interface StorageChannelsCreator
 					eventLogger                                      ,
 					liveObjectIdsHandler                             ,
 					markingWaitTimeMs                                ,
-					markBufferLength
+					markBufferLength                                 ,
+					gcSweepThreshold
 				);
 				
 				cacheMonitors[i] = new EntityCacheMonitor(entityCache);

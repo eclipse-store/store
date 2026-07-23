@@ -289,7 +289,9 @@ public interface EmbeddedStorageFoundationCreatorConfigurationBased extends Embe
 					.orElse(StorageHousekeepingController.Defaults.defaultHousekeepingIntervalMs()),
 				this.configuration.opt(HOUSEKEEPING_TIME_BUDGET, Duration.class)
 					.map(Duration::toNanos)
-					.orElse(StorageHousekeepingController.Defaults.defaultHousekeepingTimeBudgetNs())
+					.orElse(StorageHousekeepingController.Defaults.defaultHousekeepingTimeBudgetNs()),
+				this.configuration.optInteger(GC_SWEEP_THRESHOLD)
+					.orElse(StorageHousekeepingController.Defaults.defaultGarbageCollectionSweepThreshold())
 			);
 			
 			if(this.configuration.optBoolean(HOUSEKEEPING_ADAPTIVE).orElse(false))

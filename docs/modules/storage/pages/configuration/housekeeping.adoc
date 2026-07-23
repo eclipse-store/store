@@ -28,6 +28,9 @@ Available properties are:
 
 |housekeeping-maximum-time-budget
 |The upper limit of the housekeeping time budgets. Default is 0.5 seconds.
+
+|gc-sweep-threshold
+|Number of consecutive garbage-collection sweeps an entity must remain unmarked before it is deleted. A safety net against rare, transient GC concurrency races; higher values keep unreachable entities slightly longer. Valid range is 1 to 127, default is 3.
 |===
 
 == Enabling Adaptive Housekeeping for Write-Intensive Data Applications

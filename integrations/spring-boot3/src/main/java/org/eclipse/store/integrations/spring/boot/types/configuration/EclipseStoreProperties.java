@@ -144,6 +144,13 @@ public class EclipseStoreProperties
     private String housekeepingMaximumTimeBudget;
 
     /**
+     * Number of consecutive garbage-collection sweeps an entity must remain unmarked before it is
+     * deleted (a safety net against rare, transient GC concurrency races). Valid range is 1 to 127,
+     * default is 3.
+     */
+    private String gcSweepThreshold;
+
+    /**
      * The maximum size of a transaction file. If the file is larger than this value, it will be split into multiple files.
      * Default is 1 GiB.
      */
@@ -446,6 +453,16 @@ public class EclipseStoreProperties
     public void setHousekeepingMaximumTimeBudget(final String housekeepingMaximumTimeBudget)
     {
         this.housekeepingMaximumTimeBudget = housekeepingMaximumTimeBudget;
+    }
+
+    public String getGcSweepThreshold()
+    {
+        return this.gcSweepThreshold;
+    }
+
+    public void setGcSweepThreshold(final String gcSweepThreshold)
+    {
+        this.gcSweepThreshold = gcSweepThreshold;
     }
 
     public String getTransactionFileMaximumSize()

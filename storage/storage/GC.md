@@ -63,15 +63,19 @@ When all mark queues drain and `isMarkingComplete()` is true, `callToSweepRequir
 ```java
 // StorageEntityCache.Default#sweep, the keep-alive check:
 if (item.isGcMarked() || isReachableInApplication.test(item.objectId)) {
-    (last = item).markWhite();           // keep (reset to white for the next cycle)
+    (last = item).markWhite();                              // keep (resets the unmarked-sweep countdown)
+} else if (item.ageUnmarkedAndIsCondemned(sweepThreshold)) {
+    this.deleteEntity(item, sweepType, last);               // condemned: unmarked N sweeps in a row → delete
 } else {
-    this.deleteEntity(item, sweepType, last);   // delete
+    last = item;                                            // still unmarked but not yet condemned: keep
 }
 ```
 
 Two things can rescue an entity:
 1. It was gc-marked in the preceding mark phase — reachable from the persistent root (or a mark seed).
 2. The predicate `isReachableInApplication` returned true — the **registry safety net**.
+
+A third mechanism *defers* (but never prevents) deletion — the **unmarked-sweep countdown** (see §6.1).
 
 When the last channel finishes its sweep, `StorageEntityMarkMonitor.Default.completeSweep` seeds the next mark cycle with two complementary sets of roots: `determineAndEnqueueRootOid` enqueues the persistent root, and `enqueueLiveApplicationOids` enqueues every object id the application currently holds (see §9).
 
@@ -233,6 +237,16 @@ The mark monitor tracks two completion flags:
 Only cold completion shuts the GC off until the next store. Stores (via `resetCompletion`) reset both flags, kicking the GC back into work.
 
 The reason for two phases: the first sweep after a store cleans up the now-unreachable predecessors; the second sweep confirms the steady state. This two-pass pattern interacts with the registry safety net — which is why application-state OIDs are seeded at **every** sweep boundary that has a follow-up mark cycle (i.e. every sweep boundary except the cold-completing one — see §10.1).
+
+### 6.1. The unmarked-sweep countdown (safety net for transient races)
+
+The individual mark/sweep concurrency hazards are closed by the exact fixes in §10 and the registry safety net in §7–§8. On top of those, the sweep applies a **probabilistic** safety net for any *transient* mis-marking that might still slip through (a race that leaves a reachable entity unmarked for a single cycle): an unreachable entity is not deleted the first sweep it is found unmarked, but only after it has stayed unmarked for `gcSweepThreshold` **consecutive** sweeps. Any successful marking (or a keep-alive `markWhite`) resets the countdown.
+
+- **Configuration.** `StorageHousekeepingController.garbageCollectionSweepThreshold()`, config key `gc-sweep-threshold`, valid range `[1, 127]`, **default `3`**. A value of `1` restores the classic "delete on the first unmarked sweep" behavior.
+- **Storage.** The countdown reuses the otherwise unused negative range of `StorageEntity.Default.gcState`: `markWhite` sets it to `GC_WHITE` (`-1`) and each subsequent unmarked sweep decrements it (`-2`, `-3`, … down to `-gcSweepThreshold`), where the entity is condemned (`ageUnmarkedAndIsCondemned`). **No extra per-entity memory** — important with millions/billions of entities.
+- **Why it works.** Each full mark cycle re-seeds from the roots (§3.5) and re-marks every reachable entity, so a transient race hits a given entity in one cycle only; the probability it recurs on the *same* entity for `gcSweepThreshold` consecutive, independent cycles drops exponentially. It does **not** defend against a *deterministic* mis-marking bug (the countdown would never reset) — it is a last net, not a correctness substitute.
+- **Cost.** Genuine garbage lingers `gcSweepThreshold` sweeps longer, both on disk and in the entity cache / `oidHashTable`, before it is reclaimed.
+- **Full GC bypasses the countdown.** An explicitly issued full GC (`issuedGarbageCollection`) is a deliberate, complete reclaim: it deletes unmarked entities on the first sweep (effective threshold `1`), exactly as before the countdown existed, so a single call still reclaims all genuine garbage. It sets a per-channel `issuedGcImmediateSweep` flag (on its own thread, read only by its own sweep) for the duration of the call. The countdown therefore applies only to the **incremental background GC** — the path actually exposed to concurrent application activity and the transient races the countdown guards against. (A countdown-*honoring* full GC would have to run several complete mark+sweep cycles back-to-back; doing so per channel breaks the multi-channel completion lockstep — one channel resetting completion for the next cycle while a sibling is still finishing the current one deadlocks — so it is deliberately not attempted.)
 
 ---
 

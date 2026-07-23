@@ -238,6 +238,15 @@ public enum ConfigurationCoreProperties
 	),
 
 	/**
+	 * Number of consecutive garbage-collection sweeps an entity must remain unmarked before it is
+	 * deleted (a safety net against rare, transient GC concurrency races). Range 1 to 127, default 3.
+	 */
+	GC_SWEEP_THRESHOLD(
+			Constants.PREFIX + "gc.sweep.threshold",
+			EmbeddedStorageConfigurationPropertyNames.GC_SWEEP_THRESHOLD
+	),
+
+	/**
 	 * Primary chunk-checksum algorithm: none, crc32c or sha256-chained. Default sha256-chained.
 	 */
 	CHUNK_CHECKSUM_ALGORITHM(

@@ -94,6 +94,10 @@ They can be found as constants in `EmbeddedStorageConfigurationPropertyNames`.
 |The upper limit of the housekeeping time budgets. Default is 0.5 seconds.
 |xref:#type-duration[Duration]
 
+|gc-sweep-threshold
+|Number of consecutive garbage-collection sweeps an entity must remain unmarked before it is deleted (a safety net against rare, transient GC concurrency races). Valid range is 1 to 127, default is 3.
+|xref:#type-integer[Integer]
+
 |entity-cache-threshold
 |Abstract threshold value for the lifetime of entities in the cache. Default is `1000000000`.
 |xref:#type-long[Long]
