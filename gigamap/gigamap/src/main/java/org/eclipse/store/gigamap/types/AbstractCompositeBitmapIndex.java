@@ -237,9 +237,16 @@ implements BitmapIndex.TopLevel<E, KS>
 	{
 		try
 		{
-			for(final Sub<E, KS, K> subIndex : this.subIndices)
+			for(int i = 0; i < this.subIndices.length; i++)
 			{
-				subIndex.internalRemove(entityId, keys);
+				if(this.isEmpty(keys, i))
+				{
+					// Symmetric with internalAddToEntry: no bit was ever set for an absent/null
+					// key at this position, so there is nothing to remove. Also guards against
+					// keys arrays shorter than the widest one ever indexed (keys.length <= i).
+					continue;
+				}
+				this.subIndices[i].internalRemove(entityId, keys);
 			}
 			// note: sub indices are never removed, even if they become empty.
 		}
