@@ -82,8 +82,8 @@ class BackgroundTaskManagerShutdownTest
     void shutdownIsBoundedWhenPersistOverrunsTimeout() throws InterruptedException
     {
         // Comfortably longer than executor thread start-up so finalShutdownWork reliably begins before
-        // the deadline (avoids CI/JIT-jitter flakiness), yet far shorter than the 60s persist sleep so
-        // the overrun-and-abort path is still what the test exercises.
+        // the deadline, yet far shorter than the 60s persist sleep so the overrun-and-abort path is
+        // still what the test exercises.
         final long shutdownPersistTimeoutMillis = 2_000L;
 
         final SlowPersistCallback callback = new SlowPersistCallback();
@@ -103,19 +103,27 @@ class BackgroundTaskManagerShutdownTest
         // Register a pending change so the shutdown persist actually runs.
         manager.markDirty(5);
 
+        // Run shutdown() on a separate thread so the test can observe the persist starting while
+        // shutdown is in progress, rather than relying on timing after shutdown() has returned.
         final long startNanos = System.nanoTime();
-        manager.shutdown(false, false, true); // persistPending = true
-        final long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
+        final Thread shutdownThread = new Thread(
+            () -> manager.shutdown(false, false, true), // persistPending = true
+            "shutdown-under-test"
+        );
+        shutdownThread.start();
 
-        // The persist must have been invoked and then aborted by the shutdown, not run to completion.
-        assertTrue(callback.persistStarted.await(1, TimeUnit.SECONDS),
+        // The persist must actually begin before we assert anything about the abort behaviour.
+        assertTrue(callback.persistStarted.await(10, TimeUnit.SECONDS),
             "Shutdown persist should have been invoked");
-        assertTrue(callback.persistInterrupted.get(),
-            "The overrunning persist should have been interrupted by shutdown");
 
         // Shutdown must return well within the timeout + grace window, nowhere near the 60s sleep.
-        assertTrue(elapsedMillis < 15_000,
-            "shutdown() must be bounded, took " + elapsedMillis + " ms");
+        shutdownThread.join(15_000);
+        final long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
+
+        assertFalse(shutdownThread.isAlive(),
+            "shutdown() must be bounded, still running after " + elapsedMillis + " ms");
+        assertTrue(callback.persistInterrupted.get(),
+            "The overrunning persist should have been interrupted by shutdown");
     }
 
     @Test

@@ -395,12 +395,31 @@ interface DiskIndexManager extends Closeable
             }
             finally
             {
-                // Remove any temp file left behind by a failed or interrupted write.
-                Files.deleteIfExists(graphTempPath);
-                Files.deleteIfExists(metaTempPath);
+                // Remove any temp file left behind by a failed or interrupted write. Swallow cleanup
+                // errors so they cannot mask an in-flight write/move exception (which carries the real
+                // root cause); a leftover temp file is harmless and overwritten on the next persist.
+                this.deleteTempQuietly(graphTempPath);
+                this.deleteTempQuietly(metaTempPath);
             }
 
             LOG.info("Persisted index '{}' to disk with {} vectors", this.name, index.size(0));
+        }
+
+        /**
+         * Deletes a temp file if present, logging (never throwing) on failure. Used from the cleanup
+         * {@code finally} of {@link #writeIndex}, where a thrown cleanup error would mask the real
+         * write/move failure.
+         */
+        private void deleteTempQuietly(final Path tempPath)
+        {
+            try
+            {
+                Files.deleteIfExists(tempPath);
+            }
+            catch(final IOException e)
+            {
+                LOG.warn("Failed to delete temp file '{}' after persist: {}", tempPath, e.getMessage());
+            }
         }
 
         /**

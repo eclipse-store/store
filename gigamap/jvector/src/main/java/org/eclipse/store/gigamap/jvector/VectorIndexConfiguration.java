@@ -396,21 +396,23 @@ public interface VectorIndexConfiguration
     public boolean persistOnShutdown();
 
     /**
-     * Returns the maximum time in milliseconds the shutdown persist may run on the background
+     * Returns the maximum time in milliseconds the final shutdown work may run on the background
      * task executor before it is aborted so application shutdown can proceed.
      * <p>
-     * On {@code close()}, any pending persist runs on the background executor and is awaited for
-     * this long. If it does not finish in time, the executor is interrupted and shutdown continues.
-     * Because {@link #onDisk()} indices write their graph atomically and self-heal from the store
-     * on the next load, an aborted persist never loses data or leaves a torn file — it simply
-     * degrades to a rebuild on the next boot.
+     * On {@code close()}, the final shutdown work — draining pending indexing operations and, if
+     * enabled, optimizing and persisting — runs on the background executor and is awaited for this
+     * long. If it does not finish in time, the executor is interrupted and shutdown continues. The
+     * dominant cost is the persist; because {@link #onDisk()} indices write their graph atomically
+     * and self-heal from the store on the next load, an aborted persist never loses data or leaves a
+     * torn file — it simply degrades to a rebuild on the next boot.
      * <p>
      * In incremental on-disk mode the shutdown persist returns immediately (no full-graph
-     * consolidation is performed on shutdown), so this timeout only bounds a genuinely slow
-     * first-time (non-incremental) persist.
+     * consolidation is performed on shutdown), so in practice this timeout only bounds a genuinely
+     * slow first-time (non-incremental) persist or an unexpectedly slow drain/optimize.
      *
-     * @return the shutdown persist timeout in milliseconds (default: 30000)
+     * @return the shutdown work timeout in milliseconds (default: 30000)
      * @see #persistOnShutdown()
+     * @see #optimizeOnShutdown()
      */
     public long shutdownPersistTimeoutMillis();
 
@@ -969,8 +971,8 @@ public interface VectorIndexConfiguration
         public Builder persistOnShutdown(boolean persistOnShutdown);
 
         /**
-         * Sets the maximum time the shutdown persist may run before it is aborted so shutdown
-         * can proceed.
+         * Sets the maximum time the final shutdown work (drain, optimize, persist) may run before it
+         * is aborted so shutdown can proceed.
          *
          * @param shutdownPersistTimeoutMillis the timeout in milliseconds (must be positive)
          * @return this builder for method chaining
