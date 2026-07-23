@@ -26,6 +26,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -3127,7 +3128,8 @@ class VectorIndexDiskTest
         final float[] needleVector = new float[dimension];
         needleVector[0] = 1.0f;
 
-        byte[] graphBytesAfterPersist = null;
+        byte[]   graphBytesAfterPersist = null;
+        FileTime graphMTimeAfterPersist = null;
 
         // Phase 1: create, persist once (enters incremental mode), apply incremental changes, then
         // close with persistOnShutdown(true). The graph must not be rewritten by the shutdown.
@@ -3158,6 +3160,7 @@ class VectorIndexDiskTest
                 storage.storeRoot();
                 assertTrue(Files.exists(graphPath), "Graph file should exist after the first persist");
                 graphBytesAfterPersist = Files.readAllBytes(graphPath);
+                graphMTimeAfterPersist = Files.getLastModifiedTime(graphPath);
 
                 // Apply incremental changes (in-memory builder + tombstones) — deliberately NOT persisted.
                 addRandomDocuments(gigaMap, random, dimension, 50, "added_");
@@ -3168,7 +3171,11 @@ class VectorIndexDiskTest
                 index.close();
             }
 
-            // The graph file must be byte-identical: the shutdown did NOT rebuild + rewrite it.
+            // The graph file must be untouched by the shutdown: not rewritten (last-modified time
+            // unchanged — catches a deterministic rebuild that happens to produce identical bytes) and
+            // byte-identical (catches a rewrite that a coarse mtime granularity might miss).
+            assertEquals(graphMTimeAfterPersist, Files.getLastModifiedTime(graphPath),
+                "Shutdown must not rewrite the graph while in incremental mode (last-modified time changed)");
             assertArrayEquals(graphBytesAfterPersist, Files.readAllBytes(graphPath),
                 "Shutdown must not rewrite the graph while in incremental mode (no full-graph rebuild)");
             // And it must not leave any temp file behind.
