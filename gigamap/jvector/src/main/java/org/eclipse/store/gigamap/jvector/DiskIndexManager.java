@@ -31,7 +31,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
-import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -409,8 +408,9 @@ interface DiskIndexManager extends Closeable
          * replacing any existing target.
          * <p>
          * Falls back to a plain replace-existing move when the atomic move is rejected. This is not
-         * just {@link java.nio.file.AtomicMoveNotSupportedException}: Windows throws {@link AccessDeniedException}
-         * when asked to atomically replace an existing target. The {@code source} is a fully-written
+         * just {@link java.nio.file.AtomicMoveNotSupportedException}: Windows throws
+         * {@link java.nio.file.AccessDeniedException} when asked to atomically replace an existing
+         * target. The {@code source} is a fully-written
          * temp file, so the only cost of the non-atomic fallback is a narrow crash window in which the
          * live file is missing — which the load-time self-heal simply rebuilds from the store.
          */

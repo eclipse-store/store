@@ -81,7 +81,10 @@ class BackgroundTaskManagerShutdownTest
     @Timeout(value = 30, unit = TimeUnit.SECONDS)
     void shutdownIsBoundedWhenPersistOverrunsTimeout() throws InterruptedException
     {
-        final long shutdownPersistTimeoutMillis = 300L;
+        // Comfortably longer than executor thread start-up so finalShutdownWork reliably begins before
+        // the deadline (avoids CI/JIT-jitter flakiness), yet far shorter than the 60s persist sleep so
+        // the overrun-and-abort path is still what the test exercises.
+        final long shutdownPersistTimeoutMillis = 2_000L;
 
         final SlowPersistCallback callback = new SlowPersistCallback();
         final BackgroundTaskManager manager = new BackgroundTaskManager(

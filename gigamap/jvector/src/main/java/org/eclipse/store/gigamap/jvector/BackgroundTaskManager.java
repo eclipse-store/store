@@ -441,13 +441,15 @@ class BackgroundTaskManager
             }
             catch(final TimeoutException e)
             {
-                // The work is still running and has exceeded its budget. Because on-disk writes are
-                // atomic and the index self-heals from the store on next load, aborting it now is
-                // safe (no torn file, no data loss). Interrupt promptly rather than waiting a second
-                // full grace window, so shutdown is not pinned by work that is being discarded.
+                // The shutdown work (drain / optimize / persist) is still running and has exceeded its
+                // budget. Aborting it now is safe: an on-disk index writes its graph atomically and
+                // self-heals from the store on next load, so no torn file or data loss results.
+                // Interrupt promptly rather than waiting a second full grace window, so shutdown is not
+                // pinned by work that is being discarded.
                 timedOut = true;
-                LOG.warn("Shutdown work timed out for '{}' after {} ms; aborting so shutdown can proceed "
-                    + "(on-disk index self-heals from store on next load)", this.name, this.shutdownPersistTimeoutMillis);
+                LOG.warn("Shutdown work timed out for '{}' after {} ms; interrupting it so shutdown can "
+                    + "proceed (a pending on-disk persist, if any, self-heals from the store on next load)",
+                    this.name, this.shutdownPersistTimeoutMillis);
             }
         }
 
