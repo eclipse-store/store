@@ -17,6 +17,7 @@ package org.eclipse.store.gigamap.indexer;
 
 
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.HashingCompositeIndexer;
 import org.eclipse.store.gigamap.types.IndexerInstant;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -204,5 +206,58 @@ public class CompositeIndexNullHandlingTest
 		// Verify queries after update
 		assertEquals(0, map.query(indexer.is((Instant) null)).count());
 		assertEquals(1, map.query(indexer.is((Instant) null).or(indexer.is(Instant.parse("2025-06-15T10:30:00Z")))).count());
+	}
+
+	/**
+	 * Entity whose composite key is a variable-length tag array.
+	 */
+	record Item(String name, List<String> tags)
+	{
+	}
+
+	/** Composite index with one sub-index position per tag, so the key-array length varies per entity. */
+	static final class TagsIndexer extends HashingCompositeIndexer.Abstract<Item>
+	{
+		@Override
+		public String name()
+		{
+			return "tags";
+		}
+
+		@Override
+		public Object[] index(final Item entity, final Object[] carrier)
+		{
+			return entity.tags().toArray();
+		}
+	}
+
+	/**
+	 * Removing an entity whose composite key array is shorter than the widest one ever indexed must
+	 * not throw. Before the fix, {@code internalRemoveForKeys} iterated all sub-indices unconditionally
+	 * and read {@code keys[position]} out of bounds for the trailing positions (Index 1 out of bounds
+	 * for length 1). The remove path now skips empty positions via {@code isEmpty(keys, i)}, symmetric
+	 * with the add and query paths.
+	 */
+	@Test
+	void variableLengthCompositeKeyRemoveShouldWork()
+	{
+		final GigaMap<Item> map = GigaMap.New();
+		final TagsIndexer   indexer = new TagsIndexer();
+		map.index().bitmap().add(indexer);
+
+		// First entity has TWO tags -> the composite index grows to two sub-indices (positions 0, 1).
+		map.add(new Item("A", List.of("red", "big")));
+
+		// Second entity has ONE tag -> position 1 is skipped on add via isEmpty().
+		final long bId = map.add(new Item("B", List.of("red")));
+		assertEquals(2, map.size());
+
+		// Before fix: ArrayIndexOutOfBoundsException (Index 1 out of bounds for length 1).
+		assertDoesNotThrow(() -> map.removeById(bId));
+
+		assertEquals(1, map.size());
+
+		// The single-tag entity is gone, the two-tag entity is still intact.
+		assertEquals(1, map.query(indexer.is(new Object[]{"red", "big"})).count());
 	}
 }
