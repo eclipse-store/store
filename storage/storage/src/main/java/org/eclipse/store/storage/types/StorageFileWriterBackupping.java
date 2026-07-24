@@ -259,14 +259,15 @@ public interface StorageFileWriterBackupping extends StorageFileWriter
 			final StorageFileProvider       fileProvider
 		)
 		{
-			// trim queued copy items for the bytes about to be removed BEFORE the physical truncate:
-			// processed afterwards they would copy a source range that no longer exists, throw, and
-			// escalate to a storage-wide disruption over an already-handled rollback.
+			// Both queue mutations must run BEFORE the physical truncate: the trim drops queued copy
+			// items for the removed range, and the truncating item must already be queued when an
+			// in-flight copy (invisible to the trim) fails on the shortened source, so its absorption
+			// check finds it. Enqueuing afterwards leaves a race that escalates a handled rollback.
 			this.itemEnqueuer.trimPendingCopyItemsBeyond(file, newLength);
+			this.itemEnqueuer.enqueueTruncatingItem(file, newLength);
 
 			// no user increment since only the identifier is required and the actual file can well be deleted.
 			this.delegate.truncate(file, newLength, fileProvider);
-			this.itemEnqueuer.enqueueTruncatingItem(file, newLength);
 		}
 		
 		@Override
@@ -276,14 +277,15 @@ public interface StorageFileWriterBackupping extends StorageFileWriter
 			final StorageFileProvider    fileProvider
 		)
 		{
-			// cancel any still-queued item for this file BEFORE it physically disappears: a stale
-			// copy/truncate item processed afterwards would try to act on a source that no longer
-			// exists, throw, and register a storage-wide disruption over an intended deletion.
+			// Both queue mutations must run BEFORE the physical delete: cancel drops still-queued
+			// items for the file, and the deletion item must already be queued when an in-flight
+			// copy fails on the vanished source, so its absorption check finds it. Enqueuing
+			// afterwards leaves a race that escalates an intended deletion.
 			this.itemEnqueuer.cancelPendingItemsFor(file);
+			this.itemEnqueuer.enqueueDeletionItem(file);
 
 			// no user increment since only the identifier is required and the actual file can well be deleted.
 			this.delegate.delete(file, writeController, fileProvider);
-			this.itemEnqueuer.enqueueDeletionItem(file);
 		}
 		
 	}

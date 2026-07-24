@@ -14,6 +14,10 @@ package org.eclipse.store.storage.types;
  * #L%
  */
 
+import org.eclipse.serializer.util.logging.Logging;
+import org.eclipse.store.storage.exceptions.StorageExceptionBackupCopying;
+import org.slf4j.Logger;
+
 public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, StorageFileUser
 {
 	public boolean processNextItem(StorageBackupHandler handler, long timeoutMs) throws InterruptedException;
@@ -27,10 +31,12 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 	
 	public final class Default implements StorageBackupItemQueue
 	{
+		private final static Logger logger = Logging.getLogger(StorageBackupItemQueue.class);
+
 		///////////////////////////////////////////////////////////////////////////
 		// instance fields //
 		////////////////////
-		
+
 		private final Item head = new Item(null);
 		private       Item tail = this.head;
 		
@@ -109,10 +115,10 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 		@Override
 		public void trimPendingCopyItemsBeyond(final StorageLiveChannelFile<?> file, final long newLength)
 		{
-			// A start-only check (>= newLength) suffices: copy items are enqueued at exact write
-			// boundaries (sourcePosition == the file length before that write), and the only truncation
-			// that reaches here is a rollback to the committed length - itself a write boundary. So an
-			// item either lies fully below newLength or starts at/after it; none can straddle newLength.
+			// A start-only check (>= newLength) suffices: copy items start at write boundaries and
+			// every truncation reaching here cuts at a write boundary, so an item lies fully below
+			// newLength or starts at/after it - none straddles it. Removes QUEUED items only; an
+			// already-dequeued in-flight copy is absorbed by processNextItem when its read fails.
 			this.removeMatching(item ->
 				item.sourceFile == file
 				&& item instanceof CopyItem
@@ -229,6 +235,27 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 			{
 				itemToBeProcessed.processBy(handler);
 			}
+			catch(final StorageExceptionBackupCopying e)
+			{
+				if(!this.isSupersededByPendingItem(itemToBeProcessed))
+				{
+					throw e;
+				}
+				/*
+				 * An in-flight copy the trim could not reach failed because its source was truncated
+				 * (or deleted) at/below the copied range. The truncating item queued behind it
+				 * discards that range and later items re-append the rewritten content, so skipping is
+				 * a no-op; failing loudly would disrupt the whole storage over a self-reconciling state.
+				 */
+				final CopyItem copyItem = (CopyItem)itemToBeProcessed; // guarded: predicate is copy-item-only
+				logger.debug(
+					"Skipped an in-flight backup copy ({} @{}+{}) superseded by a truncation or deletion enqueued behind it",
+					copyItem.sourceFile.identifier(),
+					copyItem.sourcePosition,
+					copyItem.length,
+					e
+				);
+			}
 			finally
 			{
 				// the backup thread can be the last active part of an already shutdown storage, so it has to clean up.
@@ -236,6 +263,39 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 			}
 
 			return true;
+		}
+
+		/**
+		 * Whether a truncation discarding the passed copy item's range - or a deletion of its whole
+		 * file - is still queued behind it. {@link StorageFileWriterBackupping} enqueues the
+		 * superseding item before the physical truncate/delete that fails the copy, so a failed
+		 * in-flight copy always finds it here. Ranges never straddle a truncation boundary, so
+		 * comparing the start position suffices.
+		 */
+		private boolean isSupersededByPendingItem(final Item item)
+		{
+			if(!(item instanceof CopyItem))
+			{
+				return false;
+			}
+			final long sourcePosition = ((CopyItem)item).sourcePosition;
+			synchronized(this.head)
+			{
+				for(Item i = this.head.next; i != null; i = i.next)
+				{
+					if(i.sourceFile != item.sourceFile)
+					{
+						continue;
+					}
+					if((i instanceof TruncationItem && ((TruncationItem)i).length <= sourcePosition)
+						|| i instanceof DeletionItem
+					)
+					{
+						return true;
+					}
+				}
+			}
+			return false;
 		}
 		
 		static class Item
