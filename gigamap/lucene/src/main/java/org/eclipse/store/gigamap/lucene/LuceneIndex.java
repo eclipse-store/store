@@ -26,6 +26,7 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.*;
+import org.apache.lucene.util.IOUtils;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.serializer.math.XMath;
@@ -831,31 +832,48 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
          * searcher once per document, which dominated ingest cost. Write paths therefore only mark the
          * reader stale (see {@link Default#readerStale}); the reopen is deferred to the next search.
          * <p>
+         * A failed initialization leaves no state behind: the fields are published only once the writer
+         * exists, so the next call retries instead of operating on a half-initialized index.
+         * <p>
          * Must be called while holding the {@code this.gigaMap} monitor.
          */
         private void ensureWriter() throws IOException
         {
-            if(this.directory != null)
+            if(this.writer != null)
             {
                 return;
             }
 
-            this.directory = this.createDirectory();
-            final IndexWriterConfig writerConfig = new IndexWriterConfig(
-                this.analyzer = this.context.analyzerCreator().createAnalyzer()
-            );
-            if(this.usesGraphDirectory())
+            final Directory directory = this.createDirectory();
+            final Analyzer  analyzer  = this.context.analyzerCreator().createAnalyzer();
+            final IndexWriter indexWriter;
+            try
             {
-                // GraphDirectory stores index data in the persistent fileEntries map.
-                // ConcurrentMergeScheduler would modify that map from background threads,
-                // racing with GigaMap#store serialization. SerialMergeScheduler ensures
-                // merges run on the caller's thread, which holds the GigaMap lock.
-                writerConfig.setMergeScheduler(new SerialMergeScheduler());
+                final IndexWriterConfig writerConfig = new IndexWriterConfig(analyzer);
+                if(this.usesGraphDirectory())
+                {
+                    // GraphDirectory stores index data in the persistent fileEntries map.
+                    // ConcurrentMergeScheduler would modify that map from background threads,
+                    // racing with GigaMap#store serialization. SerialMergeScheduler ensures
+                    // merges run on the caller's thread, which holds the GigaMap lock.
+                    writerConfig.setMergeScheduler(new SerialMergeScheduler());
+                }
+                indexWriter = new IndexWriter(
+                    directory,
+                    writerConfig
+                );
             }
-            this.writer = new IndexWriter(
-                this.directory,
-                writerConfig
-            );
+            catch(final Throwable t)
+            {
+                // e.g. the writer lock is held elsewhere: discard what was created so far instead of
+                // leaking it, and let the caller decide whether to retry.
+                IOUtils.closeWhileHandlingException(analyzer, directory);
+                throw t;
+            }
+
+            this.directory = directory;
+            this.analyzer  = analyzer;
+            this.writer    = indexWriter;
         }
 
         /**
