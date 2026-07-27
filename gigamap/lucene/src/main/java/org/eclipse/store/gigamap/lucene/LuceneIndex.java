@@ -26,6 +26,7 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.*;
+import org.apache.lucene.util.IOUtils;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.serializer.math.XMath;
@@ -293,12 +294,31 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		 */
 		ConcurrentHashMap<String, FileEntry> fileEntries;
 
-		private transient Analyzer        analyzer;
-		private transient Directory       directory;
-		private transient IndexWriter     writer;
-		private transient DirectoryReader reader;
-		private transient IndexSearcher   searcher;
-		
+		private transient Analyzer      analyzer;
+		private transient Directory     directory;
+		private transient IndexWriter   writer;
+		private transient IndexSearcher searcher;
+
+		/**
+		 * The near-real-time reader, opened from {@link #writer} and (re)opened exclusively by
+		 * {@link #refreshReaderIfNeeded()}.
+		 * <p>
+		 * Package-private rather than private so that {@code LuceneWritePathReaderTest} can assert that the
+		 * write path never (re)opens it, matching the visibility already used for {@link #gigaMap},
+		 * {@link #context} and {@link #fileEntries}.
+		 */
+		transient DirectoryReader reader;
+
+		/**
+		 * {@code true} when {@link #writer} mutations happened that {@link #reader} does not reflect yet.
+		 * Write operations only set this flag instead of reopening the near-real-time reader; the reopen is
+		 * deferred to the next search (see {@link #refreshReaderIfNeeded()}).
+		 * <p>
+		 * Deliberately not {@code volatile}: like all other transient Lucene state of this class it is
+		 * exclusively read and written inside {@code synchronized(this.gigaMap)}.
+		 */
+		private transient boolean readerStale;
+
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
 		/////////////////
@@ -341,9 +361,10 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
-					this.lazyInit();
+					this.ensureWriter();
 
 					this.writer.addDocument(this.toDocument(entityId, entity));
+					this.readerStale = true;
                     this.optCommit();
 				}
 			}
@@ -360,8 +381,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
-					this.lazyInit();
-				
+					this.ensureWriter();
+
 					final List<Document> documents       = new ArrayList<>();
 					long                 currentEntityId = firstEntityId;
 					
@@ -371,6 +392,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 					}
 					
 					this.writer.addDocuments(documents);
+					this.readerStale = true;
                     this.optCommit();
 				}
 			}
@@ -393,9 +415,10 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
-					this.lazyInit();
-				
+					this.ensureWriter();
+
 					this.writer.deleteDocuments(queryFor(entityId));
+					this.readerStale = true;
                     this.optCommit();
 				}
 			}
@@ -412,9 +435,10 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
-					this.lazyInit();
-				
+					this.ensureWriter();
+
 					this.writer.deleteAll();
+					this.readerStale = true;
                     this.optCommit();
 				}
 			}
@@ -446,17 +470,18 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			// Documents are added incrementally (no per-entity commit, no buffering of the whole corpus)
 			// and committed once at the end via optCommit, which honors the manual-commit contract: with
 			// context.autoCommit() == false the back-fill performs no commit, leaving durability to the
-			// user's explicit commit() (the near-real-time reader still makes the documents queryable in
-			// the meantime, just like internalAdd).
+			// user's explicit commit() (the near-real-time reader makes the documents queryable at the
+			// next search, just like internalAdd).
 			try
 			{
 				synchronized(this.gigaMap)
 				{
-					this.lazyInit();
+					this.ensureWriter();
 
 					if(clearFirst)
 					{
 						this.writer.deleteAll();
+						this.readerStale = true;
 					}
 
 					this.gigaMap.iterateIndexed(this::backfillDocument);
@@ -481,6 +506,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			try
 			{
 				this.writer.addDocument(this.toDocument(entityId, entity));
+				this.readerStale = true;
 			}
 			catch(final IOException e)
 			{
@@ -520,9 +546,10 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
-					this.lazyInit();
+					this.ensureWriter();
 
 					this.writer.updateDocuments(queryFor(entityId), List.of(this.toDocument(entityId, entity)));
+					this.readerStale = true;
                     this.optCommit();
 				}
 			}
@@ -554,8 +581,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
-					this.lazyInit();
-					
+					this.refreshReaderIfNeeded();
+
 					final StandardQueryParser queryParser = new StandardQueryParser(this.analyzer);
 					queryParser.setAllowLeadingWildcard(true);
 					final Query query = queryParser.parse(queryText, ENTITY_ID_FIELD);
@@ -591,8 +618,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
-					this.lazyInit();
-				
+					this.refreshReaderIfNeeded();
+
 					this.syncInternalQuery(query, maxResults, searchResultAcceptor);
 				}
 			}
@@ -654,7 +681,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
-					this.lazyInit();
+					this.refreshReaderIfNeeded();
 					return this.syncInternalSearch(query, maxResults);
 				}
 			}
@@ -676,7 +703,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
-					this.lazyInit();
+					this.refreshReaderIfNeeded();
 
 					final StandardQueryParser queryParser = new StandardQueryParser(this.analyzer);
 					queryParser.setAllowLeadingWildcard(true);
@@ -784,11 +811,12 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 					}
 				}
 				
-				this.analyzer  = null;
-				this.directory = null;
-				this.writer    = null;
-				this.reader    = null;
-				this.searcher  = null;
+				this.analyzer    = null;
+				this.directory   = null;
+				this.writer      = null;
+				this.reader      = null;
+				this.searcher    = null;
+				this.readerStale = false;
 			}
 		}
 
@@ -797,14 +825,31 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			return XMath.cap_int(this.gigaMap.size());
         }
 
-        private void lazyInit() throws IOException
+        /**
+         * Ensures the write side is initialized: {@link Default#directory}, {@link Default#analyzer} and
+         * {@link Default#writer}. Deliberately does <b>not</b> touch {@link Default#reader} or
+         * {@link Default#searcher}: reopening the near-real-time reader per mutation rebuilt reader and
+         * searcher once per document, which dominated ingest cost. Write paths therefore only mark the
+         * reader stale (see {@link Default#readerStale}); the reopen is deferred to the next search.
+         * <p>
+         * A failed initialization leaves no state behind: the fields are published only once the writer
+         * exists, so the next call retries instead of operating on a half-initialized index.
+         * <p>
+         * Must be called while holding the {@code this.gigaMap} monitor.
+         */
+        private void ensureWriter() throws IOException
         {
-            if(this.directory == null)
+            if(this.writer != null)
             {
-                this.directory = this.createDirectory();
-                final IndexWriterConfig writerConfig = new IndexWriterConfig(
-                    this.analyzer = this.context.analyzerCreator().createAnalyzer()
-                );
+                return;
+            }
+
+            final Directory directory = this.createDirectory();
+            final Analyzer  analyzer  = this.context.analyzerCreator().createAnalyzer();
+            final IndexWriter indexWriter;
+            try
+            {
+                final IndexWriterConfig writerConfig = new IndexWriterConfig(analyzer);
                 if(this.usesGraphDirectory())
                 {
                     // GraphDirectory stores index data in the persistent fileEntries map.
@@ -813,13 +858,55 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
                     // merges run on the caller's thread, which holds the GigaMap lock.
                     writerConfig.setMergeScheduler(new SerialMergeScheduler());
                 }
-                this.searcher              = new IndexSearcher(
-                    this.reader            = DirectoryReader.open(
-                        this.writer        = new IndexWriter(
-                            this.directory,
-                            writerConfig
-                        )
-                    )
+                indexWriter = new IndexWriter(
+                    directory,
+                    writerConfig
+                );
+            }
+            catch(final Throwable t)
+            {
+                // e.g. the writer lock is held elsewhere: discard what was created so far instead of
+                // leaking it, and let the caller decide whether to retry.
+                IOUtils.closeWhileHandlingException(analyzer, directory);
+                throw t;
+            }
+
+            this.directory = directory;
+            this.analyzer  = analyzer;
+            this.writer    = indexWriter;
+        }
+
+        /**
+         * Ensures {@link Default#searcher} reflects all writer mutations performed so far, opening the
+         * near-real-time reader on first use and reopening it only when a mutation marked it stale. This is
+         * the read-path counterpart of {@link Default#ensureWriter()} and the only place where the reader is
+         * (re)opened.
+         * <p>
+         * Read-your-writes is preserved: a reader opened from the writer includes buffered, uncommitted
+         * changes, and {@link DirectoryReader#openIfChanged(DirectoryReader)} on such a writer-derived reader
+         * performs the same near-real-time reopen the write path used to do eagerly. Only the timing moves
+         * from per-write to next-read.
+         * <p>
+         * Must be called while holding the {@code this.gigaMap} monitor.
+         */
+        private void refreshReaderIfNeeded() throws IOException
+        {
+            // a read can be the very first operation on this index, so the writer may not exist yet.
+            // This also initializes the analyzer, which the query-string read paths use.
+            this.ensureWriter();
+
+            if(this.reader != null && !this.readerStale)
+            {
+                // no mutation since the last refresh, so the current searcher is up to date.
+                return;
+            }
+
+            if(this.reader == null)
+            {
+                // first read after initialization or after close(): a reader opened from the writer already
+                // reflects everything written so far, so no additional reopen is needed.
+                this.searcher = new IndexSearcher(
+                    this.reader = DirectoryReader.open(this.writer)
                 );
             }
             else
@@ -827,12 +914,20 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
                 final DirectoryReader newReader = DirectoryReader.openIfChanged(this.reader);
                 if(newReader != null && newReader != this.reader)
                 {
-                    this.reader.close();
+                    final DirectoryReader supersededReader = this.reader;
                     this.searcher = new IndexSearcher(
                         this.reader = newReader
                     );
+
+                    // closed only after the new reader is published: a failing close must not leak the
+                    // reader that was just opened, and it leaves the index on the up-to-date one.
+                    supersededReader.close();
                 }
             }
+
+            // cleared only after a successful (re)open, so an IOException leaves the index stale and the
+            // next search retries.
+            this.readerStale = false;
         }
 
 		private boolean usesGraphDirectory()

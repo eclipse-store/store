@@ -15,9 +15,16 @@ package org.eclipse.store.gigamap.lucene;
  */
 
 import org.apache.lucene.document.Document;
+import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.MMapDirectory;
+import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -81,7 +88,7 @@ public class LuceneLifecycleTest
 	void closeAndReopenGraphDirectoryRetainsData()
 	{
 		// null directoryCreator → GraphDirectory stores index data in fileEntries inside GigaMap.
-		// After close(), the fileEntries map is still in memory; lazyInit re-uses it.
+		// After close(), the fileEntries map is still in memory; ensureWriter re-uses it.
 		final LuceneContext<Article> ctx = LuceneContext.New(new ArticlePopulator());
 
 		final GigaMap<Article> map = GigaMap.New();
@@ -239,6 +246,38 @@ public class LuceneLifecycleTest
 			final List<Article> finalHits = idx.query("title:concurrent", WRITE_THREADS * ADDS_PER_THREAD);
 			assertEquals(WRITE_THREADS * ADDS_PER_THREAD, finalHits.size(),
 				"All added entities must be findable after concurrent writes complete");
+		}
+	}
+
+
+	// ── failed initialization ─────────────────────────────────────────────────
+
+	@Test
+	void failedWriterInitializationIsRetried(@TempDir final Path lucenePath) throws Exception
+	{
+		final GigaMap<Article> map = GigaMap.New();
+		try(final LuceneIndex.Default<Article> idx = new LuceneIndex.Default<>(
+			map,
+			LuceneContext.New(DirectoryCreator.MMap(lucenePath), new ArticlePopulator())
+		))
+		{
+			// an external writer holds the directory's write lock, so the index cannot create its own writer
+			try(final Directory blockedDirectory = new MMapDirectory(lucenePath);
+			    final IndexWriter lockHolder     = new IndexWriter(blockedDirectory, new IndexWriterConfig()))
+			{
+				assertThrows(IORuntimeException.class,
+					() -> idx.internalAdd(1L, new Article("blocked", "content")),
+					"Acquiring the writer lock must fail while it is held elsewhere");
+			}
+
+			// the failed attempt must not have left a half-initialized index behind
+			assertDoesNotThrow(
+				() -> idx.internalAdd(1L, new Article("retried", "content")),
+				"A failed writer initialization must be retried on the next operation");
+			// an explicit limit is required here: the default limit is the GigaMap size, and this index was
+			// written directly, without adding the entities to the map
+			assertEquals(1, idx.search("title:retried", 10).size(),
+				"The document written after the retry must be findable");
 		}
 	}
 }
