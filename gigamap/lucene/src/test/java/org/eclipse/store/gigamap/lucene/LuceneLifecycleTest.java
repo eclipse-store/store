@@ -81,7 +81,7 @@ public class LuceneLifecycleTest
 	void closeAndReopenGraphDirectoryRetainsData()
 	{
 		// null directoryCreator → GraphDirectory stores index data in fileEntries inside GigaMap.
-		// After close(), the fileEntries map is still in memory; lazyInit re-uses it.
+		// After close(), the fileEntries map is still in memory; ensureWriter re-uses it.
 		final LuceneContext<Article> ctx = LuceneContext.New(new ArticlePopulator());
 
 		final GigaMap<Article> map = GigaMap.New();
