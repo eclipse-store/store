@@ -914,10 +914,14 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
                 final DirectoryReader newReader = DirectoryReader.openIfChanged(this.reader);
                 if(newReader != null && newReader != this.reader)
                 {
-                    this.reader.close();
+                    final DirectoryReader supersededReader = this.reader;
                     this.searcher = new IndexSearcher(
                         this.reader = newReader
                     );
+
+                    // closed only after the new reader is published: a failing close must not leak the
+                    // reader that was just opened, and it leaves the index on the up-to-date one.
+                    supersededReader.close();
                 }
             }
 
