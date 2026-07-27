@@ -255,30 +255,29 @@ public class LuceneLifecycleTest
 	@Test
 	void failedWriterInitializationIsRetried(@TempDir final Path lucenePath) throws Exception
 	{
-		final GigaMap<Article>        map = GigaMap.New();
-		final LuceneIndex.Default<Article> idx = new LuceneIndex.Default<>(
+		final GigaMap<Article> map = GigaMap.New();
+		try(final LuceneIndex.Default<Article> idx = new LuceneIndex.Default<>(
 			map,
 			LuceneContext.New(DirectoryCreator.MMap(lucenePath), new ArticlePopulator())
-		);
-
-		// an external writer holds the directory's write lock, so the index cannot create its own writer
-		try(final Directory blockedDirectory = new MMapDirectory(lucenePath);
-		    final IndexWriter lockHolder     = new IndexWriter(blockedDirectory, new IndexWriterConfig()))
+		))
 		{
-			assertThrows(IORuntimeException.class,
-				() -> idx.internalAdd(1L, new Article("blocked", "content")),
-				"Acquiring the writer lock must fail while it is held elsewhere");
+			// an external writer holds the directory's write lock, so the index cannot create its own writer
+			try(final Directory blockedDirectory = new MMapDirectory(lucenePath);
+			    final IndexWriter lockHolder     = new IndexWriter(blockedDirectory, new IndexWriterConfig()))
+			{
+				assertThrows(IORuntimeException.class,
+					() -> idx.internalAdd(1L, new Article("blocked", "content")),
+					"Acquiring the writer lock must fail while it is held elsewhere");
+			}
+
+			// the failed attempt must not have left a half-initialized index behind
+			assertDoesNotThrow(
+				() -> idx.internalAdd(1L, new Article("retried", "content")),
+				"A failed writer initialization must be retried on the next operation");
+			// an explicit limit is required here: the default limit is the GigaMap size, and this index was
+			// written directly, without adding the entities to the map
+			assertEquals(1, idx.search("title:retried", 10).size(),
+				"The document written after the retry must be findable");
 		}
-
-		// the failed attempt must not have left a half-initialized index behind
-		assertDoesNotThrow(
-			() -> idx.internalAdd(1L, new Article("retried", "content")),
-			"A failed writer initialization must be retried on the next operation");
-		// an explicit limit is required here: the default limit is the GigaMap size, and this index was
-		// written directly, without adding the entities to the map
-		assertEquals(1, idx.search("title:retried", 10).size(),
-			"The document written after the retry must be findable");
-
-		idx.close();
 	}
 }
