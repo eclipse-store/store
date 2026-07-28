@@ -250,7 +250,19 @@ public interface StorageChannelTask extends StorageTask
 			{
 				while(this.remainingForProcessing > 0)
 				{
-					this.problems.wait();
+					// A channel stopped by a disruption never decrements remainingForProcessing, so an
+					// untimed wait() would hang this sibling - and any later synchronizing task, shutdown
+					// included - forever. Wake periodically and abort on a disruption instead. Only
+					// disruptions are checked, not task-level problems (those always resolve, as
+					// finishProcessing() runs in a finally), so the normal completion dispatch is unchanged.
+					if(this.controller.hasDisruptions())
+					{
+						throw new StorageException(
+							"Aborting wait on processing after: ",
+							this.controller.disruptions().first()
+						);
+					}
+					this.problems.wait(100);
 				}
 			}
 		}
