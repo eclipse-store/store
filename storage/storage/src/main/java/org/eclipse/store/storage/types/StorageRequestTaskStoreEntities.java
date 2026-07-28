@@ -149,11 +149,14 @@ public interface StorageRequestTaskStoreEntities extends StorageRequestTask
 			// Eager rollover durability: if any channel rolled a file over, every channel fsyncs here in
 			// its own succeed, so the just-sealed store is durable everywhere before the store returns.
 			// The processing barrier has passed, so rolledOver reflects all channels. Ordered BEFORE the
-			// commit: a channel then never commits entities its own fsync failed to make durable, and
-			// the failing channel leaves nothing committed (its uncommitted write heals as an
-			// unconfirmed tail on the next start). Channels completing later roll back via fail();
-			// a channel that already committed did so only after its own successful fsync, and the
-			// restart's consensus reconciliation restores all-or-nothing across channels.
+			// commit so a channel never commits after its own fsync FAILED; a later-completing sibling
+			// rolls back via fail(), and the restart's consensus reconciliation restores all-or-nothing.
+			// A false return means the storage went read-only mid-task (stores are rejected up front
+			// otherwise), where no fsync is possible: a benign skip, not a fault - the commit proceeds
+			// (as any non-synchronized store does) and the baseline's durability is backstopped by the
+			// flush the rollover requested (createNextStorageFile), which fires once the storage is
+			// writable again. Only an fsync EXCEPTION (a medium fault) escalates and stops the channel
+			// (see catch); escalating a read-only skip would brick the channel on a benign toggle.
 			if(this.rolledOver.anyTrue())
 			{
 				try
