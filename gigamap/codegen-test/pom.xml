@@ -19,8 +19,6 @@
     <url>https://projects.eclipse.org/projects/technology.store</url>
 
     <properties>
-        <!-- not published -->
-        <maven.deploy.skip>true</maven.deploy.skip>
         <gpg.skip>true</gpg.skip>
     </properties>
 
@@ -94,6 +92,14 @@
                         </configuration>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <extensions>true</extensions>
+                <configuration>
+                    <skipPublishing>true</skipPublishing>
+                </configuration>
             </plugin>
         </plugins>
     </build>
