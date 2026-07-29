@@ -168,7 +168,7 @@ public interface StorageLockFileManager extends Runnable
 		public StorageLockFileManager.Default start()
 		{
 			logger.info("Starting log file manager thread ");
-			this.executor.scheduleWithFixedDelay(this, 0, this.setup.updateInterval(), TimeUnit.MICROSECONDS);
+			this.executor.scheduleWithFixedDelay(this, 0, this.setup.updateInterval(), TimeUnit.MILLISECONDS);
 			return this;
 		}
 
@@ -183,7 +183,10 @@ public interface StorageLockFileManager extends Runnable
 				}
 				else
 				{
-					logger.error("Lock File Manager is not ready!");
+					// controller deactivated (teardown) without a disruption: nothing to recover, so stop
+					// instead of ticking (and logging) forever on a leaked non-daemon thread.
+					logger.info("Lock file manager no longer ready, stopping.");
+					this.stop();
 				}
 			}
 			catch(final Exception e)
@@ -197,8 +200,9 @@ public interface StorageLockFileManager extends Runnable
 		@Override
 		public StorageLockFileManager stop()
 		{
-			if(this.executor.isShutdown()) return this;
-			
+			// No early return on an already-shutdown executor: initialize()'s refusal path shuts it down
+			// before throwing, so the lock file must still be closed here. awaitTermination joins any
+			// still-running task before the finally closes the file, avoiding a close-vs-read race.
 			this.executor.shutdown();
 			try
 			{

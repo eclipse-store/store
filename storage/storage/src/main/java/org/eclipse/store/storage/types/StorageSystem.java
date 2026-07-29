@@ -730,14 +730,13 @@ public interface StorageSystem extends StorageController
 				}
 				catch(final InterruptedException e)
 				{
-					this.operationController.deactivate();
-					this.monitorManager.shutdown();
-					throw new StorageExceptionInitialization(e);
+					final StorageExceptionInitialization ex = new StorageExceptionInitialization(e);
+					this.cleanupFailedStartup(ex);
+					throw ex;
 				}
 				catch(final Throwable t)
 				{
-					this.operationController.deactivate();
-					this.monitorManager.shutdown();
+					this.cleanupFailedStartup(t);
 					throw t;
 				}
 				finally
@@ -749,6 +748,34 @@ public interface StorageSystem extends StorageController
 			return this;
 		}
 		
+		/**
+		 * Best-effort teardown after a failed startup. A failure in any step is attached as suppressed
+		 * to the primary startup exception instead of replacing it, and each step is still attempted.
+		 */
+		private void cleanupFailedStartup(final Throwable primary)
+		{
+			this.operationController.deactivate();
+
+			try
+			{
+				// lock-file executor does not self-terminate on deactivation; stop it or its non-daemon thread leaks.
+				this.stopLockFileManagerThread();
+			}
+			catch(final Throwable cleanupError)
+			{
+				primary.addSuppressed(cleanupError);
+			}
+
+			try
+			{
+				this.monitorManager.shutdown();
+			}
+			catch(final Throwable cleanupError)
+			{
+				primary.addSuppressed(cleanupError);
+			}
+		}
+
 		@Override
 		public final StorageIdAnalysis initializationIdAnalysis()
 		{
@@ -849,14 +876,14 @@ public interface StorageSystem extends StorageController
 		{
 			/*
 			 * Immediately deactivates all activities without waiting for currently existing work items to be
-			 * completed.
-			 * 
-			 * Deactivates all threads (Channel threads, lock file thread, backup thread).
-			 * All terminating threads cleanup their resources (e.g. opened files).
-			 * So this is all that must be necessary
+			 * completed. Channel threads self-terminate on the deactivated controller; the lock-file executor
+			 * and backup handler do not, so they are stopped explicitly.
 			 */
 			this.operationController.deactivate();
-			
+
+			// lock-file executor does not self-terminate on deactivation; stop it or its non-daemon thread leaks.
+			this.stopLockFileManagerThread();
+
 			// backup handler must be treated specially since it is normally intended to finish its items on its own.
 			if(this.backupHandler != null)
 			{
