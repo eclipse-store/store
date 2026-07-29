@@ -281,8 +281,38 @@ public interface StorageConnection extends UsageMarkable, Persister
 	 * only the head file keeps its latest store timestamps. FileDeletion entries are kept if the
 	 * storage data file still exists on the file system; otherwise, all entries of the deleted
 	 * file are removed.
+	 * <p>
+	 * Compaction collapses the store history a rollback might still need, so it waits for the
+	 * latest store to become durable on every channel. Under sustained store traffic the cleanup
+	 * may therefore be deferred and completed asynchronously at the next durability barrier rather
+	 * than within this call; the log is still compacted regardless of its size.
 	 */
 	public void issueTransactionsLogCleanup();
+
+	/**
+	 * Issues an all-channel storage flush and waits for completion: when this returns {@code true},
+	 * every store that returned before this call is physically written to the storage medium (data
+	 * files first, then transactions logs, on every channel).
+	 * <p>
+	 * Stores are not synchronized individually by default - a power loss can roll the storage back
+	 * to an older consistent state. This is the explicit durability point, e.g. before acknowledging
+	 * an external commit, taking a backup or stopping a machine; called periodically it bounds the
+	 * power-loss rollback window to the invocation interval.
+	 * <p>
+	 * This is a PURE durability point: the call returns once every channel synchronized its
+	 * files, and it carries none of the deferred durability-covered maintenance (head-file
+	 * rollover, log compaction, file cleanup) - that work rides exclusively on the internal
+	 * barriers the housekeeping durability gates request. The watermark this flush raises lets
+	 * such deferred work proceed once its durability gates next evaluate: with no further store
+	 * traffic that is the next housekeeping cycle, running inline; under sustained traffic the
+	 * gates are re-spoiled each cycle and the work runs at the next gate-requested barrier's
+	 * maintenance slot instead.
+	 *
+	 * @return {@code true} if every channel synchronized its files; {@code false} if the flush was
+	 *         skipped (e.g. read-only mode) or the calling thread was interrupted - the durability
+	 *         guarantee then does NOT hold.
+	 */
+	public boolean issueStorageFlush();
 
 	/**
 	 * Export storage graph adjacecy data to the specified directory.
@@ -652,6 +682,23 @@ public interface StorageConnection extends UsageMarkable, Persister
 			typeDictionaryExporter.exportTypeDictionary(this.persistenceManager().typeDictionary());
 		}
 		
+		@Override
+		public boolean issueStorageFlush()
+		{
+			try
+			{
+				return this.connectionRequestAcceptor.issueStorageFlush();
+			}
+			catch(final InterruptedException e)
+			{
+				// thread interrupted, task aborted: the durability guarantee does not hold. Restore
+				// the interrupt flag so the caller can distinguish this from a read-only skip (both
+				// return false) and terminate a commit-acknowledgement retry loop instead of spinning.
+				Thread.currentThread().interrupt();
+				return false;
+			}
+		}
+
 		@Override
 		public void issueTransactionsLogCleanup()
 		{

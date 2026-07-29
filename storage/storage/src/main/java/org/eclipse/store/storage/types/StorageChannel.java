@@ -40,6 +40,8 @@ import org.eclipse.serializer.util.BufferSizeProviderIncremental;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.storage.exceptions.StorageExceptionConsistencyDanglingReference;
+import org.eclipse.store.storage.exceptions.StorageExceptionDisruptingExceptions;
+import org.eclipse.store.storage.exceptions.StorageExceptionNotRunning;
 import org.eclipse.store.storage.exceptions.StorageExceptionTransactionsFileCompaction;
 import org.eclipse.store.storage.monitoring.StorageChannelHousekeepingMonitor;
 import org.eclipse.store.storage.types.StorageAdjacencyDataExporter.AdjacencyFiles;
@@ -280,6 +282,50 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 	 *         required.
 	 */
 	public boolean issuedTransactionsLogCleanup();
+
+	/**
+	 * Synchronizes this channel's storage files (head data file, then transactions log) to the
+	 * storage medium. Processing part of the all-channel durability barrier, see
+	 * {@link StorageRequestTaskStorageFlush}.
+	 *
+	 * @return {@code true} if the files were synchronized; {@code false} if skipped because the
+	 *         storage is not writable, in which case the all-durable watermark must not advance.
+	 */
+	public boolean flushStorage();
+
+	/**
+	 * Reads and clears whether this channel rolled a file over during the current task. If it did,
+	 * the task's completion barrier makes every channel durable (eager rollover durability), so the
+	 * store the new file's creation entry collapses the recovery baseline onto is durable everywhere
+	 * before the task returns.
+	 *
+	 * @return whether this channel rolled a file over since the last poll.
+	 */
+	public boolean pollRolloverOccurred();
+
+	/**
+	 * Called on this channel after an all-channel storage flush completed successfully: every
+	 * store below the passed task timestamp is then fully durable on every channel. Pure state
+	 * commit (watermark raise); the deferred maintenance the raised watermark enables runs
+	 * separately via {@link #executeDurabilityCoveredMaintenance()}.
+	 *
+	 * @param allDurableTimestamp the completed flush task's timestamp.
+	 */
+	public void commitStorageFlush(long allDurableTimestamp);
+
+	/**
+	 * Executes the durability-gated maintenance this channel may have deferred (head-file
+	 * rollover, log compaction, the file-cleanup pass at the configured file-check budget).
+	 * <p>
+	 * Processing part of {@link StorageRequestTaskDurabilityMaintenance}, which the broker
+	 * enqueues directly behind every gate-requested storage-flush barrier: queue adjacency guarantees no store
+	 * task runs between the barrier's watermark raise ({@link #commitStorageFlush(long)}) and
+	 * this maintenance, so the durability gates pass for its whole duration. Under sustained
+	 * store traffic this is the ONLY reclamation slot (a store per cycle re-defers the periodic
+	 * housekeeping's dissolution forever). Self-guarded: without the raised watermark (barrier
+	 * failed or skipped) every gate simply re-defers and re-arms its request.
+	 */
+	public void executeDurabilityCoveredMaintenance();
 
 	/**
 	 * Exports this channel's live data into the directory layout described by the passed
@@ -603,8 +649,8 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			
 			// turn budget into the budget bounding value for easier and faster checking
 			final long nanoTimeBudgetBound = XTime.calculateNanoTimeBudgetBound(nanoTimeBudget);
-			
-			return this.fileManager.issuedFileCleanupCheck(nanoTimeBudgetBound);
+
+			return this.afterStorageFlushPoll(this.fileManager.issuedFileCleanupCheck(nanoTimeBudgetBound));
 		}
 		
 		@Override
@@ -745,7 +791,7 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		{
 			try
 			{
-				return this.housekeepingBroker.performTransactionFileCheck(this, false);
+				return this.afterStorageFlushPoll(this.housekeepingBroker.performTransactionFileCheck(this, false));
 			}
 			catch(final StorageExceptionTransactionsFileCompaction e)
 			{
@@ -754,12 +800,59 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 				 * on the next initialization; any further append would be discarded by that heal.
 				 * Unlike ordinary task problems, this failure must therefore stop the channel.
 				 */
-				this.operationController.registerDisruption(e);
-				this.operationController.setChannelProcessingEnabled(false);
-				throw e;
+				throw this.escalateChannelStoppingFailure(e);
 			}
 		}
 		
+		@Override
+		public final boolean flushStorage()
+		{
+			return this.fileManager.flushStorage();
+		}
+
+		@Override
+		public final boolean pollRolloverOccurred()
+		{
+			return this.fileManager.pollRolloverOccurred();
+		}
+
+		@Override
+		public final void commitStorageFlush(final long allDurableTimestamp)
+		{
+			this.fileManager.commitStorageFlush(allDurableTimestamp);
+		}
+
+		@Override
+		public final void executeDurabilityCoveredMaintenance()
+		{
+			/*
+			 * Runs as the maintenance task enqueued directly behind the flush barrier (see the
+			 * interface contract): the barrier's issuer already continued at fsync latency, but no
+			 * store can slip in before this pass, so the durability gates pass for its whole
+			 * duration. Running here instead of on the next housekeeping cycle removes the race
+			 * with the next store under sustained traffic - under which this pass is the ONLY
+			 * reclamation slot, so it gets the full file-check budget a periodic housekeeping pass
+			 * would get (a token slice would starve the dissolution and let garbage accumulate at
+			 * the write rate).
+			 */
+			try
+			{
+				// deferred rollover + log compaction + the file-cleanup pass at the configured
+				// file-check budget. Deliberately NOT clamped by calculateSpecificHousekeepingTimeBudget:
+				// that caps at the PERIODIC interval's remaining countdown, which is ~zero outside the
+				// idle-housekeeping slot - this pass replaces that slot under traffic, it does not share it.
+				this.fileManager.executeDurabilityCoveredMaintenance(
+					this.housekeepingController.fileCheckTimeBudgetNs()
+				);
+			}
+			catch(final RuntimeException e)
+			{
+				// same containment as the work loop's housekeeping catch: a failed rollover or broken
+				// compaction (retained swap) must stop the channel, not degrade silently.
+				throw this.escalateChannelStoppingFailure(e);
+			}
+		}
+
 		private long calculateSpecificHousekeepingTimeBudget(final long nanoTimeBudget)
 		{
 			return Math.min(nanoTimeBudget, this.housekeepingIntervalBudgetNs);
@@ -771,12 +864,67 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			{
 				return true;
 			}
-			
+
 			final long nanoTimeBudget = this.calculateSpecificHousekeepingTimeBudget(
 				this.housekeepingController.fileCheckTimeBudgetNs()
 			);
-			
-			return this.housekeepingBroker.performFileCleanupCheck(this, nanoTimeBudget);
+
+			return this.afterStorageFlushPoll(this.housekeepingBroker.performFileCleanupCheck(this, nanoTimeBudget));
+		}
+
+		/**
+		 * Completes a housekeeping/issued check: a durability gate may have deferred work to a
+		 * storage flush during the check, so the requested barrier is enqueued before the
+		 * check's result is passed through.
+		 */
+		private boolean afterStorageFlushPoll(final boolean checkResult)
+		{
+			this.enqueueStorageFlushIfRequested();
+			return checkResult;
+		}
+
+		private void enqueueStorageFlushIfRequested()
+		{
+			if(!this.fileManager.pollStorageFlushRequest())
+			{
+				return;
+			}
+			try
+			{
+				this.taskBroker.issueCoalescingStorageFlush();
+			}
+			catch(final StorageExceptionNotRunning | StorageExceptionDisruptingExceptions e)
+			{
+				// storage is shutting down or already disrupted: the deferred deletion/rollover this
+				// flush would have enabled will not run either, so nothing durable-but-unflushed can
+				// be lost. Drop the request quietly instead of registering a spurious disruption.
+			}
+			catch(final InterruptedException e)
+			{
+				// re-arm for the next housekeeping cycle, let the work loop handle the interruption
+				this.fileManager.requestStorageFlush();
+				Thread.currentThread().interrupt();
+			}
+		}
+
+		/**
+		 * Escalates a failure that leaves this channel unable to continue safely (e.g. a broken
+		 * transactions-log compaction whose only heal source is the retained swap file): register
+		 * the disruption and stop processing, so the fault surfaces on the next request instead
+		 * of the storage degrading silently.
+		 * <p>
+		 * The stop is EFFECTED by the two side effects (register + disable), which MUST run before the
+		 * return: on the fire-and-forget maintenance task (see
+		 * {@link #executeDurabilityCoveredMaintenance()}) the {@code throw escalate...(e)} is swallowed
+		 * into the task's problem registry, which no issuer ever reads, so only these side effects stop
+		 * the channel (a waited path additionally propagates the throw to its issuer). Throwing before
+		 * the side effects would silently disarm the fire-and-forget stop - keep them ordered as written.
+		 */
+		private <E extends RuntimeException> E escalateChannelStoppingFailure(final E failure)
+		{
+			this.operationController.registerDisruption(failure);
+			this.operationController.setChannelProcessingEnabled(false);
+			return failure;
 		}
 
 		final boolean houseKeepingGarbageCollection()
@@ -799,7 +947,7 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		
 		final boolean houseKeepingTransactionFile()
 		{
-			return this.housekeepingBroker.performTransactionFileCheck(this, true);
+			return this.afterStorageFlushPoll(this.housekeepingBroker.performTransactionFileCheck(this, true));
 		}
 
 		private void work() throws InterruptedException

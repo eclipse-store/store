@@ -104,6 +104,17 @@ public interface StorageRequestTaskCreator
 		int                        channelCount       ,
 		StorageOperationController operationController
 	);
+
+	public StorageRequestTaskStorageFlush createStorageFlushTask(
+		int                        channelCount       ,
+		StorageOperationController operationController,
+		boolean                    carriesMaintenance
+	);
+
+	public StorageRequestTaskDurabilityMaintenance createDurabilityMaintenanceTask(
+		int                        channelCount       ,
+		StorageOperationController operationController
+	);
 	
 	public StorageRequestTaskExportAdjacencyData createExportAdjacencyDataTask
 	(
@@ -353,6 +364,34 @@ public interface StorageRequestTaskCreator
 			final StorageOperationController operationController)
 		{
 			return new StorageRequestTaskTransactionsLogCleanup.Default(
+				this.timestampProvider.currentNanoTimestamp(),
+				channelCount,
+				operationController
+			);
+		}
+
+		@Override
+		public StorageRequestTaskStorageFlush createStorageFlushTask(
+			final int                        channelCount       ,
+			final StorageOperationController operationController,
+			final boolean                    carriesMaintenance
+		)
+		{
+			return new StorageRequestTaskStorageFlush.Default(
+				this.timestampProvider.currentNanoTimestamp(),
+				channelCount,
+				operationController,
+				carriesMaintenance
+			);
+		}
+
+		@Override
+		public StorageRequestTaskDurabilityMaintenance createDurabilityMaintenanceTask(
+			final int                        channelCount       ,
+			final StorageOperationController operationController
+		)
+		{
+			return new StorageRequestTaskDurabilityMaintenance.Default(
 				this.timestampProvider.currentNanoTimestamp(),
 				channelCount,
 				operationController

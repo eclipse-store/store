@@ -46,6 +46,9 @@ public interface StorageRequestTaskStoreEntities extends StorageRequestTask
 		private final Binary                           data                      ;
 		private final StorageReferenceValidationPolicy referenceValidationPolicy ;
 		private final long[][]                         trustedObjectIdsPerChannel;
+		// per-channel "rolled a file over this task" flags; if any channel did, the completion barrier
+		// makes every channel durable so the new file's baseline collapse is never over a non-durable store.
+		private final StorageChannelSynchronizingTask.ChannelResults rolledOver;
 
 
 
@@ -74,6 +77,7 @@ public interface StorageRequestTaskStoreEntities extends StorageRequestTask
 				? partitionPerChannel(data.trustedObjectIds(), data.channelCount())
 				: null
 			;
+			this.rolledOver = new StorageChannelSynchronizingTask.ChannelResults(data.channelCount());
 		}
 
 		/**
@@ -129,12 +133,47 @@ public interface StorageRequestTaskStoreEntities extends StorageRequestTask
 				);
 			}
 
-			return channel.storeEntities(this.timestamp(), this.data.channelChunk(channel.channelIndex()));
+			final KeyValue<ByteBuffer[], long[]> stored =
+				channel.storeEntities(this.timestamp(), this.data.channelChunk(channel.channelIndex()));
+
+			// record whether this channel rolled a file over, for the completion barrier below. Set
+			// before finishProcessing so every channel's succeed sees it after waitOnProcessing.
+			this.rolledOver.set(channel.channelIndex(), channel.pollRolloverOccurred());
+
+			return stored;
 		}
 
 		@Override
 		protected final void succeed(final StorageChannel channel, final KeyValue<ByteBuffer[], long[]> result)
 		{
+			// Eager rollover durability: if any channel rolled a file over, every channel fsyncs here in
+			// its own succeed, so the just-sealed store is durable everywhere before the store returns.
+			// The processing barrier has passed, so rolledOver reflects all channels. Ordered BEFORE the
+			// commit so a channel never commits after its own fsync FAILED; a later-completing sibling
+			// rolls back via fail(), and the restart's consensus reconciliation restores all-or-nothing.
+			// A false return means the storage went read-only mid-task (stores are rejected up front
+			// otherwise), where no fsync is possible: a benign skip, not a fault - the commit proceeds
+			// (as any non-synchronized store does) and the baseline's durability is backstopped by the
+			// flush the rollover requested (createNextStorageFile), which fires once the storage is
+			// writable again. Only an fsync EXCEPTION (a medium fault) escalates and stops the channel
+			// (see catch); escalating a read-only skip would brick the channel on a benign toggle.
+			if(this.rolledOver.anyTrue())
+			{
+				try
+				{
+					channel.flushStorage();
+				}
+				catch(final RuntimeException e)
+				{
+					// fsync failed on a medium fault. Escalate as the flush task does: register the
+					// disruption and stop processing so the fault surfaces loudly instead of the channel
+					// accepting further non-durable stores. Rethrow so this store also reports it.
+					this.controller.registerDisruption(e);
+					this.controller.setChannelProcessingEnabled(false);
+					throw e;
+				}
+			}
+
 			// no storing operation of the other hash channels failed, so definitely commit the write here.
 			channel.commitChunkStorage();
 		}

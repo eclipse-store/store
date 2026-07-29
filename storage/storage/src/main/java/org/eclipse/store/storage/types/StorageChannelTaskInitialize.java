@@ -137,6 +137,16 @@ public interface StorageChannelTaskInitialize extends StorageChannelTask
 			return firstIsNull;
 		}
 
+		/*
+		 * Every channel logs every store with the same task timestamp, so the channels' store
+		 * timestamp sequences are prefixes of one global sequence and a power loss can only cut a
+		 * suffix off a channel's log. The greatest store timestamp common to all channels is
+		 * therefore the minimum of the channels' latest timestamps. Each channel ahead of it rolls
+		 * back to the length its own log recorded for that timestamp (see
+		 * StorageFileManager#determineLastFileLength). Recovery is head-file only: a consensus below
+		 * a channel's head-file baseline (the store lies in a sealed file) is refused loudly during
+		 * recovery (reconcileForHeadOnlyRecovery), consensus 0 while another channel has stores here.
+		 */
 		private long determineConsistentStoreTimestamp()
 		{
 			if(this.checkAllTransactionsFilesMissing())
@@ -144,40 +154,40 @@ public interface StorageChannelTaskInitialize extends StorageChannelTask
 				return 0;
 			}
 
-			final long firstChannelLatestTimestamp = this.result[0].transactionsFileAnalysis().headFileLatestTimestamp();
-
+			long consistentTimestamp = Long.MAX_VALUE;
 			for(final StorageInventory inventory : this.result)
 			{
-				if(!isCompatibleTimestamp(firstChannelLatestTimestamp, inventory.transactionsFileAnalysis()))
+				final long latestTimestamp = inventory.transactionsFileAnalysis().headFileLatestTimestamp();
+				if(latestTimestamp < consistentTimestamp)
 				{
-					return this.fallbackDetermineConsistentStoreTimestamp();
+					consistentTimestamp = latestTimestamp;
 				}
 			}
-			return firstChannelLatestTimestamp;
-		}
 
-		private long fallbackDetermineConsistentStoreTimestamp()
-		{
-			final long firstChannelLastTimestamp = this.result[0].transactionsFileAnalysis().headFileLastConsistentStoreTimestamp();
-
-			for(final StorageInventory inventory : this.result)
+			/*
+			 * Timestamp 0 is not a common store but "before every store": a channel whose log
+			 * contains no store entry at all. Truncating the intact channels to their pre-first-
+			 * store state would silently discard all committed data they still hold - that is
+			 * never acceptable, so refuse loudly unless the whole storage is genuinely fresh.
+			 */
+			if(consistentTimestamp == 0)
 			{
-				if(!isCompatibleTimestamp(firstChannelLastTimestamp, inventory.transactionsFileAnalysis()))
+				for(final StorageInventory inventory : this.result)
 				{
-					throw new StorageExceptionConsistency("Inconsistent store timestamps between channels");
+					if(inventory.transactionsFileAnalysis().headFileLatestTimestamp() > 0)
+					{
+						throw new StorageExceptionConsistency(
+							"Inconsistent store timestamps between channels: a channel's"
+							+ " transactions log contains no store entry while others do."
+						);
+					}
 				}
+				return 0;
 			}
-			return firstChannelLastTimestamp;
-		}
 
-		private static boolean isCompatibleTimestamp(
-			final long                        candidateTimestamp,
-			final StorageTransactionsAnalysis transactionsFile
-		)
-		{
-			return transactionsFile.headFileLatestTimestamp()              == candidateTimestamp
-				|| transactionsFile.headFileLastConsistentStoreTimestamp() == candidateTimestamp
-			;
+			// a consensus below a channel's head baseline is handled in recovery
+			// (reconcileForHeadOnlyRecovery: a loud fail-stop); only consensus 0 is refused above.
+			return consistentTimestamp;
 		}
 
 
