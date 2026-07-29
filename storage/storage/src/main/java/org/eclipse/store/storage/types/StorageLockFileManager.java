@@ -183,10 +183,13 @@ public interface StorageLockFileManager extends Runnable
 				}
 				else
 				{
-					// controller deactivated (teardown) without a disruption: nothing to recover, so stop
-					// instead of ticking (and logging) forever on a leaked non-daemon thread.
+					// controller deactivated (teardown) without a disruption: nothing to recover. Shut the
+					// executor down and release the lock file here rather than ticking forever. Done inline
+					// instead of via stop() because this runs on the executor's own worker thread, which
+					// cannot join itself in awaitTermination.
 					logger.info("Lock file manager no longer ready, stopping.");
-					this.stop();
+					this.executor.shutdown();
+					this.ensureClosedLockFile(null);
 				}
 			}
 			catch(final Exception e)

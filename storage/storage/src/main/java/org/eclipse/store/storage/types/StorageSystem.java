@@ -749,8 +749,8 @@ public interface StorageSystem extends StorageController
 		}
 		
 		/**
-		 * Best-effort teardown after a failed startup. A failure in any step is attached as suppressed
-		 * to the primary startup exception instead of replacing it, and each step is still attempted.
+		 * Best-effort teardown after a failed startup: each fallible step is attempted independently and
+		 * any failure is attached as suppressed to the primary startup exception instead of replacing it.
 		 */
 		private void cleanupFailedStartup(final Throwable primary)
 		{
