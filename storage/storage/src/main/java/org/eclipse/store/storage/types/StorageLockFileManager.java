@@ -403,23 +403,38 @@ public interface StorageLockFileManager extends Runnable
 		
 		private LockFileData readLockFileData()
 		{
-			// format: lastWriteTime;expirationTime;nonce;identifier
+			// current format: lastWriteTime;expirationTime;nonce;identifier
+			// legacy format (pre-nonce): lastWriteTime;expirationTime;identifier
+			// The legacy form is tolerated so an existing lock file written by an older version does not
+			// fail closed on the first start after an upgrade; a fresh claim rewrites it in the current format.
 			final String s = this.readString();
 
 			final int i1 = s.indexOf(';');
 			final int i2 = i1 < 0 ? -1 : s.indexOf(';', i1 + 1);
-			final int i3 = i2 < 0 ? -1 : s.indexOf(';', i2 + 1);
-			if(i1 < 0 || i2 < 0 || i3 < 0)
+			if(i1 < 0 || i2 < 0)
 			{
 				throw new StorageException("Malformed storage lock file content.");
 			}
+			final int i3 = s.indexOf(';', i2 + 1);
 
 			try
 			{
 				final long   lastWriteTime  = Long.parseLong(s.substring(0, i1));
 				final long   expirationTime = Long.parseLong(s.substring(i1 + 1, i2));
-				final String nonce          = s.substring(i2 + 1, i3);
-				final String identifier     = s.substring(i3 + 1);
+
+				final String nonce;
+				final String identifier;
+				if(i3 < 0)
+				{
+					// legacy: no nonce present.
+					nonce      = "";
+					identifier = s.substring(i2 + 1);
+				}
+				else
+				{
+					nonce      = s.substring(i2 + 1, i3);
+					identifier = s.substring(i3 + 1);
+				}
 
 				return new LockFileData(lastWriteTime, expirationTime, nonce, identifier);
 			}
