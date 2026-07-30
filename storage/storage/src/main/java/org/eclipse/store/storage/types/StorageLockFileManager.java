@@ -17,19 +17,15 @@ package org.eclipse.store.storage.types;
 import static org.eclipse.serializer.util.X.notNull;
 
 import java.nio.ByteBuffer;
-import java.util.concurrent.ExecutionException;
+import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AFileSystem;
 import org.eclipse.serializer.chars.VarString;
-import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.collections.ArrayView;
-import org.eclipse.serializer.collections.XArrays;
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.logging.Logging;
@@ -108,11 +104,11 @@ public interface StorageLockFileManager extends Runnable
 		// cached values
 		private transient StorageLockFile       lockFile                ;
 		private transient LockFileData          lockFileData            ;
+		private transient String                sessionNonce            ;
 		private transient ByteBuffer[]          wrappedByteBuffer       ;
 		private transient ArrayView<ByteBuffer> wrappedWrappedByteBuffer;
 		private transient ByteBuffer            directByteBuffer        ;
 		private transient byte[]                stringReadBuffer        ;
-		private transient byte[]                stringWriteBuffer       ;
 		private transient VarString vs                                  ;
 		private transient AFileSystem fileSystem                        ;
 		private transient ScheduledExecutorService executor             ;
@@ -138,7 +134,6 @@ public interface StorageLockFileManager extends Runnable
 			this.wrappedWrappedByteBuffer = X.ArrayView(this.wrappedByteBuffer);
 
 			this.stringReadBuffer = new byte[64];
-			this.stringWriteBuffer = this.stringReadBuffer.clone();
 			this.allocateBuffer(this.stringReadBuffer.length);
 			
 			this.executor = Executors.newSingleThreadScheduledExecutor(threadProvider);
@@ -241,56 +236,83 @@ public interface StorageLockFileManager extends Runnable
 		public void initialize()
 		{
 			logger.info("initializing lock file manager for storage {}", this.setup.processIdentity());
-			
+
 			final StorageLiveFileProvider fileProvider = this.setup.lockFileProvider();
 			final AFile lockFile     = fileProvider.provideLockFile();
 			this.lockFile = StorageLockFile.New(lockFile);
-			
-			
-			LockFileData initialFileData = null;
-			if(this.lockFileHasContent()) {
-				
-				initialFileData = this.readLockFileData();
-				if(!this.validateExistingLockFileData(initialFileData))
-				{
-					// wait one interval and try a second time
-					logger.warn("Non expired storage lock found! Retrying once");
-					
-					ScheduledFuture<Boolean> future = this.executor.schedule(() ->
-						this.validateExistingLockFileData(this.readLockFileData()),
-						initialFileData.updateInterval,
-						TimeUnit.MILLISECONDS);
-									
-					try {
-						if(!future.get(initialFileData.updateInterval *2, TimeUnit.MILLISECONDS)) {
-							this.executor.shutdownNow();
-							throw new StorageException("Storage already in use by: " + initialFileData.identifier);
-						}
-					} catch(InterruptedException | ExecutionException | TimeoutException e) {
-						this.executor.shutdownNow();
-						throw new StorageException("failed to validate lock file", e);
-					}
-				}
-				
-				
+
+			// Absent lock file => legitimate fresh start. Present but unreadable => fail closed (see
+			// #readExistingLockFileDataOrNull): an existing-but-unparseable lock (another process' truncate
+			// window, a torn write) must not be treated as free, or two writers could both claim.
+			final LockFileData existing = this.readExistingLockFileDataOrNull();
+			if(existing != null && !this.validateExistingLockFileData(existing))
+			{
+				throw new StorageException("Storage already in use by: " + existing.identifier);
 			}
-			
+
 			if(this.isReadOnlyMode())
 			{
-				if(initialFileData != null)
-				{
-					// write buffer must be filled with the file's current content so the check will be successful.
-					this.setToWriteBuffer(initialFileData);
-				}
-				
-				// abort, since neither lockFileData nor writing is required/allowed in read-only mode.
+				// read-only never claims; only remember the current owner (if any) to detect a later takeover.
+				this.sessionNonce = existing != null ? existing.nonce : null;
 				return;
 			}
 
-			this.lockFileData = new LockFileData(this.setup.processIdentity(), this.setup.updateInterval());
-			
+			// Claim with a fresh per-session nonce, then verify the claim survived a concurrent claimer
+			// before the caller runs recovery writes (initialize() completes before startup recovery).
+			this.sessionNonce = newNonce();
+			this.lockFileData = new LockFileData(this.setup.processIdentity(), this.sessionNonce, this.setup.updateInterval());
+
 			this.lockFile.file().ensureExists();
 			this.writeLockFileData();
+			this.verifyClaim();
+		}
+
+		/**
+		 * Reads the current lock file content. Returns {@code null} only if the lock file does not exist
+		 * (a legitimate fresh start). If the file exists but cannot be parsed (empty, torn or partial
+		 * write), it fails closed rather than treating the storage as free.
+		 */
+		private LockFileData readExistingLockFileDataOrNull()
+		{
+			if(!this.lockFile.exists())
+			{
+				return null;
+			}
+
+			try
+			{
+				return this.readLockFileData();
+			}
+			catch(final StorageException e)
+			{
+				throw new StorageException(
+					"Storage lock file is present but unreadable; refusing to start to avoid split-brain.",
+					e
+				);
+			}
+		}
+
+		/**
+		 * Confirms our just-written claim is still on disk before any recovery write happens. If a
+		 * concurrent process overwrote it, the nonce differs and startup is aborted.
+		 */
+		private void verifyClaim()
+		{
+			final LockFileData current = this.readLockFileData();
+			if(!this.sessionNonce.equals(current.nonce))
+			{
+				throw new StorageException(
+					"Storage already in use: lock claim was overwritten by a concurrent process ("
+					+ current.identifier + ")."
+				);
+			}
+		}
+
+		private static String newNonce()
+		{
+			// Fresh per-session identity: distinguishes our writes from a foreign takeover and from a
+			// previous session that reused the same process identity.
+			return UUID.randomUUID().toString();
 		}
 		
 		
@@ -337,9 +359,7 @@ public interface StorageLockFileManager extends Runnable
 		{
 			this.ensureBufferCapacity(bytes.length);
 			this.directByteBuffer.clear();
-			
-			this.stringWriteBuffer = bytes;
-			
+
 			return this.wrappedWrappedByteBuffer;
 		}
 		
@@ -383,51 +403,51 @@ public interface StorageLockFileManager extends Runnable
 		
 		private LockFileData readLockFileData()
 		{
-			final String currentFileData = this.readString();
-			
-			// since JDK 9's String change, there's even one more copying required.
-			final char[] chars = currentFileData.toCharArray();
-			
-			final int sep1Index = indexOfFirstNonNumberCharacter(chars, 0);
-			final int sep2Index = indexOfFirstNonNumberCharacter(chars, sep1Index + 1);
-			
-			final long   currentTime    = XChars.parse_longDecimal(chars, 0, sep1Index);
-			final long   expirationTime = XChars.parse_longDecimal(chars, sep1Index + 1, sep2Index - sep1Index - 1);
-			final String identifier     = String.valueOf(chars, sep2Index + 1, chars.length - sep2Index - 1);
-			
-			return new LockFileData(currentTime, expirationTime, identifier);
-		}
-		
-		static final int indexOfFirstNonNumberCharacter(final char[] data, final int offset)
-		{
-			for(int i = offset; i < data.length; i++)
+			// format: lastWriteTime;expirationTime;nonce;identifier
+			final String s = this.readString();
+
+			final int i1 = s.indexOf(';');
+			final int i2 = i1 < 0 ? -1 : s.indexOf(';', i1 + 1);
+			final int i3 = i2 < 0 ? -1 : s.indexOf(';', i2 + 1);
+			if(i1 < 0 || i2 < 0 || i3 < 0)
 			{
-				if(data[i] < '0' || data[i] > '9')
-				{
-					return i;
-				}
+				throw new StorageException("Malformed storage lock file content.");
 			}
-			
-			throw new StorageException("No separator found in lock file string.");
+
+			try
+			{
+				final long   lastWriteTime  = Long.parseLong(s.substring(0, i1));
+				final long   expirationTime = Long.parseLong(s.substring(i1 + 1, i2));
+				final String nonce          = s.substring(i2 + 1, i3);
+				final String identifier     = s.substring(i3 + 1);
+
+				return new LockFileData(lastWriteTime, expirationTime, nonce, identifier);
+			}
+			catch(final NumberFormatException e)
+			{
+				throw new StorageException("Malformed storage lock file timestamps.", e);
+			}
 		}
 		
 		static final class LockFileData
 		{
 			      long   lastWriteTime ;
 			      long   expirationTime;
+			final String nonce         ;
 			final String identifier    ;
 			final long   updateInterval;
-			
-			LockFileData(final String identifier, final long updateInterval)
+
+			LockFileData(final String identifier, final String nonce, final long updateInterval)
 			{
 				super();
 				this.identifier     = identifier    ;
-				this.updateInterval = updateInterval;
+				this.nonce          = nonce          ;
+				this.updateInterval = updateInterval ;
 			}
-			
-			LockFileData(final long lastWriteTime, final long expirationTime, final String identifier)
+
+			LockFileData(final long lastWriteTime, final long expirationTime, final String nonce, final String identifier)
 			{
-				this(identifier, deriveUpdateInterval(lastWriteTime, expirationTime));
+				this(identifier, nonce, deriveUpdateInterval(lastWriteTime, expirationTime));
 				this.lastWriteTime  = lastWriteTime ;
 				this.expirationTime = expirationTime;
 			}
@@ -477,15 +497,17 @@ public interface StorageLockFileManager extends Runnable
 				return;
 			}
 			
-			this.fillReadBufferFromFile();
-			
-			// performance-optimized JDK method
-			if(XArrays.equals(this.stringReadBuffer, this.stringWriteBuffer, this.stringWriteBuffer.length))
+			// Self-fence: the on-disk nonce must still be the one this session claimed. Our own heartbeats
+			// keep the nonce stable (only timestamps change), so a mismatch means a foreign process took over.
+			final LockFileData current = this.readLockFileData();
+			if(this.sessionNonce != null && this.sessionNonce.equals(current.nonce))
 			{
 				return;
 			}
 
-			throw new StorageException("Concurrent lock file modification detected.");
+			throw new StorageException(
+				"Concurrent lock file modification detected (foreign owner: " + current.identifier + ")."
+			);
 		}
 		
 		private boolean isReadOnlyMode()
@@ -518,6 +540,7 @@ public interface StorageLockFileManager extends Runnable
 			this.vs.reset()
 			.add(lockFileData.lastWriteTime).add(';')
 			.add(lockFileData.expirationTime).add(';')
+			.add(lockFileData.nonce).add(';')
 			.add(lockFileData.identifier)
 			;
 			
