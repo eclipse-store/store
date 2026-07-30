@@ -98,20 +98,20 @@ public interface StorageLockFileManager extends Runnable
 		// instance fields //
 		////////////////////
 		
-		private final StorageLockFileSetup                 setup              ;
-		private final StorageOperationController           operationController;
+		private final StorageLockFileSetup               setup              ;
+		private final StorageOperationController         operationController;
 		
 		// cached values
-		private transient StorageLockFile       lockFile                ;
-		private transient LockFileData          lockFileData            ;
-		private transient String                sessionNonce            ;
-		private transient ByteBuffer[]          wrappedByteBuffer       ;
-		private transient ArrayView<ByteBuffer> wrappedWrappedByteBuffer;
-		private transient ByteBuffer            directByteBuffer        ;
-		private transient byte[]                stringReadBuffer        ;
-		private transient VarString vs                                  ;
-		private transient AFileSystem fileSystem                        ;
-		private transient ScheduledExecutorService executor             ;
+		private transient StorageLockFile                lockFile                ;
+		private transient LockFileData                   lockFileData            ;
+		private transient String                         sessionNonce            ;
+		private final transient ByteBuffer[]             wrappedByteBuffer       ;
+		private final transient ArrayView<ByteBuffer>    wrappedWrappedByteBuffer;
+		private transient ByteBuffer                     directByteBuffer        ;
+		private transient byte[]                         stringReadBuffer        ;
+		private final transient VarString                vs                      ;
+		private final transient AFileSystem              fileSystem              ;
+		private final transient ScheduledExecutorService executor                ;
 		
 		
 		///////////////////////////////////////////////////////////////////////////
