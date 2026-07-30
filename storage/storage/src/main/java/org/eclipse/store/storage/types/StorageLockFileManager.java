@@ -33,28 +33,28 @@ import org.eclipse.store.storage.exceptions.StorageException;
 import org.slf4j.Logger;
 
 /**
- * The StorageLockFileManager purpose is to provide a mechanism that prevents
+ * The StorageLockFileManager's purpose is to provide a mechanism that prevents
  * other storage instances running in different processes from accessing the
  * storage data.
  */
 public interface StorageLockFileManager extends Runnable
 {
 	/**
-	 * Start periodical lock file checks.
-	 * 
+	 * Start periodic lock file checks.
+	 *
 	 * @return this
 	 */
 	public StorageLockFileManager start();
-	
+
 	/**
-	 * Stop periodical lock file checks
-	 * 
+	 * Stop periodic lock file checks.
+	 *
 	 * @return this
 	 */
 	public StorageLockFileManager stop();
 	
 	/**
-	 * Initialize the lock file manager without starting any periodical actions.
+	 * Initialize the lock file manager without starting any periodic actions.
 	 */
 	public void initialize();
 	
@@ -80,15 +80,15 @@ public interface StorageLockFileManager extends Runnable
 	}
 	
 	/**
-	 * Default implementation of the #StorageLockFileManager.
+	 * Default implementation of {@link StorageLockFileManager}.
 	 * This implementation uses a file to indicate if the storage data
 	 * is already in use by a storage instance.
-	 * The file contains a process depended ID and time-stamps of the last modification
-	 * and expiring time.
+	 * The file contains a process-dependent ID and timestamps of the last modification
+	 * and the expiration time.
 	 * A storage is accessible if:
 	 * - no lock file exists
 	 * - a lock file exists and the process id matches
-	 * - a lock file exists and the current system time is greater than the expiring time + update interval
+	 * - a lock file exists and the current system time is greater than the expiration time + update interval
 	 */
 	public final class Default implements StorageLockFileManager
 	{
@@ -129,7 +129,7 @@ public interface StorageLockFileManager extends Runnable
 			this.fileSystem          = setup.lockFileProvider().fileSystem();
 			this.operationController = operationController;
 			this.vs                  = VarString.New()    ;
-			// 2 timestamps with separators and an identifier. Should suffice.
+			// timestamps, nonce and identifier with separators; the buffer grows on demand if needed.
 			this.wrappedByteBuffer = new ByteBuffer[1];
 			this.wrappedWrappedByteBuffer = X.ArrayView(this.wrappedByteBuffer);
 
@@ -154,7 +154,7 @@ public interface StorageLockFileManager extends Runnable
 		
 		private synchronized boolean isReady()
 		{
-			boolean result = this.isInitialized() && this.operationController.checkProcessingEnabled();
+			final boolean result = this.isInitialized() && this.operationController.checkProcessingEnabled();
 			logger.trace("Storage LockFile Manager isReady: {}" , result);
 			return result;
 		}
@@ -162,7 +162,7 @@ public interface StorageLockFileManager extends Runnable
 		@Override
 		public StorageLockFileManager.Default start()
 		{
-			logger.info("Starting log file manager thread ");
+			logger.info("Starting lock file manager thread");
 			this.executor.scheduleWithFixedDelay(this, 0, this.setup.updateInterval(), TimeUnit.MILLISECONDS);
 			return this;
 		}
@@ -213,7 +213,7 @@ public interface StorageLockFileManager extends Runnable
 					}
 				}
 			}
-			catch(InterruptedException e)
+			catch(final InterruptedException e)
 			{
 				this.executor.shutdownNow();
 				Thread.currentThread().interrupt();
@@ -229,7 +229,7 @@ public interface StorageLockFileManager extends Runnable
 		}
 		
 		/**
-		 * Initialize the storage lock file manager without starting the periodical
+		 * Initialize the storage lock file manager without starting the periodic
 		 * lock file check.
 		 */
 		@Override
@@ -322,7 +322,7 @@ public interface StorageLockFileManager extends Runnable
 			final String identifier = this.setup.processIdentity();
 			if(identifier.equals(lockFileData.identifier))
 			{
-				// database is already owned by "this" process (e.g. crash shorty before), so just continue and reuse.
+				// database is already owned by "this" process (e.g. crash shortly before), so just continue and reuse.
 				logger.info("Storage already owned by process!");
 				return true;
 			}
@@ -333,7 +333,7 @@ public interface StorageLockFileManager extends Runnable
 				 * The lock file is no longer updated, meaning the database is not used anymore
 				 * and the lockfile is just a zombie, probably left by a crash.
 				 */
-				logger.info("Storage lock file outdated, aquiring storage!");
+				logger.info("Storage lock file outdated, acquiring storage!");
 				return true;
 			}
 			
@@ -489,7 +489,8 @@ public interface StorageLockFileManager extends Runnable
 			
 			/**
 			 * "long" meaning the expiration time has been passed by another interval.
-			 * This is a tolerance / grace time strategy to exclude
+			 * This is a tolerance / grace time strategy to avoid mistaking a merely delayed
+			 * heartbeat (e.g. a brief pause or scheduling lag) for a dead owner.
 			 */
 			final boolean isLongExpired()
 			{
@@ -508,7 +509,7 @@ public interface StorageLockFileManager extends Runnable
 		{
 			if(this.isReadOnlyMode() && !this.lockFileHasContent())
 			{
-				// no existing lock file can be ignored in read-only mode.
+				// an absent lock file can be ignored in read-only mode.
 				return;
 			}
 			
@@ -542,7 +543,7 @@ public interface StorageLockFileManager extends Runnable
 						
 			final ArrayView<ByteBuffer> bb = this.setToWriteBuffer(this.lockFileData);
 			
-			// no need for the writer detour (for now) since it makes no sense to backup lock files.
+			// no need for the writer detour (for now) since it makes no sense to back up lock files.
 			
 			//don't delete file!
 			this.lockFile.truncate(0);
