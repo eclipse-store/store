@@ -21,10 +21,10 @@ The standalone JAR (fat JAR with all dependencies) is not built by default. To b
 mvn -Pmigrator-standalone clean package -pl storage/embedded-tools/storage-migrator -am
 ````
 
-The resulting JAR is located at:
+The resulting JAR is located at: (Replace `<version>` with your built version):
 
 ````
-storage/embedded-tools/storage-migrator/target/storage-embedded-tools-storage-migrator-4.2.0-jar-with-dependencies.jar
+storage/embedded-tools/storage-migrator/target/storage-embedded-tools-storage-migrator-<version>-jar-with-dependencies.jar
 ````
 
 To install it into your local Maven repository:
@@ -36,17 +36,17 @@ mvn -Pmigrator-standalone install -pl storage/embedded-tools/storage-migrator -a
 ### Migration of both, source code and type dictionary:
 
 ````
-mvn org.openrewrite.maven:rewrite-maven-plugin:run -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:4.2.0 -DeclipseStoreVersion=4.2.0 -Drewrite.plainTextMasks=**/*.ptd  -DtypeDictionaryRelativeFilePath=src/main/resources/PersistenceTypeDictionary.ptd
+mvn org.openrewrite.maven:rewrite-maven-plugin:run -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:<version> -DeclipseStoreVersion=<version> -Drewrite.plainTextMasks=**/*.ptd  -DtypeDictionaryRelativeFilePath=src/main/resources/PersistenceTypeDictionary.ptd
 ````
 
 ### Migration of source code only:
 
 ````
-mvn org.openrewrite.maven:rewrite-maven-plugin:run -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:4.2.0 -DeclipseStoreVersion=4.2.0
+mvn org.openrewrite.maven:rewrite-maven-plugin:run -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:<version -DeclipseStoreVersion=<version>
 ````
 
 ### Migration of type dictionary only:
 
 ````
-mvn org.openrewrite.maven:rewrite-maven-plugin:run -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:4.2.0 -Drewrite.plainTextMasks=**/*.ptd  -DtypeDictionaryRelativeFilePath=src/main/resources/PersistenceTypeDictionary.ptd
+mvn org.openrewrite.maven:rewrite-maven-plugin:run -Drewrite.activeRecipes=org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject -Drewrite.recipeArtifactCoordinates=org.eclipse.store:storage-embedded-tools-storage-migrator:<version> -Drewrite.plainTextMasks=**/*.ptd  -DtypeDictionaryRelativeFilePath=src/main/resources/PersistenceTypeDictionary.ptd
 ````
