@@ -189,7 +189,11 @@ public interface StorageLockFileManager extends Runnable
 			}
 			catch(final Exception e)
 			{
-				this.stop();
+				// Same rationale as the else-branch above: this runs on the executor's own worker thread, so
+				// shut the executor down and close the lock file inline (stop()'s awaitTermination would
+				// self-join), then register the disruption and rethrow.
+				this.executor.shutdown();
+				this.ensureClosedLockFile(null);
 				this.operationController.registerDisruption(e);
 				throw e;
 			}
