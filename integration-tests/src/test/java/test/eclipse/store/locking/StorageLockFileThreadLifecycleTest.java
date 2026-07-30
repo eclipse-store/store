@@ -16,14 +16,12 @@ package test.eclipse.store.locking;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static test.eclipse.store.locking.LockFileTestSupport.awaitLockThreadCount;
-import static test.eclipse.store.locking.LockFileTestSupport.deleteQuietly;
 import static test.eclipse.store.locking.LockFileTestSupport.fieldValueOfType;
 import static test.eclipse.store.locking.LockFileTestSupport.forceStop;
 import static test.eclipse.store.locking.LockFileTestSupport.liveLockThreadCount;
 import static test.eclipse.store.locking.LockFileTestSupport.startManager;
 
 import java.lang.reflect.Method;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
@@ -54,11 +52,8 @@ public class StorageLockFileThreadLifecycleTest
 
 	@Test
 	@Timeout(120)
-	void nonGracefulStopStopsLockThread() throws Exception
+	void nonGracefulStopStopsLockThread(@TempDir final Path dir) throws Exception
 	{
-		// A manually managed directory (not @TempDir) is used because a non-graceful stop does not join
-		// the channel threads, so files may still be held briefly; cleanup is therefore best-effort.
-		final Path dir = Files.createTempDirectory("lockfile-kill-");
 		final long baseline = liveLockThreadCount();
 
 		final EmbeddedStorageManager manager = startManager(dir, "lock-life-kill", "PROCESS-A", 60_000L);
@@ -78,7 +73,6 @@ public class StorageLockFileThreadLifecycleTest
 		finally
 		{
 			forceStop(lockFileManager);
-			deleteQuietly(dir);
 		}
 	}
 }

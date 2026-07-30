@@ -69,6 +69,7 @@ public class StorageLockFileExclusionTest
 			// Emptying the lock file models both the truncate window of a heartbeat and an externally
 			// cleared file; neither must be treated as a free directory.
 			Files.write(lockFile, new byte[0]);
+			assertTrue(Files.size(lockFile) == 0L, "precondition: lock file must be empty");
 
 			assertRefused(() -> startManager(dir, "lock-excl-cleared-b", "PROCESS-B", 600_000_000L));
 		}

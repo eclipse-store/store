@@ -17,14 +17,10 @@ package test.eclipse.store.locking;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Comparator;
 import java.util.concurrent.Callable;
-import java.util.stream.Stream;
 
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
@@ -167,32 +163,6 @@ final class LockFileTestSupport
 		catch(final Throwable ignore)
 		{
 			// best-effort safety net so a failed assertion cannot leave a non-daemon thread hanging the fork
-		}
-	}
-
-	static void deleteQuietly(final Path root)
-	{
-		if(root == null)
-		{
-			return;
-		}
-		try(final Stream<Path> paths = Files.walk(root))
-		{
-			paths.sorted(Comparator.reverseOrder()).forEach(path ->
-			{
-				try
-				{
-					Files.deleteIfExists(path);
-				}
-				catch(final IOException ignore)
-				{
-					// files may still be held briefly after a non-graceful stop; leave them to the OS
-				}
-			});
-		}
-		catch(final IOException ignore)
-		{
-			// best-effort recursive delete
 		}
 	}
 }
