@@ -38,12 +38,12 @@ public class StorageLockFileCompatibilityTest
 	@Timeout(120)
 	void restartBySameProcessReusesLock(@TempDir final Path dir)
 	{
-		final EmbeddedStorageManager first = startManager(dir, "DB", "PROCESS-A", 60_000L);
+		final EmbeddedStorageManager first = startManager(dir, "lock-compat-restart", "PROCESS-A", 60_000L);
 		first.setRoot("v1");
 		first.storeRoot();
 		first.shutdown();
 
-		final EmbeddedStorageManager second = startManager(dir, "DB", "PROCESS-A", 60_000L);
+		final EmbeddedStorageManager second = startManager(dir, "lock-compat-restart", "PROCESS-A", 60_000L);
 		try
 		{
 			assertEquals("v1", second.root());
@@ -67,7 +67,7 @@ public class StorageLockFileCompatibilityTest
 		final String previousFormat = now + ";" + (now + 60_000L) + ";" + identity;
 		Files.write(lockFile, previousFormat.getBytes(StandardCharsets.UTF_8));
 
-		final EmbeddedStorageManager manager = startManager(dir, "DB", identity, 60_000L);
+		final EmbeddedStorageManager manager = startManager(dir, "lock-compat-legacy", identity, 60_000L);
 		try
 		{
 			manager.setRoot("data");

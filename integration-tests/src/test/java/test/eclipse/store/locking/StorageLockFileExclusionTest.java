@@ -37,13 +37,13 @@ public class StorageLockFileExclusionTest
 	@Timeout(120)
 	void secondProcessIsRefusedWhileFirstIsActive(@TempDir final Path dir)
 	{
-		final EmbeddedStorageManager first = startManager(dir, "DB-A", "PROCESS-A", 60_000L);
+		final EmbeddedStorageManager first = startManager(dir, "lock-excl-active-a", "PROCESS-A", 60_000L);
 		try
 		{
 			first.setRoot("owned-by-A");
 			first.storeRoot();
 
-			assertRefused(() -> startManager(dir, "DB-B", "PROCESS-B", 60_000L));
+			assertRefused(() -> startManager(dir, "lock-excl-active-b", "PROCESS-B", 60_000L));
 		}
 		finally
 		{
@@ -59,7 +59,7 @@ public class StorageLockFileExclusionTest
 
 		// A very large interval keeps the active manager from rewriting the lock file during the test,
 		// so the emptied state below is what the second manager actually observes.
-		final EmbeddedStorageManager first = startManager(dir, "DB-A", "PROCESS-A", 600_000_000L);
+		final EmbeddedStorageManager first = startManager(dir, "lock-excl-cleared-a", "PROCESS-A", 600_000_000L);
 		try
 		{
 			first.setRoot("owned-by-A");
@@ -70,7 +70,7 @@ public class StorageLockFileExclusionTest
 			// cleared file; neither must be treated as a free directory.
 			Files.write(lockFile, new byte[0]);
 
-			assertRefused(() -> startManager(dir, "DB-B", "PROCESS-B", 600_000_000L));
+			assertRefused(() -> startManager(dir, "lock-excl-cleared-b", "PROCESS-B", 600_000_000L));
 		}
 		finally
 		{

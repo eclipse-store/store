@@ -45,7 +45,7 @@ public class StorageLockFileThreadLifecycleTest
 	{
 		final long baseline = liveLockThreadCount();
 
-		final EmbeddedStorageManager manager = startManager(dir, "DB", "PROCESS-A", 60_000L);
+		final EmbeddedStorageManager manager = startManager(dir, "lock-life-graceful", "PROCESS-A", 60_000L);
 		assertTrue(awaitLockThreadCount(baseline + 1, 2_000L), "lock thread must be running after start");
 
 		manager.shutdown();
@@ -61,7 +61,7 @@ public class StorageLockFileThreadLifecycleTest
 		final Path dir = Files.createTempDirectory("lockfile-kill-");
 		final long baseline = liveLockThreadCount();
 
-		final EmbeddedStorageManager manager = startManager(dir, "DB", "PROCESS-A", 60_000L);
+		final EmbeddedStorageManager manager = startManager(dir, "lock-life-kill", "PROCESS-A", 60_000L);
 		Object lockFileManager = null;
 		try
 		{
