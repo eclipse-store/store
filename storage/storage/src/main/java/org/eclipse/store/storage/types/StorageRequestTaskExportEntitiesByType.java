@@ -25,6 +25,7 @@ import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.EqHashTable;
 import org.eclipse.serializer.collections.XUtilsCollection;
 import org.eclipse.serializer.typing.KeyValue;
+import org.eclipse.store.storage.exceptions.StorageException;
 import org.eclipse.store.storage.exceptions.StorageExceptionExportFailed;
 
 
@@ -38,6 +39,19 @@ public interface StorageRequestTaskExportEntitiesByType extends StorageRequestTa
 	extends StorageChannelSynchronizingTask.AbstractCompletingTask<StorageEntityTypeExportStatistics.ChannelStatistic>
 	implements StorageRequestTaskExportEntitiesByType
 	{
+		///////////////////////////////////////////////////////////////////////////
+		// constants //
+		//////////////
+
+		/*
+		 * The handoff notification can never arrive at all (a channel that fails does not increment the
+		 * item's progress), so a waiting channel must wake up periodically to notice that instead of
+		 * parking forever. Mirrors the wait time of the other cross-channel waits.
+		 */
+		private static final int HANDOFF_WAIT_TIME_MS = 100;
+
+
+
 		///////////////////////////////////////////////////////////////////////////
 		// instance fields //
 		////////////////////
@@ -125,6 +139,25 @@ public interface StorageRequestTaskExportEntitiesByType extends StorageRequestTa
 			return this.exportTypes;
 		}
 
+		/**
+		 * A failing channel never reaches {@link ExportItem#incrementProgress()}, the only handoff
+		 * notification, so every higher-indexed channel would wait forever - never returning to its
+		 * work loop, stalling every subsequent synchronizing task including the shutdown. A task
+		 * problem or a storage disruption both mean this export cannot complete: abort the wait.
+		 */
+		private void checkExportHandoffAbort()
+		{
+			if(this.hasProblems())
+			{
+				throw new StorageException("Aborting export, another channel failed");
+			}
+
+			if(this.controller.hasDisruptions())
+			{
+				throw new StorageException("Aborting export after a storage disruption", this.controller.disruptions().first());
+			}
+		}
+
 		@Override
 		protected final StorageEntityTypeExportStatistics.ChannelStatistic internalProcessBy(final StorageChannel channel)
 		{
@@ -139,7 +172,8 @@ public interface StorageRequestTaskExportEntitiesByType extends StorageRequestTa
 					{
 						while(!exportItem.isCurrentChannel(channel))
 						{
-							exportItem.wait();
+							this.checkExportHandoffAbort();
+							exportItem.wait(HANDOFF_WAIT_TIME_MS);
 						}
 					}
 
@@ -281,21 +315,31 @@ public interface StorageRequestTaskExportEntitiesByType extends StorageRequestTa
 
 		final synchronized void cleanUp()
 		{
-			if(!this.file.isOpen())
+			try
 			{
-				return;
+				if(this.file.isOpen())
+				{
+					// only an empty file is removed; a partially written one is kept on purpose -
+					// see the contract of StorageConnection#exportTypes
+					if(this.file.isEmpty())
+					{
+						this.file.delete();
+					}
+					else
+					{
+						this.file.close();
+					}
+				}
 			}
-			
-			if(this.file.isEmpty())
+			finally
 			{
-				this.file.delete();
+				/*
+				 * Must run even for a never-opened file (types without entities on any channel) or
+				 * when delete/close threw: release(), not close(), deregisters the write lease from
+				 * provideExportFile. Idempotent - this runs again in the task's cleanUp.
+				 */
+				this.file.release();
 			}
-			else
-			{
-				this.file.close();
-			}
-			
-			this.file.release();
 		}
 
 	}

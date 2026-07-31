@@ -143,6 +143,9 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		private long    usedCacheSize;
 		private boolean hasUpdatePendingSweep;
 
+		// existing entities the current import replaced (see #reportImportConflicts)
+		private long importConflictCount;
+
 		// obsolete typeIds already warned about on a typeId change (see #handleTypeIdChange)
 		private final Set_long warnedObsoleteTypeIds = Set_long.New();
 		private boolean hasLoadPendingSweep  ;
@@ -286,6 +289,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 
 			this.usedCacheSize  = 0L;
 			this.warnedObsoleteTypeIds.clear();
+			this.importConflictCount = 0;
 
 			// create a new root type instance on every clear. Everything else is not worth the reset&register-hassle.
 			this.rootType       = this.getType(this.rootTypeId);
@@ -634,6 +638,36 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 				this.markMonitor.resetCompletion();
 				this.hasUpdatePendingSweep = this.markMonitor.isPendingSweep(this);
 			}
+
+			// arm the conflict count for this import (see #reportImportConflicts)
+			this.importConflictCount = 0;
+		}
+
+		/**
+		 * Logs how many existing entities this channel's import replaced. An import always wins;
+		 * no staleness check is possible, as neither an entity nor an exported record carries a
+		 * timestamp or version. A stale re-import (reverting newer state) and a deliberate one
+		 * (the remedy for a torn import) are therefore indistinguishable - the overwrite can only
+		 * be reported, never rejected.
+		 * <p>
+		 * Aggregated per channel and import: a full re-import collides on every entity, so
+		 * per-entity warnings would bury the message.
+		 */
+		final void reportImportConflicts()
+		{
+			if(this.importConflictCount == 0)
+			{
+				return;
+			}
+
+			logger.warn(
+				"Channel {}: import replaced {} already existing entities. If this import was created "
+				+ "before the current state, those entities have been reverted to their exported state. "
+				+ "Already loaded instances keep their in-memory state - reload from the root "
+				+ "(typically: restart) before further use.",
+				this.channelIndex,
+				this.importConflictCount
+			);
 		}
 
 		final void clearPendingImportUpdate()
@@ -778,6 +812,8 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			{
 				if(entry.typeId() == type.typeId)
 				{
+					// counted for the once-per-import conflict report
+					this.importConflictCount++;
 					this.resetExistingEntityForUpdate(entry);
 					return entry;
 				}

@@ -372,13 +372,24 @@ public interface StorageConnection extends UsageMarkable, Persister
 	 * <p>
 	 * This is useful to extract the data contained in the storage in a structured way, for example to migrate it
 	 * into another storage system or to analyze it, like converting it into human readable form.
-	 * 
+	 * <p>
+	 * <b>A failed export is not rolled back.</b> The export files are written incrementally, so an export
+	 * that throws leaves whatever was written until then in the target directory: files of types already
+	 * exported are complete, the type being exported when the failure occurred is truncated at an arbitrary
+	 * point, and types not yet reached have no file at all. Only files that are still empty are removed.
+	 * <p>
+	 * Nothing marks such a directory as incomplete, and a truncated file that happens to end on an entity
+	 * boundary is indistinguishable from a complete one - including for
+	 * {@link #importFiles(XGettingEnum)}, which would import it as if it were the whole type. Treat the
+	 * target directory as unusable unless this method returned normally, and delete or set it aside
+	 * before retrying.
+	 *
 	 * @param exportFileProvider the {@link StorageEntityTypeExportFileProvider} logic to be used.
-	 * 
+	 *
 	 * @param isExportType a {@link Predicate} selecting which type's entity data to be exported.
-	 * 
+	 *
 	 * @return a {@link StorageEntityTypeExportStatistics} information instance about the completed export.
-	 * 
+	 *
 	 * @see #exportTypes(StorageEntityTypeExportFileProvider)
 	 */
 	public StorageEntityTypeExportStatistics exportTypes(
@@ -446,7 +457,12 @@ public interface StorageConnection extends UsageMarkable, Persister
 	 * (identified by their ObjectId), their current data will be replaced by the imported data.<br>
 	 * Note that importing data that is not reachable from any root entity will have no effect and will
 	 * eventually be deleted by the garbage collector.
-	 * 
+	 * <p>
+	 * Replacement happens on the storage level only: already loaded instances keep their in-memory
+	 * state, so heap and storage diverge for every replaced entity - observably mixed, and flipping
+	 * per entity as weakly referenced instances are collected and reloaded - until the application
+	 * discards its references and reloads from the root, typically by restarting.
+	 *
 	 * @param importFiles the files whose native binary content shall be imported.
 	 */
 	public void importFiles(XGettingEnum<AFile> importFiles);
@@ -458,7 +474,10 @@ public interface StorageConnection extends UsageMarkable, Persister
 	 * (identified by their ObjectId), their current data will be replaced by the imported data.<br>
 	 * Note that importing data that is not reachable from any root entity will have no effect and will
 	 * eventually be deleted by the garbage collector.
-	 * 
+	 * <p>
+	 * On heap/storage divergence after replacing existing entities, see
+	 * {@link #importFiles(XGettingEnum)} - the same applies here.
+	 *
 	 * @param importData the files whose native binary content shall be imported.
 	 */
 	public void importData(XGettingEnum<ByteBuffer> importData);
