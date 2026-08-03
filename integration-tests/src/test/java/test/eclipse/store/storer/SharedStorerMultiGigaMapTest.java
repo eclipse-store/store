@@ -108,8 +108,12 @@ public class SharedStorerMultiGigaMapTest
 
         assertEquals(1L, fromDisk.left .size(), "left map persisted");
         assertEquals(1L, fromDisk.right.size(), "right map persisted");
-        assertEquals("l1", fromDisk.left .get(leftId ).name);
-        assertEquals("r1", fromDisk.right.get(rightId).name);
+        final Item leftItem  = fromDisk.left .get(leftId );
+        final Item rightItem = fromDisk.right.get(rightId);
+        assertNotNull(leftItem , "the left entity is present after reload" );
+        assertNotNull(rightItem, "the right entity is present after reload");
+        assertEquals("l1", leftItem .name);
+        assertEquals("r1", rightItem.name);
 
         // the bitmap indices rode the same commit, not just the entities
         assertEquals(1L, fromDisk.left .query(LEFT_NAME , "l1").count(), "left index persisted" );
@@ -176,8 +180,9 @@ public class SharedStorerMultiGigaMapTest
         final Root                   fromDisk = (Root)reopened.root();
 
         assertEquals(1L, fromDisk.left.size(), "a replacement must not add an entity");
-        assertNotNull(fromDisk.left.get(id), "the replacement kept the id it replaced");
-        assertEquals("after", fromDisk.left.get(id).name, "the replacement was persisted");
+        final Item replaced = fromDisk.left.get(id);
+        assertNotNull(replaced, "the replacement kept the id it replaced");
+        assertEquals("after", replaced.name, "the replacement was persisted");
         assertEquals(1L, fromDisk.left.query(LEFT_NAME, "after" ).count(), "index re-keyed to the replacement");
         assertEquals(0L, fromDisk.left.query(LEFT_NAME, "before").count(), "the replaced key is gone");
 
@@ -210,7 +215,9 @@ public class SharedStorerMultiGigaMapTest
         final EmbeddedStorageManager reopened = EmbeddedStorage.start(dir);
         final Root                   fromDisk = (Root)reopened.root();
 
-        assertEquals("after", fromDisk.left.get(id).name, "the in-place mutation was persisted");
+        final Item mutated = fromDisk.left.get(id);
+        assertNotNull(mutated, "the mutated entity is present after reload");
+        assertEquals("after", mutated.name, "the in-place mutation was persisted");
         assertEquals(1L, fromDisk.left.query(LEFT_NAME, "after" ).count(), "index re-keyed after update");
         assertEquals(0L, fromDisk.left.query(LEFT_NAME, "before").count(), "the stale key is gone");
 
@@ -248,7 +255,9 @@ public class SharedStorerMultiGigaMapTest
         assertEquals(0L, fromDisk.left.size(), "the removal persisted");
         assertNull(fromDisk.left.get(doomed), "the removed entity is gone");
         assertEquals(0L, fromDisk.left.query(LEFT_NAME, "doomed").count(), "index reflects the removal");
-        assertEquals("added", fromDisk.right.get(added).name, "the addition persisted");
+        final Item addedItem = fromDisk.right.get(added);
+        assertNotNull(addedItem, "the added entity is present after reload");
+        assertEquals("added", addedItem.name, "the addition persisted");
 
         reopened.shutdown();
     }
