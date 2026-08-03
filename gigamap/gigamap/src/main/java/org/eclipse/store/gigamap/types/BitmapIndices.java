@@ -932,9 +932,11 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		@Override
 		public <K> BitmapIndex<E, K> add(final Indexer<? super E, K> indexer)
 		{
+			final String indexName = validateIndexerIdentity(indexer);
+
 			synchronized(this.parentMap())
 			{
-				this.ensureMutable("add index \"" + indexerName(indexer) + "\"");
+				this.ensureMutable("add index \"" + indexName + "\"");
 
 				return this.internalAddIndex(indexer, true);
 			}
@@ -943,9 +945,11 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		@Override
 		public <K> BitmapIndex<E, K> addWithoutInitialization(final Indexer<? super E, K> indexer)
 		{
+			final String indexName = validateIndexerIdentity(indexer);
+
 			synchronized(this.parentMap())
 			{
-				this.ensureMutable("add index \"" + indexerName(indexer) + "\"");
+				this.ensureMutable("add index \"" + indexName + "\"");
 
 				return this.internalAddIndex(indexer, false);
 			}
@@ -994,12 +998,6 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 					this
 				);
 			}
-		}
-
-		private static String indexerName(final Indexer<?, ?> indexer)
-		{
-			// the guard runs before #validateIndexToAdd, so the indexer may still be null here.
-			return indexer == null ? "<null>" : indexer.name();
 		}
 
 		@Override
@@ -1108,11 +1106,12 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		@Override
 		public <K> BitmapIndex<E, K> update(final Indexer<? super E, K> indexer)
 		{
+			final String name = validateIndexerIdentity(indexer);
+
 			synchronized(this.parentMap())
 			{
-				this.ensureMutable("update indexer \"" + indexerName(indexer) + "\"");
+				this.ensureMutable("update indexer \"" + name + "\"");
 
-				final String                     name     = indexer.name();
 				final BitmapIndex.Internal<E, ?> existing = this.bitmapIndices.get(name);
 				if(existing == null)
 				{
@@ -1509,9 +1508,11 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		
 		final <I> BitmapIndex<E, I> ensureBitmapIndex(final Indexer<? super E, I> indexer)
 		{
+			final String indexName = validateIndexerIdentity(indexer);
+
 			synchronized(this.parentMap())
 			{
-				BitmapIndex<E, I> index = this.get(indexer.keyType(), indexer.name());
+				BitmapIndex<E, I> index = this.get(indexer.keyType(), indexName);
 				if(index != null)
 				{
 					// Already present: no structural change, so the mutability guard is deliberately not
@@ -1520,12 +1521,12 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 					return index;
 				}
 
-				this.ensureMutable("add index \"" + indexerName(indexer) + "\"");
+				this.ensureMutable("add index \"" + indexName + "\"");
 
 				// The guard may have released the parent-map monitor while waiting for foreign readers, so
 				// another thread may have registered the index meanwhile. Re-check instead of letting
 				// #validateIndexToAdd turn an idempotent ensure() into a "name already taken" failure.
-				index = this.get(indexer.keyType(), indexer.name());
+				index = this.get(indexer.keyType(), indexName);
 
 				return index != null
 					? index
@@ -1562,24 +1563,40 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		
 		private void validateIndexToAdd(final Indexer<? super E, ?> indexer)
 		{
-			if(indexer == null)
-			{
-				throw new IllegalArgumentException("Indexer may not be null.");
-			}
-			
-			final String indexName = indexer.name();
-			if(indexName == null)
-			{
-				throw new IllegalArgumentException("Index name may not be null.");
-			}
-			
-			
+			final String indexName = validateIndexerIdentity(indexer);
+
 			// Index name may not be taken, yet.
 			final BitmapIndex<E, ?> index = this.bitmapIndices.get(indexName);
 			if(index != null)
 			{
 				throw new RuntimeException(BitmapIndex.class.getSimpleName() + " already registered for name \"" + index.name() + "\".");
 			}
+		}
+
+		/**
+		 * Validates that the indexer and its registry key exist at all, independent of whether that key is
+		 * still free. Called by every entry point before the indexer is dereferenced - both to build the
+		 * mutability guard's message and to look the index up - so that a {@code null} indexer or name yields
+		 * the same {@link IllegalArgumentException} everywhere instead of a {@link NullPointerException} from
+		 * whichever dereference happens to come first.
+		 *
+		 * @param indexer the indexer to validate
+		 * @return the indexer's non-null name
+		 */
+		private static String validateIndexerIdentity(final Indexer<?, ?> indexer)
+		{
+			if(indexer == null)
+			{
+				throw new IllegalArgumentException("Indexer may not be null.");
+			}
+
+			final String indexName = indexer.name();
+			if(indexName == null)
+			{
+				throw new IllegalArgumentException("Index name may not be null.");
+			}
+
+			return indexName;
 		}
 		
 		private void internalAddUniqueConstraint(final BitmapIndex.Internal<E, ?> index)
@@ -1657,20 +1674,22 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		@Override
 		public final UniqueConstraints<E> ensureUniqueConstraint(final Indexer<? super E, ?> indexer)
 		{
+			final String indexName = validateIndexerIdentity(indexer);
+
 			synchronized(this.parentMap())
 			{
-				if(this.isRegisteredUniqueConstraint(indexer))
+				if(this.isRegisteredUniqueConstraint(indexName))
 				{
 					// Already registered as a unique constraint -> idempotent no-op. No structural change, so
 					// the mutability guard is deliberately not reached (see #ensureBitmapIndex).
 					return this;
 				}
 
-				this.ensureMutable("add unique constraint \"" + indexerName(indexer) + "\"");
+				this.ensureMutable("add unique constraint \"" + indexName + "\"");
 
 				// The guard may have released the parent-map monitor while waiting for foreign readers, so
 				// re-check before creating the constraint (see #ensureBitmapIndex).
-				if(this.isRegisteredUniqueConstraint(indexer))
+				if(this.isRegisteredUniqueConstraint(indexName))
 				{
 					return this;
 				}
@@ -1682,10 +1701,10 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			}
 		}
 
-		private boolean isRegisteredUniqueConstraint(final Indexer<? super E, ?> indexer)
+		private boolean isRegisteredUniqueConstraint(final String indexName)
 		{
 			// registry key is the indexer's name (a unique constraint is registered under index.name())
-			final BitmapIndex.Internal<E, ?> existing = this.bitmapIndices.get(indexer.name());
+			final BitmapIndex.Internal<E, ?> existing = this.bitmapIndices.get(indexName);
 
 			return existing != null && this.uniqueConstraints != null && this.uniqueConstraints.contains(existing);
 		}

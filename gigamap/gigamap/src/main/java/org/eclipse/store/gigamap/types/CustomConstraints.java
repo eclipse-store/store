@@ -16,6 +16,7 @@ package org.eclipse.store.gigamap.types;
 
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.EqHashTable;
+import org.eclipse.serializer.collections.types.XGettingCollection;
 import org.eclipse.serializer.persistence.binary.types.BinaryTypeHandler;
 import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.serializer.util.X;
@@ -299,9 +300,20 @@ public interface CustomConstraints<E> extends GigaConstraints.Category<E>
 		@Override
 		public final CustomConstraints<E> ensureConstraints(final Iterable<? extends CustomConstraint<? super E>> constraints)
 		{
+			// The absent set is collected twice (once before the mutability guard and once after, since the
+			// guard may release the monitor while waiting), so the passed Iterable must be traversed exactly
+			// once: a single-use one (e.g. stream-backed) would come up empty on the second pass and silently
+			// skip the constraints. Materializing outside the monitor also keeps arbitrary caller code (a
+			// lazily evaluated Iterable) from running while the parent map is locked.
+			final BulkList<CustomConstraint<? super E>> requested = BulkList.New();
+			for(final CustomConstraint<? super E> constraint : constraints)
+			{
+				requested.add(constraint);
+			}
+
 			synchronized(this.parentMap())
 			{
-				BulkList<CustomConstraint<? super E>> toAdd = this.collectAbsentConstraints(constraints);
+				BulkList<CustomConstraint<? super E>> toAdd = this.collectAbsentConstraints(requested);
 				if(toAdd.isEmpty())
 				{
 					// Nothing to create: no structural change, so the mutability guard is deliberately not
@@ -315,7 +327,7 @@ public interface CustomConstraints<E> extends GigaConstraints.Category<E>
 				// The guard may have released the parent-map monitor while waiting for foreign readers, so
 				// another thread may have registered some of them meanwhile. Re-collect instead of letting
 				// #validateConstraintToAdd turn an idempotent ensure() into a "name already taken" failure.
-				toAdd = this.collectAbsentConstraints(constraints);
+				toAdd = this.collectAbsentConstraints(requested);
 				if(!toAdd.isEmpty())
 				{
 					this.internalAddConstraints(toAdd);  // validates only the new constraints against existing entities
@@ -326,7 +338,7 @@ public interface CustomConstraints<E> extends GigaConstraints.Category<E>
 		}
 
 		private BulkList<CustomConstraint<? super E>> collectAbsentConstraints(
-			final Iterable<? extends CustomConstraint<? super E>> constraints
+			final XGettingCollection<CustomConstraint<? super E>> constraints
 		)
 		{
 			final BulkList<CustomConstraint<? super E>> absent = BulkList.New();

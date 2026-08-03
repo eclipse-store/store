@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -438,6 +439,42 @@ public class IndexRegistrationReadOnlyTest
 		assertEquals(threadCount, results.size());
 		final BitmapIndex<Item, String> registered = map.index().bitmap().get("other");
 		results.forEach(index -> assertSame(registered, index));
+	}
+
+
+	///////////////////////////////////////////////////////////////////////////
+	// argument validation across the guard //
+	/////////////////////////////////////////
+
+	@Test
+	void nullIndexerIsRejectedConsistently()
+	{
+		final GigaMap<Item> map = newMap();
+
+		// The guard builds its message from the indexer's name, so every entry point has to validate the
+		// indexer before dereferencing it - otherwise the caller gets a NullPointerException from whichever
+		// dereference happens to come first instead of the documented IllegalArgumentException.
+		assertThrows(IllegalArgumentException.class, () -> map.index().bitmap().add(null));
+		assertThrows(IllegalArgumentException.class, () -> map.index().bitmap().addWithoutInitialization(null));
+		assertThrows(IllegalArgumentException.class, () -> map.index().bitmap().ensure(null));
+		assertThrows(IllegalArgumentException.class, () -> map.index().bitmap().update(null));
+		assertThrows(IllegalArgumentException.class, () -> map.constraints().unique().ensureUniqueConstraint(null));
+	}
+
+	@Test
+	void ensureConstraintsAcceptsASingleUseIterable()
+	{
+		final GigaMap<Item> map = newMap();
+
+		// ensureConstraints collects the absent set twice (before and after the mutability guard, which may
+		// release the monitor), so it must traverse the passed Iterable exactly once: a single-use one would
+		// come up empty on the second pass and the constraint would be silently skipped.
+		final Iterable<CustomConstraint<? super Item>> singleUse =
+			Stream.<CustomConstraint<? super Item>>of(new NoEmptyLabel())::iterator;
+
+		map.constraints().custom().ensureConstraints(singleUse);
+
+		assertTrue(map.constraints().custom().removeConstraint("NoEmptyLabel"));
 	}
 
 
