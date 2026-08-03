@@ -418,6 +418,24 @@ public class SingleUseIterableRegistrationTest
 
 		map.index().bitmap().addAll(sameIteratorEachTime(List.<Indexer<? super Item, ?>>of()));
 
+		assertNull(map.index().bitmap().get(String.class, "label"));
 		assertEquals(2, map.size());
+	}
+
+	@Test
+	void addUniqueConstraints_emptyIterable_isSilentNoOp()
+	{
+		final GigaMap<Item> map = populatedMap();
+
+		map.constraints().unique().addUniqueConstraints(sameIteratorEachTime(
+			List.<Indexer<? super Item, ?>>of()
+		));
+
+		assertTrue(map.index().bitmap().uniqueConstraints() == null
+			|| map.index().bitmap().uniqueConstraints().isEmpty());
+
+		// no constraint was registered, so a duplicate code is still accepted
+		map.add(new Item("c", "c1"));
+		assertEquals(3, map.size());
 	}
 }
