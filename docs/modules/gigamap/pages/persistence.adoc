@@ -70,6 +70,32 @@ synchronized (gigaMap) {
 
 This is the same principle as the classic problem with synchronized JDK collections like `Vector`: synchronizing individual methods is not sufficient when multiple operations need to be atomic. In this case, the entire store traversal must be protected from concurrent modifications.
 
+== Storing several instances in one commit
+
+`gigaMap.store()` is one commit per call. A change that spans two GigaMaps — or a GigaMap plus the root object that references it — is therefore *two* commits, and nothing makes them atomic: a crash in between leaves one applied and the other not.
+
+`store(...)` accepts any `PersistenceStoring`. Pass a `Persister` (e.g. the storage manager) and it stores and commits immediately; pass a `Storer` and it only registers the changes, leaving the commit to you:
+
+[source, java]
+----
+final Storer storer = storageManager.createStorer();
+gigaMapA.store(storer);
+gigaMapB.store(storer);
+storer.store(root);
+storer.commit();          // one commit, atomic across all of the above
+----
+
+`Storer.commit()` is all-or-nothing, so either every registered change is persisted or none of it is.
+
+What `store(storer)` covers is exactly what `store()` covers: the entities, the indices, the segments, the constraints, and entities mutated through `update` / `apply`. Entities mutated directly are still not covered and still leave the indices stale, as described above.
+
+[IMPORTANT]
+====
+Register *through the GigaMap* (`gigaMap.store(storer)`), not through the storer (`storer.store(gigaMap)`). The latter is the external path warned about above and does not acquire the GigaMap's internal lock.
+
+Note that with a `Storer` the lock `gigaMap.store(storer)` holds spans its own registration only — *not* the later `commit()`. The calling context is therefore responsible for a lock that spans mutation through `commit()`. Registering with a `Storer` and committing it from different threads, or mutating a registered GigaMap before the commit, is not safe.
+====
+
 == Class evolution and indexed fields
 
 GigaMap's indices (bitmap, Lucene, vector) are a *derived cache*: their keys are computed from your entities by the indexers and are then persisted alongside the entities. On load the index keys are restored *verbatim from storage* — they are **not** recomputed from, or revalidated against, the entities.

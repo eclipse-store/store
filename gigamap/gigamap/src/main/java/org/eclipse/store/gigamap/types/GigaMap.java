@@ -911,17 +911,46 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 
 
 	/**
-	 * Stores this {@link GigaMap} instance and all its modified data using the provided {@link Persister}.
+	 * Stores this {@link GigaMap} instance and all its modified data through the passed
+	 * {@link PersistenceStoring}. Unlike {@link #store()}, no previously linked storing context is required.
 	 * <p>
-	 * Unlike {@link #store()}, which requires a previously linked storing context,
-	 * this method allows explicitly passing the {@link Persister} to use for storing.
+	 * <b>Whether this commits depends on what you pass</b>, which is the whole point of accepting the common
+	 * supertype:
+	 * <ul>
+	 *   <li>a {@link Persister} - e.g. an {@code EmbeddedStorageManager} - stores and commits immediately,
+	 *       exactly like {@link #store()};</li>
+	 *   <li>a {@link Storer} only <em>registers</em> the changes, and the caller decides the commit boundary
+	 *       by calling {@link Storer#commit()}.</li>
+	 * </ul>
+	 * The second form is how several instances go into a <b>single atomic commit</b> - two {@link GigaMap}s
+	 * that one logical change spans, or a {@link GigaMap} together with the root object referencing it.
+	 * {@link Storer#commit()} is all-or-nothing, so either every registered change is persisted or none is;
+	 * calling {@link #store()} per instance produces one commit each, with no atomicity between them.
+	 * <pre>{@code
+	 * final Storer storer = storageManager.createStorer();
+	 * gigaMapA.store(storer);
+	 * gigaMapB.store(storer);
+	 * storer.store(root);
+	 * storer.commit();      // one commit, atomic across all of the above
+	 * }</pre>
+	 * What is covered is exactly what {@link #store()} covers - the indices, the segments, the constraints,
+	 * and entities mutated through {@link #update} or {@link #apply}. Entities mutated directly are NOT
+	 * covered and leave the indices stale, as described on {@link #store()}.
+	 * <p>
+	 * <b>Note on concurrency:</b><br>
+	 * The lock this method holds spans its own work only. With a {@link Persister} that is the whole store, as
+	 * for {@link #store()}. With a {@link Storer} it is the registration alone and NOT the commit that happens
+	 * later, so the calling context is responsible for a lock spanning mutation through
+	 * {@link Storer#commit()} - see the concurrency notes on {@link #store()}, which apply with that added
+	 * span. Registering with a {@link Storer} and committing it from a different thread, or mutating this
+	 * instance in between, is not safe.
 	 *
-	 * @param persister the {@link Persister} to use for storing this instance
+	 * @param storing the {@link Persister} or {@link Storer} to store this instance through
 	 * @return the objectId of this instance
 	 * @see #store()
-	 * @see Persister#store(Object)
+	 * @see Storer#commit()
 	 */
-	public long store(Persister persister);
+	public long store(PersistenceStoring storing);
 
 	/**
 	 * Provides this set {@link Equalator} instance of this {@link GigaMap}.
@@ -3221,9 +3250,14 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		}
 
 		@Override
-		public final synchronized long store(final Persister persister)
+		public final synchronized long store(final PersistenceStoring storing)
 		{
-			return persister.store(this);
+			// One call for both kinds of storing context, because the type handler is what registers this
+			// instance's changes (see BinaryHandlerGigaMapDefault#store -> #internalRegisterChangeStores) and
+			// that fires for anything that traverses the map. Whether the changes are also committed is the
+			// storing context's own behaviour: a Persister commits, a Storer waits for its commit() - which is
+			// what lets a caller group several instances into one atomic commit.
+			return storing.store(this);
 		}
 
 		private Persister storeContext()
