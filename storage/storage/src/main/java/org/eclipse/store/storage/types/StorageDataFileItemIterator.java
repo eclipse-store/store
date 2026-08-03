@@ -254,9 +254,6 @@ public interface StorageDataFileItemIterator
 						itemProcessor
 					);
 					currentFilePosition += progress;
-
-					// the buffer must stay strongly reachable while its raw memory is read via the extracted address.
-					Reference.reachabilityFence(buffer);
 				}
 			}
 			catch(final Exception e)
@@ -264,6 +261,11 @@ public interface StorageDataFileItemIterator
 				throw new StorageException(
 					"currentFilePosition = " + currentFilePosition + ". nextEntityLength = " + nextItemLength.value, e
 				);
+			}
+			finally
+			{
+				// the buffer must stay strongly reachable while its raw memory is read via the extracted address.
+				Reference.reachabilityFence(buffer);
 			}
 			
 			bufferProvider.cleanUp();
