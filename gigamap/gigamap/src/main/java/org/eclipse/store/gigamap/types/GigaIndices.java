@@ -208,7 +208,30 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 		{
 			return this.parent;
 		}
-		
+
+		/**
+		 * Guards structural mutations against a parent {@link GigaMap} that is currently not mutable, applying
+		 * the same classification an entity write applies (see
+		 * {@link GigaMap.Internal#internalEnsureMutability()}): an explicit read-only mark, an in-progress
+		 * iteration and a self-held reader fail fast, while readers open on other threads are waited out.
+		 * <p>
+		 * Must be called while holding the parent-map monitor. <b>The call may release that monitor while
+		 * waiting</b>, so state read before it must be re-checked afterwards.
+		 *
+		 * @param operation description of the attempted change, used to build the error message
+		 */
+		private void ensureMutable(final String operation)
+		{
+			try
+			{
+				this.parent.internalEnsureMutability();
+			}
+			catch(final IllegalStateException e)
+			{
+				throw new IllegalStateException("Cannot " + operation + ": the GigaMap is not mutable.", e);
+			}
+		}
+
 		protected final void internalAdd(final long entityId, final E entity)
 		{
 			notNull(entity);
@@ -571,12 +594,8 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 		{
 			synchronized(this.parentMap())
 			{
-				if(this.parent.isReadOnly())
-				{
-					throw new IllegalStateException(
-						"Cannot register an index group: the GigaMap is read-only."
-					);
-				}
+				this.ensureMutable("register an index group");
+
 				final IndexGroup.Internal<E> indexGroup = category.createIndexGroup(this.parent);
 				
 				@SuppressWarnings("unchecked")
@@ -638,12 +657,7 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 			final IndexGroup.Internal<E> found;
 			synchronized(this.parentMap())
 			{
-				if(this.parent.isReadOnly())
-				{
-					throw new IllegalStateException(
-						"Cannot remove index group \"" + categoryType.getName() + "\": the GigaMap is read-only."
-					);
-				}
+				this.ensureMutable("remove index group \"" + categoryType.getName() + "\"");
 
 				IndexGroup.Internal<E> match = null;
 				// exact class match is checked first, then the general (e.g. interface) type, mirroring #get.

@@ -231,36 +231,69 @@ public interface CustomConstraints<E> extends GigaConstraints.Category<E>
 			throw new IllegalArgumentException(CustomConstraint.class.getSimpleName() + " already registered for name \"" + index.name() + "\".");
 		}
 		
+		/**
+		 * Guards structural mutations against a parent {@link GigaMap} that is currently not mutable, applying
+		 * the same classification an entity write applies (see
+		 * {@link GigaMap.Internal#internalEnsureMutability()}): an explicit read-only mark, an in-progress
+		 * iteration and a self-held reader fail fast, while readers open on other threads are waited out.
+		 * <p>
+		 * Must be called while holding the parent-map monitor. <b>The call may release that monitor while
+		 * waiting</b>, so state read before it must be re-checked afterwards.
+		 *
+		 * @param operation description of the attempted change, used to build the error message
+		 */
+		private void ensureMutable(final String operation)
+		{
+			try
+			{
+				this.parentMap().internalEnsureMutability();
+			}
+			catch(final IllegalStateException e)
+			{
+				throw new IllegalStateException(
+					"Cannot " + operation + ": the parent GigaMap is not mutable.",
+					e
+				);
+			}
+		}
+
 		@Override
 		public final CustomConstraints<E> addConstraints(final Iterable<? extends CustomConstraint<? super E>> constraints)
 		{
 			synchronized(this.parentMap())
 			{
-				if(this.parentMap().isReadOnly())
-				{
-					throw new IllegalStateException("Cannot add custom constraint(s): the parent GigaMap is read-only.");
-				}
-				for(final CustomConstraint<? super E> constraint : constraints)
-				{
-					this.validateConstraintToAdd(constraint.name(), constraint);
-				}
-				
-				this.validateForExistingEntities(constraints);
-				
-				if(this.elements == null)
-				{
-					this.elements = EqHashTable.New();
-				}
-				for(final CustomConstraint<? super E> constraint : constraints)
-				{
-					Default.addConstraintChecked(this.elements, constraint);
-				}
+				this.ensureMutable("add custom constraint(s)");
 
-				this.markStateChangeInstance();
-				this.parent.internalReportConstraintsStateChange();
+				this.internalAddConstraints(constraints);
 			}
 
 			return this;
+		}
+
+		/**
+		 * Registers the given constraints without checking mutability. Callers must have passed
+		 * {@link #ensureMutable(String)} and must still hold the parent-map monitor.
+		 */
+		private void internalAddConstraints(final Iterable<? extends CustomConstraint<? super E>> constraints)
+		{
+			for(final CustomConstraint<? super E> constraint : constraints)
+			{
+				this.validateConstraintToAdd(constraint.name(), constraint);
+			}
+
+			this.validateForExistingEntities(constraints);
+
+			if(this.elements == null)
+			{
+				this.elements = EqHashTable.New();
+			}
+			for(final CustomConstraint<? super E> constraint : constraints)
+			{
+				Default.addConstraintChecked(this.elements, constraint);
+			}
+
+			this.markStateChangeInstance();
+			this.parent.internalReportConstraintsStateChange();
 		}
 
 		@Override
@@ -268,22 +301,45 @@ public interface CustomConstraints<E> extends GigaConstraints.Category<E>
 		{
 			synchronized(this.parentMap())
 			{
-				final BulkList<CustomConstraint<? super E>> toAdd = BulkList.New();
-				for(final CustomConstraint<? super E> constraint : constraints)
+				BulkList<CustomConstraint<? super E>> toAdd = this.collectAbsentConstraints(constraints);
+				if(toAdd.isEmpty())
 				{
-					if(this.elements == null || this.elements.get(constraint.name()) == null)
-					{
-						toAdd.add(constraint);  // absent -> create
-					}
-					// else: already registered under that name -> idempotent no-op
+					// Nothing to create: no structural change, so the mutability guard is deliberately not
+					// reached. This keeps ensure() a no-op on a read-only map, letting a read-only replica run
+					// the identical startup schema declaration.
+					return this;
 				}
+
+				this.ensureMutable("add custom constraint(s)");
+
+				// The guard may have released the parent-map monitor while waiting for foreign readers, so
+				// another thread may have registered some of them meanwhile. Re-collect instead of letting
+				// #validateConstraintToAdd turn an idempotent ensure() into a "name already taken" failure.
+				toAdd = this.collectAbsentConstraints(constraints);
 				if(!toAdd.isEmpty())
 				{
-					this.addConstraints(toAdd);  // validates only the new constraints against existing entities
+					this.internalAddConstraints(toAdd);  // validates only the new constraints against existing entities
 				}
 			}
 
 			return this;
+		}
+
+		private BulkList<CustomConstraint<? super E>> collectAbsentConstraints(
+			final Iterable<? extends CustomConstraint<? super E>> constraints
+		)
+		{
+			final BulkList<CustomConstraint<? super E>> absent = BulkList.New();
+			for(final CustomConstraint<? super E> constraint : constraints)
+			{
+				if(this.elements == null || this.elements.get(constraint.name()) == null)
+				{
+					absent.add(constraint);  // absent -> create
+				}
+				// else: already registered under that name -> idempotent no-op
+			}
+
+			return absent;
 		}
 
 		@Override
@@ -291,12 +347,8 @@ public interface CustomConstraints<E> extends GigaConstraints.Category<E>
 		{
 			synchronized(this.parentMap())
 			{
-				if(this.parentMap().isReadOnly())
-				{
-					throw new IllegalStateException(
-						"Cannot remove custom constraint \"" + name + "\": the parent GigaMap is read-only."
-					);
-				}
+				this.ensureMutable("remove custom constraint \"" + name + "\"");
+
 				if(this.elements == null)
 				{
 					return false;

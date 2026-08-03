@@ -934,14 +934,9 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		{
 			synchronized(this.parentMap())
 			{
-				this.ensureMutable();
-				this.validateIndexToAdd(indexer);
+				this.ensureMutable("add index \"" + indexerName(indexer) + "\"");
 
-				final BitmapIndex.Internal<E, K> index = indexer.createFor(this);
-				this.internalAddBitmapIndex(index);
-				this.rebuildCache();
-
-				return index;
+				return this.internalAddIndex(indexer, true);
 			}
 		}
 
@@ -950,27 +945,61 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		{
 			synchronized(this.parentMap())
 			{
-				this.ensureMutable();
-				this.validateIndexToAdd(indexer);
+				this.ensureMutable("add index \"" + indexerName(indexer) + "\"");
 
-				final BitmapIndex.Internal<E, K> index = indexer.createFor(this);
-				this.internalAddBitmapIndex(index, false);
-				this.rebuildCache();
-
-				return index;
+				return this.internalAddIndex(indexer, false);
 			}
 		}
 
 		/**
-		 * Guards structural mutations against a read-only parent {@link GigaMap}. Must be called while
-		 * holding the parent-map lock.
+		 * Registers a single index without checking mutability. Callers must have passed
+		 * {@link #ensureMutable(String)} and must still hold the parent-map monitor.
+		 *
+		 * @param initialize whether to back-fill the new index from the already-present entities
+		 *        (see {@link #addWithoutInitialization(Indexer)})
 		 */
-		private void ensureMutable()
+		private <K> BitmapIndex<E, K> internalAddIndex(final Indexer<? super E, K> indexer, final boolean initialize)
 		{
-			if(this.parentMap().isReadOnly())
+			this.validateIndexToAdd(indexer);
+
+			final BitmapIndex.Internal<E, K> index = indexer.createFor(this);
+			this.internalAddBitmapIndex(index, initialize);
+			this.rebuildCache();
+
+			return index;
+		}
+
+		/**
+		 * Guards structural mutations against a parent {@link GigaMap} that is currently not mutable, applying
+		 * the same classification an entity write applies (see {@link GigaMap.Internal#internalEnsureMutability()}):
+		 * an explicit read-only mark, an in-progress iteration and a self-held reader fail fast, while readers
+		 * open on other threads are waited out.
+		 * <p>
+		 * Must be called while holding the parent-map monitor. <b>The call may release that monitor while
+		 * waiting</b>, so state read before it must be re-checked afterwards.
+		 *
+		 * @param operation description of the attempted change, used to build the error message
+		 */
+		private void ensureMutable(final String operation)
+		{
+			try
 			{
-				throw new BitmapIndicesException("Cannot modify indices: the parent GigaMap is read-only.", this);
+				this.parentMap().internalEnsureMutability();
 			}
+			catch(final IllegalStateException e)
+			{
+				throw new BitmapIndicesException(
+					"Cannot " + operation + ": the parent GigaMap is not mutable.",
+					e,
+					this
+				);
+			}
+		}
+
+		private static String indexerName(final Indexer<?, ?> indexer)
+		{
+			// the guard runs before #validateIndexToAdd, so the indexer may still be null here.
+			return indexer == null ? "<null>" : indexer.name();
 		}
 
 		@Override
@@ -978,13 +1007,8 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		{
 			synchronized(this.parentMap())
 			{
-				if(this.parentMap().isReadOnly())
-				{
-					throw new BitmapIndicesException(
-						"Cannot remove index \"" + name + "\": the parent GigaMap is read-only.",
-						this
-					);
-				}
+				this.ensureMutable("remove index \"" + name + "\"");
+
 				return this.internalRemoveIndex(name, false, true) != null;
 			}
 		}
@@ -1032,13 +1056,8 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		{
 			synchronized(this.parentMap())
 			{
-				if(this.parentMap().isReadOnly())
-				{
-					throw new BitmapIndicesException(
-						"Cannot remove unique constraint \"" + name + "\": the parent GigaMap is read-only.",
-						this
-					);
-				}
+				this.ensureMutable("remove unique constraint \"" + name + "\"");
+
 				final BitmapIndex.Internal<E, ?> index = this.bitmapIndices.get(name);
 				if(index == null || this.uniqueConstraints == null || !this.uniqueConstraints.contains(index))
 				{
@@ -1091,13 +1110,8 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		{
 			synchronized(this.parentMap())
 			{
-				if(this.parentMap().isReadOnly())
-				{
-					throw new BitmapIndicesException(
-						"Cannot update indexer \"" + indexer.name() + "\": the parent GigaMap is read-only.",
-						this
-					);
-				}
+				this.ensureMutable("update indexer \"" + indexerName(indexer) + "\"");
+
 				final String                     name     = indexer.name();
 				final BitmapIndex.Internal<E, ?> existing = this.bitmapIndices.get(name);
 				if(existing == null)
@@ -1168,12 +1182,12 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		{
 			synchronized(this.parentMap())
 			{
-				this.ensureMutable();
+				this.ensureMutable("add indices");
 				for(final Indexer<? super E, ?> indexer : indexers)
 				{
 					this.validateIndexToAdd(indexer);
 				}
-				
+
 				for(final Indexer<? super E, ?> indexer : indexers)
 				{
 					final BitmapIndex.Internal<E, ?> index = indexer.createFor(this);
@@ -1181,7 +1195,7 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 				}
 				this.rebuildCache();
 			}
-			
+
 			return this;
 		}
 		
@@ -1444,7 +1458,7 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 
 			synchronized(this.parentMap())
 			{
-				this.ensureMutable();
+				this.ensureMutable("set identity indices");
 				for(final IndexIdentifier<? super E, ?> i : identityIndices)
 				{
 					final BitmapIndex<E, ?> index = i.resolveFor(this);
@@ -1495,12 +1509,29 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		
 		final <I> BitmapIndex<E, I> ensureBitmapIndex(final Indexer<? super E, I> indexer)
 		{
-			BitmapIndex<E, I> index = this.get(indexer.keyType(), indexer.name());
-			if(index == null)
+			synchronized(this.parentMap())
 			{
-				index = this.add(indexer);
+				BitmapIndex<E, I> index = this.get(indexer.keyType(), indexer.name());
+				if(index != null)
+				{
+					// Already present: no structural change, so the mutability guard is deliberately not
+					// reached. This keeps ensure() a no-op on a read-only map, letting a read-only replica run
+					// the identical startup schema declaration.
+					return index;
+				}
+
+				this.ensureMutable("add index \"" + indexerName(indexer) + "\"");
+
+				// The guard may have released the parent-map monitor while waiting for foreign readers, so
+				// another thread may have registered the index meanwhile. Re-check instead of letting
+				// #validateIndexToAdd turn an idempotent ensure() into a "name already taken" failure.
+				index = this.get(indexer.keyType(), indexer.name());
+
+				return index != null
+					? index
+					: this.internalAddIndex(indexer, true)
+				;
 			}
-			return index;
 		}
 		
 		@Override
@@ -1589,28 +1620,38 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		{
 			synchronized(this.parentMap())
 			{
-				this.ensureMutable();
-				// Basic validation before changing any state.
-				for(final Indexer<? super E, ?> indexer : indexers)
-				{
-					this.validateIndexToAdd(indexer);
-				}
+				this.ensureMutable("add unique constraints");
 
-				// Building unique indices, their data and data-related validation.
-				final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices = EqHashTable.New();
-				this.buildUniqueIndices(indexers, indices);
-				this.buildIndexDataAndValidateUniqueness(indices);
-				
-				// When everything is guaranteed to be valid and consistent, the indices are actually added.
-				for(final BitmapIndex.Internal<E, ?> index : indices.values())
-				{
-					this.internalAddUniqueConstraint(index);
-					this.internalAddBitmapIndex(index);
-				}
-				this.rebuildCache();
+				this.internalAddUniqueConstraints(indexers);
 			}
 
 			return this;
+		}
+
+		/**
+		 * Registers the given indexers as unique constraints without checking mutability. Callers must have
+		 * passed {@link #ensureMutable(String)} and must still hold the parent-map monitor.
+		 */
+		private void internalAddUniqueConstraints(final Iterable<? extends Indexer<? super E, ?>> indexers)
+		{
+			// Basic validation before changing any state.
+			for(final Indexer<? super E, ?> indexer : indexers)
+			{
+				this.validateIndexToAdd(indexer);
+			}
+
+			// Building unique indices, their data and data-related validation.
+			final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices = EqHashTable.New();
+			this.buildUniqueIndices(indexers, indices);
+			this.buildIndexDataAndValidateUniqueness(indices);
+
+			// When everything is guaranteed to be valid and consistent, the indices are actually added.
+			for(final BitmapIndex.Internal<E, ?> index : indices.values())
+			{
+				this.internalAddUniqueConstraint(index);
+				this.internalAddBitmapIndex(index);
+			}
+			this.rebuildCache();
 		}
 
 		@Override
@@ -1618,16 +1659,35 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		{
 			synchronized(this.parentMap())
 			{
-				// registry key is the indexer's name (a unique constraint is registered under index.name())
-				final BitmapIndex.Internal<E, ?> existing = this.bitmapIndices.get(indexer.name());
-				if(existing != null && this.uniqueConstraints != null && this.uniqueConstraints.contains(existing))
+				if(this.isRegisteredUniqueConstraint(indexer))
 				{
-					// already registered as a unique constraint -> idempotent no-op
+					// Already registered as a unique constraint -> idempotent no-op. No structural change, so
+					// the mutability guard is deliberately not reached (see #ensureBitmapIndex).
 					return this;
 				}
+
+				this.ensureMutable("add unique constraint \"" + indexerName(indexer) + "\"");
+
+				// The guard may have released the parent-map monitor while waiting for foreign readers, so
+				// re-check before creating the constraint (see #ensureBitmapIndex).
+				if(this.isRegisteredUniqueConstraint(indexer))
+				{
+					return this;
+				}
+
 				// create + validate against existing data (throws if the name is taken by a non-unique index)
-				return this.addUniqueConstraint(indexer);
+				this.internalAddUniqueConstraints(X.Constant(indexer));
+
+				return this;
 			}
+		}
+
+		private boolean isRegisteredUniqueConstraint(final Indexer<? super E, ?> indexer)
+		{
+			// registry key is the indexer's name (a unique constraint is registered under index.name())
+			final BitmapIndex.Internal<E, ?> existing = this.bitmapIndices.get(indexer.name());
+
+			return existing != null && this.uniqueConstraints != null && this.uniqueConstraints.contains(existing);
 		}
 
 		private void buildUniqueIndices(

@@ -2298,6 +2298,15 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			level2.markChanged(level2Index);
 		}
 
+		@Override
+		public final synchronized void internalEnsureMutability()
+		{
+			// Index groups perform structural changes on this map's behalf, so they must use the very same
+			// check (including the wait for foreign readers) that an entity write uses. See the interface
+			// declaration for the contract, especially the monitor-release-while-waiting part.
+			this.ensureMutability();
+		}
+
 		private void ensureMutability()
 		{
 			while(this.checkingIsReadOnly())
@@ -3315,8 +3324,41 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	public interface Internal<E> extends GigaMap<E>
 	{
 		public void internalReportIndexGroupStateChange(IndexGroup<E> indexGroup);
-		
+
 		public void internalReportConstraintsStateChange();
+
+		/**
+		 * Ensures that this {@link GigaMap} may currently be modified structurally, applying exactly the same
+		 * classification of a read-only hold that entity mutation applies. Intended for index groups, which
+		 * perform structural changes on the map's behalf and must not have different concurrency semantics
+		 * than an entity write.
+		 * <p>
+		 * A read-only hold is classified as follows:
+		 * <ul>
+		 * <li>an explicit {@link #markReadOnly()} throws immediately;</li>
+		 * <li>an in-progress {@link #iterate(Consumer)} / {@link #iterateIndexed(EntryConsumer)} or query
+		 *     execution throws immediately, because structural modification during iteration is not
+		 *     supported;</li>
+		 * <li>an open reader held by the <i>calling</i> thread throws immediately, because waiting for it
+		 *     would deadlock (the blocked thread is the only one that could close it);</li>
+		 * <li>open readers held only by <i>other</i> threads make this method <b>block</b> until they are
+		 *     closed.</li>
+		 * </ul>
+		 * <p>
+		 * <b>Must be called while holding this instance's monitor</b>, and the caller must keep holding it
+		 * until the structural change is complete: the monitor is what keeps new readers out (reader
+		 * registration is {@code synchronized} on this instance), so releasing it in between would let a
+		 * reader slip in before the mutation.
+		 * <p>
+		 * <b>While blocking, this method releases the caller's monitor hold entirely</b> - including
+		 * re-entrant holds, as {@link Object#wait()} performs as many unlock actions as the thread has
+		 * matching lock actions. Any state the caller read before calling this method may therefore be stale
+		 * once it returns, and must be re-checked.
+		 *
+		 * @throws IllegalStateException if the map is explicitly read-only, is being iterated, or the calling
+		 *         thread itself holds an open reader
+		 */
+		public void internalEnsureMutability();
 	}
 
 	
