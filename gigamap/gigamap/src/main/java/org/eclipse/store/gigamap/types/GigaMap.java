@@ -2318,8 +2318,16 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				}
 				catch(final InterruptedException e)
 				{
+					// Restore the interrupt status the catch consumed: the caller aborts with an exception
+					// either way, but code further up (an executor's task loop, a shutdown handler) must
+					// still be able to observe that this thread was interrupted.
+					Thread.currentThread().interrupt();
+
+					// Distinct from the read-only messages above: the map may well be mutable: this thread
+					// just stopped waiting for it. Index groups reach this via #internalEnsureMutability.
 					throw new IllegalStateException(
-						XChars.systemString(this) + " is not mutable. (readOnlyCount " + this.readOnlyCount + ")",
+						"Interrupted while waiting for " + XChars.systemString(this)
+						+ " to become mutable. (readOnlyCount " + this.readOnlyCount + ")",
 						e
 					);
 				}

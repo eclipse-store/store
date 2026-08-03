@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
@@ -439,6 +440,83 @@ public class IndexRegistrationReadOnlyTest
 		assertEquals(threadCount, results.size());
 		final BitmapIndex<Item, String> registered = map.index().bitmap().get("other");
 		results.forEach(index -> assertSame(registered, index));
+	}
+
+
+	///////////////////////////////////////////////////////////////////////////
+	// interruption of the new wait //
+	/////////////////////////////////
+
+	@Test
+	void interruptingAWaitingIndexRegistrationPreservesInterruptStatus()
+	{
+		final GigaMap<Item> map = newMap();
+
+		final CountDownLatch             readerOpened = new CountDownLatch(1);
+		final CountDownLatch             releaseReader = new CountDownLatch(1);
+		final CountDownLatch             writerDone   = new CountDownLatch(1);
+		final AtomicReference<Throwable> writerError  = new AtomicReference<>();
+		final AtomicBoolean              stillInterrupted = new AtomicBoolean();
+
+		final Thread holder = new Thread(() ->
+		{
+			try(final GigaIterator<Item> reader = map.iterator())
+			{
+				reader.hasNext();
+				readerOpened.countDown();
+				releaseReader.await(30, TimeUnit.SECONDS);
+			}
+			catch(final Throwable t)
+			{
+				// ignored: the holder is only a vehicle for the read-only hold
+			}
+		}, "reader-holder");
+
+		final Thread writer = new Thread(() ->
+		{
+			try
+			{
+				map.index().bitmap().ensure(OTHER);
+			}
+			catch(final Throwable t)
+			{
+				writerError.set(t);
+				// Interrupting a blocked writer must not swallow the interrupt status: code further up
+				// (an executor task loop, a shutdown handler) still has to be able to see it.
+				stillInterrupted.set(Thread.currentThread().isInterrupted());
+			}
+			finally
+			{
+				writerDone.countDown();
+			}
+		}, "index-writer");
+
+		assertTimeoutPreemptively(Duration.ofSeconds(30), () ->
+		{
+			holder.start();
+			assertTrue(readerOpened.await(10, TimeUnit.SECONDS));
+
+			writer.start();
+			// Registration is now blocked in the guard's wait(); interrupt it there.
+			assertFalse(writerDone.await(500, TimeUnit.MILLISECONDS), "the registration must be waiting");
+			writer.interrupt();
+			assertTrue(writerDone.await(10, TimeUnit.SECONDS), "the interrupt must break the wait");
+
+			releaseReader.countDown();
+			holder.join(10_000);
+		});
+
+		assertInstanceOf(BitmapIndicesException.class, writerError.get());
+		assertInstanceOf(IllegalStateException.class, writerError.get().getCause());
+		assertTrue(
+			writerError.get().getCause().getMessage().contains("Interrupted"),
+			() -> "the cause must name the interrupt, not claim the map is read-only: "
+				+ writerError.get().getCause().getMessage()
+		);
+		assertTrue(stillInterrupted.get(), "the interrupt status must be restored before throwing");
+
+		// The aborted registration left no half-registered index behind.
+		assertNull(map.index().bitmap().get("other"));
 	}
 
 
