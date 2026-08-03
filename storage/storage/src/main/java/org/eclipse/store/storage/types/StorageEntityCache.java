@@ -19,6 +19,7 @@ import static org.eclipse.serializer.math.XMath.positive;
 
 import static org.eclipse.serializer.util.X.notNull;
 
+import java.lang.ref.Reference;
 import java.nio.ByteBuffer;
 
 import org.eclipse.serializer.collections.EqHashEnum;
@@ -1551,16 +1552,24 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			final long storageBackset    = chunkStoragePosition - chunkStartAddress;
 			final long chunkBoundAddress = chunkStartAddress    + chunkLength      ;
 
-			// chunk's entities are iterated, put into the cache and have their current storage positions set/updated
-			for(long adr = chunkStartAddress; adr < chunkBoundAddress; adr += Binary.getEntityLengthRawValue(adr))
+			try
 			{
-				final StorageEntity.Default entity = this.putEntity(adr);
-				this.markEntityForChangedData(entity);
-				entity.updateStorageInformation(
-						X.checkArrayRange(Binary.getEntityLengthRawValue(adr)),
-						validateStoragePosition(entity, storageBackset + adr)
-				);
-				file.appendEntry(entity);
+				// chunk's entities are iterated, put into the cache and have their current storage positions set/updated
+				for(long adr = chunkStartAddress; adr < chunkBoundAddress; adr += Binary.getEntityLengthRawValue(adr))
+				{
+					final StorageEntity.Default entity = this.putEntity(adr);
+					this.markEntityForChangedData(entity);
+					entity.updateStorageInformation(
+							X.checkArrayRange(Binary.getEntityLengthRawValue(adr)),
+							validateStoragePosition(entity, storageBackset + adr)
+					);
+					file.appendEntry(entity);
+				}
+			}
+			finally
+			{
+				// the buffer must stay strongly reachable while its raw memory is read via the extracted address.
+				Reference.reachabilityFence(chunk);
 			}
 		}
 

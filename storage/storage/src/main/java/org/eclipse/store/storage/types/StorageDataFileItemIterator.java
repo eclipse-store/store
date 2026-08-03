@@ -15,6 +15,7 @@ package org.eclipse.store.storage.types;
  */
 
 import java.io.IOException;
+import java.lang.ref.Reference;
 import java.nio.ByteBuffer;
 
 import org.eclipse.serializer.afs.types.AReadableFile;
@@ -253,6 +254,9 @@ public interface StorageDataFileItemIterator
 						itemProcessor
 					);
 					currentFilePosition += progress;
+
+					// the buffer must stay strongly reachable while its raw memory is read via the extracted address.
+					Reference.reachabilityFence(buffer);
 				}
 			}
 			catch(final Exception e)

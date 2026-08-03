@@ -16,6 +16,7 @@ package org.eclipse.store.storage.types;
 
 import static org.eclipse.serializer.util.X.notNull;
 
+import java.lang.ref.Reference;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
@@ -178,55 +179,63 @@ public interface StorageMetaRecordRegistry
 			final long                        chunkStart
 		)
 		{
-			// Corrupt-input guard: the envelope (LENGTH 8B + META_MARKER 2B + KIND 2B = 12B) must be fully
-			// resident before we read the marker/KIND. An entry starting within fewer than 12 bytes of the
-			// buffer end cannot be a meta record (reading its marker would run past the buffer), so treat it
-			// as a legacy opaque gap. Only fires on a truncated/corrupted file.
-			final long bufferBoundAddress = XMemory.getDirectByteBufferAddress(buffer) + buffer.limit();
-			if(address + StorageMetaRecord.OFFSET_PAYLOAD > bufferBoundAddress)
+			try
 			{
-				return chunkStart;
-			}
+				// Corrupt-input guard: the envelope (LENGTH 8B + META_MARKER 2B + KIND 2B = 12B) must be fully
+				// resident before we read the marker/KIND. An entry starting within fewer than 12 bytes of the
+				// buffer end cannot be a meta record (reading its marker would run past the buffer), so treat it
+				// as a legacy opaque gap. Only fires on a truncated/corrupted file.
+				final long bufferBoundAddress = XMemory.getDirectByteBufferAddress(buffer) + buffer.limit();
+				if(address + StorageMetaRecord.OFFSET_PAYLOAD > bufferBoundAddress)
+				{
+					return chunkStart;
+				}
 
-			if(!StorageMetaRecord.isMetaRecord(address))
+				if(!StorageMetaRecord.isMetaRecord(address))
+				{
+					return chunkStart; // legacy gap — chunk boundary unchanged
+				}
+
+				final long                     kind    = StorageMetaRecord.kindOf(address);
+				final StorageMetaRecordHandler handler = this.handlersByKind.get(kind);
+				if(handler != null)
+				{
+					return handler.onLoad(file, buffer, address, chunkStart);
+				}
+
+				// unknown KIND — the reaction is applied (and gated) by the reporter; how the record is accounted
+				// then depends on whether the file's FileHeaderV1 has already been parsed (chunkChecksumKind != 0).
+				// FileHeaderV1 is by format the file's first entry, so once it is parsed every later meta record is
+				// reached with a non-zero kind, and a parsed header always carries a non-zero algorithm kind (the
+				// same invariant FileHeaderHandler and onFileComplete rely on).
+				this.reporter.onUnknownKind(file.number(), kind);
+				if(file.chunkChecksumKind() == 0L)
+				{
+					// No header parsed yet: an unknown record at the header position is a corrupted / lost
+					// FileHeaderV1 (its KIND garbled while the META_MARKER survived), NOT a forward-compat record.
+					// Leave the chunk boundary unadvanced so the following covering record's stored-chunk-start
+					// cross-check surfaces the drift (CHUNK_BOUNDARY_MISMATCH) instead of the corrupted file loading
+					// silently. (Header-less legacy / off files reach here too, but carry no covering records, so
+					// nothing is mis-flagged.)
+					return chunkStart;
+				}
+
+				// Header already parsed: this is a genuine forward-compat record in a checksummed file. Account it
+				// like every other meta record so the chunk bookkeeping stays consistent — advance the chunk boundary
+				// past the record (so a later covering record's stored start still matches the walker's cursor instead
+				// of raising a false CHUNK_BOUNDARY_MISMATCH / UNCOVERED_DATA) and register its bytes as meta overhead
+				// (so they are not mis-classified as reclaimable legacy gap by metaLength() / dataFillRatio()). The
+				// magnitude of the envelope LENGTH is the whole record size; the caller already validated it is fully
+				// resident (|LENGTH| <= remaining).
+				final long recordLength = -XMemory.get_long(address + StorageMetaRecord.OFFSET_LENGTH);
+				file.registerMetaLength(recordLength);
+				return address + recordLength;
+			}
+			finally
 			{
-				return chunkStart; // legacy gap — chunk boundary unchanged
+				// the buffer must stay strongly reachable while its raw memory is read via the passed address.
+				Reference.reachabilityFence(buffer);
 			}
-
-			final long                     kind    = StorageMetaRecord.kindOf(address);
-			final StorageMetaRecordHandler handler = this.handlersByKind.get(kind);
-			if(handler != null)
-			{
-				return handler.onLoad(file, buffer, address, chunkStart);
-			}
-
-			// unknown KIND — the reaction is applied (and gated) by the reporter; how the record is accounted
-			// then depends on whether the file's FileHeaderV1 has already been parsed (chunkChecksumKind != 0).
-			// FileHeaderV1 is by format the file's first entry, so once it is parsed every later meta record is
-			// reached with a non-zero kind, and a parsed header always carries a non-zero algorithm kind (the
-			// same invariant FileHeaderHandler and onFileComplete rely on).
-			this.reporter.onUnknownKind(file.number(), kind);
-			if(file.chunkChecksumKind() == 0L)
-			{
-				// No header parsed yet: an unknown record at the header position is a corrupted / lost
-				// FileHeaderV1 (its KIND garbled while the META_MARKER survived), NOT a forward-compat record.
-				// Leave the chunk boundary unadvanced so the following covering record's stored-chunk-start
-				// cross-check surfaces the drift (CHUNK_BOUNDARY_MISMATCH) instead of the corrupted file loading
-				// silently. (Header-less legacy / off files reach here too, but carry no covering records, so
-				// nothing is mis-flagged.)
-				return chunkStart;
-			}
-
-			// Header already parsed: this is a genuine forward-compat record in a checksummed file. Account it
-			// like every other meta record so the chunk bookkeeping stays consistent — advance the chunk boundary
-			// past the record (so a later covering record's stored start still matches the walker's cursor instead
-			// of raising a false CHUNK_BOUNDARY_MISMATCH / UNCOVERED_DATA) and register its bytes as meta overhead
-			// (so they are not mis-classified as reclaimable legacy gap by metaLength() / dataFillRatio()). The
-			// magnitude of the envelope LENGTH is the whole record size; the caller already validated it is fully
-			// resident (|LENGTH| <= remaining).
-			final long recordLength = -XMemory.get_long(address + StorageMetaRecord.OFFSET_LENGTH);
-			file.registerMetaLength(recordLength);
-			return address + recordLength;
 		}
 
 		@Override

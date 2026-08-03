@@ -14,6 +14,7 @@ package org.eclipse.store.storage.types;
  * #L%
  */
 
+import java.lang.ref.Reference;
 import java.nio.ByteBuffer;
 
 import org.eclipse.serializer.collections.types.XGettingEnum;
@@ -56,14 +57,22 @@ public interface StorageRequestTaskImportDataByteBuffers extends StorageRequestT
 		protected void iterateSource(final ByteBuffer buffer, final ItemAcceptor itemAcceptor)
 		{
 			final long address = XMemory.getDirectByteBufferAddress(buffer);
-	    	BinaryEntityRawDataIterator.New().iterateEntityRawData(
-	    		address,
-	    		address + buffer.limit(),
-	    		(entityStartAddress, dataBoundAddress) -> itemAcceptor.accept(
-	    			entityStartAddress                   , // start is the same
-	    			dataBoundAddress - entityStartAddress  // map to available item length
-	    		)
-	    	);
+			try
+			{
+				BinaryEntityRawDataIterator.New().iterateEntityRawData(
+					address,
+					address + buffer.limit(),
+					(entityStartAddress, dataBoundAddress) -> itemAcceptor.accept(
+						entityStartAddress                   , // start is the same
+						dataBoundAddress - entityStartAddress  // map to available item length
+					)
+				);
+			}
+			finally
+			{
+				// the buffer must stay strongly reachable while its raw memory is read via the extracted address.
+				Reference.reachabilityFence(buffer);
+			}
 		}
 
 	}
