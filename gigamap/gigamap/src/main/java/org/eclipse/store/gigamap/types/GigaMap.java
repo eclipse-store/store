@@ -934,8 +934,9 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * storer.commit();      // one commit, atomic across all of the above
 	 * }</pre>
 	 * What is covered is exactly what {@link #store()} covers - the indices, the segments, the constraints,
-	 * and entities mutated through {@link #update} or {@link #apply}. Entities mutated directly are NOT
-	 * covered and leave the indices stale, as described on {@link #store()}.
+	 * and entities mutated through {@link #update(long, Consumer)} or {@link #apply(long, Function)}.
+	 * Entities mutated directly are NOT covered and leave the indices stale, as described on
+	 * {@link #store()}.
 	 * <p>
 	 * <b>Note on concurrency:</b><br>
 	 * The lock this method holds spans its own work only. With a {@link Persister} that is the whole store, as

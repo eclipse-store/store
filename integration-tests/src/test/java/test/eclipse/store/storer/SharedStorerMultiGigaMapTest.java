@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.nio.file.Path;
 
+import org.eclipse.serializer.persistence.types.PersistenceStoring;
 import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.IndexerString;
@@ -29,10 +30,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Coverage for {@link GigaMap#store(Storer)}: several {@link GigaMap}s registered with one
- * {@link Storer} and committed once, which is the only way to make a change spanning more than one
- * {@link GigaMap} atomic - {@link GigaMap#store()} produces one commit per map, with no atomicity
- * between them.
+ * Coverage for {@link GigaMap#store(PersistenceStoring)} when a {@link Storer} is passed: several
+ * {@link GigaMap}s registered with one {@link Storer} and committed once, which is the only way to make a
+ * change spanning more than one {@link GigaMap} atomic - {@link GigaMap#store()} produces one commit per
+ * map, with no atomicity between them.
  * <p>
  * The properties held here are what a caller grouping maps into one commit depends on: that
  * registration covers the entities, the indices, {@link GigaMap#set(long, Object)} replacements and
@@ -118,7 +119,7 @@ public class SharedStorerMultiGigaMapTest
     }
 
     /**
-     * The negative case, and the one that distinguishes this overload from {@link GigaMap#store()}:
+     * The negative case, and what distinguishes passing a {@link Storer} from {@link GigaMap#store()}:
      * registration alone must persist nothing. Asserted after a shutdown and a reopen from a fresh
      * manager, so it is disk state being read and not the live in-memory graph.
      */
