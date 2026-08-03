@@ -18,6 +18,7 @@ import static org.eclipse.serializer.util.X.checkArrayRange;
 import static org.eclipse.serializer.util.X.notNull;
 import static org.eclipse.serializer.util.X.toBytes;
 
+import java.lang.ref.Reference;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -226,31 +227,39 @@ public interface StorageChunkChecksumCalculator
 			final long                        chunkStart
 		)
 		{
-			// Hostile/corrupt-input guard: the full 46 B header must be resident before we read its
-			// payload (a truncated header would read past the buffer). Report-and-skip on overrun.
-			final long bufferBoundAddress = XMemory.getDirectByteBufferAddress(buffer) + buffer.limit();
-			if(address + StorageMetaRecord.LENGTH_FILEHEADERV1 > bufferBoundAddress)
+			try
 			{
-				this.reporter.onUnknownKind(file.number(), StorageMetaRecord.KIND_FileHeaderV1);
-				return chunkStart;
-			}
+				// Hostile/corrupt-input guard: the full 46 B header must be resident before we read its
+				// payload (a truncated header would read past the buffer). Report-and-skip on overrun.
+				final long bufferBoundAddress = XMemory.getDirectByteBufferAddress(buffer) + buffer.limit();
+				if(address + StorageMetaRecord.LENGTH_FILEHEADERV1 > bufferBoundAddress)
+				{
+					this.reporter.onUnknownKind(file.number(), StorageMetaRecord.KIND_FileHeaderV1);
+					return chunkStart;
+				}
 
-			// By format there is exactly one FileHeaderV1 per file, its first entry. A second/misplaced one
-			// (non-zero cached kind ⇒ a header was already parsed) is anomalous: do NOT let it silently
-			// re-seed the file's chunk-checksum kind / chain tip (which would rebase verification of every
-			// following chunk). Report it and skip past, accounting its bytes as meta.
-			if(file.chunkChecksumKind() != 0L)
-			{
-				this.reporter.onUnknownKind(file.number(), StorageMetaRecord.KIND_FileHeaderV1);
+				// By format there is exactly one FileHeaderV1 per file, its first entry. A second/misplaced one
+				// (non-zero cached kind ⇒ a header was already parsed) is anomalous: do NOT let it silently
+				// re-seed the file's chunk-checksum kind / chain tip (which would rebase verification of every
+				// following chunk). Report it and skip past, accounting its bytes as meta.
+				if(file.chunkChecksumKind() != 0L)
+				{
+					this.reporter.onUnknownKind(file.number(), StorageMetaRecord.KIND_FileHeaderV1);
+					file.registerMetaLength(StorageMetaRecord.LENGTH_FILEHEADERV1);
+					return address + StorageMetaRecord.LENGTH_FILEHEADERV1;
+				}
+
+				final FileHeaderV1Payload header = StorageMetaRecord.readFileHeaderV1(address);
+				file.setFileHeaderV1(header.chunkChecksumKind(), header.chainRoot());
+				// Account the header's bytes as meta (not gap) so dataFillRatio treats it as useful overhead.
 				file.registerMetaLength(StorageMetaRecord.LENGTH_FILEHEADERV1);
 				return address + StorageMetaRecord.LENGTH_FILEHEADERV1;
 			}
-
-			final FileHeaderV1Payload header = StorageMetaRecord.readFileHeaderV1(address);
-			file.setFileHeaderV1(header.chunkChecksumKind(), header.chainRoot());
-			// Account the header's bytes as meta (not gap) so dataFillRatio treats it as useful overhead.
-			file.registerMetaLength(StorageMetaRecord.LENGTH_FILEHEADERV1);
-			return address + StorageMetaRecord.LENGTH_FILEHEADERV1;
+			finally
+			{
+				// the buffer must stay strongly reachable while its raw memory is read via the passed address.
+				Reference.reachabilityFence(buffer);
+			}
 		}
 	}
 
@@ -290,48 +299,56 @@ public interface StorageChunkChecksumCalculator
 			final long                        chunkStart
 		)
 		{
-			final long      kind     = StorageMetaRecord.kindOf(address);
-			final Algorithm verifier = this.algorithmsByKind.get(kind);
-			if(verifier == null)
+			try
 			{
-				// This handler is registered for a KIND with no algorithm (registry/map drift) or the
-				// on-disk KIND is corrupt: cannot verify — report and skip (chunk boundary unchanged).
-				this.reporter.onUnknownKind(file.number(), kind);
-				return chunkStart;
-			}
-
-			// Hostile/corrupt-input guard: the full fixed-size record must be resident before we read the
-			// stored checksum (a truncated record would read past the buffer). Report-and-skip on overrun.
-			final long bufferBoundAddress = XMemory.getDirectByteBufferAddress(buffer) + buffer.limit();
-			if(address + verifier.recordLength() > bufferBoundAddress)
-			{
-				this.reporter.onUnknownKind(file.number(), kind);
-				return chunkStart;
-			}
-
-			final boolean chained = verifier.isChained();
-			if(this.policy.verify())
-			{
-				// shared verify core; on a chained kind the per-file running tip is the seed in and the tip out.
-				final byte[] tip = verifyChunk(
-					file.number(), buffer, address, chunkStart, verifier,
-					chained ? file.chainTip() : null, this.reporter
-				);
-				if(chained)
+				final long      kind     = StorageMetaRecord.kindOf(address);
+				final Algorithm verifier = this.algorithmsByKind.get(kind);
+				if(verifier == null)
 				{
-					file.setChainTip(tip);
+					// This handler is registered for a KIND with no algorithm (registry/map drift) or the
+					// on-disk KIND is corrupt: cannot verify — report and skip (chunk boundary unchanged).
+					this.reporter.onUnknownKind(file.number(), kind);
+					return chunkStart;
 				}
+
+				// Hostile/corrupt-input guard: the full fixed-size record must be resident before we read the
+				// stored checksum (a truncated record would read past the buffer). Report-and-skip on overrun.
+				final long bufferBoundAddress = XMemory.getDirectByteBufferAddress(buffer) + buffer.limit();
+				if(address + verifier.recordLength() > bufferBoundAddress)
+				{
+					this.reporter.onUnknownKind(file.number(), kind);
+					return chunkStart;
+				}
+
+				final boolean chained = verifier.isChained();
+				if(this.policy.verify())
+				{
+					// shared verify core; on a chained kind the per-file running tip is the seed in and the tip out.
+					final byte[] tip = verifyChunk(
+						file.number(), buffer, address, chunkStart, verifier,
+						chained ? file.chainTip() : null, this.reporter
+					);
+					if(chained)
+					{
+						file.setChainTip(tip);
+					}
+				}
+				else if(chained)
+				{
+					// Not verifying, but a chained file must still advance its per-file tip during the load
+					// walk so that writes appended to this (head) file after init continue the chain. The tip
+					// after chunk i is simply that chunk's stored hash — read it, no recompute needed.
+					file.setChainTip(verifier.readStoredChecksumBytes(address));
+				}
+				// Account the chunk-checksum record's bytes as meta (not gap).
+				file.registerMetaLength(verifier.recordLength());
+				return address + verifier.recordLength();
 			}
-			else if(chained)
+			finally
 			{
-				// Not verifying, but a chained file must still advance its per-file tip during the load
-				// walk so that writes appended to this (head) file after init continue the chain. The tip
-				// after chunk i is simply that chunk's stored hash — read it, no recompute needed.
-				file.setChainTip(verifier.readStoredChecksumBytes(address));
+				// the buffer must stay strongly reachable while its raw memory is read via the passed address.
+				Reference.reachabilityFence(buffer);
 			}
-			// Account the chunk-checksum record's bytes as meta (not gap).
-			file.registerMetaLength(verifier.recordLength());
-			return address + verifier.recordLength();
 		}
 	}
 
@@ -372,48 +389,56 @@ public interface StorageChunkChecksumCalculator
 		final StorageChecksumAnomalyReporter reporter
 	)
 	{
-		final boolean chained            = verifier.isChained();
-		final long    bufferStartAddress = XMemory.getDirectByteBufferAddress(buffer);
-
-		// Framing cross-check: the record's stored chunk start vs the boundary the walk reconstructed from entity
-		// LENGTH prefixes. A corrupted LENGTH leaves the stored start != cursor, or drives chunkStart past the
-		// record (negative chunk length). Either way [chunkStart, address) is wrong: report and re-anchor rather
-		// than hash it (and never slice a negative length).
-		final int  storedChunkStart = StorageMetaRecord.readChunkChecksumChunkStart(address);
-		final long walkerChunkStart = chunkStart - bufferStartAddress;
-		final long recordOffset     = address - bufferStartAddress;
-		if(!isChunkFramingConsistent(storedChunkStart, walkerChunkStart, recordOffset))
+		try
 		{
-			reporter.onChunkBoundaryMismatch(fileNumber, recordOffset, storedChunkStart, walkerChunkStart);
-			return chained ? verifier.readStoredChecksumBytes(address) : inboundTip;
-		}
+			final boolean chained            = verifier.isChained();
+			final long    bufferStartAddress = XMemory.getDirectByteBufferAddress(buffer);
 
-		// Checksum the chunk in place: it is already resident in `buffer`, so slice that view rather than copying
-		// [chunkStart, address) into a fresh array. Dispatch by on-disk KIND, not the primary.
-		final ByteBuffer chunk    = XMemory.slice(buffer, walkerChunkStart, address - chunkStart);
-		final byte[]     expected = verifier.readStoredChecksumBytes(address);
-		// chained kinds fold the running tip (seeded from the header chainRoot, advanced per verified chunk) into
-		// the recompute, so reorder/insert/delete/substitute breaks here.
-		if(chained)
-		{
-			byte[] seed = inboundTip;
-			if(seed == null)
+			// Framing cross-check: the record's stored chunk start vs the boundary the walk reconstructed from entity
+			// LENGTH prefixes. A corrupted LENGTH leaves the stored start != cursor, or drives chunkStart past the
+			// record (negative chunk length). Either way [chunkStart, address) is wrong: report and re-anchor rather
+			// than hash it (and never slice a negative length).
+			final int  storedChunkStart = StorageMetaRecord.readChunkChecksumChunkStart(address);
+			final long walkerChunkStart = chunkStart - bufferStartAddress;
+			final long recordOffset     = address - bufferStartAddress;
+			if(!isChunkFramingConsistent(storedChunkStart, walkerChunkStart, recordOffset))
 			{
-				// Chained covering record but no parsed FileHeaderV1: the engine never writes one to a header-less
-				// file, so the header was lost/corrupted. Report it and verify against the initial seed so a real
-				// defect still surfaces as a checksum mismatch.
-				reporter.onMissingHeader(fileNumber);
-				seed = verifier.initialSeed();
+				reporter.onChunkBoundaryMismatch(fileNumber, recordOffset, storedChunkStart, walkerChunkStart);
+				return chained ? verifier.readStoredChecksumBytes(address) : inboundTip;
 			}
-			verifier.setChainTip(seed);
+
+			// Checksum the chunk in place: it is already resident in `buffer`, so slice that view rather than copying
+			// [chunkStart, address) into a fresh array. Dispatch by on-disk KIND, not the primary.
+			final ByteBuffer chunk    = XMemory.slice(buffer, walkerChunkStart, address - chunkStart);
+			final byte[]     expected = verifier.readStoredChecksumBytes(address);
+			// chained kinds fold the running tip (seeded from the header chainRoot, advanced per verified chunk) into
+			// the recompute, so reorder/insert/delete/substitute breaks here.
+			if(chained)
+			{
+				byte[] seed = inboundTip;
+				if(seed == null)
+				{
+					// Chained covering record but no parsed FileHeaderV1: the engine never writes one to a header-less
+					// file, so the header was lost/corrupted. Report it and verify against the initial seed so a real
+					// defect still surfaces as a checksum mismatch.
+					reporter.onMissingHeader(fileNumber);
+					seed = verifier.initialSeed();
+				}
+				verifier.setChainTip(seed);
+			}
+			final byte[] actual = verifier.computeChecksumBytes(chunk);
+			if(!Arrays.equals(actual, expected))
+			{
+				reporter.onChecksumMismatch(fileNumber, walkerChunkStart, StorageMetaRecord.kindOf(address), expected, actual);
+			}
+			// chained: continue from the stored tip (== recomputed on match), the basis the writer chained from.
+			return chained ? expected : inboundTip;
 		}
-		final byte[] actual = verifier.computeChecksumBytes(chunk);
-		if(!Arrays.equals(actual, expected))
+		finally
 		{
-			reporter.onChecksumMismatch(fileNumber, walkerChunkStart, StorageMetaRecord.kindOf(address), expected, actual);
+			// the buffer must stay strongly reachable while its raw memory is read via the passed address.
+			Reference.reachabilityFence(buffer);
 		}
-		// chained: continue from the stored tip (== recomputed on match), the basis the writer chained from.
-		return chained ? expected : inboundTip;
 	}
 
 
