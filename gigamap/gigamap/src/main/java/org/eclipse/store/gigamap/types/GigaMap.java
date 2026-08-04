@@ -2130,18 +2130,6 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			// only change state if there is an actual change in the entity data.
 			if(!this.equalator.equal(replacedEntity, entity))
 			{
-				if(replacedEntity == null)
-				{
-					/*
-					 * The slot is empty, so this id was removed: #removeById decremented the size and this
-					 * fills the slot again, which has to restore it. Without this the size stays one too low
-					 * for the rest of the map's life - and it is persisted state, so the drift survives a
-					 * restart. Every valid id below nextFreeId was handed out by #add, so an empty slot can
-					 * only mean a removal.
-					 */
-					this.baseSize++;
-				}
-
 				this.constraints.check(entityId, replacedEntity, entity);
 
 				/*
@@ -2151,6 +2139,23 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				 * whose keys the indices do not reflect.
 				 */
 				this.indices.internalUpdateIndices(entityId, replacedEntity, entity, this.constraints.custom());
+
+				if(replacedEntity == null)
+				{
+					/*
+					 * The slot is empty, so this id was removed: #removeById decremented the size and this
+					 * fills the slot again, which has to restore it. Without this the size stays one too low
+					 * for the rest of the map's life - and it is persisted state, so the drift survives a
+					 * restart. Every valid id below nextFreeId was handed out by #add, so an empty slot can
+					 * only mean a removal.
+					 *
+					 * Counted here rather than earlier, with the rest of the state changes and after everything
+					 * that can throw: the checks above and the index update are ordered so a throw leaves the
+					 * map observably unchanged, and a size that had already been incremented would break
+					 * exactly that.
+					 */
+					this.baseSize++;
+				}
 
 				level1.entities[level1Index] = entity;
 				level3.markChanged(level3Index);

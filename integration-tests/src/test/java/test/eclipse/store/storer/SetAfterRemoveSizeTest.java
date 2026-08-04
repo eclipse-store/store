@@ -17,6 +17,7 @@ package test.eclipse.store.storer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Path;
 
@@ -91,6 +92,59 @@ public class SetAfterRemoveSizeTest
         assertNotNull(fromDisk.get(a), "the restored entity survived");
         assertEquals(1L, fromDisk.query(NAME, "a").count(), "and is still indexed");
         reopened.shutdown();
+    }
+
+    /**
+     * A failed restore must not count. {@code internalSet} orders its work so that a throw leaves the map
+     * observably unchanged, and the size is part of that: incrementing it before the index update would leave
+     * the count raised while the slot and the indices were untouched - trading a size that was too low for one
+     * that is too high, on a path that already reports failure.
+     *
+     * <p>The failure comes from an indexer that throws while deriving the new entity's keys, which is the last
+     * user code {@code internalSet} runs before it commits to the change.
+     */
+    @Test
+    public void aRestoreThatThrowsDoesNotChangeTheSize(@TempDir final Path dir)
+    {
+        final EmbeddedStorageManager storage = EmbeddedStorage.start(dir);
+        final GigaMap<Item> map = storage.ensureRoot(
+            () -> GigaMap.<Item>Builder().withBitmapIndex(new ThrowingNameIndexer()).build());
+
+        final long a = map.add(new Item("a"));
+        map.add(new Item("b"));
+        map.store();
+        assertEquals(2L, map.size(), "two entities to start with");
+
+        map.removeById(a);
+        assertEquals(1L, map.size(), "the removal is accounted for");
+
+        assertThrows(RuntimeException.class, () -> map.set(a, new Item(POISON)),
+            "the indexer refuses this entity");
+
+        assertEquals(1L, map.size(), "a failed restore must leave the size as it was");
+        assertNull(map.get(a), "and the slot still empty");
+
+        // The map is still usable, and a successful restore still counts.
+        map.set(a, new Item("a"));
+        assertEquals(2L, map.size(), "a subsequent successful restore counts");
+
+        storage.shutdown();
+    }
+
+    private static final String POISON = "poison";
+
+    /** Refuses one particular value, to make the index update throw at the point that matters. */
+    static class ThrowingNameIndexer extends IndexerString.Abstract<Item>
+    {
+        @Override
+        protected String getString(final Item entity)
+        {
+            if (POISON.equals(entity.name))
+            {
+                throw new IllegalStateException("indexer refuses " + POISON);
+            }
+            return entity.name;
+        }
     }
 
     /** A plain replacement must not change the size - the slot was occupied, so nothing was restored. */
