@@ -635,7 +635,27 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 		@Override
 		public void changeInIndex(final long entityId, final ChangeHandler prevEntityHandler)
 		{
-			this.index.internalHandleChanged(((BinaryChangeHandler<?>)prevEntityHandler).keys, entityId, this.keys);
+			if(!(prevEntityHandler instanceof final BinaryChangeHandler<?> prevHandler))
+			{
+				/*
+				 * There is no previous state to read keys from: #getChangeHandler yields the
+				 * NullChangeChandler for a null previous entity, which is what GigaMap#set is handed when it
+				 * fills a slot that #removeById emptied (restoring an entity at its own id). Every other
+				 * ChangeHandler implementation copes with a foreign previous handler by routing the
+				 * de-indexing through #removeFromIndex instead of reading keys off it, so this does the same:
+				 * de-index whatever the previous handler stands for (nothing, for the null handler), then
+				 * treat the new keys as a plain addition. Formerly the cast below was unguarded and threw a
+				 * ClassCastException here.
+				 */
+				prevEntityHandler.removeFromIndex(entityId);
+
+				// no previous keys means no dispensable entries, so every 1 bit of the new keys is added.
+				this.index.internalHandleChanged(0L, entityId, this.keys);
+
+				return;
+			}
+
+			this.index.internalHandleChanged(prevHandler.keys, entityId, this.keys);
 		}
 		
 	}
