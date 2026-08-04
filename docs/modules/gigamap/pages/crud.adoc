@@ -43,6 +43,8 @@ gigaMap.addAll(newEntity1, newEntity2);
 gigaMap.addAll(collectionContainingNewEntities);
 ----
 
+`addAll` traverses the passed `Iterable` exactly once, so a lazily evaluated or single-use sequence - a stream (`stream::iterator`), a cursor adapter, or the weakly consistent view of a concurrent collection - is safe to pass. The entities are indexed exactly as they were added, so the indices can never diverge from the added entities, even if the passed sequence changes while it is being traversed.
+
 == Removing and Updating Entities
 
 When performing writing changes, first of all, the entities themselves have to be identified via the index. It is not a default lookup like a java.util.List does internally, by traversing all elements and comparing one by one, but a quick search via the index. The GigaMap is designed to contain vast amounts of data and uses lazy loading internally, so a one-by-one comparison could potentially take ages.

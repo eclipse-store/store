@@ -41,6 +41,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
@@ -142,11 +143,16 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * <p>
 	 * Null values are not allowed
 	 * <p>
+	 * The passed iterable is traversed exactly once, so a single-use iterable (e.g. stream-backed) is fine.
+	 * The elements are indexed exactly as they were added, so an iterable whose content may change while it is
+	 * being traversed (e.g. the weakly consistent view of a concurrent collection) can never make the indices
+	 * diverge from the added entities.
+	 * <p>
 	 * <b>Behavior on failure:</b> the operation is atomic in the same way as {@link #add(Object)}:
-	 * if a constraint is violated or an {@link Indexer} throws an exception for any of the
-	 * elements, all elements added so far by this call are rolled back and the exception is
-	 * rethrown; secondary cleanup failures are attached as suppressed exceptions and the affected
-	 * ids are skipped for future additions.
+	 * if an element is <code>null</code>, a constraint is violated or an {@link Indexer} throws an
+	 * exception for any of the elements, all elements added so far by this call are rolled back and
+	 * the exception is rethrown; secondary cleanup failures are attached as suppressed exceptions and
+	 * the affected ids are skipped for future additions.
 	 *
 	 * @param elements the elements to add
 	 * @return the last assigned id
@@ -2485,23 +2491,35 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		@Override
 		public final synchronized long addAll(final Iterable<? extends E> entities)
 		{
-			for(final E element : entities)
-			{
-				this.validateForCRUD(element);
-			}
 			this.ensureMutability();
 
 			final long currentId = this.nextFreeId();
 			try
 			{
+				/*
+				 * The only traversal of the passed Iterable: validation is fused into the adding loop so that
+				 * no element is ever seen twice. A single-use Iterable (stream-backed, or a cursor adapter
+				 * handing out the same iterator every time) is therefore perfectly valid input.
+				 * Validating inside the try block is intentional: a null element in the middle of the batch is
+				 * rolled back like any other mid-batch failure, leaving the map unchanged.
+				 */
 				for(final E element : entities)
 				{
+					this.validateForCRUD(element);
 					this.internalAdd(element);
 					this.addingLevel1Index++;
 				}
-				
-				this.indices.internalAddAll(currentId, entities);
-				
+
+				/*
+				 * The indices are fed from this map, not from the passed Iterable: the index fan-out traverses
+				 * its input once per index, so an Iterable whose content differs between traversals (e.g. the
+				 * weakly consistent view of a concurrent collection) would make the indices see a different
+				 * element sequence than the one added above. That would index entries at ids holding no entity
+				 * (aliasing a future entity once that id gets assigned) or leave added entities unindexed.
+				 * Reading the entities back by id makes the indexed sequence the added sequence by definition.
+				 */
+				this.indices.internalAddAll(currentId, this.viewEntities(currentId, this.nextFreeId()));
+
 				return this.nextFreeId() - 1;
 			}
 			catch(final Exception e)
@@ -2509,6 +2527,49 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				this.rollbackToEntityId(currentId, e);
 				throw e;
 			}
+		}
+
+		/**
+		 * Returns a re-traversable view of the entities in the id range [{@code firstEntityId}; {@code idBound}),
+		 * in id order. Every call to {@link Iterable#iterator()} yields the same element sequence, which is what
+		 * the index fan-out requires: it traverses its input once per index.
+		 * <p>
+		 * Deliberately resolves the entities via {@link #get(long)} instead of one of the iteration methods:
+		 * those enter the read-only state and register an active reader, which must not happen while a mutation
+		 * is in progress.
+		 */
+		private Iterable<E> viewEntities(final long firstEntityId, final long idBound)
+		{
+			return () -> new Iterator<>()
+			{
+				private long nextEntityId = firstEntityId;
+
+				@Override
+				public boolean hasNext()
+				{
+					return this.nextEntityId < idBound;
+				}
+
+				@Override
+				public E next()
+				{
+					if(this.nextEntityId >= idBound)
+					{
+						throw new NoSuchElementException();
+					}
+
+					final long entityId = this.nextEntityId++;
+					final E    entity   = GigaMap.Default.this.get(entityId);
+					if(entity == null)
+					{
+						// Unreachable unless the id accounting itself is broken. Reported instead of passed
+						// on, since a null entity would only surface as an obscure failure inside an indexer.
+						throw new IllegalStateException("Missing entity for id " + entityId + ".");
+					}
+
+					return entity;
+				}
+			};
 		}
 
 		private void rollbackToEntityId(final long requiredCurrentId, final Exception cause)
