@@ -302,7 +302,7 @@ Layout: 40 bytes, five object-id references.
 | 24 | `vectorizer` (`Vectorizer`) | User class; must be persistable by EclipseStore. |
 | 32 | `vectorStore` (`GigaMap<VectorEntry>`) | `null` if `vectorizer.isEmbedded()`. |
 
-Empty-instance creation: `new VectorIndex.Default<>()`. After `updateState` patches the five persistent fields, **`complete()` calls `instance.ensureIndexInitialized()`** — this is the seam where all transient state (builder, in-memory graph, disk manager, PQ manager, background task manager, searcher pools) is rebuilt or re-loaded.
+Empty-instance creation: `new VectorIndex.Default<>()`. After `updateState` patches the five persistent fields, **`complete()` calls `instance.initializeAfterLoad()`** — this is the seam where all transient state (builder, in-memory graph, disk manager, PQ manager, background task manager, searcher pools) is rebuilt or re-loaded. It deliberately does **not** rebuild the in-memory graph, because that rebuild iterates the parent GigaMap / vector store (a nested object-graph load) and must not run inside the enclosing load's `completeInstances` phase; the rebuild is deferred to the first search / mutation via `ensureGraphRebuilt()`.
 
 ### Persistent vs transient fields of `VectorIndex.Default`
 
@@ -350,7 +350,7 @@ sequenceDiagram
     ES->>H: updateState(data, instance, handler)
     H->>VI: XMemory.setObject(parent / name / configuration / vectorizer / vectorStore)
     ES->>H: complete(data, instance, handler)
-    H->>VI: ensureIndexInitialized()
+    H->>VI: initializeAfterLoad()
     VI->>VI: initializeIndex()
     alt PQ enabled
         VI->>PQM: new PQCompressionManager.Default(this, ...)
@@ -367,19 +367,24 @@ sequenceDiagram
             VI->>VI: incrementalMode = true<br/>diskDeletedOrdinals = newKeySet()
         else metadata mismatch / files missing
             DIM-->>VI: false
-            VI->>VI: rebuildGraphFromStore()
         end
-    else
-        VI->>VI: rebuildGraphFromStore()
     end
 
     VI->>VI: initializeSearcherPool()
     opt eventualIndexing or backgroundOptimization or backgroundPersistence
         VI->>BTM: new BackgroundTaskManager(this, ...)
     end
+    Note over VI: graph rebuild NOT done here —<br/>deferred to first access via<br/>ensureGraphRebuilt() → rebuildGraphFromStore()
 ```
 
-`ensureIndexInitialized()` is idempotent and guarded — it skips work when `builder != null` or when the disk graph is already loaded. It is called both from the binary handler `complete()` and from every method that needs the in-memory builder available.
+`ensureIndexInitialized()` is idempotent and guarded — it skips the transient setup when `builder != null` or when the disk graph is already loaded, and the graph rebuild when `graphRebuilt` or `incrementalMode` is already set. Every method that needs the in-memory builder available calls it; the binary handler `complete()` instead calls the rebuild-free `initializeAfterLoad()`.
+
+The two ways a graph gets populated are deliberately disjoint, so no entity is ever indexed twice (internal #123):
+
+| Origin | Populated by |
+|---|---|
+| Newly created via `VectorIndices#add` / `#ensure` | The back-fill in `VectorIndices.Default#internalAddVectorIndex` (`parent.iterateIndexed(index::internalAdd)`). The standard `VectorIndex.Default` constructor runs `initializeIndex()` only and publishes `graphRebuilt = true`, so the deferred rebuild cannot also populate this index. Rebuilding from the store is meaningful only for an index that *has* a store to rebuild, i.e. after a load — in embedded mode `rebuildGraphFromStore()` reads the parent map, so for a fresh index it would duplicate every entity the back-fill adds rather than being a harmless no-op. |
+| Deserialized | The deferred `ensureGraphRebuilt()` on first search / mutation / optimize. `internalAddVectorIndex` is not on the load path. |
 
 The disk-load branch flips `incrementalMode = true` only after `diskDeletedOrdinals` is initialized (safe-publication ordering). Search and mutation paths read `incrementalMode` as a `volatile` and rely on this ordering to never see a `null` `diskDeletedOrdinals`.
 
@@ -878,7 +883,7 @@ sequenceDiagram
     participant FS as filesystem
 
     ES->>H: create() / updateState() / complete()
-    H->>VI: ensureIndexInitialized()
+    H->>VI: initializeAfterLoad()
     VI->>VI: initializeIndex()<br/>(builder, in-memory graph, pqManager)
     alt configuration.onDisk()
         VI->>DIM: tryLoad()
@@ -908,12 +913,12 @@ sequenceDiagram
     alt tryLoad returned true
         VI->>VI: initializeSearcherPool()<br/>(disk pool + in-memory pool)
     else
-        VI->>VI: rebuildGraphFromStore()<br/>(iterate vectorStore or parentMap)
         VI->>VI: initializeSearcherPool()<br/>(in-memory pool only)
     end
     opt eventualIndexing OR backgroundOptimization OR backgroundPersistence
         VI->>VI: new BackgroundTaskManager
     end
+    Note over VI: first search / mutation / optimize:<br/>ensureGraphRebuilt() → rebuildGraphFromStore()<br/>(iterate vectorStore or parentMap);<br/>skipped while incrementalMode
 ```
 
 PQ "trained" is restored implicitly: the codebook lives inside the `FusedPQ` feature in the `.graph` file, so once the on-disk graph loads successfully, the PQ manager is marked trained without re-running training. If the disk load fails, the next `persistToDisk()` will re-train (assuming ≥ 256 vectors).
@@ -927,7 +932,7 @@ PQ "trained" is restored implicitly: the codebook lives inside the `FusedPQ` fea
 | Background indexing op throws | `processAllPendingIndexingOps` logs `error`, drops the op, continues. | Graph desync until next manual `optimize()`/`persistToDisk()` rebuilds. Exposed by `VectorIndexConcurrentStressTest`. |
 | PQ training throws | `trainPQ` logs and leaves `pqTrained=false`. | Next persist falls back to non-compressed `OnDiskGraphIndex.write()`. Will retry on the persist after that. |
 | Disk write IOException mid-`writeIndex` | Wrapped as `IORuntimeException` and propagated out of `doPersistToDisk`. The `.graph` may be partially written and `.meta` may be missing. | On next load, `verifyMetadata` fails (missing or mismatched .meta) → rebuild from source. |
-| Disk load IOException | Caught in `tryLoad`, logs warning, calls `close()`, returns `false`. | Caller (`initializeIndex`) falls through to `rebuildGraphFromStore`. |
+| Disk load IOException | Caught in `tryLoad`, logs warning, calls `close()`, returns `false`. | `initializeIndex` leaves `incrementalMode` false. On a loaded index the deferred `ensureGraphRebuilt()` then rebuilds from source on first access; a freshly created one is populated by the registration back-fill instead (see §6). |
 | Count-collision corruption | v2 metadata mismatch on load. | Rebuild from source via `rebuildGraphFromStore`. |
 | `persistOnShutdown=true` with no background features | Pre-`fa189228`: changes silently dropped. Post-fix: `close()` falls through to direct `doPersistToDisk()` call. | None needed — change is durable. |
 | `Vectorizer` returns `null` | `IllegalStateException` at insertion. | Hard fail — fix the vectorizer. |

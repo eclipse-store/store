@@ -809,7 +809,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // to the first search/mutation/optimize via ensureGraphRebuilt(), which runs it exactly once
         // under the parent GigaMap monitor (see there). Volatile: fast-path read lock-free; the actual
         // rebuild + set happens under synchronized(parentMap()). Also set true by the runtime rebuild
-        // in exitIncrementalMode() so it is not repeated.
+        // in exitIncrementalMode() so it is not repeated, and by the standard constructor, to keep the
+        // deferred rebuild from racing the one-time registration back-fill that populates a newly
+        // created index (see there).
         private transient volatile boolean                   graphRebuilt       ;
 
         // Incremental on-disk mode: after disk reload, use disk index for search
@@ -846,7 +848,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         /////////////////
 
         /**
-         * Standard constructor for creating a new index.
+         * Standard constructor for creating a new index. Sets up the transient state but leaves the graph
+         * empty: populating it with the entities the parent map already holds is the caller's job, done
+         * exactly once by {@code VectorIndices.Default#internalAddVectorIndex}.
          */
         Default(
             final VectorIndices<E>         parent       ,
@@ -870,11 +874,24 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     .build()
             ;
 
-            // Initialize builder lock early (before ensureIndexInitialized)
+            // Initialize builder lock early (before initializeIndex)
             this.builderLock         = new ReentrantReadWriteLock();
             this.deferredBuilderOps  = new ConcurrentLinkedQueue<>();
 
-            this.ensureIndexInitialized();
+            // Publish the one-shot rebuild guard right away, so the deferred rebuild never runs for an
+            // index created here: this one is populated by the back-fill in
+            // VectorIndices.Default#internalAddVectorIndex, immediately after construction, and that is
+            // its single population path - embedded and computed alike. A rebuild would not find an empty
+            // source and stay a no-op: in embedded mode rebuildGraphFromStore() reads the *parent map*, so
+            // it would create a node per existing entity and the back-fill would then add each one a second
+            // time - jvector rejects the duplicate with "Node 0 already exists" (internal #123). Rebuilding
+            // from the store is meaningful only for an index that has a store to rebuild, i.e. after a load.
+            // Set before initializeIndex() so a background task started there cannot observe a false flag
+            // and rebuild behind the back-fill.
+            this.graphRebuilt = true;
+
+            // Transient setup only - deliberately NOT ensureIndexInitialized(), see above.
+            this.initializeIndex();
         }
 
         /**

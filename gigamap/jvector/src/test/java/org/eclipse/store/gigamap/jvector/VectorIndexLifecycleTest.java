@@ -174,30 +174,30 @@ class VectorIndexLifecycleTest
 	@Test
 	void addIndex_fromOtherThread_waitsForOpenReader()
 	{
-		// The map is deliberately left empty: registering a vector index on a map that already contains
-		// entities trips an unrelated defect in the back-fill (the index is populated both by
-		// VectorIndex.Default's graph rebuild and by VectorIndices#internalAddVectorIndex, which fails with
-		// "Node 0 already exists"). The mutability guard under test runs before any of that.
 		final GigaMap<Doc> map = GigaMap.New();
 		final VectorIndices<Doc> vi = map.index().register(VectorIndices.Category());
+		addDocs(map);
 
 		// Registering a vector index is a structural write, so it must wait for a reader open on another
 		// thread instead of failing - exactly like an entity write does.
 		assertWaitsForForeignReader(map, () -> vi.add("emb", config(), new EmbeddingVectorizer()));
 
 		assertNotNull(vi.get("emb"));
+		// The entities that were already there must be back-filled exactly once (internal #123).
+		assertEquals(3, vi.get("emb").search(new float[]{1.0f, 0.0f, 0.0f}, 3).size());
 	}
 
 	@Test
 	void ensureIndex_fromOtherThread_waitsForOpenReader()
 	{
-		// see #addIndex_fromOtherThread_waitsForOpenReader on why the map stays empty
 		final GigaMap<Doc> map = GigaMap.New();
 		final VectorIndices<Doc> vi = map.index().register(VectorIndices.Category());
+		addDocs(map);
 
 		assertWaitsForForeignReader(map, () -> vi.ensure("emb", config(), new EmbeddingVectorizer()));
 
 		assertNotNull(vi.get("emb"));
+		assertEquals(3, vi.get("emb").search(new float[]{1.0f, 0.0f, 0.0f}, 3).size());
 	}
 
 	@Test
@@ -336,6 +336,37 @@ class VectorIndexLifecycleTest
 			final VectorIndices<Doc> vi = map.index().get(VectorIndices.Category());
 			assertNull(vi.get("emb"));   // removal persisted
 			assertEquals(3, map.size()); // entity data intact
+		}
+	}
+
+	/**
+	 * Registering the index <b>after</b> the entities exist - the natural ordering when a vector index is
+	 * added to an existing dataset - and then reloading: the back-filled graph has to survive persistence,
+	 * and the deferred post-load rebuild must not index the entities a second time (internal #123).
+	 */
+	@Test
+	void addIndex_onPopulatedMap_survivesReload(@TempDir final Path dir)
+	{
+		try(final EmbeddedStorageManager storage = EmbeddedStorage.start(dir))
+		{
+			final GigaMap<Doc> map = GigaMap.New();
+			storage.setRoot(map);
+			addDocs(map);
+
+			final VectorIndices<Doc> vi = map.index().register(VectorIndices.Category());
+			final VectorIndex<Doc> index = vi.add("emb", config(), new EmbeddingVectorizer());
+
+			assertEquals(3, index.search(new float[]{1.0f, 0.0f, 0.0f}, 3).size());
+			storage.storeRoot();
+		}
+
+		try(final EmbeddedStorageManager storage = EmbeddedStorage.start(dir))
+		{
+			final GigaMap<Doc> map = storage.root();
+			final VectorIndices<Doc> vi = map.index().get(VectorIndices.Category());
+
+			assertEquals(3, map.size());
+			assertEquals(3, vi.get("emb").search(new float[]{1.0f, 0.0f, 0.0f}, 3).size());
 		}
 	}
 }

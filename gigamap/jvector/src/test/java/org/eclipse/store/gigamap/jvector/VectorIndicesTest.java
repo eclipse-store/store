@@ -16,6 +16,9 @@ package org.eclipse.store.gigamap.jvector;
 
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -38,6 +41,43 @@ class VectorIndicesTest
         {
             return entity.embedding();
         }
+    }
+
+    /**
+     * Embedded-mode counterpart of {@link DocumentVectorizer}: the vector lives inside the entity, so
+     * the index has no vector store of its own and reads through to the parent map.
+     */
+    static class EmbeddedDocumentVectorizer extends Vectorizer<Document>
+    {
+        @Override
+        public float[] vectorize(final Document entity)
+        {
+            return entity.embedding();
+        }
+
+        @Override
+        public boolean isEmbedded()
+        {
+            return true;
+        }
+    }
+
+    private static VectorIndexConfiguration config()
+    {
+        return VectorIndexConfiguration.builder()
+            .dimension(3)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .build();
+    }
+
+    private static GigaMap<Document> populatedMap()
+    {
+        final GigaMap<Document> gigaMap = GigaMap.New();
+
+        gigaMap.add(new Document("doc1", new float[]{1.0f, 0.0f, 0.0f}));
+        gigaMap.add(new Document("doc2", new float[]{0.0f, 1.0f, 0.0f}));
+
+        return gigaMap;
     }
 
     @Test
@@ -374,6 +414,85 @@ class VectorIndicesTest
         final VectorSearchResult<Document> result = index.search(new float[]{1.0f, 0.0f, 0.0f}, 10);
 
         assertEquals(2, result.size(), "Index should auto-populate with existing entities");
+    }
+
+    /**
+     * Embedded-mode counterpart of {@link #testIndexAutoPopulatesExistingEntities()}: registering the index
+     * after the entities exist used to index each of them twice - once by the constructor's graph rebuild
+     * (which iterates the parent map in embedded mode) and once by the registration back-fill - and jvector
+     * rejected the second node with {@code IllegalStateException: Node 0 already exists}.
+     */
+    @Test
+    void addIndex_onPopulatedMap_embedded_indexesEachEntityOnce()
+    {
+        final GigaMap<Document> gigaMap = populatedMap();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "emb", config(), new EmbeddedDocumentVectorizer());
+
+        assertEquals(2, index.search(new float[]{1.0f, 0.0f, 0.0f}, 10).size());
+        assertEquals(
+            "doc1",
+            gigaMap.get(index.search(new float[]{1.0f, 0.0f, 0.0f}, 1).stream()
+                .findFirst().orElseThrow().entityId()).content()
+        );
+    }
+
+    /**
+     * Same as {@link #addIndex_onPopulatedMap_embedded_indexesEachEntityOnce()} through {@code ensure(...)},
+     * which is the entry point used by annotation-driven registration.
+     */
+    @Test
+    void ensureIndex_onPopulatedMap_embedded_indexesEachEntityOnce()
+    {
+        final GigaMap<Document> gigaMap = populatedMap();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndex<Document> index = vectorIndices.ensure(
+            "emb", config(), new EmbeddedDocumentVectorizer());
+
+        assertEquals(2, index.search(new float[]{1.0f, 0.0f, 0.0f}, 10).size());
+    }
+
+    /**
+     * On-disk variant: with no index files present yet, {@code tryLoad()} fails and the index stays in
+     * plain in-memory mode - the branch that previously reached the constructor's graph rebuild.
+     */
+    @Test
+    void addIndex_onPopulatedMap_embeddedOnDisk_indexesEachEntityOnce(@TempDir final Path indexDir)
+    {
+        final GigaMap<Document> gigaMap = populatedMap();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration diskConfig = VectorIndexConfiguration.builder()
+            .dimension(3)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .build();
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "emb", diskConfig, new EmbeddedDocumentVectorizer());
+
+        assertEquals(2, index.search(new float[]{1.0f, 0.0f, 0.0f}, 10).size());
+    }
+
+    /**
+     * The back-filled index must keep accepting entities added after registration.
+     */
+    @Test
+    void addIndex_onPopulatedMap_embedded_thenAddMoreEntities()
+    {
+        final GigaMap<Document> gigaMap = populatedMap();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "emb", config(), new EmbeddedDocumentVectorizer());
+
+        gigaMap.add(new Document("doc3", new float[]{0.0f, 0.0f, 1.0f}));
+
+        assertEquals(3, index.search(new float[]{1.0f, 0.0f, 0.0f}, 10).size());
     }
 }
 

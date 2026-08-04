@@ -449,7 +449,10 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
 
             this.markStateChangeInstance();
 
-            // Index existing entities
+            // Index the entities the map already contains. This is the single population path for a newly
+            // created index: VectorIndex.Default's constructor deliberately does not rebuild its graph, so
+            // adding a second population here (or reinstating the constructor's rebuild) would double-index
+            // every existing entity - which jvector rejects as a duplicate node (internal #123).
             this.parent.iterateIndexed(index::internalAdd);
             this.parent.internalReportIndexGroupStateChange(this);
         }
