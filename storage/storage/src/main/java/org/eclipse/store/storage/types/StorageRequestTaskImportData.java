@@ -163,8 +163,9 @@ public interface StorageRequestTaskImportData<S> extends StorageRequestTask
 		/**
 		 * The reader thread can fail, never start at all (a channel failing before registering its
 		 * entity cache leaves it unstarted, see {@link #ensureReaderThread()}), or a storage-wide
-		 * disruption can make waiting pointless. None of these set {@link #complete}, so a waiting
-		 * channel must observe them explicitly or it freezes the whole storage, shutdown included.
+		 * disruption can make waiting pointless. Only a failed reader sets {@link #complete} (its
+		 * finally); an unstarted reader or a disruption never does, so a waiting channel must
+		 * observe those explicitly or it freezes the whole storage, shutdown included.
 		 *
 		 * @return the cause to register as the waiting channel's problem, or {@code null}. Sibling
 		 *         problems are not reported here: those already route every channel into fail().
