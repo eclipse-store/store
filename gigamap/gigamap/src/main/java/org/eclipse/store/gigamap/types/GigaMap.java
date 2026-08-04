@@ -2130,6 +2130,18 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			// only change state if there is an actual change in the entity data.
 			if(!this.equalator.equal(replacedEntity, entity))
 			{
+				if(replacedEntity == null)
+				{
+					/*
+					 * The slot is empty, so this id was removed: #removeById decremented the size and this
+					 * fills the slot again, which has to restore it. Without this the size stays one too low
+					 * for the rest of the map's life - and it is persisted state, so the drift survives a
+					 * restart. Every valid id below nextFreeId was handed out by #add, so an empty slot can
+					 * only mean a removal.
+					 */
+					this.baseSize++;
+				}
+
 				this.constraints.check(entityId, replacedEntity, entity);
 
 				/*
