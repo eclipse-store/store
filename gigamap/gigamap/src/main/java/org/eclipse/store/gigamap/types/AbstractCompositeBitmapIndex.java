@@ -553,6 +553,14 @@ implements BitmapIndex.TopLevel<E, KS>
 		subResultAnds.add(new BitmapResult.ChainOr(subResults.toArray(BitmapResult.class)));
 	}
 
+	/**
+	 * Applies a key change for one entity to all sub indices.
+	 *
+	 * @param oldKeys the keys the entity was indexed under, or {@code null} if it had no previous state in
+	 *        this index at all (e.g. a slot that a removal emptied), which makes every new key an addition
+	 * @param entityId the id of the entity whose keys changed
+	 * @param newKeys the keys the entity must be indexed under from now on
+	 */
 	final void internalHandleChanged(final KS oldKeys, final long entityId, final KS newKeys)
 	{
 		// Ensure sub-indices array is large enough for newKeys
@@ -564,8 +572,9 @@ implements BitmapIndex.TopLevel<E, KS>
 			// Check if old/new keys are empty at this sub-index position
 			// This guard is critical: when oldKeys is shorter than subIndices (e.g. NULL() = Object[1]
 			// vs decomposed Instant = Object[6]), positions beyond oldKeys.length must be treated as
-			// "new additions" not "changes" to avoid ArrayIndexOutOfBoundsException.
-			final boolean oldEmpty = this.isEmpty(oldKeys, i);
+			// "new additions" not "changes" to avoid ArrayIndexOutOfBoundsException. Absent oldKeys are
+			// the same case for every position: #isEmpty reads the keys, so it may not be passed null.
+			final boolean oldEmpty = oldKeys == null || this.isEmpty(oldKeys, i);
 			final boolean newEmpty = this.isEmpty(newKeys, i);
 
 			if(oldEmpty && newEmpty)

@@ -305,21 +305,31 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	public void unmarkReadOnly();
 	
 	/**
-	 * Replaces an entity if present in this collection, updates the indices accordingly,
-	 * and returns the old entity mapped to the specified id.
+	 * Writes the specified entity to the specified id, updates the indices accordingly, and returns the
+	 * entity that was mapped to that id before.
+	 * <p>
+	 * If the id currently holds an entity, that entity is replaced and returned. If the id is one whose
+	 * entity {@link #removeById(long)} has removed, its now empty slot is filled: the entity is restored
+	 * at its original id, becomes queryable under it, the size is incremented again, and {@code null} is
+	 * returned because nothing was replaced. Since the map offers no {@code add(long, Object)}, this is
+	 * the only id-addressed write and therefore the way to undo a removal at the id it was removed from.
+	 * <p>
+	 * Ids that this map never handed out are rejected: the id must be non-negative and must not exceed
+	 * {@link #highestUsedId()}.
 	 * <p>
 	 * <b>Behavior on failure:</b> constraints are checked and the bitmap indices are updated
 	 * <em>before</em> the entity is replaced in the map's storage. If a constraint is violated or
 	 * an {@link Indexer} throws an exception while deriving the new entity's keys, the map is left
-	 * unchanged: the old entity stays in place and remains indexed. (On maps with additional,
-	 * non-bitmap index groups such as Lucene or vector indices, a failure in a group that is
-	 * processed after another group already updated can leave the groups diverged; such states are
-	 * repaired by {@link #reindex()}.)
+	 * unchanged: the old entity stays in place and remains indexed, and an empty slot stays empty and
+	 * uncounted. (On maps with additional, non-bitmap index groups such as Lucene or vector indices, a
+	 * failure in a group that is processed after another group already updated can leave the groups
+	 * diverged; such states are repaired by {@link #reindex()}.)
 	 *
-	 * @param entityId the entity id to replace
+	 * @param entityId the entity id to write to
 	 * @param entity the new entity
-	 * @return the old entity
-	 * @throws IllegalArgumentException if the entityId is not found
+	 * @return the entity previously mapped to the id, or {@code null} if its slot was empty
+	 * @throws IllegalArgumentException if the entityId was never handed out by this map, i.e. it is
+	 *         negative or greater than {@link #highestUsedId()}
 	 */
 	public E set(long entityId, E entity);
 	
