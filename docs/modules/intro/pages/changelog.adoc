@@ -18,7 +18,6 @@
 ** Entity-id based `update()` / `apply()`, so Lucene-only and JVector-only maps can be reindexed without a bitmap index https://github.com/eclipse-store/store/issues/713[[713]] https://github.com/eclipse-store/store/pull/722[[722]]
 ** External-directory Lucene index commits are now coupled to `store()` instead of committing eagerly https://github.com/eclipse-store/store/issues/715[[715]] https://github.com/eclipse-store/store/pull/719[[719]]
 ** Opt-in null embeddings for the vector index, and `BitmapIndices.addWithoutInitialization` for lazy registration without back-fill https://github.com/eclipse-store/store/pull/748[[748]] https://github.com/eclipse-store/store/pull/759[[759]]
-** `store(Persister)` widened to `store(PersistenceStoring)`, so a `Storer` can be passed to register a GigaMap's changes without committing - letting several GigaMaps (or a GigaMap and its root) share one atomic commit
 * Binary type handler for `EqConstList` https://github.com/eclipse-serializer/serializer/pull/304[[304]] https://github.com/eclipse-serializer/serializer/pull/306[[306]]
 * `PersistenceShutdownReleasable`, an opt-in contract to release resources of persisted instances on storage shutdown https://github.com/eclipse-serializer/serializer/pull/305[[305]]
 
