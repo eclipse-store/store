@@ -383,7 +383,7 @@ The two ways a graph gets populated are deliberately disjoint, so no entity is e
 
 | Origin | Populated by |
 |---|---|
-| Newly created via `VectorIndices#add` / `#ensure` | The back-fill in `VectorIndices.Default#internalAddVectorIndex` (`parent.iterateIndexed(index::internalAdd)`). The standard `VectorIndex.Default` constructor runs `initializeIndex()` only and publishes `graphRebuilt = true` — a brand-new index has no store to rebuild from. |
+| Newly created via `VectorIndices#add` / `#ensure` | The back-fill in `VectorIndices.Default#internalAddVectorIndex` (`parent.iterateIndexed(index::internalAdd)`). The standard `VectorIndex.Default` constructor runs `initializeIndex()` only and publishes `graphRebuilt = true`, so the deferred rebuild cannot also populate this index. Rebuilding from the store is meaningful only for an index that *has* a store to rebuild, i.e. after a load — in embedded mode `rebuildGraphFromStore()` reads the parent map, so for a fresh index it would duplicate every entity the back-fill adds rather than being a harmless no-op. |
 | Deserialized | The deferred `ensureGraphRebuilt()` on first search / mutation / optimize. `internalAddVectorIndex` is not on the load path. |
 
 The disk-load branch flips `incrementalMode = true` only after `diskDeletedOrdinals` is initialized (safe-publication ordering). Search and mutation paths read `incrementalMode` as a `volatile` and rely on this ordering to never see a `null` `diskDeletedOrdinals`.
@@ -932,7 +932,7 @@ PQ "trained" is restored implicitly: the codebook lives inside the `FusedPQ` fea
 | Background indexing op throws | `processAllPendingIndexingOps` logs `error`, drops the op, continues. | Graph desync until next manual `optimize()`/`persistToDisk()` rebuilds. Exposed by `VectorIndexConcurrentStressTest`. |
 | PQ training throws | `trainPQ` logs and leaves `pqTrained=false`. | Next persist falls back to non-compressed `OnDiskGraphIndex.write()`. Will retry on the persist after that. |
 | Disk write IOException mid-`writeIndex` | Wrapped as `IORuntimeException` and propagated out of `doPersistToDisk`. The `.graph` may be partially written and `.meta` may be missing. | On next load, `verifyMetadata` fails (missing or mismatched .meta) → rebuild from source. |
-| Disk load IOException | Caught in `tryLoad`, logs warning, calls `close()`, returns `false`. | `initializeIndex` leaves `incrementalMode` false, so the deferred `ensureGraphRebuilt()` rebuilds from source on first access. |
+| Disk load IOException | Caught in `tryLoad`, logs warning, calls `close()`, returns `false`. | `initializeIndex` leaves `incrementalMode` false. On a loaded index the deferred `ensureGraphRebuilt()` then rebuilds from source on first access; a freshly created one is populated by the registration back-fill instead (see §6). |
 | Count-collision corruption | v2 metadata mismatch on load. | Rebuild from source via `rebuildGraphFromStore`. |
 | `persistOnShutdown=true` with no background features | Pre-`fa189228`: changes silently dropped. Post-fix: `close()` falls through to direct `doPersistToDisk()` call. | None needed — change is durable. |
 | `Vectorizer` returns `null` | `IllegalStateException` at insertion. | Hard fail — fix the vectorizer. |
