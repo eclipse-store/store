@@ -59,6 +59,9 @@ public interface CustomConstraints<E> extends GigaConstraints.Category<E>
 	
 	/**
 	 * Adds multiple custom constraints to the current set of constraints.
+	 * <p>
+	 * The passed iterable is traversed exactly once, so a single-use iterable (e.g. stream-backed) is fine.
+	 * Passing no constraint at all is a no-op.
 	 *
 	 * @param constraints an iterable collection of custom constraints to be added, each of type CustomConstraint
 	 *                    that can be applied to elements of type E or its superclasses
@@ -261,11 +264,17 @@ public interface CustomConstraints<E> extends GigaConstraints.Category<E>
 		@Override
 		public final CustomConstraints<E> addConstraints(final Iterable<? extends CustomConstraint<? super E>> constraints)
 		{
+			// #internalAddConstraints traverses the constraints repeatedly, so the passed Iterable must be
+			// materialized: a single-use one (e.g. stream-backed) would come up empty on the second pass and
+			// silently register nothing at all. Materializing outside the monitor also keeps arbitrary caller
+			// code (a lazily evaluated Iterable) from running while the parent map is locked.
+			final BulkList<CustomConstraint<? super E>> requested = BulkList.New(constraints);
+
 			synchronized(this.parentMap())
 			{
 				this.ensureMutable("add custom constraint(s)");
 
-				this.internalAddConstraints(constraints);
+				this.internalAddConstraints(requested);
 			}
 
 			return this;
@@ -274,8 +283,11 @@ public interface CustomConstraints<E> extends GigaConstraints.Category<E>
 		/**
 		 * Registers the given constraints without checking mutability. Callers must have passed
 		 * {@link #ensureMutable(String)} and must still hold the parent-map monitor.
+		 * <p>
+		 * Takes a re-traversable collection on purpose: the constraints are traversed several times, including
+		 * once per already present entity in {@link #validateForExistingEntities(XGettingCollection)}.
 		 */
-		private void internalAddConstraints(final Iterable<? extends CustomConstraint<? super E>> constraints)
+		private void internalAddConstraints(final XGettingCollection<? extends CustomConstraint<? super E>> constraints)
 		{
 			for(final CustomConstraint<? super E> constraint : constraints)
 			{
@@ -305,11 +317,7 @@ public interface CustomConstraints<E> extends GigaConstraints.Category<E>
 			// once: a single-use one (e.g. stream-backed) would come up empty on the second pass and silently
 			// skip the constraints. Materializing outside the monitor also keeps arbitrary caller code (a
 			// lazily evaluated Iterable) from running while the parent map is locked.
-			final BulkList<CustomConstraint<? super E>> requested = BulkList.New();
-			for(final CustomConstraint<? super E> constraint : constraints)
-			{
-				requested.add(constraint);
-			}
+			final BulkList<CustomConstraint<? super E>> requested = BulkList.New(constraints);
 
 			synchronized(this.parentMap())
 			{
@@ -375,7 +383,15 @@ public interface CustomConstraints<E> extends GigaConstraints.Category<E>
 			}
 		}
 
-		private void validateForExistingEntities(final Iterable<? extends CustomConstraint<? super E>> constraints)
+		/**
+		 * Note on the loop nesting: the entities are the outer loop on purpose. Iterating the entities may
+		 * load data from storage, so traversing them once per constraint instead would multiply that cost by
+		 * the number of constraints. The constraints are a re-traversable in-memory collection by contract,
+		 * which makes the inner loop cheap.
+		 */
+		private void validateForExistingEntities(
+			final XGettingCollection<? extends CustomConstraint<? super E>> constraints
+		)
 		{
 			this.parent.iterateIndexed((final long entityId, final E entity) ->
 			{

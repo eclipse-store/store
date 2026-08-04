@@ -20,6 +20,7 @@ import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.ConstHashEnum;
 import org.eclipse.serializer.collections.EqHashTable;
+import org.eclipse.serializer.collections.types.XGettingCollection;
 import org.eclipse.serializer.collections.types.XGettingEnum;
 import org.eclipse.serializer.collections.types.XGettingTable;
 import org.eclipse.serializer.collections.types.XImmutableEnum;
@@ -108,6 +109,10 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	 * Adds all indexers to this group.
 	 * <p>
 	 * For details see {@link #add(Indexer)}.
+	 * <p>
+	 * The passed iterable is traversed exactly once, so a single-use iterable (e.g. stream-backed) is fine.
+	 * Passing no indexer at all is a no-op. Two indexers with the same {@link Indexer#name() name} within the
+	 * same call are rejected, just like an indexer whose name is already registered.
 	 *
 	 * @param indexers the new indexing logic
 	 * @return this
@@ -1179,15 +1184,33 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		@Override
 		public final BitmapIndices<E> addAll(final Iterable<? extends Indexer<? super E, ?>> indexers)
 		{
+			// The indexers are traversed twice below, so the passed Iterable must be materialized: a single-use
+			// one (e.g. stream-backed) would come up empty on the second pass and silently register no index at
+			// all. Materializing outside the monitor also keeps arbitrary caller code (a lazily evaluated
+			// Iterable) from running while the parent map is locked.
+			final XGettingCollection<? extends Indexer<? super E, ?>> requested = BulkList.New(indexers);
+
 			synchronized(this.parentMap())
 			{
 				this.ensureMutable("add indices");
-				for(final Indexer<? super E, ?> indexer : indexers)
+
+				// Validation before changing any state, including name conflicts within the batch itself:
+				// #validateIndexToAdd only sees the already registered names, so a duplicate inside the batch
+				// would pass validation and then be dropped silently while registering.
+				final EqHashTable<String, Indexer<? super E, ?>> byName = EqHashTable.New();
+				for(final Indexer<? super E, ?> indexer : requested)
 				{
 					this.validateIndexToAdd(indexer);
+					if(!byName.add(indexer.name(), indexer))
+					{
+						throw new BitmapIndicesException(
+							"Conflicted index name: \"" + indexer.name() + "\".",
+							this
+						);
+					}
 				}
 
-				for(final Indexer<? super E, ?> indexer : indexers)
+				for(final Indexer<? super E, ?> indexer : requested)
 				{
 					final BitmapIndex.Internal<E, ?> index = indexer.createFor(this);
 					this.internalAddBitmapIndex(index);
@@ -1635,11 +1658,17 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		@Override
 		public final UniqueConstraints<E> addUniqueConstraints(final Iterable<? extends Indexer<? super E, ?>> indexers)
 		{
+			// #internalAddUniqueConstraints traverses the indexers twice, so the passed Iterable must be
+			// materialized: a single-use one (e.g. stream-backed) would come up empty on the second pass and
+			// silently register neither index nor unique constraint. Materializing outside the monitor also
+			// keeps arbitrary caller code (a lazily evaluated Iterable) from running while the map is locked.
+			final XGettingCollection<? extends Indexer<? super E, ?>> requested = BulkList.New(indexers);
+
 			synchronized(this.parentMap())
 			{
 				this.ensureMutable("add unique constraints");
 
-				this.internalAddUniqueConstraints(indexers);
+				this.internalAddUniqueConstraints(requested);
 			}
 
 			return this;
@@ -1648,8 +1677,10 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		/**
 		 * Registers the given indexers as unique constraints without checking mutability. Callers must have
 		 * passed {@link #ensureMutable(String)} and must still hold the parent-map monitor.
+		 * <p>
+		 * Takes a re-traversable collection on purpose: the indexers are traversed twice.
 		 */
-		private void internalAddUniqueConstraints(final Iterable<? extends Indexer<? super E, ?>> indexers)
+		private void internalAddUniqueConstraints(final XGettingCollection<? extends Indexer<? super E, ?>> indexers)
 		{
 			// Basic validation before changing any state.
 			for(final Indexer<? super E, ?> indexer : indexers)
@@ -1710,7 +1741,7 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		}
 
 		private void buildUniqueIndices(
-			final Iterable<? extends Indexer<? super E, ?>> indexers,
+			final XGettingCollection<? extends Indexer<? super E, ?>> indexers,
 			final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices
 		)
 		{

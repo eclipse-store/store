@@ -72,6 +72,9 @@ public interface UniqueConstraints<E> extends GigaConstraints.Category<E>
 	 * Adds multiple unique constraints to the current set of constraints using the provided indexers.
 	 * Each unique constraint ensures that the indexed values for the specified properties
 	 * are unique across all elements in the context of the implementing category.
+	 * <p>
+	 * The passed iterable is traversed exactly once, so a single-use iterable (e.g. stream-backed) is fine.
+	 * Passing no indexer at all is a no-op.
 	 *
 	 * @param indexers an iterable of indexers used to extract properties from elements for indexing
 	 * @return the updated instance of {@code UniqueConstraints<E>} with the new unique constraints applied
