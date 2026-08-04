@@ -30,7 +30,6 @@ import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.EqHashTable;
 import org.eclipse.serializer.collections.XSort;
 import org.eclipse.serializer.collections.types.XGettingSequence;
-import org.eclipse.serializer.exceptions.MultiCauseException;
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.time.XTime;
 import org.eclipse.serializer.typing.Disposable;
@@ -278,6 +277,12 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		// completion barrier can make the sealed store durable on every channel (eager rollover
 		// durability - prevents a baseline collapse onto a not-yet-all-durable store).
 		private boolean rolloverOccurred;
+		// set by commitImport, cleared by confirmImport (problem-free import completion) or reset().
+		// While set, rollover/dissolution/deletion are deferred: a sibling may never have logged the
+		// import commit, and the restart's consensus rollback then needs the commit in the head file
+		// and every transferred byte's source alive. The durability gates cannot cover this - a store
+		// a sibling never wrote does not hold the all-durable watermark down.
+		private boolean unconfirmedImportCommit;
 		private final EqHashTable<Long, Long> durabilityDeferredDeletes = EqHashTable.New();
 		
 		
@@ -1047,6 +1052,15 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 		 */
 		final void createNextStorageFile()
 		{
+			// An unconfirmed import commit must stay in the head file: the head-file-only consensus
+			// recovery cannot roll it back out of a sealed file. Skipping is safe for every caller
+			// reachable here: size rollovers merely overshoot, the 2^31 pre-rollover falls through
+			// to its loud size check, prepareImport guards explicitly.
+			if(this.unconfirmedImportCommit)
+			{
+				return;
+			}
+
 			// Durability floor: the outgoing head is now complete and will not be appended again.
 			// Forcing it here means a power loss can strand at most the current head's tail, never a
 			// sealed (long-committed) file. Also covers a head that received transferred bytes and
@@ -2282,6 +2296,7 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			this.storageFlushRequested          = false;
 			this.unconditionalCompactionPending = false;
 			this.rolloverOccurred               = false;
+			this.unconfirmedImportCommit        = false;
 			this.durabilityDeferredDeletes.clear();
 		}
 		
@@ -2625,6 +2640,15 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 				return true;
 			}
 
+			// An unconfirmed import commit defers all file cleanup: a FILE_DELETION logged now could
+			// destroy the last copy of bytes a torn import's consensus rollback must cut, making the
+			// storage unstartable. Reported as incomplete so the work is revisited; on a failed
+			// import the flag holds until the restart reconciles.
+			if(this.unconfirmedImportCommit)
+			{
+				return false;
+			}
+
 
 			StorageLiveDataFile.Default cycleAnchorFile = this.fileCleanupCursor;
 
@@ -2834,6 +2858,16 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 		final void prepareImport()
 		{
+			// A previous import commit is unconfirmed: its rollback protection is still active and
+			// the rollover below would be skipped. Unreachable past the disruption an unconfirmed
+			// commit comes with; guarded loudly anyway.
+			if(this.unconfirmedImportCommit)
+			{
+				throw new StorageException(
+					this.channelIndex() + " cannot prepare an import: a previous import commit is unconfirmed"
+				);
+			}
+
 			this.importHelper = new ImportHelper(this.headFile);
 			try
 			{
@@ -2857,6 +2891,10 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 
 		public void commitImport(final long taskTimestamp)
 		{
+			// From here until confirmImport, a restart may have to roll this commit back (a sibling
+			// channel's commit can still fail), so file lifecycle events are deferred (see the field).
+			// Set before any fallible work, so a throw anywhere in this method leaves it set.
+			this.unconfirmedImportCommit = true;
 
 			// caching variables
 			final StorageEntityCache.Default  entityCache = this.entityCache;
@@ -2919,6 +2957,9 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 				taskTimestamp          ,
 				loopFileLength + metaLength
 			);
+
+			// reported only now, as only a durable import actually replaced anything
+			entityCache.reportImportConflicts();
 
 			/*
 			 * GC marking pass, deliberately AFTER the import became fully durable (transactions
@@ -3052,6 +3093,16 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 			this.importHelper = null;
 		}
 
+		/**
+		 * Lifts the {@link #unconfirmedImportCommit} deferral: the import task completed
+		 * problem-free, so every channel logged the import commit. Channel-thread only, like all
+		 * gate state.
+		 */
+		final void confirmImport()
+		{
+			this.unconfirmedImportCommit = false;
+		}
+
 		final void importBatch(final StorageImportSource source, final long position, final long length)
 		{
 			// ignore dummy batches (e.g. transfer file continuation head dummy) and no-op batches in general
@@ -3086,37 +3137,43 @@ public interface StorageFileManager extends StorageChannelResetablePart, Disposa
 				return;
 			}
 
-			final StorageLiveDataFile.Default first  = this.headFile.next;
-			StorageLiveDataFile.Default       doomed = this.importHelper.preImportHeadFile.next;
-			this.headFile.next = null;
-			(first.prev = this.headFile = this.importHelper.preImportHeadFile).next = first;
-
-			final BulkList<RuntimeException> exceptions = BulkList.New();
-			while(doomed != null)
+			/*
+			 * The import file is kept AS the head file and merely cut back to the length its own
+			 * file creation entry records. Deleting it instead is not representable: a deletion
+			 * entry only exists for files already closed by a successor's creation entry, so the
+			 * next store (which carries no file number) would be attributed to a missing file and
+			 * the following start fails validation. #totalLength is still the creation length here
+			 * (only #commitImport raises it), so truncating to it makes log and file agree again.
+			 */
+			try
 			{
-				try
-				{
-					this.terminateFile(doomed);
-				}
-				catch(final RuntimeException e)
-				{
-					exceptions.add(e);
-				}
-				doomed = doomed.next;
-			}
-			this.cleanupImportHelper();
+				final StorageLiveDataFile.Default importFile = this.headFile;
 
-			if(!exceptions.isEmpty())
-			{
-				throw new StorageException(new MultiCauseException(exceptions.toArray(RuntimeException.class)));
+				// an import always lands in a single file (see #importBatch): exactly one file to
+				// undo, guarded because truncating the wrong file would corrupt
+				if(this.importHelper.preImportHeadFile.next != importFile)
+				{
+					throw new StorageException(
+						this.channelIndex() + " cannot roll back an import spanning more than one storage file"
+					);
+				}
+
+				// a partially executed commitImport raises totalLength above the creation length this
+				// truncation relies on; no reachable path rolls back in that state, but truncating to
+				// a raised length would silently retain unlogged bytes - guarded, not relied upon
+				if(importFile.dataLength() != 0L)
+				{
+					throw new StorageException(
+						this.channelIndex() + " cannot roll back an import whose commit already registered entities"
+					);
+				}
+
+				this.writer.truncate(importFile, importFile.totalLength(), this.fileProvider);
 			}
-		}
-		
-		private void terminateFile(final StorageLiveDataFile.Default file)
-		{
-			// (12.08.2020 TM)FIXME: priv#351: where and how to check whether files may be deleted? Here? Weird!
-			file.close();
-			this.writer.delete(file, this.writeController, this.fileProvider);
+			finally
+			{
+				this.cleanupImportHelper();
+			}
 		}
 
 		final class ImportHelper implements Consumer<StorageChannelImportBatch>

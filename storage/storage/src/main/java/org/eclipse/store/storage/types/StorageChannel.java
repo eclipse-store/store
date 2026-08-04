@@ -373,6 +373,21 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 	public void commitImportData(long taskTimestamp);
 
 	/**
+	 * Confirms a {@link #commitImportData(long) committed} import: to be called only once the
+	 * import task completed on EVERY channel without problems ("no problems so far" does not
+	 * suffice), and never on a failed import. Until then, the channel defers file lifecycle events
+	 * (rollover, dissolution, deletion) that would render a restart's consensus rollback of a torn
+	 * import commit impossible.
+	 * <p>
+	 * The default implementation is a no-op for {@link StorageChannel} implementations without
+	 * such a deferral.
+	 */
+	public default void confirmImportData()
+	{
+		// no-op by default. To be overridden by implementations that defer file lifecycle events.
+	}
+
+	/**
 	 * Clears the garbage collection coordination state registered by
 	 * {@link #prepareImportData()}, releasing sweep initiation again. Must be called exactly once
 	 * per {@link #prepareImportData()} after the import task has ultimately completed, no matter
@@ -1288,6 +1303,12 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		public void commitImportData(final long taskTimestamp)
 		{
 			this.fileManager.commitImport(taskTimestamp);
+		}
+
+		@Override
+		public void confirmImportData()
+		{
+			this.fileManager.confirmImport();
 		}
 
 		@Override
