@@ -1033,28 +1033,55 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Builds the {@code sourceEntityId -> storeId} map. Preferred path: reconstruct it from the
-         * vector store's {@code sourceEntityId} identity index bitmaps via
-         * {@link org.eclipse.store.gigamap.types.BitmapIndex#iterateKeyEntityPairs}, loading no
-         * {@code VectorEntry} and therefore no stored vectors. Fallback (index registry not yet
-         * queryable, i.e. the {@code complete()} deserialization window): a positional store scan.
-         * The fallback is only reached by a non-incremental graph rebuild, which loads every vector
-         * anyway, so its value pass is not an added cost.
+         * Builds the {@code sourceEntityId -> storeId} map, from the vector store's
+         * {@code sourceEntityId} identity index where possible
+         * ({@link #buildComputedIdIndexFromIndex()}), else by a positional store scan
+         * ({@link #buildComputedIdIndexByScan()}) during the {@code complete()} deserialization
+         * window, when the index registry is not yet queryable. Both paths yield the same map.
          */
         private Map<Long, Long> buildComputedIdIndex()
         {
-            final Map<Long, Long> index = new ConcurrentHashMap<>();
+            final Map<Long, Long> fromIndex = this.buildComputedIdIndexFromIndex();
+            return fromIndex != null
+                ? fromIndex
+                : this.buildComputedIdIndexByScan()
+            ;
+        }
+
+        /**
+         * The preferred {@link #buildComputedIdIndex()} path: reconstructs the map from the vector
+         * store's {@code sourceEntityId} identity index bitmaps, loading no {@code VectorEntry} and
+         * therefore no stored vectors. Returns {@code null} when that index is not queryable yet, in
+         * which case the caller falls back to {@link #buildComputedIdIndexByScan()}.
+         * <p>
+         * Package-private for {@code VectorIndexIdDriftTest}, which asserts both paths agree.
+         */
+        Map<Long, Long> buildComputedIdIndexFromIndex()
+        {
             final BitmapIndex<VectorEntry, Long> idIndex = this.vectorStore.index().bitmap()
                 .get(Long.class, VectorEntry.SOURCE_ENTITY_ID_INDEXER.name());
-            if(idIndex != null)
+            if(idIndex == null)
             {
-                // (key = sourceEntityId, entityId = storeId) — no value loaded.
-                idIndex.iterateKeyEntityPairs((sourceEntityId, storeId) -> index.put(sourceEntityId, storeId));
+                return null;
             }
-            else
-            {
-                this.vectorStore.iterateIndexed((storeId, entry) -> index.put(entry.sourceEntityId, storeId));
-            }
+
+            final Map<Long, Long> index = new ConcurrentHashMap<>();
+            // (key = sourceEntityId, entityId = storeId) — no value loaded.
+            idIndex.iterateKeyEntityPairs((sourceEntityId, storeId) -> index.put(sourceEntityId, storeId));
+            return index;
+        }
+
+        /**
+         * The {@link #buildComputedIdIndex()} fallback: a positional store scan, reading
+         * {@link VectorEntry#sourceEntityId} off each entry. Only reached by a non-incremental graph
+         * rebuild, which loads every vector anyway, so its value pass is not an added cost.
+         * <p>
+         * Package-private for {@code VectorIndexIdDriftTest}, which asserts both paths agree.
+         */
+        Map<Long, Long> buildComputedIdIndexByScan()
+        {
+            final Map<Long, Long> index = new ConcurrentHashMap<>();
+            this.vectorStore.iterateIndexed((storeId, entry) -> index.put(entry.sourceEntityId, storeId));
             return index;
         }
 
