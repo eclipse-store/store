@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -98,9 +99,13 @@ public class LuceneEmptyMapQueryTest
 		{
 			final List<Article> collected = new ArrayList<>();
 
-			idx.query(new TermQuery(new Term("exact", "nothing")),
-				(entityId, entity, score) -> collected.add(entity));
+			final LuceneIndex.SearchResultAcceptor<Article> acceptor =
+				(entityId, entity, score) -> collected.add(entity);
 
+			final LuceneIndex.SearchResultAcceptor<Article> returned =
+				idx.query(new TermQuery(new Term("exact", "nothing")), acceptor);
+
+			assertSame(acceptor, returned, "the very acceptor that was passed in must be returned");
 			assertTrue(collected.isEmpty(), "the acceptor must not be called for an empty map");
 		}
 	}
@@ -122,6 +127,20 @@ public class LuceneEmptyMapQueryTest
 			assertTrue(idx.query("title:eclipse", 0).isEmpty(), "query(String, 0) must return empty");
 			assertTrue(idx.search(query, 0).isEmpty(), "search(Query, 0) must return empty");
 			assertTrue(idx.search("title:eclipse", 0).isEmpty(), "search(String, 0) must return empty");
+
+			// including the two acceptor overloads that carry the limit - the actual defect site
+			final List<Article> collected = new ArrayList<>();
+			final LuceneIndex.SearchResultAcceptor<Article> acceptor =
+				(entityId, entity, score) -> collected.add(entity);
+
+			assertSame(acceptor, idx.query(query, 0, acceptor),
+				"query(Query, 0, acceptor) must return the acceptor it was passed");
+			assertSame(acceptor, idx.query(query, -1, acceptor),
+				"query(Query, -1, acceptor) must return the acceptor it was passed");
+			assertSame(acceptor, idx.query("title:eclipse", 0, acceptor),
+				"query(String, 0, acceptor) must return the acceptor it was passed");
+
+			assertTrue(collected.isEmpty(), "no acceptor call may happen for a non-positive limit");
 		}
 	}
 
