@@ -94,7 +94,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	 *
 	 * @param <A> the type of the {@code SearchResultAcceptor} that will process the search results
 	 * @param query the {@code Query} object representing the search criteria to be executed
-	 * @param maxResults the maximum number of search results that should be processed
+	 * @param maxResults the maximum number of search results that should be processed;
+	 *                   a non-positive value processes no results at all
 	 * @param searchResultAcceptor an instance of {@code SearchResultAcceptor} to handle each search result
 	 *                             returned by the query execution
 	 * @return the {@code SearchResultAcceptor} instance provided as a parameter, potentially modified
@@ -124,7 +125,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	 *
 	 * @param <A> the type of the {@code SearchResultAcceptor} that will process the search results
 	 * @param queryText the text representation of the query to be executed
-	 * @param maxResults the maximum number of search results that should be processed
+	 * @param maxResults the maximum number of search results that should be processed;
+	 *                   a non-positive value processes no results at all
 	 * @param searchResultAcceptor an instance of {@code SearchResultAcceptor} to handle each search result
 	 *                              returned by the query execution
 	 * @return the {@code SearchResultAcceptor} instance provided as a parameter, potentially modified
@@ -134,7 +136,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	
 	/**
 	 * Executes a query against the Lucene index and returns a list of entities
-	 * that match the provided search criteria.
+	 * that match the provided search criteria. Uses the current {@link GigaMap} size as the
+	 * default result limit, so an empty {@link GigaMap} yields an empty list.
 	 *
 	 * @param query the {@code Query} object representing the search criteria to be executed
 	 * @return a {@code List} of entities of type {@code E} that match the query
@@ -151,7 +154,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	 * that match the provided search criteria, with a limit on the maximum number of results.
 	 *
 	 * @param query the {@code Query} object representing the search criteria to be executed
-	 * @param maxResults the maximum number of search results to be returned
+	 * @param maxResults the maximum number of search results to be returned;
+	 *                   a non-positive value returns no results at all
 	 * @return a {@code List} of entities of type {@code E} that match the query
 	 */
 	public default List<E> query(final Query query, final int maxResults)
@@ -163,7 +167,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	
 	/**
 	 * Executes a query against the Lucene index using the specified query text
-	 * and returns a list of entities that match the query.
+	 * and returns a list of entities that match the query. Uses the current {@link GigaMap} size
+	 * as the default result limit, so an empty {@link GigaMap} yields an empty list.
 	 *
 	 * @param queryText the text representation of the query to be executed
 	 * @return a list of entities of type {@code E} that match the query
@@ -180,7 +185,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	 * a list of entities matching the query, with a limit on the maximum number of results.
 	 *
 	 * @param queryText the text representation of the query to be executed
-	 * @param maxResults the maximum number of search results to be returned
+	 * @param maxResults the maximum number of search results to be returned;
+	 *                   a non-positive value returns no results at all
 	 * @return a list of entities of type {@code E} that match the query
 	 */
 	public default List<E> query(final String queryText, final int maxResults)
@@ -198,7 +204,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	 * with other {@link GigaQuery} conditions via {@link GigaQuery#and(GigaMap.SubQuery)}.
 	 *
 	 * @param query the {@link Query} representing the search criteria
-	 * @param maxResults the maximum number of search results to be returned
+	 * @param maxResults the maximum number of search results to be returned;
+	 *                   a non-positive value returns no results at all
 	 * @return a {@link LuceneSearchResult} with the matching entries
 	 */
 	public LuceneSearchResult<E> search(Query query, int maxResults);
@@ -211,7 +218,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	 * with other {@link GigaQuery} conditions via {@link GigaQuery#and(GigaMap.SubQuery)}.
 	 *
 	 * @param queryText the text representation of the query to be executed
-	 * @param maxResults the maximum number of search results to be returned
+	 * @param maxResults the maximum number of search results to be returned;
+	 *                   a non-positive value returns no results at all
 	 * @return a {@link LuceneSearchResult} with the matching entries
 	 */
 	public LuceneSearchResult<E> search(String queryText, int maxResults);
@@ -614,6 +622,15 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			final A     searchResultAcceptor
 		)
 		{
+			// Lucene's IndexSearcher.search(query, numHits) rejects numHits <= 0. A non-positive limit
+			// simply means "no results wanted", which most notably happens for the default-maxResults
+			// overloads on an empty map (defaultMaxResults() derives from gigaMap.size()), so return the
+			// unmodified acceptor instead of throwing - just like the sibling overloads do.
+			if(maxResults <= 0)
+			{
+				return searchResultAcceptor;
+			}
+
 			try
 			{
 				synchronized(this.gigaMap)
