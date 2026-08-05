@@ -79,15 +79,17 @@ public final class GigaLevel1<E> extends AbstractStateChangeFlagged implements U
 	 * Whether this segment currently holds no entity at all, which makes it eligible for being released
 	 * from its parent {@link GigaLevel2}.
 	 * <p>
-	 * The scan starts right after {@code scanStartIndex} - the slot the caller just cleared - and wraps
-	 * around, so a sequential drain, forward or backward, hits a surviving neighbour on the very first
+	 * {@code scanStartIndex} only steers where the scan begins, it does not narrow what is examined:
+	 * every slot is checked, ending with {@code scanStartIndex} itself, so the answer never depends on
+	 * the caller having cleared that slot. Starting right after the slot a removal just cleared is what
+	 * makes a sequential drain, forward or backward, hit a surviving neighbour on the very first
 	 * comparison instead of walking the whole array.
 	 * <p>
 	 * Deliberately bound to the array's own length instead of the parent map's configured segment size:
 	 * the length of a reloaded array comes from the persisted binary form and may differ from what the
 	 * map is configured with now.
 	 *
-	 * @param scanStartIndex the index of the slot that was cleared last
+	 * @param scanStartIndex the index to start scanning after, typically the slot that was cleared last
 	 * @return {@code true} if every slot is {@code null}, {@code false} otherwise
 	 */
 	final boolean isEmpty(final int scanStartIndex)

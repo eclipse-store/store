@@ -139,12 +139,12 @@ public final class GigaLevel2<E> extends AbstractStateChangeFlagged implements U
 	}
 
 	/**
-	 * Whether every slot is {@code null}. Scans outward from the slot that was cleared last and wraps
-	 * around, for the same reason as {@link GigaLevel1#isEmpty(int)}: a sequential drain exits on the
-	 * first surviving neighbour. A non-null slot counts as occupied even when its segment is not
+	 * Whether every slot is {@code null}. Starts scanning after the slot that was cleared last and wraps
+	 * around to it, for the same reason as {@link GigaLevel1#isEmpty(int)}: a sequential drain exits on
+	 * the first surviving neighbour. A non-null slot counts as occupied even when its segment is not
 	 * currently loaded, so no segment has to be loaded to answer this.
 	 *
-	 * @param scanStartIndex the index of the slot that was cleared last
+	 * @param scanStartIndex the index to start scanning after, typically the slot that was cleared last
 	 * @return {@code true} if every slot is {@code null}, {@code false} otherwise
 	 */
 	private boolean isEmpty(final int scanStartIndex)
