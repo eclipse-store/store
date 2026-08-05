@@ -186,6 +186,13 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	/**
 	 * Removes the entity mapped to the specified id.
 	 * <p>
+	 * The id is not recycled: it stays below {@link #highestUsedId()} and keeps reading as an empty
+	 * slot, and the next {@link #add(Object)} gets a fresh id. Removing the last entity of an internal
+	 * segment does release that segment, in memory and on disk, so a workload that keeps adding and
+	 * removing does not accumulate the storage of the ids it has churned through. That reclamation only
+	 * happens as a removal empties a segment, so segments left empty by an earlier version of this
+	 * library are not cleaned up retroactively; {@link #removeAll()} is the only full reset.
+	 * <p>
 	 * <b>Behavior on failure:</b> if an {@link Indexer} throws an exception while the entity's
 	 * index entries are being located for cleanup, the removal nevertheless completes: the entity
 	 * is removed from the map and {@link #size()} is decremented, the remaining indices are cleaned
@@ -313,6 +320,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * at its original id, becomes queryable under it, the size is incremented again, and {@code null} is
 	 * returned because nothing was replaced. Since the map offers no {@code add(long, Object)}, this is
 	 * the only id-addressed write and therefore the way to undo a removal at the id it was removed from.
+	 * That holds regardless of how much of the id's id range was removed: if the removals released the
+	 * internal segment the id lives in, writing to the id re-creates it.
 	 * <p>
 	 * Ids that this map never handed out are rejected: the id must be non-negative and must not exceed
 	 * {@link #highestUsedId()}.
@@ -1873,12 +1882,80 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 
 			level3.markChanged(level3Index);
 			level2.markChanged(level2Index);
-						
+
 			this.indices.internalRemove(entityId, current);
-			
+
+			/*
+			 * If that was the segment's last entity, the segment itself is released. Ids are never
+			 * recycled, so an emptied segment can only be reached again by #set(long, Object) or by
+			 * #internalAdd resuming in it, and both go through #ensureLevel2/#ensureLevel1, which
+			 * re-create a segment for a null slot. Without this the emptied segment would stay
+			 * referenced from the segment tree forever - not collectable, and persisted and reloaded
+			 * on every restart - so a workload that keeps adding and removing would accumulate one
+			 * dead segment per exhausted id range.
+			 *
+			 * Done as the last step, after the index removal: a throw from there then leaves the
+			 * segment tree untouched instead of having done structural work for a half-failed removal.
+			 */
+			if(level1.isEmpty(level1Index))
+			{
+				this.releaseEmptyLevel1(level3, level3Index, level2, level2Index);
+			}
+
 			return current;
 		}
-		
+
+		/**
+		 * Drops the emptied level1 segment at the passed coordinates from its level2 segment, and that
+		 * level2 segment from the level3 segment if it became empty as well.
+		 */
+		private void releaseEmptyLevel1(
+			final GigaLevel3<E> level3     ,
+			final int           level3Index,
+			final GigaLevel2<E> level2     ,
+			final int           level2Index
+		)
+		{
+			/*
+			 * The adding state caches the segment the next #internalAdd writes into. If that is the
+			 * segment being released, the cached state has to be folded into baseSize/baseAddingId
+			 * FIRST: otherwise the next add would write into a GigaLevel1 that is no longer reachable
+			 * from its level2 (a silently lost entity) and #ensureAddingStateSetup would fail on the
+			 * now-null slot. This is not an exotic case: #ensureClearedAddingState deliberately keeps a
+			 * live, non-exhausted adding segment, so any map that has not filled its first segment yet
+			 * removes entities with the adding state pointing right at them.
+			 *
+			 * size() and nextFreeId() are invariant under the fold, and the next add runs
+			 * #setupAddingState, which re-creates the segment and resumes at the very same level1 index.
+			 * Ids are still never recycled. #clearAddingState is idempotent, so the call is harmless on
+			 * the #rollbackToEntityId path, which has already cleared.
+			 *
+			 * Compared by coordinates, not by instance identity: addingLevel1 may be a stale instance
+			 * whose Lazy was evicted and reloaded in the meantime, in which case an identity comparison
+			 * would silently skip the fold. The addingLevel1 null-check is what makes the comparison
+			 * valid at all - a cleared adding state leaves both cached indices at 0, which would
+			 * otherwise match the segment at (0, 0).
+			 */
+			if(this.addingLevel1 != null
+				&& level3Index == this.addingLevel3Index
+				&& level2Index == this.addingLevel2Index
+			)
+			{
+				this.clearAddingState();
+			}
+
+			if(level2.removeLevel1(level2Index))
+			{
+				/*
+				 * This level2 cannot be the one the adding state points at: a live adding state keeps
+				 * its own level1 slot occupied, so either the released segment WAS the adding one - in
+				 * which case the state has just been cleared - or the adding segment's slot is still
+				 * occupied and this level2 is not empty.
+				 */
+				level3.removeLevel2(level3Index);
+			}
+		}
+
 
 		@Override
 		public final synchronized long remove(
@@ -2126,16 +2203,17 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		
 		private E internalSet(final long entityId, final E entity)
 		{
-			final GigaLevel3<E>       level3      = this.level3();
-			final int                 level3Index = this.toLevel3Index(entityId);
-			final Lazy<GigaLevel2<E>> lvl2Lazy    = level3.segments[level3Index];
-			final GigaLevel2<E>       level2      = lvl2Lazy.get();
-			final int                 level2Index = this.toLevel2Index(entityId);
-			final Lazy<GigaLevel1<E>> lvl1Lazy    = level2.segments[level2Index];
-			final GigaLevel1<E>       level1      = lvl1Lazy.get();
+			final GigaLevel3<E> level3      = this.level3();
+			final int           level3Index = this.toLevel3Index(entityId);
+			final int           level2Index = this.toLevel2Index(entityId);
+			final int           level1Index = this.toLevel1Index(entityId);
 
-			final int level1Index    = this.toLevel1Index(entityId);
-			final E   replacedEntity = level1.entities[level1Index];
+			/*
+			 * Resolved via #get instead of by walking the segments: emptying a segment releases it, so
+			 * the segments of an id whose entity was removed may well be gone. #get reports exactly that
+			 * as the empty slot it is, and the segments are re-created further down.
+			 */
+			final E replacedEntity = this.get(entityId);
 
 			// only change state if there is an actual change in the entity data.
 			if(!this.equalator.equal(replacedEntity, entity))
@@ -2167,11 +2245,22 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 					this.baseSize++;
 				}
 
+				/*
+				 * Re-created here if the removal of the last entity released them, and deliberately not
+				 * any earlier: materializing before the checks and the index update above would leave a
+				 * fresh empty segment (plus a pending re-store for it) behind on a failed set, breaking
+				 * the very "a throw leaves the map observably unchanged" guarantee they are ordered for.
+				 * Both methods return the existing segment when there is one, so this is a no-op for the
+				 * ordinary replacement.
+				 */
+				final GigaLevel2<E> level2 = this.ensureLevel2(level3, level3Index);
+				final GigaLevel1<E> level1 = this.ensureLevel1(level2, level2Index);
+
 				level1.entities[level1Index] = entity;
 				level3.markChanged(level3Index);
 				level2.markChanged(level2Index);
 			}
-			
+
 			return replacedEntity;
 		}
 				
@@ -2351,11 +2440,31 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 
 		private void markEntitySegmentChanged(final long entityId)
 		{
-			final GigaLevel3<E>       level3      = this.level3();
-			final int                 level3Index = this.toLevel3Index(entityId);
-			final Lazy<GigaLevel2<E>> lvl2Lazy    = level3.segments[level3Index];
-			final GigaLevel2<E>       level2      = lvl2Lazy.get();
-			final int                 level2Index = this.toLevel2Index(entityId);
+			final GigaLevel3<E> level3      = this.level3();
+			final int           level3Index = this.toLevel3Index(entityId);
+			if(level3Index >= level3.segments.length)
+			{
+				return;
+			}
+
+			/*
+			 * Tolerates released segments: the update logic passed to #apply runs while this map's
+			 * (reentrant) monitor is held, so it can remove the very entity it is applied to, and
+			 * emptying the segment that way releases it. A gone segment holds no entity, so there is
+			 * nothing left to mark for re-storing.
+			 */
+			final Lazy<GigaLevel2<E>> lvl2Lazy = level3.segments[level3Index];
+			if(lvl2Lazy == null)
+			{
+				return;
+			}
+
+			final GigaLevel2<E> level2      = lvl2Lazy.get();
+			final int           level2Index = this.toLevel2Index(entityId);
+			if(level2.segments[level2Index] == null)
+			{
+				return;
+			}
 
 			level3.markChanged(level3Index);
 			level2.markChanged(level2Index);
@@ -2508,10 +2617,17 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			if(this.addingLevel1Index < this.level1IndexBound)
 			{
-				// adding state already cleared.
+				/*
+				 * The adding segment is live and not yet exhausted, so it is deliberately kept: folding
+				 * it here would force the next add to set the adding state up again, for no gain. The
+				 * cached state stays consistent with size()/nextFreeId() either way. Note that removals
+				 * therefore do run with the adding state pointing at the segment they empty, which is
+				 * why #releaseEmptyLevel1 folds it itself before releasing that segment.
+				 */
 				return;
 			}
-			
+
+			// nothing to fold when the bound is 0 (already cleared); clearing again is a no-op then.
 			this.clearAddingState();
 		}
 		
