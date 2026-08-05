@@ -71,16 +71,20 @@ Additionally, you have to use the `update` method of the GigaMap instead of just
 
 [source, java]
 ----
-// don't just update the entity
+// wrong: modifying the entity directly leaves the indices answering under the old values,
+// and there is no way back afterwards - the indexers can no longer derive what those were.
 person.setLastName("Smith");
 person.setAddress(newAddress);
 
-// use the update method, to automatically propagate the changes to the index
+// right: let update perform the modification, so the previous index keys are derived
+// before it applies - and the entity is scheduled for storing along the way.
 gigaMap.update(person, p -> {
-    p.setLastName("Smith"),
-    p.setAddress(newAddress)
+    p.setLastName("Smith");
+    p.setAddress(newAddress);
 });
 ----
+
+The two are alternatives, not steps: an `update` after a direct modification does not undo it. `update` derives the previous keys from the entity it is handed, and those are already the new values by then, so the stale entries stay. Once a direct modification has happened, only `reindex()` repairs the indices — it rebuilds them from the current entity state rather than trying to reconstruct the previous keys. It rebuilds index structures only, so the modified entity still has to be stored explicitly.
 
 Entities modified through `update` (or `apply`) are automatically persisted when calling `store()`. See xref:persistence.adoc[] for details.
 
@@ -113,14 +117,11 @@ gigaMap.removeById(entityId);
 
 [source, java]
 ----
-// wrong: the mutation has already happened, so nothing can derive the old key any more.
-// set rejects the instance it already holds - and update cannot repair it either, because it
-// would derive the "previous" keys from the mutated entity and find them unchanged.
+// wrong: set rejects the instance it already holds, and no method can repair the
+// modification afterwards - see above
 person.setLastName("Smith");
 gigaMap.set(entityId, person);
 
-// right: let update perform the mutation, so the old keys are derived before it applies.
+// right: let update perform the modification
 gigaMap.update(entityId, p -> p.setLastName("Smith"));
 ----
-
-If a direct mutation already happened, neither method repairs it — only `reindex()` does, since it rebuilds every index from the current entity state instead of trying to reconstruct the previous keys. Note that it rebuilds index structures only, so the mutated entity still has to be stored explicitly.
