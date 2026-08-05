@@ -93,8 +93,25 @@ implements BitmapIndex.TopLevel<E, KS>
 	protected abstract void ensureSubIndices(KS keys);
 	
 	protected abstract void clearCarrier();
-	
+
 	protected abstract KS carrier();
+
+	/**
+	 * Returns the shared carrier in a guaranteed cleared state.
+	 * <p>
+	 * The carrier may still hold positions from a previous use (e.g. the previous element of an
+	 * addAll batch, or a preceding contains check). An indexer is allowed to leave empty positions
+	 * unwritten - the "unwritten position = empty" contract - so it must always receive a cleared
+	 * carrier. Every {@code indexer.index(entity, carrier)} invocation must use this method
+	 * instead of {@link #carrier()}.
+	 *
+	 * @return the cleared carrier
+	 */
+	private KS cleanCarrier()
+	{
+		this.clearCarrier();
+		return this.carrier();
+	}
 	
 	protected abstract boolean isEmpty(KS keys, int i);
 	
@@ -133,7 +150,7 @@ implements BitmapIndex.TopLevel<E, KS>
 	@Override
 	protected KS indexEntity(final E entity)
 	{
-		return this.indexer().index(entity, this.carrier());
+		return this.indexer().index(entity, this.cleanCarrier());
 	}
 	
 	@Override
@@ -212,7 +229,7 @@ implements BitmapIndex.TopLevel<E, KS>
 	@Override
 	public final void internalRemove(final long entityId, final E entity)
 	{
-		final KS keys = this.indexer.index(entity, this.carrier());
+		final KS keys = this.indexer.index(entity, this.cleanCarrier());
 		this.internalRemoveForKeys(entityId, keys);
 	}
 	
@@ -259,7 +276,11 @@ implements BitmapIndex.TopLevel<E, KS>
 	@Override
 	protected final void internalAddToEntry(final long entityId, final E entity)
 	{
-		final KS keys = this.indexer.index(entity, this.carrier());
+		// cleanCarrier (not carrier) is essential here: this method is invoked per element by the
+		// inherited addAll loops, whose enclosing clearCarrier() runs only AFTER the whole batch.
+		// Without the per-element clear, an indexer that leaves absent positions unwritten would
+		// inherit the previous element's positions, silently corrupting the index keys.
+		final KS keys = this.indexer.index(entity, this.cleanCarrier());
 		this.ensureSubIndices(keys);
 		
 		for(int i = 0; i < this.subIndices.length; i++)
@@ -355,7 +376,7 @@ implements BitmapIndex.TopLevel<E, KS>
 
 	private boolean internalContains(final E entity, final EntityResolver<E> containsBreaker)
 	{
-		final KS keys = this.indexer.index(entity, this.carrier());
+		final KS keys = this.indexer.index(entity, this.cleanCarrier());
 		if(this.isOversized(keys))
 		{
 			// if the keys contains more key values than there currently are sub indices, the entity cannot possibly be contained.
