@@ -1753,11 +1753,55 @@ public interface Cache<K, V> extends javax.cache.Cache<K, V>, Unwrappable
 				final HashSet<K> keys = new HashSet<>();
 				this.cacheTable.keys().forEach(key -> keys.add(this.objectConverter.externalize(key)));
 
+				final boolean       writeThrough  = this.cacheWriter != null && this.configuration.isWriteThrough();
+				// heap-evicted durable mapping -> old value (null = not loaded or unavailable)
+				final HashMap<K, V> ghostMappings = new HashMap<>();
+
+				/*
+				 * A CacheStore's table holds exactly this cache's durable mappings, including
+				 * entries evicted from the heap. Those are still mappings of this cache
+				 * (iteration and read-through expose them), so removeAll() must delete them
+				 * as well. For any other CacheWriter the cache knows no mappings beyond the
+				 * heap ones and must not enumerate the external resource.
+				 */
+				if(writeThrough && this.cacheWriter instanceof CacheStore)
+				{
+					@SuppressWarnings("unchecked")
+					final CacheStore<K, V> cacheStore = (CacheStore<K, V>)this.cacheWriter;
+					cacheStore.keys().forEachRemaining(key ->
+					{
+						if(!keys.contains(key))
+						{
+							ghostMappings.put(key, null);
+						}
+					});
+
+					/*
+					 * Old values are needed only for REMOVED events and must be read before the
+					 * delete. Loaded in one bulk call, and only when a removed-listener is
+					 * actually registered (any listener registration would make the dispatcher
+					 * non-null, e.g. the eviction manager's created-listener).
+					 */
+					if(!ghostMappings.isEmpty() && this.hasCacheEntryRemovedListener())
+					{
+						try
+						{
+							ghostMappings.putAll(cacheStore.loadAll(ghostMappings.keySet()));
+						}
+						catch(final Exception e)
+						{
+							// a failed old-value read must not veto the purge;
+							// the affected REMOVED events are skipped instead
+						}
+					}
+				}
+
 				final Set<K> keysToDelete;
 
-				if(this.cacheWriter != null && this.configuration.isWriteThrough())
+				if(writeThrough)
 				{
 					keysToDelete = new HashSet<>(keys);
+					keysToDelete.addAll(ghostMappings.keySet());
 
 					if(keysToDelete.size() > 0)
 					{
@@ -1809,6 +1853,26 @@ public interface Cache<K, V> extends javax.cache.Cache<K, V>, Unwrappable
 							}
 							removed++;
 						}
+					}
+				}
+
+				// heap-evicted durable mappings that the writer successfully deleted
+				for(final K ghostKey : ghostMappings.keySet())
+				{
+					if(!keysToDelete.contains(ghostKey))
+					{
+						if(eventDispatcher != null)
+						{
+							final V oldValue = ghostMappings.get(ghostKey);
+							if(oldValue != null)
+							{
+								eventDispatcher.addEvent(
+									CacheEntryRemovedListener.class,
+									new CacheEvent<>(this, EventType.REMOVED, ghostKey, oldValue, oldValue)
+								);
+							}
+						}
+						removed++;
 					}
 				}
 			}
@@ -2509,6 +2573,13 @@ public interface Cache<K, V> extends javax.cache.Cache<K, V>, Unwrappable
 					throw new CacheWriterException(e);
 				}
 			}
+		}
+
+		private boolean hasCacheEntryRemovedListener()
+		{
+			return this.listenerRegistrations.containsSearched(
+				registration -> registration.getCacheEntryListener() instanceof CacheEntryRemovedListener
+			);
 		}
 
 		private void closeIfCloseable(final Object obj)
