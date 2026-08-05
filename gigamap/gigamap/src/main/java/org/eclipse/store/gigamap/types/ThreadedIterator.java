@@ -202,12 +202,15 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 	/**
 	 * Calculates how many level1 segments are needed to cover the parent map's whole id range.
 	 * <p>
-	 * The count is kept as an {@code int} because it doubles as an index bound into the off-heap id
-	 * lists registry. That caps this iterator at a {@link GigaMap#highestUsedId()} of roughly 2^43,
-	 * which is well below the 2^50 a {@link GigaMap} may hold - but the registry needs eight bytes of
-	 * off-heap memory per segment, so the allocation becomes infeasible (16 GB) long before the type
-	 * does. The overflow is therefore rejected outright instead of silently allocating from a
-	 * negative length.
+	 * The count is kept as an {@code int} because it bounds this iterator's level1 segment indexing:
+	 * {@code ThreadLogic} walks that index as an {@code int}, and the count doubles as the end-of-data
+	 * sentinel in {@code hasMoreData()}. That caps the iterator at a {@link GigaMap#highestUsedId()} of
+	 * roughly 2^43, well below the 2^50 a {@link GigaMap} may hold.
+	 * <p>
+	 * Memory is not what binds here: the registry holds one slot per <i>registry</i> segment, not per
+	 * level1 segment (see {@code calculateIdListsRegistryLength()}), which is 256 MB at the cap. So the
+	 * limit is purely the index width, and exceeding it is rejected outright rather than silently
+	 * allocating from a negative length.
 	 *
 	 * @return the level1 segment count required for the parent map's id range, 0 for an empty map
 	 * @throws IllegalStateException if the required count exceeds {@link Integer#MAX_VALUE}
@@ -244,8 +247,8 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 		{
 			throw new IllegalStateException(
 				"Highest used entityId " + highestUsedId + " requires " + segmentCount
-				+ " level1 segments and thus an id lists registry of " + segmentCount * Long.BYTES
-				+ " bytes, which exceeds the technical limit of this iterator."
+				+ " level1 segments, which exceeds this iterator's technical limit of "
+				+ Integer.MAX_VALUE + "."
 			);
 		}
 
