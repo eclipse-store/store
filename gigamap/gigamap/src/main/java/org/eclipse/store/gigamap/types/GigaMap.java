@@ -70,7 +70,10 @@ import static org.eclipse.serializer.util.X.notNull;
  * <p>
  * Equality depends on the given {@link #equalator()}. By default, identity equality is used.
  * If you want value equality instead, you can use {@link XHashing#hashEqualityValue()} in the constructor methods,
- * or {@link Builder#withValueEquality()}.
+ * or {@link Builder#withValueEquality()}. It is used to resolve an entity <em>instance</em> to the id it is
+ * mapped to - in {@link #remove(Object) remove}, {@link #replace(Object, Object) replace},
+ * {@link #apply(Object, Function) apply} and {@link #update(Object, Consumer) update} - and never decides
+ * whether a mutation is carried out.
  * <p>
  * <b>Keeping indices in sync:</b> GigaMap has no automatic change tracking. Any mutation that affects an
  * indexed field must go through this collection's mutating methods ({@link #add(Object) add},
@@ -83,6 +86,12 @@ import static org.eclipse.serializer.util.X.notNull;
  * stored explicitly, as usual). To bring a single entity back in sync use {@link #update(long, Consumer)} /
  * {@link #apply(long, Function)} (which also schedule the entity for storing); to rebuild every index from the
  * current entity state use {@link #reindex()}.
+ * <p>
+ * Note the division of labour among those methods: {@code set} and {@code replace} install a <em>different</em>
+ * instance and re-index that, while {@code update} and {@code apply} mutate the contained instance in place.
+ * Writing an entity back through {@code set} / {@code replace} after mutating it directly cannot work and is
+ * rejected - the keys it had before the mutation are no longer derivable - so an in-place mutation is either
+ * done through {@code update} / {@code apply} from the start, or repaired afterwards with {@link #reindex()}.
  *
  * @param <E> the type of entities in this collection
  */
@@ -326,6 +335,19 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * Ids that this map never handed out are rejected: the id must be non-negative and must not exceed
 	 * {@link #highestUsedId()}.
 	 * <p>
+	 * <b>The entity must be a different instance than the one the id currently holds.</b> Passing the very
+	 * instance already mapped there - the "load it, mutate it, save it back" idiom - is rejected, because
+	 * this method cannot serve it: re-indexing a mutation needs the keys the entity had <em>before</em> it
+	 * was mutated, and once it has been mutated in place those are gone. Use
+	 * {@link #update(long, Consumer)} or {@link #apply(long, Function)} for in-place mutations - they derive
+	 * the previous keys before running the caller's logic, and additionally schedule the entity for storing.
+	 * For an entity that was already mutated directly, {@link #reindex()} is the recovery path.
+	 * <p>
+	 * A replacement that this map's {@link #equalator()} considers <em>equal</em> to the entity being
+	 * replaced is applied like any other: the equalator decides which id an entity instance resolves to, not
+	 * whether a write happens. On a map built with value equality this is the ordinary "store a new version
+	 * of the same record" case.
+	 * <p>
 	 * <b>Behavior on failure:</b> constraints are checked and the bitmap indices are updated
 	 * <em>before</em> the entity is replaced in the map's storage. If a constraint is violated or
 	 * an {@link Indexer} throws an exception while deriving the new entity's keys, the map is left
@@ -338,7 +360,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * @param entity the new entity
 	 * @return the entity previously mapped to the id, or {@code null} if its slot was empty
 	 * @throws IllegalArgumentException if the entityId was never handed out by this map, i.e. it is
-	 *         negative or greater than {@link #highestUsedId()}
+	 *         negative or greater than {@link #highestUsedId()}, or if the entity is the very instance
+	 *         already mapped to that id (use {@link #update(long, Consumer)} /
+	 *         {@link #apply(long, Function)} instead)
+	 * @see #update(long, Consumer)
+	 * @see #apply(long, Function)
 	 */
 	public E set(long entityId, E entity);
 	
@@ -353,8 +379,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * <p>
 	 * To get the best performance for this operation is the use of an identity index.
 	 * See {@link BitmapIndices#setIdentityIndices(IndexIdentifier...)}.
-	 * 
-	 * 
+	 * <p>
+	 * The {@link #equalator()} only selects <em>which</em> id is replaced; it does not decide whether the
+	 * write happens. A replacement it considers equal to {@code current} is therefore applied like any
+	 * other - on a map built with value equality that is the ordinary "store a new version of the same
+	 * record" case.
 	 * <p>
 	 * <b>Behavior on failure:</b> identical to {@link #set(long, Object)}: the map is left
 	 * unchanged if a constraint is violated or an {@link Indexer} throws while the indices are
@@ -364,7 +393,10 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * @param replacement the new entity instance
 	 * @return the mapped id of the entity
 	 * @throws IllegalStateException if no bitmap index is present
-	 * @throws IllegalArgumentException if current and replacement are the same object
+	 * @throws IllegalArgumentException if current and replacement are the same object, or if the
+	 *         replacement turns out to be the very instance mapped to the resolved id (which a value
+	 *         equalator can produce when several equal instances are contained); see
+	 *         {@link #set(long, Object)} for why an in-place mutation cannot be re-indexed
 	 */
 	public long replace(E current, E replacement);
 	
@@ -395,7 +427,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * leave the map unchanged on violation. The thrown exception carries the offending entity and its id
 	 * (via {@code violatingEntity} and {@code entityId}); callers that need to recover can re-add the
 	 * entity after correcting the violation, or use {@code set} / {@code replace} instead when
-	 * non-destructive semantics are required.
+	 * non-destructive semantics are required - passing a corrected, separate instance, since those methods
+	 * reject the instance the map already holds.
 	 * <p>
 	 * <b>Behavior on other exceptions:</b> the same destructive-removal contract applies to any other
 	 * {@link RuntimeException} thrown by {@code logic} itself or by an {@link Indexer} once {@code logic}
@@ -492,7 +525,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * leave the map unchanged on violation. The thrown exception carries the offending entity and its id
 	 * (via {@code violatingEntity} and {@code entityId}); callers that need to recover can re-add the
 	 * entity after correcting the violation, or use {@code set} / {@code replace} instead when
-	 * non-destructive semantics are required.
+	 * non-destructive semantics are required - passing a corrected, separate instance, since those methods
+	 * reject the instance the map already holds.
 	 * <p>
 	 * A <em>stale index</em> (persisted index keys no longer matching the entities, e.g. after a direct
 	 * mutation of an indexed field or entity class evolution) is treated as a special case so it can
@@ -542,7 +576,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * entry is the only way to keep the map consistent. The thrown exception carries the offending entity
 	 * and its id (via {@code violatingEntity} and {@code entityId}); callers that need to recover can
 	 * re-add the entity after correcting the violation, or use {@link #set(long, Object) set} when
-	 * non-destructive semantics are required.
+	 * non-destructive semantics are required - passing a corrected, separate instance, since {@code set}
+	 * rejects the instance the map already holds.
 	 * <p>
 	 * A <em>stale index</em> (persisted index keys no longer matching the entities, e.g. after a direct
 	 * mutation of an indexed field or entity class evolution) is treated as a special case so it can
@@ -583,7 +618,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * <p>
 	 * The rebuild drops each index' data and re-indexes every entity from its current state; a per-entity
 	 * update replay would be insufficient because the previous index key of a directly mutated entity is no
-	 * longer available.
+	 * longer available. For the same reason, writing a directly mutated entity back through
+	 * {@link #set(long, Object) set} / {@link #replace(Object, Object) replace} is rejected rather than
+	 * silently ignored: those methods install a <em>different</em> instance and re-index that, so they cannot
+	 * repair a mutation of the instance they already hold. This method - or, from the start,
+	 * {@code update} / {@code apply} - is the way.
 	 * <p>
 	 * This rebuilds only the index structures; it does <b>not</b> store the entities themselves. A directly
 	 * mutated entity must still be persisted explicitly (mutating via {@code update} / {@code apply} does this
@@ -980,6 +1019,14 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 
 	/**
 	 * Provides this set {@link Equalator} instance of this {@link GigaMap}.
+	 * <p>
+	 * It answers exactly one question: which id a given entity <em>instance</em> resolves to. That is what
+	 * {@link #remove(Object)}, {@link #replace(Object, Object)}, {@link #apply(Object, Function)} and
+	 * {@link #update(Object, Consumer)} need to turn the instance they are handed into an id. It has no say
+	 * in whether a mutation is carried out: a replacement it considers equal to the entity being replaced is
+	 * still written and re-indexed.
+	 * <p>
+	 * The default is identity equality; see {@link Builder#withValueEquality()} for value equality.
 	 *
 	 * @return the {@link Equalator} used by this {@link GigaMap}
 	 */
@@ -1089,6 +1136,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		
 		/**
 		 * Configures the builder to use value-based equality for comparing elements.
+		 * <p>
+		 * This affects only how an entity instance is resolved to its id; see {@link GigaMap#equalator()}.
 		 *
 		 * @return the builder instance for method chaining
 		 */
@@ -2215,51 +2264,69 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			 */
 			final E replacedEntity = this.get(entityId);
 
-			// only change state if there is an actual change in the entity data.
-			if(!this.equalator.equal(replacedEntity, entity))
+			if(replacedEntity == entity)
 			{
-				this.constraints.check(entityId, replacedEntity, entity);
-
 				/*
-				 * The indices are updated BEFORE the storage slot is overwritten: the index update is
-				 * the last operation that runs user code (indexers deriving the new entity's keys), so
-				 * a throw from it must leave the map observably unchanged instead of storing an entity
-				 * whose keys the indices do not reflect.
+				 * Writing back the very instance the id already holds is the "load it, mutate it, save it"
+				 * idiom - and this method cannot serve it. Re-indexing a mutation requires the keys the
+				 * entity had BEFORE it was mutated, and those are gone: the only thing left to derive keys
+				 * from is the mutated state. That is precisely why #update / #apply derive the previous keys
+				 * up front and only then let the caller's logic run.
+				 *
+				 * So the alternative to rejecting is doing nothing, which is what this used to do - silently,
+				 * losing both the index update and the mutation itself, since a slot whose reference does not
+				 * change gives the storer nothing to re-serialize either. Rejecting says so instead.
 				 */
-				this.indices.internalUpdateIndices(entityId, replacedEntity, entity, this.constraints.custom());
-
-				if(replacedEntity == null)
-				{
-					/*
-					 * The slot is empty, so this id was removed: #removeById decremented the size and this
-					 * fills the slot again, which has to restore it. Without this the size stays one too low
-					 * for the rest of the map's life - and it is persisted state, so the drift survives a
-					 * restart. Every valid id below nextFreeId was handed out by #add, so an empty slot can
-					 * only mean a removal.
-					 *
-					 * Counted here rather than earlier, with the rest of the state changes and after everything
-					 * that can throw: the checks above and the index update are ordered so a throw leaves the
-					 * map observably unchanged, and a size that had already been incremented would break
-					 * exactly that.
-					 */
-					this.baseSize++;
-				}
-
-				/*
-				 * Re-created here if the removal of the last entity released them, and deliberately not
-				 * any earlier: materializing before the checks and the index update above would leave a
-				 * fresh empty segment (plus a pending re-store for it) behind on a failed set, breaking
-				 * the very "a throw leaves the map observably unchanged" guarantee they are ordered for.
-				 * Both methods return the existing segment when there is one, so this is a no-op for the
-				 * ordinary replacement.
-				 */
-				final GigaLevel2<E> level2 = this.ensureLevel2(level3, level3Index);
-				final GigaLevel1<E> level1 = this.ensureLevel1(level2, level2Index);
-
-				level1.entities[level1Index] = entity;
-				level3.markChanged(level3Index);
-				level2.markChanged(level2Index);
+				throw new IllegalArgumentException(
+					"The passed entity is already the one mapped to id " + entityId
+					+ ". An entity mutated in place cannot be re-indexed by set/replace, because its keys from"
+					+ " before the mutation are no longer derivable. Use update(long, Consumer) or"
+					+ " apply(long, Function) for in-place mutations (they also schedule the entity for"
+					+ " storing), or pass a different instance."
+				);
 			}
+
+			this.constraints.check(entityId, replacedEntity, entity);
+
+			/*
+			 * The indices are updated BEFORE the storage slot is overwritten: the index update is
+			 * the last operation that runs user code (indexers deriving the new entity's keys), so
+			 * a throw from it must leave the map observably unchanged instead of storing an entity
+			 * whose keys the indices do not reflect.
+			 */
+			this.indices.internalUpdateIndices(entityId, replacedEntity, entity, this.constraints.custom());
+
+			if(replacedEntity == null)
+			{
+				/*
+				 * The slot is empty, so this id was removed: #removeById decremented the size and this
+				 * fills the slot again, which has to restore it. Without this the size stays one too low
+				 * for the rest of the map's life - and it is persisted state, so the drift survives a
+				 * restart. Every valid id below nextFreeId was handed out by #add, so an empty slot can
+				 * only mean a removal.
+				 *
+				 * Counted here rather than earlier, with the rest of the state changes and after everything
+				 * that can throw: the checks above and the index update are ordered so a throw leaves the
+				 * map observably unchanged, and a size that had already been incremented would break
+				 * exactly that.
+				 */
+				this.baseSize++;
+			}
+
+			/*
+			 * Re-created here if the removal of the last entity released them, and deliberately not
+			 * any earlier: materializing before the checks and the index update above would leave a
+			 * fresh empty segment (plus a pending re-store for it) behind on a failed set, breaking
+			 * the very "a throw leaves the map observably unchanged" guarantee they are ordered for.
+			 * Both methods return the existing segment when there is one, so this is a no-op for the
+			 * ordinary replacement.
+			 */
+			final GigaLevel2<E> level2 = this.ensureLevel2(level3, level3Index);
+			final GigaLevel1<E> level1 = this.ensureLevel1(level2, level2Index);
+
+			level1.entities[level1Index] = entity;
+			level3.markChanged(level3Index);
+			level2.markChanged(level2Index);
 
 			return replacedEntity;
 		}

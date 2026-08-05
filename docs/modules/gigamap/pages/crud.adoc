@@ -108,3 +108,13 @@ gigaMap.apply(entityId, p -> {
 gigaMap.set(entityId, replacement);
 gigaMap.removeById(entityId);
 ----
+
+`set` and `replace` install a *different* instance in place of the current one and re-index that. They are therefore not a way to write back an entity you mutated yourself: passing the very instance the map already holds is rejected with an `IllegalArgumentException`, because re-indexing a mutation needs the keys the entity had *before* it was mutated, and those are gone once it has been mutated in place. That is exactly what `update` / `apply` derive up front, which is why they are the in-place path — and why `reindex()` is the repair for a mutation that already bypassed them.
+
+[source, java]
+----
+person.setLastName("Smith");
+
+gigaMap.set(entityId, person);                        // rejected - nothing to derive the old key from
+gigaMap.update(entityId, p -> p.setLastName("Smith")); // do this instead
+----
