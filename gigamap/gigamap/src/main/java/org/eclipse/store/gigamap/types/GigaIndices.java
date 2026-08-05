@@ -264,21 +264,6 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 			}
 		}
 
-		protected final void internalAddAll(final long firstEntityId, final E[] entities)
-		{
-			try
-			{
-				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
-				{
-					indexGroup.internalAddAll(firstEntityId, entities);
-				}
-			}
-			finally
-			{
-				this.markStateChangeChildren();
-			}
-		}
-
 		protected final void internalRemove(final long entityId, final E entity)
 		{
 			/*

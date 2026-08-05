@@ -196,28 +196,7 @@ implements BitmapIndex.TopLevel<E, Boolean>, ChangeHandler
 		}
 		this.markStateChangeChildren();
 	}
-	
-	@Override
-	public final void internalAddAll(final long firstEntityId, final E[] entities)
-	{
-		final BitmapEntry<E, E, Boolean>  entry   = this.entry;
-		final Indexer<? super E, Boolean> indexer = this.indexer;
-		
-		long currentEntityId = firstEntityId - 1;
-		for(final E entity : entities)
-		{
-			// entityId must be incremented in any case to ensure consistency to the parent map.
-			++currentEntityId;
-			final Boolean key = indexer.index(entity);
-			if(key == null || !key)
-			{
-				continue;
-			}
-			entry.add(currentEntityId);
-		}
-		this.markStateChangeChildren();
-	}
-	
+
 	@Override
 	public final void internalRemove(final long entityId, final E entity)
 	{
