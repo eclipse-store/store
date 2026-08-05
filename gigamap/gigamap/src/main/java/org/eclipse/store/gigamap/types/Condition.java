@@ -51,6 +51,10 @@ public interface Condition<E> extends Predicate<E>
 	
 	/**
 	 * Links the current condition with another condition using the specified linker.
+	 * <p>
+	 * Linking never modifies this condition: the result is always a newly created condition instance.
+	 * A condition instance is therefore safe to cache, share and reuse as the base of arbitrarily many
+	 * derived conditions.
 	 *
 	 * @param condition the condition to be linked with the current condition
 	 * @param linker the linker function that defines how the conditions are linked
@@ -66,14 +70,18 @@ public interface Condition<E> extends Predicate<E>
 	
 	/**
 	 * Combines the current condition with another condition using a logical AND operation.
+	 * <p>
+	 * This condition is left unchanged, see {@link #linkCondition(Condition, Linker)}.
 	 *
 	 * @param condition the condition to be combined with the current condition
 	 * @return a new condition that represents the logical AND of the current condition and the specified condition
 	 */
 	public Condition<E> and(Condition<E> condition);
-	
+
 	/**
 	 * Combines the current condition with another condition using a logical OR operation.
+	 * <p>
+	 * This condition is left unchanged, see {@link #linkCondition(Condition, Linker)}.
 	 *
 	 * @param condition the condition to be combined with the current condition
 	 * @return a new condition that represents the logical OR of the current condition and the specified condition
@@ -308,17 +316,18 @@ public interface Condition<E> extends Predicate<E>
 			final Linker linker
 		)
 		{
-			// Prevent self-reference which would cause infinite recursion during evaluation.
-			if(condition == this)
-			{
-				return linker.linkCondition(condition, this);
-			}
-
 			// AND condition can just be added to this chainAnd's conditions (flattening).
 			if(linker == CREATOR_AND)
 			{
-				this.conditions.add(condition);
-				return this;
+				/* But it is added to a COPY of them: this instance must not be modified, since the
+				 * application may hold and reuse it as the base of other conditions. Copying also makes
+				 * a reference cycle (and thus infinite recursion during evaluation) impossible, as the
+				 * linked condition can never contain the instance returned here.
+				 */
+				final BulkList<Condition<E>> linkedConditions = BulkList.New(this.conditions);
+				linkedConditions.add(condition);
+
+				return new And<>(linkedConditions);
 			}
 
 			// otherwise (i.e., OR), the last condition is bound with priority to the new condition
@@ -359,7 +368,12 @@ public interface Condition<E> extends Predicate<E>
 			this.conditions.add(leftCondition);
 			this.conditions.add(rightCondition);
 		}
-		
+
+		protected Or(final BulkList<Condition<E>> conditions)
+		{
+			super(conditions);
+		}
+
 		@Override
 		public Condition<E> complete()
 		{
@@ -396,23 +410,25 @@ public interface Condition<E> extends Predicate<E>
 			final Linker linker
 		)
 		{
-			// Prevent self-reference which would cause infinite recursion during evaluation.
-			if(condition == this)
-			{
-				return linker.linkCondition(condition, this);
-			}
+			/* Both linking cases are applied to a COPY of this chainOr's conditions: this instance must not
+			 * be modified, since the application may hold and reuse it as the base of other conditions.
+			 * Copying also makes a reference cycle (and thus infinite recursion during evaluation)
+			 * impossible, as the linked condition can never contain the instance returned here.
+			 */
+			final BulkList<Condition<E>> linkedConditions = BulkList.New(this.conditions);
 
 			if(linker == CREATOR_OR)
 			{
 				// OR condition can just be added to this chainOr's conditions (flattening).
-				this.conditions.add(condition);
-				return this;
+				linkedConditions.add(condition);
+			}
+			else
+			{
+				// otherwise (i.e. AND), the last condition is bound with priority to the new condition
+				linkedConditions.setLast(linker.linkCondition(condition, linkedConditions.last()));
 			}
 
-			// otherwise (i.e. AND), the last condition is bound with priority to the new condition
-			final Condition<E> linkingCondition = linker.linkCondition(condition, this.conditions.last());
-			this.conditions.setLast(linkingCondition);
-			return this;
+			return new Or<>(linkedConditions);
 		}
 		
 		@Override
