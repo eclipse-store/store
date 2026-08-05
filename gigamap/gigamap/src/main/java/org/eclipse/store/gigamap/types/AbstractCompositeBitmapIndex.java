@@ -410,7 +410,7 @@ implements BitmapIndex.TopLevel<E, KS>
 					continue;
 				}
 
-				// #query is guaranteed to no return a NO_RESULT, since that would have caused a return in the loop above.
+				// #query is guaranteed not to return an EMPTY_RESULT, since that would have caused a return in the loop above.
 				results[r++] = this.subIndices[i].internalQueryForKeys(keys);
 			}
 
