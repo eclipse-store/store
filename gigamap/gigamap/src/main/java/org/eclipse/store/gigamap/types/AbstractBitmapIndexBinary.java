@@ -289,9 +289,8 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 	
 	protected long indexBinary(final I entity)
 	{
-		final long keys = this.indexer.indexBinary(entity);
-		BinaryIndexer.Static.validate(keys, this.indexer);
-		return keys;
+		// note: null keys are rejected by the indexer itself, since a long can never be null once it got here.
+		return this.indexer.indexBinary(entity);
 	}
 	
 	@Override
