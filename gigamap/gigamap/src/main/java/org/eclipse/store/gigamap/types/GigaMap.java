@@ -1822,7 +1822,18 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		
 		final boolean isEntityPeeking(final long entityId, final E entity)
 		{
-			return this.equalator.equal(this.peek(entityId), entity);
+			final E peeked = this.peek(entityId);
+			if(peeked != null)
+			{
+				// fast path: segment already resident, no load required.
+				return this.equalator.equal(peeked, entity);
+			}
+
+			// peek() returns null when the owning segment is not resident (e.g. evicted by release()
+			// or a LazyReferenceManager timeout), not necessarily because the entity is absent. The
+			// object registry can still resolve the identical instance once the segment is loaded, so a
+			// plain peek-miss must not be treated as "not found" (internal#138).
+			return this.isEntity(entityId, entity);
 		}
 		
 		final boolean isEntity(final long entityId, final E entity)
@@ -2139,7 +2150,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			
 			protected boolean isMatchingEntity(final long entityId)
 			{
-				// assumed referential equality equalator which does not need to load an entity to compare it to itself
+				// referential equality equalator: usually decidable without a load, but isEntityPeeking
+				// falls back to a loading comparison when the owning segment is not resident.
 				return GigaMap.Default.this.isEntityPeeking(entityId, this.entity);
 			}
 
