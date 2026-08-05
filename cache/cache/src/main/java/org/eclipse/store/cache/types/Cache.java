@@ -2356,7 +2356,11 @@ public interface Cache<K, V> extends javax.cache.Cache<K, V>, Unwrappable
 					final K evictedKey   = this.objectConverter.externalize(entryToEvict.key());
 					final V evictedValue = this.objectConverter.externalize(entryToEvict.value().value());
 
-					this.deleteCacheEntry(evictedKey);
+					/*
+					 * Eviction only frees heap space; it must not write through to the CacheWriter.
+					 * JSR-107 treats eviction, like expiry, as a cache-internal removal: the entry
+					 * stays in the external resource and is reloaded via read-through on demand.
+					 */
 
 					if(eventDispatcher != null)
 					{
