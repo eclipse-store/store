@@ -51,9 +51,9 @@ import static org.junit.jupiter.api.Assertions.assertSame;
  */
 public class SetValueEqualInstanceTest
 {
-	static final PayloadIndexer     PAYLOAD    = new PayloadIndexer();
-	static final KeyIndexer         KEY        = new KeyIndexer();
-	static final UniqueKeyIndexer   UNIQUE_KEY = new UniqueKeyIndexer();
+	static final PayloadIndexer   PAYLOAD    = new PayloadIndexer();
+	static final KeyIndexer       KEY        = new KeyIndexer();
+	static final UniqueKeyIndexer UNIQUE_KEY = new UniqueKeyIndexer();
 
 	/**
 	 * {@code set} with a value-equal but distinct instance must install it and re-index it.
@@ -61,13 +61,13 @@ public class SetValueEqualInstanceTest
 	@Test
 	void setValueEqualDistinctInstanceIsApplied()
 	{
-		final GigaMap<Record> map = GigaMap.New(XHashing.hashEqualityValue());
+		final GigaMap<Rec> map = GigaMap.New(XHashing.hashEqualityValue());
 		map.index().bitmap().add(PAYLOAD);
 
-		final Record v1 = new Record("k", "A");
-		final long   id = map.add(v1);
+		final Rec  v1 = new Rec("k", "A");
+		final long id = map.add(v1);
 
-		final Record v2 = new Record("k", "B"); // equal per equals (key only), new payload
+		final Rec v2 = new Rec("k", "B"); // equal per equals (key only), new payload
 
 		assertSame(v1, map.set(id, v2), "the replaced entity is returned");
 
@@ -84,13 +84,13 @@ public class SetValueEqualInstanceTest
 	@Test
 	void replaceValueEqualDistinctInstanceIsApplied()
 	{
-		final GigaMap<Record> map = GigaMap.New(XHashing.hashEqualityValue());
+		final GigaMap<Rec> map = GigaMap.New(XHashing.hashEqualityValue());
 		map.index().bitmap().add(PAYLOAD);
 
-		final Record v1 = new Record("k", "A");
-		final long   id = map.add(v1);
+		final Rec  v1 = new Rec("k", "A");
+		final long id = map.add(v1);
 
-		final Record v2 = new Record("k", "B");
+		final Rec v2 = new Rec("k", "B");
 
 		assertEquals(id, map.replace(v1, v2), "replace returns the id it wrote to");
 
@@ -109,17 +109,17 @@ public class SetValueEqualInstanceTest
 		final long id;
 
 		{
-			final GigaMap<Record> map = GigaMap.New(XHashing.hashEqualityValue());
+			final GigaMap<Rec> map = GigaMap.New(XHashing.hashEqualityValue());
 			map.index().bitmap().add(PAYLOAD);
 
-			final Record v1 = new Record("k", "A");
+			final Rec v1 = new Rec("k", "A");
 			id = map.add(v1);
 
 			try(final EmbeddedStorageManager storage = EmbeddedStorage.start(map, dir))
 			{
 				storage.storeRoot();
 
-				map.replace(v1, new Record("k", "B"));
+				map.replace(v1, new Rec("k", "B"));
 
 				map.store();
 			}
@@ -128,7 +128,7 @@ public class SetValueEqualInstanceTest
 		try(final EmbeddedStorageManager storage = EmbeddedStorage.start(dir))
 		{
 			@SuppressWarnings("unchecked")
-			final GigaMap<Record> loaded = (GigaMap<Record>)storage.root();
+			final GigaMap<Rec> loaded = (GigaMap<Rec>)storage.root();
 
 			assertEquals("B", loaded.get(id).payload              , "the replacement must be persisted");
 			assertEquals(1L, loaded.query(PAYLOAD.is("B")).count(), "and the index must agree with it");
@@ -147,13 +147,13 @@ public class SetValueEqualInstanceTest
 		final long id;
 
 		{
-			final GigaMap<Record> map = GigaMap.New(XHashing.hashEqualityValue());
+			final GigaMap<Rec> map = GigaMap.New(XHashing.hashEqualityValue());
 			map.index().bitmap().add(KEY); // indexes the equality field, not the payload
 
-			final Record v1 = new Record("k", "A");
+			final Rec v1 = new Rec("k", "A");
 			id = map.add(v1);
 
-			final Record v2 = new Record("k", "B");
+			final Rec v2 = new Rec("k", "B");
 
 			try(final EmbeddedStorageManager storage = EmbeddedStorage.start(map, dir))
 			{
@@ -172,7 +172,7 @@ public class SetValueEqualInstanceTest
 		try(final EmbeddedStorageManager storage = EmbeddedStorage.start(dir))
 		{
 			@SuppressWarnings("unchecked")
-			final GigaMap<Record> loaded = (GigaMap<Record>)storage.root();
+			final GigaMap<Rec> loaded = (GigaMap<Rec>)storage.root();
 
 			assertEquals("B", loaded.get(id).payload          , "the swap must be persisted");
 			assertEquals(1L, loaded.query(KEY.is("k")).count(), "and the index left intact");
@@ -191,14 +191,14 @@ public class SetValueEqualInstanceTest
 	@Test
 	void valueEqualReplacementDoesNotTripAUniqueConstraint()
 	{
-		final GigaMap<Record> map = GigaMap.New(XHashing.hashEqualityValue());
+		final GigaMap<Rec> map = GigaMap.New(XHashing.hashEqualityValue());
 		map.index().bitmap().addUniqueConstraint(UNIQUE_KEY);
 
-		final Record v1 = new Record("k", "A");
-		final long   id = map.add(v1);
-		map.add(new Record("other", "A"));
+		final Rec  v1 = new Rec("k", "A");
+		final long id = map.add(v1);
+		map.add(new Rec("other", "A"));
 
-		final Record v2 = new Record("k", "B"); // same unique key - it IS the same record
+		final Rec v2 = new Rec("k", "B"); // same unique key - it IS the same record
 
 		assertDoesNotThrow(
 			() -> map.set(id, v2),
@@ -210,29 +210,29 @@ public class SetValueEqualInstanceTest
 		assertEquals(1L, map.query(UNIQUE_KEY.is("k")).count(), "and the unique key still resolves once");
 	}
 
-	static final class PayloadIndexer extends IndexerString.Abstract<Record>
+	static final class PayloadIndexer extends IndexerString.Abstract<Rec>
 	{
 		@Override
-		protected String getString(final Record entity)
+		protected String getString(final Rec entity)
 		{
 			return entity.payload;
 		}
 	}
 
-	static final class KeyIndexer extends IndexerString.Abstract<Record>
+	static final class KeyIndexer extends IndexerString.Abstract<Rec>
 	{
 		@Override
-		protected String getString(final Record entity)
+		protected String getString(final Rec entity)
 		{
 			return entity.key;
 		}
 	}
 
 	/** Binary, because only a binary index is suitable as a unique constraint. */
-	static final class UniqueKeyIndexer extends BinaryIndexerString.Abstract<Record>
+	static final class UniqueKeyIndexer extends BinaryIndexerString.Abstract<Rec>
 	{
 		@Override
-		protected String getString(final Record entity)
+		protected String getString(final Rec entity)
 		{
 			return entity.key;
 		}
@@ -241,12 +241,12 @@ public class SetValueEqualInstanceTest
 	/**
 	 * Equality is the business key alone; {@code payload} is the versioned part that a replacement changes.
 	 */
-	static final class Record
+	static final class Rec
 	{
 		final String key;
 		String       payload;
 
-		Record(final String key, final String payload)
+		Rec(final String key, final String payload)
 		{
 			this.key     = key;
 			this.payload = payload;
@@ -255,7 +255,7 @@ public class SetValueEqualInstanceTest
 		@Override
 		public boolean equals(final Object other)
 		{
-			return other instanceof Record && ((Record)other).key.equals(this.key);
+			return other instanceof Rec rec && rec.key.equals(this.key);
 		}
 
 		@Override
@@ -267,7 +267,7 @@ public class SetValueEqualInstanceTest
 		@Override
 		public String toString()
 		{
-			return "Record[" + this.key + "=" + this.payload + "]";
+			return "Rec[" + this.key + "=" + this.payload + "]";
 		}
 	}
 }

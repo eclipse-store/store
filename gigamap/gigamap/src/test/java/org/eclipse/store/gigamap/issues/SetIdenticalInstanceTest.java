@@ -242,7 +242,7 @@ public class SetIdenticalInstanceTest
 		@Override
 		public boolean equals(final Object other)
 		{
-			return other instanceof Item && ((Item)other).key.equals(this.key);
+			return other instanceof Item item && item.key.equals(this.key);
 		}
 
 		@Override
