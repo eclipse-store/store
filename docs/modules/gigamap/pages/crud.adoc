@@ -113,8 +113,14 @@ gigaMap.removeById(entityId);
 
 [source, java]
 ----
+// wrong: the mutation has already happened, so nothing can derive the old key any more.
+// set rejects the instance it already holds - and update cannot repair it either, because it
+// would derive the "previous" keys from the mutated entity and find them unchanged.
 person.setLastName("Smith");
+gigaMap.set(entityId, person);
 
-gigaMap.set(entityId, person);                        // rejected - nothing to derive the old key from
-gigaMap.update(entityId, p -> p.setLastName("Smith")); // do this instead
+// right: let update perform the mutation, so the old keys are derived before it applies.
+gigaMap.update(entityId, p -> p.setLastName("Smith"));
 ----
+
+If a direct mutation already happened, neither method repairs it — only `reindex()` does, since it rebuilds every index from the current entity state instead of trying to reconstruct the previous keys. Note that it rebuilds index structures only, so the mutated entity still has to be stored explicitly.
