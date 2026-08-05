@@ -357,12 +357,12 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * diverged; such states are repaired by {@link #reindex()}.)
 	 *
 	 * @param entityId the entity id to write to
-	 * @param entity the new entity
+	 * @param entity the new entity, not <code>null</code>
 	 * @return the entity previously mapped to the id, or {@code null} if its slot was empty
-	 * @throws IllegalArgumentException if the entityId was never handed out by this map, i.e. it is
-	 *         negative or greater than {@link #highestUsedId()}, or if the entity is the very instance
-	 *         already mapped to that id (use {@link #update(long, Consumer)} /
-	 *         {@link #apply(long, Function)} instead)
+	 * @throws IllegalArgumentException if entity is <code>null</code>; if the entityId was never handed
+	 *         out by this map, i.e. it is negative or greater than {@link #highestUsedId()}; or if the
+	 *         entity is the very instance already mapped to that id (use
+	 *         {@link #update(long, Consumer)} / {@link #apply(long, Function)} instead)
 	 * @see #update(long, Consumer)
 	 * @see #apply(long, Function)
 	 */
@@ -389,14 +389,15 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * unchanged if a constraint is violated or an {@link Indexer} throws while the indices are
 	 * being updated.
 	 *
-	 * @param current the entity to be removed
-	 * @param replacement the new entity instance
+	 * @param current the entity to be removed, not <code>null</code>
+	 * @param replacement the new entity instance, not <code>null</code>
 	 * @return the mapped id of the entity
 	 * @throws IllegalStateException if no bitmap index is present
-	 * @throws IllegalArgumentException if current and replacement are the same object, or if the
-	 *         replacement turns out to be the very instance mapped to the resolved id (which a value
-	 *         equalator can produce when several equal instances are contained); see
-	 *         {@link #set(long, Object)} for why an in-place mutation cannot be re-indexed
+	 * @throws IllegalArgumentException if current or replacement is <code>null</code>; if they are the
+	 *         same object; or if the replacement turns out to be the very instance mapped to the
+	 *         resolved id (which a value equalator can produce when several equal instances are
+	 *         contained); see {@link #set(long, Object)} for why an in-place mutation cannot be
+	 *         re-indexed
 	 */
 	public long replace(E current, E replacement);
 	
