@@ -2442,6 +2442,15 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			final GigaLevel3<E> level3      = this.level3();
 			final int           level3Index = this.toLevel3Index(entityId);
+
+			/*
+			 * Only the level3 index needs a bounds check, as everywhere else in this class: it addresses
+			 * an array that #enlargeLevel3 grows on demand, so it is not derived from a length exponent
+			 * and an id beyond the current capacity exceeds it. The level2 and level1 indices are masked
+			 * into their exponent's range by #toLevel2Index/#toLevel1Index, and since those exponents are
+			 * persisted with the map and a reloaded map is constructed from them, a segment array is
+			 * always exactly as long as its index range - reloaded ones included.
+			 */
 			if(level3Index >= level3.segments.length)
 			{
 				return;
