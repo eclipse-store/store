@@ -71,16 +71,21 @@ Additionally, you have to use the `update` method of the GigaMap instead of just
 
 [source, java]
 ----
-// don't just update the entity
+// wrong: modifying the entity directly leaves the indices answering under the old values.
+// The previous keys are gone once this runs, so no per-entity call can put them right
+// afterwards - it takes a full reindex(), see below.
 person.setLastName("Smith");
 person.setAddress(newAddress);
 
-// use the update method, to automatically propagate the changes to the index
+// right: let update perform the modification, so the previous index keys are derived
+// before it applies - and the entity is scheduled for storing along the way.
 gigaMap.update(person, p -> {
-    p.setLastName("Smith"),
-    p.setAddress(newAddress)
+    p.setLastName("Smith");
+    p.setAddress(newAddress);
 });
 ----
+
+The two are alternatives, not steps: an `update` after a direct modification does not undo it. `update` derives the previous keys from the entity it is handed, and those are already the new values by then, so the stale entries stay. Once a direct modification has happened, only `reindex()` repairs the indices — it rebuilds them from the current entity state rather than trying to reconstruct the previous keys. It rebuilds index structures only, so the modified entity still has to be stored explicitly.
 
 Entities modified through `update` (or `apply`) are automatically persisted when calling `store()`. See xref:persistence.adoc[] for details.
 
@@ -107,4 +112,17 @@ gigaMap.apply(entityId, p -> {
 // the index-free equivalents of replace / remove already exist:
 gigaMap.set(entityId, replacement);
 gigaMap.removeById(entityId);
+----
+
+`set` and `replace` install a *different* instance in place of the current one and re-index that. They are therefore not a way to write back an entity you mutated yourself: passing the very instance the map already holds is rejected with an `IllegalArgumentException`, because re-indexing a mutation needs the keys the entity had *before* it was mutated, and those are gone once it has been mutated in place. That is exactly what `update` / `apply` derive up front, which is why they are the in-place path — and why `reindex()` is the repair for a mutation that already bypassed them.
+
+[source, java]
+----
+// wrong: set rejects the instance it already holds, and recovering from the modification
+// then takes a full reindex() - see above
+person.setLastName("Smith");
+gigaMap.set(entityId, person);
+
+// right: let update perform the modification
+gigaMap.update(entityId, p -> p.setLastName("Smith"));
 ----
