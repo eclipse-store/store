@@ -72,7 +72,7 @@ public class CacheRemoveAllDurableEntriesTest
             createStorageBackedLruCache(cacheManager, storageManager, "removeAllCache");
         try
         {
-            final Set<Integer> heapKeys = putUntilEvicted(cache);
+            putUntilEvicted(cache);
 
             // Registered after the puts, so it observes only the removeAll() events.
             final Map<Integer, String> removedEvents = new HashMap<>();
