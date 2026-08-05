@@ -3067,7 +3067,18 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 					final GigaLevel2<E> level2 = level2Root.get();
 					try
 					{
-						this.iterate(level2, i<<level1p2Pow2, consumer);
+						/*
+						 * The (long) cast is mandatory, not cosmetic: entity ids range up to 2^50, so int
+						 * arithmetic is out of range twice over.
+						 * - Without it, i<<level1p2Pow2 overflows as soon as the level3 index reaches
+						 *   2^31 / 2^level1p2Pow2 (index 8192 with the default exponents), reporting
+						 *   negative ids from entity 2^31 on.
+						 * - Worse, level1Exp + level2Exp may legally reach 40 (each caps at 20, only their
+						 *   sum with level3Max is limited to 50), and an int shift uses only the low 5 bits
+						 *   of its distance (JLS 15.19). So i<<32 would evaluate to i<<0 == i, making high
+						 *   level3 segments report ids that collide with segment 0 instead of merely wrapping.
+						 */
+						this.iterate(level2, (long)i << level1p2Pow2, consumer);
 					}
 					catch(final ThrowBreak b)
 					{
@@ -3084,8 +3095,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		}
 		
 		private void iterate(
-			final GigaLevel2<E>            level2   ,
-			final int                      baseIndex,
+			final GigaLevel2<E>            level2  ,
+			final long                     baseId  ,
 			final EntryConsumer<? super E> consumer
 		)
 		{
@@ -3099,13 +3110,14 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 					continue;
 				}
 				final GigaLevel1<E> level1 = level1Root.get();
-				this.iterate(level1.entities, baseIndex + (i << level1Pow2),  consumer);
+				// (long) cast mandatory: i<<level1Pow2 would overflow in int before the widening addition.
+				this.iterate(level1.entities, baseId + ((long)i << level1Pow2),  consumer);
 			}
 		}
-		
+
 		private void iterate(
-			final E[]                      level1   ,
-			final int                      baseIndex,
+			final E[]                      level1  ,
+			final long                     baseId  ,
 			final EntryConsumer<? super E> consumer
 		)
 		{
@@ -3116,7 +3128,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				{
 					continue;
 				}
-				consumer.accept(baseIndex + i, e);
+				consumer.accept(baseId + i, e);
 			}
 		}
 		
