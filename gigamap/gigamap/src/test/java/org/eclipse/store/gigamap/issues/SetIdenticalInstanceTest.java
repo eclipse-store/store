@@ -78,7 +78,12 @@ public class SetIdenticalInstanceTest
 			() -> map.set(id, item)
 		);
 
-		// The message has to send the caller somewhere useful, since there is nothing set() can do.
+		// The message has to send the caller somewhere useful, since there is nothing set() can do -
+		// and "somewhere useful" is both remedies: reindex() for an entity already mutated, update /
+		// apply for doing it right in the first place. Naming only the latter would be a dead end,
+		// since it cannot repair an existing mutation either.
+		assertTrue(e.getMessage().contains("reindex"),
+			"the message must name reindex() as the repair for an already mutated entity, was: " + e.getMessage());
 		assertTrue(e.getMessage().contains("update"),
 			"the message must point at update(long, Consumer) / apply(long, Function), was: " + e.getMessage());
 

@@ -2280,9 +2280,12 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				throw new IllegalArgumentException(
 					"The passed entity is already the one mapped to id " + entityId
 					+ ". An entity mutated in place cannot be re-indexed by set/replace, because its keys from"
-					+ " before the mutation are no longer derivable. Use update(long, Consumer) or"
-					+ " apply(long, Function) for in-place mutations (they also schedule the entity for"
-					+ " storing), or pass a different instance."
+					+ " before the mutation are no longer derivable. If it has already been mutated, call"
+					+ " reindex() to rebuild the indices from the current entity state, and store the entity"
+					+ " explicitly - update/apply cannot repair it either, for the same reason. To mutate in"
+					+ " place, use update(long, Consumer) or apply(long, Function), which derive the previous"
+					+ " keys up front and schedule the entity for storing. To replace it, pass a different"
+					+ " instance."
 				);
 			}
 
