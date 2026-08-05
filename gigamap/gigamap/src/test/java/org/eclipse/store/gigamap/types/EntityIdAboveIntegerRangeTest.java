@@ -114,11 +114,15 @@ public class EntityIdAboveIntegerRangeTest
 	/**
 	 * {@code level1Exp + level2Exp == 32} makes the level3 shift distance reach the int width, where
 	 * masking turned {@code i<<32} into {@code i<<0 == i}. That is worse than an overflow: level3
-	 * segment 1 reported id 1, aliasing a perfectly valid id of segment 0. Both segments are populated
-	 * here so the aliasing is asserted against, not just the wrong magnitude.
+	 * segment 1 reported base id 1, which is a perfectly valid id belonging to segment 0.
+	 * <p>
+	 * So segment 0 is populated up to that very id here, which makes the defect an actual <i>collision</i>
+	 * rather than merely a wrong magnitude: two different entities reported the same id, and since every
+	 * consumer of {@code iterateIndexed} keys by it, the one that came first was silently dropped. Asserting
+	 * only the high entity's id would have missed that entirely.
 	 */
 	@Test
-	public void iterateIndexedReportsDistinctIdsWhenTheShiftDistanceReachesIntWidth()
+	public void iterateIndexedDoesNotAliasLowerIdsWhenTheShiftDistanceReachesIntWidth()
 	{
 		final GigaMap.Default<Item> map = mapStartingAt(14, 18, 8, 1L << 32);
 
@@ -126,15 +130,18 @@ public class EntityIdAboveIntegerRangeTest
 		final long highId = map.add(high);
 		assertEquals(1L << 32, highId, "the map hands out the seeded id");
 
-		// an entity in level3 segment 0, whose ids the aliasing collided with
-		final Item low = new Item("low");
-		assertNull(map.set(0L, low), "the slot in level3 segment 0 was still empty");
+		// entities in level3 segment 0, at exactly the ids the aliased base id collided with
+		final Item low0 = new Item("low0");
+		final Item low1 = new Item("low1");
+		assertNull(map.set(0L, low0), "the slot in level3 segment 0 was still empty");
+		assertNull(map.set(1L, low1), "the slot in level3 segment 0 was still empty");
 
 		final Map<Long, Item> iterated = iterateIndexed(map);
 
-		assertEquals(Set.of(0L, highId), iterated.keySet(),
-			"level3 segment 1 must report base id " + highId + ", not collide with segment 0");
-		assertSame(low , iterated.get(0L)    , "and each id must carry its own entity");
+		assertEquals(Set.of(0L, 1L, highId), iterated.keySet(),
+			"level3 segment 1 must report base id " + highId + ", not alias id 1 of segment 0");
+		assertSame(low0, iterated.get(0L)    , "and each id must carry its own entity");
+		assertSame(low1, iterated.get(1L)    , "id 1 must still carry the entity that actually lives there");
 		assertSame(high, iterated.get(highId), "and each id must carry its own entity");
 	}
 
