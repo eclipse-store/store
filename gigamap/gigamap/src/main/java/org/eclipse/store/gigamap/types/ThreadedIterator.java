@@ -19,6 +19,7 @@ import org.eclipse.serializer.collections.types.XGettingCollection;
 import org.eclipse.serializer.concurrency.XThreads;
 import org.eclipse.serializer.math.XMath;
 import org.eclipse.serializer.memory.XMemory;
+import org.eclipse.serializer.util.X;
 
 import java.lang.ref.Reference;
 import java.util.Iterator;
@@ -114,7 +115,13 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 
 	private long currentRegistrySegmentAddress;
 	private long currentValueGroupAddress;
-	private int  currentRegistryIndex;   // points to a level1segment (a valueGroupsSegment) in the result registry.
+	/*
+	 * Note on currentRegistryIndex: it points to a REGISTRY SEGMENT, not to a single level1 segment.
+	 * One registry slot covers REGISTRY_SEGMENT_SIZE (64) level1 segments - see the ThreadLogic loop,
+	 * which advances the level1 segment index by REGISTRY_SEGMENT_SIZE per registry slot, and
+	 * valueBaseId, which multiplies this index by REGISTRY_SEGMENT_ID_COUNT.
+	 */
+	private int  currentRegistryIndex;   // points to a registry segment (a valueGroupsSegment) in the result registry.
 	private int  currentRegistrySegmentIndex; // points to the value group in the current value groups segment.
 	private int  currentLevel1Index;      // points to a value in the current value group.
 	private int  currentBitPosition;     // the position (0 to 63) of the bit to be tested in the current bitmap value.
@@ -146,10 +153,11 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 		 */
 		this.waitTimeNs = 1000;
 		
+		// registrySegmentCount before the allocation: it is the registry's slot count, hence its size.
 		this.level1SegmentCount   = this.calculateLevel1SegmentCount();
+		this.registrySegmentCount = this.calculateRegistrySegmentCount();
 		final long registryLength = this.calculateIdListsRegistryLength();
 		this.registryAddress      = allocateEmptyMemory(registryLength);
-		this.registrySegmentCount = this.calculateRegistrySegmentCount();
 
 		// Register Cleaner BEFORE threads start so a thread-startup failure still releases the registry.
 		this.cleanup = new Cleanup(this.registryAddress, this.registrySegmentCount);
@@ -163,8 +171,19 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 
 		this.isActive = true;
 
-		// create and start threads NOT before everything is setup, hence down here at the end.
-		this.threads = threadProvider.startIterationThreads(parent, threadCount, this);
+		/*
+		 * create and start threads NOT before everything is setup, hence down here at the end.
+		 *
+		 * An empty map has no registry segment, so there is nothing for a worker thread to fill in. It
+		 * must not be started either: a zero-slot registry is a zero-length allocation, whose address is
+		 * 0, and ThreadLogic would fail its bounds arithmetic on that (a not-positive address and a
+		 * registrySegmentCount - 1 of -1) - silently, on the worker thread. The reader is unaffected
+		 * because hasMoreData() is already false, so it never consults the registry at all.
+		 */
+		this.threads = this.registrySegmentCount == 0
+			? X.empty()
+			: threadProvider.startIterationThreads(parent, threadCount, this)
+		;
 	}
 	
 	
@@ -179,6 +198,19 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 		return this.parent;
 	}
 	
+	/**
+	 * Calculates how many level1 segments are needed to cover the parent map's whole id range.
+	 * <p>
+	 * The count is kept as an {@code int} because it doubles as an index bound into the off-heap id
+	 * lists registry. That caps this iterator at a {@link GigaMap#highestUsedId()} of roughly 2^43,
+	 * which is well below the 2^50 a {@link GigaMap} may hold - but the registry needs eight bytes of
+	 * off-heap memory per segment, so the allocation becomes infeasible (16 GB) long before the type
+	 * does. The overflow is therefore rejected outright instead of silently allocating from a
+	 * negative length.
+	 *
+	 * @return the level1 segment count required for the parent map's id range, 0 for an empty map
+	 * @throws IllegalStateException if the required count exceeds {@link Integer#MAX_VALUE}
+	 */
 	private int calculateLevel1SegmentCount()
 	{
 		/*
@@ -191,13 +223,46 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 		 * So the formula is:
 		 * (highestUsedId / level1IdCount) + 1.
 		 */
-		return (int)(this.parent.highestUsedId() >>> BitmapLevel3.LEVEL_1_TOTAL_SIZE_EXP) + 1;
+		final long highestUsedId = this.parent.highestUsedId();
+
+		/*
+		 * An empty map has no id at all, so there is nothing to partition and the count is 0, which
+		 * makes hasMoreData() false right away. The case needs handling before the formula because
+		 * highestUsedId is nextFreeId() - 1 and hence -1 here, whose unsigned shift is 2^52 - 1.
+		 */
+		if(highestUsedId < 0)
+		{
+			return 0;
+		}
+
+		final long segmentCount = (highestUsedId >>> BitmapLevel3.LEVEL_1_TOTAL_SIZE_EXP) + 1;
+
+		if(segmentCount > Integer.MAX_VALUE)
+		{
+			throw new IllegalStateException(
+				"Highest used entityId " + highestUsedId + " requires " + segmentCount
+				+ " level1 segments and thus an id lists registry of " + segmentCount * Long.BYTES
+				+ " bytes, which exceeds the technical limit of this iterator."
+			);
+		}
+
+		return (int)segmentCount;
 	}
 	
+	/**
+	 * The registry holds one pointer per <i>registry segment</i>, not one per level1 segment: a registry
+	 * segment covers {@value #REGISTRY_SEGMENT_SIZE} level1 segments, and their pointers live in that
+	 * segment's own memory block (see {@code ThreadLogic#process}). Sizing this by the level1 segment
+	 * count would over-allocate by that same factor, since every party that walks the registry - the
+	 * worker threads, {@code scrollToNextRegistrySegment} and {@code deallocateSegments} - bounds
+	 * itself by {@code registrySegmentCount}.
+	 *
+	 * @return the byte length of the id lists registry
+	 */
 	private long calculateIdListsRegistryLength()
 	{
-		// level1Segment count times long byte length to get the total byte length
-		return (long)this.level1SegmentCount * Long.BYTES;
+		// registrySegment count times long byte length to get the total byte length
+		return (long)this.registrySegmentCount * Long.BYTES;
 	}
 	
 	private int calculateRegistrySegmentCount()
@@ -249,6 +314,14 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 		return this.valueBaseId + this.currentBitPosition++;
 	}
 	
+	/*
+	 * Deliberately compares a registry segment index against the level1 segment count. That is not the
+	 * index's own bound - the registry scroll is bounded by registrySegmentCount - but a pure
+	 * "is the exhaustion sentinel set?" test: scrollToNextRegistrySegment parks currentRegistryIndex at
+	 * exactly level1SegmentCount when it runs out, and since registrySegmentCount is
+	 * ceil(level1SegmentCount / REGISTRY_SEGMENT_SIZE), every index reachable during a live iteration
+	 * stays below that sentinel.
+	 */
 	private boolean hasMoreData()
 	{
 		return this.currentRegistryIndex < this.level1SegmentCount;
@@ -300,8 +373,9 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 		while(currentBitmapValue == 0L);
 		this.currentLevel1Index = currentLevel1Index;
 		this.currentBitmapValue = currentBitmapValue;
+		// (long) cast mandatory: the int product overflows at registry index 2^13, i.e. at entityId 2^31.
 		this.valueBaseId =
-			this.currentRegistryIndex * REGISTRY_SEGMENT_ID_COUNT
+			(long)this.currentRegistryIndex * REGISTRY_SEGMENT_ID_COUNT
 			+ this.currentRegistrySegmentIndex * LEVEL_1_ID_COUNT
 			+ this.currentLevel1Index * Long.SIZE
 		;

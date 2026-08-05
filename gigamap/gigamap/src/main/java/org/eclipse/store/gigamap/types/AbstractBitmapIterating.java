@@ -385,7 +385,8 @@ public abstract class AbstractBitmapIterating<E>
 	private void updateLevel3IterationState(final int level3Index)
 	{
 		this.currentLevel3Index = level3Index;
-		this.level2BaseId       = level3Index * BitmapLevel3.LEVEL_2_ID_COUNT;
+		// (long) cast mandatory: the int product overflows at level3 index 2^11, i.e. at entityId 2^31.
+		this.level2BaseId       = (long)level3Index * BitmapLevel3.LEVEL_2_ID_COUNT;
 		if(this.level2BaseId >= this.level2TrailingBaseId)
 		{
 			// when the trailing segment is reached, the level2 index bound is 1 beyond the upperId's level2 index.
