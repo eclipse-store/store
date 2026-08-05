@@ -107,7 +107,67 @@ public final class GigaLevel2<E> extends AbstractStateChangeFlagged implements U
 		this.markUsedLevel1Entry(level1Entry);
 		this.markStateChangeInstance();
 	}
-	
+
+	/**
+	 * Releases the level1 segment at the passed index, the counterpart of
+	 * {@link #addLevel1(GigaLevel1, int)}, and reports whether this instance holds no segment at all
+	 * afterwards.
+	 * <p>
+	 * The slot is part of THIS instance's binary form, so the instance itself must be flagged for
+	 * re-storing: {@link #storeChangedChildren(Storer)} alone would never persist the removal, and the
+	 * dropped segment would come back on the next load.
+	 * <p>
+	 * The usage mark is removed explicitly although the dropped {@link Lazy} becomes garbage either way
+	 * (the lazy reference manager holds only weak references to it), so that no clearing or storing
+	 * logic can ever observe a pin for an unreachable child.
+	 *
+	 * @param level2Index the index of the level1 segment to release
+	 * @return {@code true} if this instance holds no level1 segment anymore, {@code false} otherwise
+	 */
+	final boolean removeLevel1(final int level2Index)
+	{
+		final Lazy<GigaLevel1<E>> level1Entry = this.segments[level2Index];
+		if(level1Entry != null)
+		{
+			this.unmarkUsedLevel1Entry(level1Entry);
+		}
+
+		this.segments[level2Index] = null;
+		this.markStateChangeInstance();
+
+		return this.isEmpty(level2Index);
+	}
+
+	/**
+	 * Whether every slot is {@code null}. Starts scanning after the slot that was cleared last and wraps
+	 * around to it, for the same reason as {@link GigaLevel1#isEmpty(int)}: a sequential drain exits on
+	 * the first surviving neighbour. A non-null slot counts as occupied even when its segment is not
+	 * currently loaded, so no segment has to be loaded to answer this.
+	 *
+	 * @param scanStartIndex the index to start scanning after, typically the slot that was cleared last
+	 * @return {@code true} if every slot is {@code null}, {@code false} otherwise
+	 */
+	private boolean isEmpty(final int scanStartIndex)
+	{
+		final Lazy<GigaLevel1<E>>[] segments = this.segments;
+		final int                   length   = segments.length;
+
+		for(int i = 1; i <= length; i++)
+		{
+			int index = scanStartIndex + i;
+			if(index >= length)
+			{
+				index -= length;
+			}
+			if(segments[index] != null)
+			{
+				return false;
+			}
+		}
+
+		return true;
+	}
+
 	@Override
 	protected void storeChangedChildren(final Storer storer)
 	{
