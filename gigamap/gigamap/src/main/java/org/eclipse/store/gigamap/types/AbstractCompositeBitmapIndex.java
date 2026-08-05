@@ -93,8 +93,25 @@ implements BitmapIndex.TopLevel<E, KS>
 	protected abstract void ensureSubIndices(KS keys);
 	
 	protected abstract void clearCarrier();
-	
+
 	protected abstract KS carrier();
+
+	/**
+	 * Returns the shared carrier in a guaranteed cleared state.
+	 * <p>
+	 * The carrier may still hold positions from a previous use (e.g. the previous element of an
+	 * addAll batch, or a preceding contains check). An indexer is allowed to leave empty positions
+	 * unwritten - the "unwritten position = empty" contract - so it must always receive a cleared
+	 * carrier. Every {@code indexer.index(entity, carrier)} invocation must use this method
+	 * instead of {@link #carrier()}.
+	 *
+	 * @return the cleared carrier
+	 */
+	private KS cleanCarrier()
+	{
+		this.clearCarrier();
+		return this.carrier();
+	}
 	
 	protected abstract boolean isEmpty(KS keys, int i);
 	
@@ -133,7 +150,7 @@ implements BitmapIndex.TopLevel<E, KS>
 	@Override
 	protected KS indexEntity(final E entity)
 	{
-		return this.indexer().index(entity, this.carrier());
+		return this.indexer().index(entity, this.cleanCarrier());
 	}
 	
 	@Override
@@ -212,7 +229,7 @@ implements BitmapIndex.TopLevel<E, KS>
 	@Override
 	public final void internalRemove(final long entityId, final E entity)
 	{
-		final KS keys = this.indexer.index(entity, this.carrier());
+		final KS keys = this.indexer.index(entity, this.cleanCarrier());
 		this.internalRemoveForKeys(entityId, keys);
 	}
 	
@@ -259,7 +276,11 @@ implements BitmapIndex.TopLevel<E, KS>
 	@Override
 	protected final void internalAddToEntry(final long entityId, final E entity)
 	{
-		final KS keys = this.indexer.index(entity, this.carrier());
+		// cleanCarrier (not carrier) is essential here: this method is invoked per element by the
+		// inherited addAll loops, whose enclosing clearCarrier() runs only AFTER the whole batch.
+		// Without the per-element clear, an indexer that leaves absent positions unwritten would
+		// inherit the previous element's positions, silently corrupting the index keys.
+		final KS keys = this.indexer.index(entity, this.cleanCarrier());
 		this.ensureSubIndices(keys);
 		
 		for(int i = 0; i < this.subIndices.length; i++)
@@ -355,58 +376,67 @@ implements BitmapIndex.TopLevel<E, KS>
 
 	private boolean internalContains(final E entity, final EntityResolver<E> containsBreaker)
 	{
-		final KS keys = this.indexer.index(entity, this.carrier());
-		if(this.isOversized(keys))
-		{
-			// if the keys contains more key values than there currently are sub indices, the entity cannot possibly be contained.
-			return false;
-		}
-		
-		for(int i = 0; i < this.subIndices.length; i++)
-		{
-			// a null key value means it is irrelevant for the query
-			if(this.isEmpty(keys, i))
-			{
-				continue;
-			}
-			
-			if(!this.subIndices[i].internalContains(keys))
-			{
-				// if at least one sub index does not contain a non-null key, the whole entity cannot be contained.
-				return false;
-			}
-		}
-		
-		final BitmapResult[] results = new BitmapResult[this.subIndices.length];
-		int r = 0;
-		
-		for(int i = 0; i < this.subIndices.length; i++)
-		{
-			if(this.isEmpty(keys, i))
-			{
-				continue;
-			}
-			
-			// #query is guaranteed to no return a NO_RESULT, since that would have caused a return in the loop above.
-			results[r++] = this.subIndices[i].internalQueryForKeys(keys);
-		}
-		
-		final GigaMap<E> parentMap = this.parent().parentMap();
-		
-		// if the entity might be contained, a full query result evaluation has to be performed. But without loading entities.
 		try
 		{
-			// contains function throws a Break on the first encounter of a (non-excluded) match
-			GigaMap.Default.execute(EntityIdMatcher.NoOp(), containsBreaker, results, 0, parentMap.highestUsedId() + 1, null);
+			final KS keys = this.indexer.index(entity, this.cleanCarrier());
+			if(this.isOversized(keys))
+			{
+				// if the keys contains more key values than there currently are sub indices, the entity cannot possibly be contained.
+				return false;
+			}
+
+			for(int i = 0; i < this.subIndices.length; i++)
+			{
+				// a null key value means it is irrelevant for the query
+				if(this.isEmpty(keys, i))
+				{
+					continue;
+				}
+
+				if(!this.subIndices[i].internalContains(keys))
+				{
+					// if at least one sub index does not contain a non-null key, the whole entity cannot be contained.
+					return false;
+				}
+			}
+
+			final BitmapResult[] results = new BitmapResult[this.subIndices.length];
+			int r = 0;
+
+			for(int i = 0; i < this.subIndices.length; i++)
+			{
+				if(this.isEmpty(keys, i))
+				{
+					continue;
+				}
+
+				// #query is guaranteed not to return an EMPTY_RESULT, since that would have caused a return in the loop above.
+				results[r++] = this.subIndices[i].internalQueryForKeys(keys);
+			}
+
+			final GigaMap<E> parentMap = this.parent().parentMap();
+
+			// if the entity might be contained, a full query result evaluation has to be performed. But without loading entities.
+			try
+			{
+				// contains function throws a Break on the first encounter of a (non-excluded) match
+				GigaMap.Default.execute(EntityIdMatcher.NoOp(), containsBreaker, results, 0, parentMap.highestUsedId() + 1, null);
+			}
+			catch(final ThrowBreak b)
+			{
+				// contains function aborted the execution because of a match, aka the entity is contained, so return true.
+				return true;
+			}
+
+			// execution ran through until the end without finding any match. So the entity is not contained, return false.
+			return false;
 		}
-		catch(final ThrowBreak b)
+		finally
 		{
-			// contains function aborted the execution because of a match, aka the entity is contained, so return true.
-			return true;
+			// consistent with the other operations: do not leave the shared carrier populated
+			// (for the hashing variant this would retain stale object references).
+			this.clearCarrier();
 		}
-		
-		// execution ran through until the end without finding any match. So the entity is not contained, return false.
-		return false;
 	}
 	
 	@SuppressWarnings("unchecked")
