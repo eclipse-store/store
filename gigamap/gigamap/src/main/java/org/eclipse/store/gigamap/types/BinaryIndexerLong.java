@@ -22,6 +22,11 @@ package org.eclipse.store.gigamap.types;
  * <b>Restriction:</b> {@code Long.MAX_VALUE} is not supported as an index key and will throw an
  * {@link IllegalArgumentException}. It is reserved internally as a sentinel for zero in the binary
  * bitmap index. All other long values, including zero and negative values, are fully supported.
+ * <p>
+ * <b>Restriction:</b> {@code null} is not supported as an index key either and is likewise rejected with an
+ * {@link IllegalArgumentException}. Because the zero sentinel already consumes the only bit pattern this
+ * indexer could have spared, no collision-free null sentinel is left. See {@link BinaryIndexerNumber} for the
+ * details and use {@link IndexerLong} to index a nullable {@link Long} field.
  *
  * @param <E> the type of entities being indexed
  */
