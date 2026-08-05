@@ -446,6 +446,10 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 	/**
 	 * Combines the current query with the given {@link GigaMap.SubQuery} using a logical AND operator.
 	 * The sub-query contributes an {@link EntityIdMatcher} that further restricts the matching entity ids.
+	 * <p>
+	 * Passing this query itself is a no-op, since a query AND itself is the query. Registering sub-queries
+	 * in a way that forms a cycle (e.g. {@code q1.and(q2); q2.and(q1);}) is invalid and is rejected when the
+	 * query is executed.
 	 *
 	 * @param subQuery the sub-query to combine with the current query
 	 * @return the current {@link GigaQuery} instance with the added sub-query
@@ -775,10 +779,13 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 		private final IterationThreadProvider threadProvider;
 
 		private BulkList<GigaMap.SubQuery> subQueries;
-		
+
 		private Condition<E> condition;
 		private long         idStart  ;
 		private long         idBound  ;
+
+		// guards against sub-query cycles, see #buildEntityIdMatcher
+		private boolean isBuildingEntityIdMatcher;
 		
 		
 		
@@ -813,6 +820,14 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 		@Override
 		public GigaQuery<E> and(final GigaMap.SubQuery subQuery)
 		{
+			/* Registering this query as its own sub-query would recurse infinitely while resolving the
+			 * matchers. It is also pointless: a query AND itself is the query, so it is simply skipped.
+			 */
+			if(subQuery == this)
+			{
+				return this;
+			}
+
 			if(this.subQueries == null)
 			{
 				this.subQueries = BulkList.New();
@@ -894,22 +909,41 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 				return EntityIdMatcher.NoOp();
 			}
 
-			final int size = this.subQueries.intSize();
-			if(size == 1)
+			/* A sub-query may be a query itself, so resolving the matchers recurses into other queries.
+			 * Re-entering this query while it is still resolving means the sub-queries form a cycle
+			 * (e.g. q1.and(q2); q2.and(q1);), which must be reported instead of overflowing the stack.
+			 */
+			if(this.isBuildingEntityIdMatcher)
 			{
-				// Single sub-query — no Multiple wrapper needed.
-				return this.subQueries.first().provideEntityIdMatcher();
+				throw new IllegalStateException(
+					"Cyclic sub-query registration: this query is (indirectly) registered as its own sub-query."
+				);
 			}
 
-			final EntityIdMatcher[] idMatchers = new EntityIdMatcher[size];
-
-			int i = 0;
-			for(final GigaMap.SubQuery q : this.subQueries)
+			this.isBuildingEntityIdMatcher = true;
+			try
 			{
-				idMatchers[i++] = q.provideEntityIdMatcher();
-			}
+				final int size = this.subQueries.intSize();
+				if(size == 1)
+				{
+					// Single sub-query — no Multiple wrapper needed.
+					return this.subQueries.first().provideEntityIdMatcher();
+				}
 
-			return new EntityIdMatcher.Multiple(idMatchers);
+				final EntityIdMatcher[] idMatchers = new EntityIdMatcher[size];
+
+				int i = 0;
+				for(final GigaMap.SubQuery q : this.subQueries)
+				{
+					idMatchers[i++] = q.provideEntityIdMatcher();
+				}
+
+				return new EntityIdMatcher.Multiple(idMatchers);
+			}
+			finally
+			{
+				this.isBuildingEntityIdMatcher = false;
+			}
 		}
 
 		public GigaIterator<E> iterator(final EntityResolver<E> resolver)
