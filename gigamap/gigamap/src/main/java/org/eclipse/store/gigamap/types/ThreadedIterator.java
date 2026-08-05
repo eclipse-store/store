@@ -177,8 +177,9 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 		 * An empty map has no registry segment, so there is nothing for a worker thread to fill in. It
 		 * must not be started either: a zero-slot registry is a zero-length allocation, whose address is
 		 * 0, and ThreadLogic would fail its bounds arithmetic on that (a not-positive address and a
-		 * registrySegmentCount - 1 of -1) - silently, on the worker thread. The reader is unaffected
-		 * because hasMoreData() is already false, so it never consults the registry at all.
+		 * registrySegmentCount - 1 of -1) - silently, on the worker thread. The reader is unaffected: its
+		 * registry scroll is bounded by registrySegmentCount, so with 0 the very first scroll falls
+		 * straight through to the end-of-data sentinel without ever resolving a registry slot.
 		 */
 		this.threads = this.registrySegmentCount == 0
 			? X.empty()
@@ -226,8 +227,10 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 		final long highestUsedId = this.parent.highestUsedId();
 
 		/*
-		 * An empty map has no id at all, so there is nothing to partition and the count is 0, which
-		 * makes hasMoreData() false right away. The case needs handling before the formula because
+		 * An empty map has no id at all, so there is nothing to partition and the count is 0: the first
+		 * registry scroll then finds no segment to advance to and parks at the end-of-data sentinel, which
+		 * is what turns hasMoreData() false (it is still true right after construction, since
+		 * currentRegistryIndex starts at -1). The case needs handling before the formula because
 		 * highestUsedId is nextFreeId() - 1 and hence -1 here, whose unsigned shift is 2^52 - 1.
 		 */
 		if(highestUsedId < 0)
