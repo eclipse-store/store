@@ -16,6 +16,7 @@ package org.eclipse.store.gigamap.issues;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -123,6 +124,8 @@ public class EntityLocatorEvictionMissTest
 
 			map.release(); // evict clean, unused segments
 
+			assertNull(map.peek(idB), "precondition: release() must have evicted b's segment");
+
 			final long removedId = map.remove(b);
 
 			assertEquals(idB, removedId,
@@ -179,7 +182,13 @@ public class EntityLocatorEvictionMissTest
 
 			Thread.sleep(50);
 			// production eviction path: timeout checker, threshold far below the elapsed idle time.
-			LazyReferenceManager.get().cleanUp(Lazy.Checker(1L));
+			// cleanUp() runs synchronously, but retry defensively (bounded) in case a single pass
+			// does not clear the segment, so the precondition below is not a source of flakiness.
+			for(int i = 0; i < 20 && map.peek(idB) != null; i++)
+			{
+				LazyReferenceManager.get().cleanUp(Lazy.Checker(1L));
+			}
+			assertNull(map.peek(idB), "precondition: LazyReferenceManager cleanUp must have evicted b's segment");
 
 			final long removedId = map.remove(b);
 
@@ -200,9 +209,10 @@ public class EntityLocatorEvictionMissTest
 			map.index().bitmap().add(idx);
 
 			final Rec b = new Rec("b", "2");
-			map.add(b);
+			final long idB = map.add(b);
 			storage.storeRoot();
 			map.release();
+			assertNull(map.peek(idB), "precondition: release() must have evicted b's segment before update()");
 
 			map.update(b, e -> e.data = "updated");
 			assertEquals("updated", b.data, "update(b) must succeed although b's segment was evicted");
@@ -211,6 +221,7 @@ public class EntityLocatorEvictionMissTest
 			// must be persisted again before a second release() can actually evict it.
 			storage.storeRoot();
 			map.release();
+			assertNull(map.peek(idB), "precondition: release() must have evicted b's segment before replace()");
 			final Rec replacement = new Rec("b", "replaced");
 			final long replacedId = map.replace(b, replacement);
 			assertTrue(replacedId >= 0, "replace(b, b') must succeed although b's segment was evicted");
