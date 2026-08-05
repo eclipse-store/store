@@ -242,16 +242,6 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
         }
 
         @Override
-        public final void internalAddAll(final long firstEntityId, final E[] entities)
-        {
-            for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
-            {
-                index.internalAddAll(firstEntityId, entities);
-            }
-            this.markStateChangeChildren();
-        }
-
-        @Override
         public void internalPrepareIndicesUpdate(final E replacedEntity)
         {
             // Vector indices don't need preparation for updates

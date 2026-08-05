@@ -706,7 +706,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         public void internalAddAll(long firstEntityId, Iterable<? extends E> entities);
 
-        public void internalAddAll(long firstEntityId, E[] entities);
+        public default void internalAddAll(final long firstEntityId, final E[] entities)
+        {
+            this.internalAddAll(firstEntityId, Arrays.asList(entities));
+        }
 
         public void internalUpdate(long entityId, E replacedEntity, E entity);
 
@@ -1575,12 +1578,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
             }
-        }
-
-        @Override
-        public void internalAddAll(final long firstEntityId, final E[] entities)
-        {
-            this.internalAddAll(firstEntityId, Arrays.asList(entities));
         }
 
         @Override

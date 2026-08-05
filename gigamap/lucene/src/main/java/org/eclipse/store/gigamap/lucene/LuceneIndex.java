@@ -411,12 +411,6 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		}
 		
 		@Override
-		public void internalAddAll(final long firstEntityId, final E[] entities)
-		{
-			this.internalAddAll(firstEntityId, Arrays.asList(entities));
-		}
-		
-		@Override
 		public void internalRemove(final long entityId, final E entity)
 		{
 			try

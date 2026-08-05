@@ -207,19 +207,6 @@ implements BitmapIndex.TopLevel<E, KS>
 	}
 	
 	@Override
-	public final void internalAddAll(final long firstEntityId, final E[] entities)
-	{
-		try
-		{
-			super.internalAddAll(firstEntityId, entities);
-		}
-		finally
-		{
-			this.clearCarrier();
-		}
-	}
-	
-	@Override
 	protected final void removeEntry(final BitmapEntry<E, E, KS> entry)
 	{
 		// not used in this implementation since the actual removing is done in a sub index

@@ -867,22 +867,6 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		}
 
 		@Override
-		public final void internalAddAll(final long firstEntityId, final E[] entities)
-		{
-			try
-			{
-				for(final BitmapIndex.Internal<E, ?> index : this.bitmapIndices.values())
-				{
-					index.internalAddAll(firstEntityId, entities);
-				}
-			}
-			finally
-			{
-				this.markStateChangeChildren();
-			}
-		}
-
-		@Override
 		public final void internalRemove(final long entityId, final E entity)
 		{
 			/*

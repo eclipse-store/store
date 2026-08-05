@@ -22,6 +22,7 @@ import org.eclipse.serializer.persistence.types.Unpersistable;
 import org.eclipse.serializer.typing.KeyValue;
 import org.eclipse.serializer.util.X;
 
+import java.util.Arrays;
 import java.util.function.Consumer;
 import java.util.function.ObjLongConsumer;
 import java.util.function.Predicate;
@@ -207,8 +208,11 @@ public interface BitmapIndex<E, K> extends IndexIdentifier<E, K>, GigaIndex<E>
 		public void internalAdd(long entityId, E entity);
 		
 		public void internalAddAll(long firstEntityId, Iterable<? extends E> entities);
-		
-		public void internalAddAll(long firstEntityId, E[] entities);
+
+		public default void internalAddAll(final long firstEntityId, final E[] entities)
+		{
+			this.internalAddAll(firstEntityId, Arrays.asList(entities));
+		}
 		
 		public void internalRemove(long entityId, E entity);
 		
@@ -400,17 +404,7 @@ public interface BitmapIndex<E, K> extends IndexIdentifier<E, K>, GigaIndex<E>
 			}
 			this.markStateChangeChildren();
 		}
-		
-		public void internalAddAll(final long firstEntityId, final I[] entities)
-		{
-			long currentEntityId = firstEntityId;
-			for(final I entity : entities)
-			{
-				this.internalAddToEntry(currentEntityId++, entity);
-			}
-			this.markStateChangeChildren();
-		}
-		
+
 		protected abstract void internalAddToEntry(long entityId, I indexable);
 		
 		public BitmapEntry<E, I, K> internalEnsureEntry(final I indexable)

@@ -9,11 +9,12 @@ package org.eclipse.store.gigamap.types;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
+import java.util.Arrays;
 
 /**
  * General typing interface for specialized index category types.
@@ -47,11 +48,14 @@ public interface IndexGroup<E> extends GigaMap.Component<E>
 		
 		/**
 		 * Adds entities starting with a certain id to this index.
-		 * 
+		 *
 		 * @param firstEntityId the first id which will be incremented for remaining entities
 		 * @param entities the entities to add
 		 */
-		public void internalAddAll(long firstEntityId, E[] entities);
+		public default void internalAddAll(final long firstEntityId, final E[] entities)
+		{
+			this.internalAddAll(firstEntityId, Arrays.asList(entities));
+		}
 		
 		public void internalPrepareIndicesUpdate(E replacedEntity);
 		
