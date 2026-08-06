@@ -65,6 +65,7 @@ public interface IndexGroup<E> extends GigaMap.Component<E>
 		 * @param entityId the entity's id
 		 * @param replacedEntity old entity
 		 * @param entity new entity from which the key will be extracted
+		 * @param customConstraints the custom constraints to check, may be {@code null} to check none
 		 */
 		public void internalUpdateIndices(long entityId, E replacedEntity, E entity, CustomConstraints<? super E> customConstraints);
 

@@ -2412,8 +2412,9 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				/*
 				 * The logic mutated the entity in place and a state change done by custom logic cannot be
 				 * rolled back, so the entity's state is unreliable: there is no other choice but to remove
-				 * it from the map and report it, along with its entityId, to the calling context in the
-				 * exception.
+				 * it from the map. The logic's own exception is rethrown unchanged - unlike a constraint
+				 * violation it carries no entity/entityId, so the caller only learns which entity was
+				 * dropped from the arguments it passed in.
 				 */
 				this.indices.internalApplyLogicFailure(entityId, current, e);
 				this.removeAfterFailedApply(entityId, e);
