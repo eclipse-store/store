@@ -89,7 +89,9 @@ The two are alternatives, not steps: an `update` after a direct modification doe
 
 Entities modified through `update` (or `apply`) are automatically persisted when calling `store()`. See xref:persistence.adoc[] for details.
 
-WARNING: Because `update` / `apply` mutate the entity in place, a constraint violation triggered by the new state cannot be rolled back. The GigaMap therefore **removes** the offending entity from the map and rethrows the `ConstraintViolationException`. See xref:constraints.adoc#_constraint_violations[Constraints — Constraint Violations] for the full rollback semantics across CRUD operations.
+WARNING: Because `update` / `apply` mutate the entity in place, a constraint violation triggered by the new state cannot be rolled back. The GigaMap therefore **removes** the offending entity from the map and rethrows the `ConstraintViolationException`. The same applies to an exception thrown by the update logic itself, which leaves the entity partially mutated. See xref:constraints.adoc#_constraint_violations[Constraints — Constraint Violations] for the full rollback semantics across CRUD operations.
+
+NOTE: A failure of an *index* is not destructive: if an indexer throws for the new value, or an index implementation rejects it (e.g. a Lucene term over its length limit, an embedding of the wrong dimension, or a stale index), the entity's own data is still the value the logic produced, so `update` / `apply` keep the entity and only rethrow the exception. The indices may then be out of sync with it — repair them with `reindex()`.
 
 === Updating by Entity Id
 

@@ -207,3 +207,5 @@ What happens to the map on violation depends on the operation:
 |`update` / `apply`
 |The offending entity is **removed** from the map. The provided logic mutates the entity in place, so a constraint failure cannot be rolled back to the previous state — the only consistent option is to drop the entry. The removed entity and its id are carried by the `ConstraintViolationException` (`violatingEntity`, `entityId`), so the caller can recover or re-add it after fixing the violation.
 |===
+
+NOTE: Only a *constraint* violation removes the entity — a constraint is what decides whether an entity may exist at all. A failure of an *index* does not: if an indexer throws for the new value, or an index implementation rejects it (e.g. a Lucene term over its length limit, an embedding of the wrong dimension, or a stale index), the entity is kept and the exception is rethrown. The indices may then be out of sync with the retained entity; rebuild them with `reindex()`. A custom constraint that signals a violation by throwing something other than a `ConstraintViolationException` is treated like an index failure, i.e. non-destructively.
