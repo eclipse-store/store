@@ -23,6 +23,10 @@ import java.util.function.Consumer;
  * Represents an interface for managing unique constraints on a category of elements.
  * Provides methods to add and access unique constraints utilizing indexing mechanisms.
  * It extends the functionality of GigaConstraints.Category with additional capabilities.
+ * <p>
+ * A registered constraint is validated when it is created (against the entities already present) and on
+ * every write, and again whenever {@link GigaMap#reindex()} rebuilds the indices from the current entity
+ * state - the one other occasion on which all keys are derived anew.
  *
  * @param <E> the type of elements for which the unique constraints are applied
  */

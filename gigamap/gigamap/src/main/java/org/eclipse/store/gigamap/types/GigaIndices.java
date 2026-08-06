@@ -314,15 +314,48 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 
 		void internalReindex()
 		{
-			// Rebuild every index group from the current entity state. Each group clears its data and
-			// re-indexes all entities of the parent map (see IndexGroup.Internal#internalReindex), so an
-			// index that drifted out of sync - e.g. because an indexed entity was mutated directly instead
-			// of via update()/apply() - is brought back in line.
-			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			/*
+			 * Rebuild every index group from the current entity state. Each group clears its data and
+			 * re-indexes all entities of the parent map (see IndexGroup.Internal#internalReindex), so an
+			 * index that drifted out of sync - e.g. because an indexed entity was mutated directly instead
+			 * of via update()/apply() - is brought back in line.
+			 *
+			 * Best-effort across the groups, mirroring #internalRemove: a group that reports a problem with
+			 * the rebuilt data (the bitmap group rejects data violating a unique constraint) must neither
+			 * keep the remaining groups from being rebuilt nor cost the already rebuilt ones their
+			 * state-change marks - unmarked, a subsequent store() would not persist the rebuild at all. The
+			 * first exception is rethrown at the end, subsequent failures are attached as suppressed ones.
+			 */
+			RuntimeException first = null;
+			try
 			{
-				indexGroup.internalReindex(this.parent);
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					try
+					{
+						indexGroup.internalReindex(this.parent);
+					}
+					catch(final RuntimeException e)
+					{
+						if(first == null)
+						{
+							first = e;
+						}
+						else
+						{
+							first.addSuppressed(e);
+						}
+					}
+				}
 			}
-			this.markStateChangeChildren();
+			finally
+			{
+				this.markStateChangeChildren();
+			}
+			if(first != null)
+			{
+				throw first;
+			}
 		}
 
 		void internalUpdateIndices(

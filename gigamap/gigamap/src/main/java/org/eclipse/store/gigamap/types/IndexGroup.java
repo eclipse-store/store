@@ -131,9 +131,15 @@ public interface IndexGroup<E> extends GigaMap.Component<E>
 		 * current state is correct.
 		 * <p>
 		 * The default implementation drops all data via {@link #internalRemoveAll()} and re-adds every
-		 * entity via {@link #internalAdd(long, Object)}, which is correct for in-memory groups (e.g. bitmap,
+		 * entity via {@link #internalAdd(long, Object)}, which is correct for in-memory groups (e.g.
 		 * vector). Groups with an external commit cost (e.g. Lucene) should override this to batch the
 		 * re-add and commit once.
+		 * <p>
+		 * The default performs <b>no</b> constraint validation: it is a plain re-add of data that is already
+		 * part of the map. A group that backs constraints must override this to re-validate them, because a
+		 * rebuild derives every key anew and the current entity state may well violate a constraint that
+		 * held when the entities were written (the bitmap group does so for its unique constraints, see
+		 * {@code BitmapIndices.Default#internalReindex(GigaMap)}).
 		 *
 		 * @param parentMap the map whose entities this group indexes
 		 */

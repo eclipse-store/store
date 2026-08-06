@@ -32,6 +32,7 @@ import org.eclipse.serializer.reference.Lazy;
 import org.eclipse.serializer.util.X;
 import org.eclipse.store.gigamap.exceptions.ConstraintViolationException;
 import org.eclipse.store.gigamap.exceptions.StaleIndexException;
+import org.eclipse.store.gigamap.exceptions.UniqueConstraintViolationException;
 import org.eclipse.store.gigamap.types.GigaQuery.ConditionBuilder;
 import org.eclipse.store.gigamap.types.IterationThreadProvider.IterationLogicProvider;
 
@@ -644,7 +645,20 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * indices stale in exactly the same way a direct mutation does: the loaded entities carry shifted/defaulted
 	 * values while the persisted index keeps the pre-evolution keys. This method is the recovery path for that
 	 * case too; call it (then {@link #store()}) before any query or update after such an evolution.
+	 * <p>
+	 * <b>Unique constraints:</b> deriving every key anew also means the current entity state is checked against
+	 * the registered unique constraints again, so a rebuild reports data that violates one instead of quietly
+	 * building an index in which one unique key maps to several live entities. Note that class evolution of an
+	 * <em>indexed unique</em> field is a prime source of such data: the legacy mapping defaults that field for
+	 * every old entity, so they all end up carrying the same key. The violation is reported <em>after</em> the
+	 * rebuild has completed - the indices are rebuilt and marked for storing either way, and therefore describe
+	 * the entities as they actually are. That is what the repair works on: re-distinguish the colliding keys
+	 * via {@link #update(long, Consumer) update} / {@link #apply(long, Function) apply}, then call this method
+	 * again.
 	 *
+	 * @throws UniqueConstraintViolationException if the rebuilt indices show two or more entities sharing a key
+	 *         of a unique constraint. The exception names the violated index and the first entity found under
+	 *         an already taken key; the rebuild itself is complete at that point.
 	 * @see #update(long, Consumer)
 	 * @see #apply(long, Function)
 	 */
