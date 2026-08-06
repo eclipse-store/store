@@ -1720,7 +1720,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.drainDeferredBuilderOps();
                 }
 
-                final boolean inGraph = this.index != null && this.index.containsNode(ordinal);
+                // Classify against ONE builder read, derived graph included: two separate reads of
+                // the volatile fields can straddle a persist's builder swap and answer from
+                // different graphs.
+                final GraphIndexBuilder currentBuilder = this.builder;
+                final OnHeapGraphIndex  currentGraph   = currentBuilder == null ? null : graphOf(currentBuilder);
+                final boolean           inGraph        = currentGraph != null && currentGraph.containsNode(ordinal);
 
                 if(vector == null)
                 {
@@ -1763,7 +1768,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
                         this.executeOrDeferBuilderOp(() -> this.internalReaddGraphNode(ordinal, vf));
                     }
-                    else if(this.index.getDeletedNodes().get(ordinal))
+                    else if(currentGraph.getDeletedNodes().get(ordinal))
                     {
                         // vec→null→vec on the SAME entity: the node is still present but marked
                         // deleted. Resurrect it by clearing the deleted bit — monitor-safe (no
