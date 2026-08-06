@@ -670,8 +670,8 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		private transient ChangeHandler[]              cachedNewChangeHandlers ;
 
 		/**
-		 * Whether the current update already moved entries from the prepared previous state to the new
-		 * state. Only relevant between {@link #internalPrepareIndicesUpdate(Object)} and
+		 * Whether the current update already moved at least one entry from the prepared previous state
+		 * to the new state. Only relevant between {@link #internalPrepareIndicesUpdate(Object)} and
 		 * {@link #internalFinishIndicesUpdate()}: once set, the prepared previous state no longer
 		 * describes what is in the indices, so {@link #internalRemovePreparedState(long)} must not use
 		 * it any more.
@@ -1369,9 +1369,15 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 					{
 						continue;
 					}
-					// from here on the prepared previous state no longer describes the indices' content.
-					this.cachedStateChangeApplied = true;
 					this.cachedNewChangeHandlers[i].changeInIndex(entityId, this.cachedPrevChangeHandlers[i]);
+
+					/*
+					 * Set only after a change went through: changeInIndex de-indexes the previous key
+					 * first, so a throw from the very first one (notably the stale-index path) leaves
+					 * this group's entries untouched - and the prepared previous state then still
+					 * describes them exactly, which is what makes the cleanup valid.
+					 */
+					this.cachedStateChangeApplied = true;
 				}
 			}
 			finally
