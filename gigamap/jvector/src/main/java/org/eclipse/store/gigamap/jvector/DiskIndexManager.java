@@ -103,11 +103,26 @@ interface DiskIndexManager extends Closeable
     public OnDiskGraphIndex getDiskIndex();
 
     /**
-     * Attempts to load the index from disk.
+     * Attempts to load the index from disk, validating the {@code .meta} witnesses against the
+     * current live store state. This is the load-time self-heal check: a graph the store has
+     * advanced past is rejected so it gets rebuilt from the source vectors.
      *
      * @return true if successfully loaded, false otherwise
      */
     public boolean tryLoad();
+
+    /**
+     * Attempts to load the index from disk, validating the {@code .meta} witnesses against
+     * {@code expected} instead of the live store state.
+     * <p>
+     * Used to reload an index this process has just written, where the graph on disk is known to
+     * correspond to {@code expected} and the live store may legitimately have advanced past it in
+     * the meantime. Comparing against the live state there would reject a perfectly usable file.
+     *
+     * @param expected the witnesses the {@code .meta} is required to carry
+     * @return true if successfully loaded, false otherwise
+     */
+    public boolean tryLoad(MetaState expected);
 
     /**
      * Writes the in-memory index to disk.
@@ -255,6 +270,16 @@ interface DiskIndexManager extends Closeable
         @Override
         public boolean tryLoad()
         {
+            return this.tryLoad(new MetaState(
+                this.provider.getExpectedVectorCount(),
+                this.provider.getHighestEntityId()    ,
+                this.provider.getStructuralModCount()
+            ));
+        }
+
+        @Override
+        public boolean tryLoad(final MetaState expected)
+        {
             if(this.indexDirectory == null)
             {
                 return false;
@@ -272,7 +297,7 @@ interface DiskIndexManager extends Closeable
             try
             {
                 // Verify metadata matches current configuration
-                if(!this.verifyMetadata(metaPath))
+                if(!this.verifyMetadata(metaPath, expected))
                 {
                     LOG.info("Disk index metadata mismatch for '{}', will rebuild", this.name);
                     return false;
@@ -297,9 +322,10 @@ interface DiskIndexManager extends Closeable
         }
 
         /**
-         * Verifies that the metadata file matches the current configuration.
+         * Verifies that the metadata file matches the current configuration and the expected
+         * witness values.
          */
-        private boolean verifyMetadata(final Path metaPath) throws IOException
+        private boolean verifyMetadata(final Path metaPath, final MetaState expected) throws IOException
         {
             try(final DataInputStream dis = new DataInputStream(new FileInputStream(metaPath.toFile())))
             {
@@ -318,29 +344,26 @@ interface DiskIndexManager extends Closeable
                 }
 
                 final long vectorCount = dis.readLong();
-                final long expectedCount = this.provider.getExpectedVectorCount();
-                if(vectorCount != expectedCount)
+                if(vectorCount != expected.expectedVectorCount)
                 {
-                    LOG.debug("Vector count mismatch: expected {}, got {}", expectedCount, vectorCount);
+                    LOG.debug("Vector count mismatch: expected {}, got {}", expected.expectedVectorCount, vectorCount);
                     return false;
                 }
 
                 final long highestEntityId = dis.readLong();
-                final long expectedHighestEntityId = this.provider.getHighestEntityId();
-                if(highestEntityId != expectedHighestEntityId)
+                if(highestEntityId != expected.highestEntityId)
                 {
-                    LOG.debug("Highest entity id mismatch: expected {}, got {}", expectedHighestEntityId, highestEntityId);
+                    LOG.debug("Highest entity id mismatch: expected {}, got {}", expected.highestEntityId, highestEntityId);
                     return false;
                 }
 
                 final long structuralModCount = dis.readLong();
-                final long expectedStructuralModCount = this.provider.getStructuralModCount();
-                if(structuralModCount != expectedStructuralModCount)
+                if(structuralModCount != expected.structuralModCount)
                 {
                     // The store advanced past the on-disk graph since it was written (e.g. a
                     // vec↔null transition committed via storeRoot() but not yet persistToDisk()).
                     // Reject the disk graph so it is rebuilt from the current source vectors.
-                    LOG.debug("Structural mod count mismatch: expected {}, got {}", expectedStructuralModCount, structuralModCount);
+                    LOG.debug("Structural mod count mismatch: expected {}, got {}", expected.structuralModCount, structuralModCount);
                     return false;
                 }
 
