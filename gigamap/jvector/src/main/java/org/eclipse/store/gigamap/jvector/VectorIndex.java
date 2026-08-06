@@ -772,9 +772,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         long structuralModCount;
 
         // HNSW graph components (transient - rebuilt on load)
-        private transient VectorTypeSupport vectorTypeSupport;
-        private transient GraphIndexBuilder builder          ;
-        private transient OnHeapGraphIndex  index            ;
+        // Volatile: the pair is swapped wholesale by exitIncrementalMode / reenterIncrementalMode /
+        // initializeInMemoryBuilder under builderLock.writeLock(), but read by sync-mode mutations and
+        // by drainDeferredBuilderOps, neither of which holds that lock. Without volatile a reader can
+        // observe a torn pair (stale index, fresh builder), which is how a guard evaluated on `index`
+        // ended up authorizing a mutation on a different `builder` (internal #142). Code that mutates
+        // the graph must additionally read `builder` ONCE into a local and derive the graph from it
+        // (see internalReplaceGraphNode) so guard and mutation cannot target different objects.
+        private transient VectorTypeSupport          vectorTypeSupport;
+        private transient volatile GraphIndexBuilder builder          ;
+        private transient volatile OnHeapGraphIndex  index            ;
 
         // Managers (transient - recreated on load)
         private transient DiskIndexManager      diskManager          ;
@@ -844,6 +851,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // a mutation into the exact window where a deferred builder op is drained after the swap.
         // Null (and a no-op) in production. See VectorIndex(persist-window deletion) regression test.
         transient volatile Runnable persistPhase2TestHook;
+
+        // Test-only seam: run on entry to drainDeferredBuilderOps, BEFORE the parentMap monitor is
+        // acquired. Lets a test collide two drains deterministically (persist thread vs application
+        // thread) to assert that the drain is serialized. Null (and a no-op) in production.
+        // See VectorIndexPersistWindowConcurrencyTest.
+        transient volatile Runnable drainEntryTestHook;
 
 
         ///////////////////////////////////////////////////////////////////////////
@@ -1571,9 +1584,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.drainDeferredBuilderOps();
                 }
 
-                // Add to HNSW graph using entity ID as ordinal
+                // Add to HNSW graph using entity ID as ordinal. Idempotent: a deferred op may be
+                // drained into a builder that already carries the ordinal (internal #142).
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                this.executeOrDeferBuilderOp(() -> this.builder.addGraphNode(ordinal, vf));
+                this.executeOrDeferBuilderOp(() -> this.internalAddGraphNodeIdempotent(ordinal, vf));
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
@@ -1605,7 +1619,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // Update the computed-mode vector store to reflect the new (possibly absent) vector.
             // Keyed by source entity id (not positionally), so the four vec/null transitions map
             // cleanly onto add / replace / remove.
-            boolean changed = false;
+            boolean changed         = false;
+            boolean vectorUnchanged = false;
             if(!embedded)
             {
                 // Resolve the store-internal id by source entity id via the fast index, then
@@ -1625,9 +1640,24 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
                 else if(storeId != null)
                 {
-                    // vec→vec (store-internal id unchanged)
-                    this.vectorStore.set(storeId, new VectorEntry(entityId, vector));
-                    changed = true;
+                    // vec→vec (store-internal id unchanged). An update whose vector did not actually
+                    // change is a no-op for this index: unlike the embedded case there is no live
+                    // re-scoring from the entity, the stored vector IS the indexed value. Detect it
+                    // with one lazy store read and skip the store write, the graph repair
+                    // (markNodeDeleted + removeDeletedNodes + addGraphNode, two ForkJoinPool round
+                    // trips per level) and all the change bookkeeping. Callers that touch unrelated
+                    // entity fields (an adjacency list, say) would otherwise pay full graph repair
+                    // per update (internal #142), which is also what floods the deferred op queue.
+                    final VectorEntry existing = this.vectorStore.get(storeId);
+                    if(existing != null && Arrays.equals(existing.vector, vector))
+                    {
+                        vectorUnchanged = true;
+                    }
+                    else
+                    {
+                        this.vectorStore.set(storeId, new VectorEntry(entityId, vector));
+                        changed = true;
+                    }
                 }
                 else
                 {
@@ -1700,8 +1730,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // monitor we hold for embedded vectorizers.
                     // Route through internalMarkOrdinalDeleted so a deferral drained after a persist
                     // builder swap still records the deletion (via diskDeletedOrdinals) instead of
-                    // no-op'ing against the new empty builder.
-                    if(inGraph)
+                    // no-op'ing against the new empty builder. The pre-deferral inGraph check is no
+                    // longer sufficient on its own: in incremental mode a disk-only node is not in
+                    // the in-memory graph, so gating on it alone would queue nothing and the eager
+                    // diskDeletedOrdinals entry made above is wiped by the persist's mode swap,
+                    // leaving the stale disk node visible to search (internal #142). contentChanged
+                    // covers that case; inGraph is kept as well so a transition this method cannot
+                    // classify (a null replacedEntity) still clears the node it can see.
+                    if(contentChanged || inGraph)
                     {
                         this.executeOrDeferBuilderOp(() -> this.internalMarkOrdinalDeleted(ordinal));
                         changed = true;
@@ -1715,13 +1751,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // a marked-deleted node. A prior vec→null in this same session (without an
                     // intervening optimize) leaves the node present-but-deleted, which is a third
                     // case the plain !inGraph guard would silently mis-handle.
+                    //
+                    // The classification below only selects WHICH op to enqueue; each op re-derives
+                    // the graph state itself when it runs, because a deferred op can be drained into
+                    // a builder that was swapped in the meantime (internal #142).
                     if(!inGraph)
                     {
                         // null→vec: the node was never added (or a prior optimize physically removed
                         // it) — add it now. addGraphNode alone is monitor-safe (no removeDeletedNodes),
                         // the same call internalAdd makes.
                         final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                        this.executeOrDeferBuilderOp(() -> this.builder.addGraphNode(ordinal, vf));
+                        this.executeOrDeferBuilderOp(() -> this.internalReaddGraphNode(ordinal, vf));
                     }
                     else if(this.index.getDeletedNodes().get(ordinal))
                     {
@@ -1733,7 +1773,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         // from the entity via EntityBackedVectorValues — identical to the vec→vec
                         // "leave as-is" contract below; the next optimize/persist rebuilds connections.
                         // Without this, the entity would stay excluded from liveNodes() forever.
-                        this.executeOrDeferBuilderOp(() -> this.index.getDeletedNodes().clear(ordinal));
+                        final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+                        this.executeOrDeferBuilderOp(() -> this.internalResurrectGraphNode(ordinal, vf));
                     }
                     // else vec→vec: leave the graph as-is — removeDeletedNodes() uses a ForkJoinPool
                     // whose workers call parentMap.get(), deadlocking with the GigaMap monitor we
@@ -1742,20 +1783,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // rebuilds the graph connections.
                     changed = true;
                 }
-                else
+                else if(!vectorUnchanged)
                 {
-                    // Computed, non-null (vec→vec or null→vec): vectors are stored separately, so
-                    // removeDeletedNodes() won't call parentMap.get(). Safe to inline.
+                    // Computed, non-null and actually different (vec→vec' or null→vec): vectors are
+                    // stored separately, so removeDeletedNodes() won't call parentMap.get().
+                    // Safe to inline.
                     final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                    this.executeOrDeferBuilderOp(() ->
-                    {
-                        if(this.index != null && this.index.containsNode(ordinal))
-                        {
-                            this.builder.markNodeDeleted(ordinal);
-                            this.builder.removeDeletedNodes();
-                        }
-                        this.builder.addGraphNode(ordinal, vf);
-                    });
+                    this.executeOrDeferBuilderOp(() -> this.internalReplaceGraphNode(ordinal, vf));
                     changed = true;
                 }
 
@@ -1888,7 +1922,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
                 final int ordinal = toOrdinal(entry.sourceEntityId);
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
-                this.builder.addGraphNode(ordinal, vf);
+                this.internalAddGraphNodeIdempotent(ordinal, vf);
             });
         }
 
@@ -1940,10 +1974,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // via diskDeletedOrdinals and won't be in the builder. Route through
                 // internalMarkOrdinalDeleted so a deferral drained after a persist builder swap
                 // still records the deletion instead of no-op'ing against the new empty builder.
-                if(this.index != null && this.index.containsNode(ordinal))
-                {
-                    this.executeOrDeferBuilderOp(() -> this.internalMarkOrdinalDeleted(ordinal));
-                }
+                // Enqueued unconditionally: the helper checks the builder itself when it runs, and
+                // gating here on the CURRENT builder would queue nothing for a disk-only node, whose
+                // eager diskDeletedOrdinals entry above is then wiped by a concurrent persist's mode
+                // swap, resurrecting the removed entity in search (internal #142).
+                this.executeOrDeferBuilderOp(() -> this.internalMarkOrdinalDeleted(ordinal));
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
@@ -1978,6 +2013,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                 // Shutdown background task manager (discard pending ops — they're stale)
                 this.shutdownBackgroundTaskManager(false, false, false);
+
+                // Same for deferred sync-mode ops: the graph they describe is about to be destroyed,
+                // so replaying them into the fresh builder would resurrect removed entities.
+                if(this.deferredBuilderOps != null)
+                {
+                    this.deferredBuilderOps.clear();
+                }
 
                 this.closeInternalResources();
 
@@ -2461,10 +2503,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             finally
             {
                 this.cleanupInProgress = false;
-            }
 
-            // Apply any deferred sync-mode mutations now that cleanup is done.
-            this.drainDeferredBuilderOps();
+                // Apply any deferred sync-mode mutations now that cleanup is done. Inside the finally
+                // so no exit path can strand the queue; builderLock is already released above.
+                this.drainDeferredBuilderOps();
+            }
 
             this.markStateChangeChildren();
         }
@@ -2616,7 +2659,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     capturedDiskMgr.writeIndex(capturedIndex, capturedRavv, capturedPqMgr, capturedMeta);
 
                     // After writing, re-enter incremental mode for fast subsequent operation
-                    this.reenterIncrementalMode();
+                    this.reenterIncrementalMode(capturedMeta);
                 }
                 catch(final IOException ioe)
                 {
@@ -2630,10 +2673,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             finally
             {
                 this.cleanupInProgress = false;
-            }
 
-            // Apply any deferred sync-mode mutations now that cleanup + persistence is done.
-            this.drainDeferredBuilderOps();
+                // Apply any deferred sync-mode mutations now that cleanup + persistence is done.
+                // Inside the finally so the early returns above (incremental-clean, shutdown skip,
+                // no builder) cannot strand the queue; builderLock is already released above.
+                this.drainDeferredBuilderOps();
+            }
         }
 
         /**
@@ -2707,8 +2752,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * Re-enters incremental mode after a disk write: reloads the disk index,
          * resets the in-memory builder to empty, and sets incremental state.
          * Must be called under builderLock.writeLock().
+         * <p>
+         * The reload is validated against {@code writtenMeta} - the witnesses that were just stamped
+         * into the {@code .meta} - and NOT against the live store state. Persist Phase 2 runs with the
+         * parentMap monitor released, so under sustained writes the live counters always advance past
+         * the written graph and a live comparison would reject the file we just produced ourselves,
+         * dropping the index into full in-memory mode for the rest of the session (internal #142).
+         * Those newer mutations are not lost: they are exactly the ops sitting in
+         * {@code deferredBuilderOps}, which the drain then applies on top of the reloaded graph -
+         * which is what incremental mode is for. Crash-restart safety is unaffected: the store
+         * counter now legitimately exceeds the {@code .meta} counter, so a restart before the next
+         * persist still rejects the disk graph and rebuilds from the store.
+         *
+         * @param writtenMeta the witnesses stamped into the {@code .meta} by the preceding write
          */
-        private void reenterIncrementalMode()
+        private void reenterIncrementalMode(final DiskIndexManager.MetaState writtenMeta)
         {
             // Close existing disk manager if present
             if(this.diskManager != null)
@@ -2727,7 +2785,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.configuration.parallelOnDiskWrite()
             );
 
-            if(this.diskManager.tryLoad())
+            if(this.diskManager.tryLoad(writtenMeta))
             {
                 if(this.pqManager != null)
                 {
@@ -3158,14 +3216,132 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void internalMarkOrdinalDeleted(final int ordinal)
         {
+            this.recordDiskOrdinalSuperseded(ordinal);
+            final GraphIndexBuilder currentBuilder = this.builder;
+            if(currentBuilder != null && graphOf(currentBuilder).containsNode(ordinal))
+            {
+                currentBuilder.markNodeDeleted(ordinal);
+            }
+        }
+
+        /**
+         * Records that the disk-resident version of an ordinal is no longer authoritative, so
+         * {@link #createDiskAcceptBits()} excludes it from disk search.
+         * <p>
+         * Must be called by every op that removes or re-adds an ordinal in the in-memory builder while
+         * incremental mode is active, and it must be called when the op RUNS, not when it is created:
+         * a persist allocates a fresh, empty {@link #diskDeletedOrdinals} in
+         * {@code reenterIncrementalMode}, so an entry made before deferral is gone by the time the op
+         * is drained, and the stale disk node would keep answering searches next to the fresh
+         * in-memory one (internal #142).
+         * <p>
+         * Not called for a plain add: a newly allocated entity id was never written to disk, so
+         * recording it would only enlarge the {@code boolean[maxOrdinal+1]} mask that
+         * {@code createDiskAcceptBits()} rebuilds on every search.
+         */
+        private void recordDiskOrdinalSuperseded(final int ordinal)
+        {
             if(this.incrementalMode && this.diskDeletedOrdinals != null)
             {
                 this.diskDeletedOrdinals.add(ordinal);
             }
-            if(this.index != null && this.index.containsNode(ordinal))
+        }
+
+        /**
+         * Replaces a graph node with a new vector, re-deriving every premise from CURRENT state at
+         * execution time. Used by the computed (non-embedded) update path, whose deferred op may be
+         * drained against a builder that was swapped since the op was created.
+         * <p>
+         * The removal half must never be skipped while the add half runs unconditionally: jvector's
+         * {@code OnHeapGraphIndex.addNode} is a non-atomic loop over layers {@code 0..level} that
+         * throws {@code IllegalStateException: Node N already exists} on the first layer already
+         * holding the ordinal, and {@code containsNode} only inspects layer 0. So the final
+         * {@code removeNode} is not redundant with {@code removeDeletedNodes}: it purges the ordinal
+         * from ALL layers and thereby also repairs a node left in an upper layer only by an earlier
+         * interleaved add/remove (internal #142).
+         * <p>
+         * Only safe for the computed vectorizer: {@code removeDeletedNodes()} scores through a
+         * ForkJoinPool, whose workers read the separate vector store rather than the parent GigaMap,
+         * so it cannot deadlock against the GigaMap monitor the drain holds.
+         */
+        private void internalReplaceGraphNode(final int ordinal, final VectorFloat<?> vf)
+        {
+            this.recordDiskOrdinalSuperseded(ordinal);
+            final GraphIndexBuilder currentBuilder = this.builder;
+            if(currentBuilder == null)
             {
-                this.builder.markNodeDeleted(ordinal);
+                return;
             }
+            final OnHeapGraphIndex currentIndex = graphOf(currentBuilder);
+            if(currentIndex.containsNode(ordinal))
+            {
+                // Repairs the neighbor lists that referenced the node before dropping it.
+                currentBuilder.markNodeDeleted(ordinal);
+                currentBuilder.removeDeletedNodes();
+            }
+            currentIndex.removeNode(ordinal);
+            currentBuilder.addGraphNode(ordinal, vf);
+        }
+
+        /**
+         * Adds a graph node, tolerating an ordinal that is already present. Monitor-safe: it never
+         * calls {@code removeDeletedNodes()}, whose ForkJoinPool workers resolve vectors through the
+         * parent GigaMap for an embedded vectorizer and would deadlock against the monitor the caller
+         * holds. The re-added node loses its neighbor links, which the next optimize/persist rebuilds
+         * - the same contract the embedded vec-vec path documents.
+         * <p>
+         * Re-deriving presence here rather than at deferral time is what makes the op idempotent
+         * against whatever builder it is eventually drained into (internal #142).
+         */
+        private void internalAddGraphNodeIdempotent(final int ordinal, final VectorFloat<?> vf)
+        {
+            final GraphIndexBuilder currentBuilder = this.builder;
+            if(currentBuilder == null)
+            {
+                return;
+            }
+            graphOf(currentBuilder).removeNode(ordinal);
+            currentBuilder.addGraphNode(ordinal, vf);
+        }
+
+        /**
+         * {@link #internalAddGraphNodeIdempotent} for an ordinal that may already have a version on
+         * disk, i.e. the embedded {@code null→vec} update path. Masks the disk-resident node first so
+         * search does not answer from both copies.
+         */
+        private void internalReaddGraphNode(final int ordinal, final VectorFloat<?> vf)
+        {
+            this.recordDiskOrdinalSuperseded(ordinal);
+            this.internalAddGraphNodeIdempotent(ordinal, vf);
+        }
+
+        /**
+         * Re-adds or resurrects an embedded-mode node, deciding from CURRENT state at execution time.
+         * A node marked deleted only carries a bit (it stays in every layer), so clearing that bit is
+         * enough and keeps the op monitor-safe; a node that is gone entirely - e.g. because the
+         * builder was swapped between deferral and drain - must be added instead, otherwise the
+         * entity silently disappears from the graph.
+         */
+        private void internalResurrectGraphNode(final int ordinal, final VectorFloat<?> vf)
+        {
+            this.recordDiskOrdinalSuperseded(ordinal);
+            final GraphIndexBuilder currentBuilder = this.builder;
+            if(currentBuilder == null)
+            {
+                return;
+            }
+            final OnHeapGraphIndex currentIndex = graphOf(currentBuilder);
+            if(currentIndex.containsNode(ordinal))
+            {
+                currentIndex.getDeletedNodes().clear(ordinal);
+                return;
+            }
+            currentBuilder.addGraphNode(ordinal, vf);
+        }
+
+        private static OnHeapGraphIndex graphOf(final GraphIndexBuilder builder)
+        {
+            return (OnHeapGraphIndex)builder.getGraph();
         }
 
         /**
@@ -3188,13 +3364,47 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         /**
          * Drains and executes all deferred builder operations.
          * Called after cleanup completes (cleanupInProgress is already false).
+         * <p>
+         * Runs under {@code synchronized(parentMap())} because that monitor is the only lock the
+         * sync-mode mutation paths hold: without it the persist/optimize threads drain the queue
+         * bare (they release builderLock before draining) and race the application thread, which
+         * drains and executes the very same kind of op inline. Two such threads both seeing
+         * {@code containsNode(ordinal) == false} both call {@code addGraphNode} and one dies with
+         * {@code IllegalStateException: Node N already exists}, aborting the drain and killing the
+         * persist cycle for good (internal #142). The monitor is the outermost lock here - the
+         * persist/optimize drains hold nothing at this point - so it introduces no lock inversion.
+         * <p>
+         * INVARIANT: a deferred op must never enter a ForkJoinPool whose workers need this monitor.
+         * {@code addGraphNode} never does; {@code removeDeletedNodes()} does, and is therefore
+         * reachable only from the computed path, which scores through the separate vector store.
+         * <p>
+         * A failing op is logged and skipped rather than allowed to abort the drain: the op is
+         * already polled and lost either way, but stranding the rest of the queue would leave the
+         * index unable to ever persist again.
          */
         private void drainDeferredBuilderOps()
         {
-            Runnable op;
-            while((op = this.deferredBuilderOps.poll()) != null)
+            final Runnable entryHook = this.drainEntryTestHook;
+            if(entryHook != null)
             {
-                op.run();
+                entryHook.run();
+            }
+
+            synchronized(this.parentMap())
+            {
+                Runnable op;
+                while((op = this.deferredBuilderOps.poll()) != null)
+                {
+                    try
+                    {
+                        op.run();
+                    }
+                    catch(final RuntimeException e)
+                    {
+                        LOG.error("Deferred builder operation failed for index '{}', skipping it: {}",
+                            this.name, e.getMessage(), e);
+                    }
+                }
             }
         }
 

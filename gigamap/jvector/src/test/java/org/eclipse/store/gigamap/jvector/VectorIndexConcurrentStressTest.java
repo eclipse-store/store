@@ -15,6 +15,7 @@ package org.eclipse.store.gigamap.jvector;
  */
 
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -1118,6 +1119,137 @@ class VectorIndexConcurrentStressTest
                 randomVector(new Random(999), dimension), 5
             );
             assertNotNull(finalResult);
+        }
+    }
+
+
+    // ==================== Persist vs. Sustained Writes Regression ====================
+
+    /**
+     * Regression test for internal #142: a repeated persist racing a sustained write stream.
+     * <p>
+     * This is the shape the reported failure had - a bulk load updating the same few vector-carrying
+     * entities over and over while background persistence ticks. Each persist defers the in-flight
+     * builder ops and then drains them, and the drain used to run without any lock, so it raced the
+     * application thread's own drain and died with
+     * {@code IllegalStateException: Node N already exists}. Once that happened the op was lost, the
+     * drain aborted mid-queue and every later persistence tick failed the same way.
+     * <p>
+     * The writers concentrate on a handful of ordinals on purpose: consecutive queue entries for the
+     * same ordinal are what make two concurrent drains collide on it.
+     */
+    @Test
+    @Timeout(value = 120, unit = TimeUnit.SECONDS)
+    void testPersistDuringSustainedWrites(@TempDir final Path tempDir) throws Exception
+    {
+        final int  dimension     = 64;
+        final int  seedCount     = 40;
+        final int  hotOrdinals   = 5;
+        final int  persistRounds = 12;
+        final int  writerThreads = 3;
+        final Path indexDir      = tempDir.resolve("persist_vs_writes");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(16)
+            .beamWidth(100)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .build();
+
+        try(final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings", config, new ComputedDocumentVectorizer()
+        ))
+        {
+            final Random seedRandom = new Random(42);
+            for(int i = 0; i < seedCount; i++)
+            {
+                gigaMap.add(new Document("seed_" + i, randomVector(seedRandom, dimension)));
+            }
+            index.persistToDisk(); // enter incremental on-disk mode
+
+            final AtomicBoolean    running = new AtomicBoolean(true);
+            final List<Throwable>  errors  = java.util.Collections.synchronizedList(new ArrayList<>());
+            final CountDownLatch   done    = new CountDownLatch(writerThreads);
+            final ExecutorService  executor = Executors.newFixedThreadPool(writerThreads);
+
+            for(int t = 0; t < writerThreads; t++)
+            {
+                final int threadId = t;
+                executor.submit(() ->
+                {
+                    try
+                    {
+                        final Random random = new Random(3000 + threadId);
+                        while(running.get())
+                        {
+                            final long targetId = random.nextInt(hotOrdinals);
+                            synchronized(gigaMap)
+                            {
+                                gigaMap.set(targetId, new Document(
+                                    "hot_" + targetId, randomVector(random, dimension)
+                                ));
+                            }
+                        }
+                    }
+                    catch(final Throwable e)
+                    {
+                        errors.add(e);
+                    }
+                    finally
+                    {
+                        done.countDown();
+                    }
+                });
+            }
+
+            try
+            {
+                for(int round = 0; round < persistRounds; round++)
+                {
+                    index.persistToDisk();
+                }
+            }
+            catch(final Throwable e)
+            {
+                errors.add(e);
+            }
+            finally
+            {
+                running.set(false);
+            }
+
+            assertTrue(done.await(60, TimeUnit.SECONDS), "writer threads should finish");
+            executor.shutdown();
+            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+
+            if(!errors.isEmpty())
+            {
+                final StringBuilder sb = new StringBuilder("Persist vs. sustained writes failed");
+                sb.append("\n").append(errors.size()).append(" error(s):");
+                for(final Throwable err : errors)
+                {
+                    sb.append("\n  - ").append(err.getClass().getSimpleName())
+                        .append(": ").append(err.getMessage());
+                }
+                fail(sb.toString());
+            }
+
+            // The index must still answer, and every seed entity must still be reachable exactly once.
+            index.optimize();
+            final VectorSearchResult<Document> result = index.search(
+                randomVector(new Random(999), dimension), 10
+            );
+            assertNotNull(result);
+            assertEquals(
+                result.stream().map(ScoredSearchResult.Entry::entityId).distinct().count(),
+                result.size(),
+                "no entity may be indexed twice"
+            );
         }
     }
 }
