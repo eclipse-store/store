@@ -1223,9 +1223,12 @@ class VectorIndexConcurrentStressTest
                 running.set(false);
             }
 
-            assertTrue(done.await(60, TimeUnit.SECONDS), "writer threads should finish");
-            executor.shutdown();
-            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+            // Shut down before asserting: a writer stuck here must not leak its pool threads into
+            // the rest of the suite just because this assertion throws first.
+            final boolean writersFinished = done.await(60, TimeUnit.SECONDS);
+            executor.shutdownNow();
+            assertTrue(writersFinished, "writer threads should finish");
+            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS), "executor should terminate");
 
             if(!errors.isEmpty())
             {

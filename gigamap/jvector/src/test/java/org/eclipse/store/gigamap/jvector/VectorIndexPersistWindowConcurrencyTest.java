@@ -142,8 +142,11 @@ class VectorIndexPersistWindowConcurrencyTest
     }
 
     /**
-     * Meeting point for the two drains. Timeouts are benign: they only mean the other side did not
-     * reach its drain this round, so the round simply does not collide.
+     * Meeting point for the two drains.
+     * <p>
+     * A timeout means the other side never reached its drain, so that round collided with nothing
+     * and proves nothing. It is reported rather than swallowed - the caller asserts on the returned
+     * flag - and the barrier is reset so the next round can still use it.
      *
      * @return {@code true} if both sides met
      */
