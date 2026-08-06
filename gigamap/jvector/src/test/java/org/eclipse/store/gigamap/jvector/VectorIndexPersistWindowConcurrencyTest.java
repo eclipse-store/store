@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -294,6 +295,10 @@ class VectorIndexPersistWindowConcurrencyTest
                     if(writerThread != null)
                     {
                         writerThread.join(TimeUnit.SECONDS.toMillis(30));
+                        // A writer that outlives its round would keep mutating into the next one and
+                        // make every later assertion depend on timing, so fail here instead.
+                        assertFalse(writerThread.isAlive(),
+                            "the competing writer must terminate before round " + roundIndex + " ends");
                     }
 
                     assertNull(writerFailure.get(),
