@@ -20,7 +20,6 @@ import org.eclipse.serializer.persistence.types.Storer;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.util.function.Function;
 
 import static org.eclipse.serializer.util.X.notNull;
 
@@ -341,11 +340,11 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 					try
 					{
 						/*
-						 * removeOnFailure == false: the calling context (set/replace) keeps the replaced
-						 * entity in place when the update fails, so the previous index entries must
-						 * remain untouched.
+						 * The calling context (set/replace) keeps the replaced entity in place when the
+						 * update fails, so the previous index entries must remain untouched: no
+						 * internalRemovePreparedState here.
 						 */
-						indexGroup.internalUpdateIndices(entityId, replacedEntity, entity, customConstraints, false);
+						indexGroup.internalUpdateIndices(entityId, replacedEntity, entity, customConstraints);
 					}
 					finally
 					{
@@ -399,72 +398,127 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 		}
 
 		/**
-		 * Second phase of an in-place entity update: executes the mutating logic and updates all
-		 * index groups from the entity's resulting state. Must be preceded by a successful
+		 * Second phase of an in-place entity update: updates all index groups from the entity's state
+		 * as the update logic left it. Must be preceded by a successful
 		 * {@link #internalPrepareUpdate(Object)}.
+		 * <p>
+		 * If a group fails, the calling context decides whether the entity survives. It removes the
+		 * entity only if the exception rejects the entity itself instead of just the derived index (see
+		 * {@link GigaMap.Default#isEntityRejected(Throwable)}); that removal re-derives the keys from
+		 * the entity's mutated state, so the groups that did not get to update - the failing one and
+		 * all after it - de-index the entity's previous state here. The groups before the failing one
+		 * already carry the new state, which the removal locates by itself.
 		 */
-		<R> R internalApplyUpdate(
+		void internalApplyUpdate(
 			final long                         entityId         ,
 			final E                            entity           ,
-			final Function<? super E, R>       logic            ,
 			final CustomConstraints<? super E> customConstraints
 		)
 		{
+			int updated = 0;
 			try
 			{
-				R result;
 				try
 				{
-					result = logic.apply(entity);
+					for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+					{
+						indexGroup.internalUpdateIndices(entityId, entity, entity, customConstraints);
+						updated++;
+					}
 				}
 				catch(final RuntimeException e)
 				{
-					/*
-					 * The logic threw: the entity's state is unreliable and the calling context will
-					 * remove the entity. The indices are still updated from the entity's current state
-					 * so that the subsequent removal, which re-derives the keys from that same state,
-					 * can locate all entries. This runs best-effort per group so every group gets its
-					 * chance to align; a group whose own update fails de-indexes its previous entries
-					 * via the prepared change handlers instead (removeOnFailure) and the failure is
-					 * attached as a suppressed exception. Custom constraints are not checked; the
-					 * entity is doomed either way.
-					 */
-					for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+					if(GigaMap.Default.isEntityRejected(e))
 					{
-						try
-						{
-							indexGroup.internalUpdateIndices(entityId, entity, entity, null, true);
-						}
-						catch(final RuntimeException suppressed)
-						{
-							e.addSuppressed(suppressed);
-						}
+						this.internalRemovePreparedState(entityId, updated, e);
 					}
+					this.internalFinishUpdate(e);
 					throw e;
 				}
 
-				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
-				{
-					/*
-					 * removeOnFailure == true: the calling context removes the in-place mutated entity
-					 * from the map when the update fails, so on failure a group must de-index the
-					 * entity's previous state via its prepared change handlers.
-					 */
-					indexGroup.internalUpdateIndices(entityId, entity, entity, customConstraints, true);
-				}
-
 				this.internalFinishUpdate(null);
-
-				return result;
-			}
-			catch(final RuntimeException e)
-			{
-				this.internalFinishUpdate(e);
-				throw e;
 			}
 			finally
 			{
 				this.markStateChangeChildren();
+			}
+		}
+
+		/**
+		 * Aligns the indices with an entity whose update logic threw: that entity's state is unreliable
+		 * and the calling context removes it, so the indices are updated from the entity's current
+		 * state to let the subsequent removal, which re-derives the keys from that same state, locate
+		 * all entries.
+		 * <p>
+		 * This runs best-effort per group so every group gets its chance to align; a group whose own
+		 * update fails de-indexes its previous entries via the prepared state instead and the failure
+		 * is attached to the logic's exception as a suppressed exception. Custom constraints are not
+		 * checked, the entity is doomed either way.
+		 */
+		void internalApplyLogicFailure(
+			final long             entityId    ,
+			final E                entity      ,
+			final RuntimeException logicFailure
+		)
+		{
+			try
+			{
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					try
+					{
+						indexGroup.internalUpdateIndices(entityId, entity, entity, null);
+					}
+					catch(final RuntimeException suppressed)
+					{
+						logicFailure.addSuppressed(suppressed);
+						try
+						{
+							indexGroup.internalRemovePreparedState(entityId);
+						}
+						catch(final RuntimeException alsoSuppressed)
+						{
+							logicFailure.addSuppressed(alsoSuppressed);
+						}
+					}
+				}
+				this.internalFinishUpdate(logicFailure);
+			}
+			finally
+			{
+				this.markStateChangeChildren();
+			}
+		}
+
+		/**
+		 * De-indexes the entity's previous state in all index groups from the given position on,
+		 * attaching failures to the given exception as suppressed exceptions.
+		 *
+		 * @param entityId the entity's id
+		 * @param skipCount the number of leading index groups that already carry the entity's new state
+		 * @param failure the exception that caused the cleanup
+		 */
+		private void internalRemovePreparedState(
+			final long             entityId ,
+			final int              skipCount,
+			final RuntimeException failure
+		)
+		{
+			int i = 0;
+			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			{
+				if(i++ < skipCount)
+				{
+					continue;
+				}
+				try
+				{
+					indexGroup.internalRemovePreparedState(entityId);
+				}
+				catch(final RuntimeException suppressed)
+				{
+					failure.addSuppressed(suppressed);
+				}
 			}
 		}
 

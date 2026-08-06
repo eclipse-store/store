@@ -431,12 +431,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * non-destructive semantics are required - passing a corrected, separate instance, since those methods
 	 * reject the instance the map already holds.
 	 * <p>
-	 * <b>Behavior on other exceptions:</b> the same destructive-removal contract applies to any other
-	 * {@link RuntimeException} thrown by {@code logic} itself or by an {@link Indexer} once {@code logic}
-	 * may have (partially) mutated the entity: the entity is removed from the map and the original
-	 * exception is rethrown, with cleanup failures attached as suppressed exceptions. Only exceptions
-	 * thrown while the entity's <em>pre-update</em> state is being indexed (i.e. before {@code logic}
-	 * runs) abort cleanly and leave the map and the entity unchanged.
+	 * <b>Behavior on other exceptions:</b> the destructive-removal contract also applies to a
+	 * {@link RuntimeException} thrown by {@code logic} itself, which leaves the entity partially mutated
+	 * and thus unreliable: the entity is removed from the map and the original exception is rethrown,
+	 * with cleanup failures attached as suppressed exceptions. It does <em>not</em> apply to a failure of
+	 * an <em>index</em> - see the corresponding section of {@link #apply(Object, Function)}.
 	 *
 	 * @param current the entity to be updated
 	 * @param logic the update logic to be executed
@@ -477,8 +476,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * {@link ConstraintViolationException ConstraintViolationException} is thrown <em>and the entity is
 	 * removed from this GigaMap</em>, because the in-place mutation cannot be rolled back. The same
 	 * destructive-removal contract applies to any other {@link RuntimeException} thrown by {@code logic}
-	 * or by an {@link Indexer} once {@code logic} may have mutated the entity; exceptions thrown while
-	 * the <em>pre-update</em> state is being indexed abort cleanly and leave the map unchanged.
+	 * itself, but <em>not</em> to a failure of an index - see the corresponding section of
+	 * {@link #apply(long, Function)}.
 	 *
 	 * @param entityId the id of the entity to be updated
 	 * @param logic the update logic to be executed
@@ -529,20 +528,23 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * non-destructive semantics are required - passing a corrected, separate instance, since those methods
 	 * reject the instance the map already holds.
 	 * <p>
-	 * A <em>stale index</em> (persisted index keys no longer matching the entities, e.g. after a direct
-	 * mutation of an indexed field or entity class evolution) is treated as a special case so it can
-	 * <em>never</em> destroy a committed entity: a write of the entity's true value is not mistaken for a
-	 * duplicate merely because of the entity's own stale entry (a unique violation requires a
-	 * <em>different</em> entity), and if a stale index cannot be updated in place, this method retains the
-	 * entity and throws a {@link org.eclipse.store.gigamap.exceptions.StaleIndexException} instead of
-	 * removing it. Rebuild the indices with {@link #reindex()} to restore correct query results.
+	 * <b>Behavior on an index failure (non-destructive):</b> if updating a derived <em>index</em> fails,
+	 * the entity is <em>kept</em> and the original exception is rethrown. The entity's own data is the
+	 * value {@code logic} produced; only the index could not represent it - be it an {@link Indexer} that
+	 * threw for the new value, an index implementation that rejected it (e.g. a Lucene term over its
+	 * length limit or an embedding of the wrong dimension), or a <em>stale index</em> whose persisted keys
+	 * no longer match the keys re-derived from the (e.g. class-evolved) entities, which is reported as a
+	 * {@link StaleIndexException}. A stale index also never makes a write of the entity's true value be
+	 * mistaken for a duplicate: a unique violation requires a <em>different</em> entity. The indices may be
+	 * left out of sync with the retained entity in all these cases; rebuild them with {@link #reindex()}
+	 * to restore correct query results.
 	 * <p>
-	 * <b>Behavior on other exceptions:</b> the same destructive-removal contract applies to any other
-	 * {@link RuntimeException} thrown by {@code logic} itself or by an {@link Indexer} once {@code logic}
-	 * may have (partially) mutated the entity: the entity is removed from the map and the original
-	 * exception is rethrown, with cleanup failures attached as suppressed exceptions. Only exceptions
-	 * thrown while the entity's <em>pre-application</em> state is being indexed (i.e. before {@code logic}
-	 * runs) abort cleanly and leave the map and the entity unchanged.
+	 * <b>Behavior on other exceptions:</b> the destructive-removal contract also applies to any other
+	 * {@link RuntimeException} thrown by {@code logic} itself, which leaves the entity partially mutated
+	 * and thus unreliable: the entity is removed from the map and the original exception is rethrown, with
+	 * cleanup failures attached as suppressed exceptions. Exceptions thrown while the entity's
+	 * <em>pre-application</em> state is being indexed (i.e. before {@code logic} runs) abort cleanly and
+	 * leave the map and the entity unchanged.
 	 *
 	 * @param current the entity to be updated
 	 * @param logic the logic to be executed
@@ -580,20 +582,23 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * non-destructive semantics are required - passing a corrected, separate instance, since {@code set}
 	 * rejects the instance the map already holds.
 	 * <p>
-	 * A <em>stale index</em> (persisted index keys no longer matching the entities, e.g. after a direct
-	 * mutation of an indexed field or entity class evolution) is treated as a special case so it can
-	 * <em>never</em> destroy a committed entity: a write of the entity's true value is not mistaken for a
-	 * duplicate merely because of the entity's own stale entry (a unique violation requires a
-	 * <em>different</em> entity), and if a stale index cannot be updated in place, this method retains the
-	 * entity and throws a {@link org.eclipse.store.gigamap.exceptions.StaleIndexException} instead of
-	 * removing it. Rebuild the indices with {@link #reindex()} to restore correct query results.
+	 * <b>Behavior on an index failure (non-destructive):</b> if updating a derived <em>index</em> fails,
+	 * the entity is <em>kept</em> and the original exception is rethrown. The entity's own data is the
+	 * value {@code logic} produced; only the index could not represent it - be it an {@link Indexer} that
+	 * threw for the new value, an index implementation that rejected it (e.g. a Lucene term over its
+	 * length limit or an embedding of the wrong dimension), or a <em>stale index</em> whose persisted keys
+	 * no longer match the keys re-derived from the (e.g. class-evolved) entities, which is reported as a
+	 * {@link StaleIndexException}. A stale index also never makes a write of the entity's true value be
+	 * mistaken for a duplicate: a unique violation requires a <em>different</em> entity. The indices may be
+	 * left out of sync with the retained entity in all these cases; rebuild them with {@link #reindex()}
+	 * to restore correct query results.
 	 * <p>
-	 * <b>Behavior on other exceptions:</b> the same destructive-removal contract applies to any other
-	 * {@link RuntimeException} thrown by {@code logic} itself or by an {@link Indexer} once {@code logic}
-	 * may have (partially) mutated the entity: the entity is removed from the map and the original
-	 * exception is rethrown, with cleanup failures attached as suppressed exceptions. Only exceptions
-	 * thrown while the entity's <em>pre-application</em> state is being indexed (i.e. before {@code logic}
-	 * runs) abort cleanly and leave the map and the entity unchanged.
+	 * <b>Behavior on other exceptions:</b> the destructive-removal contract also applies to any other
+	 * {@link RuntimeException} thrown by {@code logic} itself, which leaves the entity partially mutated
+	 * and thus unreliable: the entity is removed from the map and the original exception is rethrown, with
+	 * cleanup failures attached as suppressed exceptions. Exceptions thrown while the entity's
+	 * <em>pre-application</em> state is being indexed (i.e. before {@code logic} runs) abort cleanly and
+	 * leave the map and the entity unchanged.
 	 *
 	 * @param entityId the id of the entity the logic is applied to
 	 * @param logic the logic to be executed
@@ -2397,72 +2402,113 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			 */
 			this.indices.internalPrepareUpdate(current);
 
+			final R result;
 			try
 			{
-				final R result = this.indices.internalApplyUpdate(entityId, current, logic, this.constraints.custom());
-
-				this.retainMutatedEntity(entityId, current);
-
-				return result;
+				result = logic.apply(current);
 			}
 			catch(final RuntimeException e)
 			{
-				this.ensureClearedAddingState();
-
 				/*
-				 * A stale index is a special case: the failure means the persisted index keys no longer
-				 * match the keys re-derived from the (e.g. class-evolved) entities, NOT that the entity's
-				 * data is bad. Removing the entity here would be a real data loss for a still-valid,
-				 * committed entity - and the removal itself, re-deriving the same stale keys, cannot even
-				 * de-index it correctly. So the committed entity is retained and the exception is rethrown,
-				 * directing the caller to rebuild the indices via reindex(). See StaleIndexException.
+				 * The logic mutated the entity in place and a state change done by custom logic cannot be
+				 * rolled back, so the entity's state is unreliable: there is no other choice but to remove
+				 * it from the map. The logic's own exception is rethrown unchanged - unlike a constraint
+				 * violation it carries no entity/entityId, so the caller only learns which entity was
+				 * dropped from the arguments it passed in.
 				 */
-				if(isStaleIndexFailure(e))
+				this.indices.internalApplyLogicFailure(entityId, current, e);
+				this.removeAfterFailedApply(entityId, e);
+				throw e;
+			}
+
+			try
+			{
+				this.indices.internalApplyUpdate(entityId, current, this.constraints.custom());
+			}
+			catch(final RuntimeException e)
+			{
+				/*
+				 * Only the entity itself being rejected justifies destroying it: a constraint decides
+				 * whether an entity may exist at all, so its violation is answered with the documented
+				 * removal. A failure of a derived index is not: the entity's own data is the value the
+				 * logic produced, only the index could not represent it - be it an indexer that threw for
+				 * the new value, an index implementation that rejected it (e.g. a Lucene term over its
+				 * length limit), or an index that is stale because its persisted keys no longer match the
+				 * keys re-derived from the (e.g. class-evolved) entities. Removing the entity in those
+				 * cases would be a real data loss for a still-valid, committed entity - and a removal
+				 * re-deriving the same failing keys could not even de-index it correctly. So the committed
+				 * entity is retained and the exception is rethrown, directing the caller to rebuild the
+				 * indices via reindex(). See StaleIndexException.
+				 */
+				if(isEntityRejected(e))
 				{
-					/*
-					 * The update logic already mutated the entity in place and we keep it. Give it the SAME
-					 * persistence bookkeeping as a successful mutation - pin the segment and track it for
-					 * re-storing - so a later reindex() + store() persists both the rebuilt index and the
-					 * mutated entity. Skipping this would let store() persist the rebuilt index while
-					 * silently skipping the (same-identity) entity, reintroducing entity/index divergence
-					 * after a restart.
-					 */
-					this.retainMutatedEntity(entityId, current);
+					this.removeAfterFailedApply(entityId, e);
 					throw e;
 				}
 
+				this.ensureClearedAddingState();
+
 				/*
-				 * Since a state change done by a custom logic cannot be rolled back, there is no other choice
-				 * but to remove the entity from the map and report the entity and entityId to the calling
-				 * context in the exception. This applies not only to constraint violations but to any
-				 * exception thrown by the update logic or an indexer once the logic may have run: in all
-				 * those cases the entity's state is unreliable. The removal completes best-effort;
-				 * cleanup failures are attached as suppressed exceptions.
+				 * The update logic already mutated the entity in place and we keep it. Give it the SAME
+				 * persistence bookkeeping as a successful mutation - pin the segment and track it for
+				 * re-storing - so a later reindex() + store() persists both the rebuilt index and the
+				 * mutated entity. Skipping this would let store() persist the rebuilt index while silently
+				 * skipping the (same-identity) entity, reintroducing entity/index divergence after a
+				 * restart.
 				 */
-				try
-				{
-					this.internalRemove(entityId);
-				}
-				catch(final RuntimeException suppressed)
-				{
-					e.addSuppressed(suppressed);
-				}
+				this.retainMutatedEntity(entityId, current);
 				throw e;
+			}
+
+			this.retainMutatedEntity(entityId, current);
+
+			return result;
+		}
+
+		/**
+		 * Removes an entity whose in-place update failed in a way that makes the entity itself invalid.
+		 * The removal completes best-effort; cleanup failures are attached to the causing exception as
+		 * suppressed exceptions.
+		 */
+		private void removeAfterFailedApply(final long entityId, final RuntimeException failure)
+		{
+			this.ensureClearedAddingState();
+
+			try
+			{
+				this.internalRemove(entityId);
+			}
+			catch(final RuntimeException suppressed)
+			{
+				failure.addSuppressed(suppressed);
 			}
 		}
 
 		/**
 		 * Detects whether the given throwable, or anything reachable through its cause and suppressed
-		 * throwables (recursively), is a {@link StaleIndexException} - i.e. signals that an index is out of
-		 * date rather than that the entity's data is bad. Used to keep {@link #internalApply} from
-		 * destroying a still-valid, committed entity when only the index is stale.
+		 * throwables (recursively), is a {@link ConstraintViolationException} - i.e. signals that the
+		 * entity itself was rejected rather than that only a derived index failed. This is what decides
+		 * whether a failed in-place update destroys the committed entity (see {@link #internalApply}):
+		 * a constraint decides whether an entity may exist at all, an index does not.
+		 * <p>
+		 * A constraint that does not comply with the {@link CustomConstraint} API and throws some other
+		 * exception type instead is treated like an index failure, i.e. non-destructively.
+		 */
+		static boolean isEntityRejected(final Throwable t)
+		{
+			return containsThrowable(t, ConstraintViolationException.class);
+		}
+
+		/**
+		 * Detects whether the given throwable, or anything reachable through its cause and suppressed
+		 * throwables (recursively), is an instance of the given type.
 		 * <p>
 		 * The JDK offers no ready-made utility for this ({@link Throwable} exposes only
 		 * {@link Throwable#getCause()} and {@link Throwable#getSuppressed()}), so the full graph is walked
 		 * here. An identity-based visited set guards against cyclic cause/suppressed graphs, mirroring how
 		 * {@link Throwable#printStackTrace()} avoids infinite loops internally.
 		 */
-		private static boolean isStaleIndexFailure(final Throwable t)
+		private static boolean containsThrowable(final Throwable t, final Class<?> type)
 		{
 			if(t == null)
 			{
@@ -2480,7 +2526,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				{
 					continue;
 				}
-				if(current instanceof StaleIndexException)
+				if(type.isInstance(current))
 				{
 					return true;
 				}

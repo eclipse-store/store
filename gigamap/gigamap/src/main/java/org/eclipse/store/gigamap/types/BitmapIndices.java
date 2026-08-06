@@ -668,6 +668,15 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		private transient boolean[]                    cachedIsUniqueIndex     ;
 		private transient ChangeHandler[]              cachedPrevChangeHandlers;
 		private transient ChangeHandler[]              cachedNewChangeHandlers ;
+
+		/**
+		 * Whether the current update already moved at least one entry from the prepared previous state
+		 * to the new state. Only relevant between {@link #internalPrepareIndicesUpdate(Object)} and
+		 * {@link #internalFinishIndicesUpdate()}: once set, the prepared previous state no longer
+		 * describes what is in the indices, so {@link #internalRemovePreparedState(long)} must not use
+		 * it any more.
+		 */
+		private transient boolean                      cachedStateChangeApplied;
 		
 		
 		///////////////////////////////////////////////////////////////////////////
@@ -713,6 +722,7 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 				this.cachedPrevChangeHandlers[i] = null;
 				this.cachedNewChangeHandlers[i]  = null;
 			}
+			this.cachedStateChangeApplied = false;
 		}
 		
 		@SuppressWarnings("unchecked")
@@ -1244,6 +1254,8 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 				return;
 			}
 
+			this.cachedStateChangeApplied = false;
+
 			// Derive state handlers for the state of the replaced entity.
 			this.createChangeHandlers(this.cachedPrevChangeHandlers, replacedEntity);
 		}
@@ -1261,14 +1273,40 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		}
 		
 		@Override
-		public final void internalUpdateIndices(
-			final long                         entityId         ,
-			final E                            replacedEntity   ,
-			final E                            entity           ,
-			final CustomConstraints<? super E> customConstraints
-		)
+		public final void internalRemovePreparedState(final long entityId)
 		{
-			this.internalUpdateIndices(entityId, replacedEntity, entity, customConstraints, false);
+			if(this.bitmapIndices.isEmpty())
+			{
+				// no-op
+				return;
+			}
+
+			if(this.cachedStateChangeApplied)
+			{
+				/*
+				 * The entries were already moved to the entity's new state, which the removal re-derives
+				 * from that same state and can therefore locate itself. The prepared previous state no
+				 * longer describes anything that is in the indices.
+				 */
+				return;
+			}
+
+			/*
+			 * The cached prev handlers de-index the entity's previous state without re-running any user
+			 * code, which is exactly what a removal that re-derives the keys from the entity's mutated
+			 * state cannot do.
+			 */
+			try
+			{
+				for(final ChangeHandler cachedPrevChangeHandler : this.cachedPrevChangeHandlers)
+				{
+					cachedPrevChangeHandler.removeFromIndex(entityId);
+				}
+			}
+			finally
+			{
+				this.markStateChangeChildren();
+			}
 		}
 
 		@Override
@@ -1276,8 +1314,7 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			final long                         entityId         ,
 			final E                            replacedEntity   ,
 			final E                            entity           ,
-			final CustomConstraints<? super E> customConstraints,
-			final boolean                      removeOnFailure
+			final CustomConstraints<? super E> customConstraints
 		)
 		{
 			if(this.bitmapIndices.isEmpty())
@@ -1290,64 +1327,36 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			 * Phase 1: derive the new change handlers and run all checks. This is where all user code
 			 * (indexers, key equality, constraints) runs; no index state has been mutated, yet, since
 			 * handler derivation defers entry creation to changeInIndex (see NewKeyChangeChandler).
+			 * A throw here therefore needs no cleanup in this group: whether the entity's previous state
+			 * must be de-indexed depends on whether the calling context keeps or removes the entity,
+			 * which only that context can decide (see IndexGroup.Internal#internalRemovePreparedState).
 			 */
-			try
+			// Derive state handlers for the new, potentially changed state
+			this.createChangeHandlers(this.cachedNewChangeHandlers, entity);
+
+			if(customConstraints != null)
 			{
-				// Derive state handlers for the new, potentially changed state
-				this.createChangeHandlers(this.cachedNewChangeHandlers, entity);
-
-				if(customConstraints != null)
-				{
-					customConstraints.check(entityId, replacedEntity, entity);
-				}
-
-				// Evaluate changes for each index
-				for(int i = 0; i < this.cachedPrevChangeHandlers.length; i++)
-				{
-					if(this.cachedPrevChangeHandlers[i].isEqual(this.cachedNewChangeHandlers[i]))
-					{
-						// Mark index position to be irrelevant (unchanged)
-						this.cachedNewChangeHandlers[i] = null;
-						continue;
-					}
-					if(this.cachedIsUniqueIndex[i])
-					{
-						// A key held only by the entity being updated (e.g. its own stale entry after a
-						// class evolution) is not a duplicate; only a different entity is a violation.
-						if(this.cachedIndices[i].internalContains(entity, entityId))
-						{
-							throw new UniqueConstraintViolationExceptionBitmap(entityId, replacedEntity, entity, this.cachedIndices[i]);
-						}
-					}
-				}
+				customConstraints.check(entityId, replacedEntity, entity);
 			}
-			catch(final RuntimeException e)
+
+			// Evaluate changes for each index
+			for(int i = 0; i < this.cachedPrevChangeHandlers.length; i++)
 			{
-				if(removeOnFailure)
+				if(this.cachedPrevChangeHandlers[i].isEqual(this.cachedNewChangeHandlers[i]))
 				{
-					/*
-					 * The calling context removes the in-place mutated entity from the map on failure,
-					 * so this entity's previous state must be de-indexed as well. The cached prev
-					 * handlers accomplish that without re-running any user code.
-					 */
-					try
+					// Mark index position to be irrelevant (unchanged)
+					this.cachedNewChangeHandlers[i] = null;
+					continue;
+				}
+				if(this.cachedIsUniqueIndex[i])
+				{
+					// A key held only by the entity being updated (e.g. its own stale entry after a
+					// class evolution) is not a duplicate; only a different entity is a violation.
+					if(this.cachedIndices[i].internalContains(entity, entityId))
 					{
-						for(final ChangeHandler cachedPrevChangeHandler : this.cachedPrevChangeHandlers)
-						{
-							cachedPrevChangeHandler.removeFromIndex(entityId);
-						}
-					}
-					catch(final RuntimeException suppressed)
-					{
-						e.addSuppressed(suppressed);
-					}
-					finally
-					{
-						this.markStateChangeChildren();
+						throw new UniqueConstraintViolationExceptionBitmap(entityId, replacedEntity, entity, this.cachedIndices[i]);
 					}
 				}
-				// without removeOnFailure nothing was mutated, so no state change marking, either.
-				throw e;
 			}
 
 			// Phase 2: update indices for all actual changes. Runs no more user code apart from key hashing.
@@ -1361,6 +1370,14 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 						continue;
 					}
 					this.cachedNewChangeHandlers[i].changeInIndex(entityId, this.cachedPrevChangeHandlers[i]);
+
+					/*
+					 * Set only after a change went through: changeInIndex de-indexes the previous key
+					 * first, so a throw from the very first one (notably the stale-index path) leaves
+					 * this group's entries untouched - and the prepared previous state then still
+					 * describes them exactly, which is what makes the cleanup valid.
+					 */
+					this.cachedStateChangeApplied = true;
 				}
 			}
 			finally

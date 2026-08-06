@@ -45,10 +45,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   <li>{@code removeById}/{@code remove} always complete the removal, cleaning the remaining
  *       indices best-effort and rethrowing afterwards.</li>
  *   <li>{@code set}/{@code replace} leave the map observably unchanged.</li>
- *   <li>{@code update}/{@code apply} abort cleanly while the pre-mutation state is being indexed
- *       and extend the documented destructive-removal contract (previously limited to
- *       {@link ConstraintViolationException}) to all exceptions once the logic may have mutated
- *       the entity.</li>
+ *   <li>{@code update}/{@code apply} abort cleanly while the pre-mutation state is being indexed,
+ *       apply the documented destructive-removal contract to a {@link ConstraintViolationException}
+ *       and to exceptions thrown by the update logic itself, and keep the entity when only a derived
+ *       index failed.</li>
  * </ul>
  */
 public class ThrowingIndexerConsistencyTest
@@ -485,27 +485,38 @@ public class ThrowingIndexerConsistencyTest
 	}
 
 	@Test
-	void apply_indexerThrowsOnMutatedValue_entityRemovedWithSuppressedCleanupFailure()
+	void apply_indexerThrowsOnMutatedValue_entityRetainedAndIndexRepairableByReindex()
 	{
 		final GigaMap<Item> map = GigaMap.New();
 		map.index().bitmap().add(NAME);
 		map.index().bitmap().add(POISON);
 
-		final long id = map.add(new Item("a", "c1"));
+		final Item item = new Item("a", "c1");
+		final long id   = map.add(item);
 
 		final IndexerBoomException thrown = assertThrows(IndexerBoomException.class, () ->
-			map.apply(id, item ->
+			map.apply(id, e ->
 			{
-				item.name = "poison";
+				e.name = "poison";
 				return null;
 			})
 		);
 
-		// destructive removal, original exception raw, cleanup failure attached
-		assertNull(map.get(id));
-		assertEquals(0, map.size());
+		/*
+		 * Only the derived index rejected the new value, the entity's own data is fine: the committed
+		 * entity must survive. The original exception is rethrown raw, nothing was removed and hence
+		 * no cleanup could fail.
+		 */
+		assertSame(item, map.get(id));
+		assertEquals(1, map.size());
+		assertEquals("poison", item.name, "the in-place mutation is kept");
+		assertEquals(0, thrown.getSuppressed().length);
+
+		// the indices are left stale, which reindex() is the documented repair for
+		assertTrue(map.index().bitmap().removeIndex(POISON), "drop the index that cannot handle the value");
+		map.reindex();
 		assertEquals(0, map.query(NAME.is("a")).count());
-		assertTrue(thrown.getSuppressed().length > 0);
+		assertEquals(1, map.query(NAME.is("poison")).count());
 	}
 
 	// ---------------------------------------------------------------
