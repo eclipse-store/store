@@ -87,6 +87,8 @@ gigaMap.update(person, p -> {
 
 The two are alternatives, not steps: an `update` after a direct modification does not undo it. `update` derives the previous keys from the entity it is handed, and those are already the new values by then, so the stale entries stay. Once a direct modification has happened, only `reindex()` repairs the indices — it rebuilds them from the current entity state rather than trying to reconstruct the previous keys. It rebuilds index structures only, so the modified entity still has to be stored explicitly.
 
+Because the rebuild derives every index key anew, it is also the point at which the registered unique constraints are validated again: a rebuild over data in which two entities share a key of a unique constraint reports that violation (after completing the rebuild) instead of building an index that maps one unique key to several entities. See xref:constraints.adoc#_validation_points[Constraints - Validation Points].
+
 Entities modified through `update` (or `apply`) are automatically persisted when calling `store()`. See xref:persistence.adoc[] for details.
 
 WARNING: Because `update` / `apply` mutate the entity in place, a constraint violation triggered by the new state cannot be rolled back. The GigaMap therefore **removes** the offending entity from the map and rethrows the `ConstraintViolationException`. The same applies to an exception thrown by the update logic itself, which leaves the entity partially mutated. See xref:constraints.adoc#_constraint_violations[Constraints — Constraint Violations] for the full rollback semantics across CRUD operations.

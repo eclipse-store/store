@@ -27,6 +27,33 @@ GigaMap<Person> gigaMap = GigaMap.New();
 gigaMap.index().bitmap().addUniqueConstraint(PersonIndices.id);
 ----
 
+=== Validation Points
+
+A unique constraint is checked when it is registered (against the entities already in the map), on every write - and again by `reindex()`, which rebuilds the indices from the current entity state and therefore derives every key anew. A rebuild over data that violates the constraint - two or more entities sharing a key - is reported with a `UniqueConstraintViolationExceptionBitmap` naming the violated index and the first entity found under an already taken key.
+
+The report comes *after* the rebuild has completed: the indices are rebuilt and marked for storing either way, so they describe the entities as they actually are. That is also what the repair works on - re-distinguish the colliding keys via `update` / `apply`, then call `reindex()` again:
+
+[source, java]
+----
+try
+{
+    gigaMap.reindex();
+}
+catch(final UniqueConstraintViolationException e)
+{
+    // the completed rebuild answers for the actual entity state, so the collisions are queryable
+    final Person offender = (Person)e.getViolatingEntity();
+    for(final Person person : gigaMap.query(PersonIndices.id.is(offender.getId())).toList())
+    {
+        gigaMap.update(person, p -> p.setId(...)); // assign distinct values
+    }
+    gigaMap.reindex(); // passes now
+}
+gigaMap.store();
+----
+
+NOTE: Class evolution of an indexed *unique* field is the typical source of such data: renaming or retyping it across releases without a value-preserving refactoring mapping makes the legacy mapping default that field for *every* old entity, so they all reload carrying the same key. See xref:crud.adoc#_removing_and_updating_entities[CRUD - Removing and Updating Entities] for `reindex()` itself.
+
 === Combining With an Identity Index
 
 A unique constraint and an xref:indexing/bitmap/types.adoc#_identity_index[identity index] are independent concerns: the identity index defines how entities are looked up, the unique constraint enforces uniqueness at write time. Combine both to get an identifying field that is also guaranteed unique:

@@ -928,6 +928,127 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			this.markStateChangeChildren();
 		}
 
+		/**
+		 * Rebuilds all bitmap indices from the current entity state and, unlike the generic
+		 * {@link IndexGroup.Internal#internalReindex(GigaMap) clear + re-add} default, re-validates the
+		 * registered unique constraints while doing so. A rebuild is the one path that derives every key
+		 * anew, so data whose keys collide - e.g. every entity of a class-evolved indexed field defaulting
+		 * to the same value - would otherwise silently yield an index in which one unique key maps to
+		 * several live entities, a state all write paths reject.
+		 * <p>
+		 * The rebuild is <b>completed</b> before a violation is reported: the resulting indices then
+		 * describe the entities as they actually are, which is what the documented repair - re-distinguish
+		 * the colliding keys via {@code update}/{@code apply}, then {@code reindex()} again - operates on.
+		 * Aborting mid-pass would leave the indices half-rebuilt, and aborting before the pass would keep
+		 * exactly the stale keys that made the rebuild necessary in the first place.
+		 */
+		@Override
+		public final void internalReindex(final GigaMap<E> parentMap)
+		{
+			this.internalRemoveAll();
+
+			if(this.uniqueConstraints == null)
+			{
+				// nothing to validate: plain rebuild, without paying for the per-entity containment checks.
+				parentMap.iterateIndexed(this::internalAdd);
+
+				return;
+			}
+
+			final UniquenessViolation<E> violation = new UniquenessViolation<>();
+			parentMap.iterateIndexed((final long entityId, final E entity) ->
+			{
+				this.collectUniquenessViolation(entityId, entity, violation);
+				this.internalAdd(entityId, entity);
+			});
+
+			if(violation.violatedIndex != null)
+			{
+				throw violation.toException();
+			}
+		}
+
+		/**
+		 * Checks the entity about to be re-indexed against the unique constraints and records a collision in
+		 * the given collector. Uses the same check-then-add order as
+		 * {@link #buildIndexDataAndValidateUniqueness(EqHashTable)}, which is correct during a rebuild
+		 * because the indices were just cleared: only entities re-added in the same pass can be found, so
+		 * every hit is a genuinely different entity (there is no own stale entry to exclude).
+		 * <p>
+		 * Only the first collision is reported, so once one has been found the remaining entities are
+		 * checked against that one index only - to report how many of them are affected - instead of
+		 * accumulating unrelated findings from the other constraints.
+		 *
+		 * @param entityId the entity's id
+		 * @param entity the entity about to be re-indexed
+		 * @param violation the collector of the violation to report after the rebuild
+		 */
+		private void collectUniquenessViolation(
+			final long                   entityId ,
+			final E                      entity   ,
+			final UniquenessViolation<E> violation
+		)
+		{
+			if(violation.violatedIndex != null)
+			{
+				if(violation.violatedIndex.internalContains(entity))
+				{
+					violation.duplicateCount++;
+				}
+
+				return;
+			}
+
+			for(final BitmapIndex.Internal<E, ?> index : this.uniqueConstraints)
+			{
+				if(index.internalContains(entity))
+				{
+					violation.violatedIndex   = index   ;
+					violation.entityId        = entityId;
+					violation.violatingEntity = entity  ;
+					violation.duplicateCount  = 1       ;
+
+					return;
+				}
+			}
+		}
+
+		/**
+		 * Mutable collector for the unique-constraint violation encountered during a rebuild. A rebuild
+		 * reports its violation only after it completed, and the per-entity check runs inside a lambda that
+		 * cannot assign to local variables, hence this holder instead of plain locals.
+		 *
+		 * @param <E> the entity type
+		 */
+		private static final class UniquenessViolation<E>
+		{
+			BitmapIndex.Internal<E, ?> violatedIndex   = null;
+			long                       entityId        = -1  ;
+			E                          violatingEntity = null;
+			long                       duplicateCount  = 0   ;
+
+			UniquenessViolation()
+			{
+				super();
+			}
+
+			UniqueConstraintViolationExceptionBitmap toException()
+			{
+				return new UniqueConstraintViolationExceptionBitmap(
+					this.entityId       ,
+					null                ,
+					this.violatingEntity,
+					this.violatedIndex  ,
+					"GigaMap.reindex() rebuilt the unique index \"" + this.violatedIndex.name()
+					+ "\" from the current entity state, which holds duplicate keys (entities re-indexed"
+					+ " under a key another entity already holds: " + this.duplicateCount
+					+ "; the first one is reported here). The rebuild was completed, so the indices now"
+					+ " describe the entities as they actually are: re-distinguish the colliding keys via"
+					+ " update()/apply(), then call reindex() again."
+				);
+			}
+		}
+
 		@Override
 		public <K> BitmapIndex<E, K> add(final Indexer<? super E, K> indexer)
 		{
