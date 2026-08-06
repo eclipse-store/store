@@ -1246,8 +1246,8 @@ class VectorIndexConcurrentStressTest
             );
             assertNotNull(result);
             assertEquals(
+                (long)result.size(),
                 result.stream().map(ScoredSearchResult.Entry::entityId).distinct().count(),
-                result.size(),
                 "no entity may be indexed twice"
             );
         }

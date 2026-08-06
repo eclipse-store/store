@@ -3336,6 +3336,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 currentIndex.getDeletedNodes().clear(ordinal);
                 return;
             }
+            // containsNode only inspects layer 0, so "absent" can still mean "present in an upper
+            // layer" after an earlier interleaved add/remove. Purge all layers before adding, or the
+            // add throws the very IllegalStateException this change is about.
+            currentIndex.removeNode(ordinal);
             currentBuilder.addGraphNode(ordinal, vf);
         }
 
