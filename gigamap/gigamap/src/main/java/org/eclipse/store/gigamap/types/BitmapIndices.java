@@ -1997,17 +1997,21 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			}
 
 			// Building unique indices, their data and data-related validation.
+			// Every created index is collected separately from the by-name table: one that fails validation
+			// is not in that table (a suitability failure never reaches it, a name collision is what the
+			// insert rejected), and the cleanup below must not depend on which of the two it landed in.
 			final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices = EqHashTable.New();
+			final BulkList<BitmapIndex.Internal<E, ?>>            created = BulkList.New();
 			try
 			{
-				this.buildUniqueIndices(indexers, indices);
+				this.buildUniqueIndices(indexers, indices, created);
 				// names the indexers did not reveal, checked before anything is built or registered
 				this.validateIndicesToRegister(indices.values());
 				this.buildIndexDataAndValidateUniqueness(indices);
 			}
 			catch(final Throwable t)
 			{
-				releaseAbandonedIndexData(indices.values(), t);
+				releaseAbandonedIndexData(created, t);
 
 				throw t;
 			}
@@ -2060,14 +2064,21 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			return existing != null && this.uniqueConstraints != null && this.uniqueConstraints.contains(existing);
 		}
 
+		/**
+		 * @param indices receives the created indices by name, for the subsequent build and registration
+		 * @param created receives every created index, including one this method then rejects, so that the
+		 *        caller can discard all of them regardless of where the failure happened
+		 */
 		private void buildUniqueIndices(
 			final XGettingCollection<? extends Indexer<? super E, ?>> indexers,
-			final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices
+			final EqHashTable<String, BitmapIndex.Internal<E, ?>>     indices ,
+			final BulkList<BitmapIndex.Internal<E, ?>>                created
 		)
 		{
 			for(final Indexer<? super E, ?> indexer : indexers)
 			{
 				final BitmapIndex.Internal<E, ?> index = indexer.createFor(this);
+				created.add(index);
 				if(!index.isSuitableAsUniqueConstraint())
 				{
 					throw new BitmapIndicesException(
