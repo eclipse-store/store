@@ -100,9 +100,17 @@ class TypeDictionaryCommitExportTest
 	{
 		for(final EmbeddedStorageManager manager : new EmbeddedStorageManager[]{this.reloaded, this.storage})
 		{
-			if(manager != null && !manager.isShutdown())
+			if(manager != null && manager.isRunning())
 			{
-				manager.shutdown();
+				try
+				{
+					manager.shutdown();
+				}
+				catch(final RuntimeException ignored)
+				{
+					// best effort: a failing shutdown must not hide the test's own outcome, and must not
+					// keep the remaining manager from being closed and its files from being released.
+				}
 			}
 		}
 	}
