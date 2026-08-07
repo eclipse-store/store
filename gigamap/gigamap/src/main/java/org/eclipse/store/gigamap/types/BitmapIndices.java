@@ -1169,14 +1169,7 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		 */
 		private void validateIndexToRegister(final BitmapIndex.Internal<E, ?> index)
 		{
-			if(index.parent() != this)
-			{
-				throw new BitmapIndicesException(
-					"Inconsistent parent reference for index " + BitmapIndex.class.getSimpleName()
-					+ " \"" + index.name() + "\".",
-					this
-				);
-			}
+			this.validateIndexParent(index);
 
 			final String indexName = index.name();
 			if(indexName == null)
@@ -1187,6 +1180,26 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			{
 				throw new BitmapIndicesException(
 					BitmapIndex.class.getSimpleName() + " already registered for name \"" + indexName + "\".",
+					this
+				);
+			}
+		}
+
+		/**
+		 * Validates that a freshly created index belongs to this group. Separate from
+		 * {@link #validateIndexToRegister(BitmapIndex.Internal)} because a redefinition needs exactly this
+		 * check and not the name check: the name it will be registered under is still occupied by the index
+		 * it replaces.
+		 *
+		 * @param index the freshly created index
+		 */
+		private void validateIndexParent(final BitmapIndex.Internal<E, ?> index)
+		{
+			if(index.parent() != this)
+			{
+				throw new BitmapIndicesException(
+					"Inconsistent parent reference for index " + BitmapIndex.class.getSimpleName()
+					+ " \"" + index.name() + "\".",
 					this
 				);
 			}
@@ -1372,10 +1385,12 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 				final BitmapIndex.Internal<E, K> index = indexer.createFor(this);
 				try
 				{
-					// The replacement must carry the very name that selected the index being replaced:
-					// #createFor may be overridden to name the index differently, which would either
-					// register the rebuilt index under a foreign name or fail below - after the old index
-					// has already been dropped. Checked here, while nothing has been changed yet.
+					// Everything #internalAddBitmapIndex could reject, checked while nothing has been changed
+					// yet - the registration below runs after the old index has been dropped, so it must not
+					// be able to fail. The name check is the update-specific half: the replacement must carry
+					// the very name that selected the index being replaced, whereas #createFor may be
+					// overridden to name the index it creates differently.
+					this.validateIndexParent(index);
 					if(!name.equals(index.name()))
 					{
 						throw new BitmapIndicesException(
