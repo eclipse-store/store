@@ -1122,9 +1122,9 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		 * Registers a single index without checking mutability. Callers must have passed
 		 * {@link #ensureMutable(String)} and must still hold the parent-map monitor.
 		 * <p>
-		 * The index is back-filled while it is still standalone and only registered once its data is
-		 * complete, so an {@link Indexer} throwing for one of the already-present entities leaves this
-		 * group untouched instead of a partially filled index registered
+		 * Registration is always the last step: where a back-fill happens at all ({@code initialize == true}),
+		 * it runs while the index is still standalone, so an {@link Indexer} throwing for one of the
+		 * already-present entities leaves this group untouched instead of a partially filled index registered
 		 * (see {@link #buildIndexData(BitmapIndex.Internal)}).
 		 *
 		 * @param initialize whether to back-fill the new index from the already-present entities
