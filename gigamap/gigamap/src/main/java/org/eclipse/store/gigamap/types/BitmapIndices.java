@@ -1044,7 +1044,9 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		 */
 		private void reindexSingleIndex(final BitmapIndex.Internal<E, ?> existing)
 		{
-			// captured before the swap: #internalRemoveIndex strips both memberships
+			// #internalRemoveIndex strips the unique-constraint membership, so it has to be read before the
+			// swap. The identity membership survives the removal and is re-pointed afterwards, but is read
+			// here as well so both describe the same, pre-swap state.
 			final boolean wasUnique   = this.isUniqueConstraint(existing);
 			final boolean wasIdentity = this.isIdentityIndex(existing);
 
