@@ -1384,16 +1384,18 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 				// Build every index' data while they are all still standalone, so that an indexer throwing
 				// for one of the already-present entities registers none of the batch instead of leaving it
 				// half applied - with the throwing index registered and partially filled at that.
-				// The names are already de-duplicated by the validation above.
-				final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices = EqHashTable.New();
+				// Deliberately a plain list, not a table keyed by name: the validation above de-duplicates
+				// the indexers' names, but #createFor may be overridden to name the index differently, and
+				// a keyed collection would silently drop such a collision - both from the batch and from
+				// the release below. A name that is nonetheless taken is rejected when it is registered.
+				final BulkList<BitmapIndex.Internal<E, ?>> indices = BulkList.New(requested.intSize());
 				for(final Indexer<? super E, ?> indexer : requested)
 				{
-					final BitmapIndex.Internal<E, ?> index = indexer.createFor(this);
-					indices.add(index.name(), index);
+					indices.add(indexer.createFor(this));
 				}
 				this.buildIndexData(indices);
 
-				for(final BitmapIndex.Internal<E, ?> index : indices.values())
+				for(final BitmapIndex.Internal<E, ?> index : indices)
 				{
 					this.internalAddBitmapIndex(index);
 				}
@@ -1700,7 +1702,16 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 				);
 			}
 
-			this.bitmapIndices.add(index.name(), index);
+			// Rejected rather than silently ignored: #add does not overwrite, so a taken name would leave
+			// the caller believing an index it never registered is in place. The public entry points
+			// validate the name up front; this catches a name that only #createFor produced.
+			if(!this.bitmapIndices.add(index.name(), index))
+			{
+				throw new BitmapIndicesException(
+					BitmapIndex.class.getSimpleName() + " already registered for name \"" + index.name() + "\".",
+					this
+				);
+			}
 
 			this.markStateChangeInstance();
 			this.parent.internalReportIndexGroupStateChange(this);
@@ -1986,15 +1997,15 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		 * For the failure contract see {@link #buildIndexData(BitmapIndex.Internal)}: none of the indices is
 		 * registered yet, so a throwing indexer leaves the group untouched - the batch is all-or-nothing.
 		 *
-		 * @param indices the standalone indices to fill, keyed by their name
+		 * @param indices the standalone indices to fill
 		 */
-		private void buildIndexData(final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices)
+		private void buildIndexData(final XGettingCollection<? extends BitmapIndex.Internal<E, ?>> indices)
 		{
 			try
 			{
 				this.parent.iterateIndexed((final long entityId, final E entity) ->
 				{
-					for(final BitmapIndex.Internal<E, ?> index : indices.values())
+					for(final BitmapIndex.Internal<E, ?> index : indices)
 					{
 						index.internalAdd(entityId, entity);
 					}
@@ -2028,18 +2039,18 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			}
 			catch(final Throwable t)
 			{
-				releaseAbandonedIndexData(indices, t);
+				releaseAbandonedIndexData(indices.values(), t);
 
 				throw t;
 			}
 		}
 
 		private static void releaseAbandonedIndexData(
-			final EqHashTable<String, ? extends BitmapIndex.Internal<?, ?>> indices,
-			final Throwable                                                 cause
+			final XGettingCollection<? extends BitmapIndex.Internal<?, ?>> indices,
+			final Throwable                                               cause
 		)
 		{
-			for(final BitmapIndex.Internal<?, ?> index : indices.values())
+			for(final BitmapIndex.Internal<?, ?> index : indices)
 			{
 				releaseAbandonedIndexData(index, cause);
 			}
