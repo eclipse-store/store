@@ -293,7 +293,11 @@ public class GigaMap132Test
 		ARMED.set(false);
 
 		assertEquals(1, map.index().bitmap().uniqueConstraints().size(), "unique membership lost");
-		assertThrows(RuntimeException.class, () -> map.add(new Rec("e0")), "constraint no longer enforced");
+		assertThrows(
+			UniqueConstraintViolationExceptionBitmap.class,
+			() -> map.add(new Rec("e0")),
+			"constraint no longer enforced"
+		);
 		assertEquals(5, findable(map, HEALTHY), "the healthy index must still have been rebuilt");
 	}
 
