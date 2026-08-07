@@ -655,6 +655,17 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * the entities as they actually are. That is what the repair works on: re-distinguish the colliding keys
 	 * via {@link #update(long, Consumer) update} / {@link #apply(long, Function) apply}, then call this method
 	 * again.
+	 * <p>
+	 * <b>Behavior on failure:</b> a bitmap index is rebuilt into a replacement that is built aside and put in
+	 * place only once its data is complete, so an {@link Indexer} throwing for one entity costs only its own
+	 * index' rebuild: that index is left exactly as it was - as stale as before the call, but complete - every
+	 * other index is rebuilt, and no index is ever left holding a prefix of the entities. Every index is
+	 * attempted; the first failure is rethrown afterwards with any further ones attached as suppressed
+	 * exceptions. Fix the cause and call this method again to repair the indices that were left behind. A
+	 * unique-constraint violation is <em>not</em> such a failure - the rebuild completed and merely produced
+	 * colliding data, so it is reported as described above. Index groups other than the bitmap indices
+	 * (Lucene, vector) still drop their data before rebuilding, so a failure there can leave that group
+	 * partial until the next successful rebuild.
 	 *
 	 * @throws UniqueConstraintViolationException if the rebuilt indices show two or more entities sharing a key
 	 *         of a unique constraint. The exception names the violated index and the first entity found under

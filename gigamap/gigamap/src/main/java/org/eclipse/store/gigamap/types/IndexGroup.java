@@ -140,6 +140,13 @@ public interface IndexGroup<E> extends GigaMap.Component<E>
 		 * rebuild derives every key anew and the current entity state may well violate a constraint that
 		 * held when the entities were written (the bitmap group does so for its unique constraints, see
 		 * {@code BitmapIndices.Default#internalReindex(GigaMap)}).
+		 * <p>
+		 * The default is also <b>not failure-atomic</b>: it drops the data before it can know whether the
+		 * rebuild succeeds, and {@link #internalAdd(long, Object)} fans out to every index of the group, so
+		 * an {@link Indexer} throwing for one entity leaves the entire group holding only the entities
+		 * before it - a silently partial state that a subsequent {@code store()} makes durable. A group that
+		 * can build its new data aside should override this and swap it in only once complete; the bitmap
+		 * group does so per index.
 		 *
 		 * @param parentMap the map whose entities this group indexes
 		 */

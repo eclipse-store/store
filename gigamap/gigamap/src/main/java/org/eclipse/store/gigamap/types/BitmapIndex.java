@@ -160,17 +160,40 @@ public interface BitmapIndex<E, K> extends IndexIdentifier<E, K>, GigaIndex<E>
 	}
 		
 	
-	@SuppressWarnings("unchecked") // in case of this, S == E, but the compiler cannot understand that.
+	/**
+	 * {@inheritDoc}
+	 * <p>
+	 * Holding a {@code BitmapIndex} is not the same as holding the index registered under its name: the
+	 * registered instance is <b>replaced</b> by {@link BitmapIndices#update(Indexer)} and by a rebuild
+	 * ({@link GigaMap#reindex()}), and dropped by {@link BitmapIndices#removeIndex(String)}. A replaced
+	 * instance keeps its parent back-reference, so validating that reference is not enough to tell it apart
+	 * from the live one - and its data has been released
+	 * ({@link Internal#internalReleaseOffHeap()}), so answering from it would silently yield empty results.
+	 * This therefore re-resolves by name rather than returning {@code this}.
+	 *
+	 * @throws BitmapIndexException if {@code parent} is not this index' parent, or if no index is registered
+	 *         under this index' name and key type any more
+	 */
 	@Override
 	public default <S extends E> Internal<S, K> resolveFor(final BitmapIndices.Internal<S> parent)
 	{
-		// bitmap instance itself does not need to be resolved, but instead validated.
-		if(parent == this.parent())
+		if(parent != this.parent())
 		{
-			return (Internal<S, K>)this;
+			throw new BitmapIndexException("Invalid parent.", this);
 		}
-		
-		throw new BitmapIndexException("Invalid parent.", this);
+
+		final Internal<S, K> registered = parent.internalGet(this.keyType(), this.name());
+		if(registered == null)
+		{
+			throw new BitmapIndexException(
+				"Index \"" + this.name() + "\" is no longer registered under this name and key type "
+				+ this.keyType() + ". It was removed, or replaced by an index with a different key type; "
+				+ "resolve it again via the parent instead of holding the instance across such a change.",
+				this
+			);
+		}
+
+		return registered;
 	}
 	
 	/**

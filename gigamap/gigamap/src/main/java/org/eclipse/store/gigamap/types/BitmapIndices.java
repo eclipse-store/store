@@ -972,88 +972,255 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		}
 
 		/**
-		 * Rebuilds all bitmap indices from the current entity state and, unlike the generic
-		 * {@link IndexGroup.Internal#internalReindex(GigaMap) clear + re-add} default, re-validates the
-		 * registered unique constraints while doing so. A rebuild is the one path that derives every key
-		 * anew, so data whose keys collide - e.g. every entity of a class-evolved indexed field defaulting
-		 * to the same value - would otherwise silently yield an index in which one unique key maps to
-		 * several live entities, a state all write paths reject.
+		 * Rebuilds all bitmap indices from the current entity state, one index at a time, and - unlike the
+		 * generic {@link IndexGroup.Internal#internalReindex(GigaMap) clear + re-add} default - both
+		 * re-validates the registered unique constraints and survives a failing {@link Indexer}.
 		 * <p>
-		 * The rebuild is <b>completed</b> before a violation is reported: the resulting indices then
-		 * describe the entities as they actually are, which is what the documented repair - re-distinguish
-		 * the colliding keys via {@code update}/{@code apply}, then {@code reindex()} again - operates on.
-		 * Aborting mid-pass would leave the indices half-rebuilt, and aborting before the pass would keep
-		 * exactly the stale keys that made the rebuild necessary in the first place.
+		 * Each index is rebuilt into a replacement built <b>aside</b> and swapped in only once its data is
+		 * complete, the way {@link #update(Indexer)} redefines one. The generic default drops every index
+		 * first and re-adds entity by entity through {@link #internalAdd(long, Object)}, which fans out to
+		 * all of them - so a single indexer throwing at entity <i>k</i> would truncate the whole group,
+		 * healthy indices included, to the entities before <i>k</i>. Here a throwing indexer costs only its
+		 * own index' rebuild: that index is left exactly as it was - as stale as before the call, but
+		 * complete - every other index is rebuilt, and none is ever a prefix of the entities. The first
+		 * failure is rethrown once all indices have been attempted, the rest attached as suppressed.
+		 * <p>
+		 * A <b>unique-constraint violation is not such a failure</b>: the rebuild completed and merely
+		 * produced data that collides, so the replacement is swapped in and the violation reported
+		 * afterwards. The indices then describe the entities as they actually are, which is what the
+		 * documented repair - re-distinguish the colliding keys via {@code update}/{@code apply}, then
+		 * {@code reindex()} again - operates on. Reporting before the swap would keep exactly the stale keys
+		 * that made the rebuild necessary in the first place.
+		 * <p>
+		 * The price of rebuilding one index at a time is one pass over the entities per index, rather than
+		 * one in total. That bounds the additional memory to a single index' data - the same peak
+		 * {@link #update(Indexer)} already has - instead of duplicating the whole group.
 		 */
 		@Override
 		public final void internalReindex(final GigaMap<E> parentMap)
 		{
-			this.internalRemoveAll();
-
-			if(this.uniqueConstraints == null)
+			// Snapshot: the loop swaps entries, which mutates the table it would otherwise iterate.
+			// Only registered indices are rebuilt - a composite's sub-indices are its own children and
+			// never appear here, which matters because their indexer() is the sub-index itself.
+			final BulkList<BitmapIndex.Internal<E, ?>> indices = BulkList.New(this.bitmapIndices.values());
+			if(indices.isEmpty())
 			{
-				// nothing to validate: plain rebuild, without paying for the per-entity containment checks.
-				parentMap.iterateIndexed(this::internalAdd);
-
 				return;
 			}
 
-			final UniquenessViolation<E> violation = new UniquenessViolation<>();
-			parentMap.iterateIndexed((final long entityId, final E entity) ->
+			RuntimeException first = null;
+			try
 			{
-				this.collectUniquenessViolation(entityId, entity, violation);
-				this.internalAdd(entityId, entity);
-			});
+				for(final BitmapIndex.Internal<E, ?> existing : indices)
+				{
+					try
+					{
+						this.reindexSingleIndex(existing);
+					}
+					catch(final RuntimeException e)
+					{
+						first = addAsFailure(first, e);
+					}
+				}
+			}
+			finally
+			{
+				// entries were replaced, so the transient lookup arrays no longer describe the table
+				this.rebuildCache();
+			}
 
-			if(violation.violatedIndex != null)
+			if(first != null)
+			{
+				throw first;
+			}
+		}
+
+		/**
+		 * Rebuilds a single registered index into a replacement and swaps it in. Deliberately does not
+		 * consult {@link #ensureMutable(String)}: {@code GigaMap.reindex()} has already checked, and that
+		 * guard may release the parent-map monitor while waiting, which would expose a half-swapped group.
+		 *
+		 * @param existing the registered index to rebuild
+		 */
+		private void reindexSingleIndex(final BitmapIndex.Internal<E, ?> existing)
+		{
+			// #internalRemoveIndex strips the unique-constraint membership, so it has to be read before the
+			// swap. The identity membership survives the removal and is re-pointed afterwards, but is read
+			// here as well so both describe the same, pre-swap state.
+			final boolean wasUnique   = this.isUniqueConstraint(existing);
+			final boolean wasIdentity = this.isIdentityIndex(existing);
+
+			final BitmapIndex.Internal<E, ?> replacement = existing.indexer().createFor(this);
+
+			final UniquenessViolation<E> violation;
+			try
+			{
+				this.validateIndexParent(replacement);
+				if(!existing.name().equals(replacement.name()))
+				{
+					throw new BitmapIndicesException(
+						"Indexer of index \"" + existing.name() + "\" created an index named \""
+						+ replacement.name() + "\"; a rebuild must keep the name the index is registered under.",
+						this
+					);
+				}
+
+				violation = this.buildReplacementIndexData(replacement, wasUnique);
+			}
+			catch(final Throwable t)
+			{
+				// the replacement never becomes visible, so nothing else would ever release it
+				releaseAbandonedIndexData(replacement, t);
+
+				throw t;
+			}
+
+			// commit: nothing below can fail, so the group is never left between the two indices.
+			this.swapIndex(existing, replacement, wasUnique, wasIdentity);
+
+			if(violation != null)
 			{
 				throw violation.toException();
 			}
 		}
 
 		/**
-		 * Checks the entity about to be re-indexed against the unique constraints and records a collision in
-		 * the given collector. Uses the same check-then-add order as
-		 * {@link #buildIndexDataAndValidateUniqueness(EqHashTable)}, which is correct during a rebuild
-		 * because the indices were just cleared: only entities re-added in the same pass can be found, so
-		 * every hit is a genuinely different entity (there is no own stale entry to exclude).
+		 * Fills a replacement index from all entities and, if it backs a unique constraint, collects the
+		 * first key collision instead of aborting on it - the rebuild has to complete either way.
 		 * <p>
-		 * Only the first collision is reported, so once one has been found the remaining entities are
-		 * checked against that one index only - to report how many of them are affected - instead of
-		 * accumulating unrelated findings from the other constraints.
+		 * Checking with {@link BitmapIndex.Internal#internalContains(Object)} against the replacement is
+		 * correct for the same reason it is in {@link #buildIndexDataAndValidateUniqueness(EqHashTable)}:
+		 * the replacement starts empty, so only entities added in this very pass can be found and every hit
+		 * is therefore a genuinely different entity, with no own stale entry to exclude. Checking against
+		 * the registered {@link #uniqueConstraints} instead would be wrong here - during a rebuild those
+		 * still hold their full, not yet replaced data, in which every entity trivially collides with
+		 * itself.
+		 * <p>
+		 * The entity is added <b>whether or not</b> it collided, so the finished index describes the
+		 * entities as they actually are.
 		 *
-		 * @param entityId the entity's id
-		 * @param entity the entity about to be re-indexed
-		 * @param violation the collector of the violation to report after the rebuild
+		 * @param replacement the not yet registered index to fill
+		 * @param unique whether it backs a unique constraint and its keys must therefore be checked
+		 * @return the collected violation, or {@code null} if the keys are unique (or unchecked)
 		 */
-		private void collectUniquenessViolation(
-			final long                   entityId ,
-			final E                      entity   ,
-			final UniquenessViolation<E> violation
+		private UniquenessViolation<E> buildReplacementIndexData(
+			final BitmapIndex.Internal<E, ?> replacement,
+			final boolean                    unique
 		)
 		{
+			if(!unique)
+			{
+				// no constraint to validate: plain rebuild, without paying for the per-entity containment checks.
+				this.parent.iterateIndexed(replacement::internalAdd);
+
+				return null;
+			}
+
+			final UniquenessViolation<E> violation = new UniquenessViolation<>();
+			this.parent.iterateIndexed((final long entityId, final E entity) ->
+			{
+				collectUniquenessViolation(replacement, entityId, entity, violation);
+				replacement.internalAdd(entityId, entity);
+			});
+
+			return violation.violatedIndex != null
+				? violation
+				: null
+			;
+		}
+
+		/**
+		 * Records a key collision of the entity about to be indexed in the given collector. Only the first
+		 * collision is reported, so once one has been found the remaining entities are only counted - to
+		 * report how many are affected - rather than replacing it.
+		 *
+		 * @param index the index being rebuilt
+		 * @param entityId the entity's id
+		 * @param entity the entity about to be indexed
+		 * @param violation the collector of the violation to report after the rebuild
+		 */
+		private static <E> void collectUniquenessViolation(
+			final BitmapIndex.Internal<E, ?> index    ,
+			final long                       entityId ,
+			final E                          entity   ,
+			final UniquenessViolation<E>     violation
+		)
+		{
+			if(!index.internalContains(entity))
+			{
+				return;
+			}
+
 			if(violation.violatedIndex != null)
 			{
-				if(violation.violatedIndex.internalContains(entity))
-				{
-					violation.duplicateCount++;
-				}
+				violation.duplicateCount++;
 
 				return;
 			}
 
-			for(final BitmapIndex.Internal<E, ?> index : this.uniqueConstraints)
-			{
-				if(index.internalContains(entity))
-				{
-					violation.violatedIndex   = index   ;
-					violation.entityId        = entityId;
-					violation.violatingEntity = entity  ;
-					violation.duplicateCount  = 1       ;
+			violation.violatedIndex   = index   ;
+			violation.entityId        = entityId;
+			violation.violatingEntity = entity  ;
+			violation.duplicateCount  = 1       ;
+		}
 
-					return;
-				}
+		/**
+		 * Replaces a registered index with an already fully built one, carrying its unique-constraint and
+		 * identity-index membership over. Shared by {@link #update(Indexer)} and by a rebuild, which differ
+		 * only in where the replacement's data comes from.
+		 * <p>
+		 * <b>Cannot fail</b>, which is what both callers rely on: the name the replacement is registered
+		 * under is the one just freed, so registration cannot be rejected, and neither caller could undo a
+		 * partial swap - the dropped index' data has been released by then. Everything that could reject the
+		 * replacement is therefore checked before this is called.
+		 * <p>
+		 * Deliberately leaves {@link #rebuildCache()} to the caller: a rebuild swaps many indices and pays
+		 * for it once at the end.
+		 *
+		 * @param existing the currently registered index
+		 * @param replacement the fully built index to register in its place
+		 * @param wasUnique whether {@code existing} backed a unique constraint
+		 * @param wasIdentity whether {@code existing} was an identity index
+		 */
+		private void swapIndex(
+			final BitmapIndex.Internal<E, ?> existing   ,
+			final BitmapIndex.Internal<E, ?> replacement,
+			final boolean                    wasUnique  ,
+			final boolean                    wasIdentity
+		)
+		{
+			// drops the old index' logic and data, releasing its off-heap memory. Identity removal is allowed
+			// here and restored below; the cache rebuild is the caller's.
+			this.internalRemoveIndex(existing.name(), true, false);
+			if(wasUnique)
+			{
+				this.internalAddUniqueConstraint(replacement);
 			}
+			this.internalAddBitmapIndex(replacement);
+
+			if(wasIdentity)
+			{
+				this.internalReplaceIdentityIndex(existing, replacement);
+			}
+		}
+
+		/**
+		 * Collects a failure across a best-effort loop: the first one is the one that will be rethrown, any
+		 * further one is attached to it. Mirrors {@link #internalRemove(long, Object)}.
+		 *
+		 * @param first the failure collected so far, or {@code null}
+		 * @param next the failure just encountered
+		 * @return the failure to rethrow at the end
+		 */
+		private static RuntimeException addAsFailure(final RuntimeException first, final RuntimeException next)
+		{
+			if(first == null)
+			{
+				return next;
+			}
+			first.addSuppressed(next);
+
+			return first;
 		}
 
 		/**
@@ -1424,21 +1591,8 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 					throw t;
 				}
 
-				// commit: nothing below can fail. Drop the old index (logic + data), then register the
-				// rebuilt one - its name is the one just freed, so registration cannot be rejected.
-				// identity removal is allowed here and restored below; skip the intermediate cache
-				// rebuild since update() rebuilds the cache once at the end.
-				this.internalRemoveIndex(name, true, false);
-				if(wasUnique)
-				{
-					this.internalAddUniqueConstraint(index);
-				}
-				this.internalAddBitmapIndex(index);
-
-				if(wasIdentity)
-				{
-					this.internalReplaceIdentityIndex(existing, index);
-				}
+				// commit: nothing below can fail.
+				this.swapIndex(existing, index, wasUnique, wasIdentity);
 				this.rebuildCache();
 				return index;
 			}
