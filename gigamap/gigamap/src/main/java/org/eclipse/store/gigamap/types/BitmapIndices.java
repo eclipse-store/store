@@ -2130,6 +2130,13 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		 */
 		private void buildIndexData(final XGettingCollection<? extends BitmapIndex.Internal<E, ?>> indices)
 		{
+			if(indices.isEmpty())
+			{
+				// nothing to fill: skip the pass over the entities, which would otherwise materialize every
+				// lazily loaded segment to hand each one to no index at all.
+				return;
+			}
+
 			this.parent.iterateIndexed((final long entityId, final E entity) ->
 			{
 				for(final BitmapIndex.Internal<E, ?> index : indices)
@@ -2143,6 +2150,12 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices
 		)
 		{
+			if(indices.isEmpty())
+			{
+				// see #buildIndexData(XGettingCollection)
+				return;
+			}
+
 			this.parent.iterateIndexed((final long entityId, final E entity) ->
 			{
 				for(final BitmapIndex.Internal<E, ?> index : indices.values())
