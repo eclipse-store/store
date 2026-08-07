@@ -1135,14 +1135,84 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			this.validateIndexToAdd(indexer);
 
 			final BitmapIndex.Internal<E, K> index = indexer.createFor(this);
-			if(initialize)
+			try
 			{
-				this.buildIndexData(index);
+				// before anything is built, so that registration below cannot fail
+				this.validateIndexToRegister(index);
+				if(initialize)
+				{
+					this.buildIndexData(index);
+				}
+				this.internalAddBitmapIndex(index);
 			}
-			this.internalAddBitmapIndex(index);
+			catch(final Throwable t)
+			{
+				releaseAbandonedIndexData(index, t);
+
+				throw t;
+			}
 			this.rebuildCache();
 
 			return index;
+		}
+
+		/**
+		 * Validates an index that was just created and is about to be filled and registered.
+		 * <p>
+		 * {@link #validateIndexToAdd(Indexer)} only saw the <i>indexer's</i> name, but
+		 * {@link Indexer#createFor(BitmapIndices)} may be overridden to name the index it creates
+		 * differently. Checking here - while nothing has been built, dropped or registered yet - is what lets
+		 * {@link #internalAddBitmapIndex(BitmapIndex.Internal)} be a step that cannot fail, which in turn is
+		 * what makes a batch registration all-or-nothing and a redefinition atomic.
+		 *
+		 * @param index the freshly created, not yet registered index
+		 */
+		private void validateIndexToRegister(final BitmapIndex.Internal<E, ?> index)
+		{
+			if(index.parent() != this)
+			{
+				throw new BitmapIndicesException(
+					"Inconsistent parent reference for index " + BitmapIndex.class.getSimpleName()
+					+ " \"" + index.name() + "\".",
+					this
+				);
+			}
+
+			final String indexName = index.name();
+			if(indexName == null)
+			{
+				throw new IllegalArgumentException("Index name may not be null.");
+			}
+			if(this.bitmapIndices.get(indexName) != null)
+			{
+				throw new BitmapIndicesException(
+					BitmapIndex.class.getSimpleName() + " already registered for name \"" + indexName + "\".",
+					this
+				);
+			}
+		}
+
+		/**
+		 * Validates a batch of freshly created indices, additionally rejecting a name collision <i>within</i>
+		 * the batch - which the indexer-level validation cannot see either, for the reason given in
+		 * {@link #validateIndexToRegister(BitmapIndex.Internal)}.
+		 *
+		 * @param indices the freshly created, not yet registered indices
+		 */
+		private void validateIndicesToRegister(final XGettingCollection<? extends BitmapIndex.Internal<E, ?>> indices)
+		{
+			final EqHashTable<String, BitmapIndex.Internal<E, ?>> byName = EqHashTable.New();
+			for(final BitmapIndex.Internal<E, ?> index : indices)
+			{
+				this.validateIndexToRegister(index);
+				if(!byName.add(index.name(), index))
+				{
+					throw new BitmapIndicesException(
+						"Conflicted index name: \"" + index.name() + "\".",
+						this
+					);
+				}
+			}
 		}
 
 		/**
@@ -1300,25 +1370,47 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 				// the existing index untouched (atomic failure). The new index is standalone (not yet
 				// registered) for the whole build.
 				final BitmapIndex.Internal<E, K> index = indexer.createFor(this);
-				if(wasUnique)
+				try
 				{
-					if(!index.isSuitableAsUniqueConstraint())
+					// The replacement must carry the very name that selected the index being replaced:
+					// #createFor may be overridden to name the index differently, which would either
+					// register the rebuilt index under a foreign name or fail below - after the old index
+					// has already been dropped. Checked here, while nothing has been changed yet.
+					if(!name.equals(index.name()))
 					{
 						throw new BitmapIndicesException(
-							"Index not suited as a unique constraint: \"" + index.name() + "\" class " + index.getClass(),
+							"Indexer \"" + name + "\" created an index named \"" + index.name()
+							+ "\"; a redefinition must keep the name that selects the index to replace.",
 							this
 						);
 					}
-					final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices = EqHashTable.New();
-					indices.add(index.name(), index);
-					this.buildIndexDataAndValidateUniqueness(indices);
+					if(wasUnique)
+					{
+						if(!index.isSuitableAsUniqueConstraint())
+						{
+							throw new BitmapIndicesException(
+								"Index not suited as a unique constraint: \"" + index.name() + "\" class " + index.getClass(),
+								this
+							);
+						}
+						final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices = EqHashTable.New();
+						indices.add(index.name(), index);
+						this.buildIndexDataAndValidateUniqueness(indices);
+					}
+					else
+					{
+						this.buildIndexData(index);
+					}
 				}
-				else
+				catch(final Throwable t)
 				{
-					this.buildIndexData(index);
+					releaseAbandonedIndexData(index, t);
+
+					throw t;
 				}
 
-				// commit: drop the old index (logic + data), then register the rebuilt index.
+				// commit: nothing below can fail. Drop the old index (logic + data), then register the
+				// rebuilt one - its name is the one just freed, so registration cannot be rejected.
 				// identity removal is allowed here and restored below; skip the intermediate cache
 				// rebuild since update() rebuilds the cache once at the end.
 				this.internalRemoveIndex(name, true, false);
@@ -1387,13 +1479,25 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 				// Deliberately a plain list, not a table keyed by name: the validation above de-duplicates
 				// the indexers' names, but #createFor may be overridden to name the index differently, and
 				// a keyed collection would silently drop such a collision - both from the batch and from
-				// the release below. A name that is nonetheless taken is rejected when it is registered.
+				// the release below.
 				final BulkList<BitmapIndex.Internal<E, ?>> indices = BulkList.New(requested.intSize());
-				for(final Indexer<? super E, ?> indexer : requested)
+				try
 				{
-					indices.add(indexer.createFor(this));
+					for(final Indexer<? super E, ?> indexer : requested)
+					{
+						indices.add(indexer.createFor(this));
+					}
+					// Names the indexers did not reveal are checked before anything is built, so that the
+					// registration loop below cannot fail with part of the batch already registered.
+					this.validateIndicesToRegister(indices);
+					this.buildIndexData(indices);
 				}
-				this.buildIndexData(indices);
+				catch(final Throwable t)
+				{
+					releaseAbandonedIndexData(indices, t);
+
+					throw t;
+				}
 
 				for(final BitmapIndex.Internal<E, ?> index : indices)
 				{
@@ -1686,29 +1790,23 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		
 		/**
 		 * Registers an index whose data is already complete. Deliberately performs no back-fill: filling
-		 * happens beforehand, while the index is still standalone (see {@link #buildIndexData(BitmapIndex.Internal)}),
-		 * so that registration is the last step of every add/update path and runs no user code that could
-		 * fail with the index already in the registry.
+		 * happens beforehand, while the index is still standalone (see {@link #buildIndexData(BitmapIndex.Internal)}).
+		 * <p>
+		 * This step must not fail - callers register a batch index by index, and a redefinition registers the
+		 * replacement after having dropped the original - so everything that could reject the index is checked
+		 * by {@link #validateIndexToRegister(BitmapIndex.Internal)} before anything is built or dropped. The
+		 * guard below therefore only asserts that invariant rather than enforcing it; a caller reaching it has
+		 * skipped the validation.
 		 */
 		private void internalAddBitmapIndex(final BitmapIndex.Internal<E, ?> index)
 		{
-			// just to be safe and the performance cost is irrelevant for a structural element.
-			// Checked before registering, so a foreign index is not left behind in the registry.
-			if(index.parent() != this)
+			// #add does not overwrite, so a taken name would otherwise leave the caller believing an index it
+			// never registered is in place.
+			if(index.parent() != this || !this.bitmapIndices.add(index.name(), index))
 			{
 				throw new BitmapIndicesException(
-					"Inconsistent parent reference for index " + BitmapIndex.class.getSimpleName() + " \"" + index.name() + "\".",
-					this
-				);
-			}
-
-			// Rejected rather than silently ignored: #add does not overwrite, so a taken name would leave
-			// the caller believing an index it never registered is in place. The public entry points
-			// validate the name up front; this catches a name that only #createFor produced.
-			if(!this.bitmapIndices.add(index.name(), index))
-			{
-				throw new BitmapIndicesException(
-					BitmapIndex.class.getSimpleName() + " already registered for name \"" + index.name() + "\".",
+					"Index " + BitmapIndex.class.getSimpleName() + " \"" + index.name()
+					+ "\" cannot be registered: inconsistent parent reference, or the name is already taken.",
 					this
 				);
 			}
@@ -1885,8 +1983,19 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 
 			// Building unique indices, their data and data-related validation.
 			final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices = EqHashTable.New();
-			this.buildUniqueIndices(indexers, indices);
-			this.buildIndexDataAndValidateUniqueness(indices);
+			try
+			{
+				this.buildUniqueIndices(indexers, indices);
+				// names the indexers did not reveal, checked before anything is built or registered
+				this.validateIndicesToRegister(indices.values());
+				this.buildIndexDataAndValidateUniqueness(indices);
+			}
+			catch(final Throwable t)
+			{
+				releaseAbandonedIndexData(indices.values(), t);
+
+				throw t;
+			}
 
 			// When everything is guaranteed to be valid and consistent, the indices - whose data is complete
 			// by now - are actually registered.
@@ -1970,23 +2079,17 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		 * the already-present entities would otherwise leave a partially filled index registered - silently
 		 * answering queries with a torso of the data, and persisted by the next {@code store()}.
 		 * <p>
-		 * On failure the abandoned index' off-heap memory is released, because an index that never gets
-		 * registered is never reached by {@link #internalRemoveIndex(String, boolean, boolean)}'s release.
+		 * Releasing the off-heap memory of an index abandoned because this failed is the caller's job: the
+		 * caller owns the index for its whole standalone life - creation, validation, filling, registration -
+		 * and a failure anywhere in that span must discard it (see {@link #releaseAbandonedIndexData}). An
+		 * index that never gets registered is never reached by
+		 * {@link #internalRemoveIndex(String, boolean, boolean)}'s release.
 		 *
 		 * @param index the standalone index to fill
 		 */
 		private void buildIndexData(final BitmapIndex.Internal<E, ?> index)
 		{
-			try
-			{
-				this.parent.iterateIndexed(index::internalAdd);
-			}
-			catch(final Throwable t)
-			{
-				releaseAbandonedIndexData(index, t);
-
-				throw t;
-			}
+			this.parent.iterateIndexed(index::internalAdd);
 		}
 
 		/**
@@ -2001,48 +2104,30 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		 */
 		private void buildIndexData(final XGettingCollection<? extends BitmapIndex.Internal<E, ?>> indices)
 		{
-			try
+			this.parent.iterateIndexed((final long entityId, final E entity) ->
 			{
-				this.parent.iterateIndexed((final long entityId, final E entity) ->
+				for(final BitmapIndex.Internal<E, ?> index : indices)
 				{
-					for(final BitmapIndex.Internal<E, ?> index : indices)
-					{
-						index.internalAdd(entityId, entity);
-					}
-				});
-			}
-			catch(final Throwable t)
-			{
-				releaseAbandonedIndexData(indices, t);
-
-				throw t;
-			}
+					index.internalAdd(entityId, entity);
+				}
+			});
 		}
 
 		private void buildIndexDataAndValidateUniqueness(
 			final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices
 		)
 		{
-			try
+			this.parent.iterateIndexed((final long entityId, final E entity) ->
 			{
-				this.parent.iterateIndexed((final long entityId, final E entity) ->
+				for(final BitmapIndex.Internal<E, ?> index : indices.values())
 				{
-					for(final BitmapIndex.Internal<E, ?> index : indices.values())
+					if(index.internalContains(entity))
 					{
-						if(index.internalContains(entity))
-						{
-							throw new UniqueConstraintViolationExceptionBitmap(entityId, null, entity, index);
-						}
-						index.internalAdd(entityId, entity);
+						throw new UniqueConstraintViolationExceptionBitmap(entityId, null, entity, index);
 					}
-				});
-			}
-			catch(final Throwable t)
-			{
-				releaseAbandonedIndexData(indices.values(), t);
-
-				throw t;
-			}
+					index.internalAdd(entityId, entity);
+				}
+			});
 		}
 
 		private static void releaseAbandonedIndexData(
