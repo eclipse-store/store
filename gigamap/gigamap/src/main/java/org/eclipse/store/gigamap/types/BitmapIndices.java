@@ -63,8 +63,10 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	 * <b>Behavior on failure:</b> the index is built completely before it is registered, so if
 	 * {@code indexer} throws for one of the already-present entities, nothing is registered and this group
 	 * is left exactly as it was: no index is queryable under the given name, no sibling index is affected,
-	 * and nothing of the attempt is persisted by a subsequent {@code store()}. The exception is rethrown
-	 * unchanged; the name stays free, so the call can simply be repeated with corrected logic.
+	 * and nothing of the attempt is persisted by a subsequent {@code store()}. The indexer's exception is
+	 * the one propagated - should discarding the half-built index fail in turn, that secondary failure is
+	 * attached to it as a suppressed exception. The name stays free, so the call can simply be repeated
+	 * with corrected logic.
 	 *
 	 * @param <K> the key type
 	 * @param indexer the indexing logic
@@ -91,8 +93,8 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	 * indexer that <i>would</i> match already-present entities leaves the index inconsistent and
 	 * produces wrong query results. When in doubt, use {@link #add(Indexer)}.
 	 * <p>
-	 * Since no back-fill runs, {@code indexer} is not invoked at all here and the failure mode
-	 * {@link #add(Indexer)} documents cannot occur: registration is the only operation performed.
+	 * Since no back-fill runs, {@link Indexer#index(Object)} is never called for an already-present entity,
+	 * so the failure mode {@link #add(Indexer)} documents - a partially built index - cannot occur here.
 	 *
 	 * @param <K> the key type
 	 * @param indexer the indexing logic
