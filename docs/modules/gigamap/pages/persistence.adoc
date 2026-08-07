@@ -49,6 +49,8 @@ storageManager.store(person);       // persist the changed entity explicitly
 gigaMap.reindex();                  // rebuild every index from current entity state
 gigaMap.store();                    // persist the rebuilt indices
 ----
+
+If `reindex()` throws because an indexer could not handle one of the entities, the bitmap indices it had already rebuilt are rebuilt, and the one whose indexer threw is left as it was — stale, but complete, never partial. Fix the indexer and call `reindex()` again before `store()`. See xref:crud.adoc#_removing_and_updating_entities[CRUD — Removing and Updating Entities].
 ====
 
 === Why not `storageManager.store(gigaMap)`?
