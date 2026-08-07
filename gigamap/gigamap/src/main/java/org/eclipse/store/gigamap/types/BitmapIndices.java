@@ -56,6 +56,17 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	 * but it can bite when {@link Indexer#name() name()} is overridden manually or
 	 * when anonymous {@link Indexer} instances produce colliding default names; give
 	 * each indexer an explicit, unique name in those cases.
+	 * <p>
+	 * On a parent {@link GigaMap} that already contains entities, the new index is back-filled from them,
+	 * so that it answers queries about the entities added before it as well.
+	 * <p>
+	 * <b>Behavior on failure:</b> the index is built completely before it is registered, so if
+	 * {@code indexer} throws for one of the already-present entities, nothing is registered and this group
+	 * is left exactly as it was: no index is queryable under the given name, no sibling index is affected,
+	 * and nothing of the attempt is persisted by a subsequent {@code store()}. The indexer's exception is
+	 * the one propagated - should discarding the half-built index fail in turn, that secondary failure is
+	 * attached to it as a suppressed exception. The name stays free, so the call can simply be repeated
+	 * with corrected logic.
 	 *
 	 * @param <K> the key type
 	 * @param indexer the indexing logic
@@ -81,6 +92,9 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	 * yet (e.g. a per-value index created the first time that value appears). Using this for an
 	 * indexer that <i>would</i> match already-present entities leaves the index inconsistent and
 	 * produces wrong query results. When in doubt, use {@link #add(Indexer)}.
+	 * <p>
+	 * Since no back-fill runs, {@link Indexer#index(Object)} is never called for an already-present entity,
+	 * so the failure mode {@link #add(Indexer)} documents - a partially built index - cannot occur here.
 	 *
 	 * @param <K> the key type
 	 * @param indexer the indexing logic
@@ -113,6 +127,16 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	 * The passed iterable is traversed exactly once, so a single-use iterable (e.g. stream-backed) is fine.
 	 * Passing no indexer at all is a no-op. Two indexers with the same {@link Indexer#name() name} within the
 	 * same call are rejected, just like an indexer whose name is already registered.
+	 * <p>
+	 * The back-fill over the already-present entities is a single pass for the whole batch, so every entity -
+	 * and, with lazily loaded segments, every segment - is visited once rather than once per indexer. The
+	 * indices are independent of each other, so the only difference to filling them one after another is the
+	 * order in which the indexers see the entities.
+	 * <p>
+	 * <b>Behavior on failure:</b> all-or-nothing across the batch. Every index is built completely before any
+	 * of them is registered, so an indexer throwing for one of the already-present entities registers
+	 * <b>no</b> index of the batch - not even those whose own logic never threw - and leaves this group
+	 * exactly as it was. For the per-index details see {@link #add(Indexer)}.
 	 *
 	 * @param indexers the new indexing logic
 	 * @return this
@@ -123,9 +147,14 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	 * Removes the index registered under the given name.
 	 * <p>
 	 * The index and its data are dropped from this group. If the index is also registered as a
-	 * unique constraint, that constraint is lifted as well. The orphaned index data is reclaimed
-	 * by the storage's garbage collection on the next housekeeping cycle after the surrounding
-	 * {@link GigaMap} is stored - it is not freed synchronously.
+	 * unique constraint, that constraint is lifted as well. The index' off-heap memory is freed
+	 * synchronously; the orphaned data <i>on disk</i> is reclaimed by the storage's garbage collection
+	 * on the next housekeeping cycle after the surrounding {@link GigaMap} is stored.
+	 * <p>
+	 * Registering an index under the same name again via {@link #add(Indexer)} or {@link #ensure(Indexer)}
+	 * does <b>not</b> restore the lifted unique constraint, nor identity-index membership: the re-added
+	 * index is a plain index that accepts duplicates. To change the logic of an index while preserving both
+	 * memberships, use {@link #update(Indexer)} instead of removing and re-adding it.
 	 * <p>
 	 * Removing an index that is currently registered as an
 	 * {@link #identityIndices() identity index} is rejected with a {@link RuntimeException},
@@ -165,6 +194,17 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	 * {@link org.eclipse.store.gigamap.exceptions.UniqueConstraintViolationException} if the current
 	 * data is no longer unique); if it was an identity index, the identity set is re-pointed to the
 	 * rebuilt index.
+	 * <p>
+	 * <b>Behavior on failure:</b> atomic, for a unique constraint and a plain index alike. The replacement
+	 * index is built from all current entities - and, for a unique constraint, validated - <b>before</b> the
+	 * existing index is dropped, so a uniqueness violation or an {@code indexer} throwing for one of the
+	 * entities leaves the existing index registered, fully populated and still enforcing its unique and
+	 * identity membership. Nothing of the attempt is persisted by a subsequent {@code store()}, and the call
+	 * can simply be repeated with corrected logic.
+	 * <p>
+	 * The price of that atomicity is that the old and the new data of this one index are held simultaneously
+	 * for the duration of the rebuild, which roughly doubles that index' peak footprint - noticeable for a
+	 * high-cardinality index over a large map.
 	 *
 	 * @param <K> the key type
 	 * @param indexer the new indexing logic, whose name selects the index to replace
@@ -183,6 +223,9 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 	 * <b>unchanged</b> and the passed {@code indexer}'s logic is ignored. {@code ensure} therefore
 	 * never modifies an existing index. To change the logic of an already-registered index, use
 	 * {@link #update(Indexer)}.
+	 * <p>
+	 * When it does create an index, it does so exactly like {@link #add(Indexer)}, including that method's
+	 * back-fill and its behavior on failure.
 	 *
 	 * @param <K> the key type
 	 * @param indexer the indexing logic
@@ -1078,6 +1121,11 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		/**
 		 * Registers a single index without checking mutability. Callers must have passed
 		 * {@link #ensureMutable(String)} and must still hold the parent-map monitor.
+		 * <p>
+		 * Registration is always the last step: where a back-fill happens at all ({@code initialize == true}),
+		 * it runs while the index is still standalone, so an {@link Indexer} throwing for one of the
+		 * already-present entities leaves this group untouched instead of a partially filled index registered
+		 * (see {@link #buildIndexData(BitmapIndex.Internal)}).
 		 *
 		 * @param initialize whether to back-fill the new index from the already-present entities
 		 *        (see {@link #addWithoutInitialization(Indexer)})
@@ -1087,10 +1135,97 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			this.validateIndexToAdd(indexer);
 
 			final BitmapIndex.Internal<E, K> index = indexer.createFor(this);
-			this.internalAddBitmapIndex(index, initialize);
+			try
+			{
+				// before anything is built, so that registration below cannot fail
+				this.validateIndexToRegister(index);
+				if(initialize)
+				{
+					this.buildIndexData(index);
+				}
+				this.internalAddBitmapIndex(index);
+			}
+			catch(final Throwable t)
+			{
+				releaseAbandonedIndexData(index, t);
+
+				throw t;
+			}
 			this.rebuildCache();
 
 			return index;
+		}
+
+		/**
+		 * Validates an index that was just created and is about to be filled and registered.
+		 * <p>
+		 * {@link #validateIndexToAdd(Indexer)} only saw the <i>indexer's</i> name, but
+		 * {@link Indexer#createFor(BitmapIndices)} may be overridden to name the index it creates
+		 * differently. Checking here - while nothing has been built, dropped or registered yet - is what lets
+		 * {@link #internalAddBitmapIndex(BitmapIndex.Internal)} be a step that cannot fail, which in turn is
+		 * what makes a batch registration all-or-nothing and a redefinition atomic.
+		 *
+		 * @param index the freshly created, not yet registered index
+		 */
+		private void validateIndexToRegister(final BitmapIndex.Internal<E, ?> index)
+		{
+			this.validateIndexParent(index);
+
+			final String indexName = index.name();
+			if(indexName == null)
+			{
+				throw new IllegalArgumentException("Index name may not be null.");
+			}
+			if(this.bitmapIndices.get(indexName) != null)
+			{
+				throw new BitmapIndicesException(
+					BitmapIndex.class.getSimpleName() + " already registered for name \"" + indexName + "\".",
+					this
+				);
+			}
+		}
+
+		/**
+		 * Validates that a freshly created index belongs to this group. Separate from
+		 * {@link #validateIndexToRegister(BitmapIndex.Internal)} because a redefinition needs exactly this
+		 * check and not the name check: the name it will be registered under is still occupied by the index
+		 * it replaces.
+		 *
+		 * @param index the freshly created index
+		 */
+		private void validateIndexParent(final BitmapIndex.Internal<E, ?> index)
+		{
+			if(index.parent() != this)
+			{
+				throw new BitmapIndicesException(
+					"Inconsistent parent reference for index " + BitmapIndex.class.getSimpleName()
+					+ " \"" + index.name() + "\".",
+					this
+				);
+			}
+		}
+
+		/**
+		 * Validates a batch of freshly created indices, additionally rejecting a name collision <i>within</i>
+		 * the batch - which the indexer-level validation cannot see either, for the reason given in
+		 * {@link #validateIndexToRegister(BitmapIndex.Internal)}.
+		 *
+		 * @param indices the freshly created, not yet registered indices
+		 */
+		private void validateIndicesToRegister(final XGettingCollection<? extends BitmapIndex.Internal<E, ?>> indices)
+		{
+			final EqHashTable<String, BitmapIndex.Internal<E, ?>> byName = EqHashTable.New();
+			for(final BitmapIndex.Internal<E, ?> index : indices)
+			{
+				this.validateIndexToRegister(index);
+				if(!byName.add(index.name(), index))
+				{
+					throw new BitmapIndicesException(
+						"Conflicted index name: \"" + index.name() + "\".",
+						this
+					);
+				}
+			}
 		}
 
 		/**
@@ -1243,25 +1378,54 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 				final boolean wasUnique   = this.isUniqueConstraint(existing);
 				final boolean wasIdentity = this.isIdentityIndex(existing);
 
+				// Build the new index' data against all existing entities BEFORE dropping the old one, so
+				// that a failure under the new logic - a uniqueness violation or a throwing indexer - leaves
+				// the existing index untouched (atomic failure). The new index is standalone (not yet
+				// registered) for the whole build.
 				final BitmapIndex.Internal<E, K> index = indexer.createFor(this);
-				if(wasUnique)
+				try
 				{
-					if(!index.isSuitableAsUniqueConstraint())
+					// Everything #internalAddBitmapIndex could reject, checked while nothing has been changed
+					// yet - the registration below runs after the old index has been dropped, so it must not
+					// be able to fail. The name check is the update-specific half: the replacement must carry
+					// the very name that selected the index being replaced, whereas #createFor may be
+					// overridden to name the index it creates differently.
+					this.validateIndexParent(index);
+					if(!name.equals(index.name()))
 					{
 						throw new BitmapIndicesException(
-							"Index not suited as a unique constraint: \"" + index.name() + "\" class " + index.getClass(),
+							"Indexer \"" + name + "\" created an index named \"" + index.name()
+							+ "\"; a redefinition must keep the name that selects the index to replace.",
 							this
 						);
 					}
-					// Build and validate the new index' data against all existing entities BEFORE dropping
-					// the old one, so that a uniqueness violation under the new logic leaves the existing
-					// index untouched (atomic failure). The new index is standalone (not yet registered).
-					final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices = EqHashTable.New();
-					indices.add(index.name(), index);
-					this.buildIndexDataAndValidateUniqueness(indices);
+					if(wasUnique)
+					{
+						if(!index.isSuitableAsUniqueConstraint())
+						{
+							throw new BitmapIndicesException(
+								"Index not suited as a unique constraint: \"" + index.name() + "\" class " + index.getClass(),
+								this
+							);
+						}
+						final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices = EqHashTable.New();
+						indices.add(index.name(), index);
+						this.buildIndexDataAndValidateUniqueness(indices);
+					}
+					else
+					{
+						this.buildIndexData(index);
+					}
+				}
+				catch(final Throwable t)
+				{
+					releaseAbandonedIndexData(index, t);
+
+					throw t;
 				}
 
-				// commit: drop the old index (logic + data), then register the rebuilt index.
+				// commit: nothing below can fail. Drop the old index (logic + data), then register the
+				// rebuilt one - its name is the one just freed, so registration cannot be rejected.
 				// identity removal is allowed here and restored below; skip the intermediate cache
 				// rebuild since update() rebuilds the cache once at the end.
 				this.internalRemoveIndex(name, true, false);
@@ -1269,7 +1433,6 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 				{
 					this.internalAddUniqueConstraint(index);
 				}
-				// registers the index and back-fills it from all existing entities (idempotent for the unique branch).
 				this.internalAddBitmapIndex(index);
 
 				if(wasIdentity)
@@ -1325,9 +1488,34 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 					}
 				}
 
-				for(final Indexer<? super E, ?> indexer : requested)
+				// Build every index' data while they are all still standalone, so that an indexer throwing
+				// for one of the already-present entities registers none of the batch instead of leaving it
+				// half applied - with the throwing index registered and partially filled at that.
+				// Deliberately a plain list, not a table keyed by name: the validation above de-duplicates
+				// the indexers' names, but #createFor may be overridden to name the index differently, and
+				// a keyed collection would silently drop such a collision - both from the batch and from
+				// the release below.
+				final BulkList<BitmapIndex.Internal<E, ?>> indices = BulkList.New(requested.intSize());
+				try
 				{
-					final BitmapIndex.Internal<E, ?> index = indexer.createFor(this);
+					for(final Indexer<? super E, ?> indexer : requested)
+					{
+						indices.add(indexer.createFor(this));
+					}
+					// Names the indexers did not reveal are checked before anything is built, so that the
+					// registration loop below cannot fail with part of the batch already registered.
+					this.validateIndicesToRegister(indices);
+					this.buildIndexData(indices);
+				}
+				catch(final Throwable t)
+				{
+					releaseAbandonedIndexData(indices, t);
+
+					throw t;
+				}
+
+				for(final BitmapIndex.Internal<E, ?> index : indices)
+				{
 					this.internalAddBitmapIndex(index);
 				}
 				this.rebuildCache();
@@ -1615,32 +1803,30 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			return this;
 		}
 		
+		/**
+		 * Registers an index whose data is already complete. Deliberately performs no back-fill: filling
+		 * happens beforehand, while the index is still standalone (see {@link #buildIndexData(BitmapIndex.Internal)}).
+		 * <p>
+		 * This step must not fail - callers register a batch index by index, and a redefinition registers the
+		 * replacement after having dropped the original - so everything that could reject the index is checked
+		 * by {@link #validateIndexToRegister(BitmapIndex.Internal)} before anything is built or dropped. The
+		 * guard below therefore only asserts that invariant rather than enforcing it; a caller reaching it has
+		 * skipped the validation.
+		 */
 		private void internalAddBitmapIndex(final BitmapIndex.Internal<E, ?> index)
 		{
-			this.internalAddBitmapIndex(index, true);
-		}
-
-		private void internalAddBitmapIndex(final BitmapIndex.Internal<E, ?> index, final boolean initialize)
-		{
-			this.bitmapIndices.add(index.name(), index);
-
-			// just to be safe and the performance cost is irrelevant for a structural element.
-			if(index.parent() != this)
+			// #add does not overwrite, so a taken name would otherwise leave the caller believing an index it
+			// never registered is in place.
+			if(index.parent() != this || !this.bitmapIndices.add(index.name(), index))
 			{
 				throw new BitmapIndicesException(
-					"Inconsistent parent reference for index " + BitmapIndex.class.getSimpleName() + " \"" + index.name() + "\".",
+					"Index " + BitmapIndex.class.getSimpleName() + " \"" + index.name()
+					+ "\" cannot be registered: inconsistent parent reference, or the name is already taken.",
 					this
 				);
 			}
 
 			this.markStateChangeInstance();
-
-			// initialize==false: caller guarantees no existing entity would be indexed, so the
-			// back-fill over the already-present entities is skipped (see addWithoutInitialization).
-			if(initialize)
-			{
-				this.parent.iterateIndexed(index::internalAdd);
-			}
 			this.parent.internalReportIndexGroupStateChange(this);
 		}
 		
@@ -1811,11 +1997,27 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			}
 
 			// Building unique indices, their data and data-related validation.
+			// Every created index is collected separately from the by-name table: one that fails validation
+			// is not in that table (a suitability failure never reaches it, a name collision is what the
+			// insert rejected), and the cleanup below must not depend on which of the two it landed in.
 			final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices = EqHashTable.New();
-			this.buildUniqueIndices(indexers, indices);
-			this.buildIndexDataAndValidateUniqueness(indices);
+			final BulkList<BitmapIndex.Internal<E, ?>>            created = BulkList.New();
+			try
+			{
+				this.buildUniqueIndices(indexers, indices, created);
+				// names the indexers did not reveal, checked before anything is built or registered
+				this.validateIndicesToRegister(indices.values());
+				this.buildIndexDataAndValidateUniqueness(indices);
+			}
+			catch(final Throwable t)
+			{
+				releaseAbandonedIndexData(created, t);
 
-			// When everything is guaranteed to be valid and consistent, the indices are actually added.
+				throw t;
+			}
+
+			// When everything is guaranteed to be valid and consistent, the indices - whose data is complete
+			// by now - are actually registered.
 			for(final BitmapIndex.Internal<E, ?> index : indices.values())
 			{
 				this.internalAddUniqueConstraint(index);
@@ -1862,14 +2064,21 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			return existing != null && this.uniqueConstraints != null && this.uniqueConstraints.contains(existing);
 		}
 
+		/**
+		 * @param indices receives the created indices by name, for the subsequent build and registration
+		 * @param created receives every created index, including one this method then rejects, so that the
+		 *        caller can discard all of them regardless of where the failure happened
+		 */
 		private void buildUniqueIndices(
 			final XGettingCollection<? extends Indexer<? super E, ?>> indexers,
-			final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices
+			final EqHashTable<String, BitmapIndex.Internal<E, ?>>     indices ,
+			final BulkList<BitmapIndex.Internal<E, ?>>                created
 		)
 		{
 			for(final Indexer<? super E, ?> indexer : indexers)
 			{
 				final BitmapIndex.Internal<E, ?> index = indexer.createFor(this);
+				created.add(index);
 				if(!index.isSuitableAsUniqueConstraint())
 				{
 					throw new BitmapIndicesException(
@@ -1887,10 +2096,66 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 			}
 		}
 		
+		/**
+		 * Back-fills a standalone - created, but not yet registered - index from the entities the parent map
+		 * already holds.
+		 * <p>
+		 * Must run <b>before</b> {@link #internalAddBitmapIndex(BitmapIndex.Internal)}: the back-fill is the
+		 * only step that runs user code ({@link Indexer#index(Object)}), so an indexer throwing for one of
+		 * the already-present entities would otherwise leave a partially filled index registered - silently
+		 * answering queries with a torso of the data, and persisted by the next {@code store()}.
+		 * <p>
+		 * Releasing the off-heap memory of an index abandoned because this failed is the caller's job: the
+		 * caller owns the index for its whole standalone life - creation, validation, filling, registration -
+		 * and a failure anywhere in that span must discard it (see {@link #releaseAbandonedIndexData}). An
+		 * index that never gets registered is never reached by
+		 * {@link #internalRemoveIndex(String, boolean, boolean)}'s release.
+		 *
+		 * @param index the standalone index to fill
+		 */
+		private void buildIndexData(final BitmapIndex.Internal<E, ?> index)
+		{
+			this.parent.iterateIndexed(index::internalAdd);
+		}
+
+		/**
+		 * Back-fills several standalone indices in a single pass over the entities, which materializes every
+		 * lazily loaded segment once instead of once per index. The indices are independent, so the per-entity
+		 * order is the only difference to filling them one after another.
+		 * <p>
+		 * For the failure contract see {@link #buildIndexData(BitmapIndex.Internal)}: none of the indices is
+		 * registered yet, so a throwing indexer leaves the group untouched - the batch is all-or-nothing.
+		 *
+		 * @param indices the standalone indices to fill
+		 */
+		private void buildIndexData(final XGettingCollection<? extends BitmapIndex.Internal<E, ?>> indices)
+		{
+			if(indices.isEmpty())
+			{
+				// nothing to fill: skip the pass over the entities, which would otherwise materialize every
+				// lazily loaded segment to hand each one to no index at all.
+				return;
+			}
+
+			this.parent.iterateIndexed((final long entityId, final E entity) ->
+			{
+				for(final BitmapIndex.Internal<E, ?> index : indices)
+				{
+					index.internalAdd(entityId, entity);
+				}
+			});
+		}
+
 		private void buildIndexDataAndValidateUniqueness(
 			final EqHashTable<String, BitmapIndex.Internal<E, ?>> indices
 		)
 		{
+			if(indices.isEmpty())
+			{
+				// see #buildIndexData(XGettingCollection)
+				return;
+			}
+
 			this.parent.iterateIndexed((final long entityId, final E entity) ->
 			{
 				for(final BitmapIndex.Internal<E, ?> index : indices.values())
@@ -1902,6 +2167,35 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 					index.internalAdd(entityId, entity);
 				}
 			});
+		}
+
+		private static void releaseAbandonedIndexData(
+			final XGettingCollection<? extends BitmapIndex.Internal<?, ?>> indices,
+			final Throwable                                               cause
+		)
+		{
+			for(final BitmapIndex.Internal<?, ?> index : indices)
+			{
+				releaseAbandonedIndexData(index, cause);
+			}
+		}
+
+		/**
+		 * Releases the off-heap memory of an index that is being abandoned because building its data failed,
+		 * mirroring the eager release a dropped index gets (see {@link #internalRemoveIndex(String, boolean, boolean)}).
+		 * A failure of the release itself is attached to the original cause rather than replacing it: what
+		 * made the build fail is what the caller has to act on.
+		 */
+		private static void releaseAbandonedIndexData(final BitmapIndex.Internal<?, ?> index, final Throwable cause)
+		{
+			try
+			{
+				index.internalReleaseOffHeap();
+			}
+			catch(final Throwable t)
+			{
+				cause.addSuppressed(t);
+			}
 		}
 		
 		@Override
