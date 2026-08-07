@@ -17,6 +17,7 @@ package org.eclipse.store.gigamap.indexer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.eclipse.store.gigamap.exceptions.BitmapIndexException;
 import org.eclipse.store.gigamap.types.BitmapIndex;
@@ -154,7 +155,10 @@ public class HeldIndexReferenceTest
 			() -> map.query(held.is("alice")).count(),
 			"a removed index must be reported, not answered as empty"
 		);
-		assertEquals(true, e.getMessage().contains("no longer registered"));
+		assertTrue(
+			e.getMessage().contains("no longer registered"),
+			"the message must say the name is gone, not merely that something failed: " + e.getMessage()
+		);
 	}
 
 	@Test
