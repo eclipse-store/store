@@ -183,6 +183,21 @@ GigaMap<Person> gigaMap = GigaMap.<Person>Builder()
     .build();
 ----
 
+=== Registering on a Populated Map
+
+Indices can also be registered later, on a GigaMap that already holds entities. `add`, `addAll` and `ensure` then back-fill the new index from those entities, so it answers queries about them as well.
+
+The back-fill is the only step that runs your indexer over existing data, and it is therefore the only one that can fail — typically an indexer that cannot handle a value the previous logic never read. Registration is all-or-nothing: the index is built completely before it becomes part of the map, so a throwing indexer registers nothing, leaves the existing indices untouched, and persists nothing on the next `store()`. `addAll` extends that across the whole batch: either every index of the call is registered, or none is. After fixing the indexer, simply repeat the call.
+
+To change the logic of an index that is already registered, use `update(Indexer)` rather than `removeIndex` followed by `add`:
+
+[source, java]
+----
+gigaMap.index().bitmap().update(PersonIndices.email); // same name, new logic
+----
+
+`update` rebuilds and validates the replacement before dropping the existing index, so a failure leaves the old index in place, and it carries unique-constraint and identity-index membership over to the rebuilt index. Removing and re-adding does neither: the re-added index is a plain index that accepts duplicates.
+
 == With Annotations
 
 Alternatively, indices can be defined by annotating the relevant fields of the entity.
