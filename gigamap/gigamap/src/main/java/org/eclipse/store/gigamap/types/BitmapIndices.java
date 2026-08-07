@@ -1008,7 +1008,7 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 				return;
 			}
 
-			Throwable first = null;
+			RuntimeException first = null;
 			try
 			{
 				for(final BitmapIndex.Internal<E, ?> existing : indices)
@@ -1031,7 +1031,7 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 
 			if(first != null)
 			{
-				throw (RuntimeException)first;
+				throw first;
 			}
 		}
 
@@ -1212,7 +1212,7 @@ Iterable<KeyValue<String, ? extends BitmapIndex<E, ?>>>
 		 * @param next the failure just encountered
 		 * @return the failure to rethrow at the end
 		 */
-		private static Throwable addAsFailure(final Throwable first, final Throwable next)
+		private static RuntimeException addAsFailure(final RuntimeException first, final RuntimeException next)
 		{
 			if(first == null)
 			{
