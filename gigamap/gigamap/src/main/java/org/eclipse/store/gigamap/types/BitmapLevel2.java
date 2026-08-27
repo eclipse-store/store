@@ -600,6 +600,24 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 			return;
 		}
 
+		this.rebuildEntriesRegion();
+	}
+
+	/*
+	 * The store path may not use #ensureCompressed: a segment whose last standalone level1 segment
+	 * has just been emptied and dropped reports #isCompressed, but #removeLevel1StandaloneSegment
+	 * changed highestLevel2Index and segmentCount without rebuilding the entries region, so the
+	 * region no longer matches the level1 pointer index array. Persisting that state writes a record
+	 * whose length does not match its entries, which only fails on the next load - at which point
+	 * the storage can no longer be started. The rebuild is therefore unconditional here.
+	 */
+	final void ensureCompressedForStore()
+	{
+		this.rebuildEntriesRegion();
+	}
+
+	private void rebuildEntriesRegion()
+	{
 		// consolidate all segments into a newly allocated memory block
 		final long newAddress = compress(this.level2Address);
 
@@ -1374,6 +1392,89 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 		}
 
 		throw new BitmapLevel2Exception("TotalLength mismatch: " + calculatedTotalLength + " != " + passedTotalLength);
+	}
+
+	/**
+	 * Validates that the entries region about to be persisted describes exactly the
+	 * {@code highestLevel2Index + 1} entries the loading logic will walk and that their lengths fill
+	 * the record derived from {@code totalLength} exactly.
+	 * <p>
+	 * This is the same traversal {@link #initializeFromData(long, long)} performs, but read-only and
+	 * on the storing side, so a segment whose entries region has gone out of sync with its level1
+	 * pointer index array fails here instead of producing a storage that cannot be started.
+	 * <p>
+	 * The traversal is bounded on purpose: an inconsistent region must fail with an exception, never
+	 * with an out of bounds read of memory outside the segment block.
+	 */
+	static void validateEntriesRegion(final long level2Address)
+	{
+		final long entriesStartAddress = toLevel2EntriesStartAddress(level2Address);
+		final long boundAddress        = level2Address + getTotalLength(level2Address);
+		final int  boundIndex          = getHighestLevel2Index(level2Address) + 1;
+
+		long currentEntryAddress = entriesStartAddress;
+		for(int i = 0; i < boundIndex; i++)
+		{
+			currentEntryAddress += getEntryTotalLength(level2Address, currentEntryAddress, boundAddress);
+		}
+
+		if(currentEntryAddress == boundAddress)
+		{
+			return;
+		}
+
+		throw createInconsistentEntriesRegionException(
+			level2Address,
+			"entries region describes " + (BASE_LENGTH + currentEntryAddress - entriesStartAddress)
+			+ " bytes instead of " + getTotalLength(level2Address)
+		);
+	}
+
+	private static int getEntryTotalLength(
+		final long level2Address      ,
+		final long entryAddress       ,
+		final long entriesBoundAddress
+	)
+	{
+		if(entryAddress + ENTRY_HEADER_BASE_LENGTH > entriesBoundAddress)
+		{
+			throw createInconsistentEntriesRegionException(level2Address, "entry header exceeds the segment block");
+		}
+
+		final byte entryHeader;
+		if((entryHeader = getEntryHeader(entryAddress)) < 0)
+		{
+			if(entryHeader != ENTRY_HEADER_TYPE_ALL_ZEROES && entryHeader != ENTRY_HEADER_TYPE_ALL_ONES)
+			{
+				throw new BitmapLevel2Exception("Unknown trivial entry header: " + entryHeader);
+			}
+
+			return ENTRY_TRIVIAL_TOTAL_LENGTH;
+		}
+
+		if(entryAddress + ENTRY_HEADER_FULL_LENGTH > entriesBoundAddress)
+		{
+			throw createInconsistentEntriesRegionException(
+				level2Address,
+				"entry header extension exceeds the segment block"
+			);
+		}
+
+		return getEntryNonTrivialTotalLength(entryAddress);
+	}
+
+	private static BitmapLevel2Exception createInconsistentEntriesRegionException(
+		final long   level2Address,
+		final String details
+	)
+	{
+		return new BitmapLevel2Exception(
+			"Inconsistent level2 segment state before storing: " + details
+			+ " (level3Index = "        + getLevel3Index(level2Address)
+			+ ", highestLevel2Index = " + getHighestLevel2Index(level2Address)
+			+ ", segmentCount = "       + getSegmentCount(level2Address)
+			+ ", totalLength = "        + getTotalLength(level2Address) + ")"
+		);
 	}
 	
 	@Override
