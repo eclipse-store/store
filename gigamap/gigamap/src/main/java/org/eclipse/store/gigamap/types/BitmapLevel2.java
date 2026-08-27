@@ -506,19 +506,20 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 	///////////////////////////////////////////////////////////////////////////
 	// Static Constructors //
 	////////////////////////
-	
+
 	public static BitmapLevel2 New(final int level3Index)
 	{
 		return new BitmapLevel2(level3Index);
 	}
-		
-	
-	
+
+
+
 	///////////////////////////////////////////////////////////////////////////
 	// Instance Fields //
 	////////////////////
 
-	long level2Address;
+	long                  level2Address;
+	private final Cleanup cleanup     ;
 	
 	
 	
@@ -537,6 +538,8 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 	{
 		super(isNew);
 		this.level2Address = level2Address;
+		this.cleanup = new Cleanup(level2Address);
+		Cleaners.SHARED.register(this, this.cleanup);
 	}
 	
 	
@@ -580,39 +583,48 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 	{
 		return isCompressed(this.level2Address);
 	}
-	
+
+	// Updates both the field and the Cleaner state so the auto-release tracks
+	// the current address. Must be used by every reassignment of level2Address,
+	// including BinaryHandlerBitmapLevel2.updateState (deserialization path).
+	final void setLevel2Address(final long newAddress)
+	{
+		this.level2Address  = newAddress;
+		this.cleanup.address = newAddress;
+	}
+
 	final void ensureCompressed()
 	{
 		if(isCompressed(this.level2Address))
 		{
 			return;
 		}
-		
+
 		// consolidate all segments into a newly allocated memory block
 		final long newAddress = compress(this.level2Address);
-		
+
 		// current level2 structure gets cleaned up
 		deallocate(this.level2Address);
-			
+
 		// address to the new memory block replaces the old (and now invalid) one.
-		this.level2Address = newAddress;
+		this.setLevel2Address(newAddress);
 	}
-	
+
 	final void ensureDecompressed()
 	{
 		if(isFullyDecompressed(this.level2Address))
 		{
 			return;
 		}
-		
+
 		// decompress ALL level1 segments into standalone segments with uncompressed data
 		final long newAddress = decompress(this.level2Address);
-		
+
 		// current level2 structure gets cleaned up
 		deallocate(this.level2Address);
-			
+
 		// address to the new memory block replaces the old (and now invalid) one.
-		this.level2Address = newAddress;
+		this.setLevel2Address(newAddress);
 	}
 	
 
@@ -621,16 +633,60 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 	{
 		return ensureAddableLevel1SegmentForEntityId(this.level2Address, entityId, level3);
 	}
-	
-	@SuppressWarnings("deprecation")
-	@Override
-	protected void finalize() throws Throwable
+
+	// Deterministically frees this segment's off-heap memory and neutralizes the Cleaner so it cannot
+	// double-free. Idempotent. Used when an index is dropped (see BitmapIndices#removeIndex / update) to
+	// release native memory immediately instead of waiting for the Cleaner to run on GC. Safe because the
+	// owning instance is still strongly reachable while this runs, so the Cleaner cannot fire concurrently.
+	final void release()
 	{
-		deallocate(this.level2Address);
+		final long address = this.level2Address;
+		if(address == 0L)
+		{
+			return;
+		}
+		this.cleanup.address = 0L; // neutralize the Cleaner before freeing (volatile write)
+		this.level2Address   = 0L;
+		deallocate(address);
 	}
 	
-	
-	
+	// Holds the off-heap address for Cleaner-based release.
+	//
+	// MUST be a static nested class — it must not capture the enclosing
+	// BitmapLevel2 instance (directly or via a non-static inner class or an
+	// instance method reference). If it did, the wrapper would never become
+	// unreachable and the Cleaner would never fire, defeating the whole point.
+	//
+	// `address` is mutable so the Cleaner can follow the level2Address through
+	// compress/decompress and binary-handler updateState reassignments via
+	// setLevel2Address. The action is idempotent (zeros the address after free)
+	// so accidental re-invocation cannot double-free.
+	private static final class Cleanup implements Runnable
+	{
+		// volatile because the cleanup runs on the Cleaner thread while writes
+		// to address happen on the mutating thread (constructor, setLevel2Address).
+		// java.lang.ref.Cleaner has no JLS-specified happens-before, so explicit
+		// publication is required to avoid stale-address reads.
+		volatile long address;
+
+		Cleanup(final long address)
+		{
+			this.address = address;
+		}
+
+		@Override
+		public void run()
+		{
+			final long address = this.address;
+			if(address > 0L)
+			{
+				this.address = 0L;
+				deallocate(address);
+			}
+		}
+	}
+
+
 	///////////////////////////////////////////////////////////////////////////
 	// Allocation //
 	///////////////
@@ -659,7 +715,7 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 		return level1Address;
 	}
 		
-	private static void deallocate(final long level2Address)
+	static void deallocate(final long level2Address)
 	{
 		final long indexArrayStart = getIndexArrayStartAddress(level2Address);
 		final long indexArrayBound = getIndexArrayBoundAddressEffective(level2Address);
@@ -859,30 +915,75 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 		setSegmentCount          (newLevel2Address, getSegmentCount(level2Address));           // unchanged, just copied.
 		setStandaloneSegmentCount(newLevel2Address, getStandaloneSegmentCount(level2Address)); // unchanged, just copied.
 				
-		for(int i = 0; i < level2IndexBound; i++)
+		try
 		{
-			final long oldLevel1Address;
-			if((oldLevel1Address = getLevel1SegmentAddress(level2Address, i)) < 0L)
+			for(int i = 0; i < level2IndexBound; i++)
 			{
-				// method do standalone segment count updating and pointer registering internally themselves.
-				if(oldLevel1Address == -1L)
+				final long oldLevel1Address;
+				if((oldLevel1Address = getLevel1SegmentAddress(level2Address, i)) < 0L)
 				{
-					allocateLevel1StandaloneSegmentFull(newLevel2Address, i);
+					// method do standalone segment count updating and pointer registering internally themselves.
+					if(oldLevel1Address == -1L)
+					{
+						allocateLevel1StandaloneSegmentFull(newLevel2Address, i);
+					}
+					else
+					{
+						decompressLevel1Segment(newLevel2Address, entryAddressUnmark(oldLevel1Address), i);
+					}
 				}
 				else
 				{
-					decompressLevel1Segment(newLevel2Address, entryAddressUnmark(oldLevel1Address), i);
+					// either null pointer or already decompressed/standalone level1 segment, keep as is.
+					setLevel1SegmentAddress(newLevel2Address, i, oldLevel1Address);
 				}
 			}
-			else
+		}
+		catch(final Throwable t)
+		{
+			// Exception safety for a mid-build allocation failure (e.g. OutOfMemoryError from the fresh level1
+			// allocations above). Free ONLY the freshly-allocated standalone segments plus the new block husk,
+			// then rethrow, leaving the old block fully intact so the live index stays consistent.
+			//
+			// A segment was freshly allocated at index i iff old[i] < 0 (a compressed or all-1-bits entry we
+			// expanded into a new standalone block) AND new[i] > 0 (the allocation succeeded and its pointer was
+			// registered on the new block). Indices with old[i] > 0 were copied BY POINTER and are still SHARED
+			// with the old block (the ownership-transfer second pass below has not run yet), so they must NOT be
+			// freed here: doing so would re-introduce the use-after-free / double-free that #765 fixed. Reading
+			// not-yet-built slots is safe because allocateNew zeroes the whole index array, so they read 0L. The
+			// new block itself is freed with a plain XMemory.free, NOT deallocate() (which would free the shared
+			// pointers too).
+			for(int i = 0; i < level2IndexBound; i++)
 			{
-				// either null pointer or already decompressed/standalone level1 segment, keep as is.
-				setLevel1SegmentAddress(newLevel2Address, i, oldLevel1Address);
+				final long newLevel1Address;
+				if(getLevel1SegmentAddress(level2Address, i) < 0L
+				&& (newLevel1Address = getLevel1SegmentAddress(newLevel2Address, i)) > 0L)
+				{
+					XMemory.free(newLevel1Address);
+				}
+			}
+			XMemory.free(newLevel2Address);
+
+			throw t;
+		}
+
+		// totalLength and level3Index have already been set by allocation method above
+
+		// The new block is now fully built, so ownership of the standalone (positive-pointer) level1
+		// segments can be transferred: they were copied into the new block above by pointer, not by
+		// value, so the caller's deallocate(level2Address) must NOT free them (that would be a
+		// use-after-free plus, on a later release, a double free via the new block). Clear them from the
+		// old block here. This runs only after the build loop has completed successfully: if an
+		// allocation above throws mid-build, the catch block above frees the partially built new block
+		// and the old block is left fully intact, preserving the exception safety of the transform.
+		for(int i = 0; i < level2IndexBound; i++)
+		{
+			if(getLevel1SegmentAddress(level2Address, i) > 0L)
+			{
+				setLevel1SegmentAddress(level2Address, i, 0L);
 			}
 		}
-		
-		// totalLength and level3Index have already been set by allocation method above
-		
+
 		return newLevel2Address;
 	}
 	

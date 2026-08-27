@@ -151,6 +151,14 @@ implements ChangeHandler, Unpersistable
 	{
 		this.getLevel3().ensureDecompressed();
 	}
+
+	// Deterministically frees this entry's off-heap level2 memory. Used when the owning index is
+	// dropped (see BitmapIndices#removeIndex / update); accesses the level3 field directly to avoid
+	// touching parent back-references during teardown.
+	final void releaseOffHeap()
+	{
+		this.level3.release();
+	}
 	
 	void internalSetBackReferences(final BitmapIndex.Abstract<E, I, K> parent, final K key)
 	{

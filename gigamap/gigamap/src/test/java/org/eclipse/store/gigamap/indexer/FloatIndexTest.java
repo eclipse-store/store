@@ -47,7 +47,7 @@ public class FloatIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<FloatPerson> newMap = (GigaMap<FloatPerson>) manager.root();
+            GigaMap<FloatPerson> newMap = manager.root();
             long count = newMap.query(floatPersonIndex.between(20.0f, 30.0f)).count();
             assertEquals(2, count);
             newMap.query(floatPersonIndex.between(20.0f, 30.0f)).forEach(floatPerson -> assertTrue(floatPerson.getScore() >= 20.0f && floatPerson.getScore() <= 30.0f));
@@ -68,7 +68,7 @@ public class FloatIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<FloatPerson> newMap = (GigaMap<FloatPerson>) manager.root();
+            GigaMap<FloatPerson> newMap = manager.root();
             long count = newMap.query(floatPersonIndex.greaterThanEqual(20.0f)).count();
             assertEquals(3, count);
             newMap.query(floatPersonIndex.greaterThanEqual(20.0f)).forEach(floatPerson -> assertTrue(floatPerson.getScore() >= 20.0f));
@@ -89,7 +89,7 @@ public class FloatIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<FloatPerson> newMap = (GigaMap<FloatPerson>) manager.root();
+            GigaMap<FloatPerson> newMap = manager.root();
             long count = newMap.query(floatPersonIndex.greaterThan(20.0f)).count();
             assertEquals(2, count);
             newMap.query(floatPersonIndex.greaterThan(20.0f)).forEach(floatPerson -> assertTrue(floatPerson.getScore() > 20.0f));
@@ -110,7 +110,7 @@ public class FloatIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<FloatPerson> newMap = (GigaMap<FloatPerson>) manager.root();
+            GigaMap<FloatPerson> newMap = manager.root();
             long count = newMap.query(floatPersonIndex.lessThanEqual(30.0f)).count();
             assertEquals(2, count);
             newMap.query(floatPersonIndex.lessThanEqual(30.0f)).forEach(floatPerson -> assertTrue(floatPerson.getScore() <= 30.0f));
@@ -131,7 +131,7 @@ public class FloatIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<FloatPerson> newMap = (GigaMap<FloatPerson>) manager.root();
+            GigaMap<FloatPerson> newMap = manager.root();
             long count = newMap.query(floatPersonIndex.lessThan(30.0f)).count();
             assertEquals(1, count);
             newMap.query(floatPersonIndex.lessThan(30.0f)).forEach(floatPerson -> assertTrue(floatPerson.getScore() < 30.0f));
@@ -157,7 +157,7 @@ public class FloatIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<FloatPerson> newMap = (GigaMap<FloatPerson>) manager.root();
+            GigaMap<FloatPerson> newMap = manager.root();
             newMap.query(floatPersonIndex.is(20.0f)).forEach(floatPerson -> assertEquals(20.0f, floatPerson.getScore()));
             newMap.query(floatPersonIndex.is(30.0f)).forEach(floatPerson -> assertEquals(30.0f, floatPerson.getScore()));
 

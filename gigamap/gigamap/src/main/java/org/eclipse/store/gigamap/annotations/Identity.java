@@ -18,20 +18,25 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 
 import static java.lang.annotation.ElementType.FIELD;
+import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.RetentionPolicy.RUNTIME;
 
 /**
- * An annotation to indicate that the annotated field serves as an identity for an object.
+ * An annotation to indicate that the annotated property serves as an identity for an object.
  * This is a marker annotation and does not contain any attributes.
  * <p>
- * This annotation, when applied to a field, signifies that the field is a unique identifier
+ * This annotation, when applied to a property, signifies that the property is part of the identity
  * for instances of the class. It can be used in scenarios where differentiating between
  * instances based on an identity value is necessary.
  * <p>
- * The annotation is retained at runtime and can be applied specifically to fields.
+ * For annotation-based index generation this annotation is sufficient on its own: it creates an index
+ * for the property and marks it as an identity index, so a companion {@link Index} is not required
+ * (though it may still be combined with {@link Index} or {@link Unique}).
+ * <p>
+ * The annotation is retained at runtime and can be applied to fields or no-argument getter methods.
  */
 @Retention(RUNTIME)
-@Target(FIELD)
+@Target({FIELD, METHOD})
 public @interface Identity
 {
 	// marker interface

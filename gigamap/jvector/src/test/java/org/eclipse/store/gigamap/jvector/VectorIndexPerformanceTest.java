@@ -15,6 +15,7 @@ package org.eclipse.store.gigamap.jvector;
  */
 
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -248,7 +249,7 @@ class VectorIndexPerformanceTest
         gigaMap.add(new Document("known_vector", knownVector));
 
         final VectorSearchResult<Document> qualityResult = index.search(knownVector, 1);
-        final VectorSearchResult.Entry<Document> topResult = qualityResult.iterator().next();
+        final ScoredSearchResult.Entry<Document> topResult = qualityResult.iterator().next();
 
         System.out.printf("Known vector search - Top result: %s (score: %.4f)%n",
             topResult.entity().content(), topResult.score());

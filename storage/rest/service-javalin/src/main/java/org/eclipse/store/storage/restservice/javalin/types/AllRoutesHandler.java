@@ -14,12 +14,8 @@ package org.eclipse.store.storage.restservice.javalin.types;
  * #L%
  */
 
-import java.util.ArrayList;
-import java.util.stream.Stream;
+import java.util.List;
 
-import org.eclipse.jetty.http.HttpMethod;
-
-import io.javalin.http.ContentType;
 import io.javalin.http.Context;
 import io.javalin.http.Handler;
 
@@ -36,16 +32,16 @@ public final class AllRoutesHandler implements Handler
 	@Override
 	public void handle(final Context ctx)
 	{
-		ctx.contentType("application/json");
+		final String base = "/" + storageName;
 
-		var routes = new ArrayList<>(Stream.of(
-				new RouteWithMethodsDto("/" + storageName + "/", HttpMethod.GET.name().toLowerCase()),
-				new RouteWithMethodsDto("/" + storageName + "/root", HttpMethod.GET.name().toLowerCase()),
-				new RouteWithMethodsDto("/" + storageName + "/dictionary", HttpMethod.GET.name().toLowerCase()),
-				new RouteWithMethodsDto("/" + storageName + "/object/:oid", HttpMethod.GET.name().toLowerCase()),
-				new RouteWithMethodsDto("/" + storageName + "/maintenance/filesStatistics", HttpMethod.GET.name().toLowerCase())
-		).toList());
+		var routes = List.of(
+				new RouteWithMethodsDto(base + "/", "get"),
+				new RouteWithMethodsDto(base + "/root", "get"),
+				new RouteWithMethodsDto(base + "/dictionary", "get"),
+				new RouteWithMethodsDto(base + "/object/{oid}", "get"),
+				new RouteWithMethodsDto(base + "/maintenance/filesStatistics", "get")
+		);
 
-		ctx.contentType(ContentType.JSON).result(routes.toString());
+		ctx.json(routes);
 	}
 }

@@ -29,8 +29,8 @@ public interface StorageRequestTaskFileCheck extends StorageRequestTask
 		// instance fields //
 		////////////////////
 
-		final long    nanoTimeBudget;
-		      boolean completed     ;
+		final long                                            nanoTimeBudget;
+		final StorageChannelSynchronizingTask.ChannelResults completed     ;
 
 
 
@@ -47,6 +47,7 @@ public interface StorageRequestTaskFileCheck extends StorageRequestTask
 		{
 			super(timestamp, channelCount, controller);
 			this.nanoTimeBudget = nanoTimeBudget;
+			this.completed      = new ChannelResults(channelCount);
 		}
 
 
@@ -58,14 +59,14 @@ public interface StorageRequestTaskFileCheck extends StorageRequestTask
 		@Override
 		protected final Void internalProcessBy(final StorageChannel channel)
 		{
-			this.completed = channel.issuedFileCleanupCheck(this.nanoTimeBudget);
+			this.completed.set(channel.channelIndex(), channel.issuedFileCleanupCheck(this.nanoTimeBudget));
 			return null;
 		}
 
 		@Override
 		public final boolean result()
 		{
-			return this.completed;
+			return this.completed.allTrue();
 		}
 
 	}

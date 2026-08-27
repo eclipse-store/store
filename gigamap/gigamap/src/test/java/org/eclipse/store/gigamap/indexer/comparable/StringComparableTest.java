@@ -67,7 +67,7 @@ public class StringComparableTest
 		}
 
 		try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-			GigaMap<PersonCompare> root = (GigaMap<PersonCompare>) manager.root();
+			GigaMap<PersonCompare> root = manager.root();
 
 			IndexerComparing loadedIndexer = root.index().bitmap().getIndexer(IndexerComparing.class, "org.eclipse.store.gigamap.indexer.comparable.StringComparableTest.PersonAgeIndexer");
 			assertNotNull(loadedIndexer);

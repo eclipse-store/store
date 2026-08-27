@@ -64,7 +64,7 @@ public class CustomComparableTest
 		}
 
 		try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(tempDir)) {
-			GigaMap<PersonCustomComparable> loadedMap = (GigaMap<PersonCustomComparable>) storageManager.root();
+			GigaMap<PersonCustomComparable> loadedMap = storageManager.root();
 
 			IndexerComparing loadedIndexer = loadedMap.index().bitmap().getIndexer(IndexerComparing.class, "org.eclipse.store.gigamap.indexer.comparable.CustomComparableTest.PersonIndexerCompare");
 			Assertions.assertNotNull(loadedIndexer);

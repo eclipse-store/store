@@ -46,7 +46,7 @@ public class CharacterIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<CharacterPerson> newMap = (GigaMap<CharacterPerson>) manager.root();
+            GigaMap<CharacterPerson> newMap = manager.root();
             CharacterPerson characterPerson = newMap.get(1);
             long count1 = newMap.query(characterPersonIndex.byExample(characterPerson)).count();
             assertEquals(1, count1);
@@ -66,7 +66,7 @@ public class CharacterIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<CharacterPerson> newMap = (GigaMap<CharacterPerson>) manager.root();
+            GigaMap<CharacterPerson> newMap = manager.root();
             long count = newMap.query(characterPersonIndex.in('A', 'B')).count();
             assertEquals(2, count);
             newMap.query(characterPersonIndex.in('A', 'B')).forEach(characterPerson -> assertTrue(characterPerson.getInitial() == 'A' || characterPerson.getInitial() == 'B'));
@@ -92,7 +92,7 @@ public class CharacterIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<CharacterPerson> newMap = (GigaMap<CharacterPerson>) manager.root();
+            GigaMap<CharacterPerson> newMap = manager.root();
             newMap.query(characterPersonIndex.is('A')).forEach(characterPerson -> assertEquals('A', characterPerson.getInitial()));
             newMap.query(characterPersonIndex.is('B')).forEach(characterPerson -> assertEquals('B', characterPerson.getInitial()));
 

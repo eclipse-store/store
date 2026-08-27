@@ -29,10 +29,10 @@ import org.eclipse.serializer.util.X;
  * <p>
  * Key responsibilities:
  * <ul>
- * <li>Creating new GigaLevel1<?> instances from binary data.</li>
- * <li>Updating the state of GigaLevel1<?> instances from binary data.</li>
- * <li>Storing GigaLevel1<?> instances into binary format, managing reference lists as needed.</li>
- * <li>Navigating and iterating the references of GigaLevel1<?> objects for persistence operations.</li>
+ * <li>Creating new {@code GigaLevel1<?>} instances from binary data.</li>
+ * <li>Updating the state of {@code GigaLevel1<?>} instances from binary data.</li>
+ * <li>Storing {@code GigaLevel1<?>} instances into binary format, managing reference lists as needed.</li>
+ * <li>Navigating and iterating the references of {@code GigaLevel1<?>} objects for persistence operations.</li>
  * </ul>
  */
 public final class BinaryHandlerGigaLevel1 extends AbstractBinaryHandlerStateChangeFlagged<GigaLevel1<?>>
@@ -123,6 +123,10 @@ public final class BinaryHandlerGigaLevel1 extends AbstractBinaryHandlerStateCha
 		);
 	}
 	
+	// Provided only for PersistenceTypeHandler contract conformity. The standard store path
+	// registers child references through handler.apply(...) callbacks while writing the
+	// binary form, so this iterator is exercised only by niche traversals such as
+	// PersistenceRegisterer.
 	@Override
 	public final void iterateInstanceReferences(final GigaLevel1<?> instance, final PersistenceFunction iterator)
 	{

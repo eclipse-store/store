@@ -17,6 +17,7 @@ package org.eclipse.store.gigamap.types;
 import org.eclipse.serializer.collections.EqHashTable;
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.persistence.binary.types.Binary;
+import org.eclipse.serializer.persistence.types.PersistenceFunction;
 import org.eclipse.serializer.persistence.types.PersistenceLoadHandler;
 import org.eclipse.serializer.persistence.types.PersistenceReferenceLoader;
 import org.eclipse.serializer.persistence.types.PersistenceStoreHandler;
@@ -34,10 +35,10 @@ import org.eclipse.serializer.persistence.types.PersistenceStoreHandler;
  * <p>
  * Key Responsibilities:
  * <ul>
- * <li>Storing data fields and references for a CustomConstraints.Default<?> instance into a binary format.</li>
- * <li>Restoring a CustomConstraints.Default<?> instance from binary data and associating it with its parent
+ * <li>Storing data fields and references for a {@code CustomConstraints.Default<?>} instance into a binary format.</li>
+ * <li>Restoring a {@code CustomConstraints.Default<?>} instance from binary data and associating it with its parent
  * and other dependencies.</li>
- * <li>Updating the state of a CustomConstraints.Default<?> instance when its binary data is loaded.</li>
+ * <li>Updating the state of a {@code CustomConstraints.Default<?>} instance when its binary data is loaded.</li>
  * <li>Iterating over loadable references to facilitate dependency resolution.</li>
  * </ul>
  */
@@ -101,15 +102,15 @@ public class BinaryHandlerCustomConstraintsDefault extends AbstractBinaryHandler
 	)
 	{
 		data.storeEntityHeader(BINARY_LENGTH, this.typeId(), objectId);
-		
+
 		data.store_long(
 			BINARY_OFFSET_parent,
 			handler.apply(XMemory.getObject(instance, MEMORY_OFFSET_parent))
 		);
-		data.store_long(
-			BINARY_OFFSET_elements,
-			handler.apply(instance.elements())
-		);
+		// must be stored eagerly so that structural mutations of the elements table (adding or
+		// removing a constraint after the first store) are actually re-persisted, not just referenced.
+		// Mirrors BinaryHandlerBitmapIndicesDefault, which stores its registries eagerly for the same reason.
+		data.storeReferenceEager(BINARY_OFFSET_elements, handler, instance.elements());
 	}
 		
 	@Override
@@ -157,6 +158,17 @@ public class BinaryHandlerCustomConstraintsDefault extends AbstractBinaryHandler
 		instance.internalSetElements(getElements(data, handler));
 	}
 	
+	// Provided only for PersistenceTypeHandler contract conformity. The standard store path
+	// registers child references through handler.apply(...) callbacks while writing the
+	// binary form, so this iterator is exercised only by niche traversals such as
+	// PersistenceRegisterer.
+	@Override
+	public void iterateInstanceReferences(final CustomConstraints.Default<?> instance, final PersistenceFunction iterator)
+	{
+		iterator.apply(XMemory.getObject(instance, MEMORY_OFFSET_parent));
+		iterator.apply(instance.elements());
+	}
+
 	@Override
 	public void iterateLoadableReferences(final Binary data, final PersistenceReferenceLoader iterator)
 	{

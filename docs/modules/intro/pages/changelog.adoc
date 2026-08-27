@@ -1,22 +1,155 @@
 = Changelog
 
-== 4.0.0 (Beta 1)
+
+== 4.2.0
 
 === Features
 
-* xref:gigamap:indexing/jvector/index.adoc[Vector index for GigaMap] https://github.com/eclipse-store/store/pull/548[[548]]
-* Lucene index update https://github.com/eclipse-store/store/pull/546[[546]]
+* Storage restart: an embedded storage can be started again after it has been shut down https://github.com/eclipse-serializer/serializer/pull/278[[278]] https://github.com/eclipse-store/store/pull/701[[701]]
+* xref:storage:data-integrity.adoc[Data Integrity] (opt-in, disabled by default)
+** Chunk checksums on data files, verified on startup and on demand https://github.com/eclipse-store/store/pull/717[[717]] https://github.com/eclipse-store/store/pull/728[[728]]
+** Store-time reference validation with optional self-healing https://github.com/eclipse-store/store/pull/739[[739]] https://github.com/eclipse-store/store/pull/742[[742]] https://github.com/eclipse-serializer/serializer/pull/293[[293]] https://github.com/eclipse-serializer/serializer/pull/294[[294]] https://github.com/eclipse-serializer/serializer/pull/296[[296]] https://github.com/eclipse-serializer/serializer/pull/302[[302]]
+** Configurable escalation for zombie object ids found by the garbage collector https://github.com/eclipse-store/store/pull/743[[743]]
+* Power-loss durability: new `synchronize()` (fsync) barrier on the file system abstraction, applied on file rollover and commit https://github.com/eclipse-serializer/serializer/pull/301[[301]] https://github.com/eclipse-store/store/pull/751[[751]]
+* GigaMap
+** xref:gigamap:indexing/annotations.adoc[Annotation-based index generation] for Lucene and JVector, including a compile-time index metamodel https://github.com/eclipse-store/store/pull/692[[692]] https://github.com/eclipse-store/store/pull/695[[695]] https://github.com/eclipse-store/store/pull/699[[699]]
+** Structural index lifecycle: removal of indices and constraints across all index families, redefinition for bitmap indices https://github.com/eclipse-store/store/pull/694[[694]]
+** `reindex()` to rebuild all indices from the current entity state, plus Lucene back-fill when an index is registered on a populated GigaMap https://github.com/eclipse-store/store/issues/714[[714]] https://github.com/eclipse-store/store/issues/716[[716]] https://github.com/eclipse-store/store/pull/718[[718]] https://github.com/eclipse-store/store/pull/724[[724]]
+** Entity-id based `update()` / `apply()`, so Lucene-only and JVector-only maps can be reindexed without a bitmap index https://github.com/eclipse-store/store/issues/713[[713]] https://github.com/eclipse-store/store/pull/722[[722]]
+** External-directory Lucene index commits are now coupled to `store()` instead of committing eagerly https://github.com/eclipse-store/store/issues/715[[715]] https://github.com/eclipse-store/store/pull/719[[719]]
+** Opt-in null embeddings for the vector index, and `BitmapIndices.addWithoutInitialization` for lazy registration without back-fill https://github.com/eclipse-store/store/pull/748[[748]] https://github.com/eclipse-store/store/pull/759[[759]]
+* Binary type handler for `EqConstList` https://github.com/eclipse-serializer/serializer/pull/304[[304]] https://github.com/eclipse-serializer/serializer/pull/306[[306]]
+* `PersistenceShutdownReleasable`, an opt-in contract to release resources of persisted instances on storage shutdown https://github.com/eclipse-serializer/serializer/pull/305[[305]]
+
+=== Bugfixes
+
+* Storage garbage collector: mid-cycle registration race, multi-channel data-loss windows, broken task chain after a failed prepended task, destructive re-execution of partially aborted sweeps, and dangling object ids caused by concurrent data imports https://github.com/eclipse-store/store/pull/734[[734]] https://github.com/eclipse-store/store/pull/736[[736]] https://github.com/eclipse-store/store/pull/738[[738]] https://github.com/eclipse-store/store/pull/746[[746]] https://github.com/eclipse-store/store/pull/755[[755]] https://github.com/eclipse-store/store/pull/770[[770]] https://github.com/eclipse-serializer/serializer/pull/291[[291]]
+* Transactions file compaction reworked; the previous implementation could produce a transaction log that failed timestamp validation on the next start and destroyed history on a crash mid-rewrite https://github.com/eclipse-store/store/pull/760[[760]]
+* Backup and rollback hardening: byte-count validation on all backup-relevant copy and write sites, in-flight copies superseded by a truncation, and store rollback consistency https://github.com/eclipse-store/store/pull/744[[744]] https://github.com/eclipse-store/store/pull/749[[749]] https://github.com/eclipse-store/store/pull/775[[775]] https://github.com/eclipse-serializer/serializer/pull/298[[298]]
+* Lazy references and storing: lazily skipped instances are pinned until commit, premature links are avoided, loader-built instances are published to the object registry only after completion, used-marked references are exempt from evaluator-driven clearing, and an abandoned batch storer no longer leaks its flush scheduler https://github.com/eclipse-serializer/serializer/pull/289[[289]] https://github.com/eclipse-serializer/serializer/pull/290[[290]] https://github.com/eclipse-serializer/serializer/pull/292[[292]] https://github.com/eclipse-serializer/serializer/pull/299[[299]] https://github.com/eclipse-serializer/serializer/pull/307[[307]]
+* Storage engine: duplicate entity-cache entries on type id change, wrong hash key when rebuilding the type-in-file table, missing bounds check for variable-length members in `BinaryReferenceTraverser`, and a task broker reference that prevented auto-shutdown https://github.com/eclipse-serializer/serializer/issues/282[[282]] https://github.com/eclipse-serializer/serializer/pull/286[[286]] https://github.com/eclipse-store/store/pull/726[[726]] https://github.com/eclipse-store/store/pull/740[[740]] https://github.com/eclipse-store/store/pull/741[[741]] https://github.com/eclipse-store/store/pull/767[[767]]
+* GigaMap index correctness
+** Bitmap indices: `Error` on update/set/replace, exact-match results of binary composite indices, `BinaryIndexerString` collisions on keys containing NUL, null-valued Boolean-indexed entities, multi-value indexers dropping pre-existing shared values, `notNull()` on composite indexers, and remove with short key arrays https://github.com/eclipse-store/store/issues/685[[685]] https://github.com/eclipse-store/store/pull/686[[686]] https://github.com/eclipse-store/store/issues/687[[687]] https://github.com/eclipse-store/store/pull/688[[688]] https://github.com/eclipse-store/store/pull/689[[689]] https://github.com/eclipse-store/store/pull/690[[690]] https://github.com/eclipse-store/store/pull/691[[691]] https://github.com/eclipse-store/store/pull/756[[756]] https://github.com/eclipse-store/store/pull/776[[776]]
+** Use-after-free and double-free in bitmap segment decompression https://github.com/eclipse-store/store/pull/765[[765]] https://github.com/eclipse-store/store/pull/773[[773]]
+** Stale indices after class evolution no longer delete a committed entity, and stale-key removal now fails loudly https://github.com/eclipse-store/store/pull/762[[762]] https://github.com/eclipse-store/store/pull/771[[771]]
+** Anonymous indexer name resolution after reload, and restart idempotence of generated `@Unique` constraints https://github.com/eclipse-store/store/pull/693[[693]] https://github.com/eclipse-store/store/pull/702[[702]]
+* GigaMap consistency and concurrency
+** Read-lock leaks and deadlocks during iteration; the iteration contract is now enforced https://github.com/eclipse-store/store/issues/697[[697]] https://github.com/eclipse-store/store/pull/700[[700]]
+** Silent lost updates: dirty segments are retained in `release()` and segments mutated by `apply()` / `update()` are pinned https://github.com/eclipse-store/store/pull/737[[737]] https://github.com/eclipse-store/store/pull/757[[757]]
+** Exceptions thrown from user code (indexers, update logic) no longer leave the map inconsistent, and `replace()` / `apply()` validate their `current` argument https://github.com/eclipse-store/store/pull/705[[705]] https://github.com/eclipse-store/store/pull/758[[758]]
+** Lucene reader is no longer reopened on the write path https://github.com/eclipse-store/store/pull/777[[777]]
+** JVector: abandoned vector indices (thread and graph) are reclaimed, and the graph is no longer fully rebuilt on `complete()` or on shutdown persist https://github.com/eclipse-store/store/pull/754[[754]] https://github.com/eclipse-store/store/pull/764[[764]] https://github.com/eclipse-store/store/pull/774[[774]]
+* Configuration: correct Redis file system URI prefix, Azure `accountName` typo (deprecated alias retained), and null guards for optional cloud storage credentials https://github.com/eclipse-store/store/pull/732[[732]]
+
+=== Other changes
+
+* Documentation on mutex lock behavior, continuous-backup restore consistency and the sweep-retry contract https://github.com/eclipse-store/store/pull/732[[732]] https://github.com/eclipse-store/store/pull/745[[745]]
+* Fixes for the example projects https://github.com/eclipse-store/store/pull/733[[733]]
+
+[#migration-4-2-0]
+=== Migration
+
+[WARNING]
+====
+The transaction log compaction was reworked https://github.com/eclipse-store/store/pull/760[[760]].
+A transactions file compacted by 4.2.0 uses only the already existing entry kinds, so older versions can still read it.
+
+While rewriting the log, however, 4.2.0 first puts the complete compacted content into a checksummed swap file next to the transactions file (`<transactions file name>_compaction.swp`) and heals an interrupted rewrite from it on the next start.
+Versions prior to 4.2.0 do not know this file.
+If a crash interrupts a compaction and the storage is then opened with an older version, the rewrite is not healed and the leftover swap file is ignored.
+
+After a crash during compaction, open the storage with 4.2.0 once before downgrading, and do so in writable mode - a read-only start refuses to perform the repair write.
+====
+
+
+== 4.1.0
+
+=== Features
+
+* xref:storage:storing-data/batch-storer.adoc[Batch Storer] for batched persistence https://github.com/eclipse-serializer/serializer/pull/254[[254]] https://github.com/eclipse-store/store/pull/638[[638]]
+* Storage object recovery https://github.com/eclipse-store/store/pull/634[[634]]
+* Enhanced root initialization and retrieval in StorageManager https://github.com/eclipse-store/store/pull/631[[631]] https://github.com/eclipse-store/store/pull/632[[632]]
+* GigaMap
+** xref:gigamap:queries/defining.adoc#_sub_queries[Sub-queries] across all index types https://github.com/eclipse-store/store/pull/637[[637]]
+** Harden JVector on-disk persistence and add internal architecture doc https://github.com/eclipse-store/store/pull/657[[657]]
+** Make HNSW search beam width configurable https://github.com/eclipse-store/store/pull/644[[644]]
+** Replace `finalize()` with `java.lang.ref.Cleaner` https://github.com/eclipse-store/store/pull/673[[673]]
+
+=== Bugfixes
+
+* Fix element count calculation issue https://github.com/eclipse-serializer/serializer/pull/252[[252]]
+* Fix potential deadlocks in `store` / `storeAll` lock ordering https://github.com/eclipse-store/store/issues/405[[405]] https://github.com/eclipse-store/store/issues/414[[414]] https://github.com/eclipse-serializer/serializer/pull/277[[277]] https://github.com/eclipse-store/store/pull/678[[678]]
+* Fix flaky deadlock during shutdown in `StorageBackupItemQueue` https://github.com/eclipse-store/store/issues/397[[397]] https://github.com/eclipse-store/store/pull/671[[671]]
+* Seed live application OIDs into GC mark cycle to prevent zombie OIDs https://github.com/eclipse-store/store/pull/669[[669]]
+* Fix type dictionary provider listener wiring https://github.com/eclipse-serializer/serializer/pull/264[[264]]
+* Fix `isUnchangedStructure` always returning false https://github.com/eclipse-serializer/serializer/pull/262[[262]]
+* Fix DynamoDB query and scan pagination to prevent data truncation https://github.com/eclipse-store/store/issues/400[[400]] https://github.com/eclipse-store/store/pull/680[[680]]
+* GigaMap fixes
+** Binary handler corrections (iterators + BitmapEntry metadata) https://github.com/eclipse-store/store/pull/679[[679]]
+** Fix unique-constraint check missing duplicates after entity ejection https://github.com/eclipse-store/store/pull/664[[664]]
+** Fix GigaMap builder for duplicate indexer usage https://github.com/eclipse-store/store/pull/660[[660]]
+** Fix `Condition.and()` silently dropping the second range bound https://github.com/eclipse-store/store/issues/653[[653]] https://github.com/eclipse-store/store/pull/655[[655]]
+** Prevent leaking non-matching IDs in composite conditions https://github.com/eclipse-store/store/pull/642[[642]]
+** Fix composite key updates and index exception handling https://github.com/eclipse-store/store/pull/635[[635]]
+** Fix race condition in LuceneIndex GraphDirectory during store https://github.com/eclipse-store/store/pull/628[[628]]
+
+=== Other changes
+
+* Implemented cleanUp in ConstantSizedBufferProvider https://github.com/eclipse-store/store/pull/636[[636]]
+* Add OffHeapLongHashSet and utility methods https://github.com/eclipse-serializer/serializer/pull/255[[255]]
+* Improve clear method in LazyHashMap for better segment unloading https://github.com/eclipse-serializer/serializer/pull/257[[257]]
+* Add demo projects https://github.com/eclipse-store/store/pull/630[[630]]
+* JCache: support `Cache.unwrap` to JCache management MXBeans https://github.com/eclipse-store/store/pull/672[[672]]
+
+
+== 4.0.1
+
+=== Bugfixes
+
+* Fix race conditions in VectorIndex incremental on-disk mode https://github.com/eclipse-store/store/pull/620[[620]]
+* Resolve method ambiguities in indexer-related classes and interfaces https://github.com/eclipse-store/store/pull/619[[619]]
+
+
+== 4.0.0
+
+=== Features
+
+* GigaMap
+    - New xref:gigamap:indexing/jvector/index.adoc[Vector index] https://github.com/eclipse-store/store/pull/548[[548]]
+    - New xref:gigamap:indexing/spatial/index.adoc[Spatial index] https://github.com/eclipse-store/store/pull/582[[582]]
+    - xref:gigamap:indexing/lucene/index.adoc[Lucene index] update https://github.com/eclipse-store/store/pull/546[[546]]
+    - Concurrency handling improvements and eventual indexing https://github.com/eclipse-store/store/pull/564[[564]]
+    - ByteIndexers for numeric and Instant types https://github.com/eclipse-store/store/pull/574[[574]]
+    - Indexer for ZonedDateTime and Instant https://github.com/eclipse-store/store/pull/565[[565]]
+    - Add support for zero and negative value indexing in BinaryIndexers https://github.com/eclipse-store/store/pull/566[[566]]
 * Native memory accessors to ensure future compatibility with upcoming Java versions https://github.com/eclipse-serializer/serializer/issues/130[[130]] https://github.com/eclipse-serializer/serializer/pull/225[[225]]
 
 === Bugfixes
 
-* Fix for ArrayIndexOutOfBoundsException in GigaMap https://github.com/eclipse-store/store/issues/500[[500]] https://github.com/eclipse-store/store/pull/524[[524]]
-* Fix for NullPointerException in GigaMap https://github.com/eclipse-store/store/pull/549[[549]]
-* Fixes for Lazy references, which could cause storage inconsistencies https://github.com/eclipse-serializer/serializer/issues/221[[221]] https://github.com/eclipse-serializer/serializer/pull/222[[222]] https://github.com/eclipse-serializer/serializer/pull/227[[227]]
+* Fixes for GigaMap https://github.com/eclipse-store/store/issues/500[[500]] https://github.com/eclipse-store/store/pull/524[[524]] https://github.com/eclipse-store/store/pull/549[[549]] https://github.com/eclipse-store/store/pull/563[[563]] https://github.com/eclipse-store/store/pull/570[[570]] https://github.com/eclipse-store/store/pull/571[[571]] https://github.com/eclipse-store/store/pull/586[[586]] https://github.com/eclipse-store/store/pull/595[[595]] https://github.com/eclipse-store/store/pull/602[[602]]
+* Fixes for Lazy references, which could cause storage inconsistencies https://github.com/eclipse-serializer/serializer/issues/221[[221]] https://github.com/eclipse-serializer/serializer/pull/222[[222]] https://github.com/eclipse-serializer/serializer/pull/227[[227]] https://github.com/eclipse-serializer/serializer/pull/239[[239]]
+* Fix for service provider configuration https://github.com/eclipse-store/store/pull/610[[610]]
 
 === Other changes
 
-* Type handling updates and adjustments to changes in the JDK https://github.com/eclipse-serializer/serializer/issues/223[[223]] https://github.com/eclipse-serializer/serializer/pull/224[[224]] https://github.com/eclipse-serializer/serializer/issues/226[[226]] https://github.com/eclipse-serializer/serializer/pull/228[[228]]
+* Type handling updates and adjustments, partly to changes in the JDK https://github.com/eclipse-serializer/serializer/issues/223[[223]] https://github.com/eclipse-serializer/serializer/pull/224[[224]] https://github.com/eclipse-serializer/serializer/issues/226[[226]] https://github.com/eclipse-serializer/serializer/pull/228[[228]] https://github.com/eclipse-serializer/serializer/pull/237[[237]] https://github.com/eclipse-serializer/serializer/pull/246[[246]]
+* Vaadin viewer app optimizations https://github.com/eclipse-store/store/pull/588[[588]]
+* Dependency updates https://github.com/eclipse-store/store/pull/598[[598]] https://github.com/eclipse-store/store/pull/605[[605]]
+
+=== Migration
+
+[IMPORTANT]
+====
+Storages created or modified by version 4.0.0 are not backwards compatible with older versions.
+Once a storage has been opened with version 4.0.0, it most likely cannot be used with prior versions anymore.
+Make sure to create a backup of your storage before migrating.
+====
+
+[WARNING]
+====
+Storages created with one of the 4.0.0 beta versions that use the vector index are unfortunately not compatible with the final version due to necessary internal changes.
+These storages need to be recreated with the final 4.0.0 release.
+====
 
 
 == 3.1.0

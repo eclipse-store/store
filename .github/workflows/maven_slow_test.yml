@@ -1,0 +1,65 @@
+# This workflow will build a Java project with Maven
+# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-maven
+
+name: Java slow tests
+
+permissions:
+  contents: read
+  checks: write
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      #Build with java 17
+    - uses: actions/checkout@v6
+    - name: Set up JDK 17
+      uses: actions/setup-java@v5
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: 'maven'
+    - name: Align serializer version to matching branch snapshot
+      uses: ./.github/actions/align-serializer-version
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Run slow tests
+      run: mvn  -T 1C -P examples -P slow-tests -B clean test --no-transfer-progress --file pom.xml -U -Dmaven.javadoc.skip=true -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+
+    - name: Dump crash evidence to log
+      if: failure()
+      run: |
+        echo "===== surefire dumpstream / dump files ====="
+        find . -path '*/target/surefire-reports/*' \( -name '*.dumpstream' -o -name '*.dump' \) \
+          -print -exec cat {} \; || true
+        echo "===== JVM fatal error logs (hs_err) ====="
+        find . -name 'hs_err_pid*.log' -print -exec cat {} \; || true
+
+    - name: Upload crash evidence
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: crash-evidence-slow-tests
+        path: |
+          **/target/surefire-reports/*.dumpstream
+          **/target/surefire-reports/*.dump
+          **/hs_err_pid*.log
+        if-no-files-found: ignore
+        retention-days: 14
+
+    - name: Report JUnit results (dorny - surefire)
+      if: always()
+      uses: dorny/test-reporter@v2
+      with:
+        name: "GigaMap - Slow Tests Results"
+        path: '**/target/**/surefire-reports/*.xml'
+        reporter: java-junit
+        fail-on-error: false
+

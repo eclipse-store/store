@@ -14,18 +14,14 @@ package org.eclipse.store.storage.types;
  * #L%
  */
 
-import static org.eclipse.serializer.util.X.coalesce;
-import static org.eclipse.serializer.util.X.notNull;
+import org.eclipse.serializer.afs.types.*;
+import org.eclipse.serializer.chars.*;
+import org.eclipse.serializer.persistence.types.*;
 
-import java.text.SimpleDateFormat;
-import java.util.function.Consumer;
+import java.text.*;
+import java.util.function.*;
 
-import org.eclipse.serializer.afs.types.ADirectory;
-import org.eclipse.serializer.afs.types.AFile;
-import org.eclipse.serializer.afs.types.AFileSystem;
-import org.eclipse.serializer.chars.VarString;
-import org.eclipse.serializer.persistence.types.PersistenceTypeDictionaryFileHandler;
-import org.eclipse.serializer.persistence.types.PersistenceTypeDictionaryIoHandler;
+import static org.eclipse.serializer.util.X.*;
 
 
 public interface StorageFileProvider extends PersistenceTypeDictionaryIoHandler.Provider
@@ -54,7 +50,12 @@ public interface StorageFileProvider extends PersistenceTypeDictionaryIoHandler.
 		C                          collector   ,
 		int                        channelIndex
 	);
-	
+
+	public <F extends StorageDataFile, C extends Consumer<F>> C collectDeletedDataFiles(
+			StorageDataFile.Creator<F> creator     ,
+			C                          collector   ,
+			int                        channelIndex
+	);
 	
 	public interface Builder<B extends Builder<?>>
 	{
@@ -479,6 +480,36 @@ public interface StorageFileProvider extends PersistenceTypeDictionaryIoHandler.
 				this.fileNameProvider.parseDataInventoryFile(creator, collector, channelIndex, f);
 			});
 			
+			return collector;
+		}
+
+		@Override
+		public <F extends StorageDataFile, C extends Consumer<F>> C collectDeletedDataFiles(
+			StorageDataFile.Creator<F> creator,
+			C collector,
+			int channelIndex)
+		{
+			if(this.deletionDirectory == null)
+			{
+				return collector;
+			}
+
+			this.deletionDirectory.inventorize();
+			final ADirectory directory = this.deletionDirectory.getDirectory(
+				fileNameProvider.provideChannelDirectoryName(channelIndex));
+
+			if(directory != null)
+			{
+				directory.iterateFiles(f ->
+				{
+					// collecting files refers only to those that physically exist. Residual AFS entries don't count.
+					if (!f.exists()) {
+						return;
+					}
+					this.fileNameProvider.parseDeletedDataInventoryFile(creator, collector, channelIndex, f);
+				});
+			}
+
 			return collector;
 		}
 

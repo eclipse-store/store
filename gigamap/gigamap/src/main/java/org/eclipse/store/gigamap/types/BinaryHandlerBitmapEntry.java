@@ -9,18 +9,19 @@ package org.eclipse.store.gigamap.types;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.persistence.binary.types.Binary;
+import org.eclipse.serializer.persistence.binary.types.BinaryLegacyTypeHandlerSupplier;
 import org.eclipse.serializer.persistence.types.PersistenceFunction;
+import org.eclipse.serializer.persistence.types.PersistenceLegacyTypeHandler;
 import org.eclipse.serializer.persistence.types.PersistenceLoadHandler;
 import org.eclipse.serializer.persistence.types.PersistenceReferenceLoader;
 import org.eclipse.serializer.persistence.types.PersistenceStoreHandler;
-import org.eclipse.serializer.reference.Lazy;
 
 
 /**
@@ -47,56 +48,57 @@ import org.eclipse.serializer.reference.Lazy;
  * and positions.
  */
 public class BinaryHandlerBitmapEntry extends AbstractBinaryHandlerStateChangeFlagged<BitmapEntry<?, ?, ?>>
+implements BinaryLegacyTypeHandlerSupplier<BitmapEntry<?, ?, ?>>
 {
 	///////////////////////////////////////////////////////////////////////////
 	// constants //
 	//////////////
-	
+
 	private static final long
 		BINARY_OFFSET_level3   = 0                                                   ,
 		BINARY_OFFSET_position = BINARY_OFFSET_level3   + Binary.objectIdByteLength(),
 		BINARY_LENGTH          = BINARY_OFFSET_position + Integer.BYTES,
-		
+
 		MEMORY_OFFSET_level3   = getClassDeclaredFieldOffset(genericType(), "level3")
 	;
-	
+
 	@SuppressWarnings("all")
 	public static final Class<BitmapEntry<?, ?, ?>> genericType()
 	{
 		// no idea how to get ".class" to work otherwise in conjunction with generics.
 		return (Class)BitmapEntry.class;
 	}
-	
-	
-	
+
+
+
 	public static BinaryHandlerBitmapEntry New()
 	{
 		return new BinaryHandlerBitmapEntry();
 	}
-	
-	
-	
+
+
+
 	///////////////////////////////////////////////////////////////////////////
 	// constructors //
 	/////////////////
-	
+
 	BinaryHandlerBitmapEntry()
 	{
 		super(
 			genericType(),
 			CustomFields(
-				CustomField(Lazy.class, "level3"  ),
-				CustomField(int.class , "position")
+				CustomField(BitmapLevel3.class, "level3"  ),
+				CustomField(int.class         , "position")
 			)
 		);
 	}
-	
-	
-	
+
+
+
 	///////////////////////////////////////////////////////////////////////////
 	// methods //
 	////////////
-	
+
 	@Override
 	public void internalStore(
 		final Binary                          data    ,
@@ -109,15 +111,15 @@ public class BinaryHandlerBitmapEntry extends AbstractBinaryHandlerStateChangeFl
 		data.storeReference   (BINARY_OFFSET_level3  , handler, XMemory.getObject(instance, MEMORY_OFFSET_level3));
 		data.store_int        (BINARY_OFFSET_position, instance.position());
 	}
-		
+
 	@Override
 	public BitmapEntry<?, ?, ?> create(final Binary data, final PersistenceLoadHandler handler)
 	{
 		final int position = data.read_int(BINARY_OFFSET_position);
-		
+
 		return new BitmapEntry<>(null, null, position, false);
 	}
-	
+
 	private static BitmapLevel3 getLevel3(
 		final Binary                 data   ,
 		final PersistenceLoadHandler handler
@@ -126,8 +128,8 @@ public class BinaryHandlerBitmapEntry extends AbstractBinaryHandlerStateChangeFl
 		return (BitmapLevel3)data.readReference(BINARY_OFFSET_level3, handler);
 	}
 
-			 
-	
+
+
 	@Override
 	public void updateState(
 		final Binary                 data    ,
@@ -137,7 +139,11 @@ public class BinaryHandlerBitmapEntry extends AbstractBinaryHandlerStateChangeFl
 	{
 		XMemory.setObject(instance, MEMORY_OFFSET_level3, getLevel3(data, handler));
 	}
-	
+
+	// Provided only for PersistenceTypeHandler contract conformity. The standard store path
+	// registers child references through handler.apply(...) callbacks while writing the
+	// binary form, so this iterator is exercised only by niche traversals such as
+	// PersistenceRegisterer.
 	@Override
 	public void iterateInstanceReferences(final BitmapEntry<?, ?, ?> instance, final PersistenceFunction iterator)
 	{
@@ -149,5 +155,15 @@ public class BinaryHandlerBitmapEntry extends AbstractBinaryHandlerStateChangeFl
 	{
 		iterator.acceptObjectId(data.readObjectId(BINARY_OFFSET_level3));
 	}
-		
+
+	@Override
+	public PersistenceLegacyTypeHandler<Binary, BitmapEntry<?, ?, ?>> getLegacyTypeHandler()
+	{
+		// Earlier versions declared the level3 field as Lazy in the type dictionary even though
+		// the handler always read/wrote a direct BitmapLevel3 reference. The binary layout is
+		// unchanged; only the declared field type differs, so the legacy handler reads the same
+		// 12 bytes and routes them into the same BitmapLevel3 slot.
+		return BinaryLegacyTypeHandlerBitmapEntry.New();
+	}
+
 }

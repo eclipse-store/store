@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
+import org.eclipse.store.integrations.spring.boot.types.configuration.ChunkChecksum;
 import org.eclipse.store.integrations.spring.boot.types.configuration.EclipseStoreProperties;
 import org.eclipse.store.integrations.spring.boot.types.configuration.StorageFilesystem;
 import org.eclipse.store.integrations.spring.boot.types.configuration.aws.AbstractAwsProperties;
@@ -70,6 +71,7 @@ public class EclipseStoreConfigConverter
     protected static final String HOUSEKEEPING_INCREASE_THRESHOLD = EmbeddedStorageConfigurationPropertyNames.HOUSEKEEPING_INCREASE_THRESHOLD;
     protected static final String HOUSEKEEPING_INCREASE_AMOUNT = EmbeddedStorageConfigurationPropertyNames.HOUSEKEEPING_INCREASE_AMOUNT;
     protected static final String HOUSEKEEPING_MAXIMUM_TIME_BUDGET = EmbeddedStorageConfigurationPropertyNames.HOUSEKEEPING_MAXIMUM_TIME_BUDGET;
+    protected static final String GC_SWEEP_THRESHOLD = EmbeddedStorageConfigurationPropertyNames.GC_SWEEP_THRESHOLD;
 
     // Fields for the entity cache configuration
     protected static final String ENTITY_CACHE_THRESHOLD = EmbeddedStorageConfigurationPropertyNames.ENTITY_CACHE_THRESHOLD;
@@ -80,6 +82,26 @@ public class EclipseStoreConfigConverter
     protected static final String DATA_FILE_MAXIMUM_SIZE = EmbeddedStorageConfigurationPropertyNames.DATA_FILE_MAXIMUM_SIZE;
     protected static final String DATA_FILE_MINIMUM_USE_RATIO = EmbeddedStorageConfigurationPropertyNames.DATA_FILE_MINIMUM_USE_RATIO;
     protected static final String DATA_FILE_CLEANUP_HEAD_FILE = EmbeddedStorageConfigurationPropertyNames.DATA_FILE_CLEANUP_HEAD_FILE;
+
+    // Field for the store-time reference validation (data integrity) configuration
+    protected static final String REFERENCE_VALIDATION = EmbeddedStorageConfigurationPropertyNames.REFERENCE_VALIDATION;
+
+    // Field for the GC zombie object id reaction (data integrity) configuration
+    protected static final String GC_ZOMBIE_OID_HANDLING = EmbeddedStorageConfigurationPropertyNames.GC_ZOMBIE_OID_HANDLING;
+
+    // Fields for the chunk-checksum (data integrity) configuration
+    protected static final String CHUNK_CHECKSUM_ALGORITHM = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ALGORITHM;
+    protected static final String CHUNK_CHECKSUM_PROFILE = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_PROFILE;
+    protected static final String CHUNK_CHECKSUM_SEED = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_SEED;
+    protected static final String CHUNK_CHECKSUM_EMIT = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_EMIT;
+    protected static final String CHUNK_CHECKSUM_VERIFY = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_VERIFY;
+    protected static final String CHUNK_CHECKSUM_ON_CHECKSUM_MISMATCH = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ON_CHECKSUM_MISMATCH;
+    protected static final String CHUNK_CHECKSUM_ON_BOUNDARY_MISMATCH = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ON_BOUNDARY_MISMATCH;
+    protected static final String CHUNK_CHECKSUM_ON_UNKNOWN_KIND = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ON_UNKNOWN_KIND;
+    protected static final String CHUNK_CHECKSUM_ON_MISSING_HEADER = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ON_MISSING_HEADER;
+    protected static final String CHUNK_CHECKSUM_ON_UNCOVERED_DATA = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_ON_UNCOVERED_DATA;
+    protected static final String CHUNK_CHECKSUM_REQUIRE_COVERAGE = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_REQUIRE_COVERAGE;
+    protected static final String CHUNK_CHECKSUM_CONTINUOUS_COVERAGE = EmbeddedStorageConfigurationPropertyNames.CHUNK_CHECKSUM_CONTINUOUS_COVERAGE;
 
 
     /**
@@ -125,12 +147,20 @@ public class EclipseStoreConfigConverter
         configValues.put(HOUSEKEEPING_INCREASE_THRESHOLD, properties.getHousekeepingIncreaseThreshold());
         configValues.put(HOUSEKEEPING_INCREASE_AMOUNT, properties.getHousekeepingIncreaseAmount());
         configValues.put(HOUSEKEEPING_MAXIMUM_TIME_BUDGET, properties.getHousekeepingMaximumTimeBudget());
+        configValues.put(GC_SWEEP_THRESHOLD, properties.getGcSweepThreshold());
         configValues.put(ENTITY_CACHE_THRESHOLD, properties.getEntityCacheThreshold());
         configValues.put(ENTITY_CACHE_TIMEOUT, properties.getEntityCacheTimeout());
         configValues.put(DATA_FILE_MINIMUM_SIZE, properties.getDataFileMinimumSize());
         configValues.put(DATA_FILE_MAXIMUM_SIZE, properties.getDataFileMaximumSize());
         configValues.put(DATA_FILE_MINIMUM_USE_RATIO, properties.getDataFileMinimumUseRatio());
         configValues.put(DATA_FILE_CLEANUP_HEAD_FILE, properties.getDataFileCleanupHeadFile());
+        configValues.put(REFERENCE_VALIDATION, properties.getReferenceValidation());
+        configValues.put(GC_ZOMBIE_OID_HANDLING, properties.getGcZombieOidHandling());
+
+        if (properties.getChunkChecksum() != null)
+        {
+            configValues.putAll(this.prepareChunkChecksum(properties.getChunkChecksum()));
+        }
 
 
         //remove keys with null value
@@ -138,6 +168,24 @@ public class EclipseStoreConfigConverter
 
 
         return configValues;
+    }
+
+    private Map<String, String> prepareChunkChecksum(final ChunkChecksum properties)
+    {
+        final Map<String, String> values = new HashMap<>();
+        values.put(CHUNK_CHECKSUM_ALGORITHM, properties.getAlgorithm());
+        values.put(CHUNK_CHECKSUM_PROFILE, properties.getProfile());
+        values.put(CHUNK_CHECKSUM_SEED, properties.getSeed());
+        values.put(CHUNK_CHECKSUM_EMIT, properties.getEmit() == null ? null : properties.getEmit().toString());
+        values.put(CHUNK_CHECKSUM_VERIFY, properties.getVerify() == null ? null : properties.getVerify().toString());
+        values.put(CHUNK_CHECKSUM_ON_CHECKSUM_MISMATCH, properties.getOnChecksumMismatch());
+        values.put(CHUNK_CHECKSUM_ON_BOUNDARY_MISMATCH, properties.getOnBoundaryMismatch());
+        values.put(CHUNK_CHECKSUM_ON_UNKNOWN_KIND, properties.getOnUnknownKind());
+        values.put(CHUNK_CHECKSUM_ON_MISSING_HEADER, properties.getOnMissingHeader());
+        values.put(CHUNK_CHECKSUM_ON_UNCOVERED_DATA, properties.getOnUncoveredData());
+        values.put(CHUNK_CHECKSUM_REQUIRE_COVERAGE, properties.getRequireCoverage() == null ? null : properties.getRequireCoverage().toString());
+        values.put(CHUNK_CHECKSUM_CONTINUOUS_COVERAGE, properties.getContinuousCoverage() == null ? null : properties.getContinuousCoverage().toString());
+        return values;
     }
 
     private Map<String, String> prepareFileSystem(final StorageFilesystem properties, final String key)
@@ -168,7 +216,7 @@ public class EclipseStoreConfigConverter
         }
         if (properties.getRedis() != null)
         {
-            values.put(ConfigKeys.REDIS_URI.value(), properties.getRedis().getUri());
+            values.put(this.composeKey(key, ConfigKeys.REDIS_URI.value()), properties.getRedis().getUri());
         }
         if (properties.getGooglecloud() != null)
         {
@@ -182,6 +230,10 @@ public class EclipseStoreConfigConverter
     private Map<String, String> prepareGoogleCloud(final Googlecloud googlecloud, final String key)
     {
         final Map<String, String> values = new HashMap<>();
+        if (googlecloud.getFirestore() == null)
+        {
+            return values;
+        }
         values.put(this.composeKey(key, ConfigKeys.GOOGLECLOUD_FIRESTORE_DATABASE_ID.value()), googlecloud.getFirestore().getDatabaseId());
         values.put(this.composeKey(key, ConfigKeys.GOOGLECLOUD_FIRESTORE_EMULATOR_HOST.value()), googlecloud.getFirestore().getEmulatorHost());
         values.put(this.composeKey(key, ConfigKeys.GOOGLECLOUD_FIRESTORE_HOST.value()), googlecloud.getFirestore().getHost());
@@ -197,14 +249,25 @@ public class EclipseStoreConfigConverter
     private Map<String, String> prepareOracleCloud(final Oraclecloud oraclecloud, final String key)
     {
         final Map<String, String> values = new HashMap<>();
-        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CONFIG_FILE_PATH.value()), oraclecloud.getObjectStorage().getConfigFile().getPath());
-        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CONFIG_FILE_PROFILE.value()), oraclecloud.getObjectStorage().getConfigFile().getProfile());
-        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CONFIG_FILE_CHARSET.value()), oraclecloud.getObjectStorage().getConfigFile().getCharset());
-        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CLIENT_CONNECTION_TIMEOUT_MILLIS.value()), oraclecloud.getObjectStorage().getClient().getConnectionTimeoutMillis());
-        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CLIENT_READ_TIMEOUT_MILLIS.value()), oraclecloud.getObjectStorage().getClient().getReadTimeoutMillis());
-        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CLIENT_MAX_ASYNC_THREADS.value()), oraclecloud.getObjectStorage().getClient().getMaxAsyncThreads());
-        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_REGION.value()), oraclecloud.getObjectStorage().getRegion());
-        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_ENDPOINT.value()), oraclecloud.getObjectStorage().getEndpoint());
+        final var objectStorage = oraclecloud.getObjectStorage();
+        if (objectStorage == null)
+        {
+            return values;
+        }
+        if (objectStorage.getConfigFile() != null)
+        {
+            values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CONFIG_FILE_PATH.value()), objectStorage.getConfigFile().getPath());
+            values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CONFIG_FILE_PROFILE.value()), objectStorage.getConfigFile().getProfile());
+            values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CONFIG_FILE_CHARSET.value()), objectStorage.getConfigFile().getCharset());
+        }
+        if (objectStorage.getClient() != null)
+        {
+            values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CLIENT_CONNECTION_TIMEOUT_MILLIS.value()), objectStorage.getClient().getConnectionTimeoutMillis());
+            values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CLIENT_READ_TIMEOUT_MILLIS.value()), objectStorage.getClient().getReadTimeoutMillis());
+            values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_CLIENT_MAX_ASYNC_THREADS.value()), objectStorage.getClient().getMaxAsyncThreads());
+        }
+        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_REGION.value()), objectStorage.getRegion());
+        values.put(this.composeKey(key, ConfigKeys.ORACLECLOUD_ENDPOINT.value()), objectStorage.getEndpoint());
         return values;
     }
 
@@ -212,13 +275,20 @@ public class EclipseStoreConfigConverter
     private Map<String, String> prepareAzure(final Azure azure, final String key)
     {
         final Map<String, String> values = new HashMap<>();
+        if (azure.getStorage() == null)
+        {
+            return values;
+        }
         values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CONNECTION_STRING.value()), azure.getStorage().getConnectionString());
         values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_ENCRYPTION_SCOPE.value()), azure.getStorage().getEncryptionScope());
-        values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_TYPE.value()), azure.getStorage().getCredentials().getType());
-        values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_USERNAME.value()), azure.getStorage().getCredentials().getUsername());
-        values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_PASSWORD.value()), azure.getStorage().getCredentials().getPassword());
-        values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_ACCOUNT_NAME.value()), azure.getStorage().getCredentials().getAccountMame());
-        values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_ACCOUNT_KEY.value()), azure.getStorage().getCredentials().getAccountKey());
+        if (azure.getStorage().getCredentials() != null)
+        {
+            values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_TYPE.value()), azure.getStorage().getCredentials().getType());
+            values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_USERNAME.value()), azure.getStorage().getCredentials().getUsername());
+            values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_PASSWORD.value()), azure.getStorage().getCredentials().getPassword());
+            values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_ACCOUNT_NAME.value()), azure.getStorage().getCredentials().getAccountName());
+            values.put(this.composeKey(key, ConfigKeys.AZURE_STORAGE_CREDENTIALS_ACCOUNT_KEY.value()), azure.getStorage().getCredentials().getAccountKey());
+        }
         return values;
     }
 
@@ -246,9 +316,12 @@ public class EclipseStoreConfigConverter
         values.put(this.composeKey(key, ConfigKeys.CACHE.value()), Boolean.toString(awsProperties.isCache()));
         values.put(this.composeKey(key, ConfigKeys.AWS_ENDPOINT_OVERRIDE.value()), awsProperties.getEndpointOverride());
         values.put(this.composeKey(key, ConfigKeys.AWS_REGION.value()), awsProperties.getRegion());
-        values.put(this.composeKey(key, ConfigKeys.AWS_CREDENTIALS_TYPE.value()), awsProperties.getCredentials().getType());
-        values.put(this.composeKey(key, ConfigKeys.AWS_CREDENTIALS_ACCESS_KEY_ID.value()), awsProperties.getCredentials().getAccessKeyId());
-        values.put(this.composeKey(key, ConfigKeys.AWS_CREDENTIALS_SECRET_ACCESS_KEY.value()), awsProperties.getCredentials().getSecretAccessKey());
+        if (awsProperties.getCredentials() != null)
+        {
+            values.put(this.composeKey(key, ConfigKeys.AWS_CREDENTIALS_TYPE.value()), awsProperties.getCredentials().getType());
+            values.put(this.composeKey(key, ConfigKeys.AWS_CREDENTIALS_ACCESS_KEY_ID.value()), awsProperties.getCredentials().getAccessKeyId());
+            values.put(this.composeKey(key, ConfigKeys.AWS_CREDENTIALS_SECRET_ACCESS_KEY.value()), awsProperties.getCredentials().getSecretAccessKey());
+        }
         return values;
     }
 

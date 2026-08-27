@@ -15,8 +15,10 @@ package org.eclipse.store.gigamap.indexer;
  */
 
 import org.eclipse.store.gigamap.types.BitmapIndices;
+import org.eclipse.store.gigamap.types.Condition;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.IndexerLocalDate;
+import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
@@ -65,7 +67,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             long count = newMap.query(localDatePersonIndex.between(LocalDate.of(1990, 1, 1), LocalDate.of(2000, 1, 1))).count();
             assertEquals(2, count);
             long count1 = newMap.query(localDatePersonIndex.between(LocalDate.of(1990, 1, 1), LocalDate.of(1990, 1, 1))).count();
@@ -86,7 +88,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             long count = newMap.query(localDatePersonIndex.after(LocalDate.of(1990, 1, 1))).count();
             assertEquals(1, count);
 //            long count1 = newMap.query(localDatePersonIndex.after(LocalDate.of(2000, 1, 1))).count();
@@ -107,7 +109,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             long count = newMap.query(localDatePersonIndex.before(LocalDate.of(2000, 1, 1))).count();
             assertEquals(2, count);
             long count1 = newMap.query(localDatePersonIndex.before(LocalDate.of(1990, 1, 1))).count();
@@ -128,7 +130,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             long count1 = newMap.query(localDatePersonIndex.isDay(1)).count();
             assertEquals(3, count1);
 //            long count2 = newMap.query(localDatePersonIndex.isDay(2)).count();
@@ -149,7 +151,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             long count1 = newMap.query(localDatePersonIndex.isMonth(1)).count();
             assertEquals(3, count1);
 //            long count2 = newMap.query(localDatePersonIndex.isMonth(2)).count();
@@ -170,7 +172,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             long count1 = newMap.query(localDatePersonIndex.isYear(2000)).count();
             assertEquals(1, count1);
             long count2 = newMap.query(localDatePersonIndex.isYear(1990)).count();
@@ -192,7 +194,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             long count1 = newMap.query(localDatePersonIndex.isDate(2000, 1, 1)).count();
             assertEquals(1, count1);
             long count2 = newMap.query(localDatePersonIndex.isDate(1990, 1, 1)).count();
@@ -218,7 +220,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             newMap.query(localDatePersonIndex.is(LocalDate.of(2000, 1, 1))).forEach(localDatePerson -> assertEquals(LocalDate.of(2000, 1, 1), localDatePerson.getBirthday()));
             newMap.query(localDatePersonIndex.is(LocalDate.of(1990, 1, 1))).forEach(localDatePerson -> assertEquals(LocalDate.of(1990, 1, 1), localDatePerson.getBirthday()));
 
@@ -254,7 +256,7 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             long count = newMap.query(localDatePersonIndex.beforeEqual(LocalDate.of(1990, 1, 1))).count();
             assertEquals(2, count);
             long count1 = newMap.query(localDatePersonIndex.beforeEqual(LocalDate.of(1980, 1, 1))).count();
@@ -275,12 +277,59 @@ public class LocalDateIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalDatePerson> newMap = (GigaMap<LocalDatePerson>) manager.root();
+            GigaMap<LocalDatePerson> newMap = manager.root();
             long count = newMap.query(localDatePersonIndex.afterEqual(LocalDate.of(1990, 1, 1))).count();
             assertEquals(2, count);
             long count1 = newMap.query(localDatePersonIndex.afterEqual(LocalDate.of(2000, 1, 1))).count();
             assertEquals(1, count1);
         }
+    }
+
+    /**
+     * Regression test for issue #653 / #654: composing an {@link IndexerLocalDate} range
+     * condition via {@link Condition#and(Condition)} (i) with another range condition and
+     * (ii) with a condition from a different indexer type must produce the same result as
+     * composing via {@link org.eclipse.store.gigamap.types.GigaQuery#and(Condition)}.
+     */
+    @Test
+    void rangeCompositionViaConditionAnd()
+    {
+        final LocalDatePersonIndex dateIdx = new LocalDatePersonIndex();
+        final NameIndex            nameIdx = new NameIndex();
+
+        final GigaMap<LocalDatePerson> map = GigaMap.<LocalDatePerson>Builder()
+            .withBitmapIndex(dateIdx)
+            .withBitmapIndex(nameIdx)
+            .build();
+        map.add(new LocalDatePerson("Alice",   LocalDate.of(1980, 1, 1)));
+        map.add(new LocalDatePerson("Bob",     LocalDate.of(1990, 1, 1)));
+        map.add(new LocalDatePerson("Charlie", LocalDate.of(2000, 1, 1)));
+        map.add(new LocalDatePerson("Dave",    LocalDate.of(2010, 1, 1)));
+
+        final LocalDate lower = LocalDate.of(1985, 1, 1); // exclusive
+        final LocalDate upper = LocalDate.of(2005, 1, 1); // exclusive
+
+        // (i) range AND range
+        final Condition<LocalDatePerson> after  = dateIdx.after(lower);
+        final Condition<LocalDatePerson> before = dateIdx.before(upper);
+
+        final List<LocalDatePerson> rangeAnd = map.query(after.and(before)).toList();
+        final List<LocalDatePerson> rangeQ   = map.query().and(after).and(before).toList();
+
+        assertEquals(2, rangeAnd.size(), "Condition.and() must respect both bounds");
+        assertEquals(rangeQ.size(), rangeAnd.size(), "Condition.and() and GigaQuery.and() must agree");
+        rangeAnd.forEach(p -> assertNotEquals("Alice", p.name()));
+        rangeAnd.forEach(p -> assertNotEquals("Dave",  p.name()));
+
+        // (ii) range AND condition from a different indexer
+        final Condition<LocalDatePerson> bobMatch = nameIdx.is("Bob");
+
+        final List<LocalDatePerson> mixedAnd = map.query(after.and(bobMatch)).toList();
+        final List<LocalDatePerson> mixedQ   = map.query().and(after).and(bobMatch).toList();
+
+        assertEquals(1, mixedAnd.size(), "range AND non-range condition must intersect correctly");
+        assertEquals("Bob", mixedAnd.get(0).name());
+        assertEquals(mixedQ.size(), mixedAnd.size());
     }
 
     private GigaMap<LocalDatePerson> prepageGigaMap()
@@ -307,6 +356,15 @@ public class LocalDateIndexTest
         protected LocalDate getLocalDate(LocalDatePerson entity)
         {
             return entity.getBirthday();
+        }
+    }
+
+    private static class NameIndex extends IndexerString.Abstract<LocalDatePerson>
+    {
+        @Override
+        protected String getString(final LocalDatePerson entity)
+        {
+            return entity.name();
         }
     }
 

@@ -104,36 +104,44 @@ builder.add(new Term("content", "machine"));
 builder.add(new Term("content", "learning"));
 Query phraseQuery = builder.build();
 
-// With slop (allows words in between)
-builder.setSlop(2);  // Allow up to 2 words between terms
+// With slop (allows words in between); set it before build()
+Query slopQuery = new PhraseQuery.Builder()
+    .add(new Term("content", "machine"))
+    .add(new Term("content", "learning"))
+    .setSlop(2)  // Allow up to 2 words between terms
+    .build();
 ----
 
 == Relevance Scoring
 
-Access relevance scores to rank or filter results.
+`search(...)` returns a `LuceneSearchResult` whose entries carry the relevance score. The entries are already ordered by decreasing relevance, so no manual sorting is required.
 
 [source, java]
 ----
-// Collect results with scores
-List<ScoredResult<Product>> scoredResults = new ArrayList<>();
+LuceneSearchResult<Product> hits = luceneIndex.search("name:wireless", 100);
 
-luceneIndex.query("name:wireless", (entityId, product, score) -> {
-    scoredResults.add(new ScoredResult<>(product, score));
-});
-
-// Sort by score descending
-scoredResults.sort((a, b) -> Float.compare(b.score(), a.score()));
+// Iterate in relevance order
+for(ScoredSearchResult.Entry<Product> entry : hits)
+{
+    System.out.println(entry.entity().getName() + " (" + entry.score() + ")");
+}
 
 // Filter by minimum score
-List<Product> highConfidence = scoredResults.stream()
-    .filter(r -> r.score() > 1.0f)
-    .map(ScoredResult::product)
+List<Product> highConfidence = hits.stream()
+    .filter(entry -> entry.score() > 1.0f)
+    .map(ScoredSearchResult.Entry::entity)
     .toList();
 ----
 
+Besides `entity()` and `score()`, every entry exposes the GigaMap entity id via `entityId()`.
+
+Alternatively, the callback-based `query(...)` overloads hand each hit to a `SearchResultAcceptor` without materializing a result object.
+
 [source, java]
 ----
-public record ScoredResult<E>(E product, float score) {}
+luceneIndex.query("name:wireless", (entityId, product, score) ->
+    System.out.println(product.getName() + " (" + score + ")")
+);
 ----
 
 == Boosting
@@ -195,11 +203,12 @@ For importing large amounts of data, disable auto-commit for better performance.
 [source, java]
 ----
 // Create context with auto-commit disabled
-LuceneContext<Product> context = LuceneContext.builder()
-    .directoryCreator(DirectoryCreator.MMap(indexPath))
-    .documentPopulator(new ProductDocumentPopulator())
-    .autoCommit(false)
-    .build();
+LuceneContext<Product> context = LuceneContext.New(
+    DirectoryCreator.MMap(indexPath),
+    AnalyzerCreator.Standard()      ,
+    new ProductDocumentPopulator()  ,
+    false                             // autoCommit
+);
 
 GigaMap<Product> products = GigaMap.New();
 LuceneIndex<Product> luceneIndex = products.index().register(LuceneIndex.Category(context));
@@ -226,7 +235,9 @@ luceneIndex.commit();
 
 == Custom Analyzers
 
-Create custom analyzers for specialized text processing.
+Create custom analyzers for specialized text processing by subclassing `AnalyzerCreator` and overriding `createAnalyzer()`.
+
+NOTE: `StandardAnalyzer` ships with `lucene-core`. The analyzers shown below live in `org.apache.lucene.analysis.core` and `org.apache.lucene.analysis.miscellaneous` and require the additional `lucene-analysis-common` dependency.
 
 === Keyword Analyzer
 
@@ -239,7 +250,7 @@ import org.apache.lucene.analysis.core.KeywordAnalyzer;
 public class KeywordAnalyzerCreator extends AnalyzerCreator
 {
     @Override
-    public Analyzer create()
+    public Analyzer createAnalyzer()
     {
         return new KeywordAnalyzer();
     }
@@ -257,7 +268,7 @@ import org.apache.lucene.analysis.core.WhitespaceAnalyzer;
 public class WhitespaceAnalyzerCreator extends AnalyzerCreator
 {
     @Override
-    public Analyzer create()
+    public Analyzer createAnalyzer()
     {
         return new WhitespaceAnalyzer();
     }
@@ -275,7 +286,7 @@ import org.apache.lucene.analysis.miscellaneous.PerFieldAnalyzerWrapper;
 public class CustomAnalyzerCreator extends AnalyzerCreator
 {
     @Override
-    public Analyzer create()
+    public Analyzer createAnalyzer()
     {
         Map<String, Analyzer> fieldAnalyzers = new HashMap<>();
         fieldAnalyzers.put("sku", new KeywordAnalyzer());
@@ -327,23 +338,39 @@ Count results by category using Lucene's faceting.
 // See Apache Lucene faceting documentation for details
 ----
 
-For simpler faceting, combine with GigaMap's bitmap indices:
+For simpler faceting, intersect the search result with a GigaMap query. Since `search(...)` returns a `LuceneSearchResult`, which is a xref:queries/defining.adoc#_sub_queries[`GigaMap.SubQuery`], no intermediate id set is needed.
 
 [source, java]
 ----
-// Get Lucene search results
-List<Product> searchResults = luceneIndex.query("name:wireless");
-Set<Long> resultIds = searchResults.stream()
-    .map(Product::getId)
-    .collect(Collectors.toSet());
+// Full-text hits, limited to the current map size
+LuceneSearchResult<Product> hits = luceneIndex.search("name:wireless");
 
-// Count by category using bitmap
-Map<String, Long> categoryCounts = products.query(Query.all())
-    .filter(p -> resultIds.contains(p.getId()))
+// Count the matching entities by category
+Map<String, Long> categoryCounts = products.query()
+    .and(hits)
+    .stream()
     .collect(Collectors.groupingBy(Product::getCategory, Collectors.counting()));
 ----
 
 == Index Lifecycle
+
+=== Reindexing
+
+GigaMap has no automatic change tracking. The Lucene index is only updated when an entity is added, removed, or mutated through `update` / `apply`. If an indexed field is changed *directly*, the document is never re-populated, so searches silently return stale results — and a subsequent `gigaMap.store()` neither fixes the index nor persists the direct change.
+
+The preferred fix is to mutate the entity through the entityId-based `update` / `apply` (single entity), which re-indexes it and schedules it for storing. To repair an index that has already drifted, store the affected entities explicitly and rebuild the whole index from the current entity state with `reindex()`:
+
+[source, java]
+----
+// stale: title was changed directly, not via update()
+article.setTitle("New Title");
+storageManager.store(article);  // persist the changed entity explicitly (not tracked by GigaMap)
+
+gigaMap.reindex();              // rebuild all indices from current entity state
+gigaMap.store();                // persist the rebuilt indices
+----
+
+`reindex()` drops the existing documents and re-populates them via the configured `DocumentPopulator`, committing once at the end (honoring `autoCommit`: with an external directory and `autoCommit=false` the commit is deferred to the next `gigaMap.store()` boundary). It rebuilds only the index structures — it does not store the entities — so ensure the entities themselves are persisted as shown above. On a very large map this iterates all entities, so prefer `update` / `apply` for routine single-entity changes.
 
 === Closing and Re-opening
 

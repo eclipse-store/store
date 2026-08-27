@@ -20,19 +20,24 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 
 import static java.lang.annotation.ElementType.FIELD;
+import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.RetentionPolicy.RUNTIME;
 
 /**
- * An annotation to indicate that the annotated field must have a unique value across all instances of the class in a {@link GigaMap}.
+ * An annotation to indicate that the annotated property must have a unique value across all instances of the class in a {@link GigaMap}.
  * This is a marker annotation and does not contain any attributes.
  * <p>
- * This annotation enforces the uniqueness of the field it is applied to, often in the context of persistence or
- * data modeling systems where ensuring unique values for a field is required.
+ * This annotation enforces the uniqueness of the property it is applied to, often in the context of persistence or
+ * data modeling systems where ensuring unique values is required.
  * <p>
- * The annotation is retained at runtime and can be applied specifically to fields.
+ * For annotation-based index generation this annotation is sufficient on its own: it creates a unique
+ * index for the property, so a companion {@link Index} is not required (though it may still be combined
+ * with {@link Index}).
+ * <p>
+ * The annotation is retained at runtime and can be applied to fields or no-argument getter methods.
  */
 @Retention(RUNTIME)
-@Target(FIELD)
+@Target({FIELD, METHOD})
 public @interface Unique
 {
 	// marker interface

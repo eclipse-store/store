@@ -77,6 +77,23 @@ public final class EmbeddedStorage
 		);
 	}
 
+	/**
+	 * Pseudo-constructor method to create a new {@link EmbeddedStorageConnectionFoundation} instance derived from
+	 * the passed {@link StorageConfiguration}.
+	 * <p>
+	 * The {@link PersistenceTypeDictionaryIoHandler} required for handling the persistent type dictionary is obtained
+	 * from the configuration's {@link StorageLiveFileProvider} and, if a {@link StorageBackupSetup} is configured, also
+	 * from the backup file provider so that type dictionary changes are mirrored into the backup location.
+	 *
+	 * @param configuration            the {@link StorageConfiguration} from which the type dictionary IO handler
+	 *        (and the optional backup type dictionary IO handler) is derived.
+	 *
+	 * @param typeEvaluatorPersistable evaluator function to determine if instances of a type are persistable.
+	 *
+	 * @return a new {@link EmbeddedStorageConnectionFoundation} instance.
+	 *
+	 * @see #ConnectionFoundation(PersistenceTypeDictionaryIoHandler, PersistenceTypeEvaluator)
+	 */
 	public static final EmbeddedStorageConnectionFoundation<?> ConnectionFoundation(
 		final StorageConfiguration     configuration           ,
 		final PersistenceTypeEvaluator typeEvaluatorPersistable
@@ -162,7 +179,25 @@ public final class EmbeddedStorage
 	{
 		return Foundation(Storage.defaultStorageDirectory());
 	}
-	
+
+	/**
+	 * Pseudo-constructor method to create a new {@link EmbeddedStorageFoundation} instance using the passed
+	 * {@link Path} as the storage directory and default values for the remaining parts of its
+	 * {@link StorageConfiguration}.
+	 * <p>
+	 * The directory is resolved against the {@link NioFileSystem} of the passed {@link Path}, which allows
+	 * non-default file systems (e.g. ZIP, in-memory) to be used as a storage location.
+	 *
+	 * @param directory the directory where the storage will be located.
+	 *
+	 * @return a new {@link EmbeddedStorageFoundation} instance using the passed storage directory.
+	 *
+	 * @see #Foundation()
+	 * @see #Foundation(ADirectory)
+	 * @see #Foundation(StorageConfiguration)
+	 * @see #Foundation(StorageConfiguration.Builder)
+	 * @see #Foundation(StorageConfiguration, EmbeddedStorageConnectionFoundation)
+	 */
 	public static final EmbeddedStorageFoundation<?> Foundation(
 		final Path directory
 	)

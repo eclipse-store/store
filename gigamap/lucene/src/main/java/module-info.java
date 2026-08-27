@@ -14,7 +14,8 @@
 module org.eclipse.store.gigamap.lucene
 {
 	exports org.eclipse.store.gigamap.lucene;
-	
+	exports org.eclipse.store.gigamap.lucene.annotations;
+
 	requires org.apache.lucene.core;
 	requires org.apache.lucene.queryparser;
 	requires org.eclipse.serializer.base;

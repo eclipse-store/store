@@ -552,165 +552,26 @@ public interface BitmapResult
 	}
 	
 	
-	public static <E> Resolver<E> Resolver(
+	public static <E> EntityResolver<E> Resolver(
 		final GigaMap<E>               parent   ,
 		final EntryConsumer<? super E> collector
 	)
 	{
-		return new Resolver.Default<>(
+		return new EntityResolver.Default<>(
 			notNull(parent),
 			notNull(collector)
 		);
 	}
 	
-	public static <E> Resolver<E> ResolverPeeking(
+	public static <E> EntityResolver<E> ResolverPeeking(
 		final GigaMap<E>               parent   ,
 		final EntryConsumer<? super E> collector
 	)
 	{
-		return new Resolver.Peeking<>(
+		return new EntityResolver.Peeking<>(
 			notNull(parent),
 			notNull(collector)
 		);
-	}
-	
-		
-	public interface Resolver<E>
-	{
-		public E get(long entityId);
-		
-		public GigaMap<E> parent();
-		
-		
-		
-		abstract class Abstract<E> implements Resolver<E>
-		{
-			///////////////////////////////////////////////////////////////////////////
-			// instance fields //
-			////////////////////
-			
-			final GigaMap<E> parent;
-			
-			
-			
-			///////////////////////////////////////////////////////////////////////////
-			// constructors //
-			/////////////////
-			
-			Abstract(final GigaMap<E> parent)
-			{
-				super();
-				this.parent = parent;
-			}
-			
-			
-			
-			///////////////////////////////////////////////////////////////////////////
-			// methods //
-			////////////
-			
-			@Override
-			public final GigaMap<E> parent()
-			{
-				return this.parent;
-			}
-			
-			@Override
-			public E get(final long entityId)
-			{
-				return this.parent.get(entityId);
-			}
-						
-		}
-		
-		abstract class AbstractWrapping<E> extends Abstract<E>
-		{
-			///////////////////////////////////////////////////////////////////////////
-			// instance fields //
-			////////////////////
-
-			final EntryConsumer<? super E> consumer;
-			
-			
-			
-			///////////////////////////////////////////////////////////////////////////
-			// constructors //
-			/////////////////
-			
-			AbstractWrapping(final GigaMap<E> parent, final EntryConsumer<? super E> consumer)
-			{
-				super(parent);
-				this.consumer = consumer;
-			}
-
-		}
-		
-		final class Default<E> extends AbstractWrapping<E>
-		{
-			///////////////////////////////////////////////////////////////////////////
-			// constructors //
-			/////////////////
-			
-			Default(final GigaMap<E> parent, final EntryConsumer<? super E> consumer)
-			{
-				super(parent, consumer);
-			}
-			
-			
-			
-			///////////////////////////////////////////////////////////////////////////
-			// methods //
-			////////////
-
-			@Override
-			public E get(final long entityId)
-			{
-				final E entity = super.get(entityId);
-				if(entity != null)
-				{
-					// NOT condition arithmetic can cause lookups for entityIds of non-existing (removed) entities.
-					this.consumer.accept(entityId, entity);
-				}
-				
-				return entity;
-			}
-			
-		}
-		
-		// (26.01.2024 TM)XXX: what is the difference between Peeking and Default?
-		
-		final class Peeking<E> extends AbstractWrapping<E>
-		{
-			///////////////////////////////////////////////////////////////////////////
-			// constructors //
-			/////////////////
-			
-			Peeking(final GigaMap<E> parent, final EntryConsumer<? super E> collector)
-			{
-				super(parent, collector);
-			}
-			
-			
-			
-			///////////////////////////////////////////////////////////////////////////
-			// methods //
-			////////////
-
-			@Override
-			public E get(final long entityId)
-			{
-				final E entity = super.get(entityId);
-				if(entity != null)
-				{
-					// NOT condition arithmetic can cause lookups for entityIds of non-existing (removed) entities.
-					this.consumer.accept(entityId, entity);
-				}
-				
-				return entity;
-			}
-			
-		}
-		
 	}
 		
 }

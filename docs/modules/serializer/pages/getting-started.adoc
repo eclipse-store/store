@@ -29,6 +29,10 @@ dependencies {
 The serializer converts Java objects to a binary format (byte arrays) and back.
 Create a serializer instance, optionally configure it with a foundation, and use the `serialize` and `deserialize` methods.
 
+The serializer works with almost any Java object — no `java.io.Serializable` interface, no annotations, and no default constructor are required.
+Types bound to JVM internals (such as `Thread` or IO streams) are excluded.
+See xref:storage:faq/data-model.adoc[Data Model FAQ] for details.
+
 [source, java]
 ----
 // Create a serializer with default settings

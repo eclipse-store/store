@@ -51,7 +51,7 @@ public class CustomTypeIndexTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(this.tempDir)) {
-            final GigaMap<CustomTypeEntity> map2 = (GigaMap<CustomTypeEntity>) storageManager.root();
+            final GigaMap<CustomTypeEntity> map2 = storageManager.root();
             this.checkIndices(map2, map2.index().bitmap());
         }
 

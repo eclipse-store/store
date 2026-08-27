@@ -201,6 +201,37 @@ public interface VectorIndexConfiguration
     public int beamWidth();
 
     /**
+     * Returns the minimum beam width used during search (HNSW <i>efSearch</i> floor).
+     * <p>
+     * This parameter controls the minimum number of candidate nodes the HNSW graph traversal
+     * explores when answering a query, independent of the requested {@code k}. The effective
+     * search beam width is {@code max(k, minSearchBeamWidth())}.
+     * <p>
+     * <b>Difference from {@link #beamWidth()}:</b> the existing {@code beamWidth()} controls
+     * <i>construction</i> effort (HNSW <i>efConstruction</i>) and has no effect at query time.
+     * {@code minSearchBeamWidth()} controls <i>search</i> effort (HNSW <i>efSearch</i>) and has
+     * no effect during construction. They are orthogonal.
+     * <p>
+     * <b>Why a floor matters:</b> when the beam width equals a small {@code k}, the traversal
+     * explores too few candidates and the resulting top-k can vary depending on the requested
+     * {@code k} (e.g. {@code search(q, 5)} and the first 5 results of {@code search(q, 50)}
+     * may differ). Enforcing a floor keeps the top-k stable regardless of the requested {@code k}.
+     * <p>
+     * <b>Tuning:</b>
+     * <ul>
+     *   <li><b>Higher values (200-500):</b> better recall and more consistent results,
+     *       at the cost of query latency.</li>
+     *   <li><b>Lower values (down to 1):</b> faster queries at small {@code k}. A value of
+     *       {@code 1} effectively disables the floor — the beam width equals the requested {@code k}.</li>
+     * </ul>
+     * <p>
+     * For per-query overrides, see {@link VectorIndex#search(float[], int, int)}.
+     *
+     * @return the minimum search beam width (default: 100)
+     */
+    public int minSearchBeamWidth();
+
+    /**
      * Returns the neighbor overflow factor for temporary neighbor storage during construction.
      * <p>
      * During index construction, HNSW temporarily stores more neighbors than {@link #maxDegree()}
@@ -352,14 +383,38 @@ public interface VectorIndexConfiguration
     /**
      * Returns whether to persist pending changes on shutdown.
      * <p>
-     * When enabled and {@link #backgroundPersistence()} is true, the index will
-     * persist any pending changes when {@code close()} is called, ensuring all
-     * changes are durable before shutdown completes.
+     * When enabled and {@link #onDisk()} is true, the index will persist any
+     * pending changes when {@code close()} is called, ensuring all changes are
+     * durable before shutdown completes. This applies regardless of whether
+     * {@link #backgroundPersistence()} is enabled — on-disk indices configured
+     * without background persistence are also flushed on close.
      *
      * @return true if persist-on-shutdown is enabled (default: true)
+     * @see #onDisk()
      * @see #backgroundPersistence()
      */
     public boolean persistOnShutdown();
+
+    /**
+     * Returns the maximum time in milliseconds the final shutdown work may run on the background
+     * task executor before it is aborted so application shutdown can proceed.
+     * <p>
+     * On {@code close()}, the final shutdown work — draining pending indexing operations and, if
+     * enabled, optimizing and persisting — runs on the background executor and is awaited for this
+     * long. If it does not finish in time, the executor is interrupted and shutdown continues. The
+     * dominant cost is the persist; because {@link #onDisk()} indices write their graph atomically
+     * and self-heal from the store on the next load, an aborted persist never loses data or leaves a
+     * torn file — it simply degrades to a rebuild on the next boot.
+     * <p>
+     * In incremental on-disk mode the shutdown persist returns immediately (no full-graph
+     * consolidation is performed on shutdown), so in practice this timeout only bounds a genuinely
+     * slow first-time (non-incremental) persist or an unexpectedly slow drain/optimize.
+     *
+     * @return the shutdown work timeout in milliseconds (default: 30000)
+     * @see #persistOnShutdown()
+     * @see #optimizeOnShutdown()
+     */
+    public long shutdownPersistTimeoutMillis();
 
     /**
      * Returns the minimum number of changes required before triggering persistence.
@@ -771,6 +826,7 @@ public interface VectorIndexConfiguration
      *   <li>{@code similarityFunction}: {@link VectorSimilarityFunction#COSINE}</li>
      *   <li>{@code maxDegree}: 16</li>
      *   <li>{@code beamWidth}: 100</li>
+     *   <li>{@code minSearchBeamWidth}: 100</li>
      *   <li>{@code neighborOverflow}: 1.2</li>
      *   <li>{@code alpha}: 1.2</li>
      * </ul>
@@ -816,6 +872,18 @@ public interface VectorIndexConfiguration
          * @see VectorIndexConfiguration#beamWidth()
          */
         public Builder beamWidth(int beamWidth);
+
+        /**
+         * Sets the minimum search beam width (HNSW <i>efSearch</i> floor).
+         * <p>
+         * Pass {@code 1} to disable the floor so the beam width equals the requested {@code k}.
+         *
+         * @param minSearchBeamWidth the minimum search beam width (must be positive)
+         * @return this builder for method chaining
+         * @throws IllegalArgumentException if minSearchBeamWidth is not positive
+         * @see VectorIndexConfiguration#minSearchBeamWidth()
+         */
+        public Builder minSearchBeamWidth(int minSearchBeamWidth);
 
         /**
          * Sets the neighbor overflow factor for construction.
@@ -903,6 +971,16 @@ public interface VectorIndexConfiguration
         public Builder persistOnShutdown(boolean persistOnShutdown);
 
         /**
+         * Sets the maximum time the final shutdown work (drain, optimize, persist) may run before it
+         * is aborted so shutdown can proceed.
+         *
+         * @param shutdownPersistTimeoutMillis the timeout in milliseconds (must be positive)
+         * @return this builder for method chaining
+         * @see VectorIndexConfiguration#shutdownPersistTimeoutMillis()
+         */
+        public Builder shutdownPersistTimeoutMillis(long shutdownPersistTimeoutMillis);
+
+        /**
          * Sets the minimum number of changes required before triggering persistence.
          *
          * @param minChangesBetweenPersists the minimum changes threshold (must be non-negative)
@@ -986,10 +1064,16 @@ public interface VectorIndexConfiguration
              */
             private static final int FUSED_PQ_REQUIRED_MAX_DEGREE = 32;
 
+            /**
+             * Default upper bound (30s) on how long a shutdown persist may run before it is aborted.
+             */
+            private static final long DEFAULT_SHUTDOWN_PERSIST_TIMEOUT_MILLIS = 30_000L;
+
             private int                      dimension                    ;
             private VectorSimilarityFunction similarityFunction           ;
             private int                      maxDegree                    ;
             private int                      beamWidth                    ;
+            private int                      minSearchBeamWidth           ;
             private float                    neighborOverflow             ;
             private float                    alpha                        ;
             private boolean                  onDisk                       ;
@@ -998,6 +1082,7 @@ public interface VectorIndexConfiguration
             private int                      pqSubspaces                  ;
             private long                     persistenceIntervalMs        ;
             private boolean                  persistOnShutdown            ;
+            private long                     shutdownPersistTimeoutMillis ;
             private int                      minChangesBetweenPersists    ;
             private long                     optimizationIntervalMs       ;
             private int                      minChangesBetweenOptimizations;
@@ -1011,6 +1096,7 @@ public interface VectorIndexConfiguration
                 this.similarityFunction            = VectorSimilarityFunction.COSINE;
                 this.maxDegree                     = 16;
                 this.beamWidth                     = 100;
+                this.minSearchBeamWidth            = 100;
                 this.neighborOverflow              = 1.2f;
                 this.alpha                         = 1.2f;
                 this.onDisk                        = false;
@@ -1019,6 +1105,7 @@ public interface VectorIndexConfiguration
                 this.pqSubspaces                   = 0;
                 this.persistenceIntervalMs         = 0;  // 0 = disabled
                 this.persistOnShutdown             = true;
+                this.shutdownPersistTimeoutMillis  = DEFAULT_SHUTDOWN_PERSIST_TIMEOUT_MILLIS;
                 this.minChangesBetweenPersists     = 100;
                 this.optimizationIntervalMs        = 0;  // 0 = disabled
                 this.minChangesBetweenOptimizations = 1000;
@@ -1052,6 +1139,13 @@ public interface VectorIndexConfiguration
             public Builder beamWidth(final int beamWidth)
             {
                 this.beamWidth = positive(beamWidth);
+                return this;
+            }
+
+            @Override
+            public Builder minSearchBeamWidth(final int minSearchBeamWidth)
+            {
+                this.minSearchBeamWidth = positive(minSearchBeamWidth);
                 return this;
             }
 
@@ -1116,6 +1210,13 @@ public interface VectorIndexConfiguration
             public Builder persistOnShutdown(final boolean persistOnShutdown)
             {
                 this.persistOnShutdown = persistOnShutdown;
+                return this;
+            }
+
+            @Override
+            public Builder shutdownPersistTimeoutMillis(final long shutdownPersistTimeoutMillis)
+            {
+                this.shutdownPersistTimeoutMillis = positive(shutdownPersistTimeoutMillis);
                 return this;
             }
 
@@ -1209,6 +1310,7 @@ public interface VectorIndexConfiguration
                     this.similarityFunction,
                     this.maxDegree,
                     this.beamWidth,
+                    this.minSearchBeamWidth,
                     this.neighborOverflow,
                     this.alpha,
                     this.onDisk,
@@ -1217,6 +1319,7 @@ public interface VectorIndexConfiguration
                     this.pqSubspaces,
                     this.persistenceIntervalMs,
                     this.persistOnShutdown,
+                    this.shutdownPersistTimeoutMillis,
                     this.minChangesBetweenPersists,
                     this.optimizationIntervalMs,
                     this.minChangesBetweenOptimizations,
@@ -1240,6 +1343,7 @@ public interface VectorIndexConfiguration
         private final VectorSimilarityFunction similarityFunction            ;
         private final int                      maxDegree                     ;
         private final int                      beamWidth                     ;
+        private final int                      minSearchBeamWidth            ;
         private final float                    neighborOverflow              ;
         private final float                    alpha                         ;
         private final boolean                  onDisk                        ;
@@ -1248,6 +1352,7 @@ public interface VectorIndexConfiguration
         private final int                      pqSubspaces                   ;
         private final long                     persistenceIntervalMs         ;
         private final boolean                  persistOnShutdown             ;
+        private final long                     shutdownPersistTimeoutMillis  ;
         private final int                      minChangesBetweenPersists     ;
         private final long                     optimizationIntervalMs        ;
         private final int                      minChangesBetweenOptimizations;
@@ -1260,6 +1365,7 @@ public interface VectorIndexConfiguration
             final VectorSimilarityFunction similarityFunction             ,
             final int                      maxDegree                      ,
             final int                      beamWidth                      ,
+            final int                      minSearchBeamWidth             ,
             final float                    neighborOverflow               ,
             final float                    alpha                          ,
             final boolean                  onDisk                         ,
@@ -1268,6 +1374,7 @@ public interface VectorIndexConfiguration
             final int                      pqSubspaces                    ,
             final long                     persistenceIntervalMs          ,
             final boolean                  persistOnShutdown              ,
+            final long                     shutdownPersistTimeoutMillis   ,
             final int                      minChangesBetweenPersists      ,
             final long                     optimizationIntervalMs         ,
             final int                      minChangesBetweenOptimizations ,
@@ -1280,6 +1387,7 @@ public interface VectorIndexConfiguration
             this.similarityFunction             = similarityFunction                                       ;
             this.maxDegree                      = maxDegree                                                ;
             this.beamWidth                      = beamWidth                                                ;
+            this.minSearchBeamWidth             = minSearchBeamWidth                                       ;
             this.neighborOverflow               = neighborOverflow                                         ;
             this.alpha                          = alpha                                                    ;
             this.onDisk                         = onDisk                                                   ;
@@ -1288,6 +1396,7 @@ public interface VectorIndexConfiguration
             this.pqSubspaces                    = pqSubspaces                                              ;
             this.persistenceIntervalMs          = persistenceIntervalMs                                    ;
             this.persistOnShutdown              = persistOnShutdown                                        ;
+            this.shutdownPersistTimeoutMillis   = shutdownPersistTimeoutMillis                             ;
             this.minChangesBetweenPersists      = minChangesBetweenPersists                                ;
             this.optimizationIntervalMs         = optimizationIntervalMs                                   ;
             this.minChangesBetweenOptimizations = minChangesBetweenOptimizations                           ;
@@ -1318,6 +1427,12 @@ public interface VectorIndexConfiguration
         public int beamWidth()
         {
             return this.beamWidth;
+        }
+
+        @Override
+        public int minSearchBeamWidth()
+        {
+            return this.minSearchBeamWidth;
         }
 
         @Override
@@ -1366,6 +1481,17 @@ public interface VectorIndexConfiguration
         public boolean persistOnShutdown()
         {
             return this.persistOnShutdown;
+        }
+
+        @Override
+        public long shutdownPersistTimeoutMillis()
+        {
+            // Guard against a non-positive value loaded from a pre-existing store (Eclipse Store
+            // fills a field added by schema evolution with 0); fall back to the default so a legacy
+            // config never yields a zero/immediate shutdown-persist timeout.
+            return this.shutdownPersistTimeoutMillis > 0
+                ? this.shutdownPersistTimeoutMillis
+                : Builder.Default.DEFAULT_SHUTDOWN_PERSIST_TIMEOUT_MILLIS;
         }
 
         @Override

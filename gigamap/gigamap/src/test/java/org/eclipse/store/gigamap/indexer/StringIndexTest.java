@@ -67,7 +67,7 @@ public class StringIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<StringPerson> newMap = (GigaMap<StringPerson>) manager.root();
+            GigaMap<StringPerson> newMap = manager.root();
             assertEquals(1, newMap.query(profIndex.isBlank()).count());
         }
     }
@@ -84,7 +84,7 @@ public class StringIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<StringPerson> newMap = (GigaMap<StringPerson>) manager.root();
+            GigaMap<StringPerson> newMap = manager.root();
             assertEquals(1, newMap.query(profIndex.isEmpty()).count());
         }
     }
@@ -103,7 +103,7 @@ public class StringIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<StringPerson> newMap = (GigaMap<StringPerson>) manager.root();
+            GigaMap<StringPerson> newMap = manager.root();
             assertEquals(2, newMap.query(profIndex.endsWithIgnoreCase("eer")).count());
             newMap.query(profIndex.endsWithIgnoreCase("eer")).forEach(stringPerson -> assertEquals("Engineer", stringPerson.getProfession()));
             assertEquals(1, newMap.query(profIndex.endsWithIgnoreCase("tor")).count());
@@ -125,7 +125,7 @@ public class StringIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<StringPerson> newMap = (GigaMap<StringPerson>) manager.root();
+            GigaMap<StringPerson> newMap = manager.root();
             assertEquals(2, newMap.query(profIndex.endsWith("eer")).count());
             newMap.query(profIndex.endsWith("eer")).forEach(stringPerson -> assertEquals("Engineer", stringPerson.getProfession()));
             assertEquals(1, newMap.query(profIndex.endsWith("tor")).count());
@@ -149,7 +149,7 @@ public class StringIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<StringPerson> newMap = (GigaMap<StringPerson>) manager.root();
+            GigaMap<StringPerson> newMap = manager.root();
             assertEquals(2, newMap.query(profIndex.containsIgnoreCase("eng")).count());
             newMap.query(profIndex.containsIgnoreCase("eng")).forEach(stringPerson -> assertEquals("Engineer", stringPerson.getProfession()));
             assertEquals(1, newMap.query(profIndex.containsIgnoreCase("doc")).count());
@@ -174,7 +174,7 @@ public class StringIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<StringPerson> newMap = (GigaMap<StringPerson>) manager.root();
+            GigaMap<StringPerson> newMap = manager.root();
             assertEquals(2, newMap.query(profIndex.contains("Eng")).count());
             newMap.query(profIndex.contains("Eng")).forEach(stringPerson -> assertEquals("Engineer", stringPerson.getProfession()));
             assertEquals(1, newMap.query(profIndex.contains("Doc")).count());
@@ -197,7 +197,7 @@ public class StringIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<StringPerson> newMap = (GigaMap<StringPerson>) manager.root();
+            GigaMap<StringPerson> newMap = manager.root();
             assertEquals(2, newMap.query(profIndex.startsWith("Eng")).count());
             newMap.query(profIndex.startsWith("Eng")).forEach(stringPerson -> assertEquals("Engineer", stringPerson.getProfession()));
             assertEquals(1, newMap.query(profIndex.startsWith("Doc")).count());
@@ -219,7 +219,7 @@ public class StringIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<StringPerson> newMap = (GigaMap<StringPerson>) manager.root();
+            GigaMap<StringPerson> newMap = manager.root();
             assertEquals(2, newMap.query(profIndex.startsWithIgnoreCase("eng")).count());
             newMap.query(profIndex.startsWithIgnoreCase("eng")).forEach(stringPerson -> assertEquals("Engineer", stringPerson.getProfession()));
             assertEquals(1, newMap.query(profIndex.startsWithIgnoreCase("doc")).count());
@@ -258,7 +258,7 @@ public class StringIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<StringPerson> newMap = (GigaMap<StringPerson>) manager.root();
+            GigaMap<StringPerson> newMap = manager.root();
             newMap.query(profIndex.is("Engineer")).forEach(stringPerson -> assertEquals("Engineer", stringPerson.getProfession()));
             newMap.query(profIndex.is("Doctor")).forEach(stringPerson -> assertEquals("Doctor", stringPerson.getProfession()));
 

@@ -43,12 +43,12 @@ public class BinaryIndexerStringTest
             .withBitmapIdentityIndex(indexer)
             .build();
 
-        String nullBytes = "\0\0\0\0\0\0\0\0";
+        String fourthValue = "alpha";
 
         map.add(new StringBinaryIndexerPojo("one"));
         map.add(new StringBinaryIndexerPojo("two"));
         map.add(new StringBinaryIndexerPojo("three"));
-        map.add(new StringBinaryIndexerPojo(nullBytes));
+        map.add(new StringBinaryIndexerPojo(fourthValue));
 
         List<StringBinaryIndexerPojo> one = map.query(indexer.is("one")).toList();
         assertEquals(1, one.size());
@@ -56,9 +56,9 @@ public class BinaryIndexerStringTest
             assertEquals("one",  pojo.getStringValue());
         });
 
-        List<StringBinaryIndexerPojo> nullByteResult = map.query(indexer.is(nullBytes)).toList();
-        assertEquals(1, nullByteResult.size());
-        assertEquals(nullBytes, nullByteResult.get(0).getStringValue());
+        List<StringBinaryIndexerPojo> fourthResult = map.query(indexer.is(fourthValue)).toList();
+        assertEquals(1, fourthResult.size());
+        assertEquals(fourthValue, fourthResult.get(0).getStringValue());
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(map, tempDir)) {
             // Storage operations can be performed here
@@ -74,9 +74,9 @@ public class BinaryIndexerStringTest
                 assertEquals("one", pojo.getStringValue());
             });
 
-            List<StringBinaryIndexerPojo> newNullByteResult = newMap.query(indexer.is(nullBytes)).toList();
-            assertEquals(1, newNullByteResult.size());
-            assertEquals(nullBytes, newNullByteResult.get(0).getStringValue());
+            List<StringBinaryIndexerPojo> newFourthResult = newMap.query(indexer.is(fourthValue)).toList();
+            assertEquals(1, newFourthResult.size());
+            assertEquals(fourthValue, newFourthResult.get(0).getStringValue());
 
             newMap.add(new StringBinaryIndexerPojo("four"));
             newMap.store();

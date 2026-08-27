@@ -42,7 +42,7 @@ public class Credentials
     /**
      * The account name, used when "credentials.type" is "shared-key".
      */
-    private String accountMame;
+    private String accountName;
 
     /**
      * The account key, used when "credentials.type" is "shared-key".
@@ -79,14 +79,37 @@ public class Credentials
         this.password = password;
     }
 
-    public String getAccountMame()
+    public String getAccountName()
     {
-        return this.accountMame;
+        return this.accountName;
     }
 
+    public void setAccountName(final String accountName)
+    {
+        this.accountName = accountName;
+    }
+
+    /**
+     * @return the account name
+     * @deprecated typo alias, use {@link #getAccountName()} instead.
+     */
+    @Deprecated
+    public String getAccountMame()
+    {
+        return this.accountName;
+    }
+
+    /**
+     * Binds the historical, misspelled {@code account-mame} property for
+     * backwards compatibility.
+     *
+     * @param accountMame the account name
+     * @deprecated typo alias, use {@link #setAccountName(String)} instead.
+     */
+    @Deprecated
     public void setAccountMame(final String accountMame)
     {
-        this.accountMame = accountMame;
+        this.accountName = accountMame;
     }
 
     public String getAccountKey()

@@ -666,6 +666,23 @@ public interface NioIoHandler extends AIoHandler
 		}
 
 		@Override
+		protected void specificSynchronize(final NioWritableFile file)
+		{
+			// idempotent: the file is already open on every call path that reaches here
+			this.openWriting(file);
+			try
+			{
+				// force(true): appends grow the file, so the new length (metadata) must reach
+				// physical storage too, not only the content bytes.
+				file.fileChannel().force(true);
+			}
+			catch(final IOException e)
+			{
+				throw new IORuntimeException(e);
+			}
+		}
+
+		@Override
 		protected void specificMoveFile(
 			final NioWritableFile sourceFile,
 			final AWritableFile   targetFile

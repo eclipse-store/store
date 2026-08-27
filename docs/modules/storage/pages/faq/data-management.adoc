@@ -19,7 +19,7 @@ When objects are updated or deleted, the old data is not immediately removed fro
 Instead, new data is appended and the deleted data becomes "garbage."
 The xref:housekeeping.adoc[housekeeping] process runs in the background to reclaim space from deleted or updated objects.
 
-You can monitor storage growth through the xref:../misc:monitoring/index.adoc[monitoring] JMX beans, which report the amount of persisted data.
+You can monitor storage growth through the xref:misc:monitoring/index.adoc[monitoring] JMX beans, which report the amount of persisted data.
 
 == How can I reduce storage size?
 
@@ -29,12 +29,19 @@ You can monitor storage growth through the xref:../misc:monitoring/index.adoc[mo
 
 == How do I handle concurrent access?
 
+TIP: See xref:intro:concurrent-access.adoc[Concurrent Access] for the full conceptual treatment.
+
 {product-name} is designed for single-process access.
 The storage manager itself handles the internal persistence operations (reading and writing storage files) in a thread-safe manner.
 
 However, *your application code is responsible for synchronizing access to the shared object graph*.
 Since {product-name} stores plain Java objects that live in memory, the same concurrency rules apply as for any shared mutable data in Java.
 Without proper synchronization, concurrent reads and writes to the same objects can cause race conditions and inconsistent state — just like with any in-memory data structure.
+
+In particular, modifying the object graph and calling `store()` *must be done under the same lock*.
+{product-name} cannot enforce this on the application level.
+If the modification and the store call are not in the same synchronized scope, other threads may read intermediate state or the persisted data may diverge from what is in memory.
+See xref:misc:locking/index.adoc[Locking] for details.
 
 Use xref:misc:locking/index.adoc[locking] or other synchronization strategies to protect your data during concurrent access.
 

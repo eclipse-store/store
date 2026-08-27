@@ -46,7 +46,7 @@ public interface StorageRequestTaskCreator
 		int                        channelCount       ,
 		StorageOperationController operationController
 	);
-	
+
 	public StorageRequestTaskLoadByTids createLoadTaskByTids(
 		PersistenceIdSet           loadTids           ,
 		int                        channelCount       ,
@@ -93,7 +93,25 @@ public interface StorageRequestTaskCreator
 		StorageOperationController  operationController
 	);
 
+	public StorageRequestTaskIntegrityCheck createIntegrityCheckTask(
+		int                        channelCount       ,
+		long                       nanoTimeBudget     ,
+		boolean                    freshScan          ,
+		StorageOperationController operationController
+	);
+
 	public StorageRequestTaskTransactionsLogCleanup CreateTransactionsLogCleanupTask(
+		int                        channelCount       ,
+		StorageOperationController operationController
+	);
+
+	public StorageRequestTaskStorageFlush createStorageFlushTask(
+		int                        channelCount       ,
+		StorageOperationController operationController,
+		boolean                    carriesMaintenance
+	);
+
+	public StorageRequestTaskDurabilityMaintenance createDurabilityMaintenanceTask(
 		int                        channelCount       ,
 		StorageOperationController operationController
 	);
@@ -134,7 +152,8 @@ public interface StorageRequestTaskCreator
 		// instance fields //
 		////////////////////
 
-		private final StorageTimestampProvider timestampProvider;
+		private final StorageTimestampProvider         timestampProvider        ;
+		private final StorageReferenceValidationPolicy referenceValidationPolicy;
 
 
 
@@ -144,8 +163,18 @@ public interface StorageRequestTaskCreator
 
 		public Default(final StorageTimestampProvider timestampProvider)
 		{
+			// falls back to the documented product default (see StorageConfiguration).
+			this(timestampProvider, StorageReferenceValidationPolicy.LOG);
+		}
+
+		public Default(
+			final StorageTimestampProvider         timestampProvider        ,
+			final StorageReferenceValidationPolicy referenceValidationPolicy
+		)
+		{
 			super();
-			this.timestampProvider = notNull(timestampProvider);
+			this.timestampProvider         = notNull(timestampProvider)        ;
+			this.referenceValidationPolicy = notNull(referenceValidationPolicy);
 		}
 
 
@@ -189,7 +218,8 @@ public interface StorageRequestTaskCreator
 			return new StorageRequestTaskStoreEntities.Default(
 				this.timestampProvider.currentNanoTimestamp(),
 				data,
-				operationController
+				operationController,
+				this.referenceValidationPolicy
 			);
 		}
 
@@ -218,7 +248,7 @@ public interface StorageRequestTaskCreator
 				operationController
 			);
 		}
-		
+
 		@Override
 		public StorageRequestTaskLoadByTids createLoadTaskByTids(
 			final PersistenceIdSet           loadTids           ,
@@ -312,11 +342,56 @@ public interface StorageRequestTaskCreator
 		}
 
 		@Override
+		public StorageRequestTaskIntegrityCheck createIntegrityCheckTask(
+			final int                        channelCount       ,
+			final long                       nanoTimeBudget     ,
+			final boolean                    freshScan          ,
+			final StorageOperationController operationController
+		)
+		{
+			return new StorageRequestTaskIntegrityCheck.Default(
+				this.timestampProvider.currentNanoTimestamp(),
+				channelCount,
+				nanoTimeBudget,
+				freshScan,
+				operationController
+			);
+		}
+
+		@Override
 		public StorageRequestTaskTransactionsLogCleanup CreateTransactionsLogCleanupTask(
 			final int channelCount,
 			final StorageOperationController operationController)
 		{
 			return new StorageRequestTaskTransactionsLogCleanup.Default(
+				this.timestampProvider.currentNanoTimestamp(),
+				channelCount,
+				operationController
+			);
+		}
+
+		@Override
+		public StorageRequestTaskStorageFlush createStorageFlushTask(
+			final int                        channelCount       ,
+			final StorageOperationController operationController,
+			final boolean                    carriesMaintenance
+		)
+		{
+			return new StorageRequestTaskStorageFlush.Default(
+				this.timestampProvider.currentNanoTimestamp(),
+				channelCount,
+				operationController,
+				carriesMaintenance
+			);
+		}
+
+		@Override
+		public StorageRequestTaskDurabilityMaintenance createDurabilityMaintenanceTask(
+			final int                        channelCount       ,
+			final StorageOperationController operationController
+		)
+		{
+			return new StorageRequestTaskDurabilityMaintenance.Default(
 				this.timestampProvider.currentNanoTimestamp(),
 				channelCount,
 				operationController

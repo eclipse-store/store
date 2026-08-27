@@ -57,6 +57,11 @@ public abstract class Vectorizer<E>
      * This default implementation just delegates to {@link #vectorize(Object)} for each entity.
      * <p>
      * If you want to implement an optimized custom batch vectorization logic, override this method.
+     * <p>
+     * The returned list must have exactly the same size as {@code entities}, with positional
+     * correspondence (element <i>i</i> is the vector of entity <i>i</i>). When
+     * {@link #allowsNullVectors()} returns {@code true}, individual elements may be {@code null}
+     * (meaning the corresponding entity has no embedding); otherwise every element must be non-null.
      *
      * @param entities a list of entities of type E to be vectorized
      * @return a list of float arrays, where each array represents the numerical vector of the corresponding entity
@@ -82,6 +87,39 @@ public abstract class Vectorizer<E>
      * @return true if vectors are embedded in entities, false if computed
      */
     public boolean isEmbedded()
+    {
+        return false;
+    }
+
+    /**
+     * Returns whether this vectorizer is permitted to return {@code null} from
+     * {@link #vectorize(Object)} (and, correspondingly, to include {@code null} elements in the
+     * list returned by {@link #vectorizeAll(List)}).
+     * <p>
+     * When {@code false} (default), a {@code null} vector is treated as an error: an
+     * {@link IllegalStateException} is thrown when the entity is added, updated, or re-indexed.
+     * This fail-fast behavior catches accidental bugs in vectorizer implementations.
+     * <p>
+     * When {@code true}, a {@code null} vector means "this entity has no embedding". Such an
+     * entity remains in the {@code GigaMap} and all of its other indices, but is excluded from
+     * the vector index's HNSW graph and never appears in vector search results. In computed
+     * mode no vector store entry is kept for it, and {@link VectorIndex#getVector(long)} returns
+     * {@code null} for it. Vector transitions on update behave as follows:
+     * <ul>
+     *   <li>non-null &rarr; null: the entity is removed from the vector index</li>
+     *   <li>null &rarr; non-null: the entity is added to the vector index</li>
+     *   <li>null &rarr; null: no-op</li>
+     * </ul>
+     * An entity whose vector is {@code null} cannot be used as a similarity query
+     * (see {@link VectorIndex#search(Object, int)}); doing so throws {@link IllegalArgumentException}.
+     * <p>
+     * The return value must be constant for the lifetime of the vectorizer / index — it is
+     * consulted on every mutation, on reload/rebuild, and during PQ training; changing it at
+     * runtime yields undefined behavior.
+     *
+     * @return true to permit {@code null} vectors (excluded from the index), false to fail fast
+     */
+    public boolean allowsNullVectors()
     {
         return false;
     }

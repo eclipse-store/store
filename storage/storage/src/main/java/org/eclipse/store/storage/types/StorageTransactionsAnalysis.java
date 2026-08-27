@@ -25,14 +25,17 @@ import org.eclipse.serializer.afs.types.AFS;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AReadableFile;
 import org.eclipse.serializer.chars.VarString;
+import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.ConstList;
 import org.eclipse.serializer.collections.EqHashTable;
 import org.eclipse.serializer.collections.types.XGettingSequence;
 import org.eclipse.serializer.collections.types.XGettingTable;
+import org.eclipse.serializer.typing.KeyValue;
 import org.eclipse.serializer.exceptions.IndexBoundsException;
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.store.storage.exceptions.StorageException;
 import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
+import org.eclipse.store.storage.exceptions.StorageExceptionIncompleteTransactionsEntry;
 import org.eclipse.store.storage.exceptions.StorageExceptionIoReading;
 
 
@@ -45,6 +48,43 @@ public interface StorageTransactionsAnalysis
 	public long headFileLatestLength();
 
 	public long headFileLatestTimestamp();
+
+	/**
+	 * The latest store entry's own recorded head length - the value the entry itself carries,
+	 * before subsequent transfers grew the head further ({@link #headFileLatestLength()}
+	 * includes that growth). A truncation collapses it onto the new length.
+	 *
+	 * @return the latest store entry's own recorded length.
+	 */
+	public long headFileLatestStoreOwnLength();
+
+	/**
+	 * The latest store timestamp the head file's creation collapsed both rollback anchors onto,
+	 * 0 if no store preceded it. Its cut coordinate is {@link #headFileBaselineLength()}.
+	 * <p>
+	 * Any store timestamp between this baseline and {@link #headFileLatestTimestamp()} is a valid
+	 * head-file rollback cut; the cut length lives in that store's log entry and is re-read on
+	 * demand rather than retained (a head file can hold millions of stores).
+	 *
+	 * @return the head file's creation collapse timestamp.
+	 */
+	public long headFileBaselineTimestamp();
+
+	/**
+	 * @return the head file's creation length - the cut coordinate of
+	 *         {@link #headFileBaselineTimestamp()}.
+	 */
+	public long headFileBaselineLength();
+
+	/**
+	 * The head file's transfer entries as (source file number, post-transfer head length) pairs
+	 * in log order. Truncating the head below such a length also truncates that transfer's
+	 * bytes, which is only safe while its source file still exists;
+	 * {@code StorageFileManager#determineLastFileLength} must refuse the rollback otherwise.
+	 *
+	 * @return the head file's transfers; empty if the head file received no transfers.
+	 */
+	public XGettingSequence<KeyValue<Long, Long>> headFileTransfers();
 
 	public long maxTimestamp();
 
@@ -321,27 +361,89 @@ public interface StorageTransactionsAnalysis
 			final ByteBuffer buffer  = XMemory.allocateDirectNativeDefault();
 			final long       address = XMemory.getDirectByteBufferAddress(buffer);
 
-			// process whole file part by part
-			while(currentFilePosition < boundPosition)
+			try
 			{
-				buffer.clear();
-
-				// end of file special case: adjust buffer limit if buffer would exceed the bounds
-				if(currentFilePosition + buffer.limit() >= boundPosition)
+				// process whole file part by part
+				while(currentFilePosition < boundPosition)
 				{
-					// cast (value range) safety is guaranteed by if above
-					buffer.limit((int)(boundPosition - currentFilePosition));
+					buffer.clear();
+
+					// end of file special case: adjust buffer limit if buffer would exceed the bounds
+					if(currentFilePosition + buffer.limit() >= boundPosition)
+					{
+						// cast (value range) safety is guaranteed by if above
+						buffer.limit((int)(boundPosition - currentFilePosition));
+					}
+
+					// loop is guaranteed to terminate as it depends on the buffer capacity and the file length
+					file.readBytes(buffer, currentFilePosition);
+
+					// buffer is guaranteed to be filled exactly to its limit in any case
+					final long progress = processBufferedEntities(address, buffer.limit(), entryProcessor);
+					if(progress == 0)
+					{
+						/*
+						 * The leading entry cannot be interpreted (incomplete, zero length or a
+						 * sub-header remainder); re-reading would yield the identical window and
+						 * loop forever. A remainder no larger than the largest entry, or one that
+						 * is completely zero-filled, is the expected artifact of a crash during an
+						 * append and healable by truncating it. Anything else is corruption amid
+						 * the content and must fail loudly: healing would silently discard the
+						 * unreachable remainder.
+						 */
+						if(boundPosition - currentFilePosition <= LENGTH_COMMON_MAXIMUM
+							|| isZeroFilled(file, currentFilePosition, boundPosition, buffer, address)
+						)
+						{
+							throw new StorageExceptionIncompleteTransactionsEntry(
+								currentFilePosition,
+								"Incomplete trailing transactions entry at position " + currentFilePosition
+								+ " of " + boundPosition + " in file " + file.toPathString()
+							);
+						}
+						throw new StorageExceptionConsistency(
+							"Unreadable transactions entry at position " + currentFilePosition
+							+ " of " + boundPosition + " in file " + file.toPathString()
+						);
+					}
+					currentFilePosition += progress;
 				}
 
-				// loop is guaranteed to terminate as it depends on the buffer capacity and the file length
-				file.readBytes(buffer, currentFilePosition);
-
-				// buffer is guaranteed to be filled exactely to its limit in any case
-				final long progress = processBufferedEntities(address, buffer.limit(), entryProcessor);
-				currentFilePosition += progress;
+				return entryProcessor;
 			}
+			finally
+			{
+				XMemory.deallocateDirectByteBuffer(buffer);
+			}
+		}
 
-			return entryProcessor;
+		private static boolean isZeroFilled(
+			final AReadableFile file    ,
+			final long          position,
+			final long          bound   ,
+			final ByteBuffer    buffer  ,
+			final long          address
+		)
+		{
+			long currentPosition = position;
+			while(currentPosition < bound)
+			{
+				buffer.clear();
+				if(currentPosition + buffer.limit() >= bound)
+				{
+					buffer.limit((int)(bound - currentPosition));
+				}
+				file.readBytes(buffer, currentPosition);
+				for(int i = 0; i < buffer.limit(); i++)
+				{
+					if(XMemory.get_byte(address + i) != 0)
+					{
+						return false;
+					}
+				}
+				currentPosition += buffer.limit();
+			}
+			return true;
 		}
 
 		private static long processBufferedEntities(
@@ -365,13 +467,20 @@ public interface StorageTransactionsAnalysis
 			// iterate over and process every complete entity record, skip all gaps, revert trailing complete entity
 			while(true) // loop gets terminated by end-of-data recognition logic specific to the found case
 			{
+				// an entry needs at least its length and type byte; a smaller remainder is either
+				// a window boundary (the caller re-reads) or a torn tail (the caller decides)
+				if(bufferBound - address < LENGTH_ENTRY_LENGTH + LENGTH_ENTRY_TYPE)
+				{
+					return address - startAddress;
+				}
+
 				// read length of current entry (actual or gap)
 				entryLength = getEntryLength(address); // implicit cast!
 
 				if(entryLength == 0)
 				{
-					// entity length may never be 0 or the iteration will hang forever
-					throw new StorageException("Zero length transactions entry.");
+					// cannot be advanced over; tail-or-corruption policy is decided by the caller
+					return address - startAddress;
 				}
 
 				// depending on the processor logic, incomplete entity data can still be enough (e.g. only needs header)
@@ -668,12 +777,19 @@ public interface StorageTransactionsAnalysis
 	{
 		private final EqHashTable<Long, StorageTransactionEntry.Default> files = EqHashTable.New();
 
+		// the head file's transfers as (source file number, post-transfer length) pairs; see
+		// headFileTransfers(). Bounded by the transfers into one head file, cleared on rollover.
+		private final BulkList<KeyValue<Long, Long>> headFileTransfers = BulkList.New();
+
 		private final int  hashIndex;
 
 		private long lastConsistentStoreLength   ;
 		private long lastConsistentStoreTimestamp;
 		private long currentStoreLength          ;
 		private long currentStoreTimestamp       ;
+		private long latestStoreOwnLength        ;
+		private long headFileBaselineTimestamp   ;
+		private long headFileBaselineLength      ;
 		private long maxTimeStamp;
 
 		private long currentFileNumber            = -1;
@@ -747,6 +863,13 @@ public interface StorageTransactionsAnalysis
 			this.lastConsistentStoreLength    = this.currentStoreLength    = fileLength;
 			this.currentFileNumber            = number;
 
+			// the new head resets the cut coordinates: a rollback truncates only the head file,
+			// so transfers into the now closed file keep their bytes regardless
+			this.headFileBaselineTimestamp = this.currentStoreTimestamp;
+			this.headFileBaselineLength    = fileLength;
+			this.latestStoreOwnLength      = fileLength;
+			this.headFileTransfers.clear();
+
 			return true;
 		}
 
@@ -792,6 +915,8 @@ public interface StorageTransactionsAnalysis
 			this.lastConsistentStoreLength    = this.currentStoreLength;
 			this.currentStoreTimestamp        = timestamp;
 			this.currentStoreLength           = fileLength;
+			this.latestStoreOwnLength         = fileLength;
+
 			return true;
 		}
 
@@ -812,15 +937,17 @@ public interface StorageTransactionsAnalysis
 			}
 
 			this.updateMaxTimestamp(Logic.getEntryTimestamp(address));
-			
-			/* lastConsistentStoreTimestamp is not updated to associate the new file length with the old timestamp
-			 * i.e. when an inter-channel rollback has to occur, the transfer part is not rolled back, as it is
-			 * channel-local
+
+			/* Transferred bytes lie above the covering store's chunk, so a rollback below them
+			 * re-acquires them from the source file later. Only currentStoreLength advances - the
+			 * rollback anchor must not pass a store that might still be rolled back. Source and
+			 * position are kept so the rollback can refuse when the source is already deleted
+			 * (see headFileTransfers()).
 			 */
-			this.lastConsistentStoreLength = this.currentStoreLength = fileLength;
-			/* currentStoreTimestamp is NOT updated as a transfer is channel-local, therefore won't affect
-			 * store consistency anyway and can happen after the store has been issued but before it is processed.
-			 */
+			this.currentStoreLength = fileLength;
+			this.headFileTransfers.add(KeyValue.New(Logic.getFileNumber(address), fileLength));
+			// currentStoreTimestamp is not updated: a transfer is channel-local and may occur after
+			// its store was issued, so it must not advance store consistency.
 			return true;
 		}
 
@@ -858,7 +985,46 @@ public interface StorageTransactionsAnalysis
 			}
 
 			this.updateMaxTimestamp(Logic.getEntryTimestamp(address));
+
+			/*
+			 * When the head is cut below the current store, the latest-store timestamp (surfaced as
+			 * headFileLatestTimestamp, the consensus key) must stop naming it. The entry's stamped
+			 * timestamp is consulted first: recovery stamps the surviving store's timestamp, and a
+			 * stamp naming the current store means the cut keeps it entirely - store lengths do NOT
+			 * strictly increase (an empty store shares its predecessor's length), so a bare length
+			 * match against a retained anchor could misname the survivor. Only for an unmatched
+			 * stamp (legacy entries carry a fresh timestamp) does newLength identify the survivor:
+			 * a retained anchor's length (the store below or the baseline), or a deeper cut whose
+			 * survivor's timestamp is then taken from the entry after all - else
+			 * currentStoreTimestamp would keep naming a rolled-back store and brick after a later
+			 * crash. Applied before the length fields below.
+			 */
+			if(Logic.getEntryTimestamp(address) == this.currentStoreTimestamp)
+			{
+				// stamped with the current latest store: it survives the cut, the timestamp stands
+			}
+			else if(newLength == this.lastConsistentStoreLength)
+			{
+				this.currentStoreTimestamp = this.lastConsistentStoreTimestamp;
+			}
+			else if(newLength == this.headFileBaselineLength)
+			{
+				this.currentStoreTimestamp = this.headFileBaselineTimestamp;
+			}
+			else if(newLength < this.lastConsistentStoreLength)
+			{
+				this.currentStoreTimestamp = this.lastConsistentStoreTimestamp = Logic.getEntryTimestamp(address);
+			}
+
 			this.lastConsistentStoreLength = this.currentStoreLength = newLength;
+
+			// the truncation already cut everything above the new length
+			this.latestStoreOwnLength = newLength;
+			this.headFileTransfers.removeBy(transfer -> transfer.value() > newLength);
+			if(newLength < this.headFileBaselineLength)
+			{
+				this.headFileBaselineLength = newLength;
+			}
 
 			return true;
 		}
@@ -895,6 +1061,10 @@ public interface StorageTransactionsAnalysis
 				this.lastConsistentStoreTimestamp,
 				this.currentStoreLength          ,
 				this.currentStoreTimestamp       ,
+				this.latestStoreOwnLength        ,
+				this.headFileBaselineTimestamp   ,
+				this.headFileBaselineLength      ,
+				this.headFileTransfers           ,
 				this.maxTimeStamp
 			);
 		}
@@ -920,10 +1090,14 @@ public interface StorageTransactionsAnalysis
 		private final long                                                   headFileLastConsistentStoreTimestamp;
 		private final long                                                   headFileLatestLength                ;
 		private final long                                                   headFileLatestTimestamp             ;
+		private final long                                                   headFileLatestStoreOwnLength        ;
+		private final long                                                   headFileBaselineTimestamp           ;
+		private final long                                                   headFileBaselineLength              ;
+		private final XGettingSequence<KeyValue<Long, Long>>                 headFileTransfers                   ;
 		private final long                                                   maxTimestamp                        ;
 
 
-		
+
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
 		/////////////////
@@ -935,17 +1109,25 @@ public interface StorageTransactionsAnalysis
 			final long                                                   headFileLastConsistentStoreTimestamp,
 			final long                                                   headFileLatestLength                ,
 			final long                                                   headFileLatestTimestamp             ,
+			final long                                                   headFileLatestStoreOwnLength        ,
+			final long                                                   headFileBaselineTimestamp           ,
+			final long                                                   headFileBaselineLength              ,
+			final XGettingSequence<KeyValue<Long, Long>>                 headFileTransfers                   ,
 			final long                                                   maxTimestamp
 		)
 		{
 			super();
-			this.transactionsFile                     = notNull(transactionsFile)           ;
-			this.transactionsFileEntries              = transactionsFileEntries             ;
-			this.headFileLastConsistentStoreLength    = headFileLastConsistentStoreLength   ;
+			this.transactionsFile                     = notNull(transactionsFile)         ;
+			this.transactionsFileEntries              = transactionsFileEntries           ;
+			this.headFileLastConsistentStoreLength    = headFileLastConsistentStoreLength ;
 			this.headFileLastConsistentStoreTimestamp = headFileLastConsistentStoreTimestamp;
-			this.headFileLatestLength                 = headFileLatestLength                ;
-			this.headFileLatestTimestamp              = headFileLatestTimestamp             ;
-			this.maxTimestamp                         = maxTimestamp                        ;
+			this.headFileLatestLength                 = headFileLatestLength              ;
+			this.headFileLatestTimestamp              = headFileLatestTimestamp           ;
+			this.headFileLatestStoreOwnLength         = headFileLatestStoreOwnLength      ;
+			this.headFileBaselineTimestamp            = headFileBaselineTimestamp         ;
+			this.headFileBaselineLength               = headFileBaselineLength            ;
+			this.headFileTransfers                    = notNull(headFileTransfers)        ;
+			this.maxTimestamp                         = maxTimestamp                      ;
 		}
 
 
@@ -989,7 +1171,31 @@ public interface StorageTransactionsAnalysis
 		{
 			return this.headFileLatestTimestamp;
 		}
-		
+
+		@Override
+		public final long headFileLatestStoreOwnLength()
+		{
+			return this.headFileLatestStoreOwnLength;
+		}
+
+		@Override
+		public final long headFileBaselineTimestamp()
+		{
+			return this.headFileBaselineTimestamp;
+		}
+
+		@Override
+		public final long headFileBaselineLength()
+		{
+			return this.headFileBaselineLength;
+		}
+
+		@Override
+		public final XGettingSequence<KeyValue<Long, Long>> headFileTransfers()
+		{
+			return this.headFileTransfers;
+		}
+
 		@Override
 		public final long maxTimestamp()
 		{

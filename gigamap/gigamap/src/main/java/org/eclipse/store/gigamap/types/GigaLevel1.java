@@ -68,7 +68,52 @@ public final class GigaLevel1<E> extends AbstractStateChangeFlagged implements U
 		super(newInstance);
 		this.entities = this.createEntitiesArray(length);
 	}
-	
+
+
+
+	///////////////////////////////////////////////////////////////////////////
+	// methods //
+	////////////
+
+	/**
+	 * Whether this segment currently holds no entity at all, which makes it eligible for being released
+	 * from its parent {@link GigaLevel2}.
+	 * <p>
+	 * {@code scanStartIndex} only steers where the scan begins, it does not narrow what is examined:
+	 * every slot is checked, ending with {@code scanStartIndex} itself, so the answer never depends on
+	 * the caller having cleared that slot. Starting right after the slot a removal just cleared is what
+	 * makes a sequential drain, forward or backward, hit a surviving neighbour on the very first
+	 * comparison instead of walking the whole array.
+	 * <p>
+	 * Bound to the array's own length rather than to the parent map's configured segment size, simply
+	 * because this class owns the array and needs no state of the map to walk it. The two always agree:
+	 * the length exponents are persisted with the map and a reloaded map is constructed from those, so
+	 * a reloaded array's length is the configured segment size.
+	 *
+	 * @param scanStartIndex the index to start scanning after, typically the slot that was cleared last
+	 * @return {@code true} if every slot is {@code null}, {@code false} otherwise
+	 */
+	final boolean isEmpty(final int scanStartIndex)
+	{
+		final E[] entities = this.entities;
+		final int length   = entities.length;
+
+		for(int i = 1; i <= length; i++)
+		{
+			int index = scanStartIndex + i;
+			if(index >= length)
+			{
+				index -= length;
+			}
+			if(entities[index] != null)
+			{
+				return false;
+			}
+		}
+
+		return true;
+	}
+
 	@Override
 	protected void storeChangedChildren(final Storer storer)
 	{

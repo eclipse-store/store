@@ -8,19 +8,14 @@ The loading process is fully automatic, as usual. Even the lazy loading is handl
 
 == Storing
 
-After updating the contents of the GigaMap, simply call `store`, just like usual.
-
-[source, java]
-----
-storageManager.store(gigaMap);
-----
-
-or this way:
+After updating the contents of the GigaMap, call `gigaMap.store()` to persist the changes:
 
 [source, java]
 ----
 gigaMap.store();
 ----
+
+This is the *recommended* way to store. `gigaMap.store()` is synchronized internally — it acquires the GigaMap's lock, ensuring that no other thread can modify the GigaMap while the store operation is running.
 
 The GigaMap monitors changes internally, ensuring that only the modified parts are written to the storage.
 
@@ -37,17 +32,38 @@ gigaMap.update(person, p -> {
 gigaMap.store();
 ----
 
-NOTE: Changes made to entities directly (outside of `update` or `apply`) are not tracked by the GigaMap and must be stored manually.
+[WARNING]
+====
+GigaMap has no automatic change tracking. Changes made to entities *directly* (outside of `update`, `apply`, `set`, `replace`, `add` or `remove`) are not tracked, so they are neither stored automatically *nor reflected in the indices*.
 
-== Concurrency
+Mutating an indexed field directly leaves the indices stale: bitmap queries return wrong results, and Lucene searches fail *silently* (no error). A subsequent `gigaMap.store()` does not fix this — it neither re-runs the indexers nor implicitly persists the direct mutation.
 
-When using GigaMap in a multi-threaded environment, it is important to understand how storing interacts with the GigaMap's internal locking.
+Note that `set` and `replace` cover a different case than `update` / `apply`: they install a *different* instance and re-index that, so they cannot write back an entity you mutated yourself — passing the instance the map already holds is rejected with an `IllegalArgumentException`.
 
-`gigaMap.store()` is the *recommended* way to store. It is synchronized on the GigaMap instance, which guarantees that no other thread can modify the GigaMap while the store operation is running.
+Always mutate indexed entities through `update` / `apply`, which update the indices and schedule the entity for storing. If a mutation already bypassed them, store the affected entities explicitly and call `reindex()` to rebuild all indices from the current entity state, then `store()` (note that `reindex()` rebuilds only the index structures — it does not store the entities):
 
-Storing the GigaMap through any other path, such as `storageManager.store(gigaMap)` or `storageConnection.storeAll(...)`, does *not* acquire the GigaMap's lock. If another thread modifies the GigaMap concurrently (e.g. by calling `add`, `remove`, or `update`), the internal data structures can be modified while they are being serialized, leading to errors such as `BinaryPersistenceException: Inconsistent element count`.
+[source, java]
+----
+person.setLastName("Smith");        // direct mutation (not tracked)
+storageManager.store(person);       // persist the changed entity explicitly
+gigaMap.reindex();                  // rebuild every index from current entity state
+gigaMap.store();                    // persist the rebuilt indices
+----
 
-If you need to store the GigaMap through an external path, you must synchronize on the GigaMap instance yourself:
+If `reindex()` throws because an indexer could not handle one of the entities, the bitmap indices it rebuilt successfully keep their rebuilt data, and the one whose indexer threw is left as it was — stale, but complete, never partial. Fix the indexer and call `reindex()` again before `store()`. See xref:crud.adoc#_removing_and_updating_entities[CRUD — Removing and Updating Entities].
+====
+
+=== Why not `storageManager.store(gigaMap)`?
+
+[IMPORTANT]
+====
+Storing the GigaMap through `storageManager.store(gigaMap)` or `storageConnection.storeAll(...)` does *not* acquire the GigaMap's internal lock.
+This means other threads can modify the GigaMap (e.g. by calling `add`, `remove`, or `update`) while it is being serialized, leading to errors such as `BinaryPersistenceException: Inconsistent element count`.
+
+Always prefer `gigaMap.store()`.
+====
+
+If you must store the GigaMap through an external path, you need to synchronize on the GigaMap instance yourself:
 
 [source, java]
 ----
@@ -57,3 +73,63 @@ synchronized (gigaMap) {
 ----
 
 This is the same principle as the classic problem with synchronized JDK collections like `Vector`: synchronizing individual methods is not sufficient when multiple operations need to be atomic. In this case, the entire store traversal must be protected from concurrent modifications.
+
+== Storing several instances in one commit
+
+`gigaMap.store()` is one commit per call. A change that spans two GigaMaps — or a GigaMap plus the root object that references it — is therefore *two* commits, and nothing makes them atomic: a crash in between leaves one applied and the other not.
+
+`store(...)` accepts any `PersistenceStoring`. Pass a `Persister` (e.g. the storage manager) and it stores and commits immediately; pass a `Storer` and it only registers the changes, leaving the commit to you:
+
+[source, java]
+----
+final Storer storer = storageManager.createStorer();
+gigaMapA.store(storer);
+gigaMapB.store(storer);
+storer.store(root);
+storer.commit();          // one commit, atomic across all of the above
+----
+
+`Storer.commit()` is all-or-nothing, so either every registered change is persisted or none of it is.
+
+What `store(storer)` covers is exactly what `store()` covers: the entities, the indices, the segments, the constraints, and entities mutated through `update` / `apply`. Entities mutated directly are still not covered and still leave the indices stale, as described above.
+
+[IMPORTANT]
+====
+Register *through the GigaMap* (`gigaMap.store(storer)`), not through the storer (`storer.store(gigaMap)`). The latter is the external path warned about above and does not acquire the GigaMap's internal lock.
+
+Note that with a `Storer` the lock `gigaMap.store(storer)` holds spans its own registration only — *not* the later `commit()`. The calling context is therefore responsible for a lock that spans mutation through `commit()`. Registering with a `Storer` and committing it from different threads, or mutating a registered GigaMap before the commit, is not safe.
+====
+
+== Class evolution and indexed fields
+
+GigaMap's indices (bitmap, Lucene, vector) are a *derived cache*: their keys are computed from your entities by the indexers and are then persisted alongside the entities. On load the index keys are restored *verbatim from storage* — they are **not** recomputed from, or revalidated against, the entities.
+
+This matters when an *indexed* field's class layout evolves between releases. {product-name}'s serializer maps an evolved class to the new layout on load (see xref:storage:legacy-type-mapping/index.adoc[Legacy Type Mapping]). If an indexed field is renamed or retyped *without a value-preserving refactoring mapping*, the loaded entities carry shifted or defaulted field values while the persisted index still carries the pre-evolution keys. The index is now stale, and nothing detects this automatically.
+
+[WARNING]
+====
+Evolving an *indexed* field without a value-preserving refactoring mapping leaves the indices stale — with the same consequences as a direct (untracked) mutation:
+
+* Queries return pre-evolution results: `is(oldValue)` still matches, `is(actualValue)` returns nothing. Only `reindex()` restores correct query results.
+* A subsequent `update` / `apply` / `set` that writes the entity's true value may fail with a `StaleIndexException`. The committed entity is **not** deleted by this: a stale index never causes a phantom unique-constraint violation against the entity's own entry, and — like any other index failure — a stale-index failure retains the entity rather than removing it. You still need to `reindex()` to make the index consistent again.
+
+After evolving an indexed field, rebuild every index from the current entity state with `reindex()` **before** running any query or update, then `store()`:
+
+[source, java]
+----
+gigaMap.reindex();   // rebuild every index from current entity state
+gigaMap.store();     // persist the rebuilt indices
+----
+
+If in doubt, prefer a value-preserving refactoring mapping for indexed fields, or call `reindex()` on first load after a release that changed an indexed field's name or type.
+====
+
+== Concurrency
+
+TIP: See xref:intro:concurrent-access.adoc[Concurrent Access] for the full conceptual treatment.
+
+As with any {product-name} application, modifying the object graph and storing the changes *must be done under the same lock*.
+The `gigaMap.store()` method handles this for you by acquiring the GigaMap's internal lock.
+
+However, if your application modifies other parts of the object graph alongside the GigaMap, you are responsible for synchronizing those modifications and their corresponding `store()` calls as well.
+See xref:misc:locking/index.adoc[Locking] for details on application-level synchronization strategies.

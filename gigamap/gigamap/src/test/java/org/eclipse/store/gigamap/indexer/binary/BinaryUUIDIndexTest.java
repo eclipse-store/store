@@ -79,7 +79,7 @@ public class BinaryUUIDIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<UUIDPerson> newMap = (GigaMap<UUIDPerson>) manager.root();
+            GigaMap<UUIDPerson> newMap = manager.root();
             newMap.query(uuidPersonIndex.is(uuid1)).forEach(uuidPerson -> assertEquals(uuid1, uuidPerson.getUuid()));
             newMap.query(uuidPersonIndex.is(uuid2)).forEach(uuidPerson -> assertEquals(uuid2, uuidPerson.getUuid()));
             newMap.query(uuidPersonIndex.is(zeroMsb)).forEach(uuidPerson -> assertEquals(zeroMsb, uuidPerson.getUuid()));

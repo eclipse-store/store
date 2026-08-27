@@ -6,7 +6,7 @@
     <parent>
         <groupId>org.eclipse.store</groupId>
         <artifactId>storage-rest-parent</artifactId>
-        <version>4.0.0-SNAPSHOT</version>
+        <version>5.0.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>storage-restservice-javalin</artifactId>
@@ -28,12 +28,12 @@
         <dependency>
             <groupId>io.javalin</groupId>
             <artifactId>javalin</artifactId>
-            <version>6.7.0</version>
+            <version>7.2.2</version>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>2.17.2</version>
+            <version>2.22.2</version>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>

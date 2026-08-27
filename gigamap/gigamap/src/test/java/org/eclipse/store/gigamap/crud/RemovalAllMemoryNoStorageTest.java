@@ -26,6 +26,7 @@ import java.util.UUID;
 
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@Tag("slow")
 public class RemovalAllMemoryNoStorageTest
 {
 	

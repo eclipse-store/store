@@ -1,5 +1,7 @@
 = Using Channels
 
+TIP: See xref:configuration/best-practices.adoc[Best Practices: Dev / Test / Prod] for environment-specific recommendations on choosing a channel count.
+
 == Channel Usage
 
 xref:configuration/properties.adoc#channel-count[Channels] are the IO threads used by the {product-name} storage engine. A single channel represents the unity of a thread, a storage directory and cached data. Increasing the number of channels means to run more IO threads.

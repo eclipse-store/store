@@ -26,7 +26,9 @@ import java.util.function.Predicate;
  * <p>
  * Current limitation are:
  * <ul>
- * <li>null is not allowed</li>
+ * <li>null is not allowed: a binary index encodes the key directly into a single {@code long} bit pattern, which
+ * leaves no collision-free encoding for null. Null keys are rejected with an {@link IllegalArgumentException},
+ * both when extracted from an entity and when passed to a condition.</li>
  * <li>only <code>equality/is</code> conditions are supported</li>
  * </ul>
  *
@@ -49,15 +51,39 @@ public interface BinaryIndexer<E> extends Indexer<E, Long>
 	 * @return the long identifier corresponding to the given entity
 	 */
 	public long indexBinary(E entity);
+
+	/**
+	 * Reconstructs the index key from the raw {@code long} bit pattern that a binary bitmap index
+	 * stores for an entity — the inverse of {@link #indexBinary(Object)}'s internal encoding. This
+	 * lets {@link BitmapIndex#iterateKeyEntityPairs(java.util.function.ObjLongConsumer)} recover the
+	 * key for each entity from the index's per-bit-position bitmaps without loading the entity itself.
+	 * <p>
+	 * The default throws {@link UnsupportedOperationException}: since indexers generally apply a
+	 * non-identity encoding (unsigned mapping, zero sentinels, sortable float bits), a blanket identity
+	 * inverse would silently emit encoded/sentinel values instead of real keys. Each indexer whose
+	 * encoding can be inverted overrides this (currently {@link BinaryIndexerLong} and the integer
+	 * indexers); {@code iterateKeyEntityPairs} therefore fails fast on indexers that do not support
+	 * reconstruction rather than yielding wrong keys.
+	 *
+	 * @param stored the raw stored {@code long} bit pattern
+	 * @return the reconstructed key
+	 * @throws UnsupportedOperationException if this indexer's encoding cannot be inverted
+	 */
+	public default Long binaryToKey(final long stored)
+	{
+		throw new UnsupportedOperationException(
+			this.getClass().getSimpleName() + " does not support key reconstruction (binaryToKey)"
+		);
+	}
 	
 	/**
 	 * Creates an equality condition for the given key. This condition checks whether
 	 * the key extracted by this index is equal to the specified key.
 	 *
 	 * @param <S> the type of entity this condition applies to, extending the base entity type
-	 * @param key the key to compare for equality, not negative
+	 * @param key the key to compare for equality, must not be null
 	 * @return a new condition representing the equality check for the given key
-	 * @throws IllegalArgumentException if the key is negative
+	 * @throws IllegalArgumentException if the key is {@code null}
 	 */
 	@Override
 	public default <S extends E> Condition<S> is(final Long key)
@@ -67,6 +93,14 @@ public interface BinaryIndexer<E> extends Indexer<E, Long>
 		return Indexer.super.is(key);
 	}
 	
+	/**
+	 * Creates a condition that checks if the key extracted by this index is contained within the specified keys.
+	 *
+	 * @param <S> the type of entity this condition applies to, extending the base entity type
+	 * @param keys the keys to compare to, none of which may be null
+	 * @return a new condition representing the containment check for the provided keys
+	 * @throws IllegalArgumentException if any of the keys is {@code null}
+	 */
 	@Override
 	public default <S extends E> Condition<S> in(final Long... keys)
 	{
@@ -109,11 +143,27 @@ public interface BinaryIndexer<E> extends Indexer<E, Long>
 	
 	public static class Static
 	{
-		static void validate(final Long key, final BinaryIndexer<?> indexer)
+		/**
+		 * Rejects a null key with a descriptive {@link IllegalArgumentException}.
+		 * <p>
+		 * The parameter is {@link Number} rather than {@link Long} so that the numeric indexers can validate their
+		 * own key type before the unboxing in their {@code toLong} conversion turns a null key into a raw
+		 * {@link NullPointerException}.
+		 *
+		 * @param key the key to validate
+		 * @param indexer the indexer the key belongs to, used to name the index in the exception message
+		 * @throws IllegalArgumentException if the key is {@code null}
+		 */
+		static void validate(final Number key, final BinaryIndexer<?> indexer)
 		{
 			if(key == null)
 			{
-				throw new IllegalArgumentException("Null keys are not allowed in index " + indexer.name());
+				throw new IllegalArgumentException(
+					"Null keys are not allowed in index " + indexer.name()
+					+ ": a binary index encodes the key directly into a single long bit pattern, which leaves no"
+					+ " collision-free encoding for null. Use the hashing IndexerNumber variant"
+					+ " (e.g. IndexerLong) to index a nullable numeric field."
+				);
 			}
 		}
 		
@@ -173,7 +223,11 @@ public interface BinaryIndexer<E> extends Indexer<E, Long>
 		@Override
 		public long indexBinary(final E entity)
 		{
-			return this.subject.index(entity);
+			// must be validated before the unboxing below, which would turn a null key into a raw NullPointerException.
+			final Long key = this.subject.index(entity);
+			Static.validate(key, this);
+			
+			return key;
 		}
 		
 	}

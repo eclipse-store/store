@@ -15,7 +15,9 @@ package org.eclipse.store.gigamap.indexer.byte_;
  */
 
 import org.eclipse.store.gigamap.types.ByteIndexerInstant;
+import org.eclipse.store.gigamap.types.Condition;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
@@ -26,6 +28,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class ByteIndexerInstantTest
@@ -302,6 +305,54 @@ public class ByteIndexerInstantTest
     }
 
 
+    /**
+     * Regression test for issue #653 / #654: composing a {@link ByteIndexerInstant} range
+     * condition via {@link Condition#and(Condition)} (i) with another range condition and
+     * (ii) with a condition from a different indexer type must produce the same result as
+     * composing via {@link org.eclipse.store.gigamap.types.GigaQuery#and(Condition)}.
+     */
+    @Test
+    void rangeCompositionViaConditionAnd()
+    {
+        final NamedEventTimestampIndexer tsIdx   = new NamedEventTimestampIndexer();
+        final NameIndex                  nameIdx = new NameIndex();
+
+        final GigaMap<NamedEvent> map = GigaMap.<NamedEvent>Builder()
+            .withBitmapIndex(tsIdx)
+            .withBitmapIndex(nameIdx)
+            .build();
+        map.add(new NamedEvent("Alice",   Instant.parse("2021-01-01T12:00:00Z")));
+        map.add(new NamedEvent("Bob",     Instant.parse("2021-01-01T13:00:00Z")));
+        map.add(new NamedEvent("Charlie", Instant.parse("2021-01-01T14:00:00Z")));
+        map.add(new NamedEvent("Dave",    Instant.parse("2021-01-01T15:00:00Z")));
+
+        final Instant lower = Instant.parse("2021-01-01T12:30:00Z"); // exclusive
+        final Instant upper = Instant.parse("2021-01-01T14:30:00Z"); // exclusive
+
+        // (i) range AND range
+        final Condition<NamedEvent> after  = tsIdx.after(lower);
+        final Condition<NamedEvent> before = tsIdx.before(upper);
+
+        final List<NamedEvent> rangeAnd = map.query(after.and(before)).toList();
+        final List<NamedEvent> rangeQ   = map.query().and(after).and(before).toList();
+
+        assertEquals(2, rangeAnd.size(), "Condition.and() must respect both bounds");
+        assertEquals(rangeQ.size(), rangeAnd.size(), "Condition.and() and GigaQuery.and() must agree");
+        rangeAnd.forEach(e -> assertNotEquals("Alice", e.name()));
+        rangeAnd.forEach(e -> assertNotEquals("Dave",  e.name()));
+
+        // (ii) range AND condition from a different indexer
+        final Condition<NamedEvent> bobMatch = nameIdx.is("Bob");
+
+        final List<NamedEvent> mixedAnd = map.query(after.and(bobMatch)).toList();
+        final List<NamedEvent> mixedQ   = map.query().and(after).and(bobMatch).toList();
+
+        assertEquals(1, mixedAnd.size(), "range AND non-range condition must intersect correctly");
+        assertEquals("Bob", mixedAnd.get(0).name());
+        assertEquals(mixedQ.size(), mixedAnd.size());
+    }
+
+
     static class EventTimestampIndexer extends ByteIndexerInstant.Abstract<Event>
     {
         @Override
@@ -321,6 +372,46 @@ public class ByteIndexerInstantTest
         }
 
         public Instant getTimestamp()
+        {
+            return this.timestamp;
+        }
+    }
+
+    static class NamedEventTimestampIndexer extends ByteIndexerInstant.Abstract<NamedEvent>
+    {
+        @Override
+        protected Instant getInstant(final NamedEvent entity)
+        {
+            return entity.timestamp();
+        }
+    }
+
+    static class NameIndex extends IndexerString.Abstract<NamedEvent>
+    {
+        @Override
+        protected String getString(final NamedEvent entity)
+        {
+            return entity.name();
+        }
+    }
+
+    static class NamedEvent
+    {
+        private final String  name;
+        private final Instant timestamp;
+
+        NamedEvent(final String name, final Instant timestamp)
+        {
+            this.name      = name;
+            this.timestamp = timestamp;
+        }
+
+        String name()
+        {
+            return this.name;
+        }
+
+        Instant timestamp()
         {
             return this.timestamp;
         }

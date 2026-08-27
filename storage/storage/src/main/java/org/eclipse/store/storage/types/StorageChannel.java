@@ -21,6 +21,7 @@ import static org.eclipse.serializer.util.X.notNull;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.function.Predicate;
 
 import org.eclipse.serializer.afs.types.AWritableFile;
@@ -38,79 +39,458 @@ import org.eclipse.serializer.typing.KeyValue;
 import org.eclipse.serializer.util.BufferSizeProviderIncremental;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.logging.Logging;
+import org.eclipse.store.storage.exceptions.StorageExceptionConsistencyDanglingReference;
+import org.eclipse.store.storage.exceptions.StorageExceptionDisruptingExceptions;
+import org.eclipse.store.storage.exceptions.StorageExceptionNotRunning;
+import org.eclipse.store.storage.exceptions.StorageExceptionTransactionsFileCompaction;
 import org.eclipse.store.storage.monitoring.StorageChannelHousekeepingMonitor;
 import org.eclipse.store.storage.types.StorageAdjacencyDataExporter.AdjacencyFiles;
 import org.slf4j.Logger;
 
 
+/**
+ * A single storage worker thread, responsible for a fixed slice (its {@code channelIndex}) of the
+ * total entity space.
+ * <p>
+ * The number of channels in a running storage is fixed at startup by the
+ * {@link StorageChannelCountProvider} and partitions every entity by its object id; each
+ * {@link StorageChannel} owns the data files, transaction log, entity cache and per-channel
+ * housekeeping cursor for its slice. Channels run in dedicated threads via {@link #run()} and
+ * cooperatively process tasks dispatched from a central task broker (stores, loads, garbage
+ * collection, file cleanup, etc.) while interleaving incremental housekeeping work in idle time.
+ * <p>
+ * This is a framework-internal coordination interface: applications normally interact with
+ * {@link StorageManager} / {@link StorageConnection} and never call methods on a channel directly.
+ * The interface is exposed in the public API package so that custom strategy types and tasks in the
+ * same package can refer to it.
+ *
+ * @see StorageChannelCountProvider
+ * @see StorageHousekeepingController
+ */
 public interface StorageChannel extends Runnable, StorageChannelResetablePart, StorageActivePart, Disposable
 {
+	/**
+	 * Returns the {@link StorageTypeDictionary} that this channel uses to interpret persisted
+	 * entities.
+	 *
+	 * @return the channel's {@link StorageTypeDictionary}.
+	 */
 	public StorageTypeDictionary typeDictionary();
 
+	/**
+	 * Returns the shared {@link StorageEntityMarkMonitor} coordinating all channels' GC. All
+	 * channels share the same instance; it is used, among other things, as the system-wide handle
+	 * for the task-scoped pending-load gate (see {@link StorageEntityMarkMonitor#signalPendingLoadTask()}).
+	 * <p>
+	 * Default throws {@link UnsupportedOperationException} to preserve binary compatibility for
+	 * external {@link StorageChannel} implementations; the built-in implementation overrides it.
+	 *
+	 * @return the shared mark monitor.
+	 */
+	public default StorageEntityMarkMonitor markMonitor()
+	{
+		throw new UnsupportedOperationException(
+			"This " + StorageChannel.class.getSimpleName() + " implementation does not expose the mark monitor."
+		);
+	}
+
+	/**
+	 * Collects the entities for the passed object ids that belong to this channel into a
+	 * {@link ChunksBuffer}, which is appended to {@code channelChunks} at this channel's slot.
+	 *
+	 * @param channelChunks the array of {@link ChunksBuffer}s, one per channel, into which the
+	 *                      collected data is written.
+	 * @param loadOids      the object ids to load; only the subset belonging to this channel is
+	 *                      processed.
+	 *
+	 * @return the {@link ChunksBuffer} this channel wrote into, completed.
+	 */
 	public ChunksBuffer collectLoadByOids(ChunksBuffer[] channelChunks, PersistenceIdSet loadOids);
 
+	/**
+	 * Collects all root entities owned by this channel into a {@link ChunksBuffer} appended to
+	 * {@code channelChunks}.
+	 *
+	 * @param channelChunks the array of {@link ChunksBuffer}s, one per channel.
+	 *
+	 * @return the {@link ChunksBuffer} this channel wrote into, completed.
+	 */
 	public ChunksBuffer collectLoadRoots(ChunksBuffer[] channelChunks);
 
+	/**
+	 * Collects every entity owned by this channel whose type-id is in {@code loadTids}, into a
+	 * {@link ChunksBuffer} appended to {@code channelChunks}.
+	 *
+	 * @param channelChunks the array of {@link ChunksBuffer}s, one per channel.
+	 * @param loadTids      the type ids to load; only entities with these type ids are collected.
+	 *
+	 * @return the {@link ChunksBuffer} this channel wrote into, completed.
+	 */
 	public ChunksBuffer collectLoadByTids(ChunksBuffer[] channelChunks, PersistenceIdSet loadTids);
 
+	/**
+	 * Writes the channel-local portion of a store chunk to disk and returns the buffers along with
+	 * their on-disk positions.
+	 * <p>
+	 * Must be paired with a subsequent {@link #commitChunkStorage()} or
+	 * {@link #rollbackChunkStorage()} call once all participating channels have finished writing,
+	 * to make the store atomically visible or to discard it.
+	 *
+	 * @param timestamp the store transaction timestamp shared across all channels.
+	 * @param chunkData the chunk data to write for this channel's slice.
+	 *
+	 * @return a key/value pair of the written buffers and their assigned on-disk storage positions.
+	 */
 	public KeyValue<ByteBuffer[], long[]> storeEntities(long timestamp, Chunk chunkData);
 
+	/**
+	 * Validates that each passed object id resolves to an existing entity in this channel. The ids are a
+	 * store's "trusted references": object ids the storer wrote into the data without storing the
+	 * referenced entity itself, trusting that it already exists.
+	 * <p>
+	 * Depending on the passed policy, missing entities are logged
+	 * ({@link StorageReferenceValidationPolicy#LOG}) or rejected by throwing a
+	 * {@link org.eclipse.store.storage.exceptions.StorageExceptionConsistencyDanglingReference}
+	 * ({@link StorageReferenceValidationPolicy#FAIL}), which fails the surrounding store task and rolls
+	 * the whole store back atomically.
+	 * <p>
+	 * This check is race-free with respect to the storage garbage collector: GC sweeping for a channel
+	 * runs exclusively on that channel's own thread between tasks, and this method is invoked on the same
+	 * thread inside the store task, before the store commits. An entity found here therefore cannot be
+	 * deleted before the surrounding store is committed.
+	 * <p>
+	 * Contract for rejections: a failing validation reports ALL missing ids of this channel in one
+	 * exception (the complete miss list is collected before throwing). The storer-side self-healing
+	 * relies on this to bound its retry attempts at one healing round per channel.
+	 *
+	 * @param objectIds the trusted reference object ids assigned to this channel; may be {@code null} or empty.
+	 * @param policy    the validation policy to apply.
+	 */
+	public default void validateTrustedReferences(
+		final long[]                           objectIds,
+		final StorageReferenceValidationPolicy policy
+	)
+	{
+		// no-op by default
+	}
+
+	/**
+	 * Reverts the most recent {@link #storeEntities(long, Chunk) store} on this channel, discarding
+	 * any data that was written but not yet committed.
+	 */
 	public void rollbackChunkStorage();
 
+	/**
+	 * Commits the most recent {@link #storeEntities(long, Chunk) store} on this channel, making the
+	 * written data permanently visible.
+	 */
 	public void commitChunkStorage();
 
+	/**
+	 * Updates the live entity cache to reflect a freshly committed store, recording the new on-disk
+	 * positions of the passed chunks.
+	 *
+	 * @param chunks                 the buffers that were written.
+	 * @param chunksStoragePositions the on-disk positions returned by {@link #storeEntities}.
+	 *
+	 * @throws InterruptedException if the calling channel thread is interrupted while waiting for
+	 *                              the cache update slot.
+	 */
 	public void postStoreUpdateEntityCache(ByteBuffer[] chunks, long[] chunksStoragePositions)
 		throws InterruptedException;
 
+	/**
+	 * Reads this channel's data and transaction files from disk and returns a per-channel
+	 * {@link StorageInventory} describing them.
+	 *
+	 * @return the {@link StorageInventory} for this channel's files as currently present on disk.
+	 */
 	public StorageInventory readStorage();
 
+	/**
+	 * Issues a garbage-collection request to this channel with the passed time budget.
+	 * <p>
+	 * Returns {@code true} if the requested work could be completed within the budget,
+	 * {@code false} if the channel had to break off and the caller should re-issue the request.
+	 *
+	 * @param nanoTimeBudget the maximum amount of time, in nanoseconds, this channel is allowed to
+	 *                      spend on the GC step.
+	 *
+	 * @return whether the GC step completed within the budget.
+	 */
 	public boolean issuedGarbageCollection(long nanoTimeBudget);
 
+	/**
+	 * Signals that the marking of the currently issued garbage collection cannot complete
+	 * because a channel failed mid-marking. Sibling channels waiting for that channel's marks
+	 * exit promptly instead of waiting out the (effectively unbounded) time budget.
+	 * Default is a no-op; see {@link StorageEntityMarkMonitor#signalGcMarkingAbort()}.
+	 */
+	public default void signalGarbageCollectionAbort()
+	{
+		// no-op by default
+	}
+
+	/**
+	 * Clears a previously signaled garbage collection abort, arming a new issued garbage
+	 * collection attempt. Default is a no-op; see
+	 * {@link StorageEntityMarkMonitor#clearGcMarkingAbort()}.
+	 */
+	public default void clearGarbageCollectionAbort()
+	{
+		// no-op by default
+	}
+
+	/**
+	 * Issues a file-cleanup check to this channel with the passed time budget.
+	 *
+	 * @param nanoTimeBudget the maximum amount of time, in nanoseconds, this channel is allowed to
+	 *                       spend on the file-cleanup step.
+	 *
+	 * @return whether the file-cleanup step completed within the budget.
+	 */
 	public boolean issuedFileCleanupCheck(long nanoTimeBudget);
 
+	/**
+	 * Issues an entity-cache check to this channel with the passed time budget, using the passed
+	 * {@link StorageEntityCacheEvaluator} to decide which cached entities to evict.
+	 *
+	 * @param nanoTimeBudget  the maximum amount of time, in nanoseconds, this channel is allowed
+	 *                        to spend on the cache-check step.
+	 * @param entityEvaluator the eviction policy to apply for this issued check.
+	 *
+	 * @return whether the cache-check step completed within the budget.
+	 */
 	public boolean issuedEntityCacheCheck(long nanoTimeBudget, StorageEntityCacheEvaluator entityEvaluator);
 
+	/**
+	 * Issues an on-demand chunk-checksum integrity check to this channel with the passed time budget,
+	 * returning this channel's collected anomalies and whether the scan completed within the budget.
+	 *
+	 * @param nanoTimeBudget the maximum amount of time, in nanoseconds, this channel is allowed to
+	 *                       spend on the integrity-check step.
+	 * @param freshScan      whether to start a new scan (vs resume the in-progress one).
+	 *
+	 * @return this channel's findings and completion state.
+	 */
+	public StorageIntegrityCheckResult issuedIntegrityCheck(long nanoTimeBudget, boolean freshScan);
+
+	/**
+	 * Issues a transactions-log cleanup pass to this channel.
+	 *
+	 * @return whether the cleanup pass completed; {@code true} if no further cleanup is currently
+	 *         required.
+	 */
 	public boolean issuedTransactionsLogCleanup();
-	
+
+	/**
+	 * Synchronizes this channel's storage files (head data file, then transactions log) to the
+	 * storage medium. Processing part of the all-channel durability barrier, see
+	 * {@link StorageRequestTaskStorageFlush}.
+	 *
+	 * @return {@code true} if the files were synchronized; {@code false} if skipped because the
+	 *         storage is not writable, in which case the all-durable watermark must not advance.
+	 */
+	public boolean flushStorage();
+
+	/**
+	 * Reads and clears whether this channel rolled a file over during the current task. If it did,
+	 * the task's completion barrier makes every channel durable (eager rollover durability), so the
+	 * store the new file's creation entry collapses the recovery baseline onto is durable everywhere
+	 * before the task returns.
+	 *
+	 * @return whether this channel rolled a file over since the last poll.
+	 */
+	public boolean pollRolloverOccurred();
+
+	/**
+	 * Called on this channel after an all-channel storage flush completed successfully: every
+	 * store below the passed task timestamp is then fully durable on every channel. Pure state
+	 * commit (watermark raise); the deferred maintenance the raised watermark enables runs
+	 * separately via {@link #executeDurabilityCoveredMaintenance()}.
+	 *
+	 * @param allDurableTimestamp the completed flush task's timestamp.
+	 */
+	public void commitStorageFlush(long allDurableTimestamp);
+
+	/**
+	 * Executes the durability-gated maintenance this channel may have deferred (head-file
+	 * rollover, log compaction, the file-cleanup pass at the configured file-check budget).
+	 * <p>
+	 * Processing part of {@link StorageRequestTaskDurabilityMaintenance}, which the broker
+	 * enqueues directly behind every gate-requested storage-flush barrier: queue adjacency guarantees no store
+	 * task runs between the barrier's watermark raise ({@link #commitStorageFlush(long)}) and
+	 * this maintenance, so the durability gates pass for its whole duration. Under sustained
+	 * store traffic this is the ONLY reclamation slot (a store per cycle re-defers the periodic
+	 * housekeeping's dissolution forever). Self-guarded: without the raised watermark (barrier
+	 * failed or skipped) every gate simply re-defers and re-arms its request.
+	 */
+	public void executeDurabilityCoveredMaintenance();
+
+	/**
+	 * Exports this channel's live data into the directory layout described by the passed
+	 * {@link StorageLiveFileProvider}, writing one set of files per channel slot.
+	 *
+	 * @param fileProvider the {@link StorageLiveFileProvider} to use as the export target layout.
+	 */
 	public void exportData(StorageLiveFileProvider fileProvider);
 
 	// (19.07.2014 TM)TODO: refactor storage typing to avoid classes in public API
+	/**
+	 * Prepares this channel to receive imported data by registering the import with the storage
+	 * garbage collector (blocking new sweeps for the whole import task and quiescing an already
+	 * flagged one, see StorageEntityCache.Default#registerPendingImportUpdate), switching its file
+	 * manager into import mode and returning the entity cache that the importer will populate.
+	 * <p>
+	 * Every preparation must be paired with a {@link #cleanupImportData()} call once the import
+	 * task has ultimately completed (committed or rolled back).
+	 *
+	 * @return the channel's entity cache, ready to receive imported entities.
+	 */
 	public StorageEntityCache.Default prepareImportData();
 
+	/**
+	 * Copies the data from the passed {@link StorageImportSource} into this channel's storage.
+	 *
+	 * @param importSource the source to read imported data from.
+	 */
 	public void importData(StorageImportSource importSource);
 
+	/**
+	 * Rolls back an in-progress {@link #importData(StorageImportSource) import}, restoring the
+	 * channel's state from before the import started.
+	 *
+	 * @param cause the throwable that triggered the rollback (used for diagnostic logging only).
+	 */
 	public void rollbackImportData(Throwable cause);
 
+	/**
+	 * Commits an in-progress {@link #importData(StorageImportSource) import}, making the imported
+	 * data visible under the passed transaction timestamp.
+	 *
+	 * @param taskTimestamp the timestamp that identifies the import transaction.
+	 */
 	public void commitImportData(long taskTimestamp);
 
+	/**
+	 * Confirms a {@link #commitImportData(long) committed} import: to be called only once the
+	 * import task completed on EVERY channel without problems ("no problems so far" does not
+	 * suffice), and never on a failed import. Until then, the channel defers file lifecycle events
+	 * (rollover, dissolution, deletion) that would render a restart's consensus rollback of a torn
+	 * import commit impossible.
+	 * <p>
+	 * The default implementation is a no-op for {@link StorageChannel} implementations without
+	 * such a deferral.
+	 */
+	public default void confirmImportData()
+	{
+		// no-op by default. To be overridden by implementations that defer file lifecycle events.
+	}
+
+	/**
+	 * Clears the garbage collection coordination state registered by
+	 * {@link #prepareImportData()}, releasing sweep initiation again. Must be called exactly once
+	 * per {@link #prepareImportData()} after the import task has ultimately completed, no matter
+	 * the outcome (committed or rolled back). Idempotent and robust if the preparation never ran
+	 * or failed halfway.
+	 * <p>
+	 * The default implementation is a no-op for {@link StorageChannel} implementations whose
+	 * {@link #prepareImportData()} does not register any garbage collection coordination state.
+	 */
+	public default void cleanupImportData()
+	{
+		// no-op by default. To be overridden by implementations that register gc state in prepareImportData().
+	}
+
+	/**
+	 * Exports every entity of the passed type owned by this channel into the passed file.
+	 *
+	 * @param type the type whose entities shall be exported.
+	 * @param file the target file to write the exported entities to.
+	 *
+	 * @return the number of bytes written and the number of entities exported, as a key/value pair.
+	 *
+	 * @throws IOException if writing to the target file fails.
+	 */
 	public KeyValue<Long, Long> exportTypeEntities(StorageEntityTypeHandler type, AWritableFile file)
 		throws IOException;
 
+	/**
+	 * Exports every entity of the passed type owned by this channel for which the passed predicate
+	 * returns {@code true}, into the passed file.
+	 *
+	 * @param type            the type whose entities shall be exported.
+	 * @param file            the target file to write the exported entities to.
+	 * @param predicateEntity an entity-level filter; only entities for which this predicate returns
+	 *                        {@code true} are exported.
+	 *
+	 * @return the number of bytes written and the number of entities exported, as a key/value pair.
+	 *
+	 * @throws IOException if writing to the target file fails.
+	 */
 	public KeyValue<Long, Long> exportTypeEntities(
 		StorageEntityTypeHandler         type           ,
 		AWritableFile                    file           ,
 		Predicate<? super StorageEntity> predicateEntity
 	) throws IOException;
 
+	/**
+	 * Builds the per-channel slice of the raw file statistics describing this channel's data files.
+	 *
+	 * @return a {@link StorageRawFileStatistics.ChannelStatistics} describing this channel's files.
+	 */
 	public StorageRawFileStatistics.ChannelStatistics createRawFileStatistics();
 
+	/**
+	 * Initializes this channel's storage from the passed inventory, replaying transaction logs and
+	 * computing a per-channel {@link StorageIdAnalysis}.
+	 *
+	 * @param taskTimestamp            the timestamp of the initialization task.
+	 * @param consistentStoreTimestamp the timestamp identifying the last fully-committed store.
+	 * @param storageInventory         the {@link StorageInventory} previously read by
+	 *                                 {@link #readStorage()}.
+	 *
+	 * @return the {@link StorageIdAnalysis} for this channel's slice.
+	 */
 	public StorageIdAnalysis initializeStorage(
 		long             taskTimestamp           ,
 		long             consistentStoreTimestamp,
 		StorageInventory storageInventory
 	);
 
+	/**
+	 * Signals to this channel that a complete GC sweep across all channels has finished, so that
+	 * the channel may restart its file-cleanup cursor and re-evaluate cleanup eligibility.
+	 */
 	public void signalGarbageCollectionSweepCompleted();
 
 //	public void truncateData();
 
+	/**
+	 * Clears any pending store state held by this channel after a store has been processed
+	 * (committed or rolled back).
+	 */
 	public void cleanupStore();
 
+	/**
+	 * Iterates this channel's data files and writes per-file adjacency-data exports into the
+	 * passed directory.
+	 *
+	 * @param exportDirectory the directory to write the adjacency-data files into.
+	 *
+	 * @return the {@link AdjacencyFiles} descriptor of the files this channel produced.
+	 */
 	public AdjacencyFiles collectAdjacencyData(Path exportDirectory);
 
 
 	
 
+	/**
+	 * Default {@link StorageChannel} implementation: the long-running worker that pulls tasks from a
+	 * shared {@link StorageTaskBroker} and interleaves housekeeping work in the gaps. The instance is
+	 * marked {@link Unpersistable} because its mutable runtime state is not safe to persist as a
+	 * regular entity.
+	 */
 	public final class Default implements StorageChannel, Unpersistable, StorageHousekeepingExecutor
 	{
 		private final static Logger logger = Logging.getLogger(StorageChannel.class);
@@ -284,8 +664,8 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			
 			// turn budget into the budget bounding value for easier and faster checking
 			final long nanoTimeBudgetBound = XTime.calculateNanoTimeBudgetBound(nanoTimeBudget);
-			
-			return this.fileManager.issuedFileCleanupCheck(nanoTimeBudgetBound);
+
+			return this.afterStorageFlushPoll(this.fileManager.issuedFileCleanupCheck(nanoTimeBudgetBound));
 		}
 		
 		@Override
@@ -300,6 +680,17 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			final long nanoTimeBudgetBound = XTime.calculateNanoTimeBudgetBound(nanoTimeBudget);
 
 			return this.entityCache.issuedEntityCacheCheck(nanoTimeBudgetBound, evaluator);
+		}
+
+		@Override
+		public StorageIntegrityCheckResult performIssuedIntegrityCheck(final long nanoTimeBudget, final boolean freshScan)
+		{
+			logger.trace("StorageChannel#{} performing issued integrity check", this.channelIndex);
+
+			// turn budget into the budget bounding value for easier and faster checking
+			final long nanoTimeBudgetBound = XTime.calculateNanoTimeBudgetBound(nanoTimeBudget);
+
+			return this.fileManager.verifyChunkChecksums(nanoTimeBudgetBound, freshScan);
 		}
 
 		@Override
@@ -378,6 +769,18 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		}
 
 		@Override
+		public final void signalGarbageCollectionAbort()
+		{
+			this.entityCache.signalGcMarkingAbort();
+		}
+
+		@Override
+		public final void clearGarbageCollectionAbort()
+		{
+			this.entityCache.clearGcMarkingAbort();
+		}
+
+		@Override
 		public boolean issuedFileCleanupCheck(final long nanoTimeBudget)
 		{
 			return this.housekeepingBroker.performIssuedFileCleanupCheck(this, nanoTimeBudget);
@@ -391,13 +794,80 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		{
 			return this.housekeepingBroker.performIssuedEntityCacheCheck(this, nanoTimeBudget, entityEvaluator);
 		}
-		
+
+		@Override
+		public StorageIntegrityCheckResult issuedIntegrityCheck(final long nanoTimeBudget, final boolean freshScan)
+		{
+			return this.housekeepingBroker.performIssuedIntegrityCheck(this, nanoTimeBudget, freshScan);
+		}
+
 		@Override
 		public boolean issuedTransactionsLogCleanup()
 		{
-			return this.housekeepingBroker.performTransactionFileCheck(this, false);
+			try
+			{
+				return this.afterStorageFlushPoll(this.housekeepingBroker.performTransactionFileCheck(this, false));
+			}
+			catch(final StorageExceptionTransactionsFileCompaction e)
+			{
+				/*
+				 * The live transaction log is broken and only the retained swap file can heal it
+				 * on the next initialization; any further append would be discarded by that heal.
+				 * Unlike ordinary task problems, this failure must therefore stop the channel.
+				 */
+				throw this.escalateChannelStoppingFailure(e);
+			}
 		}
 		
+		@Override
+		public final boolean flushStorage()
+		{
+			return this.fileManager.flushStorage();
+		}
+
+		@Override
+		public final boolean pollRolloverOccurred()
+		{
+			return this.fileManager.pollRolloverOccurred();
+		}
+
+		@Override
+		public final void commitStorageFlush(final long allDurableTimestamp)
+		{
+			this.fileManager.commitStorageFlush(allDurableTimestamp);
+		}
+
+		@Override
+		public final void executeDurabilityCoveredMaintenance()
+		{
+			/*
+			 * Runs as the maintenance task enqueued directly behind the flush barrier (see the
+			 * interface contract): the barrier's issuer already continued at fsync latency, but no
+			 * store can slip in before this pass, so the durability gates pass for its whole
+			 * duration. Running here instead of on the next housekeeping cycle removes the race
+			 * with the next store under sustained traffic - under which this pass is the ONLY
+			 * reclamation slot, so it gets the full file-check budget a periodic housekeeping pass
+			 * would get (a token slice would starve the dissolution and let garbage accumulate at
+			 * the write rate).
+			 */
+			try
+			{
+				// deferred rollover + log compaction + the file-cleanup pass at the configured
+				// file-check budget. Deliberately NOT clamped by calculateSpecificHousekeepingTimeBudget:
+				// that caps at the PERIODIC interval's remaining countdown, which is ~zero outside the
+				// idle-housekeeping slot - this pass replaces that slot under traffic, it does not share it.
+				this.fileManager.executeDurabilityCoveredMaintenance(
+					this.housekeepingController.fileCheckTimeBudgetNs()
+				);
+			}
+			catch(final RuntimeException e)
+			{
+				// same containment as the work loop's housekeeping catch: a failed rollover or broken
+				// compaction (retained swap) must stop the channel, not degrade silently.
+				throw this.escalateChannelStoppingFailure(e);
+			}
+		}
+
 		private long calculateSpecificHousekeepingTimeBudget(final long nanoTimeBudget)
 		{
 			return Math.min(nanoTimeBudget, this.housekeepingIntervalBudgetNs);
@@ -409,12 +879,67 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			{
 				return true;
 			}
-			
+
 			final long nanoTimeBudget = this.calculateSpecificHousekeepingTimeBudget(
 				this.housekeepingController.fileCheckTimeBudgetNs()
 			);
-			
-			return this.housekeepingBroker.performFileCleanupCheck(this, nanoTimeBudget);
+
+			return this.afterStorageFlushPoll(this.housekeepingBroker.performFileCleanupCheck(this, nanoTimeBudget));
+		}
+
+		/**
+		 * Completes a housekeeping/issued check: a durability gate may have deferred work to a
+		 * storage flush during the check, so the requested barrier is enqueued before the
+		 * check's result is passed through.
+		 */
+		private boolean afterStorageFlushPoll(final boolean checkResult)
+		{
+			this.enqueueStorageFlushIfRequested();
+			return checkResult;
+		}
+
+		private void enqueueStorageFlushIfRequested()
+		{
+			if(!this.fileManager.pollStorageFlushRequest())
+			{
+				return;
+			}
+			try
+			{
+				this.taskBroker.issueCoalescingStorageFlush();
+			}
+			catch(final StorageExceptionNotRunning | StorageExceptionDisruptingExceptions e)
+			{
+				// storage is shutting down or already disrupted: the deferred deletion/rollover this
+				// flush would have enabled will not run either, so nothing durable-but-unflushed can
+				// be lost. Drop the request quietly instead of registering a spurious disruption.
+			}
+			catch(final InterruptedException e)
+			{
+				// re-arm for the next housekeeping cycle, let the work loop handle the interruption
+				this.fileManager.requestStorageFlush();
+				Thread.currentThread().interrupt();
+			}
+		}
+
+		/**
+		 * Escalates a failure that leaves this channel unable to continue safely (e.g. a broken
+		 * transactions-log compaction whose only heal source is the retained swap file): register
+		 * the disruption and stop processing, so the fault surfaces on the next request instead
+		 * of the storage degrading silently.
+		 * <p>
+		 * The stop is EFFECTED by the two side effects (register + disable), which MUST run before the
+		 * return: on the fire-and-forget maintenance task (see
+		 * {@link #executeDurabilityCoveredMaintenance()}) the {@code throw escalate...(e)} is swallowed
+		 * into the task's problem registry, which no issuer ever reads, so only these side effects stop
+		 * the channel (a waited path additionally propagates the throw to its issuer). Throwing before
+		 * the side effects would silently disarm the fire-and-forget stop - keep them ordered as written.
+		 */
+		private <E extends RuntimeException> E escalateChannelStoppingFailure(final E failure)
+		{
+			this.operationController.registerDisruption(failure);
+			this.operationController.setChannelProcessingEnabled(false);
+			return failure;
 		}
 
 		final boolean houseKeepingGarbageCollection()
@@ -437,7 +962,7 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		
 		final boolean houseKeepingTransactionFile()
 		{
-			return this.housekeepingBroker.performTransactionFileCheck(this, true);
+			return this.afterStorageFlushPoll(this.housekeepingBroker.performTransactionFileCheck(this, true));
 		}
 
 		private void work() throws InterruptedException
@@ -472,13 +997,7 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 					break;
 				}
 
-				// do a little house keeping, either after a new task or use time if no new task came in.
-				/* (29.07.2020 TM)FIXME: priv#361: An exception during housekeeping is fatal
-				 * it kills the channel thread and leaves the application thread forever waiting to be
-				 * notified.
-				 * This has to be covered by a similar mechanism as tasks are.
-				 * Or maybe some consolidation of that mechanism has to be done to cover house keeping as well.
-				 */
+				// do a little housekeeping, either after a new task or use time if no new task came in.
 				try
 				{
 					this.houseKeeping();
@@ -543,7 +1062,7 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			catch(final Throwable t)
 			{
 				/*
-				 * Note that `t` could be an error or it could even be a checked exception thrown via
+				 * Note that `t` could be an error, or it could even be a checked exception thrown via
 				 * Proxy reflective tinkering or Unsafe mechanisms.
 				 * However, Throwable cannot be rethrown in Runnable#run() without cheating exception checking again.
 				 * Luckily, in this special case, reporting the cause and then dying "silently" is sufficient.
@@ -598,6 +1117,71 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		}
 
 		@Override
+		public void validateTrustedReferences(
+			final long[]                           objectIds,
+			final StorageReferenceValidationPolicy policy
+		)
+		{
+			// fail fast on broken wiring; a null policy mid-validation would mask the actual store failure.
+			notNull(policy);
+
+			if(objectIds == null || objectIds.length == 0 || !policy.isValidating())
+			{
+				return;
+			}
+
+			long[] missing = null;
+			int    count   = 0;
+			for(final long objectId : objectIds)
+			{
+				if(this.entityCache.getEntry(objectId) == null)
+				{
+					if(missing == null)
+					{
+						missing = new long[objectIds.length];
+					}
+					missing[count++] = objectId;
+				}
+			}
+
+			if(missing == null)
+			{
+				return;
+			}
+
+			final long[] missingObjectIds = count == missing.length
+				? missing
+				: Arrays.copyOf(missing, count)
+			;
+
+			if(policy.isHealing())
+			{
+				// under heal, a rejection is EXPECTED to be repaired by the storer - WARN, not ERROR.
+				// If healing gives up, the failure surfaces loudly via the thrown exception anyway.
+				logger.warn(
+					"StorageChannel#{} store references non-existing entities (dangling references): {}"
+					+ " - rejecting for the storer to heal.",
+					this.channelIndex,
+					Arrays.toString(missingObjectIds)
+				);
+			}
+			else
+			{
+				logger.error(
+					"StorageChannel#{} store references non-existing entities (dangling references): {}",
+					this.channelIndex,
+					Arrays.toString(missingObjectIds)
+				);
+			}
+			this.eventLogger.logStoreDetectedDanglingReferences(this.channelIndex, missingObjectIds);
+
+			if(policy.isFailing())
+			{
+				throw new StorageExceptionConsistencyDanglingReference(this.channelIndex, missingObjectIds);
+			}
+		}
+
+		@Override
 		public void postStoreUpdateEntityCache(final ByteBuffer[] chunks, final long[] chunksStoragePositions)
 			throws InterruptedException
 		{
@@ -615,6 +1199,12 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		public final StorageTypeDictionary typeDictionary()
 		{
 			return this.entityCache.typeDictionary();
+		}
+
+		@Override
+		public final StorageEntityMarkMonitor markMonitor()
+		{
+			return this.entityCache.markMonitor();
 		}
 		
 		private ChunksBuffer createLoadingChunksBuffer(final ChunksBuffer[] channelChunks)
@@ -636,10 +1226,19 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			final ChunksBuffer chunks = this.createLoadingChunksBuffer(resultArray);
 			if(!loadOids.isEmpty())
 			{
-				// progress must have been incremented accordingly at task creation time
-				loadOids.iterate(this.entityCollectorCreator.create(this.entityCache, chunks));
+				// block sweep initiation while collecting so handed-out entities can be gc-protected consistently
+				this.entityCache.registerPendingLoad();
+				try
+				{
+					// progress must have been incremented accordingly at task creation time
+					loadOids.iterate(this.entityCollectorCreator.create(this.entityCache, chunks));
+				}
+				finally
+				{
+					this.entityCache.clearPendingLoad();
+				}
 			}
-			
+
 			return chunks.complete();
 		}
 
@@ -658,8 +1257,17 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 			final ChunksBuffer chunks = this.createLoadingChunksBuffer(resultArray);
 			if(!loadTids.isEmpty())
 			{
-				// progress must have been incremented accordingly at task creation time
-				loadTids.iterate(new StorageEntityCollector.EntityCollectorByTid(this.entityCache, chunks));
+				// block sweep initiation while collecting so handed-out entities can be gc-protected consistently
+				this.entityCache.registerPendingLoad();
+				try
+				{
+					// progress must have been incremented accordingly at task creation time
+					loadTids.iterate(new StorageEntityCollector.EntityCollectorByTid(this.entityCache, chunks));
+				}
+				finally
+				{
+					this.entityCache.clearPendingLoad();
+				}
 			}
 			return chunks.complete();
 		}
@@ -673,6 +1281,8 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		@Override
 		public StorageEntityCache.Default prepareImportData()
 		{
+			// gc coordination first: block new sweeps for the task's duration, quiesce a flagged one
+			this.entityCache.registerPendingImportUpdate();
 			this.fileManager.prepareImport();
 			return this.entityCache;
 		}
@@ -693,6 +1303,18 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		public void commitImportData(final long taskTimestamp)
 		{
 			this.fileManager.commitImport(taskTimestamp);
+		}
+
+		@Override
+		public void confirmImportData()
+		{
+			this.fileManager.confirmImport();
+		}
+
+		@Override
+		public void cleanupImportData()
+		{
+			this.entityCache.clearPendingImportUpdate();
 		}
 
 		@Override
@@ -839,12 +1461,20 @@ public interface StorageChannel extends Runnable, StorageChannelResetablePart, S
 		}
 	}
 
+	/**
+	 * One discrete unit of incremental housekeeping work executed by a channel between application
+	 * tasks (file cleanup, garbage collection, entity-cache eviction, transaction-log cleanup).
+	 * <p>
+	 * Implementations consult the channel's current housekeeping budget and may defer work to a
+	 * future cycle by returning {@code false}, so that the channel keeps responsive to incoming
+	 * application tasks even when housekeeping is busy.
+	 */
 	@FunctionalInterface
 	public interface HousekeepingTask
 	{
 		/**
 		 * Performs a housekeeping task with reference to a starting time of the current housekeeping cycle
-		 * (typically to make a best effort attempt to not exceed a certain time budget).
+		 * (typically to make the best effort attempt to not exceed a certain time budget).
 		 * Returns {@literal true} if the task was completed (e.g. currently no more work to dor)
 		 * or {@literal false} if the task execution had to be interrupted.
 		 *

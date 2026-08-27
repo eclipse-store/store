@@ -26,10 +26,13 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.*;
+import org.apache.lucene.util.IOUtils;
+import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.serializer.math.XMath;
 import org.eclipse.serializer.persistence.binary.types.BinaryTypeHandler;
 import org.eclipse.serializer.persistence.types.Storer;
+import org.eclipse.serializer.util.X;
 import org.eclipse.store.gigamap.types.*;
 
 import java.io.Closeable;
@@ -91,7 +94,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	 *
 	 * @param <A> the type of the {@code SearchResultAcceptor} that will process the search results
 	 * @param query the {@code Query} object representing the search criteria to be executed
-	 * @param maxResults the maximum number of search results that should be processed
+	 * @param maxResults the maximum number of search results that should be processed;
+	 *                   a non-positive value processes no results at all
 	 * @param searchResultAcceptor an instance of {@code SearchResultAcceptor} to handle each search result
 	 *                             returned by the query execution
 	 * @return the {@code SearchResultAcceptor} instance provided as a parameter, potentially modified
@@ -121,7 +125,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	 *
 	 * @param <A> the type of the {@code SearchResultAcceptor} that will process the search results
 	 * @param queryText the text representation of the query to be executed
-	 * @param maxResults the maximum number of search results that should be processed
+	 * @param maxResults the maximum number of search results that should be processed;
+	 *                   a non-positive value processes no results at all
 	 * @param searchResultAcceptor an instance of {@code SearchResultAcceptor} to handle each search result
 	 *                              returned by the query execution
 	 * @return the {@code SearchResultAcceptor} instance provided as a parameter, potentially modified
@@ -131,7 +136,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	
 	/**
 	 * Executes a query against the Lucene index and returns a list of entities
-	 * that match the provided search criteria.
+	 * that match the provided search criteria. Uses the current {@link GigaMap} size as the
+	 * default result limit, so an empty {@link GigaMap} yields an empty list.
 	 *
 	 * @param query the {@code Query} object representing the search criteria to be executed
 	 * @return a {@code List} of entities of type {@code E} that match the query
@@ -148,7 +154,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	 * that match the provided search criteria, with a limit on the maximum number of results.
 	 *
 	 * @param query the {@code Query} object representing the search criteria to be executed
-	 * @param maxResults the maximum number of search results to be returned
+	 * @param maxResults the maximum number of search results to be returned;
+	 *                   a non-positive value returns no results at all
 	 * @return a {@code List} of entities of type {@code E} that match the query
 	 */
 	public default List<E> query(final Query query, final int maxResults)
@@ -160,7 +167,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	
 	/**
 	 * Executes a query against the Lucene index using the specified query text
-	 * and returns a list of entities that match the query.
+	 * and returns a list of entities that match the query. Uses the current {@link GigaMap} size
+	 * as the default result limit, so an empty {@link GigaMap} yields an empty list.
 	 *
 	 * @param queryText the text representation of the query to be executed
 	 * @return a list of entities of type {@code E} that match the query
@@ -177,7 +185,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	 * a list of entities matching the query, with a limit on the maximum number of results.
 	 *
 	 * @param queryText the text representation of the query to be executed
-	 * @param maxResults the maximum number of search results to be returned
+	 * @param maxResults the maximum number of search results to be returned;
+	 *                   a non-positive value returns no results at all
 	 * @return a list of entities of type {@code E} that match the query
 	 */
 	public default List<E> query(final String queryText, final int maxResults)
@@ -187,13 +196,64 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		return result;
 	}
 
+	/**
+	 * Executes a query against the Lucene index and returns a {@link LuceneSearchResult}
+	 * carrying the matching entity ids, entities and relevance scores.
+	 * <p>
+	 * The returned result is also a {@link GigaMap.SubQuery} and can therefore be combined
+	 * with other {@link GigaQuery} conditions via {@link GigaQuery#and(GigaMap.SubQuery)}.
+	 *
+	 * @param query the {@link Query} representing the search criteria
+	 * @param maxResults the maximum number of search results to be returned;
+	 *                   a non-positive value returns no results at all
+	 * @return a {@link LuceneSearchResult} with the matching entries
+	 */
+	public LuceneSearchResult<E> search(Query query, int maxResults);
+
+	/**
+	 * Executes a query against the Lucene index and returns a {@link LuceneSearchResult}
+	 * carrying the matching entity ids, entities and relevance scores.
+	 * <p>
+	 * The returned result is also a {@link GigaMap.SubQuery} and can therefore be combined
+	 * with other {@link GigaQuery} conditions via {@link GigaQuery#and(GigaMap.SubQuery)}.
+	 *
+	 * @param queryText the text representation of the query to be executed
+	 * @param maxResults the maximum number of search results to be returned;
+	 *                   a non-positive value returns no results at all
+	 * @return a {@link LuceneSearchResult} with the matching entries
+	 */
+	public LuceneSearchResult<E> search(String queryText, int maxResults);
+
+	/**
+	 * Executes a query against the Lucene index and returns a {@link LuceneSearchResult}
+	 * carrying the matching entity ids, entities and relevance scores. Uses the current
+	 * {@link GigaMap} size as the default result limit.
+	 *
+	 * @param query the {@link Query} representing the search criteria
+	 * @return a {@link LuceneSearchResult} with the matching entries
+	 */
+	public LuceneSearchResult<E> search(Query query);
+
+	/**
+	 * Executes a query against the Lucene index using the specified query text and returns
+	 * a {@link LuceneSearchResult} carrying the matching entity ids, entities and relevance
+	 * scores. Uses the current {@link GigaMap} size as the default result limit.
+	 *
+	 * @param queryText the text representation of the query to be executed
+	 * @return a {@link LuceneSearchResult} with the matching entries
+	 */
+	public LuceneSearchResult<E> search(String queryText);
+
     /**
      * Commits any pending changes to the Lucene index, ensuring that all modifications
      * are written and made visible to subsequent search operations. This operation
      * finalizes recent additions, updates, or deletions of indexed entities.
      * <p>
      * Note: If {@link LuceneContext#autoCommit()} returns {@code true}, which is the default,
-     * this method doesn't need to be invoked explicitly.
+     * this method doesn't need to be invoked explicitly. When {@code autoCommit()} is
+     * {@code false}, pending changes are also committed automatically at each
+     * {@code GigaMap.store()} boundary, so an explicit call is only needed to commit between
+     * stores.
      */
     public void commit();
 	
@@ -242,12 +302,31 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		 */
 		ConcurrentHashMap<String, FileEntry> fileEntries;
 
-		private transient Analyzer        analyzer;
-		private transient Directory       directory;
-		private transient IndexWriter     writer;
-		private transient DirectoryReader reader;
-		private transient IndexSearcher   searcher;
-		
+		private transient Analyzer      analyzer;
+		private transient Directory     directory;
+		private transient IndexWriter   writer;
+		private transient IndexSearcher searcher;
+
+		/**
+		 * The near-real-time reader, opened from {@link #writer} and (re)opened exclusively by
+		 * {@link #refreshReaderIfNeeded()}.
+		 * <p>
+		 * Package-private rather than private so that {@code LuceneWritePathReaderTest} can assert that the
+		 * write path never (re)opens it, matching the visibility already used for {@link #gigaMap},
+		 * {@link #context} and {@link #fileEntries}.
+		 */
+		transient DirectoryReader reader;
+
+		/**
+		 * {@code true} when {@link #writer} mutations happened that {@link #reader} does not reflect yet.
+		 * Write operations only set this flag instead of reopening the near-real-time reader; the reopen is
+		 * deferred to the next search (see {@link #refreshReaderIfNeeded()}).
+		 * <p>
+		 * Deliberately not {@code volatile}: like all other transient Lucene state of this class it is
+		 * exclusively read and written inside {@code synchronized(this.gigaMap)}.
+		 */
+		private transient boolean readerStale;
+
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
 		/////////////////
@@ -290,13 +369,10 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
-					this.lazyInit();
-				
-					final Document document = new Document();
-					document.add(new LongField(ENTITY_ID_FIELD, entityId, Store.YES));
-					this.context.documentPopulator().populate(document, entity);
-					
-					this.writer.addDocument(document);
+					this.ensureWriter();
+
+					this.writer.addDocument(this.toDocument(entityId, entity));
+					this.readerStale = true;
                     this.optCommit();
 				}
 			}
@@ -313,20 +389,18 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
-					this.lazyInit();
-				
+					this.ensureWriter();
+
 					final List<Document> documents       = new ArrayList<>();
 					long                 currentEntityId = firstEntityId;
 					
 					for(final E entity : entities)
 					{
-						final Document document = new Document();
-						document.add(new LongField(ENTITY_ID_FIELD, currentEntityId++, Store.YES));
-						this.context.documentPopulator().populate(document, entity);
-						documents.add(document);
+						documents.add(this.toDocument(currentEntityId++, entity));
 					}
 					
 					this.writer.addDocuments(documents);
+					this.readerStale = true;
                     this.optCommit();
 				}
 			}
@@ -337,21 +411,16 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		}
 		
 		@Override
-		public void internalAddAll(final long firstEntityId, final E[] entities)
-		{
-			this.internalAddAll(firstEntityId, Arrays.asList(entities));
-		}
-		
-		@Override
 		public void internalRemove(final long entityId, final E entity)
 		{
 			try
 			{
 				synchronized(this.gigaMap)
 				{
-					this.lazyInit();
-				
+					this.ensureWriter();
+
 					this.writer.deleteDocuments(queryFor(entityId));
+					this.readerStale = true;
                     this.optCommit();
 				}
 			}
@@ -368,9 +437,10 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
-					this.lazyInit();
-				
+					this.ensureWriter();
+
 					this.writer.deleteAll();
+					this.readerStale = true;
                     this.optCommit();
 				}
 			}
@@ -379,7 +449,81 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 				throw new IORuntimeException(e);
 			}
 		}
-		
+
+		@Override
+		public void internalOnRegistered()
+		{
+			// the GigaMap may already hold entities at the moment this index is registered; index them
+			// now so a full-text search sees pre-existing entities, not only those added afterwards.
+			this.internalRebuild(false);
+		}
+
+		@Override
+		public void internalReindex(final GigaMap<E> parentMap)
+		{
+			// Rebuild the whole index from the current entity state to recover from a stale index (e.g. an
+			// entity mutated directly instead of via update()/apply()). The existing documents are dropped
+			// first; otherwise this is the same batched back-fill as registration.
+			this.internalRebuild(true);
+		}
+
+		private void internalRebuild(final boolean clearFirst)
+		{
+			// Documents are added incrementally (no per-entity commit, no buffering of the whole corpus)
+			// and committed once at the end via optCommit, which honors the manual-commit contract: with
+			// context.autoCommit() == false the back-fill performs no commit, leaving durability to the
+			// user's explicit commit() (the near-real-time reader makes the documents queryable at the
+			// next search, just like internalAdd).
+			try
+			{
+				synchronized(this.gigaMap)
+				{
+					this.ensureWriter();
+
+					if(clearFirst)
+					{
+						this.writer.deleteAll();
+						this.readerStale = true;
+					}
+
+					this.gigaMap.iterateIndexed(this::backfillDocument);
+
+					// On a rebuild also commit when the map is empty, so the deleteAll itself is flushed.
+					if(clearFirst || !this.gigaMap.isEmpty())
+					{
+						this.optCommit();
+					}
+				}
+			}
+			catch(final IOException e)
+			{
+				throw new IORuntimeException(e);
+			}
+		}
+
+		private void backfillDocument(final long entityId, final E entity)
+		{
+			// uses the GigaMap-assigned entityId (not a contiguous counter) so ENTITY_ID_FIELD stays the
+			// authoritative id that queryFor(entityId) relies on for later update/remove.
+			try
+			{
+				this.writer.addDocument(this.toDocument(entityId, entity));
+				this.readerStale = true;
+			}
+			catch(final IOException e)
+			{
+				throw new IORuntimeException(e);
+			}
+		}
+
+		private Document toDocument(final long entityId, final E entity)
+		{
+			final Document document = new Document();
+			document.add(new LongField(ENTITY_ID_FIELD, entityId, Store.YES));
+			this.context.documentPopulator().populate(document, entity);
+			return document;
+		}
+
 		@Override
 		public void internalPrepareIndicesUpdate(final E replacedEntity)
 		{
@@ -404,12 +548,10 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
-					this.lazyInit();
-					
-					final Document document = new Document();
-					document.add(new LongField(ENTITY_ID_FIELD, entityId, Store.YES));
-					this.context.documentPopulator().populate(document, entity);
-					this.writer.updateDocuments(queryFor(entityId), List.of(document));
+					this.ensureWriter();
+
+					this.writer.updateDocuments(queryFor(entityId), List.of(this.toDocument(entityId, entity)));
+					this.readerStale = true;
                     this.optCommit();
 				}
 			}
@@ -441,8 +583,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
-					this.lazyInit();
-					
+					this.refreshReaderIfNeeded();
+
 					final StandardQueryParser queryParser = new StandardQueryParser(this.analyzer);
 					queryParser.setAllowLeadingWildcard(true);
 					final Query query = queryParser.parse(queryText, ENTITY_ID_FIELD);
@@ -474,12 +616,21 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			final A     searchResultAcceptor
 		)
 		{
+			// Lucene's IndexSearcher.search(query, numHits) rejects numHits <= 0. A non-positive limit
+			// simply means "no results wanted", which most notably happens for the default-maxResults
+			// overloads on an empty map (defaultMaxResults() derives from gigaMap.size()), so return the
+			// unmodified acceptor instead of throwing - just like the sibling overloads do.
+			if(maxResults <= 0)
+			{
+				return searchResultAcceptor;
+			}
+
 			try
 			{
 				synchronized(this.gigaMap)
 				{
-					this.lazyInit();
-				
+					this.refreshReaderIfNeeded();
+
 					this.syncInternalQuery(query, maxResults, searchResultAcceptor);
 				}
 			}
@@ -515,6 +666,88 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 					searchResultAcceptor.accept(entityId, entity, scoreDoc.score);
 				}
 			}
+		}
+
+		@Override
+		public LuceneSearchResult<E> search(final Query query)
+		{
+			return this.search(notNull(query), this.defaultMaxResults());
+		}
+
+		@Override
+		public LuceneSearchResult<E> search(final String queryText)
+		{
+			return this.search(notNull(queryText), this.defaultMaxResults());
+		}
+
+		@Override
+		public LuceneSearchResult<E> search(final Query query, final int maxResults)
+		{
+			notNull(query);
+			if(maxResults <= 0)
+			{
+				return new LuceneSearchResult.Default<>(X.empty());
+			}
+			try
+			{
+				synchronized(this.gigaMap)
+				{
+					this.refreshReaderIfNeeded();
+					return this.syncInternalSearch(query, maxResults);
+				}
+			}
+			catch(final IOException e)
+			{
+				throw new IORuntimeException(e);
+			}
+		}
+
+		@Override
+		public LuceneSearchResult<E> search(final String queryText, final int maxResults)
+		{
+			notNull(queryText);
+			if(maxResults <= 0)
+			{
+				return new LuceneSearchResult.Default<>(X.empty());
+			}
+			try
+			{
+				synchronized(this.gigaMap)
+				{
+					this.refreshReaderIfNeeded();
+
+					final StandardQueryParser queryParser = new StandardQueryParser(this.analyzer);
+					queryParser.setAllowLeadingWildcard(true);
+					final Query query = queryParser.parse(queryText, ENTITY_ID_FIELD);
+					return this.syncInternalSearch(query, maxResults);
+				}
+			}
+			catch(final IOException e)
+			{
+				throw new IORuntimeException(e);
+			}
+			catch(final QueryNodeException e)
+			{
+				throw new RuntimeException(e);
+			}
+		}
+
+		private LuceneSearchResult<E> syncInternalSearch(final Query query, final int maxResults)
+		throws IOException
+		{
+			final StoredFields                          storedFields = this.searcher.storedFields();
+			final Set<String>                           idOnly       = new HashSet<>(List.of(ENTITY_ID_FIELD));
+			final TopDocs                               topDocs      = this.searcher.search(query, maxResults);
+			final BulkList<ScoredSearchResult.Entry<E>> entries      = BulkList.New(topDocs.scoreDocs.length);
+			for(final ScoreDoc scoreDoc : topDocs.scoreDocs)
+			{
+				final long entityId = storedFields
+					.document(scoreDoc.doc, idOnly)
+					.getField(ENTITY_ID_FIELD).numericValue().longValue()
+				;
+				entries.add(new ScoredSearchResult.Entry.Default<>(entityId, scoreDoc.score, this.gigaMap));
+			}
+			return new LuceneSearchResult.Default<>(entries);
 		}
 		
 		@Override
@@ -589,32 +822,102 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 					}
 				}
 				
-				this.analyzer  = null;
-				this.directory = null;
-				this.writer    = null;
-				this.reader    = null;
-				this.searcher  = null;
+				this.analyzer    = null;
+				this.directory   = null;
+				this.writer      = null;
+				this.reader      = null;
+				this.searcher    = null;
+				this.readerStale = false;
 			}
 		}
 
         private int defaultMaxResults()
         {
-            return XMath.cap_int(this.gigaMap.size());
+			return XMath.cap_int(this.gigaMap.size());
         }
 
-        private void lazyInit() throws IOException
+        /**
+         * Ensures the write side is initialized: {@link Default#directory}, {@link Default#analyzer} and
+         * {@link Default#writer}. Deliberately does <b>not</b> touch {@link Default#reader} or
+         * {@link Default#searcher}: reopening the near-real-time reader per mutation rebuilt reader and
+         * searcher once per document, which dominated ingest cost. Write paths therefore only mark the
+         * reader stale (see {@link Default#readerStale}); the reopen is deferred to the next search.
+         * <p>
+         * A failed initialization leaves no state behind: the fields are published only once the writer
+         * exists, so the next call retries instead of operating on a half-initialized index.
+         * <p>
+         * Must be called while holding the {@code this.gigaMap} monitor.
+         */
+        private void ensureWriter() throws IOException
         {
-            if(this.directory == null)
+            if(this.writer != null)
             {
-                this.searcher              = new IndexSearcher(
-                    this.reader            = DirectoryReader.open(
-                        this.writer        = new IndexWriter(
-                            this.directory = this.createDirectory(),
-                            new IndexWriterConfig(
-                                this.analyzer = this.context.analyzerCreator().createAnalyzer()
-                            )
-                        )
-                    )
+                return;
+            }
+
+            final Directory directory = this.createDirectory();
+            final Analyzer  analyzer  = this.context.analyzerCreator().createAnalyzer();
+            final IndexWriter indexWriter;
+            try
+            {
+                final IndexWriterConfig writerConfig = new IndexWriterConfig(analyzer);
+                if(this.usesGraphDirectory())
+                {
+                    // GraphDirectory stores index data in the persistent fileEntries map.
+                    // ConcurrentMergeScheduler would modify that map from background threads,
+                    // racing with GigaMap#store serialization. SerialMergeScheduler ensures
+                    // merges run on the caller's thread, which holds the GigaMap lock.
+                    writerConfig.setMergeScheduler(new SerialMergeScheduler());
+                }
+                indexWriter = new IndexWriter(
+                    directory,
+                    writerConfig
+                );
+            }
+            catch(final Throwable t)
+            {
+                // e.g. the writer lock is held elsewhere: discard what was created so far instead of
+                // leaking it, and let the caller decide whether to retry.
+                IOUtils.closeWhileHandlingException(analyzer, directory);
+                throw t;
+            }
+
+            this.directory = directory;
+            this.analyzer  = analyzer;
+            this.writer    = indexWriter;
+        }
+
+        /**
+         * Ensures {@link Default#searcher} reflects all writer mutations performed so far, opening the
+         * near-real-time reader on first use and reopening it only when a mutation marked it stale. This is
+         * the read-path counterpart of {@link Default#ensureWriter()} and the only place where the reader is
+         * (re)opened.
+         * <p>
+         * Read-your-writes is preserved: a reader opened from the writer includes buffered, uncommitted
+         * changes, and {@link DirectoryReader#openIfChanged(DirectoryReader)} on such a writer-derived reader
+         * performs the same near-real-time reopen the write path used to do eagerly. Only the timing moves
+         * from per-write to next-read.
+         * <p>
+         * Must be called while holding the {@code this.gigaMap} monitor.
+         */
+        private void refreshReaderIfNeeded() throws IOException
+        {
+            // a read can be the very first operation on this index, so the writer may not exist yet.
+            // This also initializes the analyzer, which the query-string read paths use.
+            this.ensureWriter();
+
+            if(this.reader != null && !this.readerStale)
+            {
+                // no mutation since the last refresh, so the current searcher is up to date.
+                return;
+            }
+
+            if(this.reader == null)
+            {
+                // first read after initialization or after close(): a reader opened from the writer already
+                // reflects everything written so far, so no additional reopen is needed.
+                this.searcher = new IndexSearcher(
+                    this.reader = DirectoryReader.open(this.writer)
                 );
             }
             else
@@ -622,20 +925,32 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
                 final DirectoryReader newReader = DirectoryReader.openIfChanged(this.reader);
                 if(newReader != null && newReader != this.reader)
                 {
-                    this.reader.close();
+                    final DirectoryReader supersededReader = this.reader;
                     this.searcher = new IndexSearcher(
                         this.reader = newReader
                     );
+
+                    // closed only after the new reader is published: a failing close must not leak the
+                    // reader that was just opened, and it leaves the index on the up-to-date one.
+                    supersededReader.close();
                 }
             }
+
+            // cleared only after a successful (re)open, so an IOException leaves the index stale and the
+            // next search retries.
+            this.readerStale = false;
         }
+
+		private boolean usesGraphDirectory()
+		{
+			return this.context.directoryCreator() == null;
+		}
 
 		private Directory createDirectory()
 		{
-			final DirectoryCreator creator = this.context.directoryCreator();
-			return creator != null
-				? creator.createDirectory()
-				: new GraphDirectory()
+			return this.usesGraphDirectory()
+				? new GraphDirectory()
+				: this.context.directoryCreator().createDirectory()
 			;
 		}
 
@@ -647,6 +962,38 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
             }
 
 			this.markStateChangeChildren();
+        }
+
+        /**
+         * Couples the Lucene commit to the {@link GigaMap} store boundary when
+         * {@link LuceneContext#autoCommit()} is {@code false}: invoked by
+         * {@link BinaryHandlerLuceneIndexDefault#store} right before the index is serialized,
+         * it flushes and commits any pending writer changes so the persisted state reflects all
+         * mutations up to this {@code store()} exactly. For a graph directory this populates the
+         * {@link Default#fileEntries} map before it is read for serialization; for an external
+         * directory it syncs the on-disk index at the store boundary.
+         * <p>
+         * No-op when {@code autoCommit()} is {@code true} (the eager commits already ran), when
+         * the writer has not been initialized yet, or when there are no uncommitted changes.
+         */
+        void internalCommitOnStore()
+        {
+            synchronized(this.gigaMap)
+            {
+                if(!this.context.autoCommit()
+                    && this.writer != null
+                    && this.writer.hasUncommittedChanges())
+                {
+                    try
+                    {
+                        this.internalCommit();
+                    }
+                    catch(final IOException e)
+                    {
+                        throw new IORuntimeException(e);
+                    }
+                }
+            }
         }
 
         private void internalCommit() throws IOException

@@ -72,8 +72,18 @@ import org.slf4j.Logger;
 public interface EmbeddedStorageFoundation<F extends EmbeddedStorageFoundation<?>>
 extends StorageFoundation<F>, PersistenceTypeHandlerRegistration.Executor<Binary>
 {
+	/**
+	 * Strategy interface for creating {@link EmbeddedStorageFoundation} instances, used by integration layers
+	 * that want to plug a customized foundation factory (e.g. configuration-based or container-managed)
+	 * into a generic setup process.
+	 */
 	public static interface Creator
 	{
+		/**
+		 * Creates a new, fresh {@link EmbeddedStorageFoundation} instance.
+		 *
+		 * @return a new {@link EmbeddedStorageFoundation} instance.
+		 */
 		public EmbeddedStorageFoundation<?> createEmbeddedStorageFoundation();
 	}
 	
@@ -126,6 +136,15 @@ extends StorageFoundation<F>, PersistenceTypeHandlerRegistration.Executor<Binary
 	 */
 	public PersistenceRootResolverProvider getRootResolverProvider();
 
+	/**
+	 * Returns the currently set {@link PersistenceTypeEvaluator} used to decide whether instances of a given
+	 * type are eligible for persistence. If none has been set yet, a default evaluator
+	 * (typically {@link Persistence#isPersistable(Class)}) is created on demand.
+	 *
+	 * @return the {@link PersistenceTypeEvaluator} instance to be used.
+	 *
+	 * @see #setTypeEvaluatorPersistable(PersistenceTypeEvaluator)
+	 */
 	public PersistenceTypeEvaluator getTypeEvaluatorPersistable();
 
 	/**
@@ -340,6 +359,19 @@ extends StorageFoundation<F>, PersistenceTypeHandlerRegistration.Executor<Binary
 	 */
 	public F setRootResolverProvider(PersistenceRootResolverProvider rootResolverProvider);
 
+	/**
+	 * Sets the {@link PersistenceTypeEvaluator} used to decide whether instances of a given type are eligible
+	 * for persistence.
+	 * <p>
+	 * Replaces any previously set or default evaluator and is consulted when the persistence type handler
+	 * manager analyzes encountered types during startup.
+	 *
+	 * @param typeEvaluatorPersistable the evaluator to be used.
+	 *
+	 * @return {@literal this} to allow method chaining.
+	 *
+	 * @see #getTypeEvaluatorPersistable()
+	 */
 	public F setTypeEvaluatorPersistable(PersistenceTypeEvaluator typeEvaluatorPersistable);
 
 	/**
@@ -354,8 +386,34 @@ extends StorageFoundation<F>, PersistenceTypeHandlerRegistration.Executor<Binary
 	 */
 	public F setRefactoringMappingProvider(PersistenceRefactoringMappingProvider refactoringMappingProvider);
 
+	/**
+	 * Registers the passed {@link PersistenceTypeHandler} as a custom type handler at the
+	 * {@link EmbeddedStorageConnectionFoundation} provided by {@link #getConnectionFoundation()}.
+	 * <p>
+	 * Custom handlers take precedence over the handlers generated automatically by reflection and can be
+	 * used to override the on-disk binary format of a type (for example, to support unmodifiable third-party
+	 * types or to opt into a more compact representation).
+	 *
+	 * @param typeHandler the {@link PersistenceTypeHandler} to register.
+	 *
+	 * @return {@literal this} to allow method chaining.
+	 *
+	 * @see #registerTypeHandlers(Iterable)
+	 */
 	public F registerTypeHandler(PersistenceTypeHandler<Binary, ?> typeHandler);
 
+	/**
+	 * Registers all passed {@link PersistenceTypeHandler}s as custom type handlers.
+	 * <p>
+	 * Convenience method for registering multiple handlers in one call. See
+	 * {@link #registerTypeHandler(PersistenceTypeHandler)} for the semantics of a single registration.
+	 *
+	 * @param typeHandlers the {@link PersistenceTypeHandler}s to register.
+	 *
+	 * @return {@literal this} to allow method chaining.
+	 *
+	 * @see #registerTypeHandler(PersistenceTypeHandler)
+	 */
 	public F registerTypeHandlers(Iterable<? extends PersistenceTypeHandler<Binary, ?>> typeHandlers);
 
 
@@ -363,6 +421,11 @@ extends StorageFoundation<F>, PersistenceTypeHandlerRegistration.Executor<Binary
 
 	/**
 	 * Pseudo-constructor method to create a new {@link EmbeddedStorageFoundation} instance with default implementation.
+	 * <p>
+	 * The returned foundation is empty: it has no {@link StorageConfiguration}, no
+	 * {@link EmbeddedStorageConnectionFoundation}, and no registered roots. Suitable defaults are created
+	 * lazily on demand whenever the corresponding getter is called or
+	 * {@link #createEmbeddedStorageManager()} is invoked.
 	 *
 	 * @return a new {@link EmbeddedStorageFoundation} instance.
 	 */
@@ -720,7 +783,7 @@ extends StorageFoundation<F>, PersistenceTypeHandlerRegistration.Executor<Binary
 		}
 		
 		@Override
-		protected EmbeddedStorageObjectRegistryCallback ensureObjectIdsSelector()
+		protected EmbeddedStorageObjectRegistryCallback ensureLiveObjectIdsHandler()
 		{
 			return this.getConnectionFoundation().getObjectRegistryCallback();
 		}
@@ -801,7 +864,7 @@ extends StorageFoundation<F>, PersistenceTypeHandlerRegistration.Executor<Binary
 			initializeTypeDictionary(stm, ecf);
 			
 			// setup callback link from storage to object registry for the GC to check for unexpected live objectIds.
-			this.setLiveObjectIdChecker(ecf.getObjectRegistryCallback());
+			this.setLiveObjectIdsHandler(ecf.getObjectRegistryCallback());
 
 			// resolve root types to root type ids after types have been initialized
 			this.initializeEmbeddedStorageRootTypeIdProvider(this.getRootTypeIdProvider(), thm);

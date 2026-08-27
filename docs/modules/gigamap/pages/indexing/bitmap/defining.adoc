@@ -56,6 +56,8 @@ Either define them directly in the entity class or separately.
 
 The `Indexer` implementations must at least override the method that extracts the key value. By default, the name of the index is derived from its declaration; for example, when written as a constant, the fully qualified name of the constant will be used. If you want to provide a name yourself, simply override the `name()` method.
 
+IMPORTANT: Indexer names must be unique within a `GigaMap`. Registering a second indexer under a name that is already taken throws a `RuntimeException` at registration time. This is rarely an issue when names come from the default derivation, since declaration-based names are naturally distinct, but it can bite when you override `name()` manually or use anonymous `Indexer` instances whose derived names collide. Give each indexer an explicit, unique `name()` in those cases.
+
 The predefined indexers are usually sufficient; just extend from their `Abstract` base type.
 
 [source, java]
@@ -181,6 +183,21 @@ GigaMap<Person> gigaMap = GigaMap.<Person>Builder()
     .build();
 ----
 
+=== Registering on a Populated Map
+
+Indices can also be registered later, on a GigaMap that already holds entities. `add`, `addAll` and `ensure` then back-fill the new index from those entities, so it answers queries about them as well.
+
+The back-fill is the only step that runs your indexer over existing data, and it is therefore the only one that can fail — typically an indexer that cannot handle a value the previous logic never read. Registration is all-or-nothing: the index is built completely before it becomes part of the map, so a throwing indexer registers nothing, leaves the existing indices untouched, and persists nothing on the next `store()`. `addAll` extends that across the whole batch: either every index of the call is registered, or none is. After fixing the indexer, simply repeat the call.
+
+To change the logic of an index that is already registered, use `update(Indexer)` rather than `removeIndex` followed by `add`:
+
+[source, java]
+----
+gigaMap.index().bitmap().update(PersonIndices.email); // same name, new logic
+----
+
+`update` rebuilds and validates the replacement before dropping the existing index, so a failure leaves the old index in place, and it carries unique-constraint and identity-index membership over to the rebuilt index. Removing and re-adding does neither: the re-added index is a plain index that accepts duplicates.
+
 == With Annotations
 
 Alternatively, indices can be defined by annotating the relevant fields of the entity.
@@ -189,7 +206,7 @@ Alternatively, indices can be defined by annotating the relevant fields of the e
 ----
 public class Person
 {
-	@Index @Identity
+	@Identity
     private long           id           ;
 
     @Index
@@ -212,6 +229,8 @@ public class Person
 }
 ----
 
+`@Unique` and `@Identity` do not require a companion `@Index`: on their own they generate the appropriate index for the property — a unique index, respectively an index marked as identity (as with the standalone `@Identity` on `id` above). They may still be combined with `@Index` and with each other, e.g. `@Index @Unique String email;`.
+
 === Registration
 
 When creating the GigaMap, the indices must also be registered.
@@ -223,11 +242,208 @@ BitmapIndices<Person> bitmapIndices = gigaMap.index().bitmap();
 IndexerGenerator.AnnotationBased(Person.class).generateIndices(bitmapIndices);
 ----
 
-Since there are no constants in your code, you need to reference the generated indexers.
+Since there are no constants in your code, you need a handle to the generated indexers. The simplest way is
+to keep the `GeneratedIndices` returned by `generateIndices(...)` — a by-name, typed registry of the generated
+indexers that you can reuse like a hand-written constant:
+
+[source, java]
+----
+GeneratedIndices<Person> idx =
+    IndexerGenerator.AnnotationBased(Person.class).generateIndices(gigaMap);
+
+gigaMap.query(idx.getIndexerString("firstName").startsWith("J"));
+gigaMap.query(idx.getIndexerLocalDate("dateOfBirth").after(LocalDate.of(2000, 1, 1)));
+----
+
+For a `GigaMap` loaded from existing storage the indexers are already registered; just re-run the (idempotent)
+generation on the loaded map to obtain a fresh handle — re-registration is a no-op, and the returned indexers
+query correctly because they resolve against the registered index by name.
+
+TIP: To get typed constants at *compile* time instead of a runtime registry — `Person_.firstName.startsWith("J")`
+with IDE autocomplete and refactor-safe names — use the `gigamap-codegen` annotation processor (see
+xref:indexing/annotations.adoc#_compile_time_metamodel_annotation_processor[Compile-time metamodel]).
+
+Alternatively, retrieve an indexer directly from the `BitmapIndices` getter API by name:
 
 [source, java]
 ----
 BitmapIndices<Person> bitmapIndices = gigaMap.index().bitmap();
-IndexerString<Person> firstNameIndex = bitmapIndices.getStringIndex("firstName");
+IndexerString<Person> firstNameIndex = bitmapIndices.getIndexerString("firstName");
 // ...
 ----
+
+NOTE: The value-typed getters (`getIndexerInteger`, `getIndexerString`, …) match only the *low-cardinality*
+(`AUTO`) variant. An index declared with `@Index(binary = true)` / `kind = BINARY` or `kind = BIT_SLICED` lives
+in a parallel hierarchy (*not* an `IndexerInteger`/`IndexerString` subtype) and must be fetched via a dedicated
+getter: a binary *numeric* index via `getBinaryIndexer(name)`, a binary `String` via `getBinaryIndexerString(name)`,
+a binary `UUID` via `getIndexerUUID(name)`, and a bit-sliced numeric index via `getByteIndexerNumber(keyType, name)`.
+Dedicated getters also exist for `Instant`, `ZonedDateTime`, spatial and comparing (`Comparable`/`Date`) indexes.
+
+NOTE: A `@Unique` field is generated as a *binary* index even without `@Index(binary = true)`. In particular a
+`@Unique String` (e.g. an e-mail or username) is a `BinaryIndexerString` and must be retrieved via
+`getBinaryIndexerString(name)` — `getIndexerString(name)` would throw a `ClassCastException`.
+
+=== Supported types
+
+For each annotated property the generator picks a matching indexer based on the declared type:
+
+* `String`, `Character`
+* the numeric wrapper/primitive types (`Byte`, `Short`, `Integer`, `Long`, `Float`, `Double`)
+* `Boolean`
+* `java.time` types: `LocalDate`, `LocalTime`, `LocalDateTime`, `YearMonth`, `Instant`, `ZonedDateTime`
+* `UUID` (always a binary index)
+* `enum` types (low-cardinality index)
+* `Iterable<T>` and arrays (multi-value index)
+* any `Comparable` type (including `java.util.Date`) gets a comparing index, so range queries (`lessThan`, `greaterThan`, `between`) work in addition to equality
+
+Any remaining (non-`Comparable`) type falls back to a generic, equality-based indexer (value `equals`/`hashCode`). For such custom key types, make sure `equals` and `hashCode` are implemented.
+
+=== Choosing the index kind
+
+By default the generator picks a suitable bitmap index for the field type. Use `@Index(kind = ...)` to choose explicitly (see xref:indexing/bitmap/types.adoc[Index Types] for the trade-offs):
+
+[source, java]
+----
+public class Product
+{
+    @Index(kind = IndexKind.LOW_CARDINALITY)  // hashing index (default for most types)
+    private String category;
+
+    @Index(kind = IndexKind.BINARY)           // high cardinality, equality-only
+    private long id;
+
+    @Index(kind = IndexKind.BIT_SLICED)       // high cardinality, supports range queries
+    private int price;
+}
+
+// range query on the bit-sliced numeric index
+ByteIndexerInteger<Product> price = gigaMap.index().bitmap().getIndexer(ByteIndexerInteger.class, "price");
+gigaMap.query(price.between(10, 100));
+----
+
+`@Index(binary = true)` is the backward-compatible shortcut for `kind = IndexKind.BINARY`. `BINARY` supports the natural-number types, `float`/`double`, `String` and `UUID`; `BIT_SLICED` supports the numeric types and `Instant`. Requesting either for an unsupported type fails fast at generation time.
+
+=== Custom indexer via a creator
+
+When none of the built-in mappings fit, supply your own indexer with `@Index(creator = ...)`. The creator is an `Indexer.Creator` with a public no-argument constructor; the `Indexer` returned by its `create()` method is registered as the index for that property:
+
+[source, java]
+----
+@Index(creator = MyCreator.class)
+private SomeType value;
+----
+
+If the creator implements `Indexer.Creator.MemberAware`, the generator calls `initialize(indexName, member)` with the resolved index name and the reflective `Field`/`Method` *before* `create()`. This lets a single creator be reused across properties and read whichever member it was attached to, instead of hard-coding one:
+
+[source, java]
+----
+public class UpperCaseStringCreator implements Indexer.Creator.MemberAware<MyEntity, String>
+{
+    private String name;
+    private Field  field;
+
+    @Override
+    public void initialize(final String indexName, final Member member)
+    {
+        this.name  = indexName;
+        this.field = (Field)member;
+    }
+
+    @Override
+    public Indexer<MyEntity, String> create()
+    {
+        final String name  = this.name;
+        final Field  field = this.field;
+        return new IndexerString.Abstract<>()
+        {
+            @Override public String name() { return name; }
+            @Override protected String getString(final MyEntity e)
+            {
+                try { return ((String)field.get(e)).toUpperCase(); }
+                catch(IllegalAccessException ex) { throw new RuntimeException(ex); }
+            }
+        };
+    }
+}
+----
+
+NOTE: As with member access, the creator class must be reachable from the GigaMap module — in a named module, make the creator `public` and `opens` its package to `org.eclipse.store.gigamap`.
+
+=== Annotating getters
+
+`@Index`, `@Unique` and `@Identity` may be placed on a no-argument getter instead of a field. The index name is derived from the property (the `get`/`is` prefix is stripped). This makes annotation-based indexing work for records and immutable types:
+
+[source, java]
+----
+public record Product(@Index String sku, @Index int quantity) { }
+----
+
+NOTE: The generator reads the annotated members reflectively. When your entities live in a *named* Java module, open their package to the GigaMap module so the values can be read: `opens com.example.model to org.eclipse.store.gigamap;` (and to the respective integration module — e.g. `org.eclipse.store.gigamap.lucene` — when using its annotations).
+
+=== Class-level spatial index
+
+A spatial index spans two coordinate properties and is therefore declared on the type with `@SpatialIndex`, naming the latitude and longitude members (fields or getters):
+
+[source, java]
+----
+@SpatialIndex(latitude = "lat", longitude = "lon")
+public class City
+{
+    private String name;
+    private double lat;
+    private double lon;
+}
+
+SpatialIndexer<City> spatial = gigaMap.index().bitmap().getIndexer(SpatialIndexer.class, "spatial");
+gigaMap.query(spatial.near(52.52, 13.405, 100)); // within 100 km
+----
+
+See xref:indexing/spatial/index.adoc[Spatial Index] for the full query API.
+
+=== Generating across index types
+
+`IndexerGenerator.AnnotationBased(...).generateIndices(BitmapIndices)` only generates bitmap indices. To also generate full-text or vector indices declared by integration-module annotations, register the corresponding handler and call the `GigaMap` overload:
+
+[source, java]
+----
+IndexerGenerator.AnnotationBased(Article.class)
+    .register(LuceneAnnotationHandler.New())   // from gigamap-lucene
+    .register(VectorAnnotationHandler.New())   // from gigamap-jvector
+    .generateIndices(gigaMap);                 // bitmap + full-text + vector
+----
+
+See xref:indexing/annotations.adoc[Annotation-based Indexing] for the full picture and for adding your own handler. The `@Indexed` type-level marker can be used to flag entity types whose indices are defined by annotations.
+
+== Persistence
+
+Indexer instances are part of the GigaMap's persistent object graph: when storage is reopened, each registered indexer is restored alongside its bitmap data and remains attached. Plain field-accessor indexers — the common case — need no special treatment. If a custom indexer holds non-configuration state such as a cache, a derived equator, or a service handle, mark those fields `transient` and reinitialize them lazily on first use, the same way xref:indexing/jvector/index.adoc#computed-vectorizers-and-lazy-initialization[computed vectorizers] handle their embedding models.
+
+=== Determining the index name
+
+Each indexer is stored under a unique name. By default the name is derived from the declaring `static` field — `{outer class FQCN}.{fieldName}` — so an indexer like `PersonIndices.maritalStatus` is registered as `org.example.PersonIndices.maritalStatus`. The same name is reproduced reliably across JVM runs, which is what makes the index findable after reload. For indexers that are *not* assigned to a `static` field (anonymous inner classes created inline, instances created in a method) the fallback name is class-based and may collide with other anonymous instances of the same indexer type.
+
+You can always take full control of the name by overriding the `name()` method on the indexer itself. This works for any indexer regardless of how it is declared, and is the way to decouple the persisted index name from the Java identifier — useful when refactoring (you can rename or move the constant without invalidating persisted indices), or when you need a name shorter / friendlier than the auto-derived FQCN, or to ensure stability for anonymous instances:
+
+[source, java]
+----
+public final static Indexer<Person, MaritalStatus> maritalStatus = new Indexer.Abstract<>()
+{
+    @Override public String name() { return "person.maritalStatus"; }
+    // ...
+};
+----
+
+For annotation-based indexers, the name is the annotated property — `@Index` on `firstName` registers the index as `firstName`.
+
+=== Looking up an index after load
+
+After the GigaMap is loaded from existing storage, indexers are owned and managed by GigaMap — you do not re-register them. If you kept your indexers as `static` constants you can keep referring to them directly in queries (`gigaMap.query(PersonIndices.maritalStatus.is(MARRIED))`); GigaMap matches the constant to its persisted index by name. Otherwise, look the index up via `BitmapIndices`:
+
+[source, java]
+----
+BitmapIndices<Person> bitmapIndices = gigaMap.index().bitmap();
+BitmapIndex<Person, MaritalStatus> idx = bitmapIndices.get(MaritalStatus.class, "person.maritalStatus");
+IndexerString<Person>              firstNameIndex = bitmapIndices.getStringIndex("firstName");
+----
+
+`get(...)` returns `null` if no index with that name is registered.

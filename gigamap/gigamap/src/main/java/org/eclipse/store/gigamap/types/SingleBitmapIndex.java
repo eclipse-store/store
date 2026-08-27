@@ -106,15 +106,17 @@ implements BitmapIndex.TopLevel<E, Boolean>, ChangeHandler
 	@Override
 	public final BitmapResult internalQuery(final Boolean key)
 	{
-		if(key == null)
-		{
-			return EMPTY_RESULT;
-		}
-		if(key == true)
+		if(Boolean.TRUE.equals(key))
 		{
 			return this.createResult();
 		}
-		
+
+		// A SingleBitmapIndex only materializes the TRUE set; FALSE and null are both simply
+		// "not in the TRUE entry" and cannot be told apart by this index. Both must therefore
+		// resolve to the inverted (NOT-TRUE) result. Returning EMPTY_RESULT for null would make
+		// a present null-valued entity unfindable by the entity locator (used by update / apply /
+		// set / replace via like(entity) -> is(null)), throwing "Entity not found", and would also
+		// make is(null) inconsistent with the is(false) it is indistinguishable from.
 		return this.entryResultInverted();
 	}
 	
@@ -194,28 +196,7 @@ implements BitmapIndex.TopLevel<E, Boolean>, ChangeHandler
 		}
 		this.markStateChangeChildren();
 	}
-	
-	@Override
-	public final void internalAddAll(final long firstEntityId, final E[] entities)
-	{
-		final BitmapEntry<E, E, Boolean>  entry   = this.entry;
-		final Indexer<? super E, Boolean> indexer = this.indexer;
-		
-		long currentEntityId = firstEntityId - 1;
-		for(final E entity : entities)
-		{
-			// entityId must be incremented in any case to ensure consistency to the parent map.
-			++currentEntityId;
-			final Boolean key = indexer.index(entity);
-			if(key == null || !key)
-			{
-				continue;
-			}
-			entry.add(currentEntityId);
-		}
-		this.markStateChangeChildren();
-	}
-	
+
 	@Override
 	public final void internalRemove(final long entityId, final E entity)
 	{
@@ -233,8 +214,25 @@ implements BitmapIndex.TopLevel<E, Boolean>, ChangeHandler
 	@Override
 	protected final void removeEntry(final BitmapEntry<E, E, Boolean> entry)
 	{
-		// not used in this implementation since ... well ... there is only one entry. Lol.
-		throw new Error();
+		// SingleBitmapIndex holds exactly one permanent BitmapEntry (the TRUE-set), allocated
+		// in the constructor. An empty entry is a valid state (no TRUE-indexed entities) and
+		// must remain in place so future TRUE additions and FALSE / inverted queries (see
+		// entryResultInverted) keep working. Reached via internalRemoveFromEntry on the
+		// change-handler path used by update / set / replace when the last TRUE entity flips
+		// to FALSE / null.
+		if(entry != this.entry)
+		{
+			// Defensive guard: this index owns exactly one entry by construction. If the
+			// generic cleanup ever passes a different entry, the invariant has regressed
+			// somewhere else and we want to fail loudly rather than silently mark the
+			// wrong children dirty.
+			throw new IllegalArgumentException("SingleBitmapIndex received an unexpected BitmapEntry instance in removeEntry");
+		}
+		// internalRemoveFromEntry marks the index instance-changed (not children-changed) after
+		// invoking removeEntry, but since the entry is kept, its child bitmap also needs to be
+		// re-stored on the next store(). Mark children-changed here so storeChangedChildren
+		// reaches the entry's level3 — matching what internalRemove does on the direct path.
+		this.markStateChangeChildren();
 	}
 	
 	@Override
@@ -269,11 +267,16 @@ implements BitmapIndex.TopLevel<E, Boolean>, ChangeHandler
 		{
 			results[r++] = this.createResult();
 		}
-		if(predicate.test(Boolean.FALSE))
+		// FALSE and null are indistinguishable in this index: both live in the NOT-TRUE set. A
+		// predicate matching either therefore maps to the same inverted result, added at most once.
+		// Testing null here (consistent with how hashing indexes invoke predicates against a null
+		// key) keeps search() consistent with internalQuery(FALSE) / internalQuery(null), which both
+		// resolve to NOT-TRUE.
+		if(predicate.test(Boolean.FALSE) || predicate.test(null))
 		{
 			results[r++] = this.entryResultInverted();
 		}
-		
+
 		// it is theoretically possible that the predicate just always returns false, so r == 0 must be checked.
 		if(r == 0)
 		{

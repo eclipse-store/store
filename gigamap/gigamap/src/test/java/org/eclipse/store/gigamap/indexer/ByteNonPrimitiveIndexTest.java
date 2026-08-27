@@ -62,7 +62,7 @@ public class ByteNonPrimitiveIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<BytePerson> newMap = (GigaMap<BytePerson>) manager.root();
+            GigaMap<BytePerson> newMap = manager.root();
             long count = newMap.query(bytePersonIndex.between((byte) 20, (byte) 30)).count();
             assertEquals(2, count);
             newMap.query(bytePersonIndex.between((byte) 20, (byte) 30)).forEach(bytePerson -> assertTrue(bytePerson.getAge() >= 20 && bytePerson.getAge() <= 30));
@@ -83,7 +83,7 @@ public class ByteNonPrimitiveIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<BytePerson> newMap = (GigaMap<BytePerson>) manager.root();
+            GigaMap<BytePerson> newMap = manager.root();
             long count = newMap.query(bytePersonIndex.greaterThanEqual((byte) 20)).count();
             assertEquals(3, count);
             newMap.query(bytePersonIndex.greaterThanEqual((byte) 20)).forEach(bytePerson -> assertTrue(bytePerson.getAge() >= 20));
@@ -104,7 +104,7 @@ public class ByteNonPrimitiveIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<BytePerson> newMap = (GigaMap<BytePerson>) manager.root();
+            GigaMap<BytePerson> newMap = manager.root();
             long count = newMap.query(bytePersonIndex.greaterThan((byte) 20)).count();
             assertEquals(2, count);
             newMap.query(bytePersonIndex.greaterThan((byte) 20)).forEach(bytePerson -> assertTrue(bytePerson.getAge() > 20));
@@ -125,7 +125,7 @@ public class ByteNonPrimitiveIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<BytePerson> newMap = (GigaMap<BytePerson>) manager.root();
+            GigaMap<BytePerson> newMap = manager.root();
             long count = newMap.query(bytePersonIndex.lessThanEqual((byte) 30)).count();
             assertEquals(2, count);
             newMap.query(bytePersonIndex.lessThanEqual((byte) 30)).forEach(bytePerson -> assertTrue(bytePerson.getAge() <= 30));
@@ -146,7 +146,7 @@ public class ByteNonPrimitiveIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<BytePerson> newMap = (GigaMap<BytePerson>) manager.root();
+            GigaMap<BytePerson> newMap = manager.root();
             long count = newMap.query(bytePersonIndex.lessThan((byte) 30)).count();
             assertEquals(1, count);
             newMap.query(bytePersonIndex.lessThan((byte) 30)).forEach(bytePerson -> assertTrue(bytePerson.getAge() < 30));
@@ -172,7 +172,7 @@ public class ByteNonPrimitiveIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<BytePerson> newMap = (GigaMap<BytePerson>) manager.root();
+            GigaMap<BytePerson> newMap = manager.root();
             newMap.query(bytePersonIndex.is((byte) 20)).forEach(bytePerson -> assertEquals((byte) 20, bytePerson.getAge()));
             newMap.query(bytePersonIndex.is((byte) 30)).forEach(bytePerson -> assertEquals((byte) 30, bytePerson.getAge()));
 

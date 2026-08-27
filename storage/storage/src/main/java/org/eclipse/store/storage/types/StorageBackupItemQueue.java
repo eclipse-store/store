@@ -14,6 +14,10 @@ package org.eclipse.store.storage.types;
  * #L%
  */
 
+import org.eclipse.serializer.util.logging.Logging;
+import org.eclipse.store.storage.exceptions.StorageExceptionBackupCopying;
+import org.slf4j.Logger;
+
 public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, StorageFileUser
 {
 	public boolean processNextItem(StorageBackupHandler handler, long timeoutMs) throws InterruptedException;
@@ -27,10 +31,12 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 	
 	public final class Default implements StorageBackupItemQueue
 	{
+		private final static Logger logger = Logging.getLogger(StorageBackupItemQueue.class);
+
 		///////////////////////////////////////////////////////////////////////////
 		// instance fields //
 		////////////////////
-		
+
 		private final Item head = new Item(null);
 		private       Item tail = this.head;
 		
@@ -91,12 +97,100 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 		)
 		{
 			item.sourceFile.registerUsage(this);
-			
+
 			// no try-catch with unregisterUsage required since the following code is too simple to fail.
 			synchronized(this.head)
 			{
 				this.tail = this.tail.next = item;
 				this.head.notifyAll();
+			}
+		}
+
+		@Override
+		public void cancelPendingItemsFor(final StorageLiveChannelFile<?> file)
+		{
+			this.removeMatching(item -> item.sourceFile == file);
+		}
+
+		@Override
+		public void trimPendingCopyItemsBeyond(final StorageLiveChannelFile<?> file, final long newLength)
+		{
+			// A start-only check (>= newLength) suffices: copy items start at write boundaries and
+			// every truncation reaching here cuts at a write boundary, so an item lies fully below
+			// newLength or starts at/after it - none straddles it. Removes QUEUED items only; an
+			// already-dequeued in-flight copy is absorbed by processNextItem when its read fails.
+			this.removeMatching(item ->
+				item.sourceFile == file
+				&& item instanceof CopyItem
+				&& ((CopyItem)item).sourcePosition >= newLength
+			);
+		}
+
+		/**
+		 * Unlinks {@code current} (whose predecessor in the chain is {@code previous}) and fixes
+		 * {@code tail} if {@code current} was the last item. Callers must hold {@code this.head}'s
+		 * monitor. Shared by {@link #processNextItem}'s single-item pop and {@link #removeMatching}'s
+		 * arbitrary-position removal, so a future change to the tail-fixup invariant only has one
+		 * place to get right.
+		 */
+		private void unlink(final Item previous, final Item current)
+		{
+			previous.next = current.next;
+			if(current == this.tail)
+			{
+				this.tail = previous;
+			}
+		}
+
+		/**
+		 * Removes every still-queued item matching {@code predicate} and releases the usage each
+		 * held, without processing them. Only reaches items still sitting in the queue; one
+		 * already popped by the backup thread and mid-processing is outside this lock and not
+		 * covered (an accepted, narrow residual race window).
+		 * <p>
+		 * The queue lock is a leaf (see {@link #processNextItem}): file-monitor calls
+		 * (registerUsage/unregisterUsage) must never run while it is held, otherwise the queue
+		 * lock and a {@code StorageLiveFile} monitor can be acquired in opposite orders by the
+		 * housekeeping channel and the backup handler and deadlock. Removed items are therefore
+		 * collected into a separate chain (reusing their own {@code next} field, now free) and
+		 * their usage released only after the lock is released.
+		 */
+		private void removeMatching(final java.util.function.Predicate<? super Item> predicate)
+		{
+			Item removedHead = null;
+			Item removedTail = null;
+
+			synchronized(this.head)
+			{
+				Item previous = this.head;
+				Item current  = this.head.next;
+				while(current != null)
+				{
+					final Item next = current.next;
+					if(predicate.test(current))
+					{
+						this.unlink(previous, current);
+						current.next = null;
+						if(removedHead == null)
+						{
+							removedHead = removedTail = current;
+						}
+						else
+						{
+							removedTail = removedTail.next = current;
+						}
+					}
+					else
+					{
+						previous = current;
+					}
+					current = next;
+				}
+			}
+
+			for(Item item = removedHead; item != null; item = item.next)
+			{
+				item.sourceFile.unregisterUsage(this);
 			}
 		}
 
@@ -109,7 +203,13 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 		{
 			final long timeBudgetBound = System.currentTimeMillis() + timeoutMs;
 			final long waitInterval    = timeoutMs / 16;
-			
+
+			final Item itemToBeProcessed;
+
+			// queue lock is a leaf: only structural mutation happens here. Processing and the
+			// file-monitor work in unregisterUsageClosing must run outside it, otherwise the
+			// queue lock and a StorageLiveFile monitor can be acquired in opposite orders by
+			// the housekeeping channel and the backup handler, causing a deadlock.
 			synchronized(this.head)
 			{
 				while(this.head.next == null)
@@ -118,30 +218,84 @@ public interface StorageBackupItemQueue extends StorageBackupItemEnqueuer, Stora
 					{
 						return true;
 					}
-					
+
 					if(System.currentTimeMillis() >= timeBudgetBound)
 					{
 						return false;
 					}
-					
+
 					this.head.wait(waitInterval);
 				}
-				
-				final Item itemToBeProcessed = this.head.next;
-				
+
+				itemToBeProcessed = this.head.next;
+				this.unlink(this.head, itemToBeProcessed);
+			}
+
+			try
+			{
 				itemToBeProcessed.processBy(handler);
-				
+			}
+			catch(final StorageExceptionBackupCopying e)
+			{
+				if(!this.isSupersededByPendingItem(itemToBeProcessed))
+				{
+					throw e;
+				}
+				/*
+				 * An in-flight copy the trim could not reach failed because its source was truncated
+				 * (or deleted) at/below the copied range. The truncating item queued behind it
+				 * discards that range and later items re-append the rewritten content, so skipping is
+				 * a no-op; failing loudly would disrupt the whole storage over a self-reconciling state.
+				 */
+				final CopyItem copyItem = (CopyItem)itemToBeProcessed; // guarded: predicate is copy-item-only
+				logger.debug(
+					"Skipped an in-flight backup copy ({} @{}+{}) superseded by a truncation or deletion enqueued behind it",
+					copyItem.sourceFile.identifier(),
+					copyItem.sourcePosition,
+					copyItem.length,
+					e
+				);
+			}
+			finally
+			{
 				// the backup thread can be the last active part of an already shutdown storage, so it has to clean up.
 				itemToBeProcessed.sourceFile.unregisterUsageClosing(this, null);
-				
-				if((this.head.next = itemToBeProcessed.next) == null)
-				{
-					// queue has been processed completely, reset to initial state of appending directly to the head.
-					this.tail = this.head;
-				}
-				
-				return true;
 			}
+
+			return true;
+		}
+
+		/**
+		 * Whether a truncation discarding the passed copy item's range - or a deletion of its whole
+		 * file - is still queued behind it. {@link StorageFileWriterBackupping} enqueues the
+		 * superseding item before the physical truncate/delete that fails the copy, so a failed
+		 * in-flight copy always finds it here. Ranges never straddle a truncation boundary, so
+		 * comparing the start position suffices.
+		 */
+		private boolean isSupersededByPendingItem(final Item item)
+		{
+			if(!(item instanceof CopyItem))
+			{
+				return false;
+			}
+			final long sourcePosition = ((CopyItem)item).sourcePosition;
+			synchronized(this.head)
+			{
+				for(Item i = this.head.next; i != null; i = i.next)
+				{
+					if(i.sourceFile != item.sourceFile)
+					{
+						continue;
+					}
+					if((i instanceof TruncationItem && ((TruncationItem)i).length <= sourcePosition)
+						|| i instanceof DeletionItem
+					)
+					{
+						return true;
+					}
+				}
+			}
+			return false;
 		}
 		
 		static class Item

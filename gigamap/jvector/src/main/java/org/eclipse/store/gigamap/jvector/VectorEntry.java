@@ -15,7 +15,7 @@ package org.eclipse.store.gigamap.jvector;
  */
 
 import org.eclipse.store.gigamap.types.BinaryIndexerLong;
-import org.eclipse.store.gigamap.types.Condition;
+import org.eclipse.store.gigamap.types.GigaMap;
 
 import java.util.Arrays;
 import java.util.Objects;
@@ -24,22 +24,37 @@ final class VectorEntry
 {
     /*
      * Indexer for source entity IDs.
-     * It stores source entity IDs as 1-based to avoid 0 as an invalid binary index value.
      */
     final static BinaryIndexerLong<VectorEntry> SOURCE_ENTITY_ID_INDEXER = new BinaryIndexerLong.Abstract<>()
     {
         @Override
-        protected Long getLong(final VectorEntry entry)
+        public String name()
         {
-            return entry.sourceEntityId + 1;
+            return "sourceEntityId";
         }
 
         @Override
-        public <S extends VectorEntry> Condition<S> is(final Long key)
+        protected Long getLong(final VectorEntry entry)
         {
-            return super.is(key + 1);
+            return entry.sourceEntityId;
         }
     };
+
+    /**
+     * Looks up the stored entry for the given source entity ID via the
+     * {@link #SOURCE_ENTITY_ID_INDEXER} identity index. Keyed lookup by source entity ID
+     * rather than positional access, since the vector store's own id allocator can drift
+     * from the parent map's entity ids.
+     *
+     * @param store          the computed-mode vector store
+     * @param sourceEntityId the parent entity id to look up
+     * @return the stored entry, or {@code null} if the entity has no vector entry
+     */
+    static VectorEntry lookup(final GigaMap<VectorEntry> store, final long sourceEntityId)
+    {
+        return store.query(SOURCE_ENTITY_ID_INDEXER.is(sourceEntityId)).findFirst().orElse(null);
+    }
+
 
 
     final long    sourceEntityId;

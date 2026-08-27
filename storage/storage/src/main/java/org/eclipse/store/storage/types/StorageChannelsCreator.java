@@ -16,7 +16,6 @@ package org.eclipse.store.storage.types;
 
 import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.monitoring.MonitoringManager;
-import org.eclipse.serializer.persistence.types.ObjectIdsSelector;
 import org.eclipse.serializer.persistence.types.PersistenceLiveStorerRegistry;
 import org.eclipse.serializer.reference.Referencing;
 import org.eclipse.serializer.util.BufferSizeProvider;
@@ -32,6 +31,7 @@ public interface StorageChannelsCreator
 		StorageInitialDataFileNumberProvider       initialDataFileNumberProvider,
 		StorageExceptionHandler                    exceptionHandler             ,
 		StorageDataFileEvaluator                   fileDissolver                ,
+		StorageChunkChecksumProvider               chunkChecksumProvider        ,
 		StorageLiveFileProvider                    liveFileProvider             ,
 		StorageEntityCacheEvaluator                entityCacheEvaluator         ,
 		StorageTypeDictionary                      typeDictionary               ,
@@ -48,7 +48,7 @@ public interface StorageChannelsCreator
 		StorageEntityMarkMonitor.Creator           entityMarkMonitorCreator     ,
 		StorageBackupHandler                       backupHandler                ,
 		StorageEventLogger                         eventLogger                  ,
-		ObjectIdsSelector liveObjectIdChecker                                   ,
+		LiveObjectIdsHandler                       liveObjectIdsHandler         ,
 		Referencing<PersistenceLiveStorerRegistry> refStorerRegistry            ,
 		boolean                                    switchByteOrder              ,
 		long                                       rootTypeId                   ,
@@ -71,6 +71,7 @@ public interface StorageChannelsCreator
 			final StorageInitialDataFileNumberProvider       initialDataFileNumberProvider,
 			final StorageExceptionHandler                    exceptionHandler             ,
 			final StorageDataFileEvaluator                   dataFileEvaluator            ,
+			final StorageChunkChecksumProvider               chunkChecksumProvider        ,
 			final StorageLiveFileProvider                    liveFileProvider             ,
 			final StorageEntityCacheEvaluator                entityCacheEvaluator         ,
 			final StorageTypeDictionary                      typeDictionary               ,
@@ -87,7 +88,7 @@ public interface StorageChannelsCreator
 			final StorageEntityMarkMonitor.Creator           entityMarkMonitorCreator     ,
 			final StorageBackupHandler                       backupHandler                ,
 			final StorageEventLogger                         eventLogger                  ,
-			final ObjectIdsSelector                          liveObjectIdChecker          ,
+			final LiveObjectIdsHandler                       liveObjectIdsHandler         ,
 			final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry            ,
 			final boolean                                    switchByteOrder              ,
 			final long                                       rootTypeId                   ,
@@ -101,6 +102,7 @@ public interface StorageChannelsCreator
 			final long markingWaitTimeMs        =    10;
 			final int  loadingBufferSize        =  XMemory.defaultBufferSize();
 			final int  readingDefaultBufferSize =  XMemory.defaultBufferSize();
+			final int  gcSweepThreshold         =  housekeepingController.garbageCollectionSweepThreshold();
 
 			final StorageChannel.Default[] channels = new StorageChannel.Default[channelCount];
 
@@ -112,9 +114,10 @@ public interface StorageChannelsCreator
 			final StorageEntityMarkMonitor markMonitor = entityMarkMonitorCreator.createEntityMarkMonitor(
 				markQueues,
 				eventLogger,
-				refStorerRegistry
+				refStorerRegistry,
+				liveObjectIdsHandler
 			);
-			
+
 			final BufferSizeProviderIncremental loadingBufferSizeProvider = BufferSizeProviderIncremental.New(loadingBufferSize);
 			final BufferSizeProvider readingDefaultBufferSizeProvider     = BufferSizeProvider.New(readingDefaultBufferSize);
 			
@@ -134,26 +137,38 @@ public interface StorageChannelsCreator
 					rootTypeId                                       ,
 					markQueues[i]                                    ,
 					eventLogger                                      ,
-					liveObjectIdChecker                              ,
+					liveObjectIdsHandler                             ,
 					markingWaitTimeMs                                ,
-					markBufferLength
+					markBufferLength                                 ,
+					gcSweepThreshold
 				);
 				
 				cacheMonitors[i] = new EntityCacheMonitor(entityCache);
 				monitorManager.registerMonitor(cacheMonitors[i]);
 
+				// each channel owns its own meta-record registry; the chunk-checksum calculator registers its
+				// load-time handlers into it (any future meta-record feature registers into the same registry).
+				final StorageChunkChecksumCalculator chunkChecksumCalculator = chunkChecksumProvider.createCalculator();
+				final StorageChecksumAnomalyReporter reporter                = StorageChecksumAnomalyReporter.New(
+					chunkChecksumProvider.policy()
+				);
+				final StorageMetaRecordRegistry      metaRecordRegistry      = StorageMetaRecordRegistry.New(reporter);
+				chunkChecksumCalculator.registerMetaRecordHandlers(metaRecordRegistry, reporter);
+
 				// file manager to handle "file" IO (whatever "file" might be, might be a RDBMS binary table as well)
 				final StorageFileManager.Default fileManager = new StorageFileManager.Default(
-					i                               ,
-					initialDataFileNumberProvider   ,
-					timestampProvider               ,
-					liveFileProvider                ,
-					dataFileEvaluator               ,
-					entityCache                     ,
-					writeController                 ,
-					writerProvider.provideWriter(i) ,
-					readingDefaultBufferSizeProvider,
-					backupHandler                   ,
+					i                                       ,
+					initialDataFileNumberProvider           ,
+					timestampProvider                       ,
+					liveFileProvider                        ,
+					dataFileEvaluator                       ,
+					chunkChecksumCalculator                 ,
+					metaRecordRegistry                      ,
+					entityCache                             ,
+					writeController                         ,
+					writerProvider.provideWriter(i)         ,
+					readingDefaultBufferSizeProvider        ,
+					backupHandler                           ,
 					transactionFileCleanerCreator
 				);
 

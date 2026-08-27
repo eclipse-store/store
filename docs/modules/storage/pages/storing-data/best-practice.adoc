@@ -31,6 +31,51 @@ EmbeddedStorageManager storage = EmbeddedStorage.Foundation()
 	.start();
 ----
 
+== Prefer Composition Over Inheritance
+
+When designing your data model, prefer composition over inheritance, especially when working with collection types.
+
+{product-name} provides xref:../addendum/specialized-type-handlers.adoc[specialized type handlers] for commonly used JDK types such as `ArrayList`, `HashMap`, `HashSet`, and others.
+These type handlers are designed to work with the exact types they are registered for.
+If you create a subclass of such a type, the specialized type handler will *not* be used.
+Instead, {product-name} falls back to generic type analysis, which may lead to unexpected behavior, degraded performance, or serialization issues.
+
+[WARNING]
+====
+Extending collection types (e.g., `class MyList extends ArrayList`) can interfere with {product-name}'s serialization and type handler resolution.
+Always prefer wrapping collections as fields in your own classes instead of extending them.
+====
+
+*Don't* do this:
+
+[source, java]
+----
+// Bad: extending a collection type
+public class CustomerList extends ArrayList<Customer>
+{
+	private String name;
+
+	// ...
+}
+----
+
+*Do* this instead:
+
+[source, java]
+----
+// Good: using composition
+public class CustomerList
+{
+	private final List<Customer> customers = new ArrayList<>();
+	private String name;
+
+	// ...
+}
+----
+
+By using composition, `ArrayList` retains its own specialized type handler, while your custom class is handled generically through its fields.
+This pattern also results in a cleaner, more flexible design that is easier to maintain and evolve.
+
 == Use Immutable data models
 
 To increase performance, use immutable sub-graphs as often as possible.

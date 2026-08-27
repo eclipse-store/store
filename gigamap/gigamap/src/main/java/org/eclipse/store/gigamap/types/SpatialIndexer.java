@@ -84,7 +84,7 @@ public interface SpatialIndexer<E> extends HashingCompositeIndexer<E>
 	 *
 	 * @param <S> the type of entity this condition applies to
 	 * @param maxInclusive the maximum latitude (inclusive)
-	 * @return a condition for latitude <= maxInclusive
+	 * @return a condition for {@code latitude <= maxInclusive}
 	 */
 	public <S extends E> Condition<S> latitudeBelow(double maxInclusive);
 
@@ -102,7 +102,7 @@ public interface SpatialIndexer<E> extends HashingCompositeIndexer<E>
 	 *
 	 * @param <S> the type of entity this condition applies to
 	 * @param maxInclusive the maximum longitude (inclusive)
-	 * @return a condition for longitude <= maxInclusive
+	 * @return a condition for {@code longitude <= maxInclusive}
 	 */
 	public <S extends E> Condition<S> longitudeBelow(double maxInclusive);
 
@@ -248,28 +248,32 @@ public interface SpatialIndexer<E> extends HashingCompositeIndexer<E>
 			return this.is(carrier);
 		}
 
+		@SuppressWarnings("unchecked")
 		@Override
 		public <S extends E> Condition<S> latitudeAbove(final double minInclusive)
 		{
-			return this.coordinateGreaterThanEqual(toUnsignedBytes(minInclusive), LAT_OFFSET);
+			return (Condition<S>)this.coordinateGreaterThanEqual(toUnsignedBytes(minInclusive), LAT_OFFSET).complete();
 		}
 
+		@SuppressWarnings("unchecked")
 		@Override
 		public <S extends E> Condition<S> latitudeBelow(final double maxInclusive)
 		{
-			return this.coordinateLessThanEqual(toUnsignedBytes(maxInclusive), LAT_OFFSET);
+			return (Condition<S>)this.coordinateLessThanEqual(toUnsignedBytes(maxInclusive), LAT_OFFSET).complete();
 		}
 
+		@SuppressWarnings("unchecked")
 		@Override
 		public <S extends E> Condition<S> longitudeAbove(final double minInclusive)
 		{
-			return this.coordinateGreaterThanEqual(toUnsignedBytes(minInclusive), LON_OFFSET);
+			return (Condition<S>)this.coordinateGreaterThanEqual(toUnsignedBytes(minInclusive), LON_OFFSET).complete();
 		}
 
+		@SuppressWarnings("unchecked")
 		@Override
 		public <S extends E> Condition<S> longitudeBelow(final double maxInclusive)
 		{
-			return this.coordinateLessThanEqual(toUnsignedBytes(maxInclusive), LON_OFFSET);
+			return (Condition<S>)this.coordinateLessThanEqual(toUnsignedBytes(maxInclusive), LON_OFFSET).complete();
 		}
 
 		@SuppressWarnings("unchecked")

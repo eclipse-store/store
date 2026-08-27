@@ -49,6 +49,7 @@ class VectorIndexConfigurationTest
         assertFalse(config.backgroundPersistence());
         assertEquals(0L, config.persistenceIntervalMs());
         assertTrue(config.persistOnShutdown());
+        assertEquals(30_000L, config.shutdownPersistTimeoutMillis());
         assertEquals(100, config.minChangesBetweenPersists());
         assertFalse(config.backgroundOptimization());
         assertEquals(0L, config.optimizationIntervalMs());
@@ -68,6 +69,23 @@ class VectorIndexConfigurationTest
         );
         assertThrows(NumberRangeException.class, () ->
             VectorIndexConfiguration.builder().dimension(-1).build()
+        );
+    }
+
+    @Test
+    void testBuilderShutdownPersistTimeoutMillis()
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .shutdownPersistTimeoutMillis(5_000)
+            .build();
+        assertEquals(5_000L, config.shutdownPersistTimeoutMillis());
+
+        assertThrows(NumberRangeException.class, () ->
+            VectorIndexConfiguration.builder().dimension(64).shutdownPersistTimeoutMillis(0).build()
+        );
+        assertThrows(NumberRangeException.class, () ->
+            VectorIndexConfiguration.builder().dimension(64).shutdownPersistTimeoutMillis(-1).build()
         );
     }
 

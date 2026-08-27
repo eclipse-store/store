@@ -51,7 +51,7 @@ public class CarUniqueTest
 
         // Load the vehicles from storage and check if the unique constraint is still enforced
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<Car> loadedVehicles = (GigaMap<Car>) storageManager.root();
+            GigaMap<Car> loadedVehicles = storageManager.root();
             UniqueConstraintViolationExceptionBitmap ex1 =
                     Assertions.assertThrows(UniqueConstraintViolationExceptionBitmap.class,
                             () -> loadedVehicles.add(car2)); //<-- No exception

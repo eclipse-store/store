@@ -9,11 +9,12 @@ package org.eclipse.store.gigamap.types;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
+import java.util.Arrays;
 
 /**
  * General typing interface for specialized index category types.
@@ -47,11 +48,14 @@ public interface IndexGroup<E> extends GigaMap.Component<E>
 		
 		/**
 		 * Adds entities starting with a certain id to this index.
-		 * 
+		 *
 		 * @param firstEntityId the first id which will be incremented for remaining entities
 		 * @param entities the entities to add
 		 */
-		public void internalAddAll(long firstEntityId, E[] entities);
+		public default void internalAddAll(final long firstEntityId, final E[] entities)
+		{
+			this.internalAddAll(firstEntityId, Arrays.asList(entities));
+		}
 		
 		public void internalPrepareIndicesUpdate(E replacedEntity);
 		
@@ -61,9 +65,29 @@ public interface IndexGroup<E> extends GigaMap.Component<E>
 		 * @param entityId the entity's id
 		 * @param replacedEntity old entity
 		 * @param entity new entity from which the key will be extracted
+		 * @param customConstraints the custom constraints to check, may be {@code null} to check none
 		 */
 		public void internalUpdateIndices(long entityId, E replacedEntity, E entity, CustomConstraints<? super E> customConstraints);
-		
+
+		/**
+		 * De-indexes the entity's previous state, i.e. the state prepared via
+		 * {@link #internalPrepareIndicesUpdate(Object)}, without running any user code again.
+		 * <p>
+		 * The calling context uses this after a failed in-place update whose entity it removes from the
+		 * map: the removal re-derives the keys from the entity's mutated state and can therefore not
+		 * locate the entries of the entity's previous state. Only the prepared state can, which is why
+		 * this must be called before {@link #internalFinishIndicesUpdate()} releases it.
+		 * <p>
+		 * The default implementation does nothing, which is correct for groups that de-index by entity
+		 * id instead of by re-derived keys and hence have no such leftovers.
+		 *
+		 * @param entityId the entity's id
+		 */
+		public default void internalRemovePreparedState(final long entityId)
+		{
+			// no-op by default: groups that de-index by entity id have no state-derived leftovers.
+		}
+
 		public void internalFinishIndicesUpdate();
 		
 		/**
@@ -78,7 +102,60 @@ public interface IndexGroup<E> extends GigaMap.Component<E>
 		 * Removes all entities from this index.
 		 */
 		public void internalRemoveAll();
-		
+
+		/**
+		 * Lifecycle hook invoked by {@link GigaIndices.Default#register(IndexCategory)} immediately
+		 * after this group has been added, while holding the parent-map lock, to let the group
+		 * synchronize itself with entities that already exist in the map at registration time
+		 * (back-fill). It is <b>not</b> called on deserialization, so a group that back-fills here
+		 * will not re-index everything on restart.
+		 * <p>
+		 * The default is a no-op. Groups that are registered while the map is still empty (e.g. the
+		 * bitmap group at build time) or that back-fill their individual indices when those are added
+		 * (e.g. the vector group) do not override it.
+		 */
+		public default void internalOnRegistered()
+		{
+			// no-op
+		}
+
+		/**
+		 * Rebuilds this group's index data from scratch, using the current state of all entities in the
+		 * given parent map. Invoked by {@link GigaMap#reindex()} to recover from an index that drifted out
+		 * of sync - typically because an indexed entity was mutated directly instead of through
+		 * {@link GigaMap#update(long, java.util.function.Consumer)} /
+		 * {@link GigaMap#apply(long, java.util.function.Function)}.
+		 * <p>
+		 * A full rebuild (clear + re-add) rather than a per-entity update replay is required because after a
+		 * direct mutation the previous index key is no longer available, so only re-indexing from the
+		 * current state is correct.
+		 * <p>
+		 * The default implementation drops all data via {@link #internalRemoveAll()} and re-adds every
+		 * entity via {@link #internalAdd(long, Object)}, which is correct for in-memory groups (e.g.
+		 * vector). Groups with an external commit cost (e.g. Lucene) should override this to batch the
+		 * re-add and commit once.
+		 * <p>
+		 * The default performs <b>no</b> constraint validation: it is a plain re-add of data that is already
+		 * part of the map. A group that backs constraints must override this to re-validate them, because a
+		 * rebuild derives every key anew and the current entity state may well violate a constraint that
+		 * held when the entities were written (the bitmap group does so for its unique constraints, see
+		 * {@code BitmapIndices.Default#internalReindex(GigaMap)}).
+		 * <p>
+		 * The default is also <b>not failure-atomic</b>: it drops the data before it can know whether the
+		 * rebuild succeeds, and {@link #internalAdd(long, Object)} fans out to every index of the group, so
+		 * an {@link Indexer} throwing for one entity leaves the entire group holding only the entities
+		 * before it - a silently partial state that a subsequent {@code store()} makes durable. A group that
+		 * can build its new data aside should override this and swap it in only once complete; the bitmap
+		 * group does so per index.
+		 *
+		 * @param parentMap the map whose entities this group indexes
+		 */
+		public default void internalReindex(final GigaMap<E> parentMap)
+		{
+			this.internalRemoveAll();
+			parentMap.iterateIndexed((entityId, entity) -> this.internalAdd(entityId, entity));
+		}
+
 		public void clearStateChangeMarkers();
 	}
 	

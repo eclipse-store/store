@@ -131,6 +131,59 @@ public class MultipleValueIndexTest
     }
 
     @Test
+    void multivalueUpdateAddingKeyKeepsSoleExistingKey()
+    {
+        // Regression: adding a key while keeping a pre-existing one must not drop the existing
+        // key. The existing key's entry is held *only* by this entity, so removing-then-re-adding
+        // it during the update would empty (and detach) the entry, silently losing the entity.
+        GigaMap<Patient>         gigaMap                  = GigaMap.New();
+        PatientIdentifierIndexer patientIdentifierIndexer = new PatientIdentifierIndexer();
+        gigaMap.index().bitmap().add(patientIdentifierIndexer);
+        Patient patient1 = new Patient("John", 25, new ArrayList<>(List.of("123")));
+        gigaMap.add(patient1);
+
+        gigaMap.update(patient1, p -> p.getIdentifiers().add("456"));   // identifiers are now ["123","456"]
+
+        assertEquals(1L, gigaMap.query(patientIdentifierIndexer.is("456")).count(), "newly added key must match");
+        assertEquals(1L, gigaMap.query(patientIdentifierIndexer.is("123")).count(), "pre-existing sole key must still match");
+    }
+
+    @Test
+    void multivalueSetAddingKeyKeepsSoleExistingKey()
+    {
+        // Regression: same as multivalueUpdateAddingKeyKeepsSoleExistingKey, but via set(id, entity).
+        GigaMap<Patient>         gigaMap                  = GigaMap.New();
+        PatientIdentifierIndexer patientIdentifierIndexer = new PatientIdentifierIndexer();
+        gigaMap.index().bitmap().add(patientIdentifierIndexer);
+        Patient patient1 = new Patient("John", 25, new ArrayList<>(List.of("123")));
+        long id = gigaMap.add(patient1);
+
+        gigaMap.set(id, new Patient("John", 25, new ArrayList<>(List.of("123", "456"))));
+
+        assertEquals(1L, gigaMap.query(patientIdentifierIndexer.is("456")).count(), "newly added key must match");
+        assertEquals(1L, gigaMap.query(patientIdentifierIndexer.is("123")).count(), "pre-existing sole key must still match");
+    }
+
+    @Test
+    void multivalueUpdateAddingKeyKeepsAllSoleExistingKeys()
+    {
+        // Regression: with multiple pre-existing keys held only by this entity, adding one more
+        // must keep all of them findable - none of the existing entries may be detached.
+        GigaMap<Patient>         gigaMap                  = GigaMap.New();
+        PatientIdentifierIndexer patientIdentifierIndexer = new PatientIdentifierIndexer();
+        gigaMap.index().bitmap().add(patientIdentifierIndexer);
+        Patient patient1 = new Patient("John", 25, new ArrayList<>(List.of("aaa", "bbb", "ccc")));
+        gigaMap.add(patient1);
+
+        gigaMap.update(patient1, p -> p.getIdentifiers().add("ddd"));   // now ["aaa","bbb","ccc","ddd"]
+
+        assertEquals(1L, gigaMap.query(patientIdentifierIndexer.is("ddd")).count(), "newly added key must match");
+        assertEquals(1L, gigaMap.query(patientIdentifierIndexer.is("aaa")).count(), "pre-existing 'aaa' must still match");
+        assertEquals(1L, gigaMap.query(patientIdentifierIndexer.is("bbb")).count(), "pre-existing 'bbb' must still match");
+        assertEquals(1L, gigaMap.query(patientIdentifierIndexer.is("ccc")).count(), "pre-existing 'ccc' must still match");
+    }
+
+    @Test
     void multivalueUpdateCompleteKeyChange()
     {
         GigaMap<Patient>         gigaMap                  = GigaMap.New();

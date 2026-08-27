@@ -169,7 +169,7 @@ gigaMap.add(new Document("Hello world", embedding));
 // Search for similar vectors (returns top 10 results)
 VectorSearchResult<Document> result = index.search(queryVector, 10);
 
-for (VectorSearchResult.Entry<Document> entry : result)
+for (ScoredSearchResult.Entry<Document> entry : result)
 {
     Document doc = entry.entity();    // Lazy entity access
     float score = entry.score();      // Similarity score
@@ -183,8 +183,21 @@ The search results support the Java Stream API for convenient filtering and tran
 ----
 List<Document> topDocs = result.stream()
     .filter(e -> e.score() > 0.8f)
-    .map(VectorSearchResult.Entry::entity)
+    .map(ScoredSearchResult.Entry::entity)
     .toList();
+----
+
+=== Tuning search effort per query
+
+Every call uses a minimum beam width (HNSW _efSearch_) configured via `minSearchBeamWidth` (default 100). The effective beam width is `max(k, minSearchBeamWidth)` and keeps the top-k stable regardless of the requested `k`. A per-query overload lets you override this floor for a single call — useful to widen exploration for higher recall, or narrow it for lower latency when reproducibility across different `k` values is not required.
+
+[source, java]
+----
+// Widen exploration for this query (higher recall, higher latency)
+VectorSearchResult<Document> highRecall = index.search(queryVector, 10, 500);
+
+// Narrow exploration for this query (lower latency, may differ from higher-k results)
+VectorSearchResult<Document> fast = index.search(queryVector, 10, 10);
 ----
 
 == Similarity Functions
@@ -205,9 +218,9 @@ The following similarity functions are available:
 |Euclidean distance. Best for geometric or spatial data.
 |===
 
-== Persistence with EclipseStore
+== Persistence with {product-name}
 
-Binary type handlers are registered automatically when using EclipseStore.
+Binary type handlers are registered automatically when using {product-name}.
 
 [source, java]
 ----
@@ -225,9 +238,68 @@ try (EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
 }
 ----
 
+[#computed-vectorizers-and-lazy-initialization]
+== Computed Vectorizers and Lazy Initialization
+
+A vectorizer instance is part of the GigaMap's persistent object graph: when storage is reopened, the vectorizer is restored alongside the index data and reused — its fields are loaded back exactly as they were when the GigaMap was last stored.
+
+For computed vectorizers — those that derive embeddings on the fly, e.g. by calling an embedding model over HTTP — this means any heavy field on the vectorizer (HTTP clients, embedding-model handles, tokenizers) would otherwise be serialized along with the cheap configuration. Mark heavy fields `transient` and create them on first use; persist only the cheap configuration that identifies which model or endpoint to talk to.
+
+[source, java]
+----
+public class MyVectorizer extends Vectorizer<Entity>
+{
+    private final String baseUrl ;
+    private final String modelName;
+
+    private transient EmbeddingModel embeddingModel;
+
+    public MyVectorizer(final String baseUrl, final String modelName)
+    {
+        this.baseUrl   = baseUrl  ;
+        this.modelName = modelName;
+    }
+
+    private EmbeddingModel embeddingModel()
+    {
+        if(this.embeddingModel == null)
+        {
+            this.embeddingModel = OllamaEmbeddingModel.builder()
+                .baseUrl(this.baseUrl)
+                .modelName(this.modelName)
+                .build();
+        }
+        return this.embeddingModel;
+    }
+
+    @Override
+    public float[] vectorize(final Entity entity)
+    {
+        return this.embeddingModel().embed(toText(entity))
+            .content().vector();
+    }
+}
+----
+
+When the GigaMap is loaded from existing storage, the vectorizer is restored from the persistent graph with its `baseUrl` and `modelName` intact. The transient `embeddingModel` field is `null` after deserialization and is recreated on the first `vectorize` call.
+
+=== Looking up a vector index after load
+
+The first argument to `vectorIndices.add(name, configuration, vectorizer)` is the index's handle. GigaMap stores the index under that name and uses it as the on-disk filename prefix (`{name}.graph`, `{name}.meta`) when on-disk storage is enabled, so pick a stable string that is also a valid filename. Avoid path separators and keep it short.
+
+After the GigaMap is loaded from existing storage, the index is owned and managed by GigaMap — you do not re-add it. Retrieve a reference by name:
+
+[source, java]
+----
+VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
+VectorIndex<Document> index = vectorIndices.get("embeddings");
+----
+
+`vectorIndices.get(name)` returns `null` if no index with that name is registered. If you want a single call site that creates the index on first run and reuses it on subsequent loads, use `ensure(name, configuration, vectorizer)` instead of `add(...)`.
+
 == Limitations
 
-* *Null vectors are not accepted*: The `Vectorizer.vectorize()` method must never return `null`. If it does, an `IllegalStateException` is thrown. Ensure that every entity added to the GigaMap can produce a valid vector.
+* *Null vectors are rejected by default*: `Vectorizer.vectorize()` must not return `null` unless the vectorizer opts in via `Vectorizer.allowsNullVectors()`. By default a `null` vector throws an `IllegalStateException`. When opted in, a `null` vector means the entity has no embedding: it stays in the GigaMap but is excluded from the vector index and never appears in search results (see xref:indexing/jvector/advanced.adoc[Advanced Topics]).
 * *~2.1 billion vectors per index*: JVector uses `int` for graph node ordinals. For larger datasets, implement sharding across multiple indices.
 * *PQ compression requires maxDegree=32*: FusedPQ algorithm constraint (auto-enforced).
 

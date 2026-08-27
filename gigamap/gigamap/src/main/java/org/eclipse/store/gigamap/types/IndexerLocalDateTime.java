@@ -246,9 +246,9 @@ public interface IndexerLocalDateTime<E> extends IndexerDateTime<E, Object[], Lo
 				).and(
 					this.is(new FieldPredicate(SECOND_INDEX, day -> day < boundExclusive.getSecond()))
 				)
-			);
+			).complete();
 		}
-		
+
 		@SuppressWarnings("unchecked")
 		@Override
 		public final <S extends E> Condition<S> beforeEqual(final LocalDateTime boundInclusive)
@@ -257,8 +257,8 @@ public interface IndexerLocalDateTime<E> extends IndexerDateTime<E, Object[], Lo
 			{
 				throw new IllegalArgumentException("boundInclusive cannot be null");
 			}
-			
-			return (Condition<S>)this.is(boundInclusive).or(this.before(boundInclusive));
+
+			return (Condition<S>)this.is(boundInclusive).or(this.before(boundInclusive)).complete();
 		}
 		
 		@SuppressWarnings("unchecked")
@@ -302,9 +302,9 @@ public interface IndexerLocalDateTime<E> extends IndexerDateTime<E, Object[], Lo
 				).and(
 					this.is(new FieldPredicate(SECOND_INDEX, day -> day > boundExclusive.getSecond()))
 				)
-			);
+			).complete();
 		}
-		
+
 		@SuppressWarnings("unchecked")
 		@Override
 		public final <S extends E> Condition<S> afterEqual(final LocalDateTime boundInclusive)
@@ -313,8 +313,8 @@ public interface IndexerLocalDateTime<E> extends IndexerDateTime<E, Object[], Lo
 			{
 				throw new IllegalArgumentException("boundInclusive cannot be null");
 			}
-			
-			return (Condition<S>)this.is(boundInclusive).or(this.after(boundInclusive));
+
+			return (Condition<S>)this.is(boundInclusive).or(this.after(boundInclusive)).complete();
 		}
 		
 		@SuppressWarnings("unchecked")

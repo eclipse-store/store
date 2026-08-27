@@ -15,6 +15,7 @@ package org.eclipse.store.gigamap.jvector;
  */
 
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -532,7 +533,7 @@ class VectorIndexEventualIndexingTest
             assertEquals(10, result.size());
 
             // All results should have valid scores
-            for (final VectorSearchResult.Entry<Document> entry : result)
+            for (final ScoredSearchResult.Entry<Document> entry : result)
             {
                 assertTrue(entry.score() > 0, "Score should be positive");
                 assertNotNull(entry.entity());

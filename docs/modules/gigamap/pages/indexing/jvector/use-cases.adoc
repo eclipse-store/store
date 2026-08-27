@@ -159,7 +159,7 @@ Product currentProduct = products.get(productId);
 List<Product> similar = similarityIndex.search(currentProduct.getEmbedding(), 10)
     .stream()
     .filter(e -> e.entityId() != productId)  // Exclude current product
-    .map(VectorSearchResult.Entry::entity)
+    .map(ScoredSearchResult.Entry::entity)
     .toList();
 ----
 
@@ -231,7 +231,7 @@ VectorIndex<Customer> behaviorIndex = vectorIndices.add("behavior", config, new 
 Customer targetCustomer = customers.get(customerId);
 List<Customer> lookalikes = behaviorIndex.search(targetCustomer.getBehaviorEmbedding(), 100)
     .stream()
-    .map(VectorSearchResult.Entry::entity)
+    .map(ScoredSearchResult.Entry::entity)
     .toList();
 ----
 
@@ -306,7 +306,7 @@ List<SupportTicket> matches = ticketIndex.search(newTicketEmbedding, 5)
     .stream()
     .filter(e -> e.score() > 0.85f)       // High confidence matches only
     .filter(e -> e.entity().getResolution() != null)
-    .map(VectorSearchResult.Entry::entity)
+    .map(ScoredSearchResult.Entry::entity)
     .toList();
 ----
 
@@ -365,7 +365,7 @@ List<Article> related = contentIndex.search(current.getEmbedding(), 6)
     .stream()
     .filter(e -> e.entityId() != articleId)
     .limit(5)
-    .map(VectorSearchResult.Entry::entity)
+    .map(ScoredSearchResult.Entry::entity)
     .toList();
 ----
 

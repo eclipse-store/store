@@ -19,6 +19,7 @@ import static org.eclipse.serializer.math.XMath.positive;
 
 import static org.eclipse.serializer.util.X.notNull;
 
+import java.lang.ref.Reference;
 import java.nio.ByteBuffer;
 
 import org.eclipse.serializer.collections.EqHashEnum;
@@ -30,7 +31,6 @@ import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.binary.types.ChunksBuffer;
 import org.eclipse.serializer.persistence.types.ObjectIdsProcessor;
-import org.eclipse.serializer.persistence.types.ObjectIdsSelector;
 import org.eclipse.serializer.persistence.types.Persistence;
 import org.eclipse.serializer.persistence.types.Unpersistable;
 import org.eclipse.serializer.util.X;
@@ -45,6 +45,21 @@ import org.slf4j.Logger;
 public interface StorageEntityCache<E extends StorageEntity> extends StorageChannelResetablePart
 {
 	public StorageTypeDictionary typeDictionary();
+
+	/**
+	 * The shared mark monitor coordinating this channel's GC with the others. All channels of a
+	 * storage system share the same instance, so it doubles as the system-wide handle used to
+	 * signal the task-scoped pending-load gate (see {@link StorageEntityMarkMonitor#signalPendingLoadTask()}).
+	 * <p>
+	 * Default throws {@link UnsupportedOperationException} to preserve binary compatibility for
+	 * external {@link StorageEntityCache} implementations; the built-in implementation overrides it.
+	 */
+	public default StorageEntityMarkMonitor markMonitor()
+	{
+		throw new UnsupportedOperationException(
+			"This " + StorageEntityCache.class.getSimpleName() + " implementation does not expose the mark monitor."
+		);
+	}
 
 	public StorageEntityType<E> lookupType(long typeId);
 
@@ -71,8 +86,16 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 	implements StorageEntityCache<StorageEntity.Default>, Unpersistable
 	{
 		private final static Logger logger = Logging.getLogger(StorageEntityCache.class);
-		
-		
+
+		/**
+		 * Backoff between retries of a sweep declined by a busy object registry while quiescing
+		 * for a data import (see {@link #registerPendingImportUpdate()}). Long enough to not
+		 * busy-spin a core under sustained registry contention, short enough to add no relevant
+		 * import latency (the default embedded registry implementation never declines).
+		 */
+		private static final long SWEEP_QUIESCE_RETRY_BACKOFF_MS = 1L;
+
+
 		private static boolean gcEnabled = true;
 				
 		public static void setGarbageCollectionEnabled(final boolean enabled)
@@ -97,6 +120,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		private final StorageTypeDictionary              typeDictionary      ;
 		private final long[]                             markingOidBuffer    ;
 		private final StorageGCZombieOidHandler          zombieOidHandler    ;
+		private final int                                gcSweepThreshold    ; // consecutive unmarked sweeps before deletion
 		private final StorageRootOidSelector             rootOidSelector     ;
 		private final RootEntityRootOidSelectionIterator rootEntityIterator  ;
 		private final StorageEventLogger                 eventLogger         ;
@@ -109,7 +133,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		private final StorageObjectIdMarkQueue  oidMarkQueue   ; // resetting handled by markMonitor
 		private final StorageReferenceMarker    referenceMarker; // resetting must be handled here.
 		
-		private final ObjectIdsSelector liveObjectIdChecker;
+		private final LiveObjectIdsHandler liveObjectIdsHandler;
 
 		
 		// state 3.0: mutable fields. Must be cleared on reset.
@@ -118,9 +142,30 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		
 		private long    usedCacheSize;
 		private boolean hasUpdatePendingSweep;
+
+		// existing entities the current import replaced (see #reportImportConflicts)
+		private long importConflictCount;
+
+		// obsolete typeIds already warned about on a typeId change (see #handleTypeIdChange)
+		private final Set_long warnedObsoleteTypeIds = Set_long.New();
+		private boolean hasLoadPendingSweep  ;
+		private boolean loadMarkingRequired  ;
+
+		// true only while an explicitly issued (full) GC runs on this channel: its sweeps delete unmarked
+		// entities immediately (bypassing the countdown). Set and cleared on the channel's own thread.
+		private boolean issuedGcImmediateSweep;
 		
 		// Statistics for debugging / monitoring / checking to compare with other channels and with the markmonitor
 		private long sweepGeneration, lastSweepStart, lastSweepEnd;
+
+		/**
+		 * Set when a sweep attempt failed with an exception before the sweep flag was cleared
+		 * - whether mid-iteration or in the completion bookkeeping afterwards. The
+		 * attempt may have already reset an unknown prefix of the surviving (marked) entities back
+		 * to white, so re-executing the still-flagged sweep with normal delete semantics could
+		 * delete reachable entities. The next execution runs as a keep-all rescue sweep instead.
+		 */
+		private boolean sweepRescueNeeded;
 		
 		
 		// state 3.1: variable length content
@@ -144,19 +189,20 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		/////////////////
 
 		Default(
-			final int                         channelIndex       ,
-			final int                         channelCount       ,
-			final StorageEntityCacheEvaluator cacheEvaluator     ,
-			final StorageTypeDictionary       typeDictionary     ,
-			final StorageEntityMarkMonitor    markMonitor        ,
-			final StorageGCZombieOidHandler   zombieOidHandler   ,
-			final StorageRootOidSelector      rootOidSelector    ,
-			final long                        rootTypeId         ,
-			final StorageObjectIdMarkQueue    oidMarkQueue       ,
-			final StorageEventLogger          eventLogger        ,
-			final ObjectIdsSelector           liveObjectIdChecker,
-			final long                        markingWaitTimeMs  ,
-			final int                         markingBufferLength
+			final int                         channelIndex        ,
+			final int                         channelCount        ,
+			final StorageEntityCacheEvaluator cacheEvaluator      ,
+			final StorageTypeDictionary       typeDictionary      ,
+			final StorageEntityMarkMonitor    markMonitor         ,
+			final StorageGCZombieOidHandler   zombieOidHandler    ,
+			final StorageRootOidSelector      rootOidSelector     ,
+			final long                        rootTypeId          ,
+			final StorageObjectIdMarkQueue    oidMarkQueue        ,
+			final StorageEventLogger          eventLogger         ,
+			final LiveObjectIdsHandler        liveObjectIdsHandler,
+			final long                        markingWaitTimeMs   ,
+			final int                         markingBufferLength ,
+			final int                         gcSweepThreshold
 		)
 		{
 			super();
@@ -171,6 +217,10 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			this.oidMarkQueue         = notNull    (oidMarkQueue)     ;
 			this.eventLogger          =             eventLogger       ;
 			this.markingWaitTimeMs    = positive   (markingWaitTimeMs);
+			// must enforce the upper bound here too: a custom StorageHousekeepingController could return a
+			// value > 127, which would underflow the gcState byte during the sweep countdown (see #sweep).
+			StorageHousekeepingController.Validation.validateGarbageCollectionSweepThreshold(gcSweepThreshold);
+			this.gcSweepThreshold     = gcSweepThreshold                ;
 			
 			// derived values
 			
@@ -185,7 +235,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			// create reference marker at the very end to have all state properly initialized beforehand.
 			this.referenceMarker = markMonitor.provideReferenceMarker(this);
 			
-			this.liveObjectIdChecker = notNull(liveObjectIdChecker);
+			this.liveObjectIdsHandler = notNull(liveObjectIdsHandler);
 		}
 
 
@@ -238,6 +288,8 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			this.resetLiveCursor();
 
 			this.usedCacheSize  = 0L;
+			this.warnedObsoleteTypeIds.clear();
+			this.importConflictCount = 0;
 
 			// create a new root type instance on every clear. Everything else is not worth the reset&register-hassle.
 			this.rootType       = this.getType(this.rootTypeId);
@@ -457,6 +509,173 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			}
 		}
 
+		final void registerPendingLoad()
+		{
+			synchronized(this.markMonitor)
+			{
+				/*
+				 * Signal first: as long as the pending load is signaled, no sweep can be initiated,
+				 * so the two states read below stay stable for the duration of the load task
+				 * (an already initiated sweep for this channel can only be executed by this channel's
+				 * own thread, which is busy processing the load task).
+				 */
+				this.markMonitor.signalPendingLoad(this);
+				this.loadMarkingRequired = !this.markMonitor.isComplete(this);
+				this.hasLoadPendingSweep = this.markMonitor.isPendingSweep(this);
+			}
+		}
+
+		final void clearPendingLoad()
+		{
+			// (see clearPendingStoreUpdate) potentially gets called after reset(), so it must be accordingly robust.
+
+			this.loadMarkingRequired = false;
+			this.hasLoadPendingSweep = false;
+			this.markMonitor.clearPendingLoad(this);
+		}
+
+		/**
+		 * Import counterpart to {@link #registerPendingStoreUpdate()}, called once per channel at the
+		 * very start of an import task's processing phase (see StorageChannel#prepareImportData) and
+		 * held until the task's ultimate cleanUp (see {@link #clearPendingImportUpdate()}). Signaling
+		 * in the processing phase (before the task's commit barrier) instead of at commit time closes
+		 * the per-channel signal gaps: no channel can return to housekeeping and initiate a new sweep
+		 * while any sibling channel has not yet registered its imported entities.
+		 * <p>
+		 * Additionally, a sweep that was already flagged for this channel when the import task started
+		 * is quiesced (executed) here, BEFORE any import data is copied or registered. Such a sweep
+		 * executes a marking decision that predates the import; letting it execute after the import
+		 * commit would delete pre-existing entities that the committed import durably references,
+		 * leaving dangling references on disk. Executing it here gives the import happens-before
+		 * semantics: it behaves as if it arrived after any sweep cycle that was already initiated when
+		 * the task started. An import record referencing an entity thereby condemned consequently
+		 * yields the same result as importing any stale reference: consistent deletion before the
+		 * import and zombie-OID diagnostics from the next mark phase, never a partial rescue.
+		 */
+		final void registerPendingImportUpdate()
+		{
+			synchronized(this.markMonitor)
+			{
+				/*
+				 * Signal first (mirrors the store path): as long as any channel's pending store
+				 * update is signaled, no new sweep can be initiated, and re-arm the gc completion
+				 * state since the import introduces new data.
+				 */
+				this.markMonitor.signalPendingStoreUpdate(this);
+				this.markMonitor.resetCompletion();
+			}
+
+			/*
+			 * Quiesce this channel's own already-flagged sweep, if any (see method javadoc).
+			 * Deliberately NOT gated on the gc-enabled switch: a flagged sweep belongs to a cycle
+			 * that was initiated while gc was enabled, and its marking decision predates the
+			 * import. Leaving it pending (e.g. because the switch is currently off) would let it
+			 * execute AFTER the import commit once gc is re-enabled, deleting pre-existing white
+			 * entities the committed import durably references - the exact defect this
+			 * coordination exists to prevent. Unlike the store path, imported data has no
+			 * in-memory graph, so the sweep-time application-registry safety net cannot be relied
+			 * on to rescue the referents.
+			 * Once quiesced, no sweep can be flagged again until the import task's cleanUp: sweep
+			 * initiation is blocked by the pending store update signaled above (and by those of the
+			 * sibling channels, which quiesce likewise before the task's commit barrier), and an
+			 * already flagged sweep for this channel can only be executed by this channel's own
+			 * thread, which processes the import task. Hence #markEntityForChangedData takes the
+			 * gray-enqueue path for all imported entities, guaranteeing their references are
+			 * traversed before the next sweep decides what to delete.
+			 * The sweep declines (returns false) while the application's object registry cannot be
+			 * processed right now (the default embedded implementation never declines, custom
+			 * LiveObjectIdsHandler implementations may); backing off briefly and retrying mirrors
+			 * the housekeeping behavior across its slices without busy-spinning a core under
+			 * sustained contention. An interrupt of the channel thread aborts the retry loop
+			 * (and thereby fails the import task; the gc signal above is released by the task's
+			 * cleanUp), so a persistently declining handler cannot block shutdown indefinitely.
+			 */
+			while(this.markMonitor.isPendingSweep(this))
+			{
+				if(!this.sweep())
+				{
+					// sweep declined due to a busy object registry. Back off briefly and retry.
+					try
+					{
+						Thread.sleep(SWEEP_QUIESCE_RETRY_BACKOFF_MS);
+					}
+					catch(final InterruptedException e)
+					{
+						// restore the flag so the channel thread's outer logic still sees the interrupt
+						Thread.currentThread().interrupt();
+						throw new StorageException(
+							"Channel #" + this.channelIndex
+							+ " interrupted while quiescing a pending garbage collection sweep for a data import.",
+							e
+						);
+					}
+				}
+			}
+		}
+
+		/**
+		 * Commit-time counterpart to {@link #registerPendingImportUpdate()}, called once per channel
+		 * at the start of the import commit (see StorageFileManager#commitImport), before the imported
+		 * entities are registered via {@link #putEntity(long, StorageEntityType.Default)} and
+		 * {@link #markEntityForChangedData(StorageEntity.Default)}.
+		 */
+		final void registerImportCommit()
+		{
+			synchronized(this.markMonitor)
+			{
+				/*
+				 * Reset the completion state again at commit time: a sweep quiesced in
+				 * #registerPendingImportUpdate (of this or a sibling channel) may have advanced the
+				 * gc completion state between import preparation and commit. Mirrors the equivalent
+				 * re-reset in #postStorePutEntities.
+				 * Also (re-)read the pending sweep state for #markEntityForChangedData. After the
+				 * unconditional quiesce it is always false (defensive re-read nonetheless): sweep
+				 * initiation is blocked by the import's pending store update held since the
+				 * preparation, and an already flagged sweep for this channel can only be executed
+				 * by this channel's own thread, which is busy processing the import task. The state
+				 * read here is stable for the duration of the import commit for the same reasons.
+				 */
+				this.markMonitor.resetCompletion();
+				this.hasUpdatePendingSweep = this.markMonitor.isPendingSweep(this);
+			}
+
+			// arm the conflict count for this import (see #reportImportConflicts)
+			this.importConflictCount = 0;
+		}
+
+		/**
+		 * Logs how many existing entities this channel's import replaced. An import always wins;
+		 * no staleness check is possible, as neither an entity nor an exported record carries a
+		 * timestamp or version. A stale re-import (reverting newer state) and a deliberate one
+		 * (the remedy for a torn import) are therefore indistinguishable - the overwrite can only
+		 * be reported, never rejected.
+		 * <p>
+		 * Aggregated per channel and import: a full re-import collides on every entity, so
+		 * per-entity warnings would bury the message.
+		 */
+		final void reportImportConflicts()
+		{
+			if(this.importConflictCount == 0)
+			{
+				return;
+			}
+
+			logger.warn(
+				"Channel {}: import replaced {} already existing entities. If this import was created "
+				+ "before the current state, those entities have been reverted to their exported state. "
+				+ "Already loaded instances keep their in-memory state - reload from the root "
+				+ "(typically: restart) before further use.",
+				this.channelIndex,
+				this.importConflictCount
+			);
+		}
+
+		final void clearPendingImportUpdate()
+		{
+			// (see clearPendingStoreUpdate) potentially gets called after reset(), so it must be accordingly robust.
+			this.clearPendingStoreUpdate();
+		}
+
 		final long queryRootObjectId()
 		{
 			this.rootOidSelector.reset();
@@ -591,8 +810,31 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			final StorageEntity.Default entry;
 			if((entry = this.getEntry(objectId)) != null)
 			{
-				this.resetExistingEntityForUpdate(entry);
-				return entry;
+				if(entry.typeId() == type.typeId)
+				{
+					// counted for the once-per-import conflict report
+					this.importConflictCount++;
+					this.resetExistingEntityForUpdate(entry);
+					return entry;
+				}
+
+				/*
+				 * See #handleTypeIdChange. On the import path, #validateEntity rejects a typeId
+				 * mismatch against an already registered entry — but validation runs as a separate
+				 * phase before any record of the same import is registered, so an import source
+				 * containing the same objectId under two different typeIds passes validation for
+				 * both records and reaches this branch with the second one. That is anomalous
+				 * enough (unlike the routine bulk-migration case on the store path, which
+				 * #handleTypeIdChange throttles to once per obsolete typeId) to warrant a
+				 * per-entity warning.
+				 */
+				logger.warn(
+					"Imported entity {} changes its typeId from {} to {} within the same import",
+					objectId,
+					entry.typeId(),
+					type.typeId
+				);
+				this.handleTypeIdChange(entry, type.typeId);
 			}
 
 			return this.createEntity(objectId, type);
@@ -614,15 +856,22 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			if((entry = this.getEntry(Binary.getEntityObjectIdRawValue(entityAddress))) != null)
 			{
 				final long entityTypeId = Binary.getEntityTypeIdRawValue(entityAddress);
-				if(entry.typeId() == entityTypeId) {
+				if(entry.typeId() == entityTypeId)
+				{
 					this.resetExistingEntityForUpdate(entry);
 					return entry;
 				}
-				
-				logger.debug("Entity {} typeId changed, old: {}, new: {}",
-					entry.objectId(),
-					entry.typeId(),
-					entityTypeId);
+
+				/*
+				 * Resolve (and thereby validate) the new typeId BEFORE the destructive disposal:
+				 * #getType throws for an unresolvable typeId, and such a failure must leave the
+				 * registered entry intact instead of rendering the objectId unresolvable.
+				 * The result is discarded; the createEntity call below re-fetches it cheaply
+				 * from the then-registered type table.
+				 */
+				this.getType(entityTypeId);
+
+				this.handleTypeIdChange(entry, entityTypeId);
 			}
 
 			/* the added try-catch showed no change in performance in a test.
@@ -636,6 +885,11 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 					Binary.getEntityObjectIdRawValue(entityAddress),
 					this.getType(Binary.getEntityTypeIdRawValue(entityAddress))
 				);
+			}
+			catch(final StorageExceptionConsistency e)
+			{
+				// deliberate fail-loud invariant violation (see #createEntity); must not be masked by the generic wrapper below
+				throw e;
 			}
 			catch(final Exception e)
 			{
@@ -679,7 +933,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		 * by the GC and should actually not be necessary, however as the effort to do it at this point is rather minimal, it's done
 		 * nonetheless.
 		 */
-		private void markEntityForChangedData(final StorageEntity.Default entry)
+		final void markEntityForChangedData(final StorageEntity.Default entry)
 		{
 			/*
 			 * (01.08.2016 TM)NOTE:
@@ -751,6 +1005,63 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			entry.markBlack();
 		}
 
+		/**
+		 * Load-side counterpart to {@link #markEntityForChangedData(StorageEntity.Default)}:
+		 * an entity whose data is handed out by a load request will be registered in the
+		 * application's object registry and thus be kept alive by the sweep-time safety net
+		 * even if it is not reachable from the persisted root. If that registration happens
+		 * after the live object id seed of the current GC cycle ran, the entity itself survives
+		 * the sweep, but its references are never traversed, so entities reachable only through
+		 * it (e.g. the target of a not yet resolved lazy reference) get swept and the surviving
+		 * entity's persisted record dangles, causing zombie OIDs and missing entities
+		 * ("No entity found for objectId") on later loads ("mid-cycle registration race").
+		 * <p>
+		 * Therefore, an unmarked entity handed out during an active GC cycle must be gc-protected
+		 * and, if referential, enqueued for reference traversal, analogous to changed data.
+		 * Sweep initiation is blocked for the duration of the load task
+		 * (see {@link #registerPendingLoad()}), so the marks enqueued here are guaranteed to be
+		 * processed before the sweep decides what to delete.
+		 */
+		final void markEntityForLoadedData(final StorageEntity.Default entry)
+		{
+			if(!this.loadMarkingRequired || entry.isGcMarked())
+			{
+				/*
+				 * No marking required if no GC cycle is in progress for this channel: no sweep can
+				 * occur before the next cycle, whose live object id seed covers the application-side
+				 * registration of this entity.
+				 * An already marked entity is safe from the sweep and its references are already
+				 * (enqueued to be) traversed.
+				 */
+				return;
+			}
+
+			if(this.hasLoadPendingSweep)
+			{
+				/*
+				 * Analogous to the pending sweep case in markEntityForChangedData: marking is
+				 * already complete, so no gray enqueuing (see comment there). The entity must
+				 * merely be saved from the imminent sweep; the post-sweep live object id seed
+				 * re-establishes it as a mark root via its application-side registration.
+				 */
+				entry.markBlack();
+				return;
+			}
+
+			// entities with references (see markEntityForChangedData on the gray state)
+			if(entry.hasReferences())
+			{
+				entry.markGray();
+
+				// must mark via mark monitor to keep central mark count consistent. NEVER directly via the queue!
+				this.markMonitor.enqueue(this.oidMarkQueue, entry.objectId());
+				return;
+			}
+
+			// entities without references
+			entry.markBlack();
+		}
+
 
 		public final long entityCount()
 		{
@@ -773,6 +1084,28 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 				this.enlargeOidHashTable();
 			}
 
+			/*
+			 * Hard invariant: at most one entry may ever be registered per objectId. Every caller
+			 * must have handled an existing entry beforehand (update reuse, obsolete-entry
+			 * disposal on a typeId change, initialization deduplication). A silently created
+			 * duplicate would cause stale reads and let the GC sweep the current record (see
+			 * #handleTypeIdChange), so a violation must fail loudly here, at the single point
+			 * where the duplicate would be created. The guard walk reuses the chain head lookup
+			 * needed for the insertion below anyway, costing only the walk of the bucket chain.
+			 */
+			final StorageEntity.Default chainHead = this.getOidHashChainHead(objectId);
+			for(StorageEntity.Default e = chainHead; e != null; e = e.hashNext)
+			{
+				if(e.objectId() == objectId)
+				{
+					throw new StorageExceptionConsistency(
+						"Duplicate entity entry for objectId " + objectId
+						+ ": already registered with typeId " + e.typeId()
+						+ ", to be created with typeId " + type.typeId + "."
+					);
+				}
+			}
+
 			// create and put entry
 			final StorageEntity.Default entity;
 			this.setOidHashChainHead(
@@ -780,7 +1113,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 				entity = StorageEntity.Default.New(
 					objectId,
 					type.dummy,
-					this.getOidHashChainHead(objectId),
+					chainHead,
 					type.hasReferences(),
 					type.simpleReferenceDataCount()
 				)
@@ -816,9 +1149,94 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 
 			// 5.) mark entity as deleted
 			entity.setDeleted();
-						
+
 			// decrement size, otherwise the cache can't shrink
 			this.oidSize--;
+		}
+
+		/**
+		 * Handles a typeId change for a registered entity: the routine result of re-storing a
+		 * legacy-mapped instance after type evolution. The registered entry belongs to an
+		 * obsolete type version and must be disposed like a sweep would dispose it BEFORE the
+		 * new-type entry is created. Otherwise two entries for the same objectId coexist: the
+		 * obsolete one is rescued every sweep by the id-only application safety net while the
+		 * instance is held; every OID hash table rebuild reverses the bucket chain order, so
+		 * lookups (loads AND gc marking) can resolve to the obsolete entry — serving stale data
+		 * and, worse, letting the sweep delete the CURRENT record (permanent data loss); and the
+		 * obsolete file record stays accounted as live content.
+		 * <p>
+		 * The passed entry is the only entry registered for its objectId (enforced by the
+		 * duplicate guard in {@link #createEntity}), so disposing it suffices; the caller must
+		 * create the new-type entry afterwards.
+		 * <p>
+		 * Deleting requires the predecessor in the singly-linked type list, hence the disposal
+		 * runs as a {@link StorageEntityType.Default#removeFirst} walk over the obsolete type,
+		 * stopping at the entry: a full {@link StorageEntityType.Default#removeAll} pass per
+		 * re-stored entity would make bulk migrations quadratic in the obsolete type's size.
+		 */
+		private void handleTypeIdChange(final StorageEntity.Default entry, final long currentTypeId)
+		{
+			/*
+			 * Since a type change affects every re-stored legacy instance of that type, warning
+			 * per entity would flood the logs during bulk migrations. Warn once per obsolete
+			 * typeId, keep the per-entity detail on debug level.
+			 */
+			if(this.warnedObsoleteTypeIds.add(entry.typeId()))
+			{
+				logger.warn(
+					"Entity type changed from typeId {} to typeId {} - disposing obsolete entity entries"
+					+ " (logged once per obsolete typeId, per-entity details on debug level)",
+					entry.typeId(),
+					currentTypeId
+				);
+			}
+			logger.debug("Entity {} typeId changed, old: {}, new: {} - disposing obsolete entry",
+				entry.objectId(),
+				entry.typeId(),
+				currentTypeId
+			);
+
+			if(!entry.typeInFile.type.removeFirst(new ObsoleteEntityDeleter(entry)))
+			{
+				/*
+				 * The entry's absence from its own type chain means corrupted chain state: fail
+				 * loudly instead of proceeding to create a second entry for a still-registered
+				 * objectId (which the guard in #createEntity would reject anyway, but with a
+				 * misleading message).
+				 */
+				throw new StorageExceptionConsistency(
+					"Entity " + entry.objectId() + " with typeId " + entry.typeId()
+					+ " is not contained in its type's entity chain."
+				);
+			}
+		}
+
+		final class ObsoleteEntityDeleter implements StorageEntityType.Default.EntityDeleter
+		{
+			private final StorageEntity.Default subject;
+
+			ObsoleteEntityDeleter(final StorageEntity.Default subject)
+			{
+				super();
+				this.subject = subject;
+			}
+
+			@Override
+			public boolean test(final StorageEntity.Default entity)
+			{
+				return entity == this.subject;
+			}
+
+			@Override
+			public void delete(
+				final StorageEntity.Default     entity        ,
+				final StorageEntityType.Default type          ,
+				final StorageEntity.Default     previousInType
+			)
+			{
+				Default.this.deleteEntity(entity, type, previousInType);
+			}
+
 		}
 
 		void checkForCacheClear(final StorageEntity.Default entry, final long evalTime)
@@ -939,28 +1357,78 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		 */
 		final void sweep(final _longPredicate isReachableInApplication)
 		{
-			this.lastSweepStart = System.currentTimeMillis();
-			final StorageEntityType.Default typeHead = this.typeHead;
-
-			for(StorageEntityType.Default sweepType = typeHead; (sweepType = sweepType.next) != typeHead;)
+			try
 			{
-				// get next item and check for end of type (switch to next type required)
-				for(StorageEntity.Default item, last = sweepType.head; (item = last.typeNext) != null;)
+				/*
+				 * GC.md §10.4, "Window B": if the application registry gained an entry
+				 * since this wave took its seed snapshot, the seed is stale for this channel. A
+				 * just-loaded orphan graph (e.g. a reheated parent whose unloaded Lazy target is
+				 * neither loaded nor marked, and lives on another channel) could be partially swept.
+				 * Defer this channel's collection with a keep-all pass; the wave's post-sweep re-seed
+				 * then marks the newly-reachable graph transitively before the next sweep deletes
+				 * anything. Race-free: this runs inside the registry mutex (via processSelected), so
+				 * registrations cannot interleave with this channel's sweep and the version is stable
+				 * for its whole duration. Liveness: one mid-wave registration makes all not-yet-swept
+				 * channels defer for that wave (collection deferred one cycle) - the same accepted
+				 * trade-off as the seed/verify loop's "continuous registrations defer the sweep".
+				 */
+				if(this.markMonitor.isSeedRegistrationStale(this.liveObjectIdsHandler.registrationVersion()))
 				{
-					// actual sweep: white entities are deleted, non-white entities are marked white but not deleted
-					if(item.isGcMarked() || isReachableInApplication.test(item.objectId))
+					this.keepAllSweep();
+					return;
+				}
+
+				this.lastSweepStart = System.currentTimeMillis();
+				final StorageEntityType.Default typeHead = this.typeHead;
+
+				// an explicitly issued full GC collects immediately (threshold 1); background GC honors the countdown.
+				final int sweepThreshold = this.issuedGcImmediateSweep ? 1 : this.gcSweepThreshold;
+
+				for(StorageEntityType.Default sweepType = typeHead; (sweepType = sweepType.next) != typeHead;)
+				{
+					// get next item and check for end of type (switch to next type required)
+					for(StorageEntity.Default item, last = sweepType.head; (item = last.typeNext) != null;)
 					{
-						// reset to white and advance one item
-						(last = item).markWhite();
-					}
-					else
-					{
-						// otherwise white entity, so collect it
-						this.deleteEntity(item, sweepType, last);
+						// actual sweep: white entities are aged towards deletion, non-white entities are marked white
+						if(item.isGcMarked() || isReachableInApplication.test(item.objectId))
+						{
+							// reset to white (resets the unmarked-sweep countdown) and advance one item
+							(last = item).markWhite();
+						}
+						else if(item.ageUnmarkedAndIsCondemned(sweepThreshold))
+						{
+							// unmarked for the required number of consecutive sweeps now, so collect it
+							this.deleteEntity(item, sweepType, last);
+						}
+						else
+						{
+							// still unmarked but not yet condemned: keep for another sweep and advance one item
+							last = item;
+						}
 					}
 				}
-			}
 
+				this.completeSweepBookkeeping();
+			}
+			catch(final Throwable t)
+			{
+				/*
+				 * The sweep attempt failed before its flag was cleared (realistically: the
+				 * application-registry predicate threw mid-iteration, e.g. a faulty custom registry
+				 * implementation or an OutOfMemoryError; or the completion bookkeeping failed). The
+				 * entities iterated before the failure were already reset to white regardless of
+				 * their mark state, so the still-flagged sweep must not be re-executed with delete
+				 * semantics: it could delete the reachable entities the failed attempt whitened.
+				 * Flag the channel for a keep-all rescue sweep (see #sweep()) and propagate the
+				 * failure to the caller.
+				 */
+				this.sweepRescueNeeded = true;
+				throw t;
+			}
+		}
+
+		private void completeSweepBookkeeping()
+		{
 			this.lastSweepEnd = System.currentTimeMillis();
 			this.sweepGeneration++;
 
@@ -969,12 +1437,68 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 
 			// signal mark monitor that the sweep is complete and provide this channel's valid rootOid
 			final long channelRootOid = this.queryRootObjectId();
-			this.markMonitor.completeSweep(this, this.rootOidSelector, channelRootOid);
+			this.markMonitor.completeSweep(this, this.rootOidSelector, channelRootOid, this.liveObjectIdsHandler);
+		}
+
+		/**
+		 * Keep-all re-execution of a sweep whose previous attempt failed before completing.
+		 * The aborted attempt already whitened an unknown prefix of the surviving entities, so mark
+		 * state can no longer distinguish garbage from reachable data. This pass therefore deletes
+		 * nothing and consults no application predicate: the sweep pass itself is straight-line
+		 * pointer operations that cannot throw. The completion bookkeeping afterwards may still
+		 * throw (the mark monitor's completion interacts with the application registry); in that
+		 * case the flag stays set and the rescue simply re-runs on the next attempt - still without
+		 * deleting anything. The following mark cycle re-establishes all marks from the roots and
+		 * the registry seed; garbage collection is merely deferred by one cycle.
+		 */
+		private void rescueSweep()
+		{
+			logger.warn(
+				"StorageChannel#{}: a previous sweep attempt failed before completing;"
+				+ " re-executing as a keep-all rescue sweep"
+				+ " (nothing is deleted, garbage collection is deferred to the next full mark cycle).",
+				this.channelIndex
+			);
+
+			this.keepAllSweep();
+
+			// cleared only after successful completion: a failure above re-runs the rescue.
+			this.sweepRescueNeeded = false;
+		}
+
+		/**
+		 * Keep-all sweep pass: reset every entity of this channel to white and delete nothing,
+		 * consulting no application predicate. Used both by {@link #rescueSweep()} (a previous attempt
+		 * failed mid-run) and by the stale-seed deferral in {@link #sweep(_longPredicate)}.
+		 * The pass itself is straight-line pointer operations that cannot throw; the
+		 * completion bookkeeping afterwards may still throw (mark monitor / registry interaction),
+		 * which the callers handle. Garbage collection is merely deferred: the following mark cycle
+		 * re-establishes marks from the roots and the registry seed.
+		 */
+		private void keepAllSweep()
+		{
+			this.lastSweepStart = System.currentTimeMillis();
+			final StorageEntityType.Default typeHead = this.typeHead;
+
+			for(StorageEntityType.Default sweepType = typeHead; (sweepType = sweepType.next) != typeHead;)
+			{
+				for(StorageEntity.Default item = sweepType.head; (item = item.typeNext) != null;)
+				{
+					item.markWhite();
+				}
+			}
+
+			this.completeSweepBookkeeping();
 		}
 		
 		private boolean sweep()
 		{
-			return this.liveObjectIdChecker.processSelected(new ApplicationCallback(this.typeHead));
+			if(this.sweepRescueNeeded)
+			{
+				this.rescueSweep();
+				return true;
+			}
+			return this.liveObjectIdsHandler.processSelected(new ApplicationCallback(this.typeHead));
 		}
 
 		final class ApplicationCallback implements ObjectIdsProcessor
@@ -1064,16 +1588,24 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			final long storageBackset    = chunkStoragePosition - chunkStartAddress;
 			final long chunkBoundAddress = chunkStartAddress    + chunkLength      ;
 
-			// chunk's entities are iterated, put into the cache and have their current storage positions set/updated
-			for(long adr = chunkStartAddress; adr < chunkBoundAddress; adr += Binary.getEntityLengthRawValue(adr))
+			try
 			{
-				final StorageEntity.Default entity = this.putEntity(adr);
-				this.markEntityForChangedData(entity);
-				entity.updateStorageInformation(
-						X.checkArrayRange(Binary.getEntityLengthRawValue(adr)),
-						validateStoragePosition(entity, storageBackset + adr)
-				);
-				file.appendEntry(entity);
+				// chunk's entities are iterated, put into the cache and have their current storage positions set/updated
+				for(long adr = chunkStartAddress; adr < chunkBoundAddress; adr += Binary.getEntityLengthRawValue(adr))
+				{
+					final StorageEntity.Default entity = this.putEntity(adr);
+					this.markEntityForChangedData(entity);
+					entity.updateStorageInformation(
+							X.checkArrayRange(Binary.getEntityLengthRawValue(adr)),
+							validateStoragePosition(entity, storageBackset + adr)
+					);
+					file.appendEntry(entity);
+				}
+			}
+			finally
+			{
+				// the buffer must stay strongly reachable while its raw memory is read via the extracted address.
+				Reference.reachabilityFence(chunk);
 			}
 		}
 
@@ -1119,6 +1651,12 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		public final StorageTypeDictionary typeDictionary()
 		{
 			return this.typeDictionary;
+		}
+
+		@Override
+		public final StorageEntityMarkMonitor markMonitor()
+		{
+			return this.markMonitor;
 		}
 
 		public void postStorePutEntities(
@@ -1342,6 +1880,16 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			);
 		}
 
+		final void signalGcMarkingAbort()
+		{
+			this.markMonitor.signalGcMarkingAbort();
+		}
+
+		final void clearGcMarkingAbort()
+		{
+			this.markMonitor.clearGcMarkingAbort();
+		}
+
 		/**
 		 * Returns {@code true} if there are no more oids to mark and {@code false} if time ran out.
 		 * (Meaning the returned boolean effectively means "Was there enough time?")
@@ -1356,13 +1904,52 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			{
 				return true;
 			}
-			
+
+			/*
+			 * An explicitly issued (full) garbage collection is a deliberate, complete reclaim and must
+			 * collect all actual garbage within this single call. It therefore bypasses the unmarked-sweep
+			 * countdown (see #sweep and gcSweepThreshold) and deletes unmarked entities on the first sweep,
+			 * exactly as before the countdown was introduced. The countdown remains fully in effect for the
+			 * incremental background garbage collection - the path exposed to concurrent application activity
+			 * and thus to the transient races the countdown guards against. (A countdown-honoring full GC
+			 * would have to run several complete mark+sweep cycles back-to-back, which cannot preserve the
+			 * multi-channel completion lockstep without a dedicated cross-channel barrier.)
+			 *
+			 * Set on this channel's own thread and read only by its own sweep on the same call stack, so no
+			 * synchronization is required; the finally guarantees it never leaks into a later background GC.
+			 */
+			this.issuedGcImmediateSweep = true;
+			try
+			{
+				return this.internalIssuedGarbageCollection(nanoTimeBudgetBound, channel);
+			}
+			finally
+			{
+				this.issuedGcImmediateSweep = false;
+			}
+		}
+
+		private boolean internalIssuedGarbageCollection(
+			final long           nanoTimeBudgetBound,
+			final StorageChannel channel
+		)
+		{
 			this.markMonitor.resetCompletion();
 
 			// check time budget first for explicitly issued calls.
 			performGC:
 			while(System.nanoTime() < nanoTimeBudgetBound)
 			{
+				/*
+				 * A channel that failed mid-marking will never deliver its pending marks; since
+				 * the issued GC's time budget is effectively unbounded, waiting channels must
+				 * exit via this abort signal instead (see StorageEntityMarkMonitor).
+				 */
+				if(this.markMonitor.isGcMarkingAborted())
+				{
+					break performGC;
+				}
+
 				// call gc for the given time budget and evaluate result
 				if(!this.incrementalGarbageCollection(nanoTimeBudgetBound, channel))
 				{
@@ -1385,6 +1972,12 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 				waitForWork:
 				while(System.nanoTime() < nanoTimeBudgetBound)
 				{
+					// a failed channel's marks will never arrive - exit instead of waiting forever.
+					if(this.markMonitor.isGcMarkingAborted())
+					{
+						break performGC;
+					}
+
 					// check for completion on every attempt to wait for new work
 					if(this.markMonitor.isComplete(this))
 					{
@@ -1483,7 +2076,12 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 			{
 				if(!this.sweep())
 				{
-					// sweep aborted due to locked object registry. Retry on next attempt.
+					/*
+					 * The object registry implementation rejected the live-id processing (see
+					 * PersistenceObjectRegistry#processLiveObjectIds: custom implementations may
+					 * reject instead of blocking; the default registry never does). Retry the
+					 * sweep on the next housekeeping attempt.
+					 */
 					return false;
 				}
 

@@ -18,6 +18,10 @@ package org.eclipse.store.gigamap.types;
  * An interface that extends {@link BinaryIndexerNumber} specifically for using {@link Integer} as the key type.
  * It provides indexing capabilities, optimized for binary operations and high-cardinality indices,
  * while working with entities of type {@code E}.
+ * <p>
+ * <b>Restriction:</b> {@code null} is not supported as an index key and is rejected with an
+ * {@link IllegalArgumentException}. See {@link BinaryIndexerNumber} for the details and use
+ * {@link IndexerInteger} to index a nullable {@link Integer} field.
  *
  * @param <E> the type of entities being indexed
  */
@@ -59,6 +63,17 @@ public interface BinaryIndexerInteger<E> extends BinaryIndexerNumber<E, Integer>
 				return 1L << Integer.SIZE;
 			}
 			return Integer.toUnsignedLong(number);
+		}
+
+		/**
+		 * Inverse of {@link #toLong(Integer)}: the {@code 1L << Integer.SIZE} sentinel maps back to
+		 * {@code 0}; every other stored value is the unsigned representation of the original int, so
+		 * re-narrowing its low 32 bits with {@code (int)} recovers the signed key.
+		 */
+		@Override
+		public Long binaryToKey(final long stored)
+		{
+			return stored == (1L << Integer.SIZE) ? 0L : (long)(int)stored;
 		}
 
 		protected abstract Integer getInteger(final E entity);

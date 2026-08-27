@@ -21,8 +21,10 @@ mvn -Pconverter-standalone clean package
 
 To configure the input and output storage an [external configuration](https://docs.eclipsestore.io/manual/storage/configuration/index.html#external-configuration) file for each storage is required.
 
+Run the generated JAR file (replace `<version>` with your built version):
+
 ```console
-java -jar storage-embedded-tools-storage-converter-4.0.0-SNAPSHOT.jar sourceConfig.ini targetConfig.ini
+java -jar storage-embedded-tools-storage-converter-<version>-standalone.jar sourceConfig.ini targetConfig.ini
 ```
 
 ### StorageConverter.java
@@ -42,7 +44,7 @@ To convert the binary representation of persisted objects BinaryConverter implem
 using the BinaryConverterBitmapLevel2 converter:
 
 ```console
-java -jar storage-embedded-tools-storage-converter-4.0.0-SNAPSHOT.jar src.ini dst.ini -c org.eclipse.store.storage.embedded.tools.storage.converter.BinaryConverterBitmapLevel2
+java -jar storage-embedded-tools-storage-converter-<version>-standalone.jar src.ini dst.ini -c org.eclipse.store.storage.embedded.tools.storage.converter.BinaryConverterBitmapLevel2
 ```
 
 If more than one BinaryConverter shall be applied the -c option, including the converters must be applied in quotation marks:

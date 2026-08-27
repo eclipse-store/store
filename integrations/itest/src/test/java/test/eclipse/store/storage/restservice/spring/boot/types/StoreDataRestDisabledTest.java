@@ -16,6 +16,7 @@ package test.eclipse.store.storage.restservice.spring.boot.types;
 
 import org.eclipse.store.storage.restadapter.types.StorageRestAdapter;
 import org.eclipse.store.storage.restservice.spring.boot.types.rest.StoreDataRestController;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * This test makes sure that the rest service is disabled by default.
  */
+@Tag("slow")
 @SpringBootTest(
     classes = ITestApplication.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,

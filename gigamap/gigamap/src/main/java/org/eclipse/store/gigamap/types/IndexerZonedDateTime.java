@@ -267,7 +267,7 @@ public interface IndexerZonedDateTime<E> extends IndexerDateTime<E, Object[], Zo
 				).and(
 					this.is(new FieldPredicate(SECOND_INDEX, second -> second < bound.getSecond()))
 				)
-			);
+			).complete();
 		}
 
 		@SuppressWarnings("unchecked")
@@ -279,7 +279,7 @@ public interface IndexerZonedDateTime<E> extends IndexerDateTime<E, Object[], Zo
 				throw new IllegalArgumentException("boundInclusive cannot be null");
 			}
 
-			return (Condition<S>)this.is(boundInclusive).or(this.before(boundInclusive));
+			return (Condition<S>)this.is(boundInclusive).or(this.before(boundInclusive)).complete();
 		}
 
 		@SuppressWarnings("unchecked")
@@ -326,7 +326,7 @@ public interface IndexerZonedDateTime<E> extends IndexerDateTime<E, Object[], Zo
 				).and(
 					this.is(new FieldPredicate(SECOND_INDEX, second -> second > bound.getSecond()))
 				)
-			);
+			).complete();
 		}
 
 		@SuppressWarnings("unchecked")
@@ -338,7 +338,7 @@ public interface IndexerZonedDateTime<E> extends IndexerDateTime<E, Object[], Zo
 				throw new IllegalArgumentException("boundInclusive cannot be null");
 			}
 
-			return (Condition<S>)this.is(boundInclusive).or(this.after(boundInclusive));
+			return (Condition<S>)this.is(boundInclusive).or(this.after(boundInclusive)).complete();
 		}
 
 		@SuppressWarnings("unchecked")

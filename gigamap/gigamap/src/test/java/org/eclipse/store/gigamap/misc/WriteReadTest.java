@@ -35,17 +35,8 @@ public class WriteReadTest
     @BeforeAll
     static void writeTest()
     {
-
-        GigaMap<String> gigaMap = GigaMap.New();
-
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            if (manager.root() == null) {
-                manager.setRoot(gigaMap);
-            } else {
-                gigaMap = (GigaMap<String>) manager.root();
-            }
-            manager.storeRoot();
-
+            GigaMap<String> gigaMap = manager.ensureRoot(GigaMap::New);
             gigaMap.add("Hello");
             gigaMap.add("ahoj");
             gigaMap.add("servus");
@@ -58,7 +49,7 @@ public class WriteReadTest
     void readAndCheckValuesTest()
     {
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            final GigaMap<String> gigaMap = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap = manager.root();
             assertAll(
                     () -> assertEquals(3, gigaMap.size()),
                     () -> assertEquals("Hello", gigaMap.get(0)),

@@ -14,6 +14,7 @@ package org.eclipse.store.gigamap.jvector;
  * #L%
  */
 
+import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.EqHashTable;
 import org.eclipse.serializer.collections.types.XGettingTable;
 import org.eclipse.serializer.collections.types.XIterable;
@@ -22,6 +23,7 @@ import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.serializer.typing.KeyValue;
 import org.eclipse.store.gigamap.types.*;
 
+import java.io.Closeable;
 import java.util.Iterator;
 import java.util.function.Consumer;
 
@@ -74,6 +76,20 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
      * @return the found index or {@code null}
      */
     public VectorIndex<E> get(String name);
+
+    /**
+     * Removes the vector index registered under the given name, dropping it and its data.
+     * <p>
+     * The index is {@link VectorIndex#close() closed} first to release its background, search and
+     * (if any) disk resources. Vector data held inside the object graph is reclaimed by the storage's
+     * garbage collection on the next housekeeping cycle after the surrounding {@link GigaMap} is
+     * stored; index artifacts kept in an external, application-managed directory are not deleted.
+     *
+     * @param name the name of the index to remove
+     * @return {@code true} if an index with that name existed and was removed, {@code false} otherwise
+     * @throws RuntimeException if the parent {@link GigaMap} is read-only
+     */
+    public boolean removeIndex(String name);
 
     /**
      * Accesses the indices table.
@@ -130,7 +146,7 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
     }
 
 
-    public final class Default<E> extends AbstractStateChangeFlagged implements Internal<E>
+    public final class Default<E> extends AbstractStateChangeFlagged implements Internal<E>, Closeable
     {
         static BinaryTypeHandler<Default<?>> provideTypeHandler()
         {
@@ -182,6 +198,29 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
             return this.vectorIndices;
         }
 
+        /**
+         * Guards structural mutations against a parent {@link GigaMap} that is currently not mutable, applying
+         * the same classification an entity write applies (see
+         * {@link GigaMap.Internal#internalEnsureMutability()}): an explicit read-only mark, an in-progress
+         * iteration and a self-held reader fail fast, while readers open on other threads are waited out.
+         * <p>
+         * Must be called while holding the parent-map monitor. <b>The call may release that monitor while
+         * waiting</b>, so state read before it must be re-checked afterwards.
+         *
+         * @param operation description of the attempted change, used to build the error message
+         */
+        private void ensureMutable(final String operation)
+        {
+            try
+            {
+                this.parent.internalEnsureMutability();
+            }
+            catch(final IllegalStateException e)
+            {
+                throw new IllegalStateException("Cannot " + operation + ": the GigaMap is not mutable.", e);
+            }
+        }
+
         @Override
         public final void internalAdd(final long entityId, final E entity)
         {
@@ -194,16 +233,6 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
 
         @Override
         public final void internalAddAll(final long firstEntityId, final Iterable<? extends E> entities)
-        {
-            for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
-            {
-                index.internalAddAll(firstEntityId, entities);
-            }
-            this.markStateChangeChildren();
-        }
-
-        @Override
-        public final void internalAddAll(final long firstEntityId, final E[] entities)
         {
             for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
             {
@@ -268,19 +297,34 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
         {
             synchronized(this.parentMap())
             {
-                this.validateIndexToAdd(name);
+                this.ensureMutable("add vector index \"" + name + "\"");
 
-                final VectorIndex.Internal<E> index = new VectorIndex.Default<>(
-                    this,
-                    name,
-                    true,
-                    configuration,
-                    vectorizer
-                );
-                this.internalAddVectorIndex(index);
-
-                return index;
+                return this.internalAddIndex(name, configuration, vectorizer);
             }
+        }
+
+        /**
+         * Registers a single vector index without checking mutability. Callers must have passed
+         * {@link #ensureMutable(String)} and must still hold the parent-map monitor.
+         */
+        private VectorIndex<E> internalAddIndex(
+            final String name,
+            final VectorIndexConfiguration configuration,
+            final Vectorizer<? super E> vectorizer
+        )
+        {
+            this.validateIndexToAdd(name);
+
+            final VectorIndex.Internal<E> index = new VectorIndex.Default<>(
+                this,
+                name,
+                true,
+                configuration,
+                vectorizer
+            );
+            this.internalAddVectorIndex(index);
+
+            return index;
         }
 
         @Override
@@ -290,12 +334,28 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
             final Vectorizer<? super E> vectorizer
         )
         {
-            VectorIndex<E> index = this.get(name);
-            if(index == null)
+            synchronized(this.parentMap())
             {
-                index = this.add(name, configuration, vectorizer);
+                VectorIndex<E> index = this.internalGet(name);
+                if(index != null)
+                {
+                    // Already present: no structural change, so the mutability guard is deliberately not
+                    // reached. This keeps ensure() a no-op on a read-only map.
+                    return index;
+                }
+
+                this.ensureMutable("add vector index \"" + name + "\"");
+
+                // The guard may have released the parent-map monitor while waiting for foreign readers, so
+                // another thread may have registered the index meanwhile. Re-check instead of letting
+                // #validateIndexToAdd turn an idempotent ensure() into a "name already taken" failure.
+                index = this.internalGet(name);
+
+                return index != null
+                    ? index
+                    : this.internalAddIndex(name, configuration, vectorizer)
+                ;
             }
-            return index;
         }
 
         @Override
@@ -304,6 +364,59 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
             synchronized(this.parentMap())
             {
                 return this.internalGet(name);
+            }
+        }
+
+        @Override
+        public boolean removeIndex(final String name)
+        {
+            final VectorIndex.Internal<E> index;
+            synchronized(this.parentMap())
+            {
+                this.ensureMutable("remove vector index \"" + name + "\"");
+
+                index = this.vectorIndices.get(name);
+                if(index == null)
+                {
+                    return false;
+                }
+            }
+            // Close the index outside the parentMap monitor: index.close() acquires the builder write-lock,
+            // while a background persist holds that lock and waits for the parentMap monitor — holding the
+            // monitor across close() would dead-lock. Drop the index from the registry only after close()
+            // succeeds, so a failing close leaves it registered (and re-closeable) rather than
+            // detached-but-unclosed.
+            index.close();
+            synchronized(this.parentMap())
+            {
+                this.vectorIndices.removeFor(name);
+                this.markStateChangeInstance();
+                this.parent.internalReportIndexGroupStateChange(this);
+            }
+            return true;
+        }
+
+        /**
+         * Closes all contained vector indices, releasing their native resources. Invoked when the
+         * whole vector index group is removed via {@link GigaIndices#remove(IndexCategory)} and on storage
+         * shutdown.
+         * <p>
+         * The indices are collected under the {@code parentMap} monitor but closed <b>outside</b> of it:
+         * {@code index.close()} acquires the builder write-lock, while a background persist holds that lock
+         * and waits for the {@code parentMap} monitor, so holding the monitor across {@code close()} would
+         * dead-lock.
+         */
+        @Override
+        public void close()
+        {
+            final BulkList<VectorIndex.Internal<E>> toClose;
+            synchronized(this.parentMap())
+            {
+                toClose = BulkList.New(this.vectorIndices.values());
+            }
+            for(final VectorIndex.Internal<E> index : toClose)
+            {
+                index.close();
             }
         }
 
@@ -326,7 +439,10 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
 
             this.markStateChangeInstance();
 
-            // Index existing entities
+            // Index the entities the map already contains. This is the single population path for a newly
+            // created index: VectorIndex.Default's constructor deliberately does not rebuild its graph, so
+            // adding a second population here (or reinstating the constructor's rebuild) would double-index
+            // every existing entity - which jvector rejects as a duplicate node (internal #123).
             this.parent.iterateIndexed(index::internalAdd);
             this.parent.internalReportIndexGroupStateChange(this);
         }

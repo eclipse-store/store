@@ -49,7 +49,7 @@ public class CustomConstraintsBuilderTest
         }
 
         try (EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir)) {
-            GigaMap<Entity> loadedMap = (GigaMap<Entity>) storage.root();
+            GigaMap<Entity> loadedMap = storage.root();
             assertThrows(
                     ConstraintViolationException.class,
                     () -> loadedMap.add(Entity.Random().setWord(CONSTRAINT_VIOLATION_WORD))

@@ -33,16 +33,7 @@ public class SmallEVTest
     void testWithUpdateAndRestart()
     {
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<SmallEV> smallEVs;
-            if (storageManager.root() == null) {
-                smallEVs = generateData();
-                storageManager.setRoot(smallEVs);
-                storageManager.storeRoot();
-                //System.out.println("Stored to storage: " + smallEVs.size());
-            } else {
-                smallEVs = (GigaMap<SmallEV>) storageManager.root();
-                //System.out.println("Loaded from storage: " + smallEVs.size());
-            }
+            final GigaMap<SmallEV> smallEVs = storageManager.ensureRoot(this::generateData);
             SmallEV smallEV = smallEVs.get(0);
             smallEVs.update(smallEV, smallEV1 -> smallEV1.setElectric(false));
             storageManager.storeAll(smallEVs, smallEV);

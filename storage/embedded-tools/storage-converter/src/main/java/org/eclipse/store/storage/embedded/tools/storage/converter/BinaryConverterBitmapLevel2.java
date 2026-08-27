@@ -52,6 +52,17 @@ public class BinaryConverterBitmapLevel2 implements BinaryConverter
 	private final long newTypeId;
 	private final PersistenceTypeDefinition newTypeDefinition;
 
+    /**
+     * Creates a new {@link BinaryConverterBitmapLevel2} that registers an updated type definition for
+     * {@code BitmapLevel2} in the supplied {@link ConverterTypeDictionary}.
+     * <p>
+     * The new type id is allocated by incrementing the dictionary's current maximum type id; the matching
+     * type definition replaces the legacy single-{@code data} member layout with a {@code (version, data)}
+     * pair so that converted blobs can be told apart from the original ones at load time.
+     *
+     * @param converterTypeDictionary the type dictionary the converter operates on; the new type definition
+     *        is allocated through and visible in this dictionary.
+     */
     public BinaryConverterBitmapLevel2(ConverterTypeDictionary converterTypeDictionary)
     {
         this.newTypeId = converterTypeDictionary.incrementAndGetMaxTypeID();

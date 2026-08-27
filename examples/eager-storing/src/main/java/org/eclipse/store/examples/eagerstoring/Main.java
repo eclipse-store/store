@@ -50,7 +50,7 @@ public class Main
 			}
 			else
 			{
-				final MyRoot root = (MyRoot)storage.root();
+				final MyRoot root = storage.root();
 				
 				/*
 				 * At each iteration you can see that the eager field (root#numbers) gets stored,

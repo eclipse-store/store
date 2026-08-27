@@ -63,6 +63,24 @@ public final class CompositeChangeToken<E, KS, K> implements ChangeHandler
 	@Override
 	public void changeInIndex(final long entityId, final ChangeHandler prevEntityHandler)
 	{
+		if(!(prevEntityHandler instanceof CompositeChangeToken))
+		{
+			/*
+			 * There is no previous state to read keys from: AbstractCompositeBitmapIndex#getChangeHandler
+			 * yields the NullChangeChandler for a null previous entity, which is what GigaMap#set is handed
+			 * when it fills a slot that #removeById emptied (restoring an entity at its own id). Every other
+			 * ChangeHandler implementation copes with a foreign previous handler by routing the de-indexing
+			 * through #removeFromIndex instead of reading keys off it, so this does the same: de-index
+			 * whatever the previous handler stands for (nothing, for the null handler), then let the index
+			 * add the new keys, which is what it does for absent old keys. Formerly the cast below was
+			 * unguarded and threw a ClassCastException here.
+			 */
+			prevEntityHandler.removeFromIndex(entityId);
+			this.index.internalHandleChanged(null, entityId, this.keys);
+
+			return;
+		}
+
 		this.index.internalHandleChanged(((CompositeChangeToken<?, KS, K>)prevEntityHandler).keys, entityId, this.keys);
 	}
 	

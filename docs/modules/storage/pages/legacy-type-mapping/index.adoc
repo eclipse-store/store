@@ -110,7 +110,7 @@ public class Contact
 
 When the storage starts with the new class, the heuristic produces this mapping:
 
-[source, text, title="Console output (with PrintingLegacyTypeMappingResultor)"]
+[source, text, title="Console output"]
 ----
 Legacy type mapping required for legacy type
 1000055:Contact
@@ -153,66 +153,11 @@ In these cases, use <<explicit-mapping,explicit mapping>> to guide the system.
 == Configuring the Mapping Callback
 
 The mapping behavior is controlled by the `PersistenceLegacyTypeMappingResultor`.
-Configure it through the storage foundation:
+By default, a `LoggingLegacyTypeMappingResultor` is used, which accepts all heuristic mappings and logs detected mappings via SLF4J.
+To observe the mapping process during development, configure your SLF4J logging level for `LoggingLegacyTypeMappingResultor` accordingly.
 
-[source, java]
-----
-EmbeddedStorageFoundation<?> foundation = EmbeddedStorage.Foundation(dataDir);
-foundation.onConnectionFoundation(f ->
-    f.setLegacyTypeMappingResultor(
-        InquiringLegacyTypeMappingResultor.New(
-            PersistenceLegacyTypeMappingResultor.New()
-        )
-    )
-);
-----
-
-=== Available Resultors
-
-[options="header",cols="1,3"]
-|===
-|Resultor
-|Behavior
-
-|`PersistenceLegacyTypeMappingResultor.New()`
-|*Default.* Accepts all heuristic mappings silently. Suitable for automated environments (CI/CD, production) where you trust the mapping or have explicit mappings defined.
-
-|`PrintingLegacyTypeMappingResultor.New(...)`
-|Prints all mappings to the console for review but accepts them automatically. Useful during development to see what changes are detected.
-
-|`InquiringLegacyTypeMappingResultor.New(...)`
-|Prints mappings to the console and asks the user to confirm with `y` before proceeding. Provides a safety net during development.
-
-|`InquiringLegacyTypeMappingResultor.New(..., threshold)`
-|Same as above, but only asks if any field match has a similarity score below the given threshold (0.0 to 1.0). Score of 1.0 means always ask; 0.0 means only ask for implicitly discarded fields.
-|===
-
-=== Threshold Examples
-
-[source, java]
-----
-// Always ask for confirmation (default behavior)
-InquiringLegacyTypeMappingResultor.New(
-    PersistenceLegacyTypeMappingResultor.New()
-)
-
-// Only ask if a match has less than 80% similarity
-InquiringLegacyTypeMappingResultor.New(
-    PersistenceLegacyTypeMappingResultor.New(), 0.8
-)
-
-// Only ask for implicitly discarded fields
-InquiringLegacyTypeMappingResultor.New(
-    PersistenceLegacyTypeMappingResultor.New(), 0.0
-)
-----
-
-A field mapping is considered "clear" and will not trigger inquiry if:
-
-* The fields are exactly the same (similarity 1.0)
-* The mapping is explicitly defined in the refactoring mapping
-
-Fields that are implicitly discarded (not explicitly marked) always trigger inquiry, regardless of the threshold.
+You can provide a custom resultor through the storage foundation.
+See xref:legacy-type-mapping/user-interaction.adoc[User Interaction] for details.
 
 [#explicit-mapping]
 == Explicit Mapping
@@ -653,38 +598,6 @@ Use cases for custom heuristics:
 ----
 // Just start — heuristic handles everything
 EmbeddedStorageManager storage = EmbeddedStorage.start(root, dataDir);
-----
-
-=== With Console Output
-
-[source, java]
-----
-EmbeddedStorageFoundation<?> foundation = EmbeddedStorage.Foundation(dataDir);
-foundation.onConnectionFoundation(f ->
-    f.setLegacyTypeMappingResultor(
-        PrintingLegacyTypeMappingResultor.New(
-            PersistenceLegacyTypeMappingResultor.New()
-        )
-    )
-);
-EmbeddedStorageManager storage =
-    foundation.createEmbeddedStorageManager(root).start();
-----
-
-=== With User Confirmation
-
-[source, java]
-----
-EmbeddedStorageFoundation<?> foundation = EmbeddedStorage.Foundation(dataDir);
-foundation.onConnectionFoundation(f ->
-    f.setLegacyTypeMappingResultor(
-        InquiringLegacyTypeMappingResultor.New(
-            PersistenceLegacyTypeMappingResultor.New()
-        )
-    )
-);
-EmbeddedStorageManager storage =
-    foundation.createEmbeddedStorageManager(root).start();
 ----
 
 === With Explicit Mapping File

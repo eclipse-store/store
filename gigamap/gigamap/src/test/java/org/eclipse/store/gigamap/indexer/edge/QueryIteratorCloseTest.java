@@ -14,15 +14,27 @@ package org.eclipse.store.gigamap.indexer.edge;
  * #L%
  */
 
+import org.eclipse.store.gigamap.types.EntityResolver;
+import org.eclipse.store.gigamap.types.GigaIterator;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.GigaQuery;
 import org.eclipse.store.gigamap.types.IndexerString;
+import org.eclipse.store.gigamap.types.IterationThreadProvider;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 public class QueryIteratorCloseTest
 {
@@ -81,6 +93,332 @@ public class QueryIteratorCloseTest
 
         gigaMap.remove(namePerson);
 
+    }
+
+
+    @Test
+    void queryForEachClosesIteratorOnException()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            try
+            {
+                gigaMap.query(nameIndexer.is("name1")).forEach(p -> {
+                    throw new RuntimeException("boom");
+                });
+            }
+            catch (final RuntimeException expected)
+            {
+                // swallow: the consumer threw on purpose
+            }
+
+            // Must NOT deadlock: forEach has to release the read-lock even though the consumer threw.
+            gigaMap.update(person, p -> p.setName("changed"));
+        });
+
+        assertEquals(1, gigaMap.query(nameIndexer.is("changed")).count());
+    }
+
+    @Test
+    void mapForEachClosesIteratorOnException()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            try
+            {
+                gigaMap.forEach(p -> {
+                    throw new RuntimeException("boom");
+                });
+            }
+            catch (final RuntimeException expected)
+            {
+                // swallow: the consumer threw on purpose
+            }
+
+            // Must NOT deadlock: forEach has to release the read-lock even though the consumer threw.
+            gigaMap.update(person, p -> p.setName("changed"));
+        });
+
+        assertEquals(1, gigaMap.query(nameIndexer.is("changed")).count());
+    }
+
+
+    @Test
+    void nextPastEndReleasesLockOnThrow()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            // A matching query yields a real BitmapIterator holding a read-lock (an empty query
+            // would return the always-safe GigaIterator.Empty and not exercise the guard).
+            // Deliberately NOT closing the iterator: driving next() one past the end must release
+            // the read-lock itself when it throws NoSuchElementException. A try-with-resources
+            // would mask the leak.
+            final GigaIterator<NamePerson> it = gigaMap.query(nameIndexer.is("name1")).iterator();
+            it.hasNext();                                         // prepares the single match
+            it.next();                                           // consumes it, clearing the buffer
+            assertThrows(NoSuchElementException.class, it::next); // scrolls past end -> must self-close
+
+            // Must NOT deadlock: next() has to release the read-lock on throw.
+            gigaMap.update(person, p -> p.setName("changed"));
+        });
+
+        assertEquals(1, gigaMap.query(nameIndexer.is("changed")).count());
+    }
+
+
+    @Test
+    void mutationWhileHoldingOwnIteratorThrows()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            // Open and hold a reader without exhausting/closing it.
+            final GigaIterator<NamePerson> it = gigaMap.query(nameIndexer.is("name1")).iterator();
+            it.hasNext();
+
+            // Mutating the same GigaMap on the same thread that holds the reader would deadlock;
+            // it must fail fast with IllegalStateException instead.
+            assertThrows(IllegalStateException.class,
+                () -> gigaMap.update(person, p -> p.setName("changed")));
+
+            it.close();
+        });
+    }
+
+    @Test
+    void mutationFromOtherThreadStillWaits() throws InterruptedException
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+
+        final CountDownLatch readerOpened = new CountDownLatch(1);
+        final CountDownLatch releaseReader = new CountDownLatch(1);
+        final AtomicReference<Throwable> holderError = new AtomicReference<>();
+
+        // A different thread holds an open reader, then releases it on signal.
+        final Thread holder = new Thread(() -> {
+            try (final GigaIterator<NamePerson> it = gigaMap.query(nameIndexer.is("name1")).iterator())
+            {
+                it.hasNext();
+                readerOpened.countDown();
+                releaseReader.await(5, TimeUnit.SECONDS);
+            }
+            catch (final Throwable t)
+            {
+                holderError.set(t);
+            }
+        }, "reader-holder");
+        holder.start();
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            readerOpened.await();
+            // The mutating thread does NOT own the reader, so it must wait (not throw). Release the
+            // holder shortly after so the update can proceed once the foreign reader is closed.
+            final Thread releaser = new Thread(releaseReader::countDown, "releaser");
+            releaser.start();
+            gigaMap.update(person, p -> p.setName("changed"));
+        });
+
+        holder.join();
+        assertNull(holderError.get());
+        assertEquals(1, gigaMap.query(nameIndexer.is("changed")).count());
+    }
+
+
+    @Test
+    void threadedQueryForEachClosesIteratorOnException()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+        for (int i = 0; i < 99; i++)
+        {
+            gigaMap.add(new NamePerson("name1", i));
+        }
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            try
+            {
+                // A thread provider forces the multi-threaded GigaIterator.Wrapping instead of BitmapIterator.
+                gigaMap.query(threadProvider()).and(nameIndexer.is("name1")).forEach(p -> {
+                    throw new RuntimeException("boom");
+                });
+            }
+            catch (final RuntimeException expected)
+            {
+                // swallow: the consumer threw on purpose
+            }
+
+            // Must NOT deadlock: the read-lock has to be released even though the consumer threw.
+            gigaMap.update(person, p -> p.setName("changed"));
+        });
+
+        assertEquals(1, gigaMap.query(nameIndexer.is("changed")).count());
+    }
+
+    @Test
+    void threadedNextPastEndReleasesLockOnThrow()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+        gigaMap.add(new NamePerson("other", 2));
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            // Deliberately NOT closing the iterator: driving next() one past the end must release
+            // the read-lock itself when it throws NoSuchElementException (Wrapping.nextEntry guard).
+            final GigaIterator<NamePerson> it =
+                gigaMap.query(threadProvider()).and(nameIndexer.is("name1")).iterator();
+            it.hasNext();                                         // prepares the single match
+            it.next();                                           // consumes it, clearing the buffer
+            assertThrows(NoSuchElementException.class, it::next); // scrolls past end -> must self-close
+
+            // Must NOT deadlock: next() has to release the read-lock on throw.
+            gigaMap.update(person, p -> p.setName("changed"));
+        });
+
+        assertEquals(1, gigaMap.query(nameIndexer.is("changed")).count());
+    }
+
+    @Test
+    void threadedResolutionFailureInHasNextReleasesLock()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            // A failing resolver simulates an entity resolution error (e.g. lazy-load failure) on
+            // the normal iteration path: hasNext() itself throws and must release the read-lock
+            // (Wrapping.hasNext guard). Deliberately NOT closing the iterator.
+            final GigaQuery.Default<NamePerson> query =
+                (GigaQuery.Default<NamePerson>)gigaMap.query(threadProvider()).and(nameIndexer.is("name1"));
+            final GigaIterator<NamePerson> it = query.iterator(failingResolver(gigaMap));
+
+            final RuntimeException thrown = assertThrows(RuntimeException.class, it::hasNext);
+            assertEquals("simulated entity resolution failure", thrown.getMessage());
+
+            // Must NOT deadlock: hasNext() has to release the read-lock on throw.
+            gigaMap.update(person, p -> p.setName("changed"));
+        });
+
+        assertEquals(1, gigaMap.query(nameIndexer.is("changed")).count());
+    }
+
+    @Test
+    void resolutionFailureInNextReleasesLock()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            // Single-threaded path: calling next() without a prior hasNext() exercises the scroll
+            // branch inside BitmapIterator.next() itself, where the resolution failure must
+            // release the read-lock. Deliberately NOT closing the iterator.
+            final GigaQuery.Default<NamePerson> query =
+                (GigaQuery.Default<NamePerson>)gigaMap.query(nameIndexer.is("name1"));
+            final GigaIterator<NamePerson> it = query.iterator(failingResolver(gigaMap));
+
+            final RuntimeException thrown = assertThrows(RuntimeException.class, it::next);
+            assertEquals("simulated entity resolution failure", thrown.getMessage());
+
+            // Must NOT deadlock: next() has to release the read-lock on throw.
+            gigaMap.update(person, p -> p.setName("changed"));
+        });
+
+        assertEquals(1, gigaMap.query(nameIndexer.is("changed")).count());
+    }
+
+
+    static IterationThreadProvider threadProvider()
+    {
+        return IterationThreadProvider.Creating((parent, results) -> 4);
+    }
+
+    static EntityResolver<NamePerson> failingResolver(final GigaMap<NamePerson> parent)
+    {
+        return new EntityResolver<>()
+        {
+            @Override
+            public NamePerson get(final long entityId)
+            {
+                throw new RuntimeException("simulated entity resolution failure");
+            }
+
+            @Override
+            public GigaMap<NamePerson> parent()
+            {
+                return parent;
+            }
+        };
+    }
+
+
+    @Test
+    void mapForEachMutationDuringIterationThrows()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        gigaMap.add(new NamePerson("name1", 1));
+        gigaMap.add(new NamePerson("name2", 2));
+
+        // Structurally modifying the map from within forEach is not supported and must fail fast
+        // (the map is held read-only for the duration of the iteration), not silently produce
+        // undefined results.
+        assertTimeoutPreemptively(Duration.ofSeconds(5),
+            () -> assertThrows(IllegalStateException.class,
+                () -> gigaMap.forEach(gigaMap::remove)));
+    }
+
+    @Test
+    void mapIterateMutationDuringIterationThrows()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        final NamePerson person = new NamePerson("name1", 1);
+        gigaMap.add(person);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5),
+            () -> assertThrows(IllegalStateException.class,
+                () -> gigaMap.iterate(p -> gigaMap.update(p, x -> x.setName("changed")))));
+    }
+
+    @Test
+    void collectThenMutateIsSupported()
+    {
+        final GigaMap<NamePerson> gigaMap = GigaMap.New();
+        gigaMap.index().bitmap().add(nameIndexer);
+        gigaMap.add(new NamePerson("name1", 1));
+        gigaMap.add(new NamePerson("name2", 2));
+
+        // Supported pattern: snapshot first, then mutate.
+        final List<NamePerson> snapshot = new ArrayList<>();
+        gigaMap.forEach(snapshot::add);
+        snapshot.forEach(gigaMap::remove);
+
+        assertEquals(0, gigaMap.size());
     }
 
 

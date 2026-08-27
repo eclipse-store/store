@@ -17,4 +17,6 @@ module org.eclipse.store.storage.restservice
 	exports org.eclipse.store.storage.restservice.exceptions;
 
 	requires transitive org.eclipse.store.storage.restadapter;
+
+	uses org.eclipse.store.storage.restservice.types.StorageRestServiceProvider;
 }

@@ -17,6 +17,7 @@ package org.eclipse.store.gigamap.jvector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.ref.WeakReference;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -43,6 +44,21 @@ class BackgroundTaskManager
 {
     private static final Logger LOG = LoggerFactory.getLogger(BackgroundTaskManager.class);
 
+    /**
+     * Interval of the liveness watchdog that self-terminates the executor once the index
+     * (the {@link Callback}) has been garbage-collected. Kept short so an abandoned index's
+     * daemon thread is reclaimed promptly, independent of the (possibly long) optimization
+     * and persistence intervals. Each tick is only a weak {@code get()} plus a flag check.
+     */
+    private static final long WATCHDOG_INTERVAL_MS = 1_000L;
+
+    /**
+     * Short grace window awaited for the executor thread to terminate after {@link #shutdown} has
+     * requested it (or after an overrun triggers {@code shutdownNow()}). Bounds how long shutdown
+     * blocks once the final work is done or has been aborted.
+     */
+    private static final long EXECUTOR_TERMINATION_GRACE_SECONDS = 5L;
+
     // ========================================================================
     // Indexing Operations
     // ========================================================================
@@ -50,7 +66,7 @@ class BackgroundTaskManager
     /**
      * Sealed interface for indexing operations that can be queued.
      */
-    sealed interface IndexingOperation
+    private static sealed interface IndexingOperation
         permits IndexingOperation.Add,
                 IndexingOperation.Update,
                 IndexingOperation.Remove,
@@ -143,17 +159,29 @@ class BackgroundTaskManager
         /**
          * Core persistence logic without queue drain.
          * Called from the executor thread (inline drain already done).
+         *
+         * @param onShutdown {@code true} when invoked on the shutdown path, in which case a
+         *                   full-graph consolidation (exit incremental mode) must be skipped so
+         *                   shutdown is not blocked by an O(n) rebuild; {@code false} for
+         *                   background/explicit persistence, which may consolidate.
          */
-        void doPersistToDisk();
+        void doPersistToDisk(boolean onShutdown);
     }
 
     // ========================================================================
     // Instance fields
     // ========================================================================
 
-    private final Callback                    callback ;
-    private final String                      name     ;
-    private final ScheduledExecutorService    executor ;
+    /**
+     * The index is held <b>weakly</b>: the executor's scheduled tasks (method references on this
+     * manager) would otherwise strongly pin the index — and through it the whole HNSW graph — for
+     * as long as the daemon thread lives. Holding it weakly lets an abandoned index (dropped
+     * without {@code close()}) become collectable; the liveness watchdog then self-terminates the
+     * executor once the referent is gone. Mirrors {@code EvictionManager.IntervalThread}.
+     */
+    private final WeakReference<Callback>     callbackRef ;
+    private final String                      name        ;
+    private final ScheduledExecutorService    executor    ;
 
     // Indexing queue and dedup flag
     private final ConcurrentLinkedQueue<IndexingOperation> indexingQueue         ;
@@ -170,6 +198,12 @@ class BackgroundTaskManager
     private final int           persistenceMinChanges ;
     private ScheduledFuture<?>  persistenceTask       ;
 
+    // Upper bound on how long the shutdown persist may run on the executor before it is aborted.
+    private final long          shutdownPersistTimeoutMillis;
+
+    // Liveness watchdog: self-terminates the executor when the index has been abandoned (GC'd)
+    private ScheduledFuture<?>  watchdogTask          ;
+
     private volatile boolean shutdown = false;
 
     // ========================================================================
@@ -185,11 +219,13 @@ class BackgroundTaskManager
         final int      optimizationMinChanges,
         final boolean  backgroundPersistence,
         final long     persistenceIntervalMs,
-        final int      persistenceMinChanges
+        final int      persistenceMinChanges,
+        final long     shutdownPersistTimeoutMillis
     )
     {
-        this.callback = callback;
-        this.name     = name    ;
+        this.callbackRef                  = new WeakReference<>(callback);
+        this.name                         = name                        ;
+        this.shutdownPersistTimeoutMillis = shutdownPersistTimeoutMillis;
 
         this.executor = Executors.newSingleThreadScheduledExecutor(r ->
         {
@@ -240,16 +276,47 @@ class BackgroundTaskManager
         {
             LOG.info("Eventual indexing enabled for index '{}'", name);
         }
+
+        // Always run the liveness watchdog. In eventual-indexing-only mode there is no recurring
+        // optimization/persistence task, so without this the idle executor thread would survive
+        // forever after the index is abandoned. The watchdog guarantees teardown in every mode.
+        this.watchdogTask = this.executor.scheduleAtFixedRate(
+            this::checkLiveness,
+            WATCHDOG_INTERVAL_MS,
+            WATCHDOG_INTERVAL_MS,
+            TimeUnit.MILLISECONDS
+        );
     }
 
     // ========================================================================
     // Indexing queue methods
     // ========================================================================
 
+
+    void enqueueAdd(final VectorEntry entry)
+    {
+        this.enqueue(new IndexingOperation.Add(entry));
+    }
+
+    void enqueueBatchAdd(final List<VectorEntry> entries)
+    {
+        this.enqueue(new IndexingOperation.BatchAdd(entries));
+    }
+
+    void enqueueUpdate(final VectorEntry entry)
+    {
+        this.enqueue(new IndexingOperation.Update(entry));
+    }
+
+    void enqueueRemove(final int ordinal)
+    {
+        this.enqueue(new IndexingOperation.Remove(ordinal));
+    }
+
     /**
      * Enqueues an indexing operation for background processing.
      */
-    void enqueue(final IndexingOperation op)
+    private void enqueue(final IndexingOperation op)
     {
         this.indexingQueue.add(op);
         if(this.indexingTaskScheduled.compareAndSet(false, true))
@@ -352,25 +419,17 @@ class BackgroundTaskManager
     {
         this.shutdown = true;
 
-        // Cancel scheduled tasks
-        if(this.optimizationTask != null)
-        {
-            this.optimizationTask.cancel(false);
-            this.optimizationTask = null;
-        }
-        if(this.persistenceTask != null)
-        {
-            this.persistenceTask.cancel(false);
-            this.persistenceTask = null;
-        }
+        // Cancel scheduled tasks (optimization, persistence, watchdog)
+        this.cancelScheduledTasks();
 
         // Perform final work if requested
+        boolean timedOut = false;
         if(drainPending || optimizePending || persistPending)
         {
             try
             {
                 this.executor.submit(() -> this.finalShutdownWork(drainPending, optimizePending, persistPending))
-                    .get(30, TimeUnit.SECONDS);
+                    .get(this.shutdownPersistTimeoutMillis, TimeUnit.MILLISECONDS);
             }
             catch(final InterruptedException e)
             {
@@ -382,15 +441,31 @@ class BackgroundTaskManager
             }
             catch(final TimeoutException e)
             {
-                LOG.warn("Shutdown work timed out for '{}'", this.name);
+                // The shutdown work (drain / optimize / persist) is still running and has exceeded its
+                // budget. Aborting it now is safe: an on-disk index writes its graph atomically and
+                // self-heals from the store on next load, so no torn file or data loss results.
+                // Interrupt promptly rather than waiting a second full grace window, so shutdown is not
+                // pinned by work that is being discarded.
+                timedOut = true;
+                LOG.warn("Shutdown work timed out for '{}' after {} ms; interrupting it so shutdown can "
+                    + "proceed (a pending on-disk persist, if any, self-heals from the store on next load)",
+                    this.name, this.shutdownPersistTimeoutMillis);
             }
         }
 
-        // Shutdown the executor
-        this.executor.shutdown();
+        // Shutdown the executor. If the final work overran its budget, interrupt it immediately;
+        // otherwise request a graceful shutdown and give in-flight work a short window to finish.
+        if(timedOut)
+        {
+            this.executor.shutdownNow();
+        }
+        else
+        {
+            this.executor.shutdown();
+        }
         try
         {
-            if(!this.executor.awaitTermination(30, TimeUnit.SECONDS))
+            if(!this.executor.awaitTermination(EXECUTOR_TERMINATION_GRACE_SECONDS, TimeUnit.SECONDS))
             {
                 LOG.warn("Background task executor did not terminate gracefully for '{}'", this.name);
                 this.executor.shutdownNow();
@@ -403,6 +478,76 @@ class BackgroundTaskManager
         }
 
         LOG.info("Background task manager shutdown for '{}'", this.name);
+    }
+
+    /**
+     * Cancels the recurring scheduled tasks (optimization, persistence, watchdog) without
+     * touching the executor itself. Shared by {@link #shutdown} and {@link #selfTerminate}.
+     */
+    private void cancelScheduledTasks()
+    {
+        if(this.optimizationTask != null)
+        {
+            this.optimizationTask.cancel(false);
+            this.optimizationTask = null;
+        }
+        if(this.persistenceTask != null)
+        {
+            this.persistenceTask.cancel(false);
+            this.persistenceTask = null;
+        }
+        if(this.watchdogTask != null)
+        {
+            this.watchdogTask.cancel(false);
+            this.watchdogTask = null;
+        }
+    }
+
+    /**
+     * Resolves the weakly-held index. If it has been garbage-collected — meaning the index was
+     * abandoned without {@code close()} — this self-terminates the manager so the daemon thread
+     * and executor are reclaimed, and returns {@code null}. Callers running on the executor
+     * thread must skip their work when this returns {@code null}.
+     *
+     * @return the live {@link Callback}, or {@code null} if the index has been collected
+     */
+    private Callback liveCallback()
+    {
+        final Callback cb = this.callbackRef.get();
+        if(cb == null && !this.shutdown)
+        {
+            this.selfTerminate();
+        }
+        return cb;
+    }
+
+    /**
+     * Tears the manager down from within the executor thread after the index was abandoned.
+     * <p>
+     * Unlike {@link #shutdown}, this must not call {@code awaitTermination} — it runs on the very
+     * thread being shut down, so awaiting would dead-lock. It only cancels the recurring tasks,
+     * drops pending work and calls {@link ExecutorService#shutdown()}; the current task then
+     * returns and the daemon thread ends, making the executor and this manager collectable.
+     */
+    private void selfTerminate()
+    {
+        this.shutdown = true;
+        this.cancelScheduledTasks();
+        this.indexingQueue.clear();
+        this.executor.shutdown(); // no awaitTermination: we are on the executor thread
+        LOG.info("Background task manager self-terminated for abandoned index '{}'", this.name);
+    }
+
+    /**
+     * Liveness watchdog body. Resolving the weak reference self-terminates the manager when the
+     * index has been collected (see {@link #liveCallback()}).
+     */
+    private void checkLiveness()
+    {
+        if(!this.shutdown)
+        {
+            this.liveCallback();
+        }
     }
 
     // ========================================================================
@@ -440,12 +585,18 @@ class BackgroundTaskManager
      */
     private void processAllPendingIndexingOps()
     {
+        final Callback cb = this.liveCallback();
+        if(cb == null)
+        {
+            return; // index abandoned; liveCallback() has already self-terminated the manager
+        }
+
         IndexingOperation op;
         while((op = this.indexingQueue.poll()) != null)
         {
             try
             {
-                op.execute(this.callback);
+                op.execute(cb);
             }
             catch(final Exception e)
             {
@@ -470,6 +621,12 @@ class BackgroundTaskManager
             return;
         }
 
+        final Callback cb = this.liveCallback();
+        if(cb == null)
+        {
+            return; // index abandoned; liveCallback() has already self-terminated the manager
+        }
+
         LOG.debug("Background optimizing index '{}' with {} changes",
             this.name, this.optimizationChangeCount.get());
 
@@ -478,7 +635,7 @@ class BackgroundTaskManager
             // Drain pending indexing ops inline (same thread, no deadlock)
             this.processAllPendingIndexingOps();
 
-            this.callback.doOptimize();
+            cb.doOptimize();
 
             this.optimizationChangeCount.set(0);
             this.optimizationCount.incrementAndGet();
@@ -507,6 +664,12 @@ class BackgroundTaskManager
             return;
         }
 
+        final Callback cb = this.liveCallback();
+        if(cb == null)
+        {
+            return; // index abandoned; liveCallback() has already self-terminated the manager
+        }
+
         LOG.debug("Background persisting index '{}' with {} changes",
             this.name, this.persistenceChangeCount.get());
 
@@ -515,7 +678,7 @@ class BackgroundTaskManager
             // Drain pending indexing ops inline (same thread, no deadlock)
             this.processAllPendingIndexingOps();
 
-            this.callback.doPersistToDisk();
+            cb.doPersistToDisk(false);
 
             this.persistenceChangeCount.set(0);
 
@@ -543,13 +706,21 @@ class BackgroundTaskManager
             this.processAllPendingIndexingOps();
         }
 
+        // Callback may be null if the index was concurrently collected; skip the graph-touching
+        // work in that case (nothing to persist/optimize once the index is gone).
+        final Callback cb = this.callbackRef.get();
+        if(cb == null)
+        {
+            return;
+        }
+
         if(optimizePending && this.optimizationChangeCount.get() > 0)
         {
             LOG.info("Optimizing pending changes for '{}' before shutdown ({} changes)",
                 this.name, this.optimizationChangeCount.get());
             try
             {
-                this.callback.doOptimize();
+                cb.doOptimize();
                 this.optimizationChangeCount.set(0);
                 this.optimizationCount.incrementAndGet();
             }
@@ -565,7 +736,7 @@ class BackgroundTaskManager
                 this.name, this.persistenceChangeCount.get());
             try
             {
-                this.callback.doPersistToDisk();
+                cb.doPersistToDisk(true);
                 this.persistenceChangeCount.set(0);
             }
             catch(final Exception e)

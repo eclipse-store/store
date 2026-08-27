@@ -117,6 +117,10 @@ public final class BinaryHandlerGigaLevel3 extends AbstractBinaryHandlerStateCha
 		);
 	}
 	
+	// Provided only for PersistenceTypeHandler contract conformity. The standard store path
+	// registers child references through handler.apply(...) callbacks while writing the
+	// binary form, so this iterator is exercised only by niche traversals such as
+	// PersistenceRegisterer.
 	@Override
 	public final void iterateInstanceReferences(final GigaLevel3<?> instance, final PersistenceFunction iterator)
 	{

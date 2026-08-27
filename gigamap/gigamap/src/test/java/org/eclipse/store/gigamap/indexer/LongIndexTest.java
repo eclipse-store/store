@@ -76,7 +76,7 @@ public class LongIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LongPerson> newMap = (GigaMap<LongPerson>) manager.root();
+            GigaMap<LongPerson> newMap = manager.root();
             long count = newMap.query(longPersonIndex.between(200L, 300L)).count();
             assertEquals(2, count);
             newMap.query(longPersonIndex.between(200L, 300L)).forEach(longPerson -> assertTrue(longPerson.getSalary() >= 200L && longPerson.getSalary() <= 300L));
@@ -106,7 +106,7 @@ public class LongIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LongPerson> newMap = (GigaMap<LongPerson>) manager.root();
+            GigaMap<LongPerson> newMap = manager.root();
             long count = newMap.query(longPersonIndex.greaterThanEqual(200L)).count();
             assertEquals(2, count);
             newMap.query(longPersonIndex.greaterThanEqual(200L)).forEach(longPerson -> assertTrue(longPerson.getSalary() >= 200L));
@@ -133,7 +133,7 @@ public class LongIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LongPerson> newMap = (GigaMap<LongPerson>) manager.root();
+            GigaMap<LongPerson> newMap = manager.root();
             long count = newMap.query(longPersonIndex.greaterThan(100L)).count();
             assertEquals(2, count);
             newMap.query(longPersonIndex.greaterThan(100L)).forEach(longPerson -> assertTrue(longPerson.getSalary() > 100L));
@@ -156,7 +156,7 @@ public class LongIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LongPerson> newMap = (GigaMap<LongPerson>) manager.root();
+            GigaMap<LongPerson> newMap = manager.root();
             long count = newMap.query(longPersonIndex.lessThanEqual(200L)).count();
             assertEquals(2, count);
             newMap.query(longPersonIndex.lessThanEqual(200L)).forEach(longPerson -> assertTrue(longPerson.getSalary() <= 200L));
@@ -181,7 +181,7 @@ public class LongIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LongPerson> newMap = (GigaMap<LongPerson>) manager.root();
+            GigaMap<LongPerson> newMap = manager.root();
             long count = newMap.query(longPersonIndex.lessThan(200L)).count();
             assertEquals(1, count);
             newMap.query(longPersonIndex.lessThan(200L)).forEach(longPerson -> assertTrue(longPerson.getSalary() < 200L));
@@ -207,7 +207,7 @@ public class LongIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LongPerson> newMap = (GigaMap<LongPerson>) manager.root();
+            GigaMap<LongPerson> newMap = manager.root();
             newMap.query(longPersonIndex.is(100L)).forEach(longPerson -> assertEquals(100L, longPerson.getSalary()));
             newMap.query(longPersonIndex.is(200L)).forEach(longPerson -> assertEquals(200L, longPerson.getSalary()));
 

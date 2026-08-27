@@ -270,7 +270,7 @@ public class AllTypesApplyTest
                 storageManager.setRoot(map);
                 storageManager.storeRoot();
             } else {
-                GigaMap<AllTypesPojo> map = (GigaMap<AllTypesPojo>) storageManager.root();
+                GigaMap<AllTypesPojo> map = storageManager.root();
                 AllTypesPojo pojo = getRandomPojo(map);
                 AllTypesPojo toReplacePojo = new AllTypesPojo();
                 toReplacePojo.generateRandomData();

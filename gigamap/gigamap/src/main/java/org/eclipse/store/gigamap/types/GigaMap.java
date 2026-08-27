@@ -14,9 +14,6 @@ package org.eclipse.store.gigamap.types;
  * #L%
  */
 
-import org.eclipse.store.gigamap.exceptions.ConstraintViolationException;
-import org.eclipse.store.gigamap.types.GigaQuery.ConditionBuilder;
-import org.eclipse.store.gigamap.types.IterationThreadProvider.IterationLogicProvider;
 import org.eclipse.serializer.branching.ThrowBreak;
 import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.collections.BulkList;
@@ -33,11 +30,23 @@ import org.eclipse.serializer.persistence.binary.types.BinaryTypeHandler;
 import org.eclipse.serializer.persistence.types.*;
 import org.eclipse.serializer.reference.Lazy;
 import org.eclipse.serializer.util.X;
+import org.eclipse.store.gigamap.exceptions.ConstraintViolationException;
+import org.eclipse.store.gigamap.exceptions.StaleIndexException;
+import org.eclipse.store.gigamap.exceptions.UniqueConstraintViolationException;
+import org.eclipse.store.gigamap.types.GigaQuery.ConditionBuilder;
+import org.eclipse.store.gigamap.types.IterationThreadProvider.IterationLogicProvider;
 
 import java.lang.ref.WeakReference;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Set;
+import java.util.Spliterator;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -62,7 +71,28 @@ import static org.eclipse.serializer.util.X.notNull;
  * <p>
  * Equality depends on the given {@link #equalator()}. By default, identity equality is used.
  * If you want value equality instead, you can use {@link XHashing#hashEqualityValue()} in the constructor methods,
- * or {@link Builder#withValueEquality()}.
+ * or {@link Builder#withValueEquality()}. It is used to resolve an entity <em>instance</em> to the id it is
+ * mapped to - in {@link #remove(Object) remove}, {@link #replace(Object, Object) replace},
+ * {@link #apply(Object, Function) apply} and {@link #update(Object, Consumer) update} - and never decides
+ * whether a mutation is carried out.
+ * <p>
+ * <b>Keeping indices in sync:</b> GigaMap has no automatic change tracking. Any mutation that affects an
+ * indexed field must go through this collection's mutating methods ({@link #add(Object) add},
+ * {@link #remove(Object) remove}, {@link #set(long, Object) set}, {@link #replace(Object, Object) replace},
+ * {@link #update(long, Consumer) update}, {@link #apply(long, Function) apply}); only these re-run the
+ * indexers. Mutating an entity's indexed field <em>directly</em> leaves the indices stale - for bitmap indices
+ * this yields wrong query results, for Lucene indices it fails silently. A subsequent {@link #store()} does
+ * not fix this: it neither updates the indices nor implicitly persists the direct mutation (only entities
+ * mutated through {@code update} / {@code apply} are scheduled for storing; a directly mutated entity must be
+ * stored explicitly, as usual). To bring a single entity back in sync use {@link #update(long, Consumer)} /
+ * {@link #apply(long, Function)} (which also schedule the entity for storing); to rebuild every index from the
+ * current entity state use {@link #reindex()}.
+ * <p>
+ * Note the division of labour among those methods: {@code set} and {@code replace} install a <em>different</em>
+ * instance and re-index that, while {@code update} and {@code apply} mutate the contained instance in place.
+ * Writing an entity back through {@code set} / {@code replace} after mutating it directly cannot work and is
+ * rejected - the keys it had before the mutation are no longer derivable - so an in-place mutation is either
+ * done through {@code update} / {@code apply} from the start, or repaired afterwards with {@link #reindex()}.
  *
  * @param <E> the type of entities in this collection
  */
@@ -103,18 +133,37 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * Adds the specified element to this collection.
 	 * <p>
 	 * Null values are not allowed.
-	 * 
+	 * <p>
+	 * <b>Behavior on failure:</b> if a constraint is violated or an {@link Indexer} throws an
+	 * exception while the element is being indexed, the addition is rolled back and the exception
+	 * is rethrown: the element is not contained, {@link #size()} is unchanged and no index refers
+	 * to it. If the rollback itself encounters secondary failures (e.g. the broken indexer throws
+	 * again during cleanup), those are attached as suppressed exceptions and the affected id is
+	 * "burned", i.e. skipped for future additions, so that possibly remaining stale index entries
+	 * can never refer to another entity. Such remainders are cleaned up by {@link #reindex()}.
+	 *
 	 * @param element the element to add, not <code>null</code>
 	 * @return the assigned id
 	 * @throws IllegalArgumentException if element is <code>null</code>
 	 */
 	public long add(E element);
-	
+
 	/**
 	 * Adds all elements to this collection.
 	 * <p>
 	 * Null values are not allowed
-	 * 
+	 * <p>
+	 * The passed iterable is traversed exactly once, so a single-use iterable (e.g. stream-backed) is fine.
+	 * The elements are indexed exactly as they were added, so an iterable whose content may change while it is
+	 * being traversed (e.g. the weakly consistent view of a concurrent collection) can never make the indices
+	 * diverge from the added entities.
+	 * <p>
+	 * <b>Behavior on failure:</b> the operation is atomic in the same way as {@link #add(Object)}:
+	 * if an element is <code>null</code>, a constraint is violated or an {@link Indexer} throws an
+	 * exception for any of the elements, all elements added so far by this call are rolled back and
+	 * the exception is rethrown; secondary cleanup failures are attached as suppressed exceptions and
+	 * the affected ids are skipped for future additions.
+	 *
 	 * @param elements the elements to add
 	 * @return the last assigned id
 	 * @throws IllegalArgumentException if an element is <code>null</code>
@@ -145,8 +194,23 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	public E peek(long entityId);
 	
 	/**
-	 * Removes the entitiy mapped to the specified id.
-	 * 
+	 * Removes the entity mapped to the specified id.
+	 * <p>
+	 * The id is not recycled: it stays below {@link #highestUsedId()} and keeps reading as an empty
+	 * slot, and the next {@link #add(Object)} gets a fresh id. Removing the last entity of an internal
+	 * segment does release that segment, in memory and on disk, so a workload that keeps adding and
+	 * removing does not accumulate the storage of the ids it has churned through. That reclamation only
+	 * happens as a removal empties a segment, so segments left empty by an earlier version of this
+	 * library are not cleaned up retroactively; {@link #removeAll()} is the only full reset.
+	 * <p>
+	 * <b>Behavior on failure:</b> if an {@link Indexer} throws an exception while the entity's
+	 * index entries are being located for cleanup, the removal nevertheless completes: the entity
+	 * is removed from the map and {@link #size()} is decremented, the remaining indices are cleaned
+	 * best-effort, and the exception is rethrown afterwards (further failures attached as
+	 * suppressed exceptions). Entries left behind in the index whose indexer failed refer to a now
+	 * empty id and are invisible to queries; they are cleaned up by {@link #reindex()}. Aborting
+	 * instead would make an entity with a broken indexer permanently unremovable.
+	 *
 	 * @param entityId the id of the element to be deleted
 	 * @return the deleted element, or <code>null</code> if none was deleted
 	 */
@@ -155,13 +219,19 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	/**
 	 * Removes the specified entity if present in this collection and returns its previously mapped id.
 	 * <p>
-	 * In order for this method to work, at least one bitmap index is needed. If no index is present an
-	 * {@link IllegalStateException} will be thrown.
+	 * Because the entity instance has to be resolved to its id first, at least one bitmap index is
+	 * needed for this method to work; if none is present an {@link IllegalStateException} is thrown.
+	 * Maps without a bitmap index (e.g. Lucene-only or vector-only maps) can use the entityId-based
+	 * {@link #removeById(long)} instead, passing an id obtained from a query or search result.
 	 * <p>
 	 * To get the best performance for this operation is the use of an identity index.
 	 * See {@link BitmapIndices#setIdentityIndices(IndexIdentifier...)}.
-	 * 
-	 * 
+	 * <p>
+	 * <b>Behavior on failure:</b> identical to {@link #removeById(long)}: once the entity has been
+	 * resolved to its id, the removal completes even if an {@link Indexer} throws during index
+	 * cleanup, and the exception is rethrown afterwards. (A throw during the id resolution itself
+	 * happens before any mutation and leaves the map unchanged.)
+	 *
 	 * @param entity the entity to be removed
 	 * @return the previously mapped id of the entity, or -1 if none was removed
 	 * @throws IllegalStateException if no bitmap index is present
@@ -223,33 +293,79 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	public boolean isReadOnly();
 	
 	/**
-	 * Marks this {@link GigaMap} as read-only, indicating that
-	 * it cannot be modified further.
+	 * Marks this {@link GigaMap} as read-only, indicating that it cannot be modified further until a
+	 * matching {@link #unmarkReadOnly()} is issued.
+	 * <p>
+	 * Read-only marks are <strong>reference-counted</strong>: nesting is allowed, but every
+	 * {@code markReadOnly()} must be paired with exactly one {@link #unmarkReadOnly()}.
+	 * <p>
+	 * <strong>Warning:</strong> this is a low-level toggle that shares its counter with the read-lock
+	 * mechanism guarding in-progress iterations and queries. Do <strong>not</strong> call it (nor
+	 * {@link #unmarkReadOnly()}) from within an {@link #iterate(Consumer)} / {@link #forEach(Consumer)} /
+	 * {@code query(...)} consumer: doing so corrupts the read-only count that protects the running
+	 * iteration and results in undefined behavior. Imbalanced calls can leave the map permanently
+	 * non-mutable.
 	 */
 	public void markReadOnly();
-	
+
 	/**
-	 * Removes the read-only status from this {@link GigaMap}.
+	 * Removes one read-only mark previously set via {@link #markReadOnly()}; the map becomes mutable
+	 * again once the last mark is removed.
+	 * <p>
+	 * <strong>Warning:</strong> must be balanced with {@link #markReadOnly()}. Calling it more often than
+	 * {@code markReadOnly()} throws an {@link IllegalStateException} (it would otherwise drive the
+	 * read-only count negative and leave the map permanently non-mutable). See {@link #markReadOnly()} for
+	 * why this must never be called from within an iteration/query consumer.
+	 *
+	 * @throws IllegalStateException if called without a matching {@link #markReadOnly()}
 	 */
 	public void unmarkReadOnly();
 	
 	/**
-	 * Removes all read-only marks currently set.
-	 * This operation is intended to reset or clear any read-only status
-	 * that may have been applied to this {@link GigaMap}.
+	 * Writes the specified entity to the specified id, updates the indices accordingly, and returns the
+	 * entity that was mapped to that id before.
+	 * <p>
+	 * If the id currently holds an entity, that entity is replaced and returned. If the id is one whose
+	 * entity {@link #removeById(long)} has removed, its now empty slot is filled: the entity is restored
+	 * at its original id, becomes queryable under it, the size is incremented again, and {@code null} is
+	 * returned because nothing was replaced. Since the map offers no {@code add(long, Object)}, this is
+	 * the only id-addressed write and therefore the way to undo a removal at the id it was removed from.
+	 * That holds regardless of how much of the id's id range was removed: if the removals released the
+	 * internal segment the id lives in, writing to the id re-creates it.
+	 * <p>
+	 * Ids that this map never handed out are rejected: the id must be non-negative and must not exceed
+	 * {@link #highestUsedId()}.
+	 * <p>
+	 * <b>The entity must be a different instance than the one the id currently holds.</b> Passing the very
+	 * instance already mapped there - the "load it, mutate it, save it back" idiom - is rejected, because
+	 * this method cannot serve it: re-indexing a mutation needs the keys the entity had <em>before</em> it
+	 * was mutated, and once it has been mutated in place those are gone. Use
+	 * {@link #update(long, Consumer)} or {@link #apply(long, Function)} for in-place mutations - they derive
+	 * the previous keys before running the caller's logic, and additionally schedule the entity for storing.
+	 * For an entity that was already mutated directly, {@link #reindex()} is the recovery path.
+	 * <p>
+	 * A replacement that this map's {@link #equalator()} considers <em>equal</em> to the entity being
+	 * replaced is applied like any other: the equalator decides which id an entity instance resolves to, not
+	 * whether a write happens. On a map built with value equality this is the ordinary "store a new version
+	 * of the same record" case.
+	 * <p>
+	 * <b>Behavior on failure:</b> constraints are checked and the bitmap indices are updated
+	 * <em>before</em> the entity is replaced in the map's storage. If a constraint is violated or
+	 * an {@link Indexer} throws an exception while deriving the new entity's keys, the map is left
+	 * unchanged: the old entity stays in place and remains indexed, and an empty slot stays empty and
+	 * uncounted. (On maps with additional, non-bitmap index groups such as Lucene or vector indices, a
+	 * failure in a group that is processed after another group already updated can leave the groups
+	 * diverged; such states are repaired by {@link #reindex()}.)
 	 *
-	 * @return true if the read-only marks were successfully cleared, false otherwise
-	 */
-	public boolean clearReadOnlyMarks();
-	
-	/**
-	 * Replaces an entity if present in this collection, updates the indices accordingly,
-	 * and returns the old entity mapped to the specified id.
-	 * 
-	 * @param entityId the entity id to replace
-	 * @param entity the new entity
-	 * @return the old entity
-	 * @throws IllegalArgumentException if the entityId is not found
+	 * @param entityId the entity id to write to
+	 * @param entity the new entity, not <code>null</code>
+	 * @return the entity previously mapped to the id, or {@code null} if its slot was empty
+	 * @throws IllegalArgumentException if entity is <code>null</code>; if the entityId was never handed
+	 *         out by this map, i.e. it is negative or greater than {@link #highestUsedId()}; or if the
+	 *         entity is the very instance already mapped to that id (use
+	 *         {@link #update(long, Consumer)} / {@link #apply(long, Function)} instead)
+	 * @see #update(long, Consumer)
+	 * @see #apply(long, Function)
 	 */
 	public E set(long entityId, E entity);
 	
@@ -257,40 +373,81 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * Replaces the specified entity if present with a different one, updates the indices accordingly,
 	 * and returns its mapped id.
 	 * <p>
-	 * In order for this method to work, at least one bitmap index is needed. If no index is present an
-	 * {@link IllegalStateException} will be thrown.
+	 * Because the current entity instance has to be resolved to its id first, at least one bitmap index
+	 * is needed for this method to work; if none is present an {@link IllegalStateException} is thrown.
+	 * Maps without a bitmap index (e.g. Lucene-only or vector-only maps) can use the entityId-based
+	 * {@link #set(long, Object)} instead, passing an id obtained from a query or search result.
 	 * <p>
 	 * To get the best performance for this operation is the use of an identity index.
 	 * See {@link BitmapIndices#setIdentityIndices(IndexIdentifier...)}.
-	 * 
-	 * 
-	 * @param current the entity to be removed
-	 * @param replacement the new entity instance
+	 * <p>
+	 * The {@link #equalator()} only selects <em>which</em> id is replaced; it does not decide whether the
+	 * write happens. A replacement it considers equal to {@code current} is therefore applied like any
+	 * other - on a map built with value equality that is the ordinary "store a new version of the same
+	 * record" case.
+	 * <p>
+	 * <b>Behavior on failure:</b> identical to {@link #set(long, Object)}: the map is left
+	 * unchanged if a constraint is violated or an {@link Indexer} throws while the indices are
+	 * being updated.
+	 *
+	 * @param current the entity to be removed, not <code>null</code>
+	 * @param replacement the new entity instance, not <code>null</code>
 	 * @return the mapped id of the entity
 	 * @throws IllegalStateException if no bitmap index is present
-	 * @throws IllegalArgumentException if current and replacement are the same object
+	 * @throws IllegalArgumentException if current or replacement is <code>null</code>; if they are the
+	 *         same object; or if the replacement turns out to be the very instance mapped to the
+	 *         resolved id (which a value equalator can produce when several equal instances are
+	 *         contained); see {@link #set(long, Object)} for why an in-place mutation cannot be
+	 *         re-indexed
 	 */
 	public long replace(E current, E replacement);
 	
 	/**
 	 * Updates the specified entity and the indices accordingly.
 	 * <p>
-	 * The entity is mutated in-place by the given logic. Both the index changes and the entity itself
-	 * are automatically persisted when {@link #store()} is called.
+	 * The entity is mutated in-place by the given logic. The entity itself, the changes to bitmap indices,
+	 * and the changes to embedded (graph) Lucene/vector indices are persisted when {@link #store()} is
+	 * called. An external-directory Lucene index instead commits on a schedule controlled by its
+	 * {@code LuceneContext.autoCommit} setting: by default ({@code autoCommit == true}) it commits
+	 * immediately at this method's call time, independently of {@link #store()}.
 	 * <p>
-	 * In order for this method to work, at least one bitmap index is needed. If no index is present an
-	 * {@link IllegalStateException} will be thrown.
+	 * Because the entity instance has to be resolved to its id first, at least one bitmap index is
+	 * needed for this method to work; if none is present an {@link IllegalStateException} is thrown.
+	 * Maps without a bitmap index (e.g. Lucene-only or vector-only maps) can use the entityId-based
+	 * {@link #update(long, Consumer)} instead, passing an id obtained from a query or search result.
 	 * <p>
 	 * To get the best performance for this operation is the use of an identity index.
 	 * See {@link BitmapIndices#setIdentityIndices(IndexIdentifier...)}.
+	 * <p>
+	 * <b>Behavior on constraint violation (potential data loss):</b> if the post-update state of the
+	 * entity violates a registered constraint, a
+	 * {@link ConstraintViolationException ConstraintViolationException}
+	 * is thrown <em>and the entity is removed from this GigaMap</em>. Because {@code logic} mutates the
+	 * entity in place, the previous state is no longer available and cannot be restored — removing the
+	 * entry is the only way to keep the map consistent. This differs from {@link #set(long, Object) set}
+	 * and {@link #replace(Object, Object) replace}, which check constraints before mutating and therefore
+	 * leave the map unchanged on violation. The thrown exception carries the offending entity and its id
+	 * (via {@code violatingEntity} and {@code entityId}); callers that need to recover can re-add the
+	 * entity after correcting the violation, or use {@code set} / {@code replace} instead when
+	 * non-destructive semantics are required - passing a corrected, separate instance, since those methods
+	 * reject the instance the map already holds.
+	 * <p>
+	 * <b>Behavior on other exceptions:</b> the destructive-removal contract also applies to a
+	 * {@link RuntimeException} thrown by {@code logic} itself, which leaves the entity partially mutated
+	 * and thus unreliable: the entity is removed from the map and the original exception is rethrown,
+	 * with cleanup failures attached as suppressed exceptions. It does <em>not</em> apply to a failure of
+	 * an <em>index</em> - see the corresponding section of {@link #apply(Object, Function)}.
 	 *
 	 * @param current the entity to be updated
 	 * @param logic the update logic to be executed
 	 * @return the updated entity
 	 * @throws IllegalStateException if no bitmap index is present
+	 * @throws ConstraintViolationException if the post-update state
+	 *         violates a registered constraint; the entity is removed from the map before this is thrown
 	 */
 	public default E update(final E current, final Consumer<? super E> logic)
 	{
+		notNull(logic);
 		this.apply(current, e ->
 		{
 			logic.accept(e);
@@ -299,28 +456,232 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 
 		return current;
 	}
-	
+
+	/**
+	 * Updates the entity mapped to the given id and the indices accordingly.
+	 * <p>
+	 * The entity is mutated in-place by the given logic. The entity itself, the changes to bitmap indices,
+	 * and the changes to embedded (graph) Lucene/vector indices are persisted when {@link #store()} is
+	 * called. An external-directory Lucene index instead commits on a schedule controlled by its
+	 * {@code LuceneContext.autoCommit} setting: by default ({@code autoCommit == true}) it commits
+	 * immediately at this method's call time, independently of {@link #store()}.
+	 * <p>
+	 * Unlike {@link #update(Object, Consumer)}, this variant takes the entity id directly and therefore
+	 * needs <b>no</b> bitmap index. It is the recommended way to trigger reindexing on maps that only
+	 * have non-bitmap indices (e.g. Lucene-only or vector-only maps). Suitable ids are available from
+	 * query and search results, e.g. via {@link GigaQuery#iterateIndexed(EntryConsumer)} /
+	 * {@link GigaQuery#executeWithId(EntryConsumer)} or the {@code entityId()} of a scored search result.
+	 * <p>
+	 * <b>Behavior on constraint violation (potential data loss):</b> identical to
+	 * {@link #apply(long, Function)}: if the post-update state violates a registered constraint, a
+	 * {@link ConstraintViolationException ConstraintViolationException} is thrown <em>and the entity is
+	 * removed from this GigaMap</em>, because the in-place mutation cannot be rolled back. The same
+	 * destructive-removal contract applies to any other {@link RuntimeException} thrown by {@code logic}
+	 * itself, but <em>not</em> to a failure of an index - see the corresponding section of
+	 * {@link #apply(long, Function)}.
+	 *
+	 * @param entityId the id of the entity to be updated
+	 * @param logic the update logic to be executed
+	 * @return the updated entity
+	 * @throws IllegalArgumentException if no entity is mapped to the given id
+	 * @throws ConstraintViolationException if the post-update state
+	 *         violates a registered constraint; the entity is removed from the map before this is thrown
+	 * @see #reindex()
+	 */
+	public default E update(final long entityId, final Consumer<? super E> logic)
+	{
+		notNull(logic);
+		// Return the entity from inside apply() so the lookup+update stay atomic under apply()'s lock.
+		return this.apply(entityId, e ->
+		{
+			logic.accept(e);
+			return e;
+		});
+	}
+
 	/**
 	 * Applies the specified logic for the given entity and updates the indices accordingly.
 	 * <p>
-	 * The entity is mutated in-place by the given logic. Both the index changes and the entity itself
-	 * are automatically persisted when {@link #store()} is called.
+	 * The entity is mutated in-place by the given logic. The entity itself, the changes to bitmap indices,
+	 * and the changes to embedded (graph) Lucene/vector indices are persisted when {@link #store()} is
+	 * called. An external-directory Lucene index instead commits on a schedule controlled by its
+	 * {@code LuceneContext.autoCommit} setting: by default ({@code autoCommit == true}) it commits
+	 * immediately at this method's call time, independently of {@link #store()}.
 	 * <p>
-	 * In order for this method to work, at least one bitmap index is needed. If no index is present an
-	 * {@link IllegalStateException} will be thrown.
+	 * Because the entity instance has to be resolved to its id first, at least one bitmap index is
+	 * needed for this method to work; if none is present an {@link IllegalStateException} is thrown.
+	 * Maps without a bitmap index (e.g. Lucene-only or vector-only maps) can use the entityId-based
+	 * {@link #apply(long, Function)} instead, passing an id obtained from a query or search result.
 	 * <p>
 	 * To get the best performance for this operation is the use of an identity index.
 	 * See {@link BitmapIndices#setIdentityIndices(IndexIdentifier...)}.
+	 * <p>
+	 * <b>Behavior on constraint violation (potential data loss):</b> if the post-application state of the
+	 * entity violates a registered constraint, a
+	 * {@link ConstraintViolationException ConstraintViolationException}
+	 * is thrown <em>and the entity is removed from this GigaMap</em>. Because {@code logic} mutates the
+	 * entity in place, the previous state is no longer available and cannot be restored — removing the
+	 * entry is the only way to keep the map consistent. This differs from {@link #set(long, Object) set}
+	 * and {@link #replace(Object, Object) replace}, which check constraints before mutating and therefore
+	 * leave the map unchanged on violation. The thrown exception carries the offending entity and its id
+	 * (via {@code violatingEntity} and {@code entityId}); callers that need to recover can re-add the
+	 * entity after correcting the violation, or use {@code set} / {@code replace} instead when
+	 * non-destructive semantics are required - passing a corrected, separate instance, since those methods
+	 * reject the instance the map already holds.
+	 * <p>
+	 * <b>Behavior on an index failure (non-destructive):</b> if updating a derived <em>index</em> fails,
+	 * the entity is <em>kept</em> and the original exception is rethrown. The entity's own data is the
+	 * value {@code logic} produced; only the index could not represent it - be it an {@link Indexer} that
+	 * threw for the new value, an index implementation that rejected it (e.g. a Lucene term over its
+	 * length limit or an embedding of the wrong dimension), or a <em>stale index</em> whose persisted keys
+	 * no longer match the keys re-derived from the (e.g. class-evolved) entities, which is reported as a
+	 * {@link StaleIndexException}. A stale index also never makes a write of the entity's true value be
+	 * mistaken for a duplicate: a unique violation requires a <em>different</em> entity. The indices may be
+	 * left out of sync with the retained entity in all these cases; rebuild them with {@link #reindex()}
+	 * to restore correct query results.
+	 * <p>
+	 * <b>Behavior on other exceptions:</b> the destructive-removal contract also applies to any other
+	 * {@link RuntimeException} thrown by {@code logic} itself, which leaves the entity partially mutated
+	 * and thus unreliable: the entity is removed from the map and the original exception is rethrown, with
+	 * cleanup failures attached as suppressed exceptions. Exceptions thrown while the entity's
+	 * <em>pre-application</em> state is being indexed (i.e. before {@code logic} runs) abort cleanly and
+	 * leave the map and the entity unchanged.
 	 *
 	 * @param current the entity to be updated
 	 * @param logic the logic to be executed
 	 * @return the result of the given logic
 	 * @throws IllegalStateException if no bitmap index is present
+	 * @throws ConstraintViolationException if the post-application
+	 *         state violates a registered constraint; the entity is removed from the map before this is
+	 *         thrown
 	 */
 	public <R> R apply(E current, Function<? super E, R> logic);
-	
+
+	/**
+	 * Applies the specified logic to the entity mapped to the given id and updates the indices accordingly.
+	 * <p>
+	 * The entity is mutated in-place by the given logic. The entity itself, the changes to bitmap indices,
+	 * and the changes to embedded (graph) Lucene/vector indices are persisted when {@link #store()} is
+	 * called. An external-directory Lucene index instead commits on a schedule controlled by its
+	 * {@code LuceneContext.autoCommit} setting: by default ({@code autoCommit == true}) it commits
+	 * immediately at this method's call time, independently of {@link #store()}.
+	 * <p>
+	 * Unlike {@link #apply(Object, Function)}, this variant takes the entity id directly and therefore
+	 * needs <b>no</b> bitmap index. It is the recommended way to trigger reindexing on maps that only
+	 * have non-bitmap indices (e.g. Lucene-only or vector-only maps). Suitable ids are available from
+	 * query and search results, e.g. via {@link GigaQuery#iterateIndexed(EntryConsumer)} /
+	 * {@link GigaQuery#executeWithId(EntryConsumer)} or the {@code entityId()} of a scored search result.
+	 * <p>
+	 * <b>Behavior on constraint violation (potential data loss):</b> if the post-application state of the
+	 * entity violates a registered constraint, a
+	 * {@link ConstraintViolationException ConstraintViolationException}
+	 * is thrown <em>and the entity is removed from this GigaMap</em>. Because {@code logic} mutates the
+	 * entity in place, the previous state is no longer available and cannot be restored — removing the
+	 * entry is the only way to keep the map consistent. The thrown exception carries the offending entity
+	 * and its id (via {@code violatingEntity} and {@code entityId}); callers that need to recover can
+	 * re-add the entity after correcting the violation, or use {@link #set(long, Object) set} when
+	 * non-destructive semantics are required - passing a corrected, separate instance, since {@code set}
+	 * rejects the instance the map already holds.
+	 * <p>
+	 * <b>Behavior on an index failure (non-destructive):</b> if updating a derived <em>index</em> fails,
+	 * the entity is <em>kept</em> and the original exception is rethrown. The entity's own data is the
+	 * value {@code logic} produced; only the index could not represent it - be it an {@link Indexer} that
+	 * threw for the new value, an index implementation that rejected it (e.g. a Lucene term over its
+	 * length limit or an embedding of the wrong dimension), or a <em>stale index</em> whose persisted keys
+	 * no longer match the keys re-derived from the (e.g. class-evolved) entities, which is reported as a
+	 * {@link StaleIndexException}. A stale index also never makes a write of the entity's true value be
+	 * mistaken for a duplicate: a unique violation requires a <em>different</em> entity. The indices may be
+	 * left out of sync with the retained entity in all these cases; rebuild them with {@link #reindex()}
+	 * to restore correct query results.
+	 * <p>
+	 * <b>Behavior on other exceptions:</b> the destructive-removal contract also applies to any other
+	 * {@link RuntimeException} thrown by {@code logic} itself, which leaves the entity partially mutated
+	 * and thus unreliable: the entity is removed from the map and the original exception is rethrown, with
+	 * cleanup failures attached as suppressed exceptions. Exceptions thrown while the entity's
+	 * <em>pre-application</em> state is being indexed (i.e. before {@code logic} runs) abort cleanly and
+	 * leave the map and the entity unchanged.
+	 *
+	 * @param entityId the id of the entity the logic is applied to
+	 * @param logic the logic to be executed
+	 * @return the result of the given logic
+	 * @throws IllegalArgumentException if no entity is mapped to the given id
+	 * @throws ConstraintViolationException if the post-application
+	 *         state violates a registered constraint; the entity is removed from the map before this is
+	 *         thrown
+	 * @see #reindex()
+	 */
+	public <R> R apply(long entityId, Function<? super E, R> logic);
+
+	/**
+	 * Rebuilds all registered indices (bitmap, Lucene, vector, ...) from the current state of the
+	 * entities contained in this map.
+	 * <p>
+	 * GigaMap has no automatic change tracking. When an entity's indexed fields are mutated <em>directly</em>
+	 * (i.e. not through {@link #update(long, Consumer) update} / {@link #apply(long, Function) apply} /
+	 * {@link #set(long, Object) set} / {@link #replace(Object, Object) replace}), its index entries are
+	 * <b>not</b> updated and therefore become stale. For bitmap indices this typically surfaces as wrong query
+	 * results; for Lucene indices it fails silently. This method is the recovery path for such situations, and
+	 * is also useful after a bulk operation that bypassed per-entity indexing.
+	 * <p>
+	 * The rebuild drops each index' data and re-indexes every entity from its current state; a per-entity
+	 * update replay would be insufficient because the previous index key of a directly mutated entity is no
+	 * longer available. For the same reason, writing a directly mutated entity back through
+	 * {@link #set(long, Object) set} / {@link #replace(Object, Object) replace} is rejected rather than
+	 * silently ignored: those methods install a <em>different</em> instance and re-index that, so they cannot
+	 * repair a mutation of the instance they already hold. This method - or, from the start,
+	 * {@code update} / {@code apply} - is the way.
+	 * <p>
+	 * This rebuilds only the index structures; it does <b>not</b> store the entities themselves. A directly
+	 * mutated entity must still be persisted explicitly (mutating via {@code update} / {@code apply} does this
+	 * for you), otherwise a reload would restore the old entity state behind the rebuilt index. Call
+	 * {@link #store()} afterwards to persist the rebuilt bitmap and embedded (graph) Lucene/vector indices. An
+	 * external-directory Lucene index is committed during the rebuild when its {@code LuceneContext.autoCommit}
+	 * is {@code true} (the default), otherwise at the next {@link #store()} boundary. On a very large map this
+	 * can be an expensive operation, as it iterates all entities once per index group.
+	 * <p>
+	 * <b>Class evolution:</b> the indices are a derived cache whose keys are restored verbatim from storage on
+	 * load and are <em>not</em> revalidated against the entities. Evolving an <em>indexed</em> field (renaming
+	 * or retyping it across releases without a value-preserving refactoring mapping) therefore leaves the
+	 * indices stale in exactly the same way a direct mutation does: the loaded entities carry shifted/defaulted
+	 * values while the persisted index keeps the pre-evolution keys. This method is the recovery path for that
+	 * case too; call it (then {@link #store()}) before any query or update after such an evolution.
+	 * <p>
+	 * <b>Unique constraints:</b> deriving every key anew also means the current entity state is checked against
+	 * the registered unique constraints again, so a rebuild reports data that violates one instead of quietly
+	 * building an index in which one unique key maps to several live entities. Note that class evolution of an
+	 * <em>indexed unique</em> field is a prime source of such data: the legacy mapping defaults that field for
+	 * every old entity, so they all end up carrying the same key. The violation is reported <em>after</em> the
+	 * rebuild has completed - the indices are rebuilt and marked for storing either way, and therefore describe
+	 * the entities as they actually are. That is what the repair works on: re-distinguish the colliding keys
+	 * via {@link #update(long, Consumer) update} / {@link #apply(long, Function) apply}, then call this method
+	 * again.
+	 * <p>
+	 * <b>Behavior on failure:</b> a bitmap index is rebuilt into a replacement that is built aside and put in
+	 * place only once its data is complete, so an {@link Indexer} throwing for one entity costs only its own
+	 * index' rebuild: that index is left exactly as it was - as stale as before the call, but complete - every
+	 * other index is rebuilt, and no index is ever left holding a prefix of the entities. Every index is
+	 * attempted; the first failure is rethrown afterwards with any further ones attached as suppressed
+	 * exceptions. Fix the cause and call this method again to repair the indices that were left behind. A
+	 * unique-constraint violation is <em>not</em> such a failure - the rebuild completed and merely produced
+	 * colliding data, so it is reported as described above. Index groups other than the bitmap indices
+	 * (Lucene, vector) still drop their data before rebuilding, so a failure there can leave that group
+	 * partial until the next successful rebuild.
+	 *
+	 * @throws UniqueConstraintViolationException if the rebuilt indices show two or more entities sharing a key
+	 *         of a unique constraint. The exception names the violated index and the first entity found under
+	 *         an already taken key; the rebuild itself is complete at that point.
+	 * @see #update(long, Consumer)
+	 * @see #apply(long, Function)
+	 */
+	public void reindex();
+
 	/**
 	 * Releases all strong references to on-demand loaded data.
+	 * <p>
+	 * Segments containing changes that have not been stored yet are retained: releasing them
+	 * would silently discard the in-memory mutations (the subsequent {@link #store()} could not
+	 * see them anymore) while index and size updates would still be persisted, corrupting the
+	 * stored state. Call {@link #store()} first to be able to release everything.
 	 */
 	public void release();
 	
@@ -364,7 +725,13 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * Iterates over all elements.
 	 * <p>
 	 * Keep in mind that this can result in a very expensive operation, depending on the overall count of elements.
-	 * 
+	 * <p>
+	 * The map is held read-only for the duration of the iteration: structurally modifying it from within
+	 * {@code iterator} (e.g. {@code add}, {@code remove}, {@code update}/{@code apply}) is not supported and
+	 * throws an {@link IllegalStateException}. To mutate based on a scan, collect first (e.g. into a separate
+	 * {@link java.util.List}) and mutate afterwards. (Calling {@code store()} during iteration is allowed —
+	 * it persists the graph without structurally modifying the map.)
+	 *
 	 * @param <I> type of iterator
 	 * @param iterator the consumer of elements
 	 * @return the given iterator
@@ -373,10 +740,45 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	public <I extends Consumer<? super E>> I iterate(I iterator);
 
 	/**
+	 * {@inheritDoc}
+	 * <p>
+	 * Overrides the default {@link Iterable#forEach(Consumer)} to delegate to {@link #iterate(Consumer)},
+	 * which traverses the elements without leaving a read-lock open if {@code action} throws. The inherited
+	 * default implementation obtains a {@link GigaIterator} but never closes it.
+	 * <p>
+	 * As with {@link #iterate(Consumer)}, structurally modifying the map from within {@code action} is not
+	 * supported and throws an {@link IllegalStateException}.
+	 */
+	@Override
+	public default void forEach(final Consumer<? super E> action)
+	{
+		this.iterate(notNull(action));
+	}
+
+	/**
+	 * {@inheritDoc}
+	 * <p>
+	 * <strong>
+	 * Important: a directly-obtained spliterator holds the GigaMap read-lock and provides no close
+	 * handle. Either consume it fully (the underlying {@link GigaIterator} self-closes on exhaustion)
+	 * or, preferably, use {@link #iterate(Consumer)} or a try-with-resources around {@link #iterator()}.
+	 * </strong>
+	 */
+	@Override
+	public default Spliterator<E> spliterator()
+	{
+		return Iterable.super.spliterator();
+	}
+
+	/**
 	 * Iterates over all elements, handing over the entity ids as well.
 	 * <p>
 	 * Keep in mind that this can result in a very expensive operation, depending on the overall count of elements.
-	 * 
+	 * <p>
+	 * As with {@link #iterate(Consumer)}, the map is held read-only for the duration of the iteration:
+	 * structurally modifying it from within {@code consumer} is not supported and throws an
+	 * {@link IllegalStateException}.
+	 *
 	 * @param <I> type of consumer
 	 * @param consumer the consumer of elements
 	 * @return the given consumer
@@ -568,6 +970,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * Entities mutated through the {@link #update} or {@link #apply} methods are automatically included in the
 	 * store operation. However, changes made to entities directly (outside of these methods) are NOT stored
 	 * implicitly since it is not possible to automatically track changes made to objects outside the framework.
+	 * Such a direct mutation also leaves the indices stale, and this store does not re-run the indexers: bitmap
+	 * queries then return wrong results and Lucene searches fail silently. Mutate indexed entities via
+	 * {@link #update(long, Consumer)} / {@link #apply(long, Function)} (which update the indices and schedule
+	 * the entity for storing), or - if a mutation already bypassed them - store the affected entities yourself
+	 * and call {@link #reindex()} to rebuild the indices from the current entity state before storing.
 	 * <p>
 	 * <b>Note on concurrency:</b><br>
 	 * Using this method guarantees concurrency safety since it locks the {@link GigaMap} instance internally.<br>
@@ -596,9 +1003,61 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * @see PersistenceStoring#store(Object)
 	 */
 	public long store();
-	
+
+
+	/**
+	 * Stores this {@link GigaMap} instance and all its modified data through the passed
+	 * {@link PersistenceStoring}. Unlike {@link #store()}, no previously linked storing context is required.
+	 * <p>
+	 * <b>Whether this commits depends on what you pass</b>, which is the whole point of accepting the common
+	 * supertype:
+	 * <ul>
+	 *   <li>a {@link Persister} - e.g. an {@code EmbeddedStorageManager} - stores and commits immediately,
+	 *       exactly like {@link #store()};</li>
+	 *   <li>a {@link Storer} only <em>registers</em> the changes, and the caller decides the commit boundary
+	 *       by calling {@link Storer#commit()}.</li>
+	 * </ul>
+	 * The second form is how several instances go into a <b>single atomic commit</b> - two {@link GigaMap}s
+	 * that one logical change spans, or a {@link GigaMap} together with the root object referencing it.
+	 * {@link Storer#commit()} is all-or-nothing, so either every registered change is persisted or none is;
+	 * calling {@link #store()} per instance produces one commit each, with no atomicity between them.
+	 * <pre>{@code
+	 * final Storer storer = storageManager.createStorer();
+	 * gigaMapA.store(storer);
+	 * gigaMapB.store(storer);
+	 * storer.store(root);
+	 * storer.commit();      // one commit, atomic across all of the above
+	 * }</pre>
+	 * What is covered is exactly what {@link #store()} covers - the indices, the segments, the constraints,
+	 * and entities mutated through {@link #update(long, Consumer)} or {@link #apply(long, Function)}.
+	 * Entities mutated directly are NOT covered and leave the indices stale, as described on
+	 * {@link #store()}.
+	 * <p>
+	 * <b>Note on concurrency:</b><br>
+	 * The lock this method holds spans its own work only. With a {@link Persister} that is the whole store, as
+	 * for {@link #store()}. With a {@link Storer} it is the registration alone and NOT the commit that happens
+	 * later, so the calling context is responsible for a lock spanning mutation through
+	 * {@link Storer#commit()} - see the concurrency notes on {@link #store()}, which apply with that added
+	 * span. Registering with a {@link Storer} and committing it from a different thread, or mutating this
+	 * instance in between, is not safe.
+	 *
+	 * @param storing the {@link Persister} or {@link Storer} to store this instance through
+	 * @return the objectId of this instance
+	 * @see #store()
+	 * @see Storer#commit()
+	 */
+	public long store(PersistenceStoring storing);
+
 	/**
 	 * Provides this set {@link Equalator} instance of this {@link GigaMap}.
+	 * <p>
+	 * It answers exactly one question: which id a given entity <em>instance</em> resolves to. That is what
+	 * {@link #remove(Object)}, {@link #replace(Object, Object)}, {@link #apply(Object, Function)} and
+	 * {@link #update(Object, Consumer)} need to turn the instance they are handed into an id. It has no say
+	 * in whether a mutation is carried out: a replacement it considers equal to the entity being replaced is
+	 * still written and re-indexed.
+	 * <p>
+	 * The default is identity equality; see {@link Builder#withValueEquality()} for value equality.
 	 *
 	 * @return the {@link Equalator} used by this {@link GigaMap}
 	 */
@@ -708,6 +1167,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		
 		/**
 		 * Configures the builder to use value-based equality for comparing elements.
+		 * <p>
+		 * This affects only how an entity instance is resolved to its id; see {@link GigaMap#equalator()}.
 		 *
 		 * @return the builder instance for method chaining
 		 */
@@ -838,8 +1299,17 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 					? GigaMap.New(XHashing.hashEqualityValue())
 					: GigaMap.New()
 				;
-				
+
 				final BitmapIndices<E> indices = gigaMap.index().bitmap();
+
+				// addUniqueConstraints validates strictly (throws on duplicate names), so it
+				// must run first. The subsequent ensureAll calls are idempotent and simply
+				// reuse the bitmap index already created when the same indexer was passed to
+				// more than one with...Index method.
+				if(!this.uniqueIndices.isEmpty())
+				{
+					indices.ensureUniqueConstraints(this.uniqueIndices);
+				}
 				if(!this.bitmapIndices.isEmpty())
 				{
 					indices.ensureAll(this.bitmapIndices);
@@ -849,15 +1319,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 					indices.ensureAll(this.identityIndices);
 					indices.setIdentityIndices(this.identityIndices);
 				}
-				if(!this.uniqueIndices.isEmpty())
-				{
-					indices.addUniqueConstraints(this.uniqueIndices);
-				}
 				if(!this.customConstraints.isEmpty())
 				{
-					gigaMap.constraints().custom().addConstraints(this.customConstraints);
+					gigaMap.constraints().custom().ensureConstraints(this.customConstraints);
 				}
-				
+
 				return gigaMap;
 			}
 				
@@ -1100,7 +1566,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		
 	// Unpersistable to force a custom type handler due to required initialization call.
 	public class Default<E>
-	implements   Internal<E>, BitmapResult.Resolver<E>, Unpersistable, PersistenceCommitListener
+	implements   Internal<E>, EntityResolver<E>, Unpersistable, PersistenceCommitListener, PersistenceShutdownReleasable
 	{
 		static BinaryTypeHandler<GigaMap.Default<?>> provideTypeHandler()
 		{
@@ -1159,9 +1625,14 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		// Uses WeakReferences so removed entities can be garbage-collected.
 		private transient BulkList<WeakReference<E>> pendingEntityStores;
 		
+		// Internal, transient read-only hold count: incremented by active readers (iterators), in-progress
+		// iterate()/iterateIndexed() and query execution. NOT touched by the public markReadOnly() API, so
+		// that public misuse cannot lift the protection of a running iteration.
 		private transient int readOnlyCount;
-		private transient int activeIteratorCount;
-		private final transient BulkList<Reading> activeIterators;
+		private transient int activeReaderCount;
+		// Public, explicit read-only mode count, controlled solely by markReadOnly()/unmarkReadOnly().
+		private transient int explicitReadOnlyCount;
+		private final transient BulkList<Reading> activeReaders;
 							
 		
 		
@@ -1221,9 +1692,10 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			
 			this.initializeConfiguration();
 			
-			this.readOnlyCount       = 0;
-			this.activeIteratorCount = 0;
-			this.activeIterators     = BulkList.New();
+			this.readOnlyCount         = 0;
+			this.activeReaderCount     = 0;
+			this.explicitReadOnlyCount = 0;
+			this.activeReaders = BulkList.New();
 
 			if(createInstances)
 			{
@@ -1287,6 +1759,16 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		public final GigaIndices<E> index()
 		{
 			return this.indices;
+		}
+
+		@Override
+		public final void releaseOnShutdown()
+		{
+			// Closes Closeable index groups (e.g. vector indices: stops their background threads and
+			// frees off-heap/auxiliary-disk resources) when the owning storage is shut down, so callers
+			// need not close indices explicitly. Does not mutate the persistent graph; indices are
+			// transient and rebuilt on the next storage start.
+			this.indices.closeAllGroups();
 		}
 		
 		@Override
@@ -1420,7 +1902,18 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		
 		final boolean isEntityPeeking(final long entityId, final E entity)
 		{
-			return this.equalator.equal(this.peek(entityId), entity);
+			final E peeked = this.peek(entityId);
+			if(peeked != null)
+			{
+				// fast path: segment already resident, no load required.
+				return this.equalator.equal(peeked, entity);
+			}
+
+			// peek() returns null when the owning segment is not resident (e.g. evicted by release()
+			// or a LazyReferenceManager timeout), not necessarily because the entity is absent. The
+			// object registry can still resolve the identical instance once the segment is loaded, so a
+			// plain peek-miss must not be treated as "not found" (internal#138).
+			return this.isEntity(entityId, entity);
 		}
 		
 		final boolean isEntity(final long entityId, final E entity)
@@ -1480,12 +1973,80 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 
 			level3.markChanged(level3Index);
 			level2.markChanged(level2Index);
-						
+
 			this.indices.internalRemove(entityId, current);
-			
+
+			/*
+			 * If that was the segment's last entity, the segment itself is released. Ids are never
+			 * recycled, so an emptied segment can only be reached again by #set(long, Object) or by
+			 * #internalAdd resuming in it, and both go through #ensureLevel2/#ensureLevel1, which
+			 * re-create a segment for a null slot. Without this the emptied segment would stay
+			 * referenced from the segment tree forever - not collectable, and persisted and reloaded
+			 * on every restart - so a workload that keeps adding and removing would accumulate one
+			 * dead segment per exhausted id range.
+			 *
+			 * Done as the last step, after the index removal: a throw from there then leaves the
+			 * segment tree untouched instead of having done structural work for a half-failed removal.
+			 */
+			if(level1.isEmpty(level1Index))
+			{
+				this.releaseEmptyLevel1(level3, level3Index, level2, level2Index);
+			}
+
 			return current;
 		}
-		
+
+		/**
+		 * Drops the emptied level1 segment at the passed coordinates from its level2 segment, and that
+		 * level2 segment from the level3 segment if it became empty as well.
+		 */
+		private void releaseEmptyLevel1(
+			final GigaLevel3<E> level3     ,
+			final int           level3Index,
+			final GigaLevel2<E> level2     ,
+			final int           level2Index
+		)
+		{
+			/*
+			 * The adding state caches the segment the next #internalAdd writes into. If that is the
+			 * segment being released, the cached state has to be folded into baseSize/baseAddingId
+			 * FIRST: otherwise the next add would write into a GigaLevel1 that is no longer reachable
+			 * from its level2 (a silently lost entity) and #ensureAddingStateSetup would fail on the
+			 * now-null slot. This is not an exotic case: #ensureClearedAddingState deliberately keeps a
+			 * live, non-exhausted adding segment, so any map that has not filled its first segment yet
+			 * removes entities with the adding state pointing right at them.
+			 *
+			 * size() and nextFreeId() are invariant under the fold, and the next add runs
+			 * #setupAddingState, which re-creates the segment and resumes at the very same level1 index.
+			 * Ids are still never recycled. #clearAddingState is idempotent, so the call is harmless on
+			 * the #rollbackToEntityId path, which has already cleared.
+			 *
+			 * Compared by coordinates, not by instance identity: addingLevel1 may be a stale instance
+			 * whose Lazy was evicted and reloaded in the meantime, in which case an identity comparison
+			 * would silently skip the fold. The addingLevel1 null-check is what makes the comparison
+			 * valid at all - a cleared adding state leaves both cached indices at 0, which would
+			 * otherwise match the segment at (0, 0).
+			 */
+			if(this.addingLevel1 != null
+				&& level3Index == this.addingLevel3Index
+				&& level2Index == this.addingLevel2Index
+			)
+			{
+				this.clearAddingState();
+			}
+
+			if(level2.removeLevel1(level2Index))
+			{
+				/*
+				 * This level2 cannot be the one the adding state points at: a live adding state keeps
+				 * its own level1 slot occupied, so either the released segment WAS the adding one - in
+				 * which case the state has just been cleared - or the adding segment's slot is still
+				 * occupied and this level2 is not empty.
+				 */
+				level3.removeLevel2(level3Index);
+			}
+		}
+
 
 		@Override
 		public final synchronized long remove(
@@ -1535,10 +2096,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			
 			this.initializeConfiguration();
 			
-			this.readOnlyCount       = 0;
-			this.activeIteratorCount = 0;
-			this.activeIterators.clear();
-			
+			this.readOnlyCount         = 0;
+			this.activeReaderCount     = 0;
+			this.explicitReadOnlyCount = 0;
+			this.activeReaders.clear();
+
 			for(final Lazy<?> e : this.level3.segments)
 			{
 				if(e != null)
@@ -1589,7 +2151,12 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			
 			if(indicesCollector.isEmpty())
 			{
-				throw new IllegalStateException("Cannot perform entity-related searching without at least one index.");
+				throw new IllegalStateException(
+					"This GigaMap has no bitmap index, so an entity instance cannot be resolved to its id. "
+					+ "Register a bitmap index, or use the entityId-based methods "
+					+ "(apply(long, ...), update(long, ...), set(long, ...), removeById(long)) instead - "
+					+ "entityIds are available from query and search results."
+				);
 			}
 			
 			return indicesCollector;
@@ -1624,7 +2191,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			return resolver.foundEntityId;
 		}
 						
-		class EntityIdResolver implements BitmapResult.Resolver<E>
+		class EntityIdResolver implements EntityResolver<E>
 		{
 			///////////////////////////////////////////////////////////////////////////
 			// instance fields //
@@ -1663,7 +2230,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			
 			protected boolean isMatchingEntity(final long entityId)
 			{
-				// assumed referential equality equalator which does not need to load an entity to compare it to itself
+				// referential equality equalator: usually decidable without a load, but isEntityPeeking
+				// falls back to a loading comparison when the owning segment is not resident.
 				return GigaMap.Default.this.isEntityPeeking(entityId, this.entity);
 			}
 
@@ -1705,11 +2273,12 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		@Override
 		public final synchronized long replace(final E current, final E replacement)
 		{
+			this.validateForCRUD(current);
+			this.validateForCRUD(replacement);
 			if(current == replacement)
 			{
 				throw new IllegalArgumentException("'current' and 'replacement' cannot be the same instance");
 			}
-			this.validateForCRUD(replacement);
 			
 			this.ensureMutability();
 			
@@ -1726,83 +2295,395 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		
 		private E internalSet(final long entityId, final E entity)
 		{
-			final GigaLevel3<E>          level3   = this.level3();
-			final Lazy<GigaLevel2<E>> lvl2Lazy = level3.segments[this.toLevel3Index(entityId)];
-			final GigaLevel2<E>          level2   = lvl2Lazy.peek();
-			final Lazy<GigaLevel1<E>> lvl1Lazy = level2.segments[this.toLevel2Index(entityId)];
-			final GigaLevel1<E>          level1   = lvl1Lazy.peek();
-			
-			final int level1Index    = this.toLevel1Index(entityId);
-			final E   replacedEntity = level1.entities[level1Index];
-			
-			// only change state if there is an actual change in the entity data.
-			if(!this.equalator.equal(replacedEntity, entity))
+			final GigaLevel3<E> level3      = this.level3();
+			final int           level3Index = this.toLevel3Index(entityId);
+			final int           level2Index = this.toLevel2Index(entityId);
+			final int           level1Index = this.toLevel1Index(entityId);
+
+			/*
+			 * Resolved via #get instead of by walking the segments: emptying a segment releases it, so
+			 * the segments of an id whose entity was removed may well be gone. #get reports exactly that
+			 * as the empty slot it is, and the segments are re-created further down.
+			 */
+			final E replacedEntity = this.get(entityId);
+
+			if(replacedEntity == entity)
 			{
-				this.constraints.check(entityId, replacedEntity, entity);
-				level1.entities[level1Index] = entity;
-				level1.markStateChangeInstance();
-				level2.markStateChangeChildren();
-				level3.markStateChangeChildren();
-				
-				this.indices.internalUpdateIndices(entityId, replacedEntity, entity, this.constraints.custom());
+				/*
+				 * Writing back the very instance the id already holds is the "load it, mutate it, save it"
+				 * idiom - and this method cannot serve it. Re-indexing a mutation requires the keys the
+				 * entity had BEFORE it was mutated, and those are gone: the only thing left to derive keys
+				 * from is the mutated state. That is precisely why #update / #apply derive the previous keys
+				 * up front and only then let the caller's logic run.
+				 *
+				 * So the alternative to rejecting is doing nothing, which is what this used to do - silently,
+				 * losing both the index update and the mutation itself, since a slot whose reference does not
+				 * change gives the storer nothing to re-serialize either. Rejecting says so instead.
+				 */
+				throw new IllegalArgumentException(
+					"The passed entity is already the one mapped to id " + entityId
+					+ ". An entity mutated in place cannot be re-indexed by set/replace, because its keys from"
+					+ " before the mutation are no longer derivable. If it has already been mutated, call"
+					+ " reindex() to rebuild the indices from the current entity state, and store the entity"
+					+ " explicitly - update/apply cannot repair it either, for the same reason. To mutate in"
+					+ " place, use update(long, Consumer) or apply(long, Function), which derive the previous"
+					+ " keys up front and schedule the entity for storing. To replace it, pass a different"
+					+ " instance."
+				);
 			}
-			
+
+			this.constraints.check(entityId, replacedEntity, entity);
+
+			/*
+			 * The indices are updated BEFORE the storage slot is overwritten: the index update is
+			 * the last operation that runs user code (indexers deriving the new entity's keys), so
+			 * a throw from it must leave the map observably unchanged instead of storing an entity
+			 * whose keys the indices do not reflect.
+			 */
+			this.indices.internalUpdateIndices(entityId, replacedEntity, entity, this.constraints.custom());
+
+			if(replacedEntity == null)
+			{
+				/*
+				 * The slot is empty, so this id was removed: #removeById decremented the size and this
+				 * fills the slot again, which has to restore it. Without this the size stays one too low
+				 * for the rest of the map's life - and it is persisted state, so the drift survives a
+				 * restart. Every valid id below nextFreeId was handed out by #add, so an empty slot can
+				 * only mean a removal.
+				 *
+				 * Counted here rather than earlier, with the rest of the state changes and after everything
+				 * that can throw: the checks above and the index update are ordered so a throw leaves the
+				 * map observably unchanged, and a size that had already been incremented would break
+				 * exactly that.
+				 */
+				this.baseSize++;
+			}
+
+			/*
+			 * Re-created here if the removal of the last entity released them, and deliberately not
+			 * any earlier: materializing before the checks and the index update above would leave a
+			 * fresh empty segment (plus a pending re-store for it) behind on a failed set, breaking
+			 * the very "a throw leaves the map observably unchanged" guarantee they are ordered for.
+			 * Both methods return the existing segment when there is one, so this is a no-op for the
+			 * ordinary replacement.
+			 */
+			final GigaLevel2<E> level2 = this.ensureLevel2(level3, level3Index);
+			final GigaLevel1<E> level1 = this.ensureLevel1(level2, level2Index);
+
+			level1.entities[level1Index] = entity;
+			level3.markChanged(level3Index);
+			level2.markChanged(level2Index);
+
 			return replacedEntity;
 		}
 				
 		@Override
 		public final synchronized <R> R apply(final E current, final Function<? super E, R> logic)
 		{
+			this.validateForCRUD(current);
+			notNull(logic);
 			this.ensureMutability();
-			
+
 			final long entityId = this.lookupEntityIdPeeking(current, this.determineIdentityLookupIndices());
 			if(entityId < 0)
 			{
 				throw new IllegalArgumentException("Entity not found");
 			}
-			
+
+			return this.internalApply(entityId, current, logic);
+		}
+
+		@Override
+		public final synchronized <R> R apply(final long entityId, final Function<? super E, R> logic)
+		{
+			notNull(logic);
+			this.ensureMutability();
+			this.validateEntityId(entityId);
+
+			// Resolves the entity directly via its id, so no (bitmap) index is required. This is the
+			// only update path available to maps that have solely non-bitmap indices (e.g. Lucene, vector).
+			final E current = this.get(entityId);
+			if(current == null)
+			{
+				throw new IllegalArgumentException("Entity not found for id: " + entityId);
+			}
+
+			return this.internalApply(entityId, current, logic);
+		}
+
+		@Override
+		public final synchronized void reindex()
+		{
+			this.ensureMutability();
+			this.indices.internalReindex();
+		}
+
+		private <R> R internalApply(final long entityId, final E current, final Function<? super E, R> logic)
+		{
+			/*
+			 * Phase 1 runs all indexers on the entity's pre-mutation state. A throw here (e.g. from
+			 * a broken indexer) aborts cleanly: the entity has not been touched and the map is
+			 * observably unchanged.
+			 */
+			this.indices.internalPrepareUpdate(current);
+
+			final R result;
 			try
 			{
-				final R result = this.indices.internalUpdateIndices(entityId, current, logic, this.constraints.custom());
-
-				// The entity was mutated in-place. Track it so that store() can explicitly
-				// re-persist the entity object (the storer won't re-persist it automatically
-				// since the object reference/identity hasn't changed).
-				if(this.pendingEntityStores == null)
-				{
-					this.pendingEntityStores = BulkList.New();
-				}
-				this.pendingEntityStores.add(new WeakReference<>(current));
-
-				return result;
+				result = logic.apply(current);
 			}
-			catch(final ConstraintViolationException e)
+			catch(final RuntimeException e)
 			{
+				/*
+				 * The logic mutated the entity in place and a state change done by custom logic cannot be
+				 * rolled back, so the entity's state is unreliable: there is no other choice but to remove
+				 * it from the map. The logic's own exception is rethrown unchanged - unlike a constraint
+				 * violation it carries no entity/entityId, so the caller only learns which entity was
+				 * dropped from the arguments it passed in.
+				 */
+				this.indices.internalApplyLogicFailure(entityId, current, e);
+				this.removeAfterFailedApply(entityId, e);
+				throw e;
+			}
+
+			try
+			{
+				this.indices.internalApplyUpdate(entityId, current, this.constraints.custom());
+			}
+			catch(final RuntimeException e)
+			{
+				/*
+				 * Only the entity itself being rejected justifies destroying it: a constraint decides
+				 * whether an entity may exist at all, so its violation is answered with the documented
+				 * removal. A failure of a derived index is not: the entity's own data is the value the
+				 * logic produced, only the index could not represent it - be it an indexer that threw for
+				 * the new value, an index implementation that rejected it (e.g. a Lucene term over its
+				 * length limit), or an index that is stale because its persisted keys no longer match the
+				 * keys re-derived from the (e.g. class-evolved) entities. Removing the entity in those
+				 * cases would be a real data loss for a still-valid, committed entity - and a removal
+				 * re-deriving the same failing keys could not even de-index it correctly. So the committed
+				 * entity is retained and the exception is rethrown, directing the caller to rebuild the
+				 * indices via reindex(). See StaleIndexException.
+				 */
+				if(isEntityRejected(e))
+				{
+					this.removeAfterFailedApply(entityId, e);
+					throw e;
+				}
+
 				this.ensureClearedAddingState();
 
 				/*
-				 * Since a state change done by a custom logic cannot be rolled back, there is no other choice
-				 * but to remove the entity from the map and report the entity and entityId to the calling
-				 * context in the exception.
+				 * The update logic already mutated the entity in place and we keep it. Give it the SAME
+				 * persistence bookkeeping as a successful mutation - pin the segment and track it for
+				 * re-storing - so a later reindex() + store() persists both the rebuilt index and the
+				 * mutated entity. Skipping this would let store() persist the rebuilt index while silently
+				 * skipping the (same-identity) entity, reintroducing entity/index divergence after a
+				 * restart.
 				 */
-				this.internalRemove(entityId);
+				this.retainMutatedEntity(entityId, current);
 				throw e;
 			}
+
+			this.retainMutatedEntity(entityId, current);
+
+			return result;
 		}
-		
+
+		/**
+		 * Removes an entity whose in-place update failed in a way that makes the entity itself invalid.
+		 * The removal completes best-effort; cleanup failures are attached to the causing exception as
+		 * suppressed exceptions.
+		 */
+		private void removeAfterFailedApply(final long entityId, final RuntimeException failure)
+		{
+			this.ensureClearedAddingState();
+
+			try
+			{
+				this.internalRemove(entityId);
+			}
+			catch(final RuntimeException suppressed)
+			{
+				failure.addSuppressed(suppressed);
+			}
+		}
+
+		/**
+		 * Detects whether the given throwable, or anything reachable through its cause and suppressed
+		 * throwables (recursively), is a {@link ConstraintViolationException} - i.e. signals that the
+		 * entity itself was rejected rather than that only a derived index failed. This is what decides
+		 * whether a failed in-place update destroys the committed entity (see {@link #internalApply}):
+		 * a constraint decides whether an entity may exist at all, an index does not.
+		 * <p>
+		 * A constraint that does not comply with the {@link CustomConstraint} API and throws some other
+		 * exception type instead is treated like an index failure, i.e. non-destructively.
+		 */
+		static boolean isEntityRejected(final Throwable t)
+		{
+			return containsThrowable(t, ConstraintViolationException.class);
+		}
+
+		/**
+		 * Detects whether the given throwable, or anything reachable through its cause and suppressed
+		 * throwables (recursively), is an instance of the given type.
+		 * <p>
+		 * The JDK offers no ready-made utility for this ({@link Throwable} exposes only
+		 * {@link Throwable#getCause()} and {@link Throwable#getSuppressed()}), so the full graph is walked
+		 * here. An identity-based visited set guards against cyclic cause/suppressed graphs, mirroring how
+		 * {@link Throwable#printStackTrace()} avoids infinite loops internally.
+		 */
+		private static boolean containsThrowable(final Throwable t, final Class<?> type)
+		{
+			if(t == null)
+			{
+				return false;
+			}
+			// ArrayDeque forbids null elements, so only ever push non-null throwables (getCause() may be
+			// null; getSuppressed() never contains nulls).
+			final Set<Throwable>   seen  = Collections.newSetFromMap(new IdentityHashMap<>());
+			final Deque<Throwable> stack = new ArrayDeque<>();
+			stack.push(t);
+			while(!stack.isEmpty())
+			{
+				final Throwable current = stack.pop();
+				if(!seen.add(current))
+				{
+					continue;
+				}
+				if(type.isInstance(current))
+				{
+					return true;
+				}
+				final Throwable cause = current.getCause();
+				if(cause != null)
+				{
+					stack.push(cause);
+				}
+				for(final Throwable suppressed : current.getSuppressed())
+				{
+					stack.push(suppressed);
+				}
+			}
+			return false;
+		}
+
+		/**
+		 * Records an in-place entity mutation (from {@code apply}) for persistence. Pins the owning
+		 * level1 segment via its usage marker so neither {@link #release()} nor the LazyReferenceManager
+		 * can evict it before the mutation is stored (without this the entity's only strong root is the
+		 * segment; an eviction + GC would let a later store silently skip the then-dead
+		 * {@link WeakReference} while index deltas commit anyway, diverging the persisted indices from the
+		 * entity). It also tracks the entity so {@link #store()} explicitly re-persists it, since the
+		 * storer won't - the object reference/identity hasn't changed.
+		 * <p>
+		 * Must be called for every retained in-place mutation, including the stale-index path that keeps
+		 * a mutated entity: otherwise {@code reindex()} + {@code store()} would persist the rebuilt index
+		 * while skipping the (same-identity) entity, reintroducing entity/index divergence after restart.
+		 */
+		private void retainMutatedEntity(final long entityId, final E current)
+		{
+			this.markEntitySegmentChanged(entityId);
+
+			if(this.pendingEntityStores == null)
+			{
+				this.pendingEntityStores = BulkList.New();
+			}
+			this.pendingEntityStores.add(new WeakReference<>(current));
+		}
+
+		private void markEntitySegmentChanged(final long entityId)
+		{
+			final GigaLevel3<E> level3      = this.level3();
+			final int           level3Index = this.toLevel3Index(entityId);
+
+			/*
+			 * Only the level3 index needs a bounds check, as everywhere else in this class: it addresses
+			 * an array that #enlargeLevel3 grows on demand, so it is not derived from a length exponent
+			 * and an id beyond the current capacity exceeds it. The level2 and level1 indices are masked
+			 * into their exponent's range by #toLevel2Index/#toLevel1Index, and since those exponents are
+			 * persisted with the map and a reloaded map is constructed from them, a segment array is
+			 * always exactly as long as its index range - reloaded ones included.
+			 */
+			if(level3Index >= level3.segments.length)
+			{
+				return;
+			}
+
+			/*
+			 * Tolerates released segments: the update logic passed to #apply runs while this map's
+			 * (reentrant) monitor is held, so it can remove the very entity it is applied to, and
+			 * emptying the segment that way releases it. A gone segment holds no entity, so there is
+			 * nothing left to mark for re-storing.
+			 */
+			final Lazy<GigaLevel2<E>> lvl2Lazy = level3.segments[level3Index];
+			if(lvl2Lazy == null)
+			{
+				return;
+			}
+
+			final GigaLevel2<E> level2      = lvl2Lazy.get();
+			final int           level2Index = this.toLevel2Index(entityId);
+			if(level2.segments[level2Index] == null)
+			{
+				return;
+			}
+
+			level3.markChanged(level3Index);
+			level2.markChanged(level2Index);
+		}
+
+		@Override
+		public final synchronized void internalEnsureMutability()
+		{
+			// Index groups perform structural changes on this map's behalf, so they must use the very same
+			// check (including the wait for foreign readers) that an entity write uses. See the interface
+			// declaration for the contract, especially the monitor-release-while-waiting part.
+			this.ensureMutability();
+		}
+
 		private void ensureMutability()
 		{
 			while(this.checkingIsReadOnly())
 			{
+				this.checkSelfHeldReader();
 				try
 				{
 					this.wait();
 				}
 				catch(final InterruptedException e)
 				{
+					// Restore the interrupt status the catch consumed: the caller aborts with an exception
+					// either way, but code further up (an executor's task loop, a shutdown handler) must
+					// still be able to observe that this thread was interrupted.
+					Thread.currentThread().interrupt();
+
+					// Distinct from the read-only messages above: the map may well be mutable: this thread
+					// just stopped waiting for it. Index groups reach this via #internalEnsureMutability.
 					throw new IllegalStateException(
-						XChars.systemString(this) + " is not mutable. (readOnlyCount " + this.readOnlyCount + ")",
+						"Interrupted while waiting for " + XChars.systemString(this)
+						+ " to become mutable. (readOnlyCount " + this.readOnlyCount + ")",
 						e
+					);
+				}
+			}
+		}
+
+		private void checkSelfHeldReader()
+		{
+			// If the current thread itself holds an open reader, waiting for mutability would block
+			// forever (the blocked thread is the only one that would close its own reader). Fail fast
+			// with a clear error instead of deadlocking. Only reached when a mutation would block.
+			final Thread current = Thread.currentThread();
+			for(final Reading reader : this.activeReaders)
+			{
+				if(reader.owningThread() == current)
+				{
+					throw new IllegalStateException(
+						"Self-deadlock detected: the current thread holds an open read iterator on this "
+						+ GigaMap.class.getSimpleName() + " and cannot mutate it until that iterator is closed. "
+						+ "Close the iterator (e.g. via try-with-resources) before mutating, or iterate and "
+						+ "mutate on separate threads."
 					);
 				}
 			}
@@ -1813,12 +2694,23 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			this.validateForCRUD(element);
 			this.ensureMutability();
-			this.internalAdd(element);
-			
-			// all indices in all index groups have too be updated. Indices do NOT store by themselves!
-			this.indices.internalAdd(this.nextFreeId(), element);
-			
-			return this.baseAddingId + this.addingLevel1Index++;
+
+			final long entityId = this.nextFreeId();
+			try
+			{
+				this.internalAdd(element);
+				this.addingLevel1Index++;
+
+				// all indices in all index groups have too be updated. Indices do NOT store by themselves!
+				this.indices.internalAdd(entityId, element);
+
+				return entityId;
+			}
+			catch(final Exception e)
+			{
+				this.rollbackToEntityId(entityId, e);
+				throw e;
+			}
 		}
 		
 		final void checkConstraints(final long entityId, final E replacedEntity, final E entity)
@@ -1864,9 +2756,10 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			
 			this.initializeConfiguration();
 			
-			this.readOnlyCount       = 0;
-			this.activeIteratorCount = 0;
-			this.activeIterators.clear();
+			this.readOnlyCount         = 0;
+			this.activeReaderCount     = 0;
+			this.explicitReadOnlyCount = 0;
+			this.activeReaders.clear();
 		}
 		
 		private void ensureAddingStateSetup()
@@ -1887,49 +2780,137 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			if(this.addingLevel1Index < this.level1IndexBound)
 			{
-				// adding state already cleared.
+				/*
+				 * The adding segment is live and not yet exhausted, so it is deliberately kept: folding
+				 * it here would force the next add to set the adding state up again, for no gain. The
+				 * cached state stays consistent with size()/nextFreeId() either way. Note that removals
+				 * therefore do run with the adding state pointing at the segment they empty, which is
+				 * why #releaseEmptyLevel1 folds it itself before releasing that segment.
+				 */
 				return;
 			}
-			
+
+			// nothing to fold when the bound is 0 (already cleared); clearing again is a no-op then.
 			this.clearAddingState();
 		}
 		
 		@Override
 		public final synchronized long addAll(final Iterable<? extends E> entities)
 		{
-			for(final E element : entities)
-			{
-				this.validateForCRUD(element);
-			}
 			this.ensureMutability();
 
 			final long currentId = this.nextFreeId();
 			try
 			{
+				/*
+				 * The only traversal of the passed Iterable: validation is fused into the adding loop so that
+				 * no element is ever seen twice. A single-use Iterable (stream-backed, or a cursor adapter
+				 * handing out the same iterator every time) is therefore perfectly valid input.
+				 * Validating inside the try block is intentional: a null element in the middle of the batch is
+				 * rolled back like any other mid-batch failure, leaving the map unchanged.
+				 */
 				for(final E element : entities)
 				{
+					this.validateForCRUD(element);
 					this.internalAdd(element);
 					this.addingLevel1Index++;
 				}
-				
-				this.indices.internalAddAll(currentId, entities);
-				
-				return this.nextFreeId() - currentId;
+
+				/*
+				 * The indices are fed from this map, not from the passed Iterable: the index fan-out traverses
+				 * its input once per index, so an Iterable whose content differs between traversals (e.g. the
+				 * weakly consistent view of a concurrent collection) would make the indices see a different
+				 * element sequence than the one added above. That would index entries at ids holding no entity
+				 * (aliasing a future entity once that id gets assigned) or leave added entities unindexed.
+				 * Reading the entities back by id makes the indexed sequence the added sequence by definition.
+				 */
+				this.indices.internalAddAll(currentId, this.viewEntities(currentId, this.nextFreeId()));
+
+				return this.nextFreeId() - 1;
 			}
 			catch(final Exception e)
 			{
-				this.rollbackToEntityId(currentId);
+				this.rollbackToEntityId(currentId, e);
 				throw e;
 			}
 		}
-		
-		private void rollbackToEntityId(final long requiredCurrentId)
+
+		/**
+		 * Returns a re-traversable view of the entities in the id range [{@code firstEntityId}; {@code idBound}),
+		 * in id order. Every call to {@link Iterable#iterator()} yields the same element sequence, which is what
+		 * the index fan-out requires: it traverses its input once per index.
+		 * <p>
+		 * Deliberately resolves the entities via {@link #get(long)} instead of one of the iteration methods:
+		 * those enter the read-only state and register an active reader, which must not happen while a mutation
+		 * is in progress.
+		 */
+		private Iterable<E> viewEntities(final long firstEntityId, final long idBound)
+		{
+			return () -> new Iterator<>()
+			{
+				private long nextEntityId = firstEntityId;
+
+				@Override
+				public boolean hasNext()
+				{
+					return this.nextEntityId < idBound;
+				}
+
+				@Override
+				public E next()
+				{
+					if(this.nextEntityId >= idBound)
+					{
+						throw new NoSuchElementException();
+					}
+
+					final long entityId = this.nextEntityId++;
+					final E    entity   = GigaMap.Default.this.get(entityId);
+					if(entity == null)
+					{
+						// Unreachable unless the id accounting itself is broken. Reported instead of passed
+						// on, since a null entity would only surface as an obscure failure inside an indexer.
+						throw new IllegalStateException("Missing entity for id " + entityId + ".");
+					}
+
+					return entity;
+				}
+			};
+		}
+
+		private void rollbackToEntityId(final long requiredCurrentId, final Exception cause)
 		{
 			this.clearAddingState();
-			while(this.highestUsedId() >= requiredCurrentId)
+
+			/*
+			 * The rollback must be exception-tolerant: internalRemove re-runs the indexers to locate
+			 * the entries to clean up, and the very indexer whose exception triggered this rollback
+			 * may throw again. Such secondary failures are attached to the causing exception as
+			 * suppressed exceptions instead of abandoning the rollback midway.
+			 */
+			boolean reclaimIds = true;
+			for(long id = this.highestUsedId(); id >= requiredCurrentId; id--)
 			{
-				this.internalRemove(this.highestUsedId());
-				this.baseAddingId--;
+				try
+				{
+					this.internalRemove(id);
+				}
+				catch(final RuntimeException e)
+				{
+					cause.addSuppressed(e);
+
+					/*
+					 * The failed cleanup may have left stale index entries for this id. Not reclaiming
+					 * it (and consequently all lower ids, since ids are assigned from a single counter)
+					 * guarantees that the stale entries can never alias a future entity: they keep
+					 * pointing at a permanently null slot and get repaired by reindex().
+					 */
+					reclaimIds = false;
+				}
+				if(reclaimIds)
+				{
+					this.baseAddingId--;
+				}
 			}
 		}
 					
@@ -2036,6 +3017,10 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 
 			// Entities mutated in-place via apply()/update() need to be explicitly re-stored
 			// since the storer won't pick them up automatically (same object reference/identity).
+			// Do NOT clear pendingEntityStores here: this runs before commit success, and clearing it
+			// eagerly (unlike the state-change markers, which are cleared in onAfterCommit) would drop
+			// the mutated entities on a failed commit + retry store(), while the re-stored segments and
+			// index deltas commit anyway. The list is cleared in onAfterCommit once the commit succeeds.
 			if(this.pendingEntityStores != null && !this.pendingEntityStores.isEmpty())
 			{
 				for(final WeakReference<E> ref : this.pendingEntityStores)
@@ -2046,7 +3031,6 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 						storer.store(entity);
 					}
 				}
-				this.pendingEntityStores.clear();
 			}
 
 			// must clear state change markers as soon as there is at least one either "changed" or "new" marker. So almost always.
@@ -2059,36 +3043,54 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			this.ensureMutability();
 			for(final Lazy<?> e : this.level3.segments)
 			{
-				if(e != null && e.isStored())
+				/*
+				 * A used-marked entry pins a segment carrying changes that have not been stored yet
+				 * (see markChanged/clearChildrenStateChangeMarkers). Clearing it would discard the
+				 * in-memory mutations and their change flags: the subsequent store would silently
+				 * skip the evicted segment while still persisting the index/size updates, leaving
+				 * permanently divergent data. Such segments are retained until stored.
+				 */
+				if(e != null && e.isStored() && !e.isUsed())
 				{
 					e.clear();
 				}
 			}
-			
+
 			this.clearAddingState();
 		}
 						
 		@Override
 		public final synchronized <I extends Consumer<? super E>> I iterate(final I iterator)
 		{
-			final Lazy<GigaLevel2<E>>[] level3 = this.level3.segments;
-			for(final Lazy<GigaLevel2<E>> level2Root : level3)
+			// Mark read-only for the duration of the traversal so that a reentrant mutation from the
+			// consumer fails fast (in #ensureMutability) instead of corrupting the structure being
+			// walked. Structural modification during iteration is not supported.
+			this.enterReadOnly();
+			try
 			{
-				if(level2Root == null)
+				final Lazy<GigaLevel2<E>>[] level3 = this.level3.segments;
+				for(final Lazy<GigaLevel2<E>> level2Root : level3)
 				{
-					continue;
-				}
-				final Lazy<GigaLevel1<E>>[] level2 = level2Root.get().segments;
-				try
-				{
-					iterate(level2, iterator);
-				}
-				catch(final ThrowBreak b)
-				{
-					break;
+					if(level2Root == null)
+					{
+						continue;
+					}
+					final Lazy<GigaLevel1<E>>[] level2 = level2Root.get().segments;
+					try
+					{
+						iterate(level2, iterator);
+					}
+					catch(final ThrowBreak b)
+					{
+						break;
+					}
 				}
 			}
-			
+			finally
+			{
+				this.exitReadOnly();
+			}
+
 			return iterator;
 		}
 				
@@ -2120,32 +3122,52 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		@Override
 		public final synchronized <I extends EntryConsumer<? super E>> I iterateIndexed(final I consumer)
 		{
-			final int level1p2Pow2 = this.level2TotalLengthExp;
-			final Lazy<GigaLevel2<E>>[] level3 = this.level3.segments;
-			for(int i = 0; i < level3.length; i++)
+			// see #iterate(Consumer): read-only for the duration so reentrant mutation fails fast.
+			this.enterReadOnly();
+			try
 			{
-				final Lazy<GigaLevel2<E>> level2Root;
-				if((level2Root = level3[i]) == null)
+				final int level1p2Pow2 = this.level2TotalLengthExp;
+				final Lazy<GigaLevel2<E>>[] level3 = this.level3.segments;
+				for(int i = 0; i < level3.length; i++)
 				{
-					continue;
-				}
-				final GigaLevel2<E> level2 = level2Root.get();
-				try
-				{
-					this.iterate(level2, i<<level1p2Pow2, consumer);
-				}
-				catch(final ThrowBreak b)
-				{
-					break;
+					final Lazy<GigaLevel2<E>> level2Root;
+					if((level2Root = level3[i]) == null)
+					{
+						continue;
+					}
+					final GigaLevel2<E> level2 = level2Root.get();
+					try
+					{
+						/*
+						 * The (long) cast is mandatory, not cosmetic: entity ids range up to 2^50, so int
+						 * arithmetic is out of range twice over.
+						 * - Without it, i<<level1p2Pow2 overflows as soon as the level3 index reaches
+						 *   2^31 / 2^level1p2Pow2 (index 8192 with the default exponents), reporting
+						 *   negative ids from entity 2^31 on.
+						 * - Worse, level1Exp + level2Exp may legally reach 40 (each caps at 20, only their
+						 *   sum with level3Max is limited to 50), and an int shift uses only the low 5 bits
+						 *   of its distance (JLS 15.19). So i<<32 would evaluate to i<<0 == i, making high
+						 *   level3 segments report ids that collide with segment 0 instead of merely wrapping.
+						 */
+						this.iterate(level2, (long)i << level1p2Pow2, consumer);
+					}
+					catch(final ThrowBreak b)
+					{
+						break;
+					}
 				}
 			}
-			
+			finally
+			{
+				this.exitReadOnly();
+			}
+
 			return consumer;
 		}
 		
 		private void iterate(
-			final GigaLevel2<E>            level2   ,
-			final int                      baseIndex,
+			final GigaLevel2<E>            level2  ,
+			final long                     baseId  ,
 			final EntryConsumer<? super E> consumer
 		)
 		{
@@ -2159,13 +3181,14 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 					continue;
 				}
 				final GigaLevel1<E> level1 = level1Root.get();
-				this.iterate(level1.entities, baseIndex + (i << level1Pow2),  consumer);
+				// (long) cast mandatory: i<<level1Pow2 would overflow in int before the widening addition.
+				this.iterate(level1.entities, baseId + ((long)i << level1Pow2),  consumer);
 			}
 		}
-		
+
 		private void iterate(
-			final E[]                      level1   ,
-			final int                      baseIndex,
+			final E[]                      level1  ,
+			final long                     baseId  ,
 			final EntryConsumer<? super E> consumer
 		)
 		{
@@ -2176,7 +3199,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				{
 					continue;
 				}
-				consumer.accept(baseIndex + i, e);
+				consumer.accept(baseId + i, e);
 			}
 		}
 		
@@ -2232,30 +3255,39 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			return new GigaQuery.Default<>(this, threadProvider);
 		}
-						
+
 		final synchronized GigaIterator<E> createIterator(
-			final Condition<E>             condition     ,
-			final BitmapResult.Resolver<E> resolver      ,
-			final IterationThreadProvider  threadProvider
+			final Condition<E>            condition     ,
+			final long                    idStart       ,
+			final long                    idBound       ,
+			final EntityIdMatcher         idMatcher     ,
+			final EntityResolver<E>       resolver      ,
+			final IterationThreadProvider threadProvider
 		)
 		{
 			final BitmapResult   result  = condition.evaluate(this.indices.bitmap());
 			final BitmapResult[] results = result.andOptimize();
-			
+
 			if(isNoResult(results))
 			{
 				return GigaIterator.Empty(this);
 			}
-			
+
+			final long effStart = Math.max(idStart, 0);
+			final long effBound = Math.min(Math.max(idBound, effStart), this.nextFreeId());
+
 			final GigaIterator<E> iterator;
 			final Reading         reading ;
 
-			final int threadCount = threadProvider.provideThreadCount(this, results);
+			// The threaded iterator cannot apply an idMatcher — stateful matchers are not
+			// thread-safe. Fall back to single-threaded whenever sub-queries are in play.
+			final boolean canThread  = idMatcher == EntityIdMatcher.NoOp();
+			final int     threadCount = canThread ? threadProvider.provideThreadCount(this, results) : 0;
 			if(threadCount <= 0)
 			{
 				@SuppressWarnings("resource") // has to be closed by caller
-				final GigaIterator.Default<E> singleThreaded =
-					new GigaIterator.Default<>(this, resolver, 0, this.nextFreeId(), results)
+				final BitmapIterator<E> singleThreaded =
+					new BitmapIterator<>(this, idMatcher, resolver, effStart, effBound, results)
 				;
 				iterator = singleThreaded;
 				reading  = singleThreaded;
@@ -2270,16 +3302,76 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				final GigaIterator.Wrapping<E> wrapper =
 					new GigaIterator.Wrapping<>(this, multiThreaded, resolver)
 				;
-				
+
 				iterator = wrapper;
 				reading  = wrapper;
 			}
 
-			this.activeIterators.add(reading);
-			this.activeIteratorCount++;
-			this.markReadOnly();
+			this.activeReaders.add(reading);
+			this.activeReaderCount++;
+			this.enterReadOnly();
 
 			return iterator;
+		}
+
+		final synchronized EntityIdMatcher createEntityIdMatcher(
+			final Condition<E>    condition,
+			final long            idStart  ,
+			final long            idBound  ,
+			final EntityIdMatcher idMatcher
+		)
+		{
+			final long effStart = Math.max(idStart, 0);
+			final long effBound = Math.min(Math.max(idBound, effStart), this.nextFreeId());
+
+			final BitmapResult   result  = condition.evaluate(this.indices.bitmap());
+			final BitmapResult[] results = result.andOptimize();
+
+			if(isNoResult(results))
+			{
+				return EntityIdMatcher.Empty();
+			}
+
+			/*
+			 * Eagerly materialize all matching entity ids while the GigaMap lock is held
+			 * (this method is synchronized on `this`). The returned matcher is a stateless
+			 * snapshot backed by a private long[] — it holds no references to the GigaMap's
+			 * mutable state, needs no read-lock, and is safe to reuse across threads and
+			 * queries (each call to matchEntityId sees a fresh cursor via a new wrapper).
+			 */
+			final long[] ids = this.materializeEntityIds(results, idMatcher, effStart, effBound);
+			return ids.length == 0
+				? EntityIdMatcher.Empty()
+				: new EntityIdMatcher.AscendingListWrapper(ids);
+		}
+
+		private long[] materializeEntityIds(
+			final BitmapResult[]  results  ,
+			final EntityIdMatcher idMatcher,
+			final long            idStart  ,
+			final long            idBound
+		)
+		{
+			final long[][] idsRef  = { new long[16] };
+			final int[]    sizeRef = { 0 };
+			final AbstractBitmapIterating<E> collector =
+				new AbstractBitmapIterating<E>(idMatcher, idStart, idBound, results, -1)
+				{
+					@Override
+					protected boolean handleEntityId(final long entityId)
+					{
+						long[] ids = idsRef[0];
+						if(sizeRef[0] == ids.length)
+						{
+							idsRef[0] = ids = java.util.Arrays.copyOf(ids, ids.length << 1);
+						}
+						ids[sizeRef[0]++] = entityId;
+						return false; // keep iterating
+					}
+				}
+			;
+			collector.execute();
+			return java.util.Arrays.copyOf(idsRef[0], sizeRef[0]);
 		}
 		
 		static boolean isNoResult(final BitmapResult[] results)
@@ -2300,104 +3392,134 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			return true;
 		}
 		
-		final synchronized void closeIterator(final Reading iterator)
+		final synchronized void closeReader(final Reading reader)
 		{
-			if(iterator.parent() != this)
+			if(reader.parent() != this)
 			{
-				throw new IllegalArgumentException("Passed iterator does not belong to this " + GigaMap.class.getSimpleName());
+				throw new IllegalArgumentException("Passed reader does not belong to this " + GigaMap.class.getSimpleName());
 			}
-			if(iterator.isClosed())
+			if(reader.isClosed())
 			{
 				return;
 			}
-			if(this.activeIteratorCount == 0)
+			if(this.activeReaderCount == 0)
 			{
-				throw new IllegalStateException("No active iterators.");
+				throw new IllegalStateException("No active readers.");
 			}
 			
-			final boolean removed = this.activeIterators.removeOne(iterator);
+			final boolean removed = this.activeReaders.removeOne(reader);
 			if(!removed)
 			{
-				throw new IllegalArgumentException("Iterator was not registered as active.");
+				throw new IllegalArgumentException("Reader was not registered as active.");
 			}
 			
-//			iterator.clearIterationState(); // should be unnecessary since the instances will never be read again.
-			iterator.setInactive();
+//			reader.clearIterationState(); // should be unnecessary since the instances will never be read again.
+			reader.setInactive();
 			
 			try
 			{
-				if(--this.activeIteratorCount == 0)
+				if(--this.activeReaderCount == 0)
 				{
-					this.activeIterators.truncate();
+					this.activeReaders.truncate();
 				}
 			}
 			finally
 			{
-				this.unmarkReadOnly();
+				this.exitReadOnly();
 			}
 		}
 		
 		private boolean checkingIsReadOnly()
 		{
+			// Explicit (public) read-only mode: reject mutation immediately.
+			if(this.explicitReadOnlyCount != 0)
+			{
+				throw new IllegalStateException(XChars.systemString(this) + " is in read only mode.");
+			}
+
 			if(this.readOnlyCount == 0)
 			{
 				return false;
 			}
-			
-			if(this.readOnlyCount > this.activeIteratorCount)
+
+			// A read-only hold that does not stem from an active reader means an iterate()/iterateIndexed()
+			// or query execution is in progress: structural modification during iteration is not supported.
+			if(this.readOnlyCount > this.activeReaderCount)
 			{
-				throw new IllegalStateException(XChars.systemString(this) + " is in read only mode.");
+				throw new IllegalStateException(
+					XChars.systemString(this) + " must not be structurally modified during iteration."
+				);
 			}
-			
+
+			// Only active readers hold the map read-only: a mutation must wait until they are closed
+			// (the reader may be driven by another thread; #checkSelfHeldReader guards the same-thread case).
 			return true;
 		}
-				
-		@Override
-		public final synchronized boolean isReadOnly()
-		{
-			return this.readOnlyCount != 0;
-		}
-					
-		@Override
-		public final synchronized void markReadOnly()
+
+		/**
+		 * Internal read-only hold for active readers, in-progress iterations and query execution. Distinct
+		 * from the public {@link #markReadOnly()} so that public misuse cannot lift an iteration's hold.
+		 */
+		private synchronized void enterReadOnly()
 		{
 			this.readOnlyCount++;
 		}
-		
-		@Override
-		public final synchronized void unmarkReadOnly()
+
+		private synchronized void exitReadOnly()
 		{
 			if(--this.readOnlyCount == 0)
 			{
-				// notify threads waiting for gigamap instance to become mutable again
+				// notify threads waiting for the gigamap instance to become mutable again
 				this.notifyAll();
 			}
 		}
-		
+
 		@Override
-		public final synchronized boolean clearReadOnlyMarks()
+		public final synchronized boolean isReadOnly()
 		{
-			final boolean result = this.readOnlyCount > this.activeIteratorCount;
-			this.readOnlyCount = this.activeIteratorCount;
-			
-			return result;
+			return this.explicitReadOnlyCount != 0 || this.readOnlyCount != 0;
 		}
-		
+
+		@Override
+		public final synchronized void markReadOnly()
+		{
+			this.explicitReadOnlyCount++;
+		}
+
+		@Override
+		public final synchronized void unmarkReadOnly()
+		{
+			if(this.explicitReadOnlyCount <= 0)
+			{
+				// Fail fast instead of driving the count negative: a negative count would make
+				// #checkingIsReadOnly report read-only forever, permanently blocking every mutation.
+				throw new IllegalStateException(
+					XChars.systemString(this) + " unmarkReadOnly() called without a matching markReadOnly()."
+				);
+			}
+			if(--this.explicitReadOnlyCount == 0)
+			{
+				// notify threads waiting for the gigamap instance to become mutable again
+				this.notifyAll();
+			}
+		}
+
 		final void executeInReadOnlyMode(
 			final Condition<E>        condition,
 			final long                idStart  ,
 			final long                idBound  ,
+			final EntityIdMatcher     idMatcher,
 			final Consumer<? super E> consumer
 		)
 		{
 			try
 			{
-				this.markReadOnly();
-				this.executeReadOnly(condition, idStart, idBound, consumer);
+				this.enterReadOnly();
+				this.executeReadOnly(condition, idStart, idBound, idMatcher, consumer);
 			}
 			finally
 			{
-				this.unmarkReadOnly();
+				this.exitReadOnly();
 			}
 		}
 		
@@ -2405,6 +3527,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			final Condition<E>        condition,
 			final long                idStart  ,
 			final long                idBound  ,
+			final EntityIdMatcher     idMatcher,
 			final Consumer<? super E> consumer
 		)
 		{
@@ -2429,30 +3552,32 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			final long         effBound = Math.min(Math.max(idBound, effStart), this.nextFreeId());
 			final BitmapResult result   = condition.evaluate(this.indices.bitmap());
 			
-			execute(this, result.andOptimize(), effStart, effBound, consumer);
+			execute(idMatcher,this, result.andOptimize(), effStart, effBound, consumer);
 		}
-		
+
 		static <E> void execute(
-			final BitmapResult.Resolver<E> resolver,
-			final BitmapResult[]           results ,
-			final long                     startId ,
-			final long                     boundId ,
-			final Consumer<? super E>      consumer
+			final EntityIdMatcher     idMatcher,
+			final EntityResolver<E>   resolver ,
+			final BitmapResult[]      results  ,
+			final long                startId  ,
+			final long                boundId  ,
+			final Consumer<? super E> consumer
 		)
 		{
 			if(isNoResult(results))
 			{
 				return;
 			}
-			
-			final GigaIteration<E> iteration = new GigaIteration<>(resolver, startId, boundId, results);
-			iteration.execute(consumer);
+
+			final BitmapIteration<E> iteration = new BitmapIteration<>(idMatcher, resolver, startId, boundId, results, consumer);
+			iteration.execute();
 		}
 		
 		final void executeReadOnly(
 			final Condition<E>            condition     ,
 			final long                    idStart       ,
 			final long                    idBound       ,
+			final EntityIdMatcher         idMatcher     ,
 			final Consumer<? super E>[]   consumers     ,
 			final IterationThreadProvider threadProvider
 		)
@@ -2462,19 +3587,38 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				// it is perfectly valid to execute a query without a condition
 				return;
 			}
-			
-			if(consumers.length == 1 || threadProvider == null)
+
+			if(consumers.length == 1)
 			{
-				this.executeReadOnly(condition, idStart, idBound, consumers[0]);
+				this.executeReadOnly(condition, idStart, idBound, idMatcher, consumers[0]);
 				return;
 			}
-			
-			final long         effStart = Math.max(idStart, 0);
-			final long         effBound = Math.min(Math.max(idBound, effStart), this.nextFreeId());
-			final BitmapResult result   = condition.evaluate(this.indices.bitmap());
-			
+
+			final long           effStart = Math.max(idStart, 0);
+			final long           effBound = Math.min(Math.max(idBound, effStart), this.nextFreeId());
+			final BitmapResult[] results  = condition.evaluate(this.indices.bitmap()).andOptimize();
+
+			// Threaded execution cannot apply a stateful idMatcher safely across partitions.
+			// When an idMatcher is present, partition the id range sequentially on a single
+			// thread so matchEntityId keeps receiving ids in monotonically ascending order
+			// (slice i fully precedes slice i+1).
+			if(threadProvider == null || idMatcher != EntityIdMatcher.NoOp())
+			{
+				final long idsPerSlice = (effBound - effStart) / consumers.length;
+				for(int i = 0; i < consumers.length; i++)
+				{
+					final long sliceStart = effStart + i * idsPerSlice;
+					final long sliceBound = i == consumers.length - 1
+						? effBound
+						: sliceStart + idsPerSlice
+					;
+					execute(idMatcher, this, BitmapResult.createIterationCopy(results), sliceStart, sliceBound, consumers[i]);
+				}
+				return;
+			}
+
 			final LogicProvider<E> logicProvider =
-				new LogicProvider<>(this, effStart, effBound, result.andOptimize(), consumers)
+				new LogicProvider<>(this, effStart, effBound, results, consumers)
 			;
 			threadProvider.executeThreaded(this, consumers.length, logicProvider);
 		}
@@ -2484,7 +3628,18 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			return this.storeContext().store(this);
 		}
-		
+
+		@Override
+		public final synchronized long store(final PersistenceStoring storing)
+		{
+			// One call for both kinds of storing context, because the type handler is what registers this
+			// instance's changes (see BinaryHandlerGigaMapDefault#store -> #internalRegisterChangeStores) and
+			// that fires for anything that traverses the map. Whether the changes are also committed is the
+			// storing context's own behaviour: a Persister commits, a Storer waits for its commit() - which is
+			// what lets a caller group several instances into one atomic commit.
+			return storing.store(this);
+		}
+
 		private Persister storeContext()
 		{
 			if(this.storeContext == null)
@@ -2554,6 +3709,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				final BitmapResult[] resultsThreadIterationCopy = BitmapResult.createIterationCopy(this.results);
 				return () ->
 					execute(
+						EntityIdMatcher.NoOp(),
 						this.gigaMap,
 						resultsThreadIterationCopy,
 						threadStartId,
@@ -2568,10 +3724,10 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		public synchronized GigaIterator<E> iterator()
 		{
 			final Itr<E> iterator = new Itr<>(this);
-			this.activeIterators.add(iterator);
-			this.activeIteratorCount++;
+			this.activeReaders.add(iterator);
+			this.activeReaderCount++;
 			
-			this.markReadOnly();
+			this.enterReadOnly();
 			
 			return iterator;
 		}
@@ -2590,8 +3746,41 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	public interface Internal<E> extends GigaMap<E>
 	{
 		public void internalReportIndexGroupStateChange(IndexGroup<E> indexGroup);
-		
+
 		public void internalReportConstraintsStateChange();
+
+		/**
+		 * Ensures that this {@link GigaMap} may currently be modified structurally, applying exactly the same
+		 * classification of a read-only hold that entity mutation applies. Intended for index groups, which
+		 * perform structural changes on the map's behalf and must not have different concurrency semantics
+		 * than an entity write.
+		 * <p>
+		 * A read-only hold is classified as follows:
+		 * <ul>
+		 * <li>an explicit {@link #markReadOnly()} throws immediately;</li>
+		 * <li>an in-progress {@link #iterate(Consumer)} / {@link #iterateIndexed(EntryConsumer)} or query
+		 *     execution throws immediately, because structural modification during iteration is not
+		 *     supported;</li>
+		 * <li>an open reader held by the <i>calling</i> thread throws immediately, because waiting for it
+		 *     would deadlock (the blocked thread is the only one that could close it);</li>
+		 * <li>open readers held only by <i>other</i> threads make this method <b>block</b> until they are
+		 *     closed.</li>
+		 * </ul>
+		 * <p>
+		 * <b>Must be called while holding this instance's monitor</b>, and the caller must keep holding it
+		 * until the structural change is complete: the monitor is what keeps new readers out (reader
+		 * registration is {@code synchronized} on this instance), so releasing it in between would let a
+		 * reader slip in before the mutation.
+		 * <p>
+		 * <b>While blocking, this method releases the caller's monitor hold entirely</b> - including
+		 * re-entrant holds, as {@link Object#wait()} performs as many unlock actions as the thread has
+		 * matching lock actions. Any state the caller read before calling this method may therefore be stale
+		 * once it returns, and must be re-checked.
+		 *
+		 * @throws IllegalStateException if the map is explicitly read-only, is being iterated, or the calling
+		 *         thread itself holds an open reader
+		 */
+		public void internalEnsureMutability();
 	}
 
 	
@@ -2762,17 +3951,18 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		////////////////////
 		
 		private final GigaMap.Default<E> parent;
+		private final Thread             owningThread = Thread.currentThread();
 		long currentEntityId = -1;
 		E currentEntity = null;
-		
+
 		boolean isActive = true;
-		
-		
-		
+
+
+
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
 		/////////////////
-		
+
 		Itr(final GigaMap.Default<E> parent)
 		{
 			super();
@@ -2836,32 +4026,31 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			return this.parent;
 		}
-		
+
+		@Override
+		public final Thread owningThread()
+		{
+			return this.owningThread;
+		}
+
 		@Override
 		public final boolean isClosed()
 		{
 			return !this.isActive;
 		}
-		
+
 		@Override
 		public final void setInactive()
 		{
 			this.isActive = false;
 		}
-		
+
 		@Override
 		public final void close()
 		{
-			this.parent.closeIterator(this);
+			this.parent.closeReader(this);
 		}
-		
-		@SuppressWarnings("deprecation")
-		@Override
-		protected void finalize() throws Throwable
-		{
-			this.close();
-		}
-		
+
 	}
 	
 	
@@ -2874,13 +4063,29 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	public interface Reading
 	{
 		public void close();
-		
+
 		public boolean isClosed();
-		
+
 		public GigaMap<?> parent();
-		
+
 		public void setInactive();
-				
+
+		/**
+		 * Returns the thread that opened this reader (and therefore holds the parent
+		 * {@link GigaMap}'s read-lock), or {@code null} if unknown.
+		 * <p>
+		 * Used to detect self-deadlocks: a thread that still holds an open reader and then tries to
+		 * mutate the same GigaMap on that same thread would wait forever for its own reader to close.
+		 * The ownership reflects the <em>creating</em> thread; the supported usage model is that an
+		 * iterator is driven and closed by the same thread that created it.
+		 *
+		 * @return the owning thread, or {@code null} if unknown
+		 */
+		public default Thread owningThread()
+		{
+			return null;
+		}
+
 	}
 	
 	
@@ -2898,6 +4103,33 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		 * @return the parent GigaMap to which this component belongs
 		 */
 		public GigaMap<E> parentMap();
+	}
+
+	/**
+	 * Represents a sub-query that can be combined with a {@link GigaQuery} to further restrict its result.
+	 * <p>
+	 * A sub-query contributes an {@link EntityIdMatcher} that is consulted during query execution to
+	 * decide whether a candidate entity id is part of the overall result. This allows arbitrary external
+	 * id sources (e.g. pre-computed id sets, custom id ranges, or nested queries) to participate in
+	 * query evaluation without being tied to a concrete index.
+	 * <p>
+	 * Use {@link GigaQuery#and(SubQuery)} to combine a sub-query with an existing query using logical AND.
+	 *
+	 * @see EntityIdMatcher
+	 * @see GigaQuery#and(SubQuery)
+	 */
+	@FunctionalInterface
+	public interface SubQuery
+	{
+		/**
+		 * Provides the {@link EntityIdMatcher} backing this sub-query.
+		 * <p>
+		 * The returned matcher is used during query execution to test whether candidate entity ids
+		 * should be part of the overall query result.
+		 *
+		 * @return the {@link EntityIdMatcher} of this sub-query; must not be {@code null}
+		 */
+		public EntityIdMatcher provideEntityIdMatcher();
 	}
 
 }

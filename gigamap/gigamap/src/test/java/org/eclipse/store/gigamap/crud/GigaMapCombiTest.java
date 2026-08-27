@@ -52,7 +52,7 @@ public class GigaMapCombiTest
         // Load the GigaMap from the storage
         GigaMap<GigaMap<String>> loadedGigaMap;
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(tempDir)) {
-            loadedGigaMap = (GigaMap<GigaMap<String>>) storageManager.root();
+            loadedGigaMap = storageManager.root();
             assertEquals(gigaMap.size(), loadedGigaMap.size());
             // Verify that the loaded GigaMap is identical to the original one
             for (int i = 0; i < gigaMap.size(); i++) {

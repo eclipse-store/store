@@ -50,21 +50,40 @@ public class StorageConverterTargetFile
 		this.fileNumber = fileNumber;
 	}
 
+	/**
+	 * Appends the remaining bytes of {@code buffer} to the underlying file and grows the tracked size
+	 * accordingly.
+	 *
+	 * @param buffer the byte buffer to write; the bytes between its current position and limit are written.
+	 */
 	public void writeBytes(final ByteBuffer buffer)
 	{
 		this.size += this.file.writeBytes(buffer);
 	}
 
+	/**
+	 * Returns the storage data file number this target file represents.
+	 *
+	 * @return the file number.
+	 */
 	public long fileNumber()
 	{
 		return this.fileNumber;
 	}
 
+	/**
+	 * Returns the number of bytes written to this file so far.
+	 *
+	 * @return the cumulative number of bytes written.
+	 */
 	public long size()
 	{
 		return this.size;
 	}
 
+	/**
+	 * Releases the underlying writable file handle. Must be called once the file has been completed.
+	 */
 	public void release()
 	{
 		this.file.release();

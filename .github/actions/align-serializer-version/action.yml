@@ -1,0 +1,45 @@
+name: Align serializer version
+description: >-
+  Computes the branch-suffixed snapshot version for the current branch and, when a
+  branch of the same name exists in eclipse-serializer/serializer, rewrites the
+  eclipse.serializer.version POM property to that serializer branch snapshot. This is
+  the cross-repo coupling used so a store branch builds against its matching serializer
+  branch. No-op on main / release branches. Requires Maven/JDK to be set up beforehand.
+
+inputs:
+  github-token:
+    description: Token used to query branches of the serializer repository.
+    required: true
+
+outputs:
+  version:
+    description: The branch-suffixed snapshot version (e.g. 5.0.0-foo_bar-1a2b3c4d5e-SNAPSHOT).
+    value: ${{ steps.compute.outputs.version }}
+  aligned:
+    description: "'true' if eclipse.serializer.version was rewritten to the serializer branch snapshot."
+    value: ${{ steps.compute.outputs.aligned }}
+
+runs:
+  using: composite
+  steps:
+    - id: compute
+      shell: bash
+      run: |
+        BRANCH=${GITHUB_REF#refs/heads/}
+        currentVersion=$(mvn -q -Dexec.executable=echo -Dexec.args='${project.version}' --non-recursive exec:exec)
+        suffix=$(echo -n "$BRANCH" | tr '/' '_' | cut -c1-10)-$(echo -n "$BRANCH" | md5sum | cut -c1-10)
+        newVersion="${currentVersion%-SNAPSHOT}-${suffix}-SNAPSHOT"
+        echo "version=$newVersion" >> "$GITHUB_OUTPUT"
+
+        aligned=false
+        if [ "$BRANCH" != "main" ] && [[ "$BRANCH" != release/* ]]; then
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${{ inputs.github-token }}" https://api.github.com/repos/eclipse-serializer/serializer/branches/$BRANCH)
+          if [ "$RESPONSE" -eq 200 ]; then
+            echo "Matching serializer branch found; aligning eclipse.serializer.version to $newVersion"
+            mvn versions:set-property -Dproperty=eclipse.serializer.version -DnewVersion=$newVersion --batch-mode
+            aligned=true
+          else
+            echo "No matching serializer branch; keeping default eclipse.serializer.version"
+          fi
+        fi
+        echo "aligned=$aligned" >> "$GITHUB_OUTPUT"

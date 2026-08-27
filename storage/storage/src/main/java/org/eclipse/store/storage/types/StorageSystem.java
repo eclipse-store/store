@@ -22,7 +22,6 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.eclipse.serializer.afs.types.AFileSystem;
 import org.eclipse.serializer.monitoring.MonitoringManager;
-import org.eclipse.serializer.persistence.types.ObjectIdsSelector;
 import org.eclipse.serializer.persistence.types.Persistence;
 import org.eclipse.serializer.persistence.types.PersistenceLiveStorerRegistry;
 import org.eclipse.serializer.persistence.types.Unpersistable;
@@ -67,7 +66,26 @@ public interface StorageSystem extends StorageController
 	 * and provides methods to validate, initialize, and look up type handlers and definitions.
 	 */
 	public StorageTypeDictionary typeDictionary();
-	
+
+	/**
+	 * Provides the shared {@link StorageEntityMarkMonitor} that coordinates the garbage collection
+	 * of all channels. The instance is created during startup and shared by every channel, so it
+	 * serves as the system-wide handle for the task-scoped pending-load gate
+	 * (see {@link StorageEntityMarkMonitor#signalPendingLoadTask()}). Only valid after startup has
+	 * created the channels.
+	 * <p>
+	 * Default throws {@link UnsupportedOperationException} to preserve binary compatibility for
+	 * external {@link StorageSystem} implementations; the built-in implementation overrides it.
+	 *
+	 * @return the shared mark monitor.
+	 */
+	public default StorageEntityMarkMonitor entityMarkMonitor()
+	{
+		throw new UnsupportedOperationException(
+			"This " + StorageSystem.class.getSimpleName() + " implementation does not expose the mark monitor."
+		);
+	}
+
 	/**
 	 * Provides an instance of {@link StorageOperationController}, which manages
 	 * the state and operations of the storage system, including channel
@@ -157,6 +175,7 @@ public interface StorageSystem extends StorageController
 		private final StorageConfiguration                       configuration                 ;
 		private final StorageInitialDataFileNumberProvider       initialDataFileNumberProvider ;
 		private final StorageDataFileEvaluator                   fileDissolver                 ;
+		private final StorageChunkChecksumProvider               chunkChecksumProvider         ;
 		private final StorageLiveFileProvider                    fileProvider                  ;
 		private final StorageWriteController                     writeController               ;
 		private final StorageFileWriter.Provider                 writerProvider                ;
@@ -184,7 +203,7 @@ public interface StorageSystem extends StorageController
 		private final StorageLockFileSetup                       lockFileSetup                 ;
 		private final StorageLockFileManager.Creator             lockFileManagerCreator        ;
 		private final StorageEventLogger                         eventLogger                   ;
-		private final ObjectIdsSelector                          liveObjectIdChecker           ;
+		private final LiveObjectIdsHandler                       liveObjectIdsHandler          ;
 		private final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry             ;
 		private final boolean                                    switchByteOrder               ;
 		private final StorageStructureValidator                  storageStructureValidator     ;
@@ -244,7 +263,7 @@ public interface StorageSystem extends StorageController
 			final StorageLockFileManager.Creator             lockFileManagerCreator        ,
 			final StorageExceptionHandler                    exceptionHandler              ,
 			final StorageEventLogger                         eventLogger                   ,
-			final ObjectIdsSelector                          liveObjectIdChecker           ,
+			final LiveObjectIdsHandler                       liveObjectIdsHandler          ,
 			final Referencing<PersistenceLiveStorerRegistry> refStorerRegistry             ,
 			final StorageStructureValidator                  storageStructureValidator     ,
 			final MonitoringManager                          monitorManager                ,
@@ -265,6 +284,7 @@ public interface StorageSystem extends StorageController
 			this.operationController            = notNull(ocCreator.createOperationController(ccp, this));
 			this.initialDataFileNumberProvider  = notNull(initialDataFileNumberProvider)       ;
 			this.fileDissolver                  = storageConfiguration.dataFileEvaluator()     ;
+			this.chunkChecksumProvider          = storageConfiguration.chunkChecksumProvider();
 			this.fileProvider                   = storageConfiguration.fileProvider()          ;
 			this.entityCacheEvaluator           = storageConfiguration.entityCacheEvaluator()  ;
 			this.housekeepingController         = storageConfiguration.housekeepingController();
@@ -291,7 +311,7 @@ public interface StorageSystem extends StorageController
 			this.backupSetup                    = mayNull(storageConfiguration.backupSetup())  ;
 			this.backupDataFileValidatorCreator = notNull(backupDataFileValidatorCreator)      ;
 			this.eventLogger                    = notNull(eventLogger)                         ;
-			this.liveObjectIdChecker            = notNull(liveObjectIdChecker)                 ;
+			this.liveObjectIdsHandler           = notNull(liveObjectIdsHandler)                ;
 			this.refStorerRegistry              = notNull(refStorerRegistry)                   ;
 			this.switchByteOrder                =         switchByteOrder                      ;
 			this.storageStructureValidator      = notNull(storageStructureValidator)           ;
@@ -414,10 +434,18 @@ public interface StorageSystem extends StorageController
 				}
 				initializingTask.waitOnCompletion();
 			}
-			
+
 			this.timestampProvider.set(initializingTask.latestTimestamp());
-						
+
 			return initializingTask.idAnalysis();
+		}
+
+		private void joinChannelThreads() throws InterruptedException
+		{
+			for(final ChannelKeeper keeper : this.channelKeepers)
+			{
+				keeper.channelThread.join();
+			}
 		}
 		
 		private StorageBackupHandler provideBackupHandler()
@@ -537,6 +565,7 @@ public interface StorageSystem extends StorageController
 				this.initialDataFileNumberProvider         ,
 				this.exceptionHandler                      ,
 				this.fileDissolver                         ,
+				this.chunkChecksumProvider                 ,
 				this.fileProvider                          ,
 				this.entityCacheEvaluator                  ,
 				this.typeDictionary                        ,
@@ -553,7 +582,7 @@ public interface StorageSystem extends StorageController
 				this.entityMarkMonitorCreator              ,
 				this.provideBackupHandler()                ,
 				this.eventLogger                           ,
-				this.liveObjectIdChecker                   ,
+				this.liveObjectIdsHandler                  ,
 				this.refStorerRegistry                     ,
 				this.switchByteOrder                       ,
 				this.rootTypeIdProvider.provideRootTypeId(),
@@ -631,20 +660,26 @@ public interface StorageSystem extends StorageController
 			
 			
 			final StorageChannelTaskShutdown task = this.taskbroker.issueChannelShutdown(this.operationController);
-			
+
 			synchronized(task)
 			{
-				// (07.07.2016 TM)FIXME: OGS-23: shutdown doesn't wait for the shutdown to be completed.
 				task.waitOnCompletion();
 			}
 			this.taskbroker = null;
-			
+
 			this.shutdownBackup();
-			
+
 			this.operationController.deactivate();
-			
+
+			// wake every channel thread that is parked in StorageTask.awaitNext on the shutdown task, so they
+			// observe the deactivated controller immediately instead of waiting out the housekeeping interval.
+			task.endAwaitNext();
+
+			// wait for channel threads to actually terminate after the controller flag was flipped
+			this.joinChannelThreads();
+
 			this.stopLockFileManagerThread();
-			
+
 			this.monitorManager.shutdown();
 
 			/* (07.03.2019 TM)FIXME: Shutdown must wait for ongoing activities.
@@ -695,14 +730,13 @@ public interface StorageSystem extends StorageController
 				}
 				catch(final InterruptedException e)
 				{
-					this.operationController.deactivate();
-					this.monitorManager.shutdown();
-					throw new StorageExceptionInitialization(e);
+					final StorageExceptionInitialization ex = new StorageExceptionInitialization(e);
+					this.cleanupFailedStartup(ex);
+					throw ex;
 				}
 				catch(final Throwable t)
 				{
-					this.operationController.deactivate();
-					this.monitorManager.shutdown();
+					this.cleanupFailedStartup(t);
 					throw t;
 				}
 				finally
@@ -714,6 +748,34 @@ public interface StorageSystem extends StorageController
 			return this;
 		}
 		
+		/**
+		 * Best-effort teardown after a failed startup: each fallible step is attempted independently and
+		 * any failure is attached as suppressed to the primary startup exception instead of replacing it.
+		 */
+		private void cleanupFailedStartup(final Throwable primary)
+		{
+			this.operationController.deactivate();
+
+			try
+			{
+				// lock-file executor does not self-terminate on deactivation; stop it or its non-daemon thread leaks.
+				this.stopLockFileManagerThread();
+			}
+			catch(final Throwable cleanupError)
+			{
+				primary.addSuppressed(cleanupError);
+			}
+
+			try
+			{
+				this.monitorManager.shutdown();
+			}
+			catch(final Throwable cleanupError)
+			{
+				primary.addSuppressed(cleanupError);
+			}
+		}
+
 		@Override
 		public final StorageIdAnalysis initializationIdAnalysis()
 		{
@@ -771,6 +833,22 @@ public interface StorageSystem extends StorageController
 		}
 
 		@Override
+		public final StorageEntityMarkMonitor entityMarkMonitor()
+		{
+			// The mark monitor is a singleton shared by all channels; read it from any channel. Only
+			// valid once startup has created the channels; guard with a deterministic exception rather
+			// than risking an NPE on channelKeepers[0] if called before startup or after teardown.
+			// Loads - the only caller - occur only while running, so this never
+			// rejects a legitimate call.
+			final ChannelKeeper[] keepers = this.channelKeepers;
+			if(keepers.length == 0 || keepers[0] == null || !this.isRunning())
+			{
+				throw new StorageExceptionNotRunning();
+			}
+			return keepers[0].channel.markMonitor();
+		}
+
+		@Override
 		public StorageOperationController operationController()
 		{
 			return this.operationController;
@@ -798,14 +876,14 @@ public interface StorageSystem extends StorageController
 		{
 			/*
 			 * Immediately deactivates all activities without waiting for currently existing work items to be
-			 * completed.
-			 * 
-			 * Deactivates all threads (Channel threads, lock file thread, backup thread).
-			 * All terminating threads cleanup their resources (e.g. opened files).
-			 * So this is all that must be necessary
+			 * completed. Channel threads self-terminate on the deactivated controller; the lock-file executor
+			 * and backup handler do not, so they are stopped explicitly.
 			 */
 			this.operationController.deactivate();
-			
+
+			// lock-file executor does not self-terminate on deactivation; stop it or its non-daemon thread leaks.
+			this.stopLockFileManagerThread();
+
 			// backup handler must be treated specially since it is normally intended to finish its items on its own.
 			if(this.backupHandler != null)
 			{

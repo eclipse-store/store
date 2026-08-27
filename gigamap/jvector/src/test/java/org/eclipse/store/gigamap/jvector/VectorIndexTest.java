@@ -16,8 +16,10 @@ package org.eclipse.store.gigamap.jvector;
 
 import org.eclipse.serializer.util.X;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -31,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for VectorIndex and VectorIndices.
  */
+@Tag("slow")
 class VectorIndexTest
 {
     /**
@@ -178,7 +181,7 @@ class VectorIndexTest
         assertEquals(2, result.size(), "Should return 2 nearest neighbors");
 
         // The first result should be the most similar (doc1 with exact match)
-        final List<VectorSearchResult.Entry<Document>> entries = result.toList();
+        final List<ScoredSearchResult.Entry<Document>> entries = result.toList();
         assertTrue(entries.get(0).score() >= entries.get(1).score(), "Results should be ordered by score");
 
         // Verify lazy entity access
@@ -221,10 +224,10 @@ class VectorIndexTest
         gigaMap.add(new Document("Third", new float[]{0.0f, 0.0f, 1.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
@@ -232,7 +235,7 @@ class VectorIndexTest
         assertEquals(3, result.size());
         assertFalse(result.isEmpty());
 
-        final List<VectorSearchResult.Entry<Document>> resultEntries = result.toList();
+        final List<ScoredSearchResult.Entry<Document>> resultEntries = result.toList();
         // Test lazy entity access
         assertEquals("First", resultEntries.get(0).entity().content());
         assertEquals("Second", resultEntries.get(1).entity().content());
@@ -240,7 +243,7 @@ class VectorIndexTest
 
         // Test iteration
         int count = 0;
-        for(final VectorSearchResult.Entry<Document> score : result)
+        for(final ScoredSearchResult.Entry<Document> score : result)
         {
             assertNotNull(score.entity(), "Entity should be accessible lazily");
             count++;
@@ -326,8 +329,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 assertNotNull(gigaMap);
 
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
@@ -395,7 +397,7 @@ class VectorIndexTest
         assertEquals(2, result.size(), "Should return 2 nearest neighbors");
 
         // The first result should be the most similar (doc1 with exact match)
-        final List<VectorSearchResult.Entry<Document>> entries = result.toList();
+        final List<ScoredSearchResult.Entry<Document>> entries = result.toList();
         assertTrue(entries.get(0).score() >= entries.get(1).score(), "Results should be ordered by score");
 
         // Verify lazy entity access
@@ -443,8 +445,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 assertNotNull(gigaMap);
 
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
@@ -530,7 +531,7 @@ class VectorIndexTest
 
         // Verify results are ordered by score (descending)
         float prevScore = Float.MAX_VALUE;
-        for(final VectorSearchResult.Entry<Document> entry : result)
+        for(final ScoredSearchResult.Entry<Document> entry : result)
         {
             assertTrue(entry.score() <= prevScore, "Results should be ordered by score");
             prevScore = entry.score();
@@ -632,7 +633,7 @@ class VectorIndexTest
 
                 // Search and record expected results
                 final VectorSearchResult<Document> result = index.search(queryVector, 10);
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     expectedIds.add(entry.entityId());
                 }
@@ -645,8 +646,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 // Search and compare results
@@ -655,7 +655,7 @@ class VectorIndexTest
 
                 final VectorSearchResult<Document> result = index.search(queryVector, 10);
                 final List<Long> actualIds = new ArrayList<>();
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     actualIds.add(entry.entityId());
                 }
@@ -707,7 +707,7 @@ class VectorIndexTest
         assertEquals(15, result.size());
 
         // Verify all entities are accessible
-        for(final VectorSearchResult.Entry<Document> entry : result)
+        for(final ScoredSearchResult.Entry<Document> entry : result)
         {
             assertNotNull(entry.entity());
             assertTrue(entry.entity().content().startsWith("doc_"));
@@ -757,7 +757,7 @@ class VectorIndexTest
         final VectorSearchResult<Document> result = index.search(needleVector, 5);
 
         assertEquals(5, result.size());
-        final VectorSearchResult.Entry<Document> firstResult = result.iterator().next();
+        final ScoredSearchResult.Entry<Document> firstResult = result.iterator().next();
         assertEquals("needle", firstResult.entity().content(), "Exact match should be first result");
         assertTrue(firstResult.score() > 0.99f, "Exact match should have score close to 1.0");
     }
@@ -804,8 +804,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 assertEquals(100, gigaMap.size(), "Should have 100 documents from phase 1");
@@ -836,8 +835,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 assertEquals(150, gigaMap.size(), "Should have 150 documents from phases 1+2");
@@ -864,8 +862,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 assertEquals(200, gigaMap.size(), "Should have all 200 documents");
@@ -876,7 +873,7 @@ class VectorIndexTest
 
                 // Verify we can find documents from each phase
                 boolean foundPhase1 = false, foundPhase2 = false, foundPhase3 = false;
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     final String content = entry.entity().content();
                     if(content.startsWith("phase1_")) foundPhase1 = true;
@@ -928,8 +925,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 // Add 50 more vectors
@@ -949,8 +945,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 assertEquals(150, gigaMap.size());
@@ -966,8 +961,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 final VectorIndex<Document> index = vectorIndices.get("embeddings");
@@ -1023,8 +1017,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 assertEquals(200, gigaMap.size());
@@ -1055,8 +1048,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 assertEquals(300, gigaMap.size());
@@ -1121,8 +1113,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 assertEquals(500, gigaMap.size());
@@ -1134,7 +1125,7 @@ class VectorIndexTest
                 assertEquals(5, result.size());
 
                 // First result should be the exact match
-                final VectorSearchResult.Entry<Document> firstResult = result.iterator().next();
+                final ScoredSearchResult.Entry<Document> firstResult = result.iterator().next();
                 assertEquals("doc_42", firstResult.entity().content());
                 assertTrue(firstResult.score() > 0.99f);
             }
@@ -1144,8 +1135,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 // DON'T load graph - let it rebuild from entities
@@ -1156,7 +1146,7 @@ class VectorIndexTest
                 assertEquals(5, result.size());
 
                 // First result should be the exact match
-                final VectorSearchResult.Entry<Document> firstResult = result.iterator().next();
+                final ScoredSearchResult.Entry<Document> firstResult = result.iterator().next();
                 assertEquals("doc_100", firstResult.entity().content());
             }
         }
@@ -1202,8 +1192,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 final int expectedSize = 50 + (cycle - 1) * 10;
@@ -1228,8 +1217,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
 
                 // 50 initial + 10 cycles * 10 documents = 150 total
@@ -1241,7 +1229,7 @@ class VectorIndexTest
 
                 // Verify documents from different cycles exist
                 boolean foundInitial = false, foundCycle1 = false, foundCycle10 = false;
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     final String content = entry.entity().content();
                     if(content.startsWith("initial_")) foundInitial = true;
@@ -1269,10 +1257,10 @@ class VectorIndexTest
         gigaMap.add(new Document("Third", new float[]{0.0f, 0.0f, 1.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
@@ -1292,16 +1280,16 @@ class VectorIndexTest
         gigaMap.add(new Document("Third", new float[]{0.0f, 0.0f, 1.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
 
         final List<Float> scores = result.stream()
-            .map(VectorSearchResult.Entry::score)
+            .map(ScoredSearchResult.Entry::score)
             .collect(Collectors.toList());
 
         assertEquals(List.of(0.95f, 0.85f, 0.75f), scores, "Stream should preserve order");
@@ -1319,16 +1307,16 @@ class VectorIndexTest
         gigaMap.add(new Document("Third", new float[]{0.0f, 0.0f, 1.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
 
         // Filter entries with score >= 0.80
-        final List<VectorSearchResult.Entry<Document>> highScores = result.stream()
+        final List<ScoredSearchResult.Entry<Document>> highScores = result.stream()
             .filter(e -> e.score() >= 0.80f)
             .collect(Collectors.toList());
 
@@ -1349,10 +1337,10 @@ class VectorIndexTest
         gigaMap.add(new Document("Third", new float[]{0.0f, 0.0f, 1.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
@@ -1376,14 +1364,14 @@ class VectorIndexTest
         gigaMap.add(new Document("Second", new float[]{0.0f, 1.0f, 0.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
 
-        final Optional<VectorSearchResult.Entry<Document>> first = result.stream().findFirst();
+        final Optional<ScoredSearchResult.Entry<Document>> first = result.stream().findFirst();
 
         assertTrue(first.isPresent(), "Should find first element");
         assertEquals(0.95f, first.get().score(), "First element should have highest score");
@@ -1397,7 +1385,7 @@ class VectorIndexTest
     void testStreamOnEmptyResult()
     {
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[0];
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[0];
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
 
@@ -1418,9 +1406,9 @@ class VectorIndexTest
         gigaMap.add(new Document("Second", new float[]{0.0f, 1.0f, 0.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
@@ -1432,7 +1420,7 @@ class VectorIndexTest
         final long count2 = result.stream().count();
 
         // Third stream call - collect to list
-        final List<VectorSearchResult.Entry<Document>> list = result.stream().toList();
+        final List<ScoredSearchResult.Entry<Document>> list = result.stream().toList();
 
         assertEquals(2, count1, "First stream should have 2 elements");
         assertEquals(2, count2, "Second stream should also have 2 elements");
@@ -1451,15 +1439,15 @@ class VectorIndexTest
         gigaMap.add(new Document("Third", new float[]{0.0f, 0.0f, 1.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
 
-        final List<VectorSearchResult.Entry<Document>> list = result.toList();
+        final List<ScoredSearchResult.Entry<Document>> list = result.toList();
 
         assertEquals(3, list.size(), "List should have 3 entries");
         assertEquals(0.95f, list.get(0).score());
@@ -1478,14 +1466,14 @@ class VectorIndexTest
         gigaMap.add(new Document("Second", new float[]{0.0f, 1.0f, 0.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
 
-        final Spliterator<VectorSearchResult.Entry<Document>> spliterator = result.stream().spliterator();
+        final Spliterator<ScoredSearchResult.Entry<Document>> spliterator = result.stream().spliterator();
 
         // Verify characteristics
         assertTrue(spliterator.hasCharacteristics(Spliterator.SIZED), "Should be SIZED");
@@ -1548,7 +1536,7 @@ class VectorIndexTest
 
         // Verify order is preserved (descending by score)
         final List<Float> scores = result.stream()
-            .map(VectorSearchResult.Entry::score)
+            .map(ScoredSearchResult.Entry::score)
             .toList();
         for(int i = 0; i < scores.size() - 1; i++)
         {
@@ -1569,10 +1557,10 @@ class VectorIndexTest
         gigaMap.add(new Document("Third", new float[]{0.0f, 0.0f, 1.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
@@ -1602,24 +1590,24 @@ class VectorIndexTest
         gigaMap.add(new Document("Third", new float[]{0.0f, 0.0f, 1.0f}));
 
         @SuppressWarnings("unchecked")
-        final VectorSearchResult.Entry<Document>[] entries = new VectorSearchResult.Entry[] {
-            new VectorSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
-            new VectorSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
+        final ScoredSearchResult.Entry<Document>[] entries = new ScoredSearchResult.Entry[] {
+            new ScoredSearchResult.Entry.Default<>(0L, 0.95f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(1L, 0.85f, gigaMap),
+            new ScoredSearchResult.Entry.Default<>(2L, 0.75f, gigaMap)
         };
 
         final VectorSearchResult<Document> result = new VectorSearchResult.Default<>(X.List(entries));
 
         // Sum of all scores
         final float sumOfScores = result.stream()
-            .map(VectorSearchResult.Entry::score)
+            .map(ScoredSearchResult.Entry::score)
             .reduce(0f, Float::sum);
 
         assertEquals(2.55f, sumOfScores, 0.001f, "Sum of scores should be 2.55");
 
         // Max score
         final Optional<Float> maxScore = result.stream()
-            .map(VectorSearchResult.Entry::score)
+            .map(ScoredSearchResult.Entry::score)
             .max(Float::compareTo);
 
         assertTrue(maxScore.isPresent());
@@ -2017,7 +2005,7 @@ class VectorIndexTest
         assertEquals(10, result.size(), "Should still find 10 nearest neighbors among remaining entities");
 
         // Verify all returned entities are non-removed ones (odd IDs)
-        for(final VectorSearchResult.Entry<Document> entry : result)
+        for(final ScoredSearchResult.Entry<Document> entry : result)
         {
             assertNotNull(entry.entity(), "Entity should be accessible");
             final String content = entry.entity().content();
@@ -2076,7 +2064,7 @@ class VectorIndexTest
         final VectorSearchResult<Document> result = indexAfter.search(randomVector(random, dimension), 20);
         assertEquals(20, result.size());
 
-        for(final VectorSearchResult.Entry<Document> entry : result)
+        for(final ScoredSearchResult.Entry<Document> entry : result)
         {
             assertTrue(entry.entity().content().startsWith("new_"),
                 "All results should be from new population");
@@ -2134,8 +2122,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 assertNotNull(gigaMap);
 
                 assertEquals(90, gigaMap.size(), "Should still have 90 entities after restart");
@@ -2147,7 +2134,7 @@ class VectorIndexTest
                 final VectorSearchResult<Document> result = index.search(vectors.get(0), 10);
                 assertEquals(10, result.size());
 
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     final String content = entry.entity().content();
                     final int docNum = Integer.parseInt(content.replace("doc_", ""));
@@ -2208,8 +2195,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 assertNotNull(gigaMap);
 
                 assertEquals(90, gigaMap.size(), "Should still have 90 entities after restart");
@@ -2221,7 +2207,7 @@ class VectorIndexTest
                 final VectorSearchResult<Document> result = index.search(vectors.get(55), 10);
                 assertEquals(10, result.size());
 
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     final String content = entry.entity().content();
                     final int docNum = Integer.parseInt(content.replace("doc_", ""));
@@ -2282,8 +2268,7 @@ class VectorIndexTest
         {
             try(final EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
             {
-                @SuppressWarnings("unchecked")
-                final GigaMap<Document> gigaMap = (GigaMap<Document>)storage.root();
+                final GigaMap<Document> gigaMap = storage.root();
                 assertNotNull(gigaMap);
 
                 assertEquals(30, gigaMap.size(), "Should have 30 new documents after restart");
@@ -2294,12 +2279,257 @@ class VectorIndexTest
                 final VectorSearchResult<Document> result = index.search(randomVector(random, dimension), 10);
                 assertEquals(10, result.size());
 
-                for(final VectorSearchResult.Entry<Document> entry : result)
+                for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
                     assertTrue(entry.entity().content().startsWith("new_"),
                         "Only new documents should exist after restart");
                 }
             }
         }
+    }
+
+    /**
+     * Test getVector with embedded vectorizer.
+     */
+    @Test
+    void testGetVectorEmbedded()
+    {
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(3)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .build();
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings",
+            config,
+            new EmbeddedDocumentVectorizer()
+        );
+
+        final float[] vec1 = {1.0f, 0.0f, 0.0f};
+        final float[] vec2 = {0.0f, 1.0f, 0.0f};
+        final float[] vec3 = {0.0f, 0.0f, 1.0f};
+
+        gigaMap.add(new Document("doc1", vec1));
+        gigaMap.add(new Document("doc2", vec2));
+        gigaMap.add(new Document("doc3", vec3));
+
+        // Retrieve vectors by entity ID
+        assertArrayEquals(vec1, index.getVector(0));
+        assertArrayEquals(vec2, index.getVector(1));
+        assertArrayEquals(vec3, index.getVector(2));
+
+        // Non-existent entity ID should return null
+        assertNull(index.getVector(999));
+    }
+
+    /**
+     * Test getVector with computed (non-embedded) vectorizer.
+     */
+    @Test
+    void testGetVectorComputed()
+    {
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(3)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .build();
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings",
+            config,
+            new ComputedDocumentVectorizer()
+        );
+
+        final float[] vec1 = {1.0f, 2.0f, 3.0f};
+        final float[] vec2 = {4.0f, 5.0f, 6.0f};
+
+        gigaMap.add(new Document("doc1", vec1));
+        gigaMap.add(new Document("doc2", vec2));
+
+        // Retrieve vectors by entity ID
+        assertArrayEquals(vec1, index.getVector(0));
+        assertArrayEquals(vec2, index.getVector(1));
+
+        // Non-existent entity ID should return null
+        assertNull(index.getVector(999));
+    }
+
+    /**
+     * Test getVector reflects updated vector after entity update.
+     */
+    @Test
+    void testGetVectorAfterUpdate()
+    {
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(3)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .build();
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings",
+            config,
+            new ComputedDocumentVectorizer()
+        );
+
+        gigaMap.add(new Document("doc1", new float[]{1.0f, 0.0f, 0.0f}));
+        assertArrayEquals(new float[]{1.0f, 0.0f, 0.0f}, index.getVector(0));
+
+        // Update the entity with a new vector
+        gigaMap.set(0, new Document("doc1-updated", new float[]{0.0f, 1.0f, 0.0f}));
+        assertArrayEquals(new float[]{0.0f, 1.0f, 0.0f}, index.getVector(0));
+    }
+
+    /**
+     * Verifies that the top-k results are consistent regardless of the requested k value.
+     * Previously, searching with k=5 and k=50 could produce different top-5 results because
+     * the HNSW beam width was coupled to k, causing insufficient exploration for small k.
+     */
+    @Test
+    void searchTopKConsistentRegardlessOfRequestedK()
+    {
+        final int dimension = 32;
+        final int vectorCount = 200;
+        final Random random = new Random(42);
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+        vectorIndices.add("embeddings",
+            VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .maxDegree(16)
+                .beamWidth(100)
+                .build(),
+            new DocumentVectorizer32()
+        );
+
+        for(int i = 0; i < vectorCount; i++)
+        {
+            gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
+        }
+
+        final VectorIndex<Document> index = vectorIndices.get("embeddings");
+        final float[] queryVector = randomVector(new Random(99), dimension);
+
+        // Search with different k values
+        final VectorSearchResult<Document> result5  = index.search(queryVector, 5);
+        final VectorSearchResult<Document> result50 = index.search(queryVector, 50);
+
+        // Extract top-5 entity IDs from each
+        final List<Long> top5from5  = result5.stream()
+            .map(VectorSearchResult.Entry::entityId)
+            .toList();
+        final List<Long> top5from50 = result50.stream()
+            .limit(5)
+            .map(VectorSearchResult.Entry::entityId)
+            .toList();
+
+        assertEquals(top5from5, top5from50,
+            "Top-5 results should be identical regardless of k parameter");
+    }
+
+    /**
+     * Verifies that configuring a low minSearchBeamWidth is respected — i.e. the search beam
+     * width floor does not silently override a lower user setting. Confirms the fix for the
+     * issue that the previous hardcoded MIN_SEARCH_BEAM_WIDTH=100 caused.
+     */
+    @Test
+    void minSearchBeamWidthRespectsLowerUserSetting()
+    {
+        final int dimension = 32;
+        final int vectorCount = 500;
+        final Random random = new Random(42);
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+        vectorIndices.add("embeddings",
+            VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .maxDegree(16)
+                .beamWidth(100)
+                .minSearchBeamWidth(1)  // disable the floor
+                .build(),
+            new DocumentVectorizer32()
+        );
+
+        for(int i = 0; i < vectorCount; i++)
+        {
+            gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
+        }
+
+        final VectorIndex<Document> index = vectorIndices.get("embeddings");
+        final float[] queryVector = randomVector(new Random(99), dimension);
+
+        // With the floor disabled, the default search(q, k) must behave exactly like the
+        // explicit overload search(q, k, k) — both use the same effective beam width (k).
+        // Deterministic: if a silent floor of 100 were still being applied, search(q, 5)
+        // would explore 100 candidates while search(q, 5, 5) would explore 5, and the
+        // top-5 would diverge.
+        final List<Long> top5floorDisabled = index.search(queryVector, 5).stream()
+            .map(VectorSearchResult.Entry::entityId)
+            .toList();
+        final List<Long> top5explicitBeamWidth = index.search(queryVector, 5, 5).stream()
+            .map(VectorSearchResult.Entry::entityId)
+            .toList();
+
+        assertEquals(top5explicitBeamWidth, top5floorDisabled,
+            "With minSearchBeamWidth=1, search(q, k) must match search(q, k, k) rather than "
+            + "silently applying a larger configured floor");
+    }
+
+    /**
+     * Verifies that the per-query searchBeamWidth overload overrides the configured floor.
+     * Compares search(q, k, N) against search(q, N).limit(k) — both should explore N candidates
+     * and produce the same top-k.
+     */
+    @Test
+    void perQuerySearchBeamWidthOverridesConfig()
+    {
+        final int dimension = 32;
+        final int vectorCount = 500;
+        final Random random = new Random(42);
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+        vectorIndices.add("embeddings",
+            VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .maxDegree(16)
+                .beamWidth(100)
+                // default minSearchBeamWidth = 100
+                .build(),
+            new DocumentVectorizer32()
+        );
+
+        for(int i = 0; i < vectorCount; i++)
+        {
+            gigaMap.add(new Document("doc_" + i, randomVector(random, dimension)));
+        }
+
+        final VectorIndex<Document> index = vectorIndices.get("embeddings");
+        final float[] queryVector = randomVector(new Random(99), dimension);
+
+        // search(q, 5, 500) should explore 500 candidates and return the same top-5 as
+        // search(q, 500).limit(5), because both effectively run an HNSW search with rerankK=500.
+        final List<Long> top5override = index.search(queryVector, 5, 500).stream()
+            .map(VectorSearchResult.Entry::entityId)
+            .toList();
+        final List<Long> top5fromFull = index.search(queryVector, 500).stream()
+            .limit(5)
+            .map(VectorSearchResult.Entry::entityId)
+            .toList();
+
+        assertEquals(top5fromFull, top5override,
+            "Per-query searchBeamWidth=500 must widen exploration beyond the default floor of 100");
     }
 }

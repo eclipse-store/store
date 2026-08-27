@@ -15,6 +15,7 @@ package org.microstream.spring.boot.example.advanced.storage;
  */
 
 import org.eclipse.serializer.persistence.types.Storer;
+import org.eclipse.store.integrations.spring.boot.types.concurrent.Mutex;
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Read;
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Write;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
@@ -27,6 +28,7 @@ import java.util.List;
 
 
 @Component
+@Mutex("jokes")
 public class JokesStorageImpl implements JokesStorage
 {
     private final EmbeddedStorageManager storageManager;
@@ -45,8 +47,8 @@ public class JokesStorageImpl implements JokesStorage
     public String oneJoke(Integer id)
     {
         String joke;
-        JokesRoot root = (JokesRoot) storageManager.root();
-        if (id > root.getJokes().size())
+        JokesRoot root = storageManager.root();
+        if (id < 0 || id >= root.getJokes().size())
         {
             throw new IllegalArgumentException("No jokes with this id");
         }
@@ -58,7 +60,7 @@ public class JokesStorageImpl implements JokesStorage
     @Read
     public List<String> allJokes()
     {
-        JokesRoot root = (JokesRoot) storageManager.root();
+        JokesRoot root = storageManager.root();
         return new ArrayList<>(root.getJokes()); // Create new List... never return original one.
     }
 
@@ -66,7 +68,7 @@ public class JokesStorageImpl implements JokesStorage
     @Write
     public Integer addNewJoke(String joke)
     {
-        JokesRoot root = (JokesRoot) storageManager.root();
+        JokesRoot root = storageManager.root();
         root.getJokes().add(joke);
         storageManager.store(root.getJokes());
         return root.getJokes().size();
@@ -76,7 +78,7 @@ public class JokesStorageImpl implements JokesStorage
     @Write
     public void addJokes(List<String> jokes)
     {
-        JokesRoot root = (JokesRoot) storageManager.root();
+        JokesRoot root = storageManager.root();
         root.getJokes().addAll(jokes);
         storageManager.store(root.getJokes());
     }
@@ -85,7 +87,7 @@ public class JokesStorageImpl implements JokesStorage
     @Write
     public Integer saveAllJokes(List<String> jokes)
     {
-        JokesRoot root = (JokesRoot) storageManager.root();
+        JokesRoot root = storageManager.root();
         root.setJokes(jokes);
         Storer eagerStorer = storageManager.createEagerStorer();
         eagerStorer.store(root);

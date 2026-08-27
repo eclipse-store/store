@@ -90,7 +90,7 @@ public class QueryVariableTests
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(workDir)) {
-            GigaMap<Person> map2 = (GigaMap<Person>) storageManager.root();
+            GigaMap<Person> map2 = storageManager.root();
 
             List<Person> collect2 = map2.query
                             (

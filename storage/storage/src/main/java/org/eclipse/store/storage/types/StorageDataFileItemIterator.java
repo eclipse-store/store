@@ -15,6 +15,7 @@ package org.eclipse.store.storage.types;
  */
 
 import java.io.IOException;
+import java.lang.ref.Reference;
 import java.nio.ByteBuffer;
 
 import org.eclipse.serializer.afs.types.AReadableFile;
@@ -139,6 +140,11 @@ public interface StorageDataFileItemIterator
 				return this.buffer;
 			}
 
+			@Override
+			public void cleanUp()
+			{
+				XMemory.deallocateDirectByteBuffer(this.buffer);
+			}
 		}
 
 	}
@@ -255,6 +261,11 @@ public interface StorageDataFileItemIterator
 				throw new StorageException(
 					"currentFilePosition = " + currentFilePosition + ". nextEntityLength = " + nextItemLength.value, e
 				);
+			}
+			finally
+			{
+				// the buffer must stay strongly reachable while its raw memory is read via the extracted address.
+				Reference.reachabilityFence(buffer);
 			}
 			
 			bufferProvider.cleanUp();

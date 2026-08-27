@@ -26,6 +26,62 @@ public interface StorageChannelSynchronizingTask extends StorageChannelTask
 
 
 
+	/**
+	 * Per-channel boolean results of a completing task: each channel writes only its own slot
+	 * (a single shared flag would be a last-writer-wins race between the channel threads), the
+	 * issuer aggregates after the completion barrier, whose monitor provides the happens-before
+	 * edge for the reads.
+	 */
+	public final class ChannelResults
+	{
+		private final boolean[] results;
+
+		public ChannelResults(final int channelCount)
+		{
+			super();
+			this.results = new boolean[channelCount];
+		}
+
+		public void set(final int channelIndex, final boolean result)
+		{
+			this.results[channelIndex] = result;
+		}
+
+		/**
+		 * @return whether every channel reported {@code true}; one channel's failure or
+		 *         deferral must not be masked by another channel's success.
+		 */
+		public boolean allTrue()
+		{
+			for(final boolean result : this.results)
+			{
+				if(!result)
+				{
+					return false;
+				}
+			}
+			return true;
+		}
+
+		/**
+		 * @return whether any channel reported {@code true} - e.g. any channel rolled a file over,
+		 *         so every channel must make its files durable before the collapse can be relied on.
+		 */
+		public boolean anyTrue()
+		{
+			for(final boolean result : this.results)
+			{
+				if(result)
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+	}
+
+
+
 	public abstract class AbstractCompletingTask<R>
 	extends StorageChannelTask.Abstract<R>
 	implements StorageChannelSynchronizingTask
@@ -131,6 +187,14 @@ public interface StorageChannelSynchronizingTask extends StorageChannelTask
 					this.postCompletionSuccess(channel, result);
 				}
 			}
+		}
+
+		@Override
+		protected final void completeExceptionally(final StorageChannel channel)
+		{
+			// own failure means fail() regardless of siblings, so unlike complete() this must NOT
+			// waitOnProcessing() first - see the contract for why waiting here would deadlock.
+			this.synchronizedComplete(channel, null);
 		}
 
 

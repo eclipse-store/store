@@ -20,17 +20,50 @@ import org.eclipse.serializer.persistence.types.PersistenceTypeManager;
 import org.eclipse.store.storage.exceptions.StorageExceptionInitialization;
 import org.eclipse.store.storage.types.StorageRootTypeIdProvider;
 
+/**
+ * {@link StorageRootTypeIdProvider} specialization for embedded storage that resolves the type id of the
+ * persistent roots holder type lazily.
+ * <p>
+ * In embedded mode the persistent roots holder type id is not known upfront, since the persistence type
+ * dictionary is built up while the {@link EmbeddedStorageManager} starts. Instances of this provider therefore
+ * remember the root {@link Class} until {@link #initialize(PersistenceTypeManager)} is called from the startup
+ * sequence; from that point on, {@link #provideRootTypeId()} returns the resolved type id.
+ *
+ * @see StorageRootTypeIdProvider
+ */
 public interface EmbeddedStorageRootTypeIdProvider extends StorageRootTypeIdProvider
 {
+	/**
+	 * Resolves the type id of the configured root type via the passed {@link PersistenceTypeManager} and caches
+	 * it for subsequent calls to {@link #provideRootTypeId()}.
+	 * <p>
+	 * Must be called exactly once during storage startup, after the persistence type handlers have been
+	 * initialized.
+	 *
+	 * @param typeIdResolver the {@link PersistenceTypeManager} used to look up or assign the root type id.
+	 */
 	public void initialize(PersistenceTypeManager typeIdResolver);
 
 
 
+	/**
+	 * Pseudo-constructor method to create a new {@link EmbeddedStorageRootTypeIdProvider} for the given root
+	 * holder type.
+	 *
+	 * @param rootType the {@link Class} of the persistent roots holder whose type id is to be provided.
+	 *
+	 * @return a new {@link EmbeddedStorageRootTypeIdProvider} instance.
+	 */
 	public static EmbeddedStorageRootTypeIdProvider New(final Class<?> rootType)
 	{
 		return new EmbeddedStorageRootTypeIdProvider.Default(rootType);
 	}
 
+	/**
+	 * Default implementation that caches the resolved root type id after {@link #initialize(PersistenceTypeManager)}
+	 * has been invoked and throws a {@link StorageExceptionInitialization} when {@link #provideRootTypeId()} is
+	 * called before initialization.
+	 */
 	public final class Default implements EmbeddedStorageRootTypeIdProvider
 	{
 		///////////////////////////////////////////////////////////////////////////

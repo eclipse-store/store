@@ -18,6 +18,10 @@ package org.eclipse.store.gigamap.types;
  * An interface that extends {@link BinaryIndexerNumber} specifically for using {@link Short} as the key type.
  * It provides indexing capabilities, optimized for binary operations and high-cardinality indices,
  * while working with entities of type {@code E}.
+ * <p>
+ * <b>Restriction:</b> {@code null} is not supported as an index key and is rejected with an
+ * {@link IllegalArgumentException}. See {@link BinaryIndexerNumber} for the details and use
+ * {@link IndexerShort} to index a nullable {@link Short} field.
  *
  * @param <E> the type of entities being indexed
  */
@@ -59,6 +63,17 @@ public interface BinaryIndexerShort<E> extends BinaryIndexerNumber<E, Short>
 				return 1L << Short.SIZE;
 			}
 			return Short.toUnsignedLong(number);
+		}
+
+		/**
+		 * Inverse of {@link #toLong(Short)}: the {@code 1L << Short.SIZE} sentinel maps back to
+		 * {@code 0}; otherwise re-narrowing the stored unsigned value with {@code (short)} recovers the
+		 * signed key.
+		 */
+		@Override
+		public Long binaryToKey(final long stored)
+		{
+			return stored == (1L << Short.SIZE) ? 0L : (long)(short)stored;
 		}
 
 		protected abstract Short getShort(final E entity);

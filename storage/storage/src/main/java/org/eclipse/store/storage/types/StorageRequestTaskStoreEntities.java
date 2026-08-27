@@ -18,6 +18,7 @@ import java.nio.ByteBuffer;
 
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.typing.KeyValue;
+import org.eclipse.serializer.util.X;
 
 public interface StorageRequestTaskStoreEntities extends StorageRequestTask
 {
@@ -42,7 +43,12 @@ public interface StorageRequestTaskStoreEntities extends StorageRequestTask
 		// instance fields //
 		////////////////////
 
-		private final Binary data;
+		private final Binary                           data                      ;
+		private final StorageReferenceValidationPolicy referenceValidationPolicy ;
+		private final long[][]                         trustedObjectIdsPerChannel;
+		// per-channel "rolled a file over this task" flags; if any channel did, the completion barrier
+		// makes every channel durable so the new file's baseline collapse is never over a non-durable store.
+		private final StorageChannelSynchronizingTask.ChannelResults rolledOver;
 
 
 
@@ -52,9 +58,60 @@ public interface StorageRequestTaskStoreEntities extends StorageRequestTask
 
 		Default(final long timestamp, final Binary data, final StorageOperationController controller)
 		{
+			// falls back to the documented product default (see StorageConfiguration).
+			this(timestamp, data, controller, StorageReferenceValidationPolicy.LOG);
+		}
+
+		Default(
+			final long                             timestamp                ,
+			final Binary                           data                     ,
+			final StorageOperationController       controller               ,
+			final StorageReferenceValidationPolicy referenceValidationPolicy
+		)
+		{
 			// every channel has to store at least a chunk header, so progress count is always equal to channel count
 			super(timestamp, data.channelCount(), controller);
-			this.data = data;
+			this.data                       = data;
+			this.referenceValidationPolicy  = X.notNull(referenceValidationPolicy);
+			this.trustedObjectIdsPerChannel = referenceValidationPolicy.isValidating()
+				? partitionPerChannel(data.trustedObjectIds(), data.channelCount())
+				: null
+			;
+			this.rolledOver = new StorageChannelSynchronizingTask.ChannelResults(data.channelCount());
+		}
+
+		/**
+		 * Partitions the passed trusted object ids by their owning channel, using the same
+		 * objectId-to-channel hash the entity registry uses. Runs once on the issuing thread,
+		 * off the channel threads. Returns {@code null} if there is nothing to validate.
+		 */
+		private static long[][] partitionPerChannel(final long[] trustedObjectIds, final int channelCount)
+		{
+			if(trustedObjectIds == null || trustedObjectIds.length == 0)
+			{
+				return null;
+			}
+
+			final int   channelHashModulo = channelCount - 1;
+			final int[] counts            = new int[channelCount];
+			for(final long objectId : trustedObjectIds)
+			{
+				counts[StorageEntityCache.Default.oidChannelIndex(objectId, channelHashModulo)]++;
+			}
+
+			final long[][] perChannel = new long[channelCount][];
+			for(int i = 0; i < channelCount; i++)
+			{
+				perChannel[i] = new long[counts[i]];
+				counts[i] = 0;
+			}
+			for(final long objectId : trustedObjectIds)
+			{
+				final int channelIndex = StorageEntityCache.Default.oidChannelIndex(objectId, channelHashModulo);
+				perChannel[channelIndex][counts[channelIndex]++] = objectId;
+			}
+
+			return perChannel;
 		}
 
 
@@ -66,12 +123,57 @@ public interface StorageRequestTaskStoreEntities extends StorageRequestTask
 		@Override
 		protected final KeyValue<ByteBuffer[], long[]> internalProcessBy(final StorageChannel channel)
 		{
-			return channel.storeEntities(this.timestamp(), this.data.channelChunk(channel.channelIndex()));
+			if(this.trustedObjectIdsPerChannel != null)
+			{
+				// validate before writing: a detected dangling reference fails this channel's processing,
+				// which causes the task-wide fail/rollback of whatever the other channels already wrote.
+				channel.validateTrustedReferences(
+					this.trustedObjectIdsPerChannel[channel.channelIndex()],
+					this.referenceValidationPolicy
+				);
+			}
+
+			final KeyValue<ByteBuffer[], long[]> stored =
+				channel.storeEntities(this.timestamp(), this.data.channelChunk(channel.channelIndex()));
+
+			// record whether this channel rolled a file over, for the completion barrier below. Set
+			// before finishProcessing so every channel's succeed sees it after waitOnProcessing.
+			this.rolledOver.set(channel.channelIndex(), channel.pollRolloverOccurred());
+
+			return stored;
 		}
 
 		@Override
 		protected final void succeed(final StorageChannel channel, final KeyValue<ByteBuffer[], long[]> result)
 		{
+			// Eager rollover durability: if any channel rolled a file over, every channel fsyncs here in
+			// its own succeed, so the just-sealed store is durable everywhere before the store returns.
+			// The processing barrier has passed, so rolledOver reflects all channels. Ordered BEFORE the
+			// commit so a channel never commits after its own fsync FAILED; a later-completing sibling
+			// rolls back via fail(), and the restart's consensus reconciliation restores all-or-nothing.
+			// A false return means the storage went read-only mid-task (stores are rejected up front
+			// otherwise), where no fsync is possible: a benign skip, not a fault - the commit proceeds
+			// (as any non-synchronized store does) and the baseline's durability is backstopped by the
+			// flush the rollover requested (createNextStorageFile), which fires once the storage is
+			// writable again. Only an fsync EXCEPTION (a medium fault) escalates and stops the channel
+			// (see catch); escalating a read-only skip would brick the channel on a benign toggle.
+			if(this.rolledOver.anyTrue())
+			{
+				try
+				{
+					channel.flushStorage();
+				}
+				catch(final RuntimeException e)
+				{
+					// fsync failed on a medium fault. Escalate as the flush task does: register the
+					// disruption and stop processing so the fault surfaces loudly instead of the channel
+					// accepting further non-durable stores. Rethrow so this store also reports it.
+					this.controller.registerDisruption(e);
+					this.controller.setChannelProcessingEnabled(false);
+					throw e;
+				}
+			}
+
 			// no storing operation of the other hash channels failed, so definitely commit the write here.
 			channel.commitChunkStorage();
 		}

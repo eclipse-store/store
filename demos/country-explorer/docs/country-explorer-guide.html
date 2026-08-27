@@ -1,0 +1,1203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EclipseStore Country Explorer Demo - Source Guide</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        :root {
+            --bg: #ffffff;
+            --fg: #1a1a2e;
+            --muted: #5a5a7a;
+            --accent: #4361ee;
+            --accent-light: #eef0ff;
+            --border: #e2e4ea;
+            --code-bg: #f6f7f9;
+            --code-border: #e2e4ea;
+            --heading-color: #16213e;
+            --tag-bg: #e8f4f8;
+            --tag-color: #0077b6;
+            --highlight: #fff3cd;
+            --section-divider: #4361ee;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: var(--fg);
+            background: var(--bg);
+            line-height: 1.7;
+            font-size: 15px;
+        }
+
+        /* Print styles */
+        @media print {
+            body { font-size: 11pt; line-height: 1.5; }
+            .page-break { page-break-before: always; }
+            .no-print { display: none; }
+            pre { font-size: 9pt; }
+            .toc { page-break-after: always; }
+            h2 { page-break-before: always; }
+            h2:first-of-type { page-break-before: avoid; }
+            pre, .code-block { break-inside: avoid; }
+            .explanation { break-inside: avoid; }
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 50px;
+        }
+
+        /* Title page */
+        .title-page {
+            text-align: center;
+            padding: 80px 0 60px;
+            border-bottom: 3px solid var(--section-divider);
+            margin-bottom: 50px;
+        }
+        .title-page h1 {
+            font-size: 2.4em;
+            font-weight: 700;
+            color: var(--heading-color);
+            margin-bottom: 12px;
+            letter-spacing: -0.02em;
+        }
+        .title-page .subtitle {
+            font-size: 1.2em;
+            color: var(--muted);
+            margin-bottom: 30px;
+        }
+        .title-page .meta {
+            font-size: 0.9em;
+            color: var(--muted);
+        }
+        .title-page .tags {
+            margin-top: 25px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .tag {
+            display: inline-block;
+            background: var(--tag-bg);
+            color: var(--tag-color);
+            padding: 4px 14px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 500;
+        }
+
+        /* TOC */
+        .toc {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 30px 35px;
+            margin-bottom: 50px;
+        }
+        .toc h2 {
+            font-size: 1.3em;
+            margin-bottom: 15px;
+            color: var(--heading-color);
+            page-break-before: avoid;
+        }
+        .toc ol {
+            padding-left: 20px;
+        }
+        .toc li {
+            margin-bottom: 6px;
+        }
+        .toc a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        .toc a:hover { text-decoration: underline; }
+        .toc .sub { padding-left: 22px; font-size: 0.93em; }
+
+        /* Section headings */
+        h2 {
+            font-size: 1.6em;
+            font-weight: 700;
+            color: var(--heading-color);
+            margin: 50px 0 10px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid var(--section-divider);
+            letter-spacing: -0.01em;
+        }
+        h3 {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: var(--heading-color);
+            margin: 30px 0 10px;
+        }
+        h4 {
+            font-size: 1.05em;
+            font-weight: 600;
+            color: var(--muted);
+            margin: 20px 0 8px;
+        }
+
+        p { margin-bottom: 14px; }
+
+        /* Explanation blocks */
+        .explanation {
+            background: var(--accent-light);
+            border-left: 4px solid var(--accent);
+            padding: 18px 22px;
+            margin: 20px 0;
+            border-radius: 0 6px 6px 0;
+        }
+        .explanation p:last-child { margin-bottom: 0; }
+        .explanation strong { color: var(--accent); }
+
+        .note {
+            background: var(--highlight);
+            border-left: 4px solid #ffc107;
+            padding: 14px 18px;
+            margin: 16px 0;
+            border-radius: 0 6px 6px 0;
+            font-size: 0.93em;
+        }
+
+        /* Code blocks */
+        pre {
+            background: var(--code-bg);
+            border: 1px solid var(--code-border);
+            border-radius: 6px;
+            padding: 20px 22px;
+            overflow-x: auto;
+            margin: 16px 0 24px;
+            font-size: 0.88em;
+            line-height: 1.55;
+        }
+        code {
+            font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+        }
+        pre code {
+            color: var(--fg);
+        }
+        p code, li code {
+            background: var(--code-bg);
+            border: 1px solid var(--code-border);
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+
+        .file-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--heading-color);
+            color: #fff;
+            padding: 10px 18px;
+            border-radius: 6px 6px 0 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85em;
+            margin-top: 20px;
+        }
+        .file-header + pre {
+            margin-top: 0;
+            border-radius: 0 0 6px 6px;
+            border-top: none;
+        }
+
+        ul, ol {
+            padding-left: 24px;
+            margin-bottom: 14px;
+        }
+        li { margin-bottom: 5px; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0 24px;
+            font-size: 0.93em;
+        }
+        th, td {
+            border: 1px solid var(--border);
+            padding: 10px 14px;
+            text-align: left;
+        }
+        th {
+            background: var(--code-bg);
+            font-weight: 600;
+        }
+
+        .arch-diagram {
+            text-align: center;
+            padding: 30px 20px;
+            margin: 20px 0;
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .arch-diagram pre {
+            display: inline-block;
+            text-align: left;
+            background: none;
+            border: none;
+            font-size: 0.85em;
+            padding: 0;
+            margin: 0;
+        }
+
+        .footer {
+            margin-top: 60px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+            color: var(--muted);
+            font-size: 0.85em;
+            text-align: center;
+        }
+
+        /* Syntax highlighting (basic) */
+        .kw { color: #7c3aed; font-weight: 500; }
+        .ty { color: #0077b6; }
+        .st { color: #059669; }
+        .cm { color: #94a3b8; font-style: italic; }
+        .an { color: #e67e22; }
+        .fn { color: #d63384; }
+        .num { color: #e67e22; }
+    </style>
+</head>
+<body>
+<div class="container">
+
+    <!-- TITLE PAGE -->
+    <div class="title-page">
+        <h1>Geospatial Country Exploration<br>with EclipseStore GigaMap</h1>
+        <p class="subtitle">A complete walkthrough of the Country Explorer demo</p>
+        <div class="tags">
+            <span class="tag">EclipseStore 4.0</span>
+            <span class="tag">GigaMap</span>
+            <span class="tag">Spatial Index</span>
+            <span class="tag">Bitmap Index</span>
+            <span class="tag">Spring Boot 4</span>
+        </div>
+    </div>
+
+    <!-- TABLE OF CONTENTS -->
+    <div class="toc">
+        <h2>Contents</h2>
+        <ol>
+            <li><a href="#overview">Overview &amp; Architecture</a></li>
+            <li><a href="#dependencies">Project Setup &amp; Dependencies</a></li>
+            <li><a href="#model">The Country Model</a></li>
+            <li><a href="#indices">Country Indices</a>
+                <div class="sub">Bitmap and spatial indexers for efficient querying</div>
+            </li>
+            <li><a href="#location-index">The Spatial Location Index</a>
+                <div class="sub">Mapping countries to geographic coordinates</div>
+            </li>
+            <li><a href="#config">GigaMap Configuration</a>
+                <div class="sub">Wiring GigaMap and all indices together</div>
+            </li>
+            <li><a href="#service">The Country Service</a>
+                <div class="sub">Data loading, spatial queries, and distance calculations</div>
+            </li>
+            <li><a href="#controller">The REST Controller</a>
+                <div class="sub">API endpoints for exploring the world</div>
+            </li>
+            <li><a href="#running">Running the Demo</a></li>
+        </ol>
+    </div>
+
+    <!-- 1. OVERVIEW -->
+    <h2 id="overview">1. Overview &amp; Architecture</h2>
+
+    <p>This demo application shows how to build a <strong>geospatial country exploration API</strong> using
+    <strong>EclipseStore GigaMap</strong> with integrated bitmap and spatial indices. Instead of relying on a
+    traditional database with SQL queries, all country data lives in an in-memory GigaMap that supports
+    proximity searches, bounding-box queries, hemisphere filtering, and more &mdash; all backed by
+    high-performance bitmap indices.</p>
+
+    <div class="explanation">
+        <p><strong>Key Concepts:</strong></p>
+        <ul>
+            <li><strong>GigaMap</strong> &mdash; EclipseStore's high-performance in-memory map with built-in support for
+                multiple index types, including bitmap and spatial indices</li>
+            <li><strong>SpatialIndexer</strong> &mdash; An index that maps entities to latitude/longitude coordinates,
+                enabling radius searches, bounding-box queries, and hemisphere filtering</li>
+            <li><strong>IndexerString</strong> &mdash; A bitmap index on string fields, enabling efficient exact-match
+                lookups by continent, country name, or ISO code</li>
+        </ul>
+    </div>
+
+    <div class="arch-diagram">
+        <pre><code>                     REST API
+                        |
+               +--------+--------+
+               |                 |
+          CountryController      |
+               |                 |
+          CountryService         |
+            /        \           |
+      GigaMap     LocationIndex  |
+     (storage)   (spatial search)|
+          \          /           |
+       CountryIndices            |
+      /    |    |    \           |
+ LOCATION  |  NAME  ALPHA2      |
+        CONTINENT               |
+               |                 |
+    countries.json ---> GigaMap with indexed fields</code></pre>
+    </div>
+
+    <p>The flow is straightforward: on startup, country data is loaded from a bundled <code>countries.json</code>
+    resource into the GigaMap. Four bitmap indices are registered &mdash; a spatial index for latitude/longitude
+    and three string indices for continent, name, and alpha-2 code. The REST API then exposes a rich set of
+    query endpoints that leverage these indices for sub-millisecond lookups across proximity, containment, and
+    equality queries.</p>
+
+    <!-- 2. DEPENDENCIES -->
+    <h2 id="dependencies" class="page-break">2. Project Setup &amp; Dependencies</h2>
+
+    <p>The demo is a Spring Boot 4 application with three key dependencies:</p>
+
+    <table>
+        <tr><th>Dependency</th><th>Purpose</th></tr>
+        <tr><td><code>spring-boot-starter-web</code></td><td>REST API framework</td></tr>
+        <tr><td><code>gigamap</code></td><td>EclipseStore GigaMap with bitmap and spatial indexing</td></tr>
+        <tr><td><code>springdoc-openapi-starter-webmvc-ui</code></td><td>Swagger UI for interactive API exploration</td></tr>
+    </table>
+
+    <div class="file-header">pom.xml (dependencies)</div>
+<pre><code>&lt;<span class="kw">dependencies</span>&gt;
+    &lt;<span class="kw">dependency</span>&gt;
+        &lt;<span class="ty">groupId</span>&gt;org.springframework.boot&lt;/<span class="ty">groupId</span>&gt;
+        &lt;<span class="ty">artifactId</span>&gt;spring-boot-starter-web&lt;/<span class="ty">artifactId</span>&gt;
+    &lt;/<span class="kw">dependency</span>&gt;
+
+    &lt;<span class="kw">dependency</span>&gt;
+        &lt;<span class="ty">groupId</span>&gt;org.eclipse.store&lt;/<span class="ty">groupId</span>&gt;
+        &lt;<span class="ty">artifactId</span>&gt;gigamap&lt;/<span class="ty">artifactId</span>&gt;
+        &lt;<span class="ty">version</span>&gt;${project.version}&lt;/<span class="ty">version</span>&gt;
+    &lt;/<span class="kw">dependency</span>&gt;
+
+    &lt;<span class="kw">dependency</span>&gt;
+        &lt;<span class="ty">groupId</span>&gt;org.springdoc&lt;/<span class="ty">groupId</span>&gt;
+        &lt;<span class="ty">artifactId</span>&gt;springdoc-openapi-starter-webmvc-ui&lt;/<span class="ty">artifactId</span>&gt;
+        &lt;<span class="ty">version</span>&gt;2.8.13&lt;/<span class="ty">version</span>&gt;
+    &lt;/<span class="kw">dependency</span>&gt;
+&lt;/<span class="kw">dependencies</span>&gt;</code></pre>
+
+    <div class="file-header">application.properties</div>
+<pre><code>server.port=<span class="num">8081</span>
+
+springdoc.swagger-ui.try-it-out-enabled=<span class="kw">true</span>
+springdoc.swagger-ui.url=<span class="st">/v3/api-docs</span></code></pre>
+
+    <div class="note">
+        <strong>Note:</strong> The application runs on port <code>8081</code> (not the default 8080) to avoid
+        conflicts when running alongside other EclipseStore demos. No external services (databases, embedding
+        models) are required &mdash; this demo is fully self-contained.
+    </div>
+
+    <!-- 3. COUNTRY MODEL -->
+    <h2 id="model" class="page-break">3. The Country Model</h2>
+
+    <p>The domain entity is a Java record with nine fields representing a country's identity, geographic
+    coordinates, and basic demographic data. Countries are deserialized from a <code>countries.json</code>
+    catalog file at startup and stored in the GigaMap.</p>
+
+    <div class="explanation">
+        <p><strong>Design choice:</strong> The record uses the capital city's coordinates for
+        <code>latitude</code> and <code>longitude</code>. This is a deliberate simplification &mdash;
+        representing each country as a single point makes spatial queries (nearby, distance) straightforward,
+        while still providing meaningful results for geographic exploration.</p>
+    </div>
+
+    <div class="file-header">model/Country.java</div>
+<pre><code><span class="kw">package</span> <span class="ty">org.eclipse.store.demo.countries.model</span>;
+
+<span class="kw">public record</span> <span class="ty">Country</span>(
+    <span class="ty">String</span> name,
+    <span class="ty">String</span> alpha2,
+    <span class="ty">String</span> alpha3,
+    <span class="ty">String</span> capital,
+    <span class="kw">double</span> latitude,
+    <span class="kw">double</span> longitude,
+    <span class="ty">String</span> continent,
+    <span class="kw">long</span>   population,
+    <span class="kw">double</span> area
+) {}</code></pre>
+
+    <table>
+        <tr><th>Field</th><th>Type</th><th>Description</th><th>Example</th></tr>
+        <tr><td><code>name</code></td><td><code>String</code></td><td>Common English name</td><td><code>"Germany"</code></td></tr>
+        <tr><td><code>alpha2</code></td><td><code>String</code></td><td>ISO 3166-1 alpha-2 code</td><td><code>"DE"</code></td></tr>
+        <tr><td><code>alpha3</code></td><td><code>String</code></td><td>ISO 3166-1 alpha-3 code</td><td><code>"DEU"</code></td></tr>
+        <tr><td><code>capital</code></td><td><code>String</code></td><td>Capital city name</td><td><code>"Berlin"</code></td></tr>
+        <tr><td><code>latitude</code></td><td><code>double</code></td><td>Capital latitude (decimal degrees)</td><td><code>52.52</code></td></tr>
+        <tr><td><code>longitude</code></td><td><code>double</code></td><td>Capital longitude (decimal degrees)</td><td><code>13.405</code></td></tr>
+        <tr><td><code>continent</code></td><td><code>String</code></td><td>Continent name</td><td><code>"Europe"</code></td></tr>
+        <tr><td><code>population</code></td><td><code>long</code></td><td>Estimated population</td><td><code>83190556</code></td></tr>
+        <tr><td><code>area</code></td><td><code>double</code></td><td>Total area in km&sup2;</td><td><code>357022.0</code></td></tr>
+    </table>
+
+    <p>An example entry in <code>countries.json</code>:</p>
+
+<pre><code>{
+    <span class="st">"name"</span>: <span class="st">"Germany"</span>,
+    <span class="st">"alpha2"</span>: <span class="st">"DE"</span>,
+    <span class="st">"alpha3"</span>: <span class="st">"DEU"</span>,
+    <span class="st">"capital"</span>: <span class="st">"Berlin"</span>,
+    <span class="st">"latitude"</span>: <span class="num">52.52</span>,
+    <span class="st">"longitude"</span>: <span class="num">13.405</span>,
+    <span class="st">"continent"</span>: <span class="st">"Europe"</span>,
+    <span class="st">"population"</span>: <span class="num">83190556</span>,
+    <span class="st">"area"</span>: <span class="num">357022.0</span>
+}</code></pre>
+
+    <!-- 4. COUNTRY INDICES -->
+    <h2 id="indices" class="page-break">4. Country Indices</h2>
+
+    <p>The <code>CountryIndices</code> class is a central registry of all GigaMap indices used by the application.
+    It holds four singleton index instances that are shared between configuration (where they are registered) and
+    the service layer (where they are used for querying).</p>
+
+    <div class="explanation">
+        <p><strong>Index types at a glance:</strong></p>
+        <ul>
+            <li><strong>SpatialIndexer</strong> (<code>LOCATION</code>) &mdash; Maps countries to lat/lon coordinates.
+                Supports radius search, bounding-box containment, hemisphere filtering, and latitude-band queries</li>
+            <li><strong>IndexerString</strong> (<code>CONTINENT</code>, <code>NAME</code>, <code>ALPHA2</code>) &mdash;
+                Bitmap indices on string fields for efficient exact-match lookups. GigaMap evaluates these using
+                bitwise operations, making them extremely fast even for large datasets</li>
+        </ul>
+    </div>
+
+    <div class="file-header">index/CountryIndices.java</div>
+<pre><code><span class="kw">package</span> <span class="ty">org.eclipse.store.demo.countries.index</span>;
+
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.countries.model.Country</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.gigamap.types.IndexerString</span>;
+
+<span class="kw">public final class</span> <span class="ty">CountryIndices</span>
+{
+    <span class="kw">public static final</span> <span class="ty">LocationIndex</span> LOCATION = <span class="kw">new</span> <span class="ty">LocationIndex</span>();
+
+    <span class="kw">public static final</span> <span class="ty">IndexerString</span>&lt;<span class="ty">Country</span>&gt; CONTINENT = <span class="kw">new</span> <span class="ty">IndexerString.Abstract</span>&lt;&gt;()
+    {
+        <span class="an">@Override</span>
+        <span class="kw">protected</span> <span class="ty">String</span> <span class="fn">getString</span>(<span class="kw">final</span> <span class="ty">Country</span> country)
+        {
+            <span class="kw">return</span> country.<span class="fn">continent</span>();
+        }
+    };
+
+    <span class="kw">public static final</span> <span class="ty">IndexerString</span>&lt;<span class="ty">Country</span>&gt; NAME = <span class="kw">new</span> <span class="ty">IndexerString.Abstract</span>&lt;&gt;()
+    {
+        <span class="an">@Override</span>
+        <span class="kw">protected</span> <span class="ty">String</span> <span class="fn">getString</span>(<span class="kw">final</span> <span class="ty">Country</span> country)
+        {
+            <span class="kw">return</span> country.<span class="fn">name</span>();
+        }
+    };
+
+    <span class="kw">public static final</span> <span class="ty">IndexerString</span>&lt;<span class="ty">Country</span>&gt; ALPHA2 = <span class="kw">new</span> <span class="ty">IndexerString.Abstract</span>&lt;&gt;()
+    {
+        <span class="an">@Override</span>
+        <span class="kw">protected</span> <span class="ty">String</span> <span class="fn">getString</span>(<span class="kw">final</span> <span class="ty">Country</span> country)
+        {
+            <span class="kw">return</span> country.<span class="fn">alpha2</span>();
+        }
+    };
+
+    <span class="kw">private</span> <span class="fn">CountryIndices</span>()
+    {
+        <span class="cm">// no instances</span>
+    }
+}</code></pre>
+
+    <h3>Walkthrough</h3>
+
+    <h4>LOCATION &mdash; Spatial Index</h4>
+    <p>The <code>LocationIndex</code> instance (detailed in the next section) extracts latitude and longitude from
+    each country. It enables the richest set of queries: radius search, bounding-box containment, hemisphere
+    filtering, and latitude-band queries (e.g. tropical zone). This single index powers six of the ten API
+    endpoints.</p>
+
+    <h4>CONTINENT &mdash; String Bitmap Index</h4>
+    <p>Extracts the <code>continent()</code> field. Used by the <code>/countries/continent/{name}</code> endpoint to
+    return all countries on a given continent. The bitmap index makes this a constant-time bitwise operation
+    regardless of dataset size.</p>
+
+    <h4>NAME &mdash; String Bitmap Index</h4>
+    <p>Extracts the <code>name()</code> field. Available for exact-match country name lookups.</p>
+
+    <h4>ALPHA2 &mdash; String Bitmap Index</h4>
+    <p>Extracts the <code>alpha2()</code> field (e.g. <code>"DE"</code>, <code>"US"</code>). This is the primary
+    lookup index &mdash; the <code>findByAlpha2()</code> method is used by seven endpoints that need to resolve
+    a country code to a <code>Country</code> object before performing further queries.</p>
+
+    <!-- 5. LOCATION INDEX -->
+    <h2 id="location-index" class="page-break">5. The Spatial Location Index</h2>
+
+    <p>The <code>LocationIndex</code> extends GigaMap's <code>SpatialIndexer.Abstract</code> to map each
+    <code>Country</code> to its geographic coordinates. This is the bridge between the domain model and the
+    spatial query engine.</p>
+
+    <div class="file-header">index/LocationIndex.java</div>
+<pre><code><span class="kw">package</span> <span class="ty">org.eclipse.store.demo.countries.index</span>;
+
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.countries.model.Country</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.gigamap.types.SpatialIndexer</span>;
+
+<span class="kw">public class</span> <span class="ty">LocationIndex</span> <span class="kw">extends</span> <span class="ty">SpatialIndexer.Abstract</span>&lt;<span class="ty">Country</span>&gt;
+{
+    <span class="an">@Override</span>
+    <span class="kw">protected</span> <span class="ty">Double</span> <span class="fn">getLatitude</span>(<span class="kw">final</span> <span class="ty">Country</span> country)
+    {
+        <span class="kw">return</span> country.<span class="fn">latitude</span>();
+    }
+
+    <span class="an">@Override</span>
+    <span class="kw">protected</span> <span class="ty">Double</span> <span class="fn">getLongitude</span>(<span class="kw">final</span> <span class="ty">Country</span> country)
+    {
+        <span class="kw">return</span> country.<span class="fn">longitude</span>();
+    }
+}</code></pre>
+
+    <div class="explanation">
+        <p><strong>How SpatialIndexer works:</strong> By implementing just two methods &mdash;
+        <code>getLatitude()</code> and <code>getLongitude()</code> &mdash; you unlock a rich set of spatial
+        query capabilities inherited from <code>SpatialIndexer.Abstract</code>:</p>
+        <ul>
+            <li><code>near(lat, lon, radiusKm)</code> &mdash; finds candidates within a circle</li>
+            <li><code>withinRadius(lat, lon, radiusKm)</code> &mdash; precise haversine-distance predicate filter</li>
+            <li><code>withinBox(minLat, maxLat, minLon, maxLon)</code> &mdash; bounding-box containment</li>
+            <li><code>latitudeAbove(threshold)</code> / <code>latitudeBelow(threshold)</code> &mdash; hemisphere filtering</li>
+            <li><code>longitudeAbove(threshold)</code> / <code>longitudeBelow(threshold)</code> &mdash; east/west hemisphere</li>
+            <li><code>latitudeBetween(min, max)</code> &mdash; latitude-band queries (e.g. tropical zone)</li>
+        </ul>
+    </div>
+
+    <h3>Two-Phase Spatial Query Pattern</h3>
+    <p>GigaMap spatial queries typically use a two-phase approach:</p>
+    <ol>
+        <li><strong>Candidate selection</strong> &mdash; <code>near(lat, lon, radiusKm)</code> uses the bitmap index
+            to quickly identify countries that <em>might</em> be within the radius (bounding-box approximation)</li>
+        <li><strong>Precise filtering</strong> &mdash; <code>withinRadius(lat, lon, radiusKm)</code> applies the
+            haversine formula to each candidate, removing false positives that fall outside the circular radius
+            but inside the rectangular bounding box</li>
+    </ol>
+    <p>This two-phase pattern is visible in the <code>CountryService.nearCoordinates()</code> method and combines
+    the speed of bitmap operations with the precision of great-circle distance calculations.</p>
+
+    <!-- 6. CONFIG -->
+    <h2 id="config" class="page-break">6. GigaMap Configuration</h2>
+
+    <p>The <code>GigaMapConfig</code> class wires together the GigaMap and all indices as Spring beans.
+    This is where the storage layer and indexing infrastructure are assembled.</p>
+
+    <div class="file-header">config/GigaMapConfig.java</div>
+<pre><code><span class="kw">package</span> <span class="ty">org.eclipse.store.demo.countries.config</span>;
+
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.countries.index.LocationIndex</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.countries.index.CountryIndices</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.countries.model.Country</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.gigamap.types.GigaMap</span>;
+<span class="kw">import</span> <span class="ty">org.springframework.context.annotation.Bean</span>;
+<span class="kw">import</span> <span class="ty">org.springframework.context.annotation.Configuration</span>;
+
+<span class="an">@Configuration</span>
+<span class="kw">public class</span> <span class="ty">GigaMapConfig</span>
+{
+    <span class="an">@Bean</span>
+    <span class="kw">public</span> <span class="ty">GigaMap</span>&lt;<span class="ty">Country</span>&gt; <span class="fn">countryGigaMap</span>()
+    {
+        <span class="kw">final</span> <span class="ty">GigaMap</span>&lt;<span class="ty">Country</span>&gt; gigaMap = <span class="ty">GigaMap</span>.<span class="fn">New</span>();
+        gigaMap.<span class="fn">index</span>().<span class="fn">bitmap</span>().<span class="fn">addAll</span>(
+            <span class="ty">CountryIndices</span>.LOCATION,
+            <span class="ty">CountryIndices</span>.CONTINENT,
+            <span class="ty">CountryIndices</span>.NAME,
+            <span class="ty">CountryIndices</span>.ALPHA2
+        );
+        <span class="kw">return</span> gigaMap;
+    }
+
+    <span class="an">@Bean</span>
+    <span class="kw">public</span> <span class="ty">LocationIndex</span> <span class="fn">locationIndex</span>()
+    {
+        <span class="kw">return</span> <span class="ty">CountryIndices</span>.LOCATION;
+    }
+}</code></pre>
+
+    <h3>Walkthrough</h3>
+
+    <h4>1. GigaMap Bean</h4>
+    <p><code>GigaMap.New()</code> creates a new in-memory GigaMap instance. GigaMap serves as both the primary
+    data store and the host for all indices. Countries added to the GigaMap are automatically indexed by every
+    registered indexer.</p>
+
+    <h4>2. Bitmap Index Registration</h4>
+    <div class="explanation">
+        <p><strong>This is the core setup step.</strong> A single call to <code>gigaMap.index().bitmap().addAll()</code>
+        registers all four indices at once:</p>
+        <ol>
+            <li><strong>LOCATION</strong> &mdash; the <code>SpatialIndexer</code> that enables geographic queries.
+                Despite being a spatial index, it is registered as a bitmap index because GigaMap's spatial queries
+                are implemented on top of the bitmap index infrastructure</li>
+            <li><strong>CONTINENT</strong> &mdash; string bitmap on the continent field</li>
+            <li><strong>NAME</strong> &mdash; string bitmap on the country name</li>
+            <li><strong>ALPHA2</strong> &mdash; string bitmap on the ISO alpha-2 code</li>
+        </ol>
+        <p>Once registered, any call to <code>gigaMap.addAll()</code> or <code>gigaMap.add()</code> automatically
+        updates all four indices. No manual re-indexing is needed.</p>
+    </div>
+
+    <h4>3. LocationIndex Bean</h4>
+    <p>The <code>LocationIndex</code> singleton from <code>CountryIndices.LOCATION</code> is also exposed as a
+    standalone Spring bean. This allows the <code>CountryService</code> to call spatial query methods
+    (<code>near()</code>, <code>withinBox()</code>, etc.) directly on the index instance, rather than going
+    through the GigaMap's generic index registry.</p>
+
+    <!-- 7. SERVICE -->
+    <h2 id="service" class="page-break">7. The Country Service</h2>
+
+    <p>The <code>CountryService</code> is the central orchestrator: it manages the data lifecycle,
+    provides all query operations, and computes distances. This is where all the pieces come together.</p>
+
+    <div class="file-header">service/CountryService.java</div>
+<pre><code><span class="kw">package</span> <span class="ty">org.eclipse.store.demo.countries.service</span>;
+
+<span class="kw">import</span> <span class="ty">com.fasterxml.jackson.core.type.TypeReference</span>;
+<span class="kw">import</span> <span class="ty">com.fasterxml.jackson.databind.ObjectMapper</span>;
+<span class="kw">import</span> <span class="ty">jakarta.annotation.PostConstruct</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.countries.index.LocationIndex</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.countries.index.CountryIndices</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.countries.model.Country</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.gigamap.types.GigaMap</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.gigamap.types.SpatialIndexer</span>;
+<span class="kw">import</span> <span class="ty">org.slf4j.Logger</span>;
+<span class="kw">import</span> <span class="ty">org.slf4j.LoggerFactory</span>;
+<span class="kw">import</span> <span class="ty">org.springframework.core.io.ClassPathResource</span>;
+<span class="kw">import</span> <span class="ty">org.springframework.stereotype.Service</span>;
+
+<span class="kw">import</span> <span class="ty">java.io.IOException</span>;
+<span class="kw">import</span> <span class="ty">java.io.InputStream</span>;
+<span class="kw">import</span> <span class="ty">java.util.Comparator</span>;
+<span class="kw">import</span> <span class="ty">java.util.List</span>;
+
+<span class="an">@Service</span>
+<span class="kw">public class</span> <span class="ty">CountryService</span>
+{
+    <span class="kw">private static final</span> <span class="ty">Logger</span> LOG = <span class="ty">LoggerFactory</span>.<span class="fn">getLogger</span>(<span class="ty">CountryService</span>.<span class="kw">class</span>);
+
+    <span class="kw">private final</span> <span class="ty">GigaMap</span>&lt;<span class="ty">Country</span>&gt; gigaMap;
+    <span class="kw">private final</span> <span class="ty">LocationIndex</span>     locationIndex;
+
+    <span class="kw">public</span> <span class="fn">CountryService</span>(
+        <span class="kw">final</span> <span class="ty">GigaMap</span>&lt;<span class="ty">Country</span>&gt; gigaMap,
+        <span class="kw">final</span> <span class="ty">LocationIndex</span> locationIndex
+    )
+    {
+        <span class="kw">this</span>.gigaMap       = gigaMap;
+        <span class="kw">this</span>.locationIndex = locationIndex;
+    }
+
+    <span class="an">@PostConstruct</span>
+    <span class="kw">public void</span> <span class="fn">init</span>()
+    {
+        <span class="kw">if</span>(!<span class="kw">this</span>.gigaMap.<span class="fn">isEmpty</span>())
+        {
+            LOG.<span class="fn">info</span>(<span class="st">"GigaMap already contains {} countries, skipping initialization."</span>,
+                <span class="kw">this</span>.gigaMap.<span class="fn">size</span>());
+            <span class="kw">return</span>;
+        }
+
+        <span class="kw">final</span> <span class="ty">List</span>&lt;<span class="ty">Country</span>&gt; countries = <span class="fn">loadCountries</span>();
+        <span class="kw">this</span>.gigaMap.<span class="fn">addAll</span>(countries);
+        LOG.<span class="fn">info</span>(<span class="st">"Loaded {} countries into GigaMap."</span>, <span class="kw">this</span>.gigaMap.<span class="fn">size</span>());
+    }
+
+    <span class="cm">// ... query methods shown below ...</span>
+
+    <span class="kw">private static</span> <span class="ty">List</span>&lt;<span class="ty">Country</span>&gt; <span class="fn">loadCountries</span>()
+    {
+        <span class="kw">try</span>(<span class="kw">final</span> <span class="ty">InputStream</span> is = <span class="kw">new</span> <span class="ty">ClassPathResource</span>(<span class="st">"countries.json"</span>).<span class="fn">getInputStream</span>())
+        {
+            <span class="kw">return new</span> <span class="ty">ObjectMapper</span>().<span class="fn">readValue</span>(is, <span class="kw">new</span> <span class="ty">TypeReference</span>&lt;&gt;() {});
+        }
+        <span class="kw">catch</span>(<span class="kw">final</span> <span class="ty">IOException</span> e)
+        {
+            <span class="kw">throw new</span> <span class="ty">RuntimeException</span>(<span class="st">"Failed to load countries.json"</span>, e);
+        }
+    }
+
+    <span class="kw">public record</span> <span class="ty">NeighbourResult</span>(<span class="ty">Country</span> country, <span class="kw">double</span> distanceKm) {}
+    <span class="kw">public record</span> <span class="ty">DistanceResult</span>(<span class="ty">Country</span> from, <span class="ty">Country</span> to, <span class="kw">double</span> distanceKm) {}
+    <span class="kw">public record</span> <span class="ty">PageResult</span>(<span class="ty">List</span>&lt;<span class="ty">Country</span>&gt; countries, <span class="kw">long</span> total, <span class="kw">int</span> page, <span class="kw">int</span> size) {}
+}</code></pre>
+
+    <h3>Initialization &amp; Data Loading</h3>
+    <p>The constructor receives the <code>GigaMap</code> and <code>LocationIndex</code> beans via Spring injection.
+    The <code>@PostConstruct init()</code> method loads all countries from <code>countries.json</code> via Jackson
+    and inserts them into the GigaMap with a single <code>addAll()</code> call. The idempotency check
+    (<code>gigaMap.isEmpty()</code>) ensures that if the application restarts with a persistent GigaMap,
+    existing data is preserved.</p>
+
+    <h3>Query Methods</h3>
+
+    <h4>Paginated Listing</h4>
+<pre><code><span class="kw">public</span> <span class="ty">PageResult</span> <span class="fn">list</span>(<span class="kw">final int</span> page, <span class="kw">final int</span> size)
+{
+    <span class="kw">final long</span> total = <span class="kw">this</span>.gigaMap.<span class="fn">size</span>();
+    <span class="kw">final</span> <span class="ty">List</span>&lt;<span class="ty">Country</span>&gt; countries = <span class="kw">this</span>.gigaMap.<span class="fn">query</span>()
+        .<span class="fn">stream</span>()
+        .<span class="fn">sorted</span>(<span class="ty">Comparator</span>.<span class="fn">comparing</span>(<span class="ty">Country</span>::name))
+        .<span class="fn">skip</span>((<span class="kw">long</span>) page * size)
+        .<span class="fn">limit</span>(size)
+        .<span class="fn">toList</span>();
+    <span class="kw">return new</span> <span class="ty">PageResult</span>(countries, total, page, size);
+}</code></pre>
+    <p>Uses <code>gigaMap.query()</code> with no predicates to retrieve all countries, then applies
+    Java Stream operations for sorting and pagination. The <code>PageResult</code> record wraps the
+    result with metadata for clients to navigate pages.</p>
+
+    <h4>Alpha-2 Lookup</h4>
+<pre><code><span class="kw">public</span> <span class="ty">Country</span> <span class="fn">findByAlpha2</span>(<span class="kw">final</span> <span class="ty">String</span> alpha2)
+{
+    <span class="kw">return this</span>.gigaMap.<span class="fn">query</span>(<span class="ty">CountryIndices</span>.ALPHA2.<span class="fn">is</span>(alpha2.<span class="fn">toUpperCase</span>()))
+        .<span class="fn">findFirst</span>()
+        .<span class="fn">orElse</span>(<span class="kw">null</span>);
+}</code></pre>
+    <p>The <code>ALPHA2.is()</code> call creates a bitmap predicate that resolves in constant time.
+    The <code>toUpperCase()</code> normalization makes the lookup case-insensitive. This method is the
+    building block for many other queries that need to resolve a country code first.</p>
+
+    <h4>Radius Search (by Country)</h4>
+<pre><code><span class="kw">public</span> <span class="ty">List</span>&lt;<span class="ty">NeighbourResult</span>&gt; <span class="fn">nearby</span>(<span class="kw">final</span> <span class="ty">String</span> alpha2, <span class="kw">final double</span> radiusKm)
+{
+    <span class="kw">final</span> <span class="ty">Country</span> origin = <span class="kw">this</span>.<span class="fn">findByAlpha2</span>(alpha2);
+    <span class="kw">if</span>(origin == <span class="kw">null</span>) <span class="kw">return</span> <span class="ty">List</span>.<span class="fn">of</span>();
+
+    <span class="kw">return this</span>.<span class="fn">nearCoordinates</span>(origin.<span class="fn">latitude</span>(), origin.<span class="fn">longitude</span>(), radiusKm)
+        .<span class="fn">stream</span>()
+        .<span class="fn">filter</span>(r -> !r.<span class="fn">country</span>().<span class="fn">alpha2</span>().<span class="fn">equals</span>(origin.<span class="fn">alpha2</span>()))
+        .<span class="fn">toList</span>();
+}</code></pre>
+    <p>Resolves the origin country by alpha-2 code, delegates to <code>nearCoordinates()</code> for the actual
+    spatial query, then filters out the origin country from the results.</p>
+
+    <h4>Radius Search (by Coordinates)</h4>
+    <div class="explanation">
+        <p><strong>This is the core spatial query method</strong> &mdash; it demonstrates the two-phase pattern:</p>
+        <ol>
+            <li><strong>Phase 1 &mdash; Candidate selection:</strong> <code>locationIndex.near(lat, lon, radiusKm)</code>
+                uses the bitmap index to quickly identify countries within a rectangular bounding box</li>
+            <li><strong>Phase 2 &mdash; Precise filtering:</strong> <code>locationIndex.withinRadius(lat, lon, radiusKm)</code>
+                applies the haversine formula to each candidate, keeping only those truly within the circular radius</li>
+        </ol>
+    </div>
+<pre><code><span class="kw">public</span> <span class="ty">List</span>&lt;<span class="ty">NeighbourResult</span>&gt; <span class="fn">nearCoordinates</span>(
+    <span class="kw">final double</span> lat, <span class="kw">final double</span> lon, <span class="kw">final double</span> radiusKm)
+{
+    <span class="kw">return this</span>.gigaMap.<span class="fn">query</span>(<span class="kw">this</span>.locationIndex.<span class="fn">near</span>(lat, lon, radiusKm))
+        .<span class="fn">stream</span>()
+        .<span class="fn">filter</span>(<span class="kw">this</span>.locationIndex.<span class="fn">withinRadius</span>(lat, lon, radiusKm))
+        .<span class="fn">map</span>(c -> <span class="kw">new</span> <span class="ty">NeighbourResult</span>(
+            c,
+            <span class="ty">Math</span>.<span class="fn">round</span>(<span class="ty">SpatialIndexer</span>.<span class="fn">haversineDistance</span>(
+                lat, lon, c.<span class="fn">latitude</span>(), c.<span class="fn">longitude</span>()) * <span class="num">10.0</span>) / <span class="num">10.0</span>
+        ))
+        .<span class="fn">sorted</span>(<span class="ty">Comparator</span>.<span class="fn">comparingDouble</span>(<span class="ty">NeighbourResult</span>::distanceKm))
+        .<span class="fn">toList</span>();
+}</code></pre>
+
+    <h4>K-Nearest Neighbours</h4>
+<pre><code><span class="kw">public</span> <span class="ty">List</span>&lt;<span class="ty">NeighbourResult</span>&gt; <span class="fn">kNearest</span>(<span class="kw">final</span> <span class="ty">String</span> alpha2, <span class="kw">final int</span> k)
+{
+    <span class="kw">final</span> <span class="ty">Country</span> origin = <span class="kw">this</span>.<span class="fn">findByAlpha2</span>(alpha2);
+    <span class="kw">if</span>(origin == <span class="kw">null</span>) <span class="kw">return</span> <span class="ty">List</span>.<span class="fn">of</span>();
+
+    <span class="kw">final double</span> lat = origin.<span class="fn">latitude</span>();
+    <span class="kw">final double</span> lon = origin.<span class="fn">longitude</span>();
+    <span class="kw">return this</span>.gigaMap.<span class="fn">query</span>()
+        .<span class="fn">stream</span>()
+        .<span class="fn">filter</span>(c -> !c.<span class="fn">alpha2</span>().<span class="fn">equals</span>(origin.<span class="fn">alpha2</span>()))
+        .<span class="fn">map</span>(c -> <span class="kw">new</span> <span class="ty">NeighbourResult</span>(c,
+            <span class="ty">Math</span>.<span class="fn">round</span>(<span class="ty">SpatialIndexer</span>.<span class="fn">haversineDistance</span>(
+                lat, lon, c.<span class="fn">latitude</span>(), c.<span class="fn">longitude</span>()) * <span class="num">10.0</span>) / <span class="num">10.0</span>))
+        .<span class="fn">sorted</span>(<span class="ty">Comparator</span>.<span class="fn">comparingDouble</span>(<span class="ty">NeighbourResult</span>::distanceKm))
+        .<span class="fn">limit</span>(k)
+        .<span class="fn">toList</span>();
+}</code></pre>
+    <p>Unlike <code>nearby()</code>, this method does not use a fixed radius. It computes the haversine distance
+    to every other country, sorts by distance, and takes the top <code>k</code>. This brute-force approach is
+    perfectly acceptable for the ~250 countries in the dataset.</p>
+
+    <h4>Continent Filtering</h4>
+<pre><code><span class="kw">public</span> <span class="ty">List</span>&lt;<span class="ty">Country</span>&gt; <span class="fn">continent</span>(<span class="kw">final</span> <span class="ty">String</span> name)
+{
+    <span class="kw">return this</span>.gigaMap.<span class="fn">query</span>(<span class="ty">CountryIndices</span>.CONTINENT.<span class="fn">is</span>(name))
+        .<span class="fn">stream</span>()
+        .<span class="fn">sorted</span>(<span class="ty">Comparator</span>.<span class="fn">comparing</span>(<span class="ty">Country</span>::name))
+        .<span class="fn">toList</span>();
+}</code></pre>
+    <p>Uses the <code>CONTINENT</code> bitmap index for a fast exact-match filter. The bitmap index resolves
+    the matching countries in a single bitwise operation.</p>
+
+    <h4>Bounding-Box Search</h4>
+<pre><code><span class="kw">public</span> <span class="ty">List</span>&lt;<span class="ty">Country</span>&gt; <span class="fn">withinBox</span>(
+    <span class="kw">final double</span> minLat, <span class="kw">final double</span> maxLat,
+    <span class="kw">final double</span> minLon, <span class="kw">final double</span> maxLon)
+{
+    <span class="kw">return this</span>.gigaMap.<span class="fn">query</span>(<span class="kw">this</span>.locationIndex.<span class="fn">withinBox</span>(minLat, maxLat, minLon, maxLon))
+        .<span class="fn">stream</span>()
+        .<span class="fn">sorted</span>(<span class="ty">Comparator</span>.<span class="fn">comparing</span>(<span class="ty">Country</span>::name))
+        .<span class="fn">toList</span>();
+}</code></pre>
+    <p>Delegates directly to the spatial index's <code>withinBox()</code> predicate. This is useful for
+    map-viewport queries where a user is looking at a specific region on a map.</p>
+
+    <h4>Hemisphere &amp; Tropical Zone</h4>
+<pre><code><span class="kw">public</span> <span class="ty">List</span>&lt;<span class="ty">Country</span>&gt; <span class="fn">hemisphere</span>(<span class="kw">final</span> <span class="ty">String</span> name)
+{
+    <span class="kw">return switch</span>(name.<span class="fn">toLowerCase</span>())
+    {
+        <span class="kw">case</span> <span class="st">"north"</span> -> <span class="kw">this</span>.gigaMap.<span class="fn">query</span>(<span class="kw">this</span>.locationIndex.<span class="fn">latitudeAbove</span>(<span class="num">0.0</span>))
+            .<span class="fn">stream</span>().<span class="fn">sorted</span>(<span class="ty">Comparator</span>.<span class="fn">comparing</span>(<span class="ty">Country</span>::name)).<span class="fn">toList</span>();
+        <span class="kw">case</span> <span class="st">"south"</span> -> <span class="kw">this</span>.gigaMap.<span class="fn">query</span>(<span class="kw">this</span>.locationIndex.<span class="fn">latitudeBelow</span>(<span class="num">0.0</span>))
+            .<span class="fn">stream</span>().<span class="fn">sorted</span>(<span class="ty">Comparator</span>.<span class="fn">comparing</span>(<span class="ty">Country</span>::name)).<span class="fn">toList</span>();
+        <span class="kw">case</span> <span class="st">"east"</span>  -> <span class="kw">this</span>.gigaMap.<span class="fn">query</span>(<span class="kw">this</span>.locationIndex.<span class="fn">longitudeAbove</span>(<span class="num">0.0</span>))
+            .<span class="fn">stream</span>().<span class="fn">sorted</span>(<span class="ty">Comparator</span>.<span class="fn">comparing</span>(<span class="ty">Country</span>::name)).<span class="fn">toList</span>();
+        <span class="kw">case</span> <span class="st">"west"</span>  -> <span class="kw">this</span>.gigaMap.<span class="fn">query</span>(<span class="kw">this</span>.locationIndex.<span class="fn">longitudeBelow</span>(<span class="num">0.0</span>))
+            .<span class="fn">stream</span>().<span class="fn">sorted</span>(<span class="ty">Comparator</span>.<span class="fn">comparing</span>(<span class="ty">Country</span>::name)).<span class="fn">toList</span>();
+        <span class="kw">default</span> -> <span class="ty">List</span>.<span class="fn">of</span>();
+    };
+}
+
+<span class="kw">public</span> <span class="ty">List</span>&lt;<span class="ty">Country</span>&gt; <span class="fn">tropical</span>()
+{
+    <span class="kw">return this</span>.gigaMap.<span class="fn">query</span>(<span class="kw">this</span>.locationIndex.<span class="fn">latitudeBetween</span>(<span class="num">-23.5</span>, <span class="num">23.5</span>))
+        .<span class="fn">stream</span>()
+        .<span class="fn">sorted</span>(<span class="ty">Comparator</span>.<span class="fn">comparing</span>(<span class="ty">Country</span>::name))
+        .<span class="fn">toList</span>();
+}</code></pre>
+    <p>The <code>hemisphere()</code> method uses a Java switch expression to map hemisphere names to the
+    appropriate spatial predicate. The <code>tropical()</code> method uses <code>latitudeBetween(-23.5, 23.5)</code>
+    to find countries between the Tropics of Cancer and Capricorn. Both demonstrate how GigaMap's spatial
+    predicates compose naturally with the query API.</p>
+
+    <h4>Distance Calculation</h4>
+<pre><code><span class="kw">public</span> <span class="ty">DistanceResult</span> <span class="fn">distance</span>(<span class="kw">final</span> <span class="ty">String</span> fromAlpha2, <span class="kw">final</span> <span class="ty">String</span> toAlpha2)
+{
+    <span class="kw">final</span> <span class="ty">Country</span> from = <span class="kw">this</span>.<span class="fn">findByAlpha2</span>(fromAlpha2);
+    <span class="kw">final</span> <span class="ty">Country</span> to   = <span class="kw">this</span>.<span class="fn">findByAlpha2</span>(toAlpha2);
+    <span class="kw">if</span>(from == <span class="kw">null</span> || to == <span class="kw">null</span>) <span class="kw">return null</span>;
+
+    <span class="kw">final double</span> km = <span class="ty">Math</span>.<span class="fn">round</span>(
+        <span class="ty">SpatialIndexer</span>.<span class="fn">haversineDistance</span>(
+            from.<span class="fn">latitude</span>(), from.<span class="fn">longitude</span>(),
+            to.<span class="fn">latitude</span>(), to.<span class="fn">longitude</span>()) * <span class="num">10.0</span>
+    ) / <span class="num">10.0</span>;
+    <span class="kw">return new</span> <span class="ty">DistanceResult</span>(from, to, km);
+}</code></pre>
+    <p>Uses GigaMap's built-in <code>SpatialIndexer.haversineDistance()</code> utility to compute the
+    great-circle distance between two capital cities. The result is rounded to one decimal place for
+    clean output.</p>
+
+    <h3>Response Records</h3>
+    <p>Three inner records provide clean response structures:</p>
+    <ul>
+        <li><code>NeighbourResult(country, distanceKm)</code> &mdash; pairs a country with its distance from
+            a reference point (used by nearby, nearCoordinates, and kNearest)</li>
+        <li><code>DistanceResult(from, to, distanceKm)</code> &mdash; the two countries and the distance
+            between them</li>
+        <li><code>PageResult(countries, total, page, size)</code> &mdash; standard pagination envelope</li>
+    </ul>
+
+    <!-- 8. CONTROLLER -->
+    <h2 id="controller" class="page-break">8. The REST Controller</h2>
+
+    <p>The <code>CountryController</code> exposes ten endpoints under <code>/countries</code>:</p>
+
+    <table>
+        <tr><th>Method</th><th>Path</th><th>Description</th><th>Key Parameters</th></tr>
+        <tr>
+            <td><code>GET</code></td>
+            <td><code>/countries</code></td>
+            <td>Paginated listing of all countries</td>
+            <td><code>page</code> (0), <code>size</code> (20)</td>
+        </tr>
+        <tr>
+            <td><code>GET</code></td>
+            <td><code>/countries/{alpha2}</code></td>
+            <td>Single country by ISO alpha-2 code</td>
+            <td><code>alpha2</code> (path)</td>
+        </tr>
+        <tr>
+            <td><code>GET</code></td>
+            <td><code>/countries/nearby</code></td>
+            <td>Countries within radius of a country</td>
+            <td><code>alpha2</code>, <code>radiusKm</code> (1000)</td>
+        </tr>
+        <tr>
+            <td><code>GET</code></td>
+            <td><code>/countries/near</code></td>
+            <td>Countries within radius of coordinates</td>
+            <td><code>lat</code>, <code>lon</code>, <code>radiusKm</code> (1000)</td>
+        </tr>
+        <tr>
+            <td><code>GET</code></td>
+            <td><code>/countries/nearest</code></td>
+            <td>K-nearest neighbours of a country</td>
+            <td><code>alpha2</code>, <code>k</code> (5)</td>
+        </tr>
+        <tr>
+            <td><code>GET</code></td>
+            <td><code>/countries/continent/{name}</code></td>
+            <td>All countries on a continent</td>
+            <td><code>name</code> (path)</td>
+        </tr>
+        <tr>
+            <td><code>GET</code></td>
+            <td><code>/countries/within-box</code></td>
+            <td>Countries inside a bounding box</td>
+            <td><code>minLat</code>, <code>maxLat</code>, <code>minLon</code>, <code>maxLon</code></td>
+        </tr>
+        <tr>
+            <td><code>GET</code></td>
+            <td><code>/countries/hemisphere</code></td>
+            <td>Countries in a hemisphere</td>
+            <td><code>hemisphere</code> (north/south/east/west)</td>
+        </tr>
+        <tr>
+            <td><code>GET</code></td>
+            <td><code>/countries/tropical</code></td>
+            <td>Countries in the tropical zone</td>
+            <td>&mdash;</td>
+        </tr>
+        <tr>
+            <td><code>GET</code></td>
+            <td><code>/countries/distance</code></td>
+            <td>Haversine distance between two countries</td>
+            <td><code>from</code>, <code>to</code> (alpha-2 codes)</td>
+        </tr>
+    </table>
+
+    <div class="file-header">controller/CountryController.java</div>
+<pre><code><span class="kw">package</span> <span class="ty">org.eclipse.store.demo.countries.controller</span>;
+
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.countries.model.Country</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.countries.service.CountryService</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.countries.service.CountryService.DistanceResult</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.countries.service.CountryService.NeighbourResult</span>;
+<span class="kw">import</span> <span class="ty">org.eclipse.store.demo.countries.service.CountryService.PageResult</span>;
+<span class="kw">import</span> <span class="ty">org.springframework.http.ResponseEntity</span>;
+<span class="kw">import</span> <span class="ty">org.springframework.web.bind.annotation.*</span>;
+
+<span class="kw">import</span> <span class="ty">java.util.List</span>;
+
+<span class="an">@RestController</span>
+<span class="an">@RequestMapping</span>(<span class="st">"/countries"</span>)
+<span class="kw">public class</span> <span class="ty">CountryController</span>
+{
+    <span class="kw">private final</span> <span class="ty">CountryService</span> countryService;
+
+    <span class="kw">public</span> <span class="fn">CountryController</span>(<span class="kw">final</span> <span class="ty">CountryService</span> countryService)
+    {
+        <span class="kw">this</span>.countryService = countryService;
+    }
+
+    <span class="an">@GetMapping</span>
+    <span class="kw">public</span> <span class="ty">PageResult</span> <span class="fn">list</span>(
+        <span class="an">@RequestParam</span>(defaultValue = <span class="st">"0"</span>) <span class="kw">final int</span> page,
+        <span class="an">@RequestParam</span>(defaultValue = <span class="st">"20"</span>) <span class="kw">final int</span> size)
+    {
+        <span class="kw">return this</span>.countryService.<span class="fn">list</span>(page, size);
+    }
+
+    <span class="an">@GetMapping</span>(<span class="st">"/{alpha2}"</span>)
+    <span class="kw">public</span> <span class="ty">ResponseEntity</span>&lt;<span class="ty">Country</span>&gt; <span class="fn">findByAlpha2</span>(<span class="an">@PathVariable</span> <span class="kw">final</span> <span class="ty">String</span> alpha2)
+    {
+        <span class="kw">final</span> <span class="ty">Country</span> country = <span class="kw">this</span>.countryService.<span class="fn">findByAlpha2</span>(alpha2);
+        <span class="kw">return</span> country != <span class="kw">null</span>
+            ? <span class="ty">ResponseEntity</span>.<span class="fn">ok</span>(country)
+            : <span class="ty">ResponseEntity</span>.<span class="fn">notFound</span>().<span class="fn">build</span>();
+    }
+
+    <span class="an">@GetMapping</span>(<span class="st">"/nearby"</span>)
+    <span class="kw">public</span> <span class="ty">List</span>&lt;<span class="ty">NeighbourResult</span>&gt; <span class="fn">nearby</span>(
+        <span class="an">@RequestParam</span> <span class="kw">final</span> <span class="ty">String</span> alpha2,
+        <span class="an">@RequestParam</span>(defaultValue = <span class="st">"1000"</span>) <span class="kw">final double</span> radiusKm)
+    {
+        <span class="kw">return this</span>.countryService.<span class="fn">nearby</span>(alpha2, radiusKm);
+    }
+
+    <span class="an">@GetMapping</span>(<span class="st">"/near"</span>)
+    <span class="kw">public</span> <span class="ty">List</span>&lt;<span class="ty">NeighbourResult</span>&gt; <span class="fn">nearCoordinates</span>(
+        <span class="an">@RequestParam</span> <span class="kw">final double</span> lat,
+        <span class="an">@RequestParam</span> <span class="kw">final double</span> lon,
+        <span class="an">@RequestParam</span>(defaultValue = <span class="st">"1000"</span>) <span class="kw">final double</span> radiusKm)
+    {
+        <span class="kw">return this</span>.countryService.<span class="fn">nearCoordinates</span>(lat, lon, radiusKm);
+    }
+
+    <span class="an">@GetMapping</span>(<span class="st">"/nearest"</span>)
+    <span class="kw">public</span> <span class="ty">List</span>&lt;<span class="ty">NeighbourResult</span>&gt; <span class="fn">kNearest</span>(
+        <span class="an">@RequestParam</span> <span class="kw">final</span> <span class="ty">String</span> alpha2,
+        <span class="an">@RequestParam</span>(defaultValue = <span class="st">"5"</span>) <span class="kw">final int</span> k)
+    {
+        <span class="kw">return this</span>.countryService.<span class="fn">kNearest</span>(alpha2, k);
+    }
+
+    <span class="an">@GetMapping</span>(<span class="st">"/continent/{name}"</span>)
+    <span class="kw">public</span> <span class="ty">List</span>&lt;<span class="ty">Country</span>&gt; <span class="fn">continent</span>(<span class="an">@PathVariable</span> <span class="kw">final</span> <span class="ty">String</span> name)
+    {
+        <span class="kw">return this</span>.countryService.<span class="fn">continent</span>(name);
+    }
+
+    <span class="an">@GetMapping</span>(<span class="st">"/within-box"</span>)
+    <span class="kw">public</span> <span class="ty">List</span>&lt;<span class="ty">Country</span>&gt; <span class="fn">withinBox</span>(
+        <span class="an">@RequestParam</span> <span class="kw">final double</span> minLat,
+        <span class="an">@RequestParam</span> <span class="kw">final double</span> maxLat,
+        <span class="an">@RequestParam</span> <span class="kw">final double</span> minLon,
+        <span class="an">@RequestParam</span> <span class="kw">final double</span> maxLon)
+    {
+        <span class="kw">return this</span>.countryService.<span class="fn">withinBox</span>(minLat, maxLat, minLon, maxLon);
+    }
+
+    <span class="an">@GetMapping</span>(<span class="st">"/hemisphere"</span>)
+    <span class="kw">public</span> <span class="ty">List</span>&lt;<span class="ty">Country</span>&gt; <span class="fn">hemisphere</span>(<span class="an">@RequestParam</span> <span class="kw">final</span> <span class="ty">String</span> hemisphere)
+    {
+        <span class="kw">return this</span>.countryService.<span class="fn">hemisphere</span>(hemisphere);
+    }
+
+    <span class="an">@GetMapping</span>(<span class="st">"/tropical"</span>)
+    <span class="kw">public</span> <span class="ty">List</span>&lt;<span class="ty">Country</span>&gt; <span class="fn">tropical</span>()
+    {
+        <span class="kw">return this</span>.countryService.<span class="fn">tropical</span>();
+    }
+
+    <span class="an">@GetMapping</span>(<span class="st">"/distance"</span>)
+    <span class="kw">public</span> <span class="ty">ResponseEntity</span>&lt;<span class="ty">DistanceResult</span>&gt; <span class="fn">distance</span>(
+        <span class="an">@RequestParam</span> <span class="kw">final</span> <span class="ty">String</span> from,
+        <span class="an">@RequestParam</span> <span class="kw">final</span> <span class="ty">String</span> to)
+    {
+        <span class="kw">final</span> <span class="ty">DistanceResult</span> result = <span class="kw">this</span>.countryService.<span class="fn">distance</span>(from, to);
+        <span class="kw">return</span> result != <span class="kw">null</span>
+            ? <span class="ty">ResponseEntity</span>.<span class="fn">ok</span>(result)
+            : <span class="ty">ResponseEntity</span>.<span class="fn">notFound</span>().<span class="fn">build</span>();
+    }
+}</code></pre>
+
+    <div class="explanation">
+        <p><strong>Note:</strong> The controller is deliberately thin &mdash; it contains no business logic,
+        only parameter binding and delegation. All the heavy lifting (spatial queries, distance calculations,
+        GigaMap interaction) lives in the <code>CountryService</code>. Two endpoints
+        (<code>findByAlpha2</code> and <code>distance</code>) return <code>ResponseEntity</code> to produce
+        proper <code>404 Not Found</code> responses when a country code is invalid. A Swagger UI is also
+        auto-configured at <code>/swagger-ui.html</code> for interactive testing.</p>
+    </div>
+
+    <!-- 9. RUNNING -->
+    <h2 id="running" class="page-break">9. Running the Demo</h2>
+
+    <h3>Prerequisites</h3>
+    <ol>
+        <li><strong>Java 17+</strong> (required by Spring Boot 4)</li>
+    </ol>
+
+    <div class="note">
+        <strong>No external services required!</strong> Unlike the product-recommendations demo, the country
+        explorer is fully self-contained. No database, no embedding model, no external API &mdash; just
+        a Spring Boot application with an embedded JSON dataset.
+    </div>
+
+    <h3>Start the Application</h3>
+<pre><code><span class="cm"># From the project root</span>
+mvn -pl demos/country-explorer spring-boot:run</code></pre>
+
+    <p>On startup, the service loads all countries from <code>countries.json</code> into the GigaMap,
+    registers the four bitmap indices, and starts the REST API on port <strong>8081</strong>.</p>
+
+    <h3>Try the API</h3>
+
+    <h4>Find a country by code</h4>
+<pre><code>curl <span class="st">"http://localhost:8081/countries/DE"</span></code></pre>
+
+    <p>Example response:</p>
+<pre><code>{
+  <span class="st">"name"</span>: <span class="st">"Germany"</span>,
+  <span class="st">"alpha2"</span>: <span class="st">"DE"</span>,
+  <span class="st">"alpha3"</span>: <span class="st">"DEU"</span>,
+  <span class="st">"capital"</span>: <span class="st">"Berlin"</span>,
+  <span class="st">"latitude"</span>: <span class="num">52.52</span>,
+  <span class="st">"longitude"</span>: <span class="num">13.405</span>,
+  <span class="st">"continent"</span>: <span class="st">"Europe"</span>,
+  <span class="st">"population"</span>: <span class="num">83190556</span>,
+  <span class="st">"area"</span>: <span class="num">357022.0</span>
+}</code></pre>
+
+    <h4>Find countries near Germany (500 km radius)</h4>
+<pre><code>curl <span class="st">"http://localhost:8081/countries/nearby?alpha2=DE&radiusKm=500"</span></code></pre>
+
+    <h4>5 nearest neighbours of Japan</h4>
+<pre><code>curl <span class="st">"http://localhost:8081/countries/nearest?alpha2=JP&k=5"</span></code></pre>
+
+    <h4>All European countries</h4>
+<pre><code>curl <span class="st">"http://localhost:8081/countries/continent/Europe"</span></code></pre>
+
+    <h4>Countries in a bounding box (Central Europe)</h4>
+<pre><code>curl <span class="st">"http://localhost:8081/countries/within-box?minLat=45&maxLat=55&minLon=5&maxLon=20"</span></code></pre>
+
+    <h4>Countries in the southern hemisphere</h4>
+<pre><code>curl <span class="st">"http://localhost:8081/countries/hemisphere?hemisphere=south"</span></code></pre>
+
+    <h4>Tropical countries</h4>
+<pre><code>curl <span class="st">"http://localhost:8081/countries/tropical"</span></code></pre>
+
+    <h4>Distance between Berlin and Tokyo</h4>
+<pre><code>curl <span class="st">"http://localhost:8081/countries/distance?from=DE&to=JP"</span></code></pre>
+
+    <p>Example response:</p>
+<pre><code>{
+  <span class="st">"from"</span>: { <span class="st">"name"</span>: <span class="st">"Germany"</span>, <span class="st">"alpha2"</span>: <span class="st">"DE"</span>, ... },
+  <span class="st">"to"</span>: { <span class="st">"name"</span>: <span class="st">"Japan"</span>, <span class="st">"alpha2"</span>: <span class="st">"JP"</span>, ... },
+  <span class="st">"distanceKm"</span>: <span class="num">8918.3</span>
+}</code></pre>
+
+    <h4>Paginated listing</h4>
+<pre><code>curl <span class="st">"http://localhost:8081/countries?page=0&size=10"</span></code></pre>
+
+    <h4>Swagger UI</h4>
+    <p>Open <code>http://localhost:8081/swagger-ui.html</code> in your browser for interactive API exploration
+    with "Try it out" enabled by default.</p>
+
+    <h3>Project Structure</h3>
+<pre><code>demos/country-explorer/
+  src/main/java/.../countries/
+    CountryExplorerApplication.java  <span class="cm">// Spring Boot entry point</span>
+    config/
+      GigaMapConfig.java             <span class="cm">// GigaMap + index registration</span>
+    model/
+      Country.java                   <span class="cm">// Domain record (9 fields)</span>
+    index/
+      CountryIndices.java            <span class="cm">// Index registry (4 indices)</span>
+      LocationIndex.java             <span class="cm">// SpatialIndexer for lat/lon</span>
+    service/
+      CountryService.java            <span class="cm">// Data loading, queries, distance</span>
+    controller/
+      CountryController.java         <span class="cm">// REST endpoints (10 routes)</span>
+  src/main/resources/
+    application.properties           <span class="cm">// Server config (port 8081)</span>
+    countries.json                   <span class="cm">// Country dataset</span></code></pre>
+
+    <!-- FOOTER -->
+    <div class="footer">
+        <p>EclipseStore Country Explorer Demo &mdash; Source Reference</p>
+        <p>EclipseStore 4.0 | Spring Boot 4.0.2</p>
+    </div>
+
+</div>
+</body>
+</html>

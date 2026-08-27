@@ -18,7 +18,8 @@ import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.persistence.binary.types.BinaryTypeHandler;
 import org.eclipse.serializer.persistence.types.Storer;
 
-import java.util.function.Function;
+import java.io.Closeable;
+import java.io.IOException;
 
 import static org.eclipse.serializer.util.X.notNull;
 
@@ -106,7 +107,37 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 	 * @return the registered index group corresponding to the specified category
 	 */
 	public <I extends IndexGroup<E>> I register(IndexCategory<E, I> category);
-	
+
+	/**
+	 * Removes the index group of the given category from this {@link GigaMap}, dropping the whole
+	 * group and its data.
+	 * <p>
+	 * If the group implements {@link java.io.Closeable} (e.g. the Lucene full-text index), it is
+	 * closed first to release native resources such as file locks, readers and writers. Index data
+	 * held inside the object graph is reclaimed by the storage's garbage collection on the next
+	 * housekeeping cycle after the surrounding {@link GigaMap} is stored; index artifacts kept in an
+	 * external, application-managed directory on the file system are <b>not</b> deleted.
+	 * <p>
+	 * The core bitmap index group cannot be removed (it hosts the unique and custom constraints);
+	 * use {@link BitmapIndices#removeIndex(String)} to remove individual bitmap indices instead.
+	 *
+	 * @param category the category identifying the index group to remove
+	 * @return {@code true} if a matching group existed and was removed, {@code false} otherwise
+	 * @throws IllegalArgumentException if the targeted group is the core bitmap index group
+	 * @throws RuntimeException if the parent {@link GigaMap} is read-only
+	 */
+	public boolean remove(IndexCategory<E, ?> category);
+
+	/**
+	 * Removes the index group of the given type from this {@link GigaMap}.
+	 * <p>
+	 * For details see {@link #remove(IndexCategory)}.
+	 *
+	 * @param categoryType the type of the index group to remove
+	 * @return {@code true} if a matching group existed and was removed, {@code false} otherwise
+	 */
+	public boolean remove(Class<? extends IndexGroup<E>> categoryType);
+
 	/**
 	 * The Internals interface extends the GigaIndices interface to provide additional functionality
 	 * specifically related to managing internal operations and indices. This interface is meant
@@ -176,42 +207,100 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 		{
 			return this.parent;
 		}
-		
+
+		/**
+		 * Guards structural mutations against a parent {@link GigaMap} that is currently not mutable, applying
+		 * the same classification an entity write applies (see
+		 * {@link GigaMap.Internal#internalEnsureMutability()}): an explicit read-only mark, an in-progress
+		 * iteration and a self-held reader fail fast, while readers open on other threads are waited out.
+		 * <p>
+		 * Must be called while holding the parent-map monitor. <b>The call may release that monitor while
+		 * waiting</b>, so state read before it must be re-checked afterwards.
+		 *
+		 * @param operation description of the attempted change, used to build the error message
+		 */
+		private void ensureMutable(final String operation)
+		{
+			try
+			{
+				this.parent.internalEnsureMutability();
+			}
+			catch(final IllegalStateException e)
+			{
+				throw new IllegalStateException("Cannot " + operation + ": the GigaMap is not mutable.", e);
+			}
+		}
+
 		protected final void internalAdd(final long entityId, final E entity)
 		{
 			notNull(entity);
-			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			// mark in any case: a mid-loop throw from an indexer leaves already updated groups behind.
+			try
 			{
-				indexGroup.internalAdd(entityId, entity);
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					indexGroup.internalAdd(entityId, entity);
+				}
 			}
-			this.markStateChangeChildren();
+			finally
+			{
+				this.markStateChangeChildren();
+			}
 		}
-		
+
 		protected final void internalAddAll(final long firstEntityId, final Iterable<? extends E> entities)
 		{
-			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			try
 			{
-				indexGroup.internalAddAll(firstEntityId, entities);
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					indexGroup.internalAddAll(firstEntityId, entities);
+				}
 			}
-			this.markStateChangeChildren();
-		}
-		
-		protected final void internalAddAll(final long firstEntityId, final E[] entities)
-		{
-			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			finally
 			{
-				indexGroup.internalAddAll(firstEntityId, entities);
+				this.markStateChangeChildren();
 			}
-			this.markStateChangeChildren();
 		}
-		
+
 		protected final void internalRemove(final long entityId, final E entity)
 		{
-			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			/*
+			 * Best-effort removal across all index groups, mirroring BitmapIndices#internalRemove:
+			 * a throwing indexer in one group must not prevent the other groups from being cleaned
+			 * up. The first exception is rethrown at the end, subsequent failures are attached as
+			 * suppressed exceptions.
+			 */
+			RuntimeException first = null;
+			try
 			{
-				indexGroup.internalRemove(entityId, entity);
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					try
+					{
+						indexGroup.internalRemove(entityId, entity);
+					}
+					catch(final RuntimeException e)
+					{
+						if(first == null)
+						{
+							first = e;
+						}
+						else
+						{
+							first.addSuppressed(e);
+						}
+					}
+				}
 			}
-			this.markStateChangeChildren();
+			finally
+			{
+				this.markStateChangeChildren();
+			}
+			if(first != null)
+			{
+				throw first;
+			}
 		}
 		
 		protected void internalRemoveAll()
@@ -222,7 +311,53 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 			}
 			this.markStateChangeChildren();
 		}
-		
+
+		void internalReindex()
+		{
+			/*
+			 * Rebuild every index group from the current entity state. Each group clears its data and
+			 * re-indexes all entities of the parent map (see IndexGroup.Internal#internalReindex), so an
+			 * index that drifted out of sync - e.g. because an indexed entity was mutated directly instead
+			 * of via update()/apply() - is brought back in line.
+			 *
+			 * Best-effort across the groups, mirroring #internalRemove: a group that reports a problem with
+			 * the rebuilt data (the bitmap group rejects data violating a unique constraint) must neither
+			 * keep the remaining groups from being rebuilt nor cost the already rebuilt ones their
+			 * state-change marks - unmarked, a subsequent store() would not persist the rebuild at all. The
+			 * first exception is rethrown at the end, subsequent failures are attached as suppressed ones.
+			 */
+			RuntimeException first = null;
+			try
+			{
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					try
+					{
+						indexGroup.internalReindex(this.parent);
+					}
+					catch(final RuntimeException e)
+					{
+						if(first == null)
+						{
+							first = e;
+						}
+						else
+						{
+							first.addSuppressed(e);
+						}
+					}
+				}
+			}
+			finally
+			{
+				this.markStateChangeChildren();
+			}
+			if(first != null)
+			{
+				throw first;
+			}
+		}
+
 		void internalUpdateIndices(
 			final long                         entityId          ,
 			final E                            replacedEntity    ,
@@ -237,6 +372,11 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 					indexGroup.internalPrepareIndicesUpdate(replacedEntity);
 					try
 					{
+						/*
+						 * The calling context (set/replace) keeps the replaced entity in place when the
+						 * update fails, so the previous index entries must remain untouched: no
+						 * internalRemovePreparedState here.
+						 */
 						indexGroup.internalUpdateIndices(entityId, replacedEntity, entity, customConstraints);
 					}
 					finally
@@ -250,38 +390,195 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 				this.markStateChangeChildren();
 			}
 		}
-		
-		<R> R internalUpdateIndices(
+
+		/**
+		 * First phase of an in-place entity update: derives the change handlers for the entity's
+		 * current (pre-mutation) state in all index groups. This runs all indexers, i.e. user code,
+		 * but does not mutate any index state: a throw here leaves the map completely unchanged,
+		 * already prepared groups are released again and nothing gets state-change marked.
+		 */
+		void internalPrepareUpdate(final E entity)
+		{
+			int prepared = 0;
+			try
+			{
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					indexGroup.internalPrepareIndicesUpdate(entity);
+					prepared++;
+				}
+			}
+			catch(final RuntimeException e)
+			{
+				int i = 0;
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					if(i++ >= prepared)
+					{
+						break;
+					}
+					try
+					{
+						indexGroup.internalFinishIndicesUpdate();
+					}
+					catch(final RuntimeException suppressed)
+					{
+						e.addSuppressed(suppressed);
+					}
+				}
+				throw e;
+			}
+		}
+
+		/**
+		 * Second phase of an in-place entity update: updates all index groups from the entity's state
+		 * as the update logic left it. Must be preceded by a successful
+		 * {@link #internalPrepareUpdate(Object)}.
+		 * <p>
+		 * If a group fails, the calling context decides whether the entity survives. It removes the
+		 * entity only if the exception rejects the entity itself instead of just the derived index (see
+		 * {@link GigaMap.Default#isEntityRejected(Throwable)}); that removal re-derives the keys from
+		 * the entity's mutated state, so the groups that did not get to update - the failing one and
+		 * all after it - de-index the entity's previous state here. The groups before the failing one
+		 * already carry the new state, which the removal locates by itself.
+		 */
+		void internalApplyUpdate(
 			final long                         entityId         ,
 			final E                            entity           ,
-			final Function<? super E, R>       logic            ,
 			final CustomConstraints<? super E> customConstraints
 		)
 		{
-			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
-			{
-				indexGroup.internalPrepareIndicesUpdate(entity);
-			}
-			
+			int updated = 0;
 			try
 			{
-				final R result = logic.apply(entity);
-				
-				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				try
 				{
-					indexGroup.internalUpdateIndices(entityId, entity, entity, customConstraints);
+					for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+					{
+						indexGroup.internalUpdateIndices(entityId, entity, entity, customConstraints);
+						updated++;
+					}
 				}
-				
-				return result;
+				catch(final RuntimeException e)
+				{
+					if(GigaMap.Default.isEntityRejected(e))
+					{
+						this.internalRemovePreparedState(entityId, updated, e);
+					}
+					this.internalFinishUpdate(e);
+					throw e;
+				}
+
+				this.internalFinishUpdate(null);
 			}
 			finally
 			{
+				this.markStateChangeChildren();
+			}
+		}
+
+		/**
+		 * Aligns the indices with an entity whose update logic threw: that entity's state is unreliable
+		 * and the calling context removes it, so the indices are updated from the entity's current
+		 * state to let the subsequent removal, which re-derives the keys from that same state, locate
+		 * all entries.
+		 * <p>
+		 * This runs best-effort per group so every group gets its chance to align; a group whose own
+		 * update fails de-indexes its previous entries via the prepared state instead and the failure
+		 * is attached to the logic's exception as a suppressed exception. Custom constraints are not
+		 * checked, the entity is doomed either way.
+		 */
+		void internalApplyLogicFailure(
+			final long             entityId    ,
+			final E                entity      ,
+			final RuntimeException logicFailure
+		)
+		{
+			try
+			{
 				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					try
+					{
+						indexGroup.internalUpdateIndices(entityId, entity, entity, null);
+					}
+					catch(final RuntimeException suppressed)
+					{
+						logicFailure.addSuppressed(suppressed);
+						try
+						{
+							indexGroup.internalRemovePreparedState(entityId);
+						}
+						catch(final RuntimeException alsoSuppressed)
+						{
+							logicFailure.addSuppressed(alsoSuppressed);
+						}
+					}
+				}
+				this.internalFinishUpdate(logicFailure);
+			}
+			finally
+			{
+				this.markStateChangeChildren();
+			}
+		}
+
+		/**
+		 * De-indexes the entity's previous state in all index groups from the given position on,
+		 * attaching failures to the given exception as suppressed exceptions.
+		 *
+		 * @param entityId the entity's id
+		 * @param skipCount the number of leading index groups that already carry the entity's new state
+		 * @param failure the exception that caused the cleanup
+		 */
+		private void internalRemovePreparedState(
+			final long             entityId ,
+			final int              skipCount,
+			final RuntimeException failure
+		)
+		{
+			int i = 0;
+			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			{
+				if(i++ < skipCount)
+				{
+					continue;
+				}
+				try
+				{
+					indexGroup.internalRemovePreparedState(entityId);
+				}
+				catch(final RuntimeException suppressed)
+				{
+					failure.addSuppressed(suppressed);
+				}
+			}
+		}
+
+		private void internalFinishUpdate(final RuntimeException primary)
+		{
+			RuntimeException first = primary;
+			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			{
+				try
 				{
 					indexGroup.internalFinishIndicesUpdate();
 				}
-				
-				this.markStateChangeChildren();
+				catch(final RuntimeException e)
+				{
+					if(first == null)
+					{
+						first = e;
+					}
+					else
+					{
+						first.addSuppressed(e);
+					}
+				}
+			}
+			if(primary == null && first != null)
+			{
+				throw first;
 			}
 		}
 					
@@ -369,6 +666,8 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 		{
 			synchronized(this.parentMap())
 			{
+				this.ensureMutable("register an index group");
+
 				final IndexGroup.Internal<E> indexGroup = category.createIndexGroup(this.parent);
 				
 				@SuppressWarnings("unchecked")
@@ -379,9 +678,173 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 				}
 				
 				this.indexGroups.add(indexGroup);
+
+				// let the freshly added group back-fill itself from entities that already exist in the
+				// map (no-op for most groups; only reached for a newly-added group, see the early return
+				// above). Not invoked on deserialization, which reconstructs groups via their handlers.
+				try
+				{
+					indexGroup.internalOnRegistered();
+				}
+				catch(final Throwable e)
+				{
+					// keep registration atomic: a failed back-fill must not leave a half-initialized group
+					// registered. Roll back the addition and release native resources the group may hold.
+					this.indexGroups.removeOne(indexGroup);
+					if(indexGroup instanceof Closeable)
+					{
+						try
+						{
+							((Closeable)indexGroup).close();
+						}
+						catch(final IOException suppressed)
+						{
+							e.addSuppressed(suppressed);
+						}
+					}
+					throw e;
+				}
+
+				// mark the change only after the group is fully and successfully registered.
 				this.markStateChangeInstance();
-				
+
 				return category.indexType().cast(indexGroup);
+			}
+		}
+
+		@Override
+		public final boolean remove(final IndexCategory<E, ?> category)
+		{
+			return this.internalRemoveGroup(category.indexType());
+		}
+
+		@Override
+		public final boolean remove(final Class<? extends IndexGroup<E>> categoryType)
+		{
+			return this.internalRemoveGroup(categoryType);
+		}
+
+		private boolean internalRemoveGroup(final Class<?> categoryType)
+		{
+			final IndexGroup.Internal<E> found;
+			synchronized(this.parentMap())
+			{
+				this.ensureMutable("remove index group \"" + categoryType.getName() + "\"");
+
+				IndexGroup.Internal<E> match = null;
+				// exact class match is checked first, then the general (e.g. interface) type, mirroring #get.
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					if(indexGroup.getClass() == categoryType)
+					{
+						match = indexGroup;
+						break;
+					}
+				}
+				if(match == null)
+				{
+					for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+					{
+						if(categoryType.isAssignableFrom(indexGroup.getClass()))
+						{
+							match = indexGroup;
+							break;
+						}
+					}
+				}
+				if(match == null)
+				{
+					return false;
+				}
+				if(match instanceof BitmapIndices)
+				{
+					throw new IllegalArgumentException(
+						"The bitmap index group cannot be removed (it hosts the unique and custom constraints); "
+						+ "use BitmapIndices#removeIndex(String) to remove individual bitmap indices."
+					);
+				}
+				found = match;
+			}
+
+			// Release resources outside the parentMap monitor: a group's close() may acquire its own internal
+			// lock (e.g. a vector index's builder write-lock) while a background task holds that lock and waits
+			// for the parentMap monitor, so closing under the monitor could dead-lock. Drop the group from the
+			// registry only after close() succeeds, so a failing close leaves it registered (and re-closeable)
+			// rather than detached-but-unclosed.
+			if(found instanceof Closeable)
+			{
+				try
+				{
+					((Closeable)found).close();
+				}
+				catch(final IOException e)
+				{
+					throw new RuntimeException(
+						"Failed to close index group \"" + found.getClass().getName() + "\" while removing it.",
+						e
+					);
+				}
+			}
+
+			synchronized(this.parentMap())
+			{
+				this.indexGroups.removeOne(found);
+				this.markStateChangeInstance();
+			}
+			return true;
+		}
+
+		/**
+		 * Closes every {@link Closeable} index group, releasing background threads and auxiliary
+		 * resources, <b>without</b> removing the groups or mutating persistent state. Invoked when the
+		 * owning storage is shut down (see {@link GigaMap.Default#releaseOnShutdown()}). Best-effort: a
+		 * failure of one group does not prevent the others from being closed; the first failure is
+		 * rethrown (with the rest suppressed) once all groups have been attempted.
+		 * <p>
+		 * The closeable groups are collected under the {@code parentMap} monitor but closed <b>outside</b>
+		 * of it: a group's {@code close()} may acquire its own internal lock (e.g. a vector index's builder
+		 * write-lock) while a background task holds that lock and waits for the {@code parentMap} monitor,
+		 * so holding the monitor across {@code close()} would dead-lock.
+		 */
+		final void closeAllGroups()
+		{
+			final BulkList<Closeable> closeables = BulkList.New();
+			synchronized(this.parentMap())
+			{
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					if(indexGroup instanceof Closeable)
+					{
+						closeables.add((Closeable)indexGroup);
+					}
+				}
+			}
+
+			RuntimeException problem = null;
+			for(final Closeable closeable : closeables)
+			{
+				try
+				{
+					closeable.close();
+				}
+				catch(final Exception e)
+				{
+					if(problem == null)
+					{
+						problem = new RuntimeException(
+							"Failed to close one or more index groups on storage shutdown.",
+							e
+						);
+					}
+					else
+					{
+						problem.addSuppressed(e);
+					}
+				}
+			}
+			if(problem != null)
+			{
+				throw problem;
 			}
 		}
 

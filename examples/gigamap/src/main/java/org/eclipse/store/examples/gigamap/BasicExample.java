@@ -37,11 +37,10 @@ public class BasicExample
 	{
 		return EmbeddedStorage.start(Paths.get("target/basic-example"));
 	}
-	
-	@SuppressWarnings("unchecked")
+
 	static GigaMap<Person> ensureGigaMap()
 	{
-		GigaMap<Person> gigaMap = (GigaMap<Person>)storageManager.root();
+		GigaMap<Person> gigaMap = storageManager.root();
 		if(gigaMap == null)
 		{
 			System.out.print("Creating random data ... ");

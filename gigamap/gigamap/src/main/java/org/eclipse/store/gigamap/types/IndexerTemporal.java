@@ -31,11 +31,78 @@ public interface IndexerTemporal<E, K, T extends Temporal> extends Indexer<E, K>
 	/**
 	 * Creates a condition which checks if the key is equal to a given point in time.
 	 *
-	 * @param other the value to check against, not null
+	 * @param other the value to check against, may be null to match entities with a null key
 	 * @return a new condition
+	 *
+	 * @implNote Temporal indexers are composite indexers whose key type is {@code Object[]}. Invoking
+	 * the generic {@link IndexIdentifier#is(Object)} through a raw or {@code Object}-typed
+	 * {@link IndexIdentifier} reference passes the logical value where an {@code Object[]} composite
+	 * key is expected and throws {@link ClassCastException} in the synthetic bridge method. Always use
+	 * this typed {@code is(T)} overload (and the typed {@link #not(Temporal)} / {@link #in(Temporal...)}
+	 * / {@link #notIn(Temporal...)} / {@link IndexIdentifier#isNull()} / {@link IndexIdentifier#notNull()}
+	 * methods) rather than the generic {@code Object[]}-keyed API.
 	 */
 	public <S extends E> Condition<S> is(T other);
-	
+
+	/**
+	 * Creates a condition which checks if the key is not equal to a given point in time.
+	 * <p>
+	 * For a non-null {@code other}, entities with a null key <b>are</b> included (a null key is "not
+	 * equal" to any concrete value). When {@code other} is null this is instead equivalent to
+	 * {@link IndexIdentifier#notNull()}, i.e. it matches all non-null keys and <b>excludes</b>
+	 * null-key entities.
+	 *
+	 * @param other the value to check against; may be null (then equivalent to {@link IndexIdentifier#notNull()})
+	 * @return a new negated condition
+	 */
+	public default <S extends E> Condition<S> not(final T other)
+	{
+		return new Condition.Not<>(this.is(other));
+	}
+
+	/**
+	 * Creates a condition which checks if the key is equal to any of the given points in time.
+	 * <p>
+	 * A null element is permitted and matches entities with a null key (it delegates to
+	 * {@link #is(Temporal)}, which treats null as {@link IndexIdentifier#isNull()}).
+	 *
+	 * @param others the values to check against; the array itself must not be null or empty, but
+	 *               individual elements may be null (to also match entities with a null key)
+	 * @return a new condition representing the containment check
+	 */
+	@SuppressWarnings("unchecked")
+	public default <S extends E> Condition<S> in(final T... others)
+	{
+		if(others == null || others.length == 0)
+		{
+			throw new IllegalArgumentException("others must not be null or empty");
+		}
+		Condition<S> result = this.is(others[0]);
+		for(int i = 1; i < others.length; i++)
+		{
+			result = result.or(this.is(others[i]));
+		}
+		return others.length > 1 ? result.complete() : result;
+	}
+
+	/**
+	 * Creates a condition which checks if the key is not equal to any of the given points in time.
+	 * <p>
+	 * Entities with a null key are included <b>unless</b> {@code null} is among the given values:
+	 * a null element makes {@link #in(Temporal...)} match null keys, so negating it then excludes
+	 * them.
+	 *
+	 * @param others the values to check against; the array itself must not be null or empty, but
+	 *               individual elements may be null (a null element excludes null-key entities from
+	 *               the result)
+	 * @return a new negated condition representing the containment check
+	 */
+	@SuppressWarnings("unchecked")
+	public default <S extends E> Condition<S> notIn(final T... others)
+	{
+		return new Condition.Not<>(this.in(others));
+	}
+
 	/**
 	 * Creates a condition which checks if the key is before a given point in time.
 	 *

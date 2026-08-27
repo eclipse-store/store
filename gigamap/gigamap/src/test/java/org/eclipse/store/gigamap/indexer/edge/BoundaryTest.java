@@ -49,7 +49,7 @@ public class BoundaryTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<Item> loadedGigaMap = (GigaMap<Item>) manager.root();
+            GigaMap<Item> loadedGigaMap = manager.root();
             Item item = loadedGigaMap.query(idIndex.is(1024)).findFirst().get();
             assertEquals(1024, item.id());
         }
@@ -71,7 +71,7 @@ public class BoundaryTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<Item> loadedGigaMap = (GigaMap<Item>) manager.root();
+            GigaMap<Item> loadedGigaMap = manager.root();
             Item item = loadedGigaMap.query(idIndex.is(65536)).findFirst().get();
             assertEquals(65536, item.id());
         }

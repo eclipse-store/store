@@ -121,6 +121,54 @@ public class BitmapIndexTest
 
     }
 
+    /**
+     * Regression test for a use-after-free + double-free in the bitmap index off-heap memory.
+     * Decompressing a partially-decompressed level2 segment used to
+     * transfer standalone level1 pointers into the new block while the old block still freed them,
+     * producing silent, nondeterministic wrong query counts and, on a subsequent recompression, a
+     * hard JVM crash (native heap corruption / double free). The lifecycle below reproduces the mixed
+     * compressed+mutated state that the previous coverage never hit. Several rounds are run because
+     * the corruption is nondeterministic; a stable query count across the optimize calls proves the
+     * transferred pointers are no longer freed prematurely.
+     */
+    @Test
+    void ensureOptimizedPerformance_afterCompressAndMutate_keepsQueryCountsStable()
+    {
+        for(int round = 0; round < 10; round++)
+        {
+            final EntityValueIndexer indexer = new EntityValueIndexer();
+            final GigaMap<Entity>    map     = GigaMap.New();
+            // release the off-heap memory each round so a failure mid-loop cannot pile up native pressure
+            try
+            {
+                map.index().bitmap().add(indexer);
+
+                for(int i = 0; i < 20_000; i++)
+                {
+                    map.add(new Entity("e" + i, i % 7));
+                }
+                final BitmapIndex<Entity, Integer> bitmap = map.index().bitmap(indexer);
+
+                bitmap.ensureOptimizedSize();                 // compress everything (standaloneCount == 0)
+
+                for(int i = 0; i < 5_000; i++)                // mutate -> partially-decompressed mixed state
+                {
+                    map.add(new Entity("m" + i, i % 7));
+                }
+
+                final long expected = map.query(indexer.is(3)).count();
+                bitmap.ensureOptimizedPerformance();          // decompress (the previously buggy transfer path)
+                assertEquals(expected, map.query(indexer.is(3)).count());
+                bitmap.ensureOptimizedSize();                 // recompress (previously double-freed -> crash)
+                assertEquals(expected, map.query(indexer.is(3)).count());
+            }
+            finally
+            {
+                map.release();
+            }
+        }
+    }
+
     private static class EntityValueIndexer extends IndexerInteger.Abstract<Entity> {
     	
         @Override

@@ -22,17 +22,28 @@ import java.util.Iterator;
 import java.util.List;
 
 
+/**
+ * Singleton table of MicroStream-to-EclipseStore dependency mappings, loaded from the bundled
+ * {@code /META-INF/mappings/dependency.mappings} resource.
+ * <p>
+ * Each non-empty line of the resource has the form
+ * {@code oldGroupId:oldArtifactId = newGroupId:newArtifactId} and is parsed into a {@link DependencyMapping}.
+ * Iteration order follows the resource's order. Use {@link #INSTANCE} to access the table.
+ */
 public class DependencyMappings implements Iterable<DependencyMapping>
 {
+	/**
+	 * The singleton instance, eagerly initialized from the bundled mapping resource.
+	 */
 	public final static DependencyMappings INSTANCE = new DependencyMappings();
-	
+
 	private final List<DependencyMapping> mappings;
-	
+
 	private DependencyMappings()
 	{
 		this.mappings = this.loadMappings();
 	}
-	
+
 	@Override
 	public Iterator<DependencyMapping> iterator()
 	{

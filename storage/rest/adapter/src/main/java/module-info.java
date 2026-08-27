@@ -17,4 +17,6 @@ module org.eclipse.store.storage.restadapter
 	exports org.eclipse.store.storage.restadapter.exceptions;
 
 	requires transitive org.eclipse.store.storage;
+
+	uses org.eclipse.store.storage.restadapter.types.StorageViewDataConverter;
 }

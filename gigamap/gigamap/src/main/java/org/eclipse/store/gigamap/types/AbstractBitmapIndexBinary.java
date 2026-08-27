@@ -18,7 +18,10 @@ import org.eclipse.serializer.branching.ThrowBreak;
 import org.eclipse.serializer.collections.XSort;
 import org.eclipse.serializer.persistence.types.Storer;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.ObjLongConsumer;
 import java.util.function.Predicate;
 
 
@@ -36,7 +39,7 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 	// constants //
 	//////////////
 	
-	private static final BitmapResult[] EMPTY_RESULT = new BitmapResult[0];
+	private static final BitmapResult[] NO_MATCH = new BitmapResult[0];
 	
 	
 	
@@ -215,8 +218,66 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 				}
 				logic.accept(entry.key());
 			}
-			
+
 			return logic;
+		}
+	}
+
+	@Override
+	public void iterateKeyEntityPairs(final ObjLongConsumer<? super Long> consumer)
+	{
+		final BinaryIndexer<? super I> indexer = this.indexer;
+		if(indexer == null)
+		{
+			// sub indices are their own sub indexer and carry no key-encoding to invert.
+			throw new UnsupportedOperationException(
+				"iterateKeyEntityPairs is not supported without a binary indexer"
+			);
+		}
+
+		synchronized(this.parentMap())
+		{
+			@SuppressWarnings("unchecked")
+			final GigaMap.Default<E> parent = (GigaMap.Default<E>)this.parentMap();
+			final long idBound = parent.nextFreeId();
+
+			// entityId (position in the owning GigaMap) -> stored long, accumulated bit by bit.
+			// A binary index keeps no whole key: bit position i's bitmap holds the ids whose stored
+			// long has bit i set, so the key is reconstructed by OR-ing 1L<<i over the positions that
+			// contain each id. No entity is loaded — only the index's own bitmaps are read.
+			final Map<Long, Long> storedByEntityId = new HashMap<>();
+
+			final BitmapEntry<E, I, Long>[] entries = this.entries;
+			for(int i = 0; i < entries.length; i++)
+			{
+				final BitmapEntry<E, I, Long> entry = entries[i];
+				if(entry == null)
+				{
+					continue;
+				}
+				final long bit = 1L << i; // == arrayIndexToKey(i)
+				final BitmapResult[] results = {entry.createResult()};
+
+				// Bare id collector, mirroring GigaMap.Default#materializeEntityIds: no resolver, no
+				// reader-lifecycle registration — it only walks the bitmap segments for entity ids.
+				final AbstractBitmapIterating<E> collector = new AbstractBitmapIterating<E>(
+					EntityIdMatcher.NoOp(), 0, idBound, results, -1
+				)
+				{
+					@Override
+					protected boolean handleEntityId(final long entityId)
+					{
+						storedByEntityId.merge(entityId, bit, (a, b) -> a | b);
+						return false; // keep iterating
+					}
+				};
+				collector.execute();
+			}
+
+			for(final Map.Entry<Long, Long> e : storedByEntityId.entrySet())
+			{
+				consumer.accept(indexer.binaryToKey(e.getValue()), e.getKey());
+			}
 		}
 	}
 	
@@ -228,9 +289,8 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 	
 	protected long indexBinary(final I entity)
 	{
-		final long keys = this.indexer.indexBinary(entity);
-		BinaryIndexer.Static.validate(keys, this.indexer);
-		return keys;
+		// note: null keys are rejected by the indexer itself, since a long can never be null once it got here.
+		return this.indexer.indexBinary(entity);
 	}
 	
 	@Override
@@ -324,7 +384,14 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 	
 	public BitmapResult internalQuery(final long key)
 	{
-		return new BitmapResult.ChainAnd(this.internalQueryResults(key));
+		final BitmapResult[] results = this.internalQueryResults(key);
+		if(results == NO_MATCH)
+		{
+			// key cannot be contained (required bit positions have no entries), so the result must be the Empty singleton,
+			// not a ChainAnd wrapping an empty array (which would vacuously match every id via its -1L bitmap value).
+			return EMPTY_RESULT;
+		}
+		return new BitmapResult.ChainAnd(results);
 	}
 	
 	public final BitmapResult[] internalQueryResults(final long keys)
@@ -332,7 +399,7 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 		if(!this.fitsInEntries(keys))
 		{
 			// if the keys value's 1-bits don't fit in the entry range, the key cannot be contained.
-			return EMPTY_RESULT;
+			return NO_MATCH;
 		}
 		
 		final BitmapResult[] results = new BitmapResult[this.entriesCount];
@@ -345,7 +412,7 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 				// if the key demands a 1 bit at index i, but the index doesn't even have an entry for i, the key CANNOT be contained.
 				if(this.entries[i] == null)
 				{
-					return EMPTY_RESULT;
+					return NO_MATCH;
 				}
 				
 				// add condition for index i to filter for 1-bits.
@@ -367,7 +434,7 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 		// never return null since it is perfectly valid to query for a key that does not exist.
 		if(r == 0)
 		{
-			return EMPTY_RESULT;
+			return NO_MATCH;
 		}
 		
 		XSort.insertionsort(results, BitmapResult::andOptimize, 0, r);
@@ -380,16 +447,30 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 	public boolean internalContains(final I entity)
 	{
 		final long keys = this.indexBinary(entity);
-		
+
 		return this.internalContainsKeys(keys);
 	}
-	
+
+	// Not an @Override at this generic level (parameter is I, the interface uses E); in the concrete
+	// BinaryBitmapIndex<E> where I == E it implements BitmapIndex.Internal.internalContains(E, long).
+	public boolean internalContains(final I entity, final long excludedEntityId)
+	{
+		final long keys = this.indexBinary(entity);
+
+		return this.internalContainsKeys(keys, new ContainsOtherBreaker<>(excludedEntityId));
+	}
+
 	private boolean fitsInEntries(final long keys)
 	{
 		return (keys & this.entriesLengthCheckMask) == 0L;
 	}
-	
+
 	public final boolean internalContainsKeys(final long keys)
+	{
+		return this.internalContainsKeys(keys, this.contains);
+	}
+
+	private boolean internalContainsKeys(final long keys, final EntityResolver<I> containsBreaker)
 	{
 		if(!this.fitsInEntries(keys))
 		{
@@ -408,7 +489,7 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 		}
 		
 		final BitmapResult[] results = this.internalQueryResults(keys);
-		if(results == EMPTY_RESULT)
+		if(results == NO_MATCH)
 		{
 			return false;
 		}
@@ -418,8 +499,8 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 		// if the entity might be contained, a full query result evaluation has to be performed. But without loading entities.
 		try
 		{
-			// contains function throws a Break on the first encounter of a match (aka entity is contained)
-			GigaMap.Default.execute(this.contains, results, 0, parentMap.size(), null);
+			// contains function throws a Break on the first encounter of a (non-excluded) match
+			GigaMap.Default.execute(EntityIdMatcher.NoOp(), containsBreaker, results, 0, parentMap.highestUsedId() + 1, null);
 		}
 		catch(final ThrowBreak b)
 		{
@@ -553,7 +634,27 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 		@Override
 		public void changeInIndex(final long entityId, final ChangeHandler prevEntityHandler)
 		{
-			this.index.internalHandleChanged(((BinaryChangeHandler<?>)prevEntityHandler).keys, entityId, this.keys);
+			if(!(prevEntityHandler instanceof final BinaryChangeHandler<?> prevHandler))
+			{
+				/*
+				 * There is no previous state to read keys from: #getChangeHandler yields the
+				 * NullChangeChandler for a null previous entity, which is what GigaMap#set is handed when it
+				 * fills a slot that #removeById emptied (restoring an entity at its own id). Every other
+				 * ChangeHandler implementation copes with a foreign previous handler by routing the
+				 * de-indexing through #removeFromIndex instead of reading keys off it, so this does the same:
+				 * de-index whatever the previous handler stands for (nothing, for the null handler), then
+				 * treat the new keys as a plain addition. Formerly the cast below was unguarded and threw a
+				 * ClassCastException here.
+				 */
+				prevEntityHandler.removeFromIndex(entityId);
+
+				// no previous keys means no dispensable entries, so every 1 bit of the new keys is added.
+				this.index.internalHandleChanged(0L, entityId, this.keys);
+
+				return;
+			}
+
+			this.index.internalHandleChanged(prevHandler.keys, entityId, this.keys);
 		}
 		
 	}

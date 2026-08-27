@@ -128,8 +128,12 @@ public class CompositeBitmapIndexBinary<E> extends AbstractCompositeBitmapIndex<
 		final BulkList<BitmapResult> subResults
 	)
 	{
+		// each entry's key is a single bit (1L << position); accumulate which bit positions actually
+		// have an entry, so a required bit that no entity holds can be detected below.
+		final long[] coveredBits = {0L};
 		this.subIndices[subPosition].iterateEntries(e ->
 		{
+			coveredBits[0] |= (Long)e.key();
 			// binary logic: selected entries are collected as results and discarded entries must be collected as inverted results.
 			if(predicate.test(subPosition, e.key()))
 			{
@@ -140,6 +144,16 @@ public class CompositeBitmapIndexBinary<E> extends AbstractCompositeBitmapIndex<
 				subResults.add(new BitmapResult.Not(e.createResult()));
 			}
 		});
+
+		// exact-match correctness: if the searched value requires a 1-bit at a position that has no
+		// entry at all, no entity can hold that bit, so the value cannot be contained. Without this,
+		// that requirement would simply be absent from the AND chain, letting values that are bit
+		// subsets of the searched value match incorrectly (e.g. "test2" matching a search for "test3").
+		// Mirrors the null-entry check in AbstractBitmapIndexBinary#internalQueryResults.
+		if((predicate.requiredBits(subPosition) & ~coveredBits[0]) != 0L)
+		{
+			subResults.add(EMPTY_RESULT);
+		}
 	}
 	
 	@Override
@@ -200,5 +214,16 @@ public class CompositeBitmapIndexBinary<E> extends AbstractCompositeBitmapIndex<
 	{
 		return super.is(new CompositePredicate.BinarySampleBased(key));
 	}
-	
+
+	@Override
+	public BitmapResult internalQuery(final long[] keys)
+	{
+		// Route exact-match lookups (used by In / All / Equals conditions) through the same
+		// bit-sliced predicate path as is(...). The generic super implementation treats trailing /
+		// out-of-range positions as wildcards, which would let a shorter key match longer stored
+		// values that share its prefix; BinarySampleBased correctly enforces missing-bit,
+		// trailing-position-empty, and oversized semantics.
+		return this.search(new CompositePredicate.BinarySampleBased(keys));
+	}
+
 }

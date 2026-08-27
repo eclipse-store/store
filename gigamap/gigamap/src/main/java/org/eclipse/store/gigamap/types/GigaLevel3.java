@@ -121,7 +121,34 @@ public final class GigaLevel3<E> extends AbstractStateChangeFlagged implements U
 		this.markUsedLevel2Entry(level2Entry);
 		this.markStateChangeInstance();
 	}
-	
+
+	/**
+	 * Releases the level2 segment at the passed index, the counterpart of
+	 * {@link #addLevel2(GigaLevel2, int)}.
+	 * <p>
+	 * {@link #markStateChangeInstance()} is mandatory here and cannot be left to
+	 * {@link #markChanged(int)}: that one flags only this instance's <i>children</i>, so without the
+	 * instance flag the storing logic would skip this instance's own binary form and the released
+	 * segment would still be referenced on disk - resurrecting a whole subtree of removed entities on
+	 * the next load, while the persisted size and id counter would not know about them.
+	 * <p>
+	 * The segments array is deliberately not shrunk. Holes are the normal state of it, every reader
+	 * tolerates them, and the freed slot is a single reference per {@code level1Size * level2Size} ids.
+	 *
+	 * @param level3Index the index of the level2 segment to release
+	 */
+	final void removeLevel2(final int level3Index)
+	{
+		final Lazy<GigaLevel2<E>> level2Entry = this.segments[level3Index];
+		if(level2Entry != null)
+		{
+			this.unmarkUsedLevel2Entry(level2Entry);
+		}
+
+		this.segments[level3Index] = null;
+		this.markStateChangeInstance();
+	}
+
 	final void enlargeLevel3(final int minimumCapacity)
 	{
 		// add 10% capacity to avoid frequent rebuilding, but at the very least 1 more length.

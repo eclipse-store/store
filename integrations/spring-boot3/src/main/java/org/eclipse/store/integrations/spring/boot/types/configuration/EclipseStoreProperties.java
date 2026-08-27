@@ -144,6 +144,13 @@ public class EclipseStoreProperties
     private String housekeepingMaximumTimeBudget;
 
     /**
+     * Number of consecutive garbage-collection sweeps an entity must remain unmarked before it is
+     * deleted (a safety net against rare, transient GC concurrency races). Valid range is 1 to 127,
+     * default is 3.
+     */
+    private String gcSweepThreshold;
+
+    /**
      * The maximum size of a transaction file. If the file is larger than this value, it will be split into multiple files.
      * Default is 1 GiB.
      */
@@ -179,6 +186,24 @@ public class EclipseStoreProperties
      * A flag defining whether the current head file (the only file actively written to) shall be subjected to file cleanups as well.
      */
     private String dataFileCleanupHeadFile;
+
+    /**
+     * Store-time validation of trusted reference object ids: {@code off}, {@code log}, {@code fail}
+     * or {@code heal}. Default is {@code log}.
+     */
+    private String referenceValidation;
+
+    /**
+     * Reaction of the storage garbage collector to an encountered zombie object id:
+     * {@code log} or {@code fail}. Default is {@code log}.
+     */
+    private String gcZombieOidHandling;
+
+    /**
+     * Per-chunk data-integrity checksum configuration. Bound from {@code org.eclipse.store.chunk-checksum.*}.
+     */
+    @NestedConfigurationProperty
+    private ChunkChecksum chunkChecksum;
 
     /**
      * Is the {@code StorageManager} started when the CDI bean for the instance is created or not.
@@ -430,6 +455,16 @@ public class EclipseStoreProperties
         this.housekeepingMaximumTimeBudget = housekeepingMaximumTimeBudget;
     }
 
+    public String getGcSweepThreshold()
+    {
+        return this.gcSweepThreshold;
+    }
+
+    public void setGcSweepThreshold(final String gcSweepThreshold)
+    {
+        this.gcSweepThreshold = gcSweepThreshold;
+    }
+
     public String getTransactionFileMaximumSize()
     {
         return this.transactionFileMaximumSize;
@@ -498,6 +533,36 @@ public class EclipseStoreProperties
     public void setDataFileCleanupHeadFile(final String dataFileCleanupHeadFile)
     {
         this.dataFileCleanupHeadFile = dataFileCleanupHeadFile;
+    }
+
+    public String getReferenceValidation()
+    {
+        return this.referenceValidation;
+    }
+
+    public void setReferenceValidation(final String referenceValidation)
+    {
+        this.referenceValidation = referenceValidation;
+    }
+
+    public String getGcZombieOidHandling()
+    {
+        return this.gcZombieOidHandling;
+    }
+
+    public void setGcZombieOidHandling(final String gcZombieOidHandling)
+    {
+        this.gcZombieOidHandling = gcZombieOidHandling;
+    }
+
+    public ChunkChecksum getChunkChecksum()
+    {
+        return this.chunkChecksum;
+    }
+
+    public void setChunkChecksum(final ChunkChecksum chunkChecksum)
+    {
+        this.chunkChecksum = chunkChecksum;
     }
 
     public boolean isAutoStart()

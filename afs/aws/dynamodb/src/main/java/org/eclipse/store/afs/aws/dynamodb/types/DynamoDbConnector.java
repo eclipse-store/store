@@ -17,7 +17,6 @@ package org.eclipse.store.afs.aws.dynamodb.types;
 import static org.eclipse.serializer.util.X.checkArrayRange;
 import static org.eclipse.serializer.util.X.notNull;
 
-import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -30,7 +29,6 @@ import java.util.stream.Stream;
 import org.eclipse.serializer.concurrency.XThreads;
 import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.serializer.io.ByteBufferInputStream;
-import org.eclipse.serializer.io.LimitedInputStream;
 import org.eclipse.store.afs.blobstore.types.BlobStoreConnector;
 import org.eclipse.store.afs.blobstore.types.BlobStorePath;
 
@@ -53,6 +51,7 @@ import software.amazon.awssdk.services.dynamodb.model.ResourceNotFoundException;
 import software.amazon.awssdk.services.dynamodb.model.ScalarAttributeType;
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
 import software.amazon.awssdk.services.dynamodb.model.ScanResponse;
+import software.amazon.awssdk.services.dynamodb.paginators.QueryIterable;
 import software.amazon.awssdk.services.dynamodb.model.Select;
 import software.amazon.awssdk.services.dynamodb.model.TableDescription;
 import software.amazon.awssdk.services.dynamodb.model.TableStatus;
@@ -229,16 +228,27 @@ public interface DynamoDbConnector extends BlobStoreConnector
 			
 			try
 			{
-				final QueryResponse response = this.client.query(builder.build());
-				if(!response.hasItems())
+				/*
+				 * DynamoDB queries return paginated results capped at 1 MB per page.
+				 * A multi-blob file's seq rows (each up to MAX_BLOB_SIZE = 400 000 B)
+				 * easily exceed one page, so we MUST consume the full paginator,
+				 * otherwise file size / existence / read-back will be silently
+				 * truncated to the first page.
+				 */
+				final QueryIterable pages = this.client.queryPaginator(builder.build());
+				final List<Map<String, AttributeValue>> items = new ArrayList<>();
+				for(final QueryResponse page : pages)
+				{
+					if(page.hasItems())
+					{
+						items.addAll(page.items());
+					}
+				}
+				if(items.isEmpty())
 				{
 					return Stream.empty();
 				}
-								
-				return response.items()
-					.stream()
-					.sorted(this.blobComparator())
-				;
+				return items.stream().sorted(this.blobComparator());
 			}
 			catch(final ResourceNotFoundException e)
 			{
@@ -307,23 +317,43 @@ public interface DynamoDbConnector extends BlobStoreConnector
 				.expressionAttributeValues(expressionValues)
 				.build()
 			;
-			
-			final ScanResponse response = this.client.scan(request);
+
 			try
 			{
-				if(!response.hasItems())
-				{
-					return Stream.empty();
-				}
-
+				/*
+				 * DynamoDB scans page at ~1 MB per response. A directory containing
+				 * multiple multi-blob files (a normal Eclipse Store channel does)
+				 * exceeds that, so we MUST iterate the full paginator. Returning only
+				 * the first page would silently hide files from {@link
+				 * org.eclipse.store.storage.types.StorageFileManager}'s startup
+				 * inventory and cause "Non-deleted non-empty data file not found".
+				 *
+				 * We drain the paginator into a list here, inside the try block, so
+				 * a {@link ResourceNotFoundException} thrown on any page is caught
+				 * consistently with {@link #blobs(BlobStorePath, boolean)} regardless
+				 * of whether the AWS SDK paginator fetches eagerly or lazily — the
+				 * earlier version that returned a lazy stream straight out of the
+				 * try/catch relied on the SDK's current (eager) page-fetch behavior
+				 * and would silently leak the exception if that ever changed.
+				 */
 				final Pattern pattern = Pattern.compile(childKeysRegexWithContainer(directory));
-				
-				return response.items()
-					.stream()
-					.map(item -> item.get(FIELD_KEY).s())
-					.filter(key -> pattern.matcher(key).matches())
-					.distinct()
-				;
+				final List<String> keys = new ArrayList<>();
+				for(final ScanResponse page : this.client.scanPaginator(request))
+				{
+					if(!page.hasItems())
+					{
+						continue;
+					}
+					for(final Map<String, AttributeValue> item : page.items())
+					{
+						final String key = item.get(FIELD_KEY).s();
+						if(pattern.matcher(key).matches())
+						{
+							keys.add(key);
+						}
+					}
+				}
+				return keys.stream().distinct();
 			}
 			catch(final ResourceNotFoundException e)
 			{
@@ -446,23 +476,41 @@ public interface DynamoDbConnector extends BlobStoreConnector
 					MAX_BLOB_SIZE
 				);
 
-				try(LimitedInputStream limitedInputStream = LimitedInputStream.New(
-					new BufferedInputStream(buffersInputStream),
-					currentBatchSize)
-				)
+				try
 				{
+					/*
+					 * Read directly from the (in-memory) ByteBufferInputStream into the
+					 * batch array. Earlier versions wrapped this in BufferedInputStream,
+					 * but BufferedInputStream's 8 KiB internal pre-fetch buffer caused
+					 * silent data loss at blob boundaries: bytes pulled from the source
+					 * into the BIS buffer that were never returned to the caller were
+					 * discarded when the BIS was closed (try-with-resources, recreated
+					 * per batch). The next batch then started reading from a source
+					 * position that was up to 8 KiB past where it should have been.
+					 *
+					 * The offset into batch[] must also advance with each read; an
+					 * InputStream.read may legitimately return fewer bytes than
+					 * requested, and a fixed offset of 0 would overwrite earlier bytes.
+					 */
 					final byte[] batch = new byte[checkArrayRange(currentBatchSize)];
-						  int    remaining = batch.length;
-				          int    read;
-					while(remaining > 0 &&
-						(read = limitedInputStream.read(
+					      int    off   = 0;
+					      int    read;
+					while(off < batch.length &&
+						(read = buffersInputStream.read(
 							batch,
-							0,
-							Math.min(batch.length, remaining))
+							off,
+							batch.length - off)
 						) != -1
 					)
 					{
-						remaining -= read;
+						off += read;
+					}
+					if(off < batch.length)
+					{
+						throw new IORuntimeException(new IOException(
+							"Source stream exhausted: expected "
+							+ batch.length + " bytes, got " + off
+						));
 					}
 
 					final Map<String, AttributeValue> item = new HashMap<>();

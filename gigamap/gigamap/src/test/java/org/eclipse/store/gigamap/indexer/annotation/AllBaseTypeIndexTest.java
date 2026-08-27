@@ -50,7 +50,7 @@ public class AllBaseTypeIndexTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(this.tempDir)) {
-            final GigaMap<AllIBaseTypeEntity> map2 = (GigaMap<AllIBaseTypeEntity>) storageManager.root();
+            final GigaMap<AllIBaseTypeEntity> map2 = storageManager.root();
 
             this.checkIndices(map2, map2.index().bitmap());
         }

@@ -23,6 +23,14 @@ import org.openrewrite.Recipe;
 import org.openrewrite.TreeVisitor;
 
 
+/**
+ * OpenRewrite recipe that rewrites a single {@code PersistenceTypeDictionary.ptd} file by applying the
+ * MicroStream-to-EclipseStore package renames declared in {@link org.eclipse.store.storage.embedded.tools.storage.migrator.mappings.PackageMappings}.
+ * <p>
+ * Used as a sub-recipe of {@link org.eclipse.store.storage.embedded.tools.storage.migrator.ConvertProject}
+ * when a relative path to the dictionary file is supplied. The actual rewriting is delegated to a
+ * {@link TypeDictionaryVisitor}.
+ */
 public class UpdateTypeDictionary extends Recipe
 {
 	@Option(
@@ -31,7 +39,12 @@ public class UpdateTypeDictionary extends Recipe
 		example = "/home/mystorage/PersistenceTypeDictionary.ptd"
 	)
 	private final String relativeFilePath;
-	
+
+	/**
+	 * Creates a new recipe targeting the dictionary file at the given project-relative path.
+	 *
+	 * @param relativeFilePath the project-relative path of the type dictionary file to rewrite.
+	 */
 	public UpdateTypeDictionary(final String relativeFilePath)
 	{
 		this.relativeFilePath = relativeFilePath;

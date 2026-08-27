@@ -96,3 +96,72 @@ Range conditions can be combined with other conditions.
 ----
 gigaMap.query(price.between(10, 100).and(category.is("Electronics")));
 ----
+
+== Sub-Queries
+
+A `GigaMap.SubQuery` contributes a set of entity ids to a query. Any bitmap-backed `GigaQuery`, any xref:indexing/lucene/index.adoc[Lucene] or xref:indexing/jvector/index.adoc[vector] search result, and ad-hoc id sets are all sub-queries. Combining them lets a single query intersect across different index types.
+
+=== Combining a GigaQuery with a Sub-Query
+
+Use `query.and(subQuery)` to narrow a bitmap query by any other id source. The result is a `GigaQuery` — scores, if any, are dropped.
+
+[source, java]
+----
+// Lucene full-text hits narrowed by a bitmap status condition
+LuceneSearchResult<Article> hits = luceneIndex.search("content:eclipse", 100);
+List<Article> published = gigaMap.query(status.is("PUBLISHED"))
+    .and(hits)
+    .toList();
+----
+
+[source, java]
+----
+// Vector similarity hits narrowed by a bitmap category condition
+VectorSearchResult<Doc> hits = vectorIndex.search(queryVector, 50);
+List<Doc> techDocs = gigaMap.query(category.is("tech"))
+    .and(hits)
+    .toList();
+----
+
+=== Narrowing a Scored Search Result
+
+A `ScoredSearchResult` (vector or Lucene) is itself a sub-query, and also exposes its own `and(SubQuery)`. Unlike the `GigaQuery` variant, this one keeps the scored iteration alive — the returned object is another `ScoredSearchResult`, preserving the original score-descending order on the surviving entries.
+
+[source, java]
+----
+// Narrow from the scored side; keep iterating with scores afterwards
+ScoredSearchResult<Article> top = luceneIndex.search("content:eclipse", 100)
+    .and(gigaMap.query(status.is("PUBLISHED")));
+
+for(var entry : top)
+{
+    System.out.println(entry.entity().title() + " (" + entry.score() + ")");
+}
+----
+
+=== Combining Queries
+
+A `GigaQuery` itself is a sub-query too, so two queries on the same `GigaMap` can be intersected directly.
+
+[source, java]
+----
+GigaQuery<Person> adults    = gigaMap.query(age.greaterThanEqual(18));
+GigaQuery<Person> berliners = gigaMap.query(city.is("Berlin"));
+
+long count = adults.and(berliners).count();
+----
+
+=== Combining with a Fixed Id Set
+
+For ad-hoc id sets — a pre-computed allow-list, an external system, a test fixture — use `EntityIdMatcher.Ascending(...)`. It takes a sorted (or to-be-sorted) array of entity ids and exposes it as a `SubQuery`.
+
+[source, java]
+----
+EntityIdMatcher allowed = EntityIdMatcher.Ascending(42L, 58L, 91L);
+
+List<Person> matches = gigaMap.query(firstName.is("John"))
+    .and(allowed)
+    .toList();
+----
+
+NOTE: Sub-query combination is always a logical *AND*: an entity is part of the result only if it matches *both* sides. Multiple `.and(...)` calls chain: `query.and(subA).and(subB)` requires an entity to be present in the main query, `subA`, *and* `subB`.

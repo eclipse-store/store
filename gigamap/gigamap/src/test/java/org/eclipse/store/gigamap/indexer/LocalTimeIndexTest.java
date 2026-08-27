@@ -15,8 +15,10 @@ package org.eclipse.store.gigamap.indexer;
  */
 
 import org.eclipse.store.gigamap.types.BitmapIndices;
+import org.eclipse.store.gigamap.types.Condition;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.IndexerLocalTime;
+import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
@@ -79,7 +81,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             long count = newMap.query(localTimePersonIndex.between(LocalTime.of(12, 0), LocalTime.of(14, 0))).count();
             assertEquals(3, count);
             long count1 = newMap.query(localTimePersonIndex.between(LocalTime.of(12, 0), LocalTime.of(14, 0))).count();
@@ -102,7 +104,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             long count = newMap.query(localTimePersonIndex.after(LocalTime.of(12, 0))).count();
             assertEquals(2, count);
             long count1 = newMap.query(localTimePersonIndex.after(LocalTime.of(13, 0))).count();
@@ -123,7 +125,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             long count = newMap.query(localTimePersonIndex.afterEqual(LocalTime.of(12, 0))).count();
             assertEquals(3, count);
             long count1 = newMap.query(localTimePersonIndex.afterEqual(LocalTime.of(13, 0))).count();
@@ -144,7 +146,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             long count = newMap.query(localTimePersonIndex.before(LocalTime.of(13, 0))).count();
             assertEquals(1, count);
             long count1 = newMap.query(localTimePersonIndex.before(LocalTime.of(12, 0))).count();
@@ -165,7 +167,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             long count = newMap.query(localTimePersonIndex.beforeEqual(LocalTime.of(13, 0))).count();
             assertEquals(2, count);
             long count1 = newMap.query(localTimePersonIndex.beforeEqual(LocalTime.of(12, 0))).count();
@@ -184,7 +186,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             long count = newMap.query(localTimePersonIndex.isSecond(0)).count();
             assertEquals(3, count);
         }
@@ -201,7 +203,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             long count = newMap.query(localTimePersonIndex.isMinute(0)).count();
             assertEquals(3, count);
         }
@@ -218,7 +220,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             long count = newMap.query(localTimePersonIndex.isHour(12)).count();
             assertEquals(1, count);
         }
@@ -235,7 +237,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             long count = newMap.query(localTimePersonIndex.isTime(12, 0, 0)).count();
             assertEquals(1, count);
         }
@@ -259,7 +261,7 @@ public class LocalTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<LocalTimePerson> newMap = (GigaMap<LocalTimePerson>) manager.root();
+            GigaMap<LocalTimePerson> newMap = manager.root();
             newMap.query(localTimePersonIndex.is(LocalTime.of(12, 0))).forEach(localTimePerson -> assertEquals(LocalTime.of(12, 0), localTimePerson.getLunchTime()));
             newMap.query(localTimePersonIndex.is(LocalTime.of(13, 0))).forEach(localTimePerson -> assertEquals(LocalTime.of(13, 0), localTimePerson.getLunchTime()));
 
@@ -270,6 +272,53 @@ public class LocalTimeIndexTest
                     .stream().collect(Collectors.toList());
             assertEquals(2, personList.size());
         }
+    }
+
+    /**
+     * Regression test for issue #653 / #654: composing an {@link IndexerLocalTime} range
+     * condition via {@link Condition#and(Condition)} (i) with another range condition and
+     * (ii) with a condition from a different indexer type must produce the same result as
+     * composing via {@link org.eclipse.store.gigamap.types.GigaQuery#and(Condition)}.
+     */
+    @Test
+    void rangeCompositionViaConditionAnd()
+    {
+        final LocalTimePersonIndex timeIdx = new LocalTimePersonIndex();
+        final NameIndex            nameIdx = new NameIndex();
+
+        final GigaMap<LocalTimePerson> map = GigaMap.<LocalTimePerson>Builder()
+            .withBitmapIndex(timeIdx)
+            .withBitmapIndex(nameIdx)
+            .build();
+        map.add(new LocalTimePerson("Alice",   LocalTime.of(11, 0)));
+        map.add(new LocalTimePerson("Bob",     LocalTime.of(12, 0)));
+        map.add(new LocalTimePerson("Charlie", LocalTime.of(13, 0)));
+        map.add(new LocalTimePerson("Dave",    LocalTime.of(14, 0)));
+
+        final LocalTime lower = LocalTime.of(11, 30); // exclusive
+        final LocalTime upper = LocalTime.of(13, 30); // exclusive
+
+        // (i) range AND range
+        final Condition<LocalTimePerson> after  = timeIdx.after(lower);
+        final Condition<LocalTimePerson> before = timeIdx.before(upper);
+
+        final List<LocalTimePerson> rangeAnd = map.query(after.and(before)).toList();
+        final List<LocalTimePerson> rangeQ   = map.query().and(after).and(before).toList();
+
+        assertEquals(2, rangeAnd.size(), "Condition.and() must respect both bounds");
+        assertEquals(rangeQ.size(), rangeAnd.size(), "Condition.and() and GigaQuery.and() must agree");
+        rangeAnd.forEach(p -> assertNotEquals("Alice", p.name()));
+        rangeAnd.forEach(p -> assertNotEquals("Dave",  p.name()));
+
+        // (ii) range AND condition from a different indexer
+        final Condition<LocalTimePerson> bobMatch = nameIdx.is("Bob");
+
+        final List<LocalTimePerson> mixedAnd = map.query(after.and(bobMatch)).toList();
+        final List<LocalTimePerson> mixedQ   = map.query().and(after).and(bobMatch).toList();
+
+        assertEquals(1, mixedAnd.size(), "range AND non-range condition must intersect correctly");
+        assertEquals("Bob", mixedAnd.get(0).name());
+        assertEquals(mixedQ.size(), mixedAnd.size());
     }
 
     private GigaMap<LocalTimePerson> prepageGigaMap()
@@ -295,6 +344,15 @@ public class LocalTimeIndexTest
         protected LocalTime getLocalTime(LocalTimePerson entity)
         {
             return entity.getLunchTime();
+        }
+    }
+
+    private static class NameIndex extends IndexerString.Abstract<LocalTimePerson>
+    {
+        @Override
+        protected String getString(final LocalTimePerson entity)
+        {
+            return entity.name();
         }
     }
 

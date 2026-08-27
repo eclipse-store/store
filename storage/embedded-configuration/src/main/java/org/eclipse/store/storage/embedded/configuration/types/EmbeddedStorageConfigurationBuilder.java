@@ -172,8 +172,22 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 	 */
 	public EmbeddedStorageConfigurationBuilder setTypeDictionaryFileName(String typeDictionaryFileName);
 
+	/**
+	 * Suffix used to mark storage files that have been rescued during recovery from a corrupt state, instead
+	 * of being deleted. Default is <code>"bak"</code>.
+	 *
+	 * @param rescuedFileSuffix new suffix
+	 * @return this
+	 */
 	public EmbeddedStorageConfigurationBuilder setRescuedFileSuffix(String rescuedFileSuffix);
 
+	/**
+	 * Name of the storage lock file used to prevent concurrent access to the storage directory by multiple
+	 * processes. Default is <code>"used.lock"</code>.
+	 *
+	 * @param lockFileName new name
+	 * @return this
+	 */
 	public EmbeddedStorageConfigurationBuilder setLockFileName(String lockFileName);
 
 	/**
@@ -244,6 +258,18 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 	 * @return this
 	 */
 	public EmbeddedStorageConfigurationBuilder setHousekeepingMaximumTimeBudget(Duration housekeepingMaximumTimeBudget);
+
+	/**
+	 * The number of consecutive garbage-collection sweeps an entity must remain unmarked before it is
+	 * actually deleted. A value of <code>1</code> deletes an unmarked entity on the first sweep (the
+	 * classic behavior); higher values keep unreachable entities for that many sweeps as a probabilistic
+	 * safety net against rare, transient garbage-collection concurrency races, at the cost of reclaiming
+	 * garbage slightly later. Valid range is <code>[1, 127]</code>, default is <code>3</code>.
+	 *
+	 * @param garbageCollectionSweepThreshold the new sweep threshold
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setGarbageCollectionSweepThreshold(int garbageCollectionSweepThreshold);
 
 	/**
 	 * Abstract threshold value for the lifetime of entities in the cache. See
@@ -319,7 +345,131 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 	 * @return this
 	 */
 	public EmbeddedStorageConfigurationBuilder setTransactionFileMaximumSize(ByteSize transactionFileMaximumSize);
-	
+
+	/**
+	 * Store-time validation of trusted reference object ids: {@code off}, {@code log}, {@code fail}
+	 * or {@code heal}. Default is {@code log}.
+	 *
+	 * @param referenceValidation the policy token
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setReferenceValidation(String referenceValidation);
+
+	/**
+	 * Reaction of the storage garbage collector to an encountered zombie object id:
+	 * {@code log} or {@code fail}. Default is {@code log}.
+	 *
+	 * @param gcZombieOidHandling the reaction token
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setGcZombieOidHandling(String gcZombieOidHandling);
+
+	/**
+	 * The primary chunk-checksum algorithm: {@code none}, {@code crc32c} or
+	 * {@code sha256-chained}. Default is {@code sha256-chained}. Setting any {@code chunk-checksum-*} property
+	 * activates declarative configuration of the feature; leaving them all unset keeps the framework default.
+	 *
+	 * @param chunkChecksumAlgorithm the algorithm token
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setChunkChecksumAlgorithm(String chunkChecksumAlgorithm);
+
+	/**
+	 * The chunk-checksum base policy profile: {@code default}, {@code off}, {@code observe}, {@code strict}
+	 * or {@code strict-tolerate-legacy}. Default is {@code default}.
+	 *
+	 * @param chunkChecksumProfile the profile token
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setChunkChecksumProfile(String chunkChecksumProfile);
+
+	/**
+	 * The initial chain seed for the {@code sha256-chained} algorithm, as a hex string (64 chars = 32 bytes).
+	 * Unused by any other algorithm.
+	 *
+	 * @param chunkChecksumSeed the seed as a hex string
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setChunkChecksumSeed(String chunkChecksumSeed);
+
+	/**
+	 * Expert override: whether to emit checksum records on write. Defaults to the profile's value.
+	 *
+	 * @param chunkChecksumEmit whether to emit
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setChunkChecksumEmit(boolean chunkChecksumEmit);
+
+	/**
+	 * Expert override: whether to recompute and check checksum records on load. Defaults to the profile's value.
+	 *
+	 * @param chunkChecksumVerify whether to verify
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setChunkChecksumVerify(boolean chunkChecksumVerify);
+
+	/**
+	 * Expert override: reaction ({@code ignore} / {@code log} / {@code fail}) to a checksum mismatch.
+	 * Defaults to the profile's value.
+	 *
+	 * @param reaction the reaction token
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setChunkChecksumOnChecksumMismatch(String reaction);
+
+	/**
+	 * Expert override: reaction ({@code ignore} / {@code log} / {@code fail}) to a chunk-boundary mismatch.
+	 * Defaults to the profile's value.
+	 *
+	 * @param reaction the reaction token
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setChunkChecksumOnBoundaryMismatch(String reaction);
+
+	/**
+	 * Expert override: reaction ({@code ignore} / {@code log} / {@code fail}) to an unknown record kind.
+	 * Defaults to the profile's value.
+	 *
+	 * @param reaction the reaction token
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setChunkChecksumOnUnknownKind(String reaction);
+
+	/**
+	 * Expert override: reaction ({@code ignore} / {@code log} / {@code fail}) to a missing file header.
+	 * Defaults to the profile's value.
+	 *
+	 * @param reaction the reaction token
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setChunkChecksumOnMissingHeader(String reaction);
+
+	/**
+	 * Expert override: reaction ({@code ignore} / {@code log} / {@code fail}) to uncovered data.
+	 * Defaults to the profile's value.
+	 *
+	 * @param reaction the reaction token
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setChunkChecksumOnUncoveredData(String reaction);
+
+	/**
+	 * Expert override: whether missing/uncovered files are raised as anomalies. Defaults to the profile's value.
+	 *
+	 * @param chunkChecksumRequireCoverage whether coverage is required
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setChunkChecksumRequireCoverage(boolean chunkChecksumRequireCoverage);
+
+	/**
+	 * Expert override: whether enabling emit forces an immediately-covered head file. Defaults to the
+	 * profile's value.
+	 *
+	 * @param chunkChecksumContinuousCoverage whether coverage is continuous
+	 * @return this
+	 */
+	public EmbeddedStorageConfigurationBuilder setChunkChecksumContinuousCoverage(boolean chunkChecksumContinuousCoverage);
+
 	/**
 	 * Creates an {@link EmbeddedStorageFoundation} based on the settings of this builder.
 	 *
@@ -364,6 +514,11 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 	}
 
 
+	/**
+	 * Default implementation of {@link EmbeddedStorageConfigurationBuilder} that wraps a generic
+	 * {@link Configuration.Builder} and translates each typed setter into a corresponding
+	 * {@link EmbeddedStorageConfigurationPropertyNames property name}/value pair on the delegate.
+	 */
 	public static class Default implements EmbeddedStorageConfigurationBuilder, EmbeddedStorageConfigurationPropertyNames
 	{
 		private final Configuration.Builder delegate;
@@ -591,6 +746,14 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 		}
 
 		@Override
+		public EmbeddedStorageConfigurationBuilder setGarbageCollectionSweepThreshold(
+			final int garbageCollectionSweepThreshold
+		)
+		{
+			return this.set(GC_SWEEP_THRESHOLD, Integer.toString(garbageCollectionSweepThreshold));
+		}
+
+		@Override
 		public EmbeddedStorageConfigurationBuilder setEntityCacheThreshold(
 			final long entityCacheThreshold
 		)
@@ -644,6 +807,118 @@ public interface EmbeddedStorageConfigurationBuilder extends Configuration.Build
 		)
 		{
 			return this.set(TRANSACTION_FILE_MAXIMUM_SIZE, transactionFileMaximumSize.toString());
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setReferenceValidation(
+			final String referenceValidation
+		)
+		{
+			return this.set(REFERENCE_VALIDATION, referenceValidation);
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setGcZombieOidHandling(
+			final String gcZombieOidHandling
+		)
+		{
+			return this.set(GC_ZOMBIE_OID_HANDLING, gcZombieOidHandling);
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setChunkChecksumAlgorithm(
+			final String chunkChecksumAlgorithm
+		)
+		{
+			return this.set(CHUNK_CHECKSUM_ALGORITHM, chunkChecksumAlgorithm);
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setChunkChecksumProfile(
+			final String chunkChecksumProfile
+		)
+		{
+			return this.set(CHUNK_CHECKSUM_PROFILE, chunkChecksumProfile);
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setChunkChecksumSeed(
+			final String chunkChecksumSeed
+		)
+		{
+			return this.set(CHUNK_CHECKSUM_SEED, chunkChecksumSeed);
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setChunkChecksumEmit(
+			final boolean chunkChecksumEmit
+		)
+		{
+			return this.set(CHUNK_CHECKSUM_EMIT, Boolean.toString(chunkChecksumEmit));
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setChunkChecksumVerify(
+			final boolean chunkChecksumVerify
+		)
+		{
+			return this.set(CHUNK_CHECKSUM_VERIFY, Boolean.toString(chunkChecksumVerify));
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setChunkChecksumOnChecksumMismatch(
+			final String reaction
+		)
+		{
+			return this.set(CHUNK_CHECKSUM_ON_CHECKSUM_MISMATCH, reaction);
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setChunkChecksumOnBoundaryMismatch(
+			final String reaction
+		)
+		{
+			return this.set(CHUNK_CHECKSUM_ON_BOUNDARY_MISMATCH, reaction);
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setChunkChecksumOnUnknownKind(
+			final String reaction
+		)
+		{
+			return this.set(CHUNK_CHECKSUM_ON_UNKNOWN_KIND, reaction);
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setChunkChecksumOnMissingHeader(
+			final String reaction
+		)
+		{
+			return this.set(CHUNK_CHECKSUM_ON_MISSING_HEADER, reaction);
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setChunkChecksumOnUncoveredData(
+			final String reaction
+		)
+		{
+			return this.set(CHUNK_CHECKSUM_ON_UNCOVERED_DATA, reaction);
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setChunkChecksumRequireCoverage(
+			final boolean chunkChecksumRequireCoverage
+		)
+		{
+			return this.set(CHUNK_CHECKSUM_REQUIRE_COVERAGE, Boolean.toString(chunkChecksumRequireCoverage));
+		}
+
+		@Override
+		public EmbeddedStorageConfigurationBuilder setChunkChecksumContinuousCoverage(
+			final boolean chunkChecksumContinuousCoverage
+		)
+		{
+			return this.set(CHUNK_CHECKSUM_CONTINUOUS_COVERAGE, Boolean.toString(chunkChecksumContinuousCoverage));
 		}
 
 	}

@@ -9,7 +9,7 @@
     <parent>
         <groupId>org.eclipse.store</groupId>
         <artifactId>storage-parent</artifactId>
-        <version>4.0.0-SNAPSHOT</version>
+        <version>5.0.0-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -26,7 +26,6 @@
         <module>client-jersey</module>
         <module>service</module>
         <module>service-javalin</module>
-        <module>service-sparkjava</module>
         <module>service-springboot</module>
         <module>client-app</module>
         <module>client-app-vanilla</module>

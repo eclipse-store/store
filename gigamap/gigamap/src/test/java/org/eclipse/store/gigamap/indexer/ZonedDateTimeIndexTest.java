@@ -15,7 +15,9 @@ package org.eclipse.store.gigamap.indexer;
  */
 
 import org.eclipse.store.gigamap.types.BitmapIndices;
+import org.eclipse.store.gigamap.types.Condition;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.gigamap.types.IndexerZonedDateTime;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
@@ -70,7 +72,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.between(toUTC(2021, 1, 1, 12, 0, 0), toUTC(2021, 1, 1, 14, 0, 0))).count();
             assertEquals(3, count);
             long count1 = newMap.query(zonedDateTimePersonIndex.between(toUTC(2021, 1, 1, 12, 0, 0), toUTC(2021, 1, 1, 14, 0, 0))).count();
@@ -93,7 +95,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.after(toUTC(2021, 1, 1, 12, 0, 0))).count();
             assertEquals(9, count);
             long count1 = newMap.query(zonedDateTimePersonIndex.after(toUTC(2021, 1, 1, 13, 0, 0))).count();
@@ -114,7 +116,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.before(toUTC(2021, 1, 1, 12, 0, 1))).count();
             assertEquals(1, count);
             long count1 = newMap.query(zonedDateTimePersonIndex.before(toUTC(2021, 1, 1, 13, 0, 0))).count();
@@ -133,7 +135,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.isSecond(0)).count();
             assertEquals(10, count);
         }
@@ -150,7 +152,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.isMinute(0)).count();
             assertEquals(10, count);
         }
@@ -167,7 +169,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.isHour(12)).count();
             assertEquals(1, count);
         }
@@ -184,7 +186,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.isTime(12, 0, 0)).count();
             assertEquals(1, count);
         }
@@ -201,7 +203,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.isDay(1)).count();
             assertEquals(10, count);
         }
@@ -218,7 +220,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.isMonth(1)).count();
             assertEquals(10, count);
         }
@@ -235,7 +237,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.isYear(2021)).count();
             assertEquals(10, count);
         }
@@ -252,7 +254,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.isDate(2021, 1, 1)).count();
             assertEquals(10, count);
         }
@@ -269,7 +271,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             long count = newMap.query(zonedDateTimePersonIndex.isDateTime(2021, 1, 1, 12, 0, 0)).count();
             assertEquals(1, count);
         }
@@ -303,7 +305,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             newMap.query(zonedDateTimePersonIndex.is(toUTC(2000, 1, 1, 0, 0, 0))).forEach(person -> assertEquals(toUTC(2000, 1, 1, 0, 0, 0), person.getTimestamp()));
             newMap.query(zonedDateTimePersonIndex.is(toUTC(1990, 1, 1, 0, 0, 0))).forEach(person -> assertEquals(toUTC(1990, 1, 1, 0, 0, 0), person.getTimestamp()));
 
@@ -337,7 +339,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             List<ZonedDateTimePerson> list1 = newMap.query(zonedDateTimePersonIndex.beforeEqual(toUTC(1990, 1, 1, 0, 0, 0))).toList();
             assertEquals(2, list1.size());
             list1.forEach(person -> assertNotEquals("Alice", person.name));
@@ -365,7 +367,7 @@ public class ZonedDateTimeIndexTest
         }
 
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<ZonedDateTimePerson> newMap = (GigaMap<ZonedDateTimePerson>) manager.root();
+            GigaMap<ZonedDateTimePerson> newMap = manager.root();
             List<ZonedDateTimePerson> list1 = newMap.query(zonedDateTimePersonIndex.afterEqual(toUTC(1990, 1, 1, 0, 0, 0))).toList();
             assertEquals(2, list1.size());
             list1.forEach(person -> assertNotEquals("Charlie", person.name));
@@ -393,6 +395,53 @@ public class ZonedDateTimeIndexTest
         // Only Charlie is at 14:00 UTC
         long count2 = map.query(zonedDateTimePersonIndex.isHour(14)).count();
         assertEquals(1, count2);
+    }
+
+    /**
+     * Regression test for issue #653 / #654: composing an {@link IndexerZonedDateTime} range
+     * condition via {@link Condition#and(Condition)} (i) with another range condition and
+     * (ii) with a condition from a different indexer type must produce the same result as
+     * composing via {@link org.eclipse.store.gigamap.types.GigaQuery#and(Condition)}.
+     */
+    @Test
+    void rangeCompositionViaConditionAnd()
+    {
+        final ZonedDateTimePersonIndex zdtIdx  = new ZonedDateTimePersonIndex();
+        final NameIndex                nameIdx = new NameIndex();
+
+        final GigaMap<ZonedDateTimePerson> map = GigaMap.<ZonedDateTimePerson>Builder()
+            .withBitmapIndex(zdtIdx)
+            .withBitmapIndex(nameIdx)
+            .build();
+        map.add(new ZonedDateTimePerson("Alice",   toUTC(2021, 1, 1, 12, 0, 0)));
+        map.add(new ZonedDateTimePerson("Bob",     toUTC(2021, 1, 1, 13, 0, 0)));
+        map.add(new ZonedDateTimePerson("Charlie", toUTC(2021, 1, 1, 14, 0, 0)));
+        map.add(new ZonedDateTimePerson("Dave",    toUTC(2021, 1, 1, 15, 0, 0)));
+
+        final ZonedDateTime lower = toUTC(2021, 1, 1, 12, 30, 0); // exclusive
+        final ZonedDateTime upper = toUTC(2021, 1, 1, 14, 30, 0); // exclusive
+
+        // (i) range AND range
+        final Condition<ZonedDateTimePerson> after  = zdtIdx.after(lower);
+        final Condition<ZonedDateTimePerson> before = zdtIdx.before(upper);
+
+        final List<ZonedDateTimePerson> rangeAnd = map.query(after.and(before)).toList();
+        final List<ZonedDateTimePerson> rangeQ   = map.query().and(after).and(before).toList();
+
+        assertEquals(2, rangeAnd.size(), "Condition.and() must respect both bounds");
+        assertEquals(rangeQ.size(), rangeAnd.size(), "Condition.and() and GigaQuery.and() must agree");
+        rangeAnd.forEach(p -> assertNotEquals("Alice", p.name()));
+        rangeAnd.forEach(p -> assertNotEquals("Dave",  p.name()));
+
+        // (ii) range AND condition from a different indexer
+        final Condition<ZonedDateTimePerson> bobMatch = nameIdx.is("Bob");
+
+        final List<ZonedDateTimePerson> mixedAnd = map.query(after.and(bobMatch)).toList();
+        final List<ZonedDateTimePerson> mixedQ   = map.query().and(after).and(bobMatch).toList();
+
+        assertEquals(1, mixedAnd.size(), "range AND non-range condition must intersect correctly");
+        assertEquals("Bob", mixedAnd.get(0).name());
+        assertEquals(mixedQ.size(), mixedAnd.size());
     }
 
     private GigaMap<ZonedDateTimePerson> prepageGigaMap()
@@ -431,6 +480,15 @@ public class ZonedDateTimeIndexTest
         protected ZonedDateTime getZonedDateTime(ZonedDateTimePerson entity)
         {
             return entity.getTimestamp();
+        }
+    }
+
+    private static class NameIndex extends IndexerString.Abstract<ZonedDateTimePerson>
+    {
+        @Override
+        protected String getString(final ZonedDateTimePerson entity)
+        {
+            return entity.name();
         }
     }
 

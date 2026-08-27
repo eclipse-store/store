@@ -17,11 +17,13 @@ package org.eclipse.store.storage.types;
 import static org.eclipse.serializer.util.X.notNull;
 
 import java.nio.ByteBuffer;
+import java.time.Duration;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.function.Predicate;
 
 import org.eclipse.serializer.afs.types.ADirectory;
+import org.eclipse.serializer.persistence.types.BatchStorer;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.collections.types.XGettingEnum;
 import org.eclipse.serializer.persistence.binary.types.Binary;
@@ -129,6 +131,38 @@ public interface StorageConnection extends UsageMarkable, Persister
 	 * @return whether the returned call has completed file checking.
 	 */
 	public boolean issueFileCheck(long nanoTimeBudget);
+
+	/**
+	 * Issues a full on-demand storage integrity check: re-verifies every channel's chunk-checksum records
+	 * against freshly recomputed checksums and returns all detected anomalies without throwing. Runs to
+	 * completion in a single call (stores are blocked for its duration) and sees a consistent, complete set of
+	 * files. Honors the configured {@link StorageChunkChecksumPolicy} ({@code IGNORE} anomalies are not
+	 * reported; a non-verifying policy reports nothing); each head file is verified up to its committed length.
+	 *
+	 * @return the complete result; {@link StorageIntegrityCheckResult#isClean()} is {@code true} if no
+	 *         anomalies were found.
+	 *
+	 * @see #issueIntegrityCheck(long)
+	 */
+	public default StorageIntegrityCheckResult issueFullIntegrityCheck()
+	{
+		return this.issueIntegrityCheck(Long.MAX_VALUE);
+	}
+
+	/**
+	 * Issues an on-demand storage integrity check limited to the given time budget in nanoseconds. When the
+	 * budget runs out the scan keeps its progress (resume granularity is one data file) and continues on the
+	 * next call; the scope is snapshotted at the start, so a data file dissolved by housekeeping between calls
+	 * is skipped (coverage is best-effort). Repeat until {@link StorageIntegrityCheckResult#isComplete()},
+	 * unioning the results; for a complete, consistent snapshot in one call use {@link #issueFullIntegrityCheck()}.
+	 *
+	 * @param nanoTimeBudget the time budget in nanoseconds to be used to perform the integrity check.
+	 *
+	 * @return this call's findings and whether the scan has completed.
+	 *
+	 * @see #issueFullIntegrityCheck()
+	 */
+	public StorageIntegrityCheckResult issueIntegrityCheck(long nanoTimeBudget);
 
 	/**
 	 * Issues a full storage cache check to be executed. Depending on the size of the database,
@@ -241,14 +275,44 @@ public interface StorageConnection extends UsageMarkable, Persister
 	);
 
 	/**
-	 * Issue a cleanup of the transaction log to reduce size regardless of its current size.
-	 * 
-	 * To shrink the file size all store, transfer, and truncation entries are combined into one single store entry
-	 * for each storage files. FileCreation entries are kept, FileDeletion entries are kept
-	 * if the storage data file still exists on the file system. Otherwise, all entries related
-	 * to deleted files are removed if the storage data file does no more exist.
+	 * Issue a cleanup of the transaction log regardless of its current size.
+	 *
+	 * Each storage file is reduced to a single FileCreation entry carrying its latest length;
+	 * only the head file keeps its latest store timestamps. FileDeletion entries are kept if the
+	 * storage data file still exists on the file system; otherwise, all entries of the deleted
+	 * file are removed.
+	 * <p>
+	 * Compaction collapses the store history a rollback might still need, so it waits for the
+	 * latest store to become durable on every channel. Under sustained store traffic the cleanup
+	 * may therefore be deferred and completed asynchronously at the next durability barrier rather
+	 * than within this call; the log is still compacted regardless of its size.
 	 */
 	public void issueTransactionsLogCleanup();
+
+	/**
+	 * Issues an all-channel storage flush and waits for completion: when this returns {@code true},
+	 * every store that returned before this call is physically written to the storage medium (data
+	 * files first, then transactions logs, on every channel).
+	 * <p>
+	 * Stores are not synchronized individually by default - a power loss can roll the storage back
+	 * to an older consistent state. This is the explicit durability point, e.g. before acknowledging
+	 * an external commit, taking a backup or stopping a machine; called periodically it bounds the
+	 * power-loss rollback window to the invocation interval.
+	 * <p>
+	 * This is a PURE durability point: the call returns once every channel synchronized its
+	 * files, and it carries none of the deferred durability-covered maintenance (head-file
+	 * rollover, log compaction, file cleanup) - that work rides exclusively on the internal
+	 * barriers the housekeeping durability gates request. The watermark this flush raises lets
+	 * such deferred work proceed once its durability gates next evaluate: with no further store
+	 * traffic that is the next housekeeping cycle, running inline; under sustained traffic the
+	 * gates are re-spoiled each cycle and the work runs at the next gate-requested barrier's
+	 * maintenance slot instead.
+	 *
+	 * @return {@code true} if every channel synchronized its files; {@code false} if the flush was
+	 *         skipped (e.g. read-only mode) or the calling thread was interrupted - the durability
+	 *         guarantee then does NOT hold.
+	 */
+	public boolean issueStorageFlush();
 
 	/**
 	 * Export storage graph adjacecy data to the specified directory.
@@ -308,13 +372,24 @@ public interface StorageConnection extends UsageMarkable, Persister
 	 * <p>
 	 * This is useful to extract the data contained in the storage in a structured way, for example to migrate it
 	 * into another storage system or to analyze it, like converting it into human readable form.
-	 * 
+	 * <p>
+	 * <b>A failed export is not rolled back.</b> The export files are written incrementally, so an export
+	 * that throws leaves whatever was written until then in the target directory: files of types already
+	 * exported are complete, the type being exported when the failure occurred is truncated at an arbitrary
+	 * point, and types not yet reached have no file at all. Only files that are still empty are removed.
+	 * <p>
+	 * Nothing marks such a directory as incomplete, and a truncated file that happens to end on an entity
+	 * boundary is indistinguishable from a complete one - including for
+	 * {@link #importFiles(XGettingEnum)}, which would import it as if it were the whole type. Treat the
+	 * target directory as unusable unless this method returned normally, and delete or set it aside
+	 * before retrying.
+	 *
 	 * @param exportFileProvider the {@link StorageEntityTypeExportFileProvider} logic to be used.
-	 * 
+	 *
 	 * @param isExportType a {@link Predicate} selecting which type's entity data to be exported.
-	 * 
+	 *
 	 * @return a {@link StorageEntityTypeExportStatistics} information instance about the completed export.
-	 * 
+	 *
 	 * @see #exportTypes(StorageEntityTypeExportFileProvider)
 	 */
 	public StorageEntityTypeExportStatistics exportTypes(
@@ -382,7 +457,12 @@ public interface StorageConnection extends UsageMarkable, Persister
 	 * (identified by their ObjectId), their current data will be replaced by the imported data.<br>
 	 * Note that importing data that is not reachable from any root entity will have no effect and will
 	 * eventually be deleted by the garbage collector.
-	 * 
+	 * <p>
+	 * Replacement happens on the storage level only: already loaded instances keep their in-memory
+	 * state, so heap and storage diverge for every replaced entity - observably mixed, and flipping
+	 * per entity as weakly referenced instances are collected and reloaded - until the application
+	 * discards its references and reloads from the root, typically by restarting.
+	 *
 	 * @param importFiles the files whose native binary content shall be imported.
 	 */
 	public void importFiles(XGettingEnum<AFile> importFiles);
@@ -394,7 +474,10 @@ public interface StorageConnection extends UsageMarkable, Persister
 	 * (identified by their ObjectId), their current data will be replaced by the imported data.<br>
 	 * Note that importing data that is not reachable from any root entity will have no effect and will
 	 * eventually be deleted by the garbage collector.
-	 * 
+	 * <p>
+	 * On heap/storage divergence after replacing existing entities, see
+	 * {@link #importFiles(XGettingEnum)} - the same applies here.
+	 *
 	 * @param importData the files whose native binary content shall be imported.
 	 */
 	public void importData(XGettingEnum<ByteBuffer> importData);
@@ -462,6 +545,18 @@ public interface StorageConnection extends UsageMarkable, Persister
 	 * {@inheritDoc}
 	 */
 	@Override
+	public default BatchStorer createBatchStorer(
+		final BatchStorer.Controller controller   ,
+		final Duration               checkInterval
+	)
+	{
+		return this.persistenceManager().createBatchStorer(controller, checkInterval);
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
 	public default Object getObject(final long objectId)
 	{
 		return this.persistenceManager().getObject(objectId);
@@ -489,6 +584,9 @@ public interface StorageConnection extends UsageMarkable, Persister
 
 		private final PersistenceManager<Binary> persistenceManager       ;
 		private final StorageRequestAcceptor     connectionRequestAcceptor;
+
+		// whether a budgeted integrity-check scan is mid-flight (so the next call resumes rather than restarts).
+		private boolean integrityCheckInProgress;
 
 
 
@@ -550,6 +648,32 @@ public interface StorageConnection extends UsageMarkable, Persister
 		}
 
 		@Override
+		public final StorageIntegrityCheckResult issueIntegrityCheck(final long nanoTimeBudget)
+		{
+			try
+			{
+				// Fresh scan for a full check, or when no scan is in progress; otherwise resume the in-flight one.
+				// Deciding this once (channels can't see each other) lets a budgeted scan across uneven channels
+				// finish without finished channels re-scanning. Not safe to run concurrently on one connection.
+				final boolean freshScan = nanoTimeBudget == Long.MAX_VALUE || !this.integrityCheckInProgress;
+
+				final StorageIntegrityCheckResult result =
+					this.connectionRequestAcceptor.issueIntegrityCheck(nanoTimeBudget, freshScan);
+
+				this.integrityCheckInProgress = !result.isComplete();
+				return result;
+			}
+			catch(final InterruptedException e)
+			{
+				// thread interrupted, task aborted: drop scan state and return an empty, incomplete result.
+				this.integrityCheckInProgress = false;
+				final StorageIntegrityCheckResult.Default result = StorageIntegrityCheckResult.New();
+				result.setComplete(false);
+				return result;
+			}
+		}
+
+		@Override
 		public final boolean issueCacheCheck(
 			final long                        nanoTimeBudget,
 			final StorageEntityCacheEvaluator entityEvaluator
@@ -577,6 +701,23 @@ public interface StorageConnection extends UsageMarkable, Persister
 			typeDictionaryExporter.exportTypeDictionary(this.persistenceManager().typeDictionary());
 		}
 		
+		@Override
+		public boolean issueStorageFlush()
+		{
+			try
+			{
+				return this.connectionRequestAcceptor.issueStorageFlush();
+			}
+			catch(final InterruptedException e)
+			{
+				// thread interrupted, task aborted: the durability guarantee does not hold. Restore
+				// the interrupt flag so the caller can distinguish this from a read-only skip (both
+				// return false) and terminate a commit-acknowledgement retry loop instead of spinning.
+				Thread.currentThread().interrupt();
+				return false;
+			}
+		}
+
 		@Override
 		public void issueTransactionsLogCleanup()
 		{

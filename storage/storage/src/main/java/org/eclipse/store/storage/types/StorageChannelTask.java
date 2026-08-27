@@ -13,13 +13,13 @@ package org.eclipse.store.storage.types;
  * #L%
  */
 
+import static org.eclipse.serializer.util.X.notNull;
+
 import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.storage.exceptions.StorageException;
-import org.slf4j.Logger;
 
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import static org.eclipse.serializer.util.X.notNull;
+import org.slf4j.Logger;
 
 public interface StorageChannelTask extends StorageTask
 {
@@ -118,6 +118,22 @@ public interface StorageChannelTask extends StorageTask
 
 		protected abstract void complete(StorageChannel channel,  R value) throws InterruptedException;
 
+		/**
+		 * Completion for a channel whose OWN {@link #internalProcessBy} just threw. Unlike
+		 * {@link #complete}, this outcome is already determined (the channel must fail) regardless
+		 * of what sibling channels do, so implementations must NOT wait on siblings here:
+		 * {@link StorageChannelSynchronizingTask.AbstractCompletingTask#complete} does exactly that
+		 * via {@code waitOnProcessing()}, and some subclasses' {@link #cleanUp} (run immediately
+		 * after this method returns) is what unblocks siblings still stuck inside their own
+		 * {@code internalProcessBy} (e.g. a garbage-collection mark-wait) — waiting here would
+		 * deadlock against that.
+		 * <p>
+		 * Declared abstract (no default delegating to {@link #complete}) so that every direct
+		 * subclass makes this call explicitly: a future {@code complete()} that itself waits on
+		 * siblings would silently reintroduce the same deadlock if this were inherited unnoticed.
+		 */
+		protected abstract void completeExceptionally(StorageChannel channel) throws InterruptedException;
+
 		protected void finishProcessing()
 		{
 			// must notify other threads about progress even in case of error
@@ -147,8 +163,26 @@ public interface StorageChannelTask extends StorageTask
 		public final synchronized void incrementCompletionProgress()
 		{
 			// may never get negative or something is seriously broken
-			this.remainingForCompletion--; // suffices as this method gets called by every manager thread exactly once.
+			// suffices as this method gets called by every manager thread exactly once.
+			if(--this.remainingForCompletion == 0)
+			{
+				// exactly once, when the last channel has completed the task (normal or exceptional
+				// path, since completeExceptionally routes here too). Runs under this task's lock,
+				// before waiters are woken.
+				this.onLastCompletion();
+			}
 			this.notifyAll();
+		}
+
+		/**
+		 * Hook fired exactly once, when the last channel has completed this task (i.e.
+		 * {@code remainingForCompletion} reaches zero), under the task lock and before any waiter is
+		 * notified. No-op by default; overridden e.g. by the load task to release its task-scoped
+		 * pending-load gate (see StorageRequestTaskLoad.Abstract).
+		 */
+		protected void onLastCompletion()
+		{
+			// no-op in general implementation
 		}
 
 		@Override
@@ -216,7 +250,19 @@ public interface StorageChannelTask extends StorageTask
 			{
 				while(this.remainingForProcessing > 0)
 				{
-					this.problems.wait();
+					// A channel stopped by a disruption never decrements remainingForProcessing, so an
+					// untimed wait() would hang this sibling - and any later synchronizing task, shutdown
+					// included - forever. Wake periodically and abort on a disruption instead. Only
+					// disruptions are checked, not task-level problems (those always resolve, as
+					// finishProcessing() runs in a finally), so the normal completion dispatch is unchanged.
+					if(this.controller.hasDisruptions())
+					{
+						throw new StorageException(
+							"Aborting wait on processing after: ",
+							this.controller.disruptions().first()
+						);
+					}
+					this.problems.wait(100);
 				}
 			}
 		}
@@ -245,9 +291,13 @@ public interface StorageChannelTask extends StorageTask
 				}
 				catch(final Throwable e)
 				{
-					// a problem occurring while processing gets reported and the task gets cleanly aborted.
+					// the problem is reported, but this channel must still reach a completion hook:
+					// skipping it (as before) also skipped fail(), so a channel that threw AFTER a
+					// partial write (e.g. mid-store) never got its own rollback. completeExceptionally
+					// (not complete) is used deliberately - see its contract. The finally below still
+					// runs finishProcessing() on this path, after this call and before the return.
 					this.addProblem(storageChannel.channelIndex(), e);
-					this.incrementCompletionProgress();
+					this.completeExceptionally(storageChannel);
 					return;
 				}
 				finally

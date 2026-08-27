@@ -18,14 +18,55 @@ import static org.eclipse.serializer.util.X.notNull;
 
 import org.eclipse.serializer.afs.types.ADirectory;
 
+/**
+ * Configures continuous, asynchronous backup for an embedded storage.
+ * <p>
+ * A {@link StorageBackupSetup} bundles the {@link StorageBackupFileProvider} that resolves where
+ * backup files live with the wiring needed to install a backup-aware {@link StorageFileWriter}
+ * provider and to spin up a {@link StorageBackupHandler} that mirrors live writes to the backup
+ * location. When passed to a {@link StorageConfiguration}, this enables the storage to back up its
+ * data and transaction files concurrently with normal operation.
+ * <p>
+ * If continuous backup is not desired, {@link StorageConfiguration} accepts {@code null} as the
+ * backup setup; create a setup via one of the {@code New} factory methods only when backup is
+ * actually wanted.
+ *
+ * @see StorageBackupHandler
+ * @see StorageBackupFileProvider
+ */
 public interface StorageBackupSetup
 {
+	/**
+	 * Returns the {@link StorageBackupFileProvider} that resolves where backup files are written.
+	 *
+	 * @return the configured {@link StorageBackupFileProvider}.
+	 */
 	public StorageBackupFileProvider backupFileProvider();
-	
+
+	/**
+	 * Wraps the passed live-storage {@link StorageFileWriter.Provider} into a backup-aware variant
+	 * that mirrors every write into the shared backup item queue.
+	 *
+	 * @param writerProvider the live-storage writer provider to wrap.
+	 *
+	 * @return a writer provider that emits backup-aware writers.
+	 */
 	public StorageFileWriter.Provider setupWriterProvider(
 		StorageFileWriter.Provider writerProvider
 	);
-	
+
+	/**
+	 * Builds the {@link StorageBackupHandler} that drains the backup item queue and replays the
+	 * captured writes against the backup file system.
+	 *
+	 * @param operationController            the operation controller of the host storage.
+	 * @param writeController                the {@link StorageWriteController} of the host storage,
+	 *                                       used by the backup handler to honor write-disabled state.
+	 * @param backupDataFileValidatorCreator the validator-creator used to verify the backup files.
+	 * @param storageTypeDictionary          the host storage's type dictionary.
+	 *
+	 * @return a fully wired {@link StorageBackupHandler} ready to be started.
+	 */
 	public StorageBackupHandler setupHandler(
 		StorageOperationController       operationController           ,
 		StorageWriteController           writeController               ,
@@ -81,6 +122,11 @@ public interface StorageBackupSetup
 		);
 	}
 	
+	/**
+	 * Default {@link StorageBackupSetup} implementation: pairs a {@link StorageBackupFileProvider}
+	 * with a shared {@link StorageBackupItemQueue} that the backup-aware writer fills and that the
+	 * {@link StorageBackupHandler} drains.
+	 */
 	public final class Default implements StorageBackupSetup
 	{
 		///////////////////////////////////////////////////////////////////////////

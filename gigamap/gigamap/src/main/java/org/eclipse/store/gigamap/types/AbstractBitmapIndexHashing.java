@@ -16,6 +16,7 @@ package org.eclipse.store.gigamap.types;
 
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.EqHashTable;
+import org.eclipse.store.gigamap.exceptions.BitmapIndexStaleException;
 
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -219,17 +220,47 @@ public abstract class AbstractBitmapIndexHashing<E, I, K> extends BitmapIndex.Ab
 		@Override
 		public void removeFromIndex(final long entityId)
 		{
-			throw new Error("Removing an entityId for a new key may never be required.");
+			/*
+			 * Reaching this point means an existing entity is being de-indexed under a key for which
+			 * the index holds no entry. For a genuine new key that is impossible by construction (a new
+			 * key has no prior members), so this indicates the index is stale relative to the current
+			 * entity state: its persisted keys no longer match the keys re-derived from the loaded
+			 * entities. The typical causes are a direct (untracked) mutation of an indexed field, or
+			 * entity class evolution (an indexed field renamed/retyped across releases without a
+			 * value-preserving refactoring mapping), which leaves the persisted bitmaps carrying the
+			 * pre-evolution keys. The remedy is to rebuild the indices from the current entity state via
+			 * GigaMap.reindex() before further queries or updates. Formerly this threw a raw
+			 * java.lang.Error; it now throws a descriptive, catchable StaleIndexException. Because the
+			 * entity data itself is valid (only the derived index is out of date), a mutating operation
+			 * that catches this must retain the committed entity rather than destroy it - see
+			 * GigaMap.Default.internalApply.
+			 */
+			final String message =
+				"Cannot remove entityId " + entityId + " for key \"" + this.newKey + "\": the index holds no"
+				+ " entry for this key, which means the index is stale relative to the current entity state"
+				+ " (e.g. after a direct mutation of an indexed field or entity class evolution). Rebuild the"
+				+ " indices from the current entity state via GigaMap.reindex(), then store().";
+			/*
+			 * A NewKeyChangeChandler is only ever produced by getChangeHandler(), which is only invoked on
+			 * top-level bitmap indices (see BitmapIndices), and the only top-level AbstractBitmapIndexHashing
+			 * is HashingBitmapIndex. Sub-indices (SubBitmapIndexHashing) never reach this point - composites
+			 * route change handling through CompositeChangeToken. So this.index is always a BitmapIndex.
+			 */
+			throw new BitmapIndexStaleException(message, (BitmapIndex<?, ?>)this.index);
 		}
 		
 		@Override
 		public void changeInIndex(final long entityId, final ChangeHandler prevEntityHandler)
 		{
-			// Create a new entry after all validations etc. have been passed.
+			// De-index the previous key FIRST. If that throws (notably the stale-index path above), no
+			// entry has been created for the new key yet, so the index is not left with a stray empty
+			// entry that would otherwise linger until the next reindex().
+			prevEntityHandler.removeFromIndex(entityId);
+
+			// Create the new entry only after the previous-key removal succeeded, then add the id. The
+			// removal is already done, so a no-op previous handler is passed.
 			final BitmapEntry<?, I, K> newEntry = this.index.internalEnsureEntryForKey(this.newKey);
-			
-			// EntityId gets added to the newly created entry just like an existing entry would.
-			newEntry.changeInIndex(entityId, prevEntityHandler);
+			newEntry.changeInIndex(entityId, NullChangeChandler.SINGLETON);
 		}
 		
 	}

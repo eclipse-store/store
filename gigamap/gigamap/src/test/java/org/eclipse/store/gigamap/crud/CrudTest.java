@@ -32,7 +32,6 @@ public class CrudTest
     Path tempDir;
 
 
-    @SuppressWarnings("unchecked")
 	@Test
     void addTestMap()
     {
@@ -48,7 +47,7 @@ public class CrudTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(this.tempDir)) {
-            final GigaMap<String> root = (GigaMap<String>) storageManager.root();
+            final GigaMap<String> root = storageManager.root();
             assertEquals(1000, root.size());
             root.add("1000");
             root.store();
@@ -56,7 +55,7 @@ public class CrudTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(this.tempDir)) {
-            final GigaMap<String> root = (GigaMap<String>) storageManager.root();
+            final GigaMap<String> root = storageManager.root();
             assertEquals(1001, root.size());
         }
 

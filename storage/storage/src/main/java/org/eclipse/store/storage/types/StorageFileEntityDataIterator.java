@@ -14,6 +14,7 @@ package org.eclipse.store.storage.types;
  * #L%
  */
 
+import java.lang.ref.Reference;
 import java.nio.ByteBuffer;
 
 import org.eclipse.store.storage.exceptions.StorageExceptionIoReading;
@@ -236,10 +237,21 @@ public interface StorageFileEntityDataIterator
 			final BinaryEntityRawDataAcceptor            dataAcceptor
 		)
 		{
-			final long bufferStartAddress = XMemory.getDirectByteBufferAddress(this.directByteBuffer);
-			final long bufferBoundAddress = bufferStartAddress + this.directByteBuffer.position();
-			
-			return dataIterator.iterateEntityRawData(bufferStartAddress, bufferBoundAddress, dataAcceptor);
+			final ByteBuffer buffer = this.directByteBuffer;
+			final long bufferStartAddress = XMemory.getDirectByteBufferAddress(buffer);
+			final long bufferBoundAddress = bufferStartAddress + buffer.position();
+
+			try
+			{
+				return dataIterator.iterateEntityRawData(bufferStartAddress, bufferBoundAddress, dataAcceptor);
+			}
+			finally
+			{
+				/* the buffer must stay strongly reachable while its raw memory is iterated via the
+				 * extracted address, or a GC may collect it and free the off-heap memory mid-iteration.
+				 */
+				Reference.reachabilityFence(buffer);
+			}
 		}
 		
 	}

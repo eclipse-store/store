@@ -188,9 +188,15 @@ public class BinaryHandlerBitmapIndicesDefault extends AbstractBinaryHandlerStat
 	@Override
 	public void complete(final Binary data, final BitmapIndices.Default<?> instance, final PersistenceLoadHandler handler)
 	{
+		// restore indexer names lost with their transient field before they are used (see method doc).
+		instance.restoreIndexerNames();
 		instance.rebuildCache();
 	}
 	
+	// Provided only for PersistenceTypeHandler contract conformity. The standard store path
+	// registers child references through handler.apply(...) callbacks while writing the
+	// binary form, so this iterator is exercised only by niche traversals such as
+	// PersistenceRegisterer.
 	@Override
 	public void iterateInstanceReferences(final BitmapIndices.Default<?> instance, final PersistenceFunction iterator)
 	{

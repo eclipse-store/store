@@ -18,26 +18,54 @@ import static org.eclipse.serializer.util.X.notNull;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.Arrays;
 import java.util.function.Consumer;
 
+/**
+ * Pluggable target for storage lifecycle and housekeeping events.
+ * <p>
+ * The storage layer invokes the {@code log~} methods at well-defined points (channel
+ * shutdown, garbage-collector phase boundaries, disruptions, etc.); each hook has an empty default
+ * implementation, so an implementation only needs to override the events it cares about. The
+ * built-in implementations cover the common cases:
+ * <ul>
+ *   <li>{@link #NoOp()} — discards every event.</li>
+ *   <li>{@link #Default()} / {@link #Default(Consumer)} — logs disruptions only.</li>
+ *   <li>{@link #Debug()} / {@link #Debug(Consumer)} — logs every event for diagnostic use.</li>
+ *   <li>{@link #Chain(StorageEventLogger, StorageEventLogger)} — fans events out to two loggers.</li>
+ * </ul>
+ *
+ * @see StorageEventLogger.Default
+ * @see StorageEventLogger.Debug
+ */
 public interface StorageEventLogger
 {
+	/**
+	 * Called when a channel transitions into the disabled state and stops accepting new tasks.
+	 *
+	 * @param channel the affected {@link StorageChannel}.
+	 */
 	public default void logChannelProcessingDisabled(final StorageChannel channel)
 	{
 		// no-op by default
 	}
-	
+
+	/**
+	 * Called when a channel's worker thread finishes its run loop and stops working.
+	 *
+	 * @param channel the affected {@link StorageChannel}.
+	 */
 	public default void logChannelStoppedWorking(final StorageChannel channel)
 	{
 		// no-op by default
 	}
-	
+
 	/**
 	 * Note that not all Throwables are Exceptions. There are also Errors.
 	 * And not all exceptions are problems. There are also program execution control vehicles like
 	 * {@link InterruptedException}. The actually fitting common term is "Disruption".
 	 * Throwable is a very low-level technical, compiler-oriented expression.
-	 * 
+	 *
 	 * @param channel the affected channel
 	 * @param t the reason for the disruption
 	 */
@@ -45,38 +73,81 @@ public interface StorageEventLogger
 	{
 		// no-op by default
 	}
-	
+
+	/**
+	 * Called when an entity cache has finished an incremental live-check pass.
+	 *
+	 * @param entityCache the entity cache that completed the pass.
+	 */
 	public default void logLiveCheckComplete(final StorageEntityCache<?> entityCache)
 	{
 		// no-op by default
 	}
-	
+
+	/**
+	 * Called when the garbage collector finishes a sweep on the passed entity cache.
+	 *
+	 * @param entityCache the entity cache whose sweep just completed.
+	 */
 	public default void logGarbageCollectorSweepingComplete(final StorageEntityCache<?> entityCache)
 	{
 		// no-op by default
 	}
-	
+
+	/**
+	 * Called when the garbage collector determines that no further work is currently required.
+	 */
 	public default void logGarbageCollectorNotNeeded()
 	{
 		// no-op by default
 	}
-	
+
+	/**
+	 * Called when the garbage collector has completed a hot-phase generation.
+	 *
+	 * @param gcHotGeneration     the just-completed hot-phase generation number.
+	 * @param lastGcHotCompletion the timestamp at which the hot-phase generation was completed.
+	 */
 	public default void logGarbageCollectorCompletedHotPhase(final long gcHotGeneration, final long lastGcHotCompletion)
 	{
 		// no-op by default
 	}
-	
+
+	/**
+	 * Called when the garbage collector has completed a full (cold-phase) generation.
+	 *
+	 * @param gcColdGeneration     the just-completed cold-phase generation number.
+	 * @param lastGcColdCompletion the timestamp at which the cold-phase generation was completed.
+	 */
 	public default void logGarbageCollectorCompleted(final long gcColdGeneration, final long lastGcColdCompletion)
 	{
 		// no-op by default
 	}
 
+	/**
+	 * Called when the garbage collector encounters a reference to an object id that no longer
+	 * resolves to a live entity ("zombie" reference).
+	 *
+	 * @param objectId the unresolvable object id.
+	 */
 	public default void logGarbageCollectorEncounteredZombieObjectId(final long objectId)
 	{
 		// no-op by default
 	}
-	
-	
+
+	/**
+	 * Called when a store's data references object ids for which no entity exists in the storage
+	 * (dangling references), detected by the store-time reference validation.
+	 *
+	 * @param channelIndex the channel that detected the dangling references.
+	 * @param objectIds    the referenced object ids with no existing entity.
+	 */
+	public default void logStoreDetectedDanglingReferences(final int channelIndex, final long[] objectIds)
+	{
+		// no-op by default
+	}
+
+
 	/**
 	 * Creates a NoOp StorageEventLogger that does really nothing.
 	 * 
@@ -277,7 +348,16 @@ public interface StorageEventLogger
 		{
 			this.log("GC marking encountered zombie ObjectId " + objectId);
 		}
-		
+
+		@Override
+		public void logStoreDetectedDanglingReferences(final int channelIndex, final long[] objectIds)
+		{
+			this.log(
+				StorageChannel.class.getSimpleName() + '#' + channelIndex
+				+ " store references non-existing entities (dangling references): " + Arrays.toString(objectIds)
+			);
+		}
+
 		@Override
 		public void logGarbageCollectorNotNeeded()
 		{
@@ -299,6 +379,16 @@ public interface StorageEventLogger
 	}
 	
 	
+	/**
+	 * Pseudo-constructor method that creates a {@link StorageEventLogger} fanning every event out to
+	 * both of the passed loggers, in the given order.
+	 *
+	 * @param first  the logger invoked first for every event; must be non-{@code null}.
+	 * @param second the logger invoked second for every event; must be non-{@code null}.
+	 *
+	 * @return a {@link StorageEventLogger} that forwards each event to {@code first} and then to
+	 *         {@code second}.
+	 */
 	public static StorageEventLogger Chain(
 		final StorageEventLogger first ,
 		final StorageEventLogger second
@@ -309,8 +399,12 @@ public interface StorageEventLogger
 			notNull(second)
 		);
 	}
-	
-	
+
+
+	/**
+	 * {@link StorageEventLogger} implementation that forwards every event to two delegate loggers
+	 * in fixed order. Returned by {@link StorageEventLogger#Chain(StorageEventLogger, StorageEventLogger)}.
+	 */
 	public final class Chaining implements StorageEventLogger
 	{
 		private final StorageEventLogger first ;
@@ -388,7 +482,14 @@ public interface StorageEventLogger
 			this.first.logGarbageCollectorEncounteredZombieObjectId(objectId);
 			this.second.logGarbageCollectorEncounteredZombieObjectId(objectId);
 		}
-		
+
+		@Override
+		public void logStoreDetectedDanglingReferences(final int channelIndex, final long[] objectIds)
+		{
+			this.first.logStoreDetectedDanglingReferences(channelIndex, objectIds);
+			this.second.logStoreDetectedDanglingReferences(channelIndex, objectIds);
+		}
+
 	}
 	
 }

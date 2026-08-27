@@ -93,8 +93,25 @@ implements BitmapIndex.TopLevel<E, KS>
 	protected abstract void ensureSubIndices(KS keys);
 	
 	protected abstract void clearCarrier();
-	
+
 	protected abstract KS carrier();
+
+	/**
+	 * Returns the shared carrier in a guaranteed cleared state.
+	 * <p>
+	 * The carrier may still hold positions from a previous use (e.g. the previous element of an
+	 * addAll batch, or a preceding contains check). An indexer is allowed to leave empty positions
+	 * unwritten - the "unwritten position = empty" contract - so it must always receive a cleared
+	 * carrier. Every {@code indexer.index(entity, carrier)} invocation must use this method
+	 * instead of {@link #carrier()}.
+	 *
+	 * @return the cleared carrier
+	 */
+	private KS cleanCarrier()
+	{
+		this.clearCarrier();
+		return this.carrier();
+	}
 	
 	protected abstract boolean isEmpty(KS keys, int i);
 	
@@ -133,7 +150,7 @@ implements BitmapIndex.TopLevel<E, KS>
 	@Override
 	protected KS indexEntity(final E entity)
 	{
-		return this.indexer().index(entity, this.carrier());
+		return this.indexer().index(entity, this.cleanCarrier());
 	}
 	
 	@Override
@@ -190,19 +207,6 @@ implements BitmapIndex.TopLevel<E, KS>
 	}
 	
 	@Override
-	public final void internalAddAll(final long firstEntityId, final E[] entities)
-	{
-		try
-		{
-			super.internalAddAll(firstEntityId, entities);
-		}
-		finally
-		{
-			this.clearCarrier();
-		}
-	}
-	
-	@Override
 	protected final void removeEntry(final BitmapEntry<E, E, KS> entry)
 	{
 		// not used in this implementation since the actual removing is done in a sub index
@@ -212,7 +216,7 @@ implements BitmapIndex.TopLevel<E, KS>
 	@Override
 	public final void internalRemove(final long entityId, final E entity)
 	{
-		final KS keys = this.indexer.index(entity, this.carrier());
+		final KS keys = this.indexer.index(entity, this.cleanCarrier());
 		this.internalRemoveForKeys(entityId, keys);
 	}
 	
@@ -237,9 +241,16 @@ implements BitmapIndex.TopLevel<E, KS>
 	{
 		try
 		{
-			for(final Sub<E, KS, K> subIndex : this.subIndices)
+			for(int i = 0; i < this.subIndices.length; i++)
 			{
-				subIndex.internalRemove(entityId, keys);
+				if(this.isEmpty(keys, i))
+				{
+					// Symmetric with internalAddToEntry: no bit was ever set for an absent/null
+					// key at this position, so there is nothing to remove. Also guards against
+					// keys arrays shorter than the widest one ever indexed (keys.length <= i).
+					continue;
+				}
+				this.subIndices[i].internalRemove(entityId, keys);
 			}
 			// note: sub indices are never removed, even if they become empty.
 		}
@@ -252,7 +263,11 @@ implements BitmapIndex.TopLevel<E, KS>
 	@Override
 	protected final void internalAddToEntry(final long entityId, final E entity)
 	{
-		final KS keys = this.indexer.index(entity, this.carrier());
+		// cleanCarrier (not carrier) is essential here: this method is invoked per element by the
+		// inherited addAll loops, whose enclosing clearCarrier() runs only AFTER the whole batch.
+		// Without the per-element clear, an indexer that leaves absent positions unwritten would
+		// inherit the previous element's positions, silently corrupting the index keys.
+		final KS keys = this.indexer.index(entity, this.cleanCarrier());
 		this.ensureSubIndices(keys);
 		
 		for(int i = 0; i < this.subIndices.length; i++)
@@ -292,7 +307,7 @@ implements BitmapIndex.TopLevel<E, KS>
 	}
 	
 	@Override
-	public final BitmapResult internalQuery(final KS keys)
+	public BitmapResult internalQuery(final KS keys)
 	{
 		final BitmapResult[] results = new BitmapResult[this.subIndices.length];
 		int r = 0;
@@ -300,11 +315,14 @@ implements BitmapIndex.TopLevel<E, KS>
 		for(int i = 0; i < this.subIndices.length; i++)
 		{
 			// filter for selected positions to allow querying for specific positions instead of always all positions.
-			if(!this.isEmpty(keys, i))
+			// empty (null/zero) positions are wildcards and must be skipped; only positions that carry an actual
+			// key value are queried. (The guard was previously inverted, which skipped exactly the relevant
+			// positions and made In/All/Equals conditions on composite binary indexes return wrong results.)
+			if(this.isEmpty(keys, i))
 			{
 				continue;
 			}
-			
+
 			// query sub index at position i for the non-null key value
 			final BitmapResult result = this.subIndices[i].internalQueryForKeys(keys);
 			
@@ -334,58 +352,78 @@ implements BitmapIndex.TopLevel<E, KS>
 	@Override
 	public final boolean internalContains(final E entity)
 	{
-		final KS keys = this.indexer.index(entity, this.carrier());
-		if(this.isOversized(keys))
-		{
-			// if the keys contains more key values than there currently are sub indices, the entity cannot possibly be contained.
-			return false;
-		}
-		
-		for(int i = 0; i < this.subIndices.length; i++)
-		{
-			// a null key value means it is irrelevant for the query
-			if(this.isEmpty(keys, i))
-			{
-				continue;
-			}
-			
-			if(!this.subIndices[i].internalContains(keys))
-			{
-				// if at least one sub index does not contain a non-null key, the whole entity cannot be contained.
-				return false;
-			}
-		}
-		
-		final BitmapResult[] results = new BitmapResult[this.subIndices.length];
-		int r = 0;
-		
-		for(int i = 0; i < this.subIndices.length; i++)
-		{
-			if(this.isEmpty(keys, i))
-			{
-				continue;
-			}
-			
-			// #query is guaranteed to no return a NO_RESULT, since that would have caused a return in the loop above.
-			results[r++] = this.subIndices[i].internalQueryForKeys(keys);
-		}
-		
-		final GigaMap<E> parentMap = this.parent().parentMap();
-		
-		// if the entity might be contained, a full query result evaluation has to be performed. But without loading entities.
+		return this.internalContains(entity, this.contains);
+	}
+
+	@Override
+	public final boolean internalContains(final E entity, final long excludedEntityId)
+	{
+		return this.internalContains(entity, new ContainsOtherBreaker<>(excludedEntityId));
+	}
+
+	private boolean internalContains(final E entity, final EntityResolver<E> containsBreaker)
+	{
 		try
 		{
-			// contains function throws a Break on the first encounter of a match (aka entity is contained)
-			GigaMap.Default.execute(this.contains, results, 0, parentMap.size(), null);
+			final KS keys = this.indexer.index(entity, this.cleanCarrier());
+			if(this.isOversized(keys))
+			{
+				// if the keys contains more key values than there currently are sub indices, the entity cannot possibly be contained.
+				return false;
+			}
+
+			for(int i = 0; i < this.subIndices.length; i++)
+			{
+				// a null key value means it is irrelevant for the query
+				if(this.isEmpty(keys, i))
+				{
+					continue;
+				}
+
+				if(!this.subIndices[i].internalContains(keys))
+				{
+					// if at least one sub index does not contain a non-null key, the whole entity cannot be contained.
+					return false;
+				}
+			}
+
+			final BitmapResult[] results = new BitmapResult[this.subIndices.length];
+			int r = 0;
+
+			for(int i = 0; i < this.subIndices.length; i++)
+			{
+				if(this.isEmpty(keys, i))
+				{
+					continue;
+				}
+
+				// #query is guaranteed not to return an EMPTY_RESULT, since that would have caused a return in the loop above.
+				results[r++] = this.subIndices[i].internalQueryForKeys(keys);
+			}
+
+			final GigaMap<E> parentMap = this.parent().parentMap();
+
+			// if the entity might be contained, a full query result evaluation has to be performed. But without loading entities.
+			try
+			{
+				// contains function throws a Break on the first encounter of a (non-excluded) match
+				GigaMap.Default.execute(EntityIdMatcher.NoOp(), containsBreaker, results, 0, parentMap.highestUsedId() + 1, null);
+			}
+			catch(final ThrowBreak b)
+			{
+				// contains function aborted the execution because of a match, aka the entity is contained, so return true.
+				return true;
+			}
+
+			// execution ran through until the end without finding any match. So the entity is not contained, return false.
+			return false;
 		}
-		catch(final ThrowBreak b)
+		finally
 		{
-			// contains function aborted the execution because of a match, aka the entity is contained, so return true.
-			return true;
+			// consistent with the other operations: do not leave the shared carrier populated
+			// (for the hashing variant this would retain stale object references).
+			this.clearCarrier();
 		}
-		
-		// execution ran through until the end without finding any match. So the entity is not contained, return false.
-		return false;
 	}
 	
 	@SuppressWarnings("unchecked")
@@ -455,7 +493,14 @@ implements BitmapIndex.TopLevel<E, KS>
 			try
 			{
 				final CompositePredicate<KS> predicate = this.ensureCompositePredicate(passedPredicate);
-				
+
+				if(predicate.exceedsPositions(this.subIndices.length))
+				{
+					// the searched value requires more sub-key positions than this index has ever seen,
+					// so no stored entity can possibly hold that value.
+					return EMPTY_RESULT;
+				}
+
 				for(int i = 0; i < this.subIndices.length; i++)
 				{
 					if(!predicate.setSubKeyPosition(i))
@@ -524,14 +569,53 @@ implements BitmapIndex.TopLevel<E, KS>
 		final XGettingList<BitmapResult> subResults = results[i];
 		subResultAnds.add(new BitmapResult.ChainOr(subResults.toArray(BitmapResult.class)));
 	}
-	
+
+	/**
+	 * Applies a key change for one entity to all sub indices.
+	 *
+	 * @param oldKeys the keys the entity was indexed under, or {@code null} if it had no previous state in
+	 *        this index at all (e.g. a slot that a removal emptied), which makes every new key an addition
+	 * @param entityId the id of the entity whose keys changed
+	 * @param newKeys the keys the entity must be indexed under from now on
+	 */
 	final void internalHandleChanged(final KS oldKeys, final long entityId, final KS newKeys)
 	{
+		// Ensure sub-indices array is large enough for newKeys
 		this.ensureSubIndices(newKeys);
 
-		for(final Sub<E, KS, K> subIndex : this.subIndices)
+		// Iterate all sub-indices and handle each position based on old/new key presence
+		for(int i = 0; i < this.subIndices.length; i++)
 		{
-			subIndex.internalHandleChanged(oldKeys, entityId, newKeys);
+			// Check if old/new keys are empty at this sub-index position
+			// This guard is critical: when oldKeys is shorter than subIndices (e.g. NULL() = Object[1]
+			// vs decomposed Instant = Object[6]), positions beyond oldKeys.length must be treated as
+			// "new additions" not "changes" to avoid ArrayIndexOutOfBoundsException. Absent oldKeys are
+			// the same case for every position: #isEmpty reads the keys, so it may not be passed null.
+			final boolean oldEmpty = oldKeys == null || this.isEmpty(oldKeys, i);
+			final boolean newEmpty = this.isEmpty(newKeys, i);
+
+			if(oldEmpty && newEmpty)
+			{
+				// Both empty: nothing to do
+				continue;
+			}
+
+			final Sub<E, KS, K> subIndex = this.subIndices[i];
+			if(oldEmpty)
+			{
+				// Old key didn't exist at this position: ADD
+				subIndex.internalAddToEntry(entityId, newKeys);
+			}
+			else if(newEmpty)
+			{
+				// New key no longer relevant: REMOVE
+				subIndex.internalRemove(entityId, oldKeys);
+			}
+			else
+			{
+				// Both exist: HANDLE CHANGE
+				subIndex.internalHandleChanged(oldKeys, entityId, newKeys);
+			}
 		}
 		this.markStateChangeChildren();
 	}

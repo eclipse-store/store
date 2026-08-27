@@ -131,7 +131,7 @@ public class UpdateBinaryIndex462Test
 
 		//load from storage
 		try (var manager = EmbeddedStorage.start(workDir)) {
-			GigaMap<TestObject> loadedMap = (GigaMap<TestObject>) manager.root();
+			GigaMap<TestObject> loadedMap = manager.root();
 
 			var itemToUpdate = loadedMap.get(addedItemId);
 

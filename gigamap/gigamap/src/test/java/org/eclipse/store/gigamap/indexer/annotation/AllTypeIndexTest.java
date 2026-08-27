@@ -54,7 +54,7 @@ public class AllTypeIndexTest
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(gigaMap, tempDir)) {
         }
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<AllTypeEntity> map2 = (GigaMap<AllTypeEntity>) storageManager.root();
+            GigaMap<AllTypeEntity> map2 = storageManager.root();
 
             final IndexerString<AllTypeEntity> stringIndex = map2.index().bitmap().getIndexerString("stringField");
             List<AllTypeEntity> list = map2.query(stringIndex.isNull()).toList();
@@ -79,7 +79,7 @@ public class AllTypeIndexTest
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(tempDir)) {
-            GigaMap<AllTypeEntity> map2 = (GigaMap<AllTypeEntity>) storageManager.root();
+            GigaMap<AllTypeEntity> map2 = storageManager.root();
 
             checkIndices(map2, map2.index().bitmap());
         }

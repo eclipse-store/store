@@ -19,6 +19,7 @@ import static org.eclipse.serializer.util.X.notNull;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
 
@@ -30,11 +31,14 @@ import org.eclipse.serializer.collections.types.XGettingTable;
 import org.eclipse.serializer.monitoring.MonitoringManager;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.types.Persistence;
+import org.eclipse.serializer.persistence.types.PersistenceAcceptor;
 import org.eclipse.serializer.persistence.types.PersistenceManager;
+import org.eclipse.serializer.persistence.types.PersistenceObjectRegistry;
 import org.eclipse.serializer.persistence.types.PersistenceRootReference;
 import org.eclipse.serializer.persistence.types.PersistenceRoots;
 import org.eclipse.serializer.persistence.types.PersistenceRootsProvider;
 import org.eclipse.serializer.persistence.types.PersistenceRootsView;
+import org.eclipse.serializer.persistence.types.PersistenceShutdownReleasable;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDictionaryExporter;
 import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.serializer.persistence.types.Unpersistable;
@@ -55,6 +59,7 @@ import org.eclipse.store.storage.types.StorageEntityTypeExportFileProvider;
 import org.eclipse.store.storage.types.StorageEntityTypeExportStatistics;
 import org.eclipse.store.storage.types.StorageEntityTypeHandler;
 import org.eclipse.store.storage.types.StorageIdAnalysis;
+import org.eclipse.store.storage.types.StorageIntegrityCheckResult;
 import org.eclipse.store.storage.types.StorageKillable;
 import org.eclipse.store.storage.types.StorageLiveFileProvider;
 import org.eclipse.store.storage.types.StorageManager;
@@ -65,19 +70,66 @@ import org.slf4j.Logger;
 
 
 /**
- * {@link StorageManager} sub type for usage as an embedded storage solution.<p>
+ * {@link StorageManager} sub type for usage as an embedded storage solution.
+ * <p>
  * "Embedded" is meant in the context that a database is managed in the same process that uses this database,
  * as opposed to the database being managed by a different process that the using process connects to via network
  * communication. That would be a "remote" or "standalone" storage process.
+ * <p>
+ * Compared to a generic {@link StorageManager}, an {@code EmbeddedStorageManager} additionally takes care of
+ * <ul>
+ *   <li>resolving and synchronizing the persistent root graph with the application-side root state on
+ *       {@link #start()},</li>
+ *   <li>controlling the lifecycle of the global {@link org.eclipse.serializer.reference.LazyReferenceManager}
+ *       so that lazy references can be resolved transparently while the storage is running,</li>
+ *   <li>linking back the persistence and storage layers (object registry, type dictionary, monitoring) so
+ *       that a single instance is sufficient to operate the database from application code.</li>
+ * </ul>
+ * <p>
+ * Instances are typically obtained through {@link EmbeddedStorage} or {@link EmbeddedStorageFoundation} rather
+ * than constructed directly.
  *
+ * @see EmbeddedStorage
+ * @see EmbeddedStorageFoundation
  */
 public interface EmbeddedStorageManager extends StorageManager
 {
+	/**
+	 * Starts the embedded storage and returns this instance.
+	 * <p>
+	 * On the first invocation, the storage backend is brought up, the persistent root graph is loaded
+	 * (or initialized for an empty database) and synchronized with the application-side roots, and the
+	 * {@link org.eclipse.serializer.reference.LazyReferenceManager} is enlisted with this manager as one of
+	 * its controllers. If startup fails, every part started so far is rolled back before the original error
+	 * is re-thrown.
+	 *
+	 * @return this manager, allowing fluent chaining.
+	 */
 	@Override
 	public EmbeddedStorageManager start();
 
-	
-	
+
+	/**
+	 * Pseudo-constructor method to create a new {@link EmbeddedStorageManager} default instance.
+	 * <p>
+	 * The returned manager is not started yet. Use {@link #start()} or one of the convenience entry points on
+	 * {@link EmbeddedStorage}/{@link EmbeddedStorageFoundation} to start it.
+	 *
+	 * @param database             the {@link Database} this manager belongs to. Must not be {@code null}.
+	 *
+	 * @param configuration        the active {@link StorageConfiguration}. Must not be {@code null}.
+	 *
+	 * @param connectionFoundation the {@link EmbeddedStorageConnectionFoundation} used to create new
+	 *        connections to the storage. Must not be {@code null}.
+	 *
+	 * @param rootsProvider        the {@link PersistenceRootsProvider} that provides the application-defined
+	 *        persistent roots. Must not be {@code null}.
+	 *
+	 * @param monitorManager       the {@link MonitoringManager} that receives this manager's monitoring
+	 *        registrations.
+	 *
+	 * @return a new {@link EmbeddedStorageManager.Default} instance.
+	 */
 	public static EmbeddedStorageManager.Default New(
 		final Database                               database            ,
 		final StorageConfiguration                   configuration       ,
@@ -162,14 +214,15 @@ public interface EmbeddedStorageManager extends StorageManager
 			return this.database;
 		}
 
+		@SuppressWarnings("unchecked")
 		@Override
-		public final Object root()
+		public final <R> R root()
 		{
-			return this.rootReference().get();
+			return (R)this.rootReference().get();
 		}
 		
 		@Override
-		public final Object setRoot(final Object newRoot)
+		public final <R> R setRoot(final R newRoot)
 		{
 			this.rootReference().setRoot(newRoot);
 			
@@ -243,7 +296,7 @@ public interface EmbeddedStorageManager extends StorageManager
 		}
 
 		@Override
-		public final EmbeddedStorageManager.Default start()
+		public final synchronized EmbeddedStorageManager.Default start()
 		{
 			logger.info("Starting embedded storage manager");
 			
@@ -323,14 +376,14 @@ public interface EmbeddedStorageManager extends StorageManager
 		{
 			final EqHashTable<String, Object> loadedEntries  = normalize(loadedRoots.entries());
 			final EqHashTable<String, Object> definedEntries = normalize(this.rootsProvider.provideRoots().entries());
-			
+
 			final boolean match = loadedEntries.equalsContent(definedEntries, EmbeddedStorageManager.Default::isEqualRootEntry);
 			if(!match)
 			{
 				// change detected. Entries of loadedRoots must be updated/replaced
 				loadedRoots.updateEntries(definedEntries);
 			}
-			
+
 			/*
 			 * If the loaded roots had to change in any way to match the runtime state of the application,
 			 * it means that it has to be stored to update the persistent state to the current (changed) one.
@@ -390,11 +443,18 @@ public interface EmbeddedStorageManager extends StorageManager
 						return;
 					}
 				}
-				
-				logger.debug("Storing required root objects and constants");
-				
-				// any other case than a perfectly synchronous loaded roots instance needs to store
-				initConnection.store(loadedRoots);
+
+				if(this.connectionFoundation.writeController().isWritable())
+				{
+					logger.debug("Storing required root objects and constants");
+					// any other case than a perfectly synchronous loaded roots instance needs to store
+					initConnection.store(loadedRoots);
+				}
+				else
+				{
+					logger.warn("Updated root objects and constants can't be stored because storage is opened read only!");
+				}
+
 			}
 			catch(final Exception e)
 			{
@@ -405,10 +465,69 @@ public interface EmbeddedStorageManager extends StorageManager
 		}
 		
 		@Override
-		public final boolean shutdown()
+		public final synchronized boolean shutdown()
 		{
+			// Release shutdown-aware instances (e.g. GigaMaps closing their vector index groups) while
+			// the object registry is still populated and the storage system is still up.
+			this.releaseShutdownParticipants();
+
 			LazyReferenceManager.get().removeController(this);
-			return this.storageSystem.shutdown();
+			final boolean result = this.storageSystem.shutdown();
+			if(!result)
+			{
+				// shutdown was interrupted; storage may still be partially running, so don't
+				// invalidate cached connection/registry state on top of an indeterminate storage.
+				return false;
+			}
+			// drop cached connection so a subsequent start() rebuilds it against the new task broker
+			this.singletonConnection = null;
+			final PersistenceObjectRegistry registry = this.connectionFoundation.getObjectRegistry();
+			registry.truncateAll();
+			Persistence.registerJavaConstants(registry);
+			return true;
+		}
+
+		/**
+		 * Invokes {@link PersistenceShutdownReleasable#releaseOnShutdown()} on every registered instance
+		 * that opts into shutdown participation. Enumerates the object registry, which holds only
+		 * already-materialized instances, so no {@code Lazy} subgraph is force-loaded. Best-effort: a
+		 * failing participant is logged and skipped so it cannot abort shutdown of the rest or of storage.
+		 * <p>
+		 * Participants are collected during the registry iteration and released afterwards, outside of it:
+		 * {@code releaseOnShutdown()} may block on application locks and await background-task termination,
+		 * which must not happen while the object registry is being iterated.
+		 */
+		private void releaseShutdownParticipants()
+		{
+			final List<PersistenceShutdownReleasable> participants = new ArrayList<>();
+			try
+			{
+				final PersistenceAcceptor collector = (objectId, instance) ->
+				{
+					if(instance instanceof PersistenceShutdownReleasable)
+					{
+						participants.add((PersistenceShutdownReleasable)instance);
+					}
+				};
+				this.connectionFoundation.getObjectRegistry().iterateEntries(collector);
+			}
+			catch(final Throwable t)
+			{
+				logger.error("Error while collecting storage shutdown participants", t);
+			}
+
+			for(final PersistenceShutdownReleasable participant : participants)
+			{
+				try
+				{
+					participant.releaseOnShutdown();
+				}
+				catch(final Throwable t)
+				{
+					logger.error("Error releasing shutdown participant of type {}",
+						participant.getClass().getName(), t);
+				}
+			}
 		}
 
 		@Override
@@ -502,6 +621,12 @@ public interface EmbeddedStorageManager extends StorageManager
 		}
 
 		@Override
+		public final StorageIntegrityCheckResult issueIntegrityCheck(final long nanoTimeBudget)
+		{
+			return this.singletonConnection().issueIntegrityCheck(nanoTimeBudget);
+		}
+
+		@Override
 		public final void issueFullCacheCheck()
 		{
 			this.singletonConnection().issueFullCacheCheck();
@@ -541,6 +666,12 @@ public interface EmbeddedStorageManager extends StorageManager
 		public void issueTransactionsLogCleanup()
 		{
 			this.singletonConnection().issueTransactionsLogCleanup();
+		}
+
+		@Override
+		public boolean issueStorageFlush()
+		{
+			return this.singletonConnection().issueStorageFlush();
 		}
 		
 		@Override

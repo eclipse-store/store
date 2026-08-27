@@ -22,11 +22,15 @@ GigaMap<Entity> gigaMap = GigaMap.New(
 
 == Locking
 
-The GigaMap employs internal read-write locking, making it thread-safe.
+TIP: See xref:intro:concurrent-access.adoc[Concurrent Access] for the full conceptual treatment.
+
+The GigaMap employs internal read-write locking, making it thread-safe for its own operations (`add`, `remove`, `update`, `get`, etc.).
 
 However, all reading operations must be closed at the end to determine when the read locks should be released.
 
 Most of the default reading methods, like `get`, are atomic read operations that are closed by default internally. Only when using iterators should you remember to close them, best by using a try-with-resources block.
+
+NOTE: The internal locking covers GigaMap operations, but *not* the store operation when using `storageManager.store(gigaMap)`. Use `gigaMap.store()` instead, which acquires the internal lock during storing. See xref:persistence.adoc#_why_not_storagemanager_store_gigamap[Persistence] for details.
 
 == Creating and Adding Entities
 
@@ -38,6 +42,8 @@ gigaMap.add(newEntity);
 gigaMap.addAll(newEntity1, newEntity2);
 gigaMap.addAll(collectionContainingNewEntities);
 ----
+
+`addAll` traverses the passed `Iterable` exactly once, so a lazily evaluated or single-use sequence - a stream (`stream::iterator`), a cursor adapter, or the weakly consistent view of a concurrent collection - is safe to pass. The entities are indexed exactly as they were added, so the indices can never diverge from the added entities, even if the passed sequence changes while it is being traversed.
 
 == Removing and Updating Entities
 
@@ -65,15 +71,64 @@ Additionally, you have to use the `update` method of the GigaMap instead of just
 
 [source, java]
 ----
-// don't just update the entity
+// wrong: modifying the entity directly leaves the indices answering under the old values.
+// The previous keys are gone once this runs, so no per-entity call can put them right
+// afterwards - it takes a full reindex(), see below.
 person.setLastName("Smith");
 person.setAddress(newAddress);
 
-// use the update method, to automatically propagate the changes to the index
+// right: let update perform the modification, so the previous index keys are derived
+// before it applies - and the entity is scheduled for storing along the way.
 gigaMap.update(person, p -> {
-    p.setLastName("Smith"),
-    p.setAddress(newAddress)
+    p.setLastName("Smith");
+    p.setAddress(newAddress);
 });
 ----
 
+The two are alternatives, not steps: an `update` after a direct modification does not undo it. `update` derives the previous keys from the entity it is handed, and those are already the new values by then, so the stale entries stay. Once a direct modification has happened, only `reindex()` repairs the indices — it rebuilds them from the current entity state rather than trying to reconstruct the previous keys. It rebuilds index structures only, so the modified entity still has to be stored explicitly.
+
+Because the rebuild derives every index key anew, it is also the point at which the registered unique constraints are validated again: a rebuild over data in which two entities share a key of a unique constraint reports that violation (after completing the rebuild) instead of building an index that maps one unique key to several entities. See xref:constraints.adoc#_validation_points[Constraints - Validation Points].
+
+Deriving every key anew is also where an indexer can fail — typically one that cannot handle a value it never saw before the evolution or mutation that made the repair necessary. Each bitmap index is therefore rebuilt into a replacement that is put in place only once complete, so a throwing indexer costs only that index' rebuild: it is left exactly as it was — as stale as before the call, but complete — while every other index is rebuilt. No index is left holding only part of the entities. Every index is attempted, and the first failure is reported afterwards with any further ones attached as suppressed exceptions. Fix the indexer and call `reindex()` again to repair what was left behind.
+
 Entities modified through `update` (or `apply`) are automatically persisted when calling `store()`. See xref:persistence.adoc[] for details.
+
+WARNING: Because `update` / `apply` mutate the entity in place, a constraint violation triggered by the new state cannot be rolled back. The GigaMap therefore **removes** the offending entity from the map and rethrows the `ConstraintViolationException`. The same applies to an exception thrown by the update logic itself, which leaves the entity partially mutated. See xref:constraints.adoc#_constraint_violations[Constraints — Constraint Violations] for the full rollback semantics across CRUD operations.
+
+NOTE: A failure of an *index* is not destructive: if an indexer throws for the new value, or an index implementation rejects it (e.g. a Lucene term over its length limit, an embedding of the wrong dimension, or a stale index), the entity's own data is still the value the logic produced, so `update` / `apply` keep the entity and only rethrow the exception. The indices may then be out of sync with it — repair them with `reindex()`.
+
+=== Updating by Entity Id
+
+Resolving an entity instance to its id (as done by `update(entity, …)`, `apply(entity, …)`, `replace(current, replacement)` and `remove(entity)`) relies on a *bitmap* index. A GigaMap that only has non-bitmap indices — for example a Lucene-only or vector-only map — therefore cannot use these entity-instance methods and would throw an `IllegalStateException`.
+
+For these maps, use the entityId-based overloads instead, which take the id directly and need no bitmap index. The required id is available from query and search results, e.g. via `GigaQuery.iterateIndexed(…)` / `executeWithId(…)` or the `entityId()` of a scored Lucene / vector search result.
+
+[source, java]
+----
+// id obtained from a Lucene/vector search result or a query
+long entityId = searchResultEntry.entityId();
+
+// update / apply by id — no bitmap index required
+gigaMap.update(entityId, p -> p.setLastName("Smith"));
+gigaMap.apply(entityId, p -> {
+    p.recompute();
+    return null;
+});
+
+// the index-free equivalents of replace / remove already exist:
+gigaMap.set(entityId, replacement);
+gigaMap.removeById(entityId);
+----
+
+`set` and `replace` install a *different* instance in place of the current one and re-index that. They are therefore not a way to write back an entity you mutated yourself: passing the very instance the map already holds is rejected with an `IllegalArgumentException`, because re-indexing a mutation needs the keys the entity had *before* it was mutated, and those are gone once it has been mutated in place. That is exactly what `update` / `apply` derive up front, which is why they are the in-place path — and why `reindex()` is the repair for a mutation that already bypassed them.
+
+[source, java]
+----
+// wrong: set rejects the instance it already holds, and recovering from the modification
+// then takes a full reindex() - see above
+person.setLastName("Smith");
+gigaMap.set(entityId, person);
+
+// right: let update perform the modification
+gigaMap.update(entityId, p -> p.setLastName("Smith"));
+----

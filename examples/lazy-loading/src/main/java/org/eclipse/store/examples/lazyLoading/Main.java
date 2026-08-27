@@ -55,7 +55,7 @@ public class Main
 	
 	private static void calcRevenue(final EmbeddedStorageManager storageManager)
 	{
-		final MyBusinessApp        root           = (MyBusinessApp)storageManager.root();
+		final MyBusinessApp        root           = storageManager.root();
 
 		final int                  startYear      = Year.now().getValue() - 3;
 		final long                 now            = System.currentTimeMillis();

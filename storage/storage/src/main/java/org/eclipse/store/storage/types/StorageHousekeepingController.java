@@ -23,6 +23,28 @@ import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.util.logging.Logging;
 import org.slf4j.Logger;
 
+/**
+ * Configures how much time each {@link StorageChannel} spends on incremental housekeeping work
+ * (garbage collection, file cleanup, entity-cache eviction, transaction-log cleanup) per
+ * housekeeping cycle.
+ * <p>
+ * A controller is built from two primary values: an interval in milliseconds at which housekeeping
+ * cycles are scheduled, and a per-cycle time budget in nanoseconds. The ratio of these two values
+ * determines, very roughly, the percentage of CPU time the storage spends on housekeeping: a 10ms
+ * budget per 1000ms interval is approximately 1% of one channel thread. The controller can also
+ * report individual budgets per task category so that, for example, garbage collection can run on
+ * a different budget than file cleanup.
+ * <p>
+ * In addition to the {@link #New() framework default} controller (constant interval and budget),
+ * this interface offers an {@link #Adaptive(long, long, long, StorageFoundation) adaptive} variant
+ * that wraps another controller and progressively increases the budgets while the garbage collector
+ * is unable to reach the sweeping phase, and shrinks them back to the wrapped values once GC
+ * completes. Use the {@link #AdaptiveBuilder(StorageFoundation) AdaptiveBuilder} for fluent
+ * configuration of the adaptive variant.
+ *
+ * @see Storage#HousekeepingController()
+ * @see StorageChannel
+ */
 public interface StorageHousekeepingController
 {
 	/**
@@ -50,23 +72,70 @@ public interface StorageHousekeepingController
 	 */
 	public long fileCheckTimeBudgetNs();
 
-	
-	
+	/**
+	 * The number of consecutive garbage-collection sweeps an entity must remain unmarked before it is
+	 * actually deleted. A value of {@code 1} deletes an unmarked entity on the first sweep (the classic
+	 * behavior); higher values keep unreachable entities for that many sweeps as a probabilistic safety
+	 * net against rare, transient GC concurrency races, at the cost of reclaiming garbage slightly later.
+	 * <p>
+	 * Declared as a {@code default} method returning {@link Defaults#defaultGarbageCollectionSweepThreshold()}
+	 * so that pre-existing custom {@link StorageHousekeepingController} implementations keep compiling and
+	 * running unchanged (adding an abstract method would be a source- and binary-incompatible change).
+	 *
+	 * @return the number of consecutive unmarked sweeps before an entity is collected, in range {@code [1, 127]}.
+	 */
+	public default int garbageCollectionSweepThreshold()
+	{
+		return Defaults.defaultGarbageCollectionSweepThreshold();
+	}
+
+
+
+	/**
+	 * Static helpers exposing the lower bounds for {@link StorageHousekeepingController}
+	 * configuration values and a range-check that throws {@link IllegalArgumentException} on
+	 * violation.
+	 */
 	public interface Validation
 	{
 		public static long minimumHousekeepingIntervalMs()
 		{
 			return 1;
 		}
-		
+
 		public static long minimumHousekeepingTimeBudgetNs()
 		{
 			return 0;
 		}
-		
+
+		public static int minimumGarbageCollectionSweepThreshold()
+		{
+			return 1;
+		}
+
+		public static int maximumGarbageCollectionSweepThreshold()
+		{
+			// stored in the negative range of a single signed byte (see StorageEntity.gcState), so bounded by 127.
+			return 127;
+		}
+
 		public static void validateParameters(
 			final long housekeepingIntervalMs  ,
 			final long housekeepingTimeBudgetNs
+		)
+			throws IllegalArgumentException
+		{
+			validateParameters(
+				housekeepingIntervalMs                              ,
+				housekeepingTimeBudgetNs                            ,
+				Defaults.defaultGarbageCollectionSweepThreshold()
+			);
+		}
+
+		public static void validateParameters(
+			final long housekeepingIntervalMs        ,
+			final long housekeepingTimeBudgetNs      ,
+			final int  garbageCollectionSweepThreshold
 		)
 			throws IllegalArgumentException
 		{
@@ -86,6 +155,34 @@ public interface StorageHousekeepingController
 					+ housekeepingTimeBudgetNs
 					+ " is lower than the minimum value "
 					+ minimumHousekeepingTimeBudgetNs()+ "."
+				);
+			}
+			validateGarbageCollectionSweepThreshold(garbageCollectionSweepThreshold);
+		}
+
+		/**
+		 * Range-checks a garbage collection sweep threshold and throws {@link IllegalArgumentException}
+		 * if it is outside {@code [1, 127]}. The upper bound is mandatory: the sweep countdown is stored
+		 * in the negative range of {@link StorageEntity.Default}'s {@code gcState} byte, so a larger value
+		 * would let {@code gcState} underflow below {@link Byte#MIN_VALUE} and wrap around, corrupting the
+		 * GC state. Enforced both here (external configuration) and where the value enters the GC engine.
+		 *
+		 * @param garbageCollectionSweepThreshold the value to validate.
+		 * @throws IllegalArgumentException if the value is outside the valid range.
+		 */
+		public static void validateGarbageCollectionSweepThreshold(final int garbageCollectionSweepThreshold)
+			throws IllegalArgumentException
+		{
+			if(garbageCollectionSweepThreshold < minimumGarbageCollectionSweepThreshold()
+			|| garbageCollectionSweepThreshold > maximumGarbageCollectionSweepThreshold()
+			)
+			{
+				throw new IllegalArgumentException(
+					"Specified garbage collection sweep threshold of "
+					+ garbageCollectionSweepThreshold
+					+ " is outside the valid range ["
+					+ minimumGarbageCollectionSweepThreshold() + ", "
+					+ maximumGarbageCollectionSweepThreshold() + "]."
 				);
 			}
 		}
@@ -151,27 +248,75 @@ public interface StorageHousekeepingController
 	)
 	{
 		Validation.validateParameters(housekeepingIntervalMs, housekeepingTimeBudgetNs);
-		
+
 		return new StorageHousekeepingController.Default(
 			housekeepingIntervalMs  ,
 			housekeepingTimeBudgetNs
 		);
 	}
-	
+
+	/**
+	 * Pseudo-constructor method to create a new {@link StorageHousekeepingController} instance
+	 * using the passed values, including the garbage collection sweep threshold.
+	 *
+	 * @param housekeepingIntervalMs the interval in milliseconds that the storage threads shall
+	 *        execute their various housekeeping actions. Must be greater than zero.
+	 * @param housekeepingTimeBudgetNs the time budget in nanoseconds that each storage thread will use
+	 *        to perform a housekeeping action. Must not be negative.
+	 * @param garbageCollectionSweepThreshold the number of consecutive garbage-collection sweeps an
+	 *        entity must remain unmarked before it is deleted, in range {@code [1, 127]}.
+	 * @return a new {@link StorageHousekeepingController} instance.
+	 *
+	 * @see StorageHousekeepingController#New(long, long)
+	 */
+	public static StorageHousekeepingController New(
+		final long housekeepingIntervalMs        ,
+		final long housekeepingTimeBudgetNs      ,
+		final int  garbageCollectionSweepThreshold
+	)
+	{
+		Validation.validateParameters(
+			housekeepingIntervalMs         ,
+			housekeepingTimeBudgetNs       ,
+			garbageCollectionSweepThreshold
+		);
+
+		return new StorageHousekeepingController.Default(
+			housekeepingIntervalMs         ,
+			housekeepingTimeBudgetNs       ,
+			garbageCollectionSweepThreshold
+		);
+	}
+
+	/**
+	 * Static factory for the framework default housekeeping interval and time budget used by
+	 * {@link StorageHousekeepingController#New()}.
+	 */
 	public interface Defaults
 	{
 		public static long defaultHousekeepingIntervalMs()
 		{
 			return 1_000; // ms
 		}
-		
+
 		public static long defaultHousekeepingTimeBudgetNs()
 		{
 			return 10_000_000; // ns
 		}
+
+		public static int defaultGarbageCollectionSweepThreshold()
+		{
+			// safe-by-default: an unreachable entity must be unmarked on 3 consecutive sweeps before deletion.
+			return 3;
+		}
 	}
 
 
+	/**
+	 * Default {@link StorageHousekeepingController} implementation: returns the configured interval
+	 * and time budget verbatim, applying the same general budget to garbage collection, live check
+	 * and file check.
+	 */
 	public final class Default implements StorageHousekeepingController
 	{
 		///////////////////////////////////////////////////////////////////////////
@@ -179,6 +324,7 @@ public interface StorageHousekeepingController
 		////////////////////
 
 		private final long intervalMs, nanoTimeBudget;
+		private final int  gcSweepThreshold;
 
 
 
@@ -188,9 +334,15 @@ public interface StorageHousekeepingController
 
 		Default(final long intervalMs, final long nanoTimeBudget)
 		{
+			this(intervalMs, nanoTimeBudget, Defaults.defaultGarbageCollectionSweepThreshold());
+		}
+
+		Default(final long intervalMs, final long nanoTimeBudget, final int gcSweepThreshold)
+		{
 			super();
-			this.intervalMs     = intervalMs    ;
-			this.nanoTimeBudget = nanoTimeBudget;
+			this.intervalMs       = intervalMs      ;
+			this.nanoTimeBudget   = nanoTimeBudget  ;
+			this.gcSweepThreshold = gcSweepThreshold;
 		}
 
 
@@ -233,12 +385,19 @@ public interface StorageHousekeepingController
 		}
 
 		@Override
+		public final int garbageCollectionSweepThreshold()
+		{
+			return this.gcSweepThreshold;
+		}
+
+		@Override
 		public String toString()
 		{
 			return VarString.New()
 				.add(this.getClass().getName()).add(':').lf()
-				.blank().add("house keeping interval"        ).tab().add('=').blank().add(this.intervalMs).lf()
-				.blank().add("house keeping nano time budget").tab().add('=').blank().add(this.nanoTimeBudget)
+				.blank().add("house keeping interval"           ).tab().add('=').blank().add(this.intervalMs).lf()
+				.blank().add("house keeping nano time budget"   ).tab().add('=').blank().add(this.nanoTimeBudget).lf()
+				.blank().add("garbage collection sweep threshold").tab().add('=').blank().add(this.gcSweepThreshold)
 				.toString()
 			;
 		}
@@ -548,8 +707,21 @@ public interface StorageHousekeepingController
 	}
 	
 	
+	/**
+	 * Adaptive {@link StorageHousekeepingController} that wraps a base controller and progressively
+	 * increases its time budgets while the garbage collector is making forward progress but has not
+	 * yet reached a sweeping phase. The increases are capped at a configurable maximum and reset
+	 * back to the base values once the GC reports completion or no work needed.
+	 * <p>
+	 * The instance also implements {@link StorageEventLogger}: it must be registered as an event
+	 * logger on the foundation so that GC-completion events drive the reset back to base budgets.
+	 */
 	public final class Adaptive implements StorageHousekeepingController, StorageEventLogger
 	{
+		/**
+		 * Defaults for the {@link Adaptive} controller's tuning parameters: how often to step up the
+		 * budgets, by how much per step, and the upper limit they will not exceed.
+		 */
 		public interface Defaults
 		{
 			public static long defaultAdaptiveHousekeepingIncreaseThresholdMs()
@@ -693,7 +865,14 @@ public interface StorageHousekeepingController
 				this.delegate.fileCheckTimeBudgetNs() + this.increaseNs()
 			);
 		}
-		
+
+		@Override
+		public int garbageCollectionSweepThreshold()
+		{
+			// the sweep threshold is not time-adaptive; pass the wrapped controller's value through.
+			return this.delegate.garbageCollectionSweepThreshold();
+		}
+
 		@Override
 		public void logGarbageCollectorNotNeeded()
 		{

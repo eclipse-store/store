@@ -113,19 +113,40 @@ public interface BinaryCompositeIndexer<E> extends CompositeIndexer<E, long[]>
 		}
 		
 		@Override
+		public <S extends E> Condition<S> is(final long[] key)
+		{
+			// generic/raw callers may pass literal null for the composite key; route it to the
+			// sentinel-based null query instead of building a null-sample predicate (which NPEs).
+			return key == null ? this.isNull() : super.is(key);
+		}
+
+		@Override
+		public <S extends E> Condition<S> not(final long[] key)
+		{
+			return new Condition.Not<>(this.is(key));
+		}
+
+		@Override
 		public <S extends E> Condition<S> isNull()
 		{
 			return this.is(NULL());
 		}
-		
+
+		@Override
+		public <S extends E> Condition<S> notNull()
+		{
+			// null is encoded as the NULL() sentinel, so "not null" is exactly its negation.
+			return new Condition.Not<>(this.isNull());
+		}
+
 		protected <S extends E> Condition<S> isValue(final V other)
 		{
 			return this.is(this.indexValue(other, null));
 		}
-		
+
 	}
-	
-	
+
+
 	public abstract class AbstractSingleValueVariableSize<E, V> extends Abstract<E>
 	{
 		protected AbstractSingleValueVariableSize()
@@ -165,16 +186,37 @@ public interface BinaryCompositeIndexer<E> extends CompositeIndexer<E, long[]>
 		}
 		
 		@Override
+		public <S extends E> Condition<S> is(final long[] key)
+		{
+			// generic/raw callers may pass literal null for the composite key; route it to the
+			// sentinel-based null query instead of building a null-sample predicate (which NPEs).
+			return key == null ? this.isNull() : super.is(key);
+		}
+
+		@Override
+		public <S extends E> Condition<S> not(final long[] key)
+		{
+			return new Condition.Not<>(this.is(key));
+		}
+
+		@Override
 		public <S extends E> Condition<S> isNull()
 		{
 			return super.is(NULL());
 		}
-		
+
+		@Override
+		public <S extends E> Condition<S> notNull()
+		{
+			// null is encoded as the NULL() sentinel, so "not null" is exactly its negation.
+			return new Condition.Not<>(this.isNull());
+		}
+
 		protected <S extends E> Condition<S> isValue(final V other)
 		{
 			return super.is(this.indexValue(other, null));
 		}
-		
+
 	}
-	
+
 }

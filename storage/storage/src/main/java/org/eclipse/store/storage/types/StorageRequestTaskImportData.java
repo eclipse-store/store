@@ -59,6 +59,10 @@ public interface StorageRequestTaskImportData<S> extends StorageRequestTask
 		private final    AtomicBoolean complete  = new AtomicBoolean();
 		private volatile long          maxObjectId;
 		private          Thread        readThread ;
+		private volatile Throwable     readProblem;
+		// whether any channel entered the import commit phase; a channel taking fail() after that
+		// is a succeed/fail split the succeed() catch cannot see - it must disrupt (see fail()).
+		private volatile boolean       commitStarted;
 		Abstract(
 			final long                          timestamp             ,
 			final int                           channelCount          ,
@@ -122,24 +126,66 @@ public interface StorageRequestTaskImportData<S> extends StorageRequestTask
 
 		final void readSources()
 		{
-			final ItemReader itemReader = new ItemReader(this.entityCaches, this.sourceHeads);
-
-			for(final S source : this.sources)
+			try
 			{
-				try
+				final ItemReader itemReader = new ItemReader(this.entityCaches, this.sourceHeads);
+
+				for(final S source : this.sources)
 				{
-					itemReader.setSource(source);
-					this.iterateSource(source, itemReader);
-					itemReader.completeCurrentSource();
-				}
-				catch(final Exception e)
-				{
-					throw new StorageExceptionImportFailed("Exception while reading import source " + source, e);
+					try
+					{
+						itemReader.setSource(source);
+						this.iterateSource(source, itemReader);
+						itemReader.completeCurrentSource();
+					}
+					catch(final Exception e)
+					{
+						throw new StorageExceptionImportFailed("Exception while reading import source " + source, e);
+					}
 				}
 			}
-			this.complete.set(true);
+			catch(final Throwable t)
+			{
+				// this thread has no uncaught exception handler, a failure escaping here would be
+				// swallowed; hand it to the channels, which must roll back instead of committing
+				// the batches published before the read failed
+				this.readProblem = t;
+			}
+			finally
+			{
+				// the only signal that no further source will arrive - left unset, every channel
+				// parks forever in #internalProcessBy. Written after #readProblem, so observing
+				// completion also observes the cause.
+				this.complete.set(true);
+			}
 		}
-		
+
+		/**
+		 * The reader thread can fail, never start at all (a channel failing before registering its
+		 * entity cache leaves it unstarted, see {@link #ensureReaderThread()}), or a storage-wide
+		 * disruption can make waiting pointless. Only a failed reader sets {@link #complete} (its
+		 * finally); an unstarted reader or a disruption never does, so a waiting channel must
+		 * observe those explicitly or it freezes the whole storage, shutdown included.
+		 *
+		 * @return the cause to register as the waiting channel's problem, or {@code null}. Sibling
+		 *         problems are not reported here: those already route every channel into fail().
+		 */
+		private Throwable importAbortCause()
+		{
+			final Throwable readProblem = this.readProblem;
+			if(readProblem != null)
+			{
+				return readProblem;
+			}
+
+			if(this.controller.hasDisruptions())
+			{
+				return this.controller.disruptions().first();
+			}
+
+			return null;
+		}
+
 		protected abstract void iterateSource(S source, ItemAcceptor itemAcceptor);
 
 		@FunctionalInterface
@@ -315,11 +361,15 @@ public interface StorageRequestTaskImportData<S> extends StorageRequestTask
 		{
 			/*
 			 * signal the channel to prepare for the import
-			 * (validate type dictionary, keep current head file and create a new one)
+			 * (register the import with the gc, keep current head file and create a new one).
+			 * Deliberately called outside the entityCaches lock: the preparation may quiesce a
+			 * pending gc sweep (see StorageEntityCache.Default#registerPendingImportUpdate), which must
+			 * not be serialized across channels by the shared array's monitor.
 			 */
+			final StorageEntityCache.Default entityCache = channel.prepareImportData();
 			synchronized(this.entityCaches)
 			{
-				this.entityCaches[channel.channelIndex()] = channel.prepareImportData();
+				this.entityCaches[channel.channelIndex()] = entityCache;
 			}
 
 			/*
@@ -348,6 +398,14 @@ public interface StorageRequestTaskImportData<S> extends StorageRequestTask
 								// there will be no more next source, so abort (task is complete)
 								break importLoop;
 							}
+
+							// no source can arrive any more (see #importAbortCause, or a sibling
+							// already failed the task); the cause is registered after the loop
+							if(this.hasProblems() || this.importAbortCause() != null)
+							{
+								break importLoop;
+							}
+
 							// better check again after some time, indefinite wait caused a deadlock once
 							// (16.04.2016)TODO: isn't the above comment a bug? Test and change or comment better.
 							currentSource.wait(SOURCE_WAIT_TIME_MS);
@@ -372,34 +430,144 @@ public interface StorageRequestTaskImportData<S> extends StorageRequestTask
 				throw new StorageException(e);
 			}
 
+			/*
+			 * Registering the cause is what routes every channel into fail() (rollback). Merely
+			 * leaving the loop would let succeed() commit the batches published before the abort -
+			 * a partial import, silently reported as successful.
+			 */
+			final Throwable abortCause = this.importAbortCause();
+			if(abortCause != null)
+			{
+				this.addProblem(channel.channelIndex(), abortCause);
+			}
+
 			return null;
 		}
 
 		@Override
 		protected final void succeed(final StorageChannel channel, final Void result)
 		{
-			// evaluate (validate or update if possible) objectId before committing the import
-			this.objectIdRangeEvaluator.evaluateObjectIdRange(0, this.maxObjectId);
-
-			/* on success, signal the channel to commit the imported data (register entities in cache)
-			 * All channels use the same timestamp (this task's issuing timestamp) for consistency checks
+			/*
+			 * An aborted waitOnProcessing (async disruption) reaches succeed() WITHOUT the processing
+			 * barrier. Committing into a storage that is going down would only create a torn commit
+			 * for the restart to undo - abort; the throw registers as this channel's problem.
 			 */
-			channel.commitImportData(this.timestamp());
+			if(this.controller.hasDisruptions())
+			{
+				throw new StorageException(
+					"Aborting import commit: the storage is disrupted", this.controller.disruptions().first()
+				);
+			}
+
+			try
+			{
+				// evaluate (validate or update if possible) objectId before committing the import
+				this.objectIdRangeEvaluator.evaluateObjectIdRange(0, this.maxObjectId);
+
+				// from here on a fail() on any channel is a succeed/fail split, see fail()
+				this.commitStarted = true;
+
+				/* on success, signal the channel to commit the imported data (register entities in cache)
+				 * All channels use the same timestamp (this task's issuing timestamp) for consistency checks
+				 */
+				channel.commitImportData(this.timestamp());
+			}
+			catch(final Throwable t)
+			{
+				/*
+				 * A commit-phase throw can leave siblings committed but not this channel - a torn
+				 * import. Escalate so processing stops: further stores or housekeeping could make
+				 * the torn state permanent (consensus advanced past it, rollback files dissolved).
+				 * The restart's consensus then undoes it; the rethrow fails the task as before.
+				 */
+				this.controller.registerDisruption(t);
+				this.controller.setChannelProcessingEnabled(false);
+
+				// close the sources as fail() would - with the last-completing channel failing
+				// here, no sibling takes the fail() path. Safe: the disruption check above filtered
+				// the barrier-less path, so every channel passed the processing barrier.
+				try
+				{
+					this.cleanUpResources();
+				}
+				catch(final Throwable suppressed)
+				{
+					t.addSuppressed(suppressed);
+				}
+
+				throw t;
+			}
 		}
 
 		@Override
 		protected void postCompletionSuccess(final StorageChannel channel, final Void result)
 			throws InterruptedException
 		{
+			/*
+			 * hasProblems() was false when THIS channel completed, but a sibling can still fail in
+			 * its own succeed(). Problems are registered before the completion counter increments,
+			 * so the problem state is final once the task is complete - wait for that before lifting
+			 * the deferral, or a store queued behind the import could roll the head over and seal a
+			 * torn commit out of the head-file-only recovery.
+			 */
+			try
+			{
+				this.waitOnCompletion();
+			}
+			catch(final StorageException e)
+			{
+				// a sibling failed after this channel completed: the deferral must hold until the
+				// restart undoes the commit; the sibling disrupted the storage, closing the sources
+				return;
+			}
+
+			// every channel committed: lift this channel's torn-import deferral of file lifecycle events
+			channel.confirmImportData();
 			this.cleanUpResources();
 		}
 
 		@Override
 		protected final void fail(final StorageChannel channel, final Void result)
 		{
-			// on failure/abort, signal channel to rollback (delete newly created files and revert to last head file)
-			this.cleanUpResources();
-			channel.rollbackImportData(this.problemForChannel(channel));
+			/*
+			 * fail() after a sibling entered the commit phase is a succeed/fail split the succeed()
+			 * catch cannot see (e.g. a problem surfacing only in the completion phase). The lone
+			 * commit must not be buried by later stores advancing the restart consensus past it -
+			 * stop the storage; the next start undoes it.
+			 */
+			if(this.commitStarted)
+			{
+				final Throwable problem = this.problemForChannel(channel);
+				this.controller.registerDisruption(
+					problem != null
+						? problem
+						: new StorageException("Import failed after a channel already began its commit")
+				);
+				this.controller.setChannelProcessingEnabled(false);
+			}
+
+			try
+			{
+				this.cleanUpResources();
+			}
+			finally
+			{
+				// must run even when a source close throws; skipping the rollback leaves unlogged
+				// import bytes in the head file
+				channel.rollbackImportData(this.problemForChannel(channel));
+			}
+		}
+
+		@Override
+		protected final void cleanUp(final StorageChannel channel)
+		{
+			/*
+			 * Ultimate cleanup, no matter the task outcome (committed, rolled back, aborted):
+			 * release the gc coordination signal acquired in StorageChannel#prepareImportData,
+			 * allowing sweeps to be initiated again. Idempotent and robust if the preparation
+			 * never ran or failed halfway.
+			 */
+			channel.cleanupImportData();
 		}
 
 		private void cleanUpResources()

@@ -22,16 +22,31 @@ package org.eclipse.store.gigamap.types;
  * <b>Restriction:</b> {@code Long.MAX_VALUE} is not supported as an index key and will throw an
  * {@link IllegalArgumentException}. It is reserved internally as a sentinel for zero in the binary
  * bitmap index. All other long values, including zero and negative values, are fully supported.
+ * <p>
+ * <b>Restriction:</b> {@code null} is not supported as an index key either and is likewise rejected with an
+ * {@link IllegalArgumentException}. Because the zero sentinel already consumes the only bit pattern this
+ * indexer could have spared, no collision-free null sentinel is left. See {@link BinaryIndexerNumber} for the
+ * details and use {@link IndexerLong} to index a nullable {@link Long} field.
  *
  * @param <E> the type of entities being indexed
  */
 public interface BinaryIndexerLong<E> extends BinaryIndexerNumber<E, Long>
 {
+	// Explicit overrides to resolve ambiguous methods between
+	// BinaryIndexerNumber (abstract) and IndexIdentifier (default)
+	// because K = Long matches the key type of BinaryIndexer<E> extends Indexer<E, Long>.
+
 	@Override
 	public <S extends E> Condition<S> is(Long key);
-	
+
+	@Override
+	public <S extends E> Condition<S> not(Long key);
+
 	@Override
 	public <S extends E> Condition<S> in(Long... keys);
+
+	@Override
+	public <S extends E> Condition<S> notIn(Long... keys);
 		
 	
 	
@@ -80,6 +95,17 @@ public interface BinaryIndexerLong<E> extends BinaryIndexerNumber<E, Long>
 				return Long.MAX_VALUE;
 			}
 			return number;
+		}
+
+		/**
+		 * Undoes the zero sentinel applied by {@link #toLong(Long)}: the stored
+		 * {@code Long.MAX_VALUE} bit pattern maps back to the key {@code 0}; all other
+		 * stored values are their own key.
+		 */
+		@Override
+		public Long binaryToKey(final long stored)
+		{
+			return stored == Long.MAX_VALUE ? 0L : stored;
 		}
 
 		protected abstract Long getLong(final E entity);

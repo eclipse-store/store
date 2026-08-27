@@ -149,9 +149,9 @@ public interface IndexerLocalTime<E> extends IndexerTime<E, Object[], LocalTime>
 				).and(
 					this.is(new FieldPredicate(SECOND_INDEX, second -> second < boundExclusive.getSecond()))
 				)
-			);
+			).complete();
 		}
-		
+
 		@SuppressWarnings("unchecked")
 		@Override
 		public final <S extends E> Condition<S> beforeEqual(final LocalTime boundInclusive)
@@ -160,8 +160,8 @@ public interface IndexerLocalTime<E> extends IndexerTime<E, Object[], LocalTime>
 			{
 				throw new IllegalArgumentException("boundInclusive cannot be null");
 			}
-			
-			return (Condition<S>)this.is(boundInclusive).or(this.before(boundInclusive));
+
+			return (Condition<S>)this.is(boundInclusive).or(this.before(boundInclusive)).complete();
 		}
 		
 		@SuppressWarnings("unchecked")
@@ -187,9 +187,9 @@ public interface IndexerLocalTime<E> extends IndexerTime<E, Object[], LocalTime>
 				).and(
 					this.is(new FieldPredicate(SECOND_INDEX, second -> second > boundExclusive.getSecond()))
 				)
-			);
+			).complete();
 		}
-		
+
 		@SuppressWarnings("unchecked")
 		@Override
 		public final <S extends E> Condition<S> afterEqual(final LocalTime boundInclusive)
@@ -198,8 +198,8 @@ public interface IndexerLocalTime<E> extends IndexerTime<E, Object[], LocalTime>
 			{
 				throw new IllegalArgumentException("boundInclusive cannot be null");
 			}
-			
-			return (Condition<S>)this.is(boundInclusive).or(this.after(boundInclusive));
+
+			return (Condition<S>)this.is(boundInclusive).or(this.after(boundInclusive)).complete();
 		}
 		
 		@SuppressWarnings("unchecked")

@@ -42,16 +42,9 @@ public class WriteReadLoadTest
     @BeforeAll
     static void writeTest()
     {
-
-        GigaMap<String> gigaMap = GigaMap.New();
-
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            if (manager.root() == null) {
-                manager.setRoot(gigaMap);
-                manager.storeRoot();
-            } else {
-                gigaMap = (GigaMap<String>) manager.root();
-            }
+
+            GigaMap<String> gigaMap = manager.ensureRoot(GigaMap::New);
 
             for (int i = 0; i < AMOUNT; i++) {
                 gigaMap.add("Hello" + i);
@@ -74,7 +67,7 @@ public class WriteReadLoadTest
     void readFromRepositoryTest()
     {
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            final GigaMap<String> gigaMap = (GigaMap<String>) manager.root();
+            final GigaMap<String> gigaMap = manager.root();
             assertAll(
                     () -> assertEquals(AMOUNT * 3, gigaMap.size()),
                     () -> assertEquals("Hello0", gigaMap.get(0)),
@@ -88,19 +81,10 @@ public class WriteReadLoadTest
     @Order(2)
     void addIndex()
     {
-
-        GigaMap<String> gigaMap = GigaMap.New();
-
         final StringIndexer stringIndexer = new StringIndexer();
 
-
         try (EmbeddedStorageManager manager = EmbeddedStorage.start(newDirectory)) {
-            if (manager.root() == null) {
-                manager.setRoot(gigaMap);
-            } else {
-                gigaMap = (GigaMap<String>) manager.root();
-            }
-
+            final GigaMap<String> gigaMap = manager.root();
             final BitmapIndices<String> register = gigaMap.index().bitmap();
             final BitmapIndex<String, String> stringIndexer1 = register.get("StringIndexer");
             if (stringIndexer1 == null) {

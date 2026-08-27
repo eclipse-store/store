@@ -174,9 +174,15 @@ public interface StorageBackupHandler extends Runnable, StorageActivePart
 		}
 		
 		@Override
-		public final StorageBackupHandler start()
+		public final synchronized StorageBackupHandler start()
 		{
 			this.ensureTypeDictionaryBackup();
+			// Clear any leftover shutdown state from a prior cycle. Without this,
+			// a same-instance restart of the storage manager would see shutdown == true
+			// and the new backup thread would exit immediately via isRunning() == false,
+			// leaving subsequent writes' BackupItemQueue registrations on live files
+			// undrained and the AFS exclusive lease unreleased.
+			this.shutdown = false;
 			this.setRunning(true);
 			return this;
 		}
@@ -232,7 +238,7 @@ public interface StorageBackupHandler extends Runnable, StorageActivePart
 		public void synchronize(final StorageInventory storageInventory)
 		{
 			logger.debug("Synchronizing backup with storage");
-			
+
 			try
 			{
 				this.trySynchronize(storageInventory);
@@ -508,7 +514,7 @@ public interface StorageBackupHandler extends Runnable, StorageActivePart
 
 			final long storageFileLength      = liveTransactionsFile.size();
 			final long backupTargetFileLength = backupTransactionFile.size();
-			
+
 			if(backupTargetFileLength != storageFileLength)
 			{
 				// on any mismatch, the backup transaction file is deleted (potentially moved&renamed) and rebuilt.
@@ -517,7 +523,7 @@ public interface StorageBackupHandler extends Runnable, StorageActivePart
 				this.copyFile(liveTransactionsFile, backupTransactionFileNew);
 			}
 		}
-				
+
 		private void copyFile(
 			final StorageFile       storageFile     ,
 			final StorageBackupFile backupTargetFile
@@ -539,8 +545,12 @@ public interface StorageBackupHandler extends Runnable, StorageActivePart
 				
 				try
 				{
-					sourceFile.copyTo(backupTargetFile, sourcePosition, length);
-					
+					// a short copy must fail loudly, not pass as success.
+					StorageFileWriter.validateIoByteCount(
+						length,
+						sourceFile.copyTo(backupTargetFile, sourcePosition, length)
+					);
+
 					// (16.06.2020 TM)TODO: nasty instanceof
 					if(backupTargetFile instanceof StorageBackupDataFile)
 					{

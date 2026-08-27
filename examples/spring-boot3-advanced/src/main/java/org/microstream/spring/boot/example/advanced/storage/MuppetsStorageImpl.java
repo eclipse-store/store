@@ -15,6 +15,7 @@ package org.microstream.spring.boot.example.advanced.storage;
  */
 
 import org.eclipse.serializer.persistence.types.Storer;
+import org.eclipse.store.integrations.spring.boot.types.concurrent.Mutex;
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Read;
 import org.eclipse.store.integrations.spring.boot.types.concurrent.Write;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
@@ -26,6 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Component
+@Mutex("muppets")
 public class MuppetsStorageImpl implements MuppetStorage
 {
 
@@ -43,8 +45,8 @@ public class MuppetsStorageImpl implements MuppetStorage
     @Read
     public String oneMuppet(Integer id)
     {
-        MuppetsRoot root = (MuppetsRoot) storageManager.root();
-        if (id > root.getMuppets().size())
+        MuppetsRoot root = storageManager.root();
+        if (id < 0 || id >= root.getMuppets().size())
         {
             throw new IllegalArgumentException("No muppet with this id");
         }
@@ -55,7 +57,7 @@ public class MuppetsStorageImpl implements MuppetStorage
     @Read
     public List<String> allMuppets()
     {
-        MuppetsRoot root = (MuppetsRoot) storageManager.root();
+        MuppetsRoot root = storageManager.root();
         return new ArrayList<>(root.getMuppets()); // Create new List... never return original one.
 
     }
@@ -64,7 +66,7 @@ public class MuppetsStorageImpl implements MuppetStorage
     @Write
     public int addMuppets(List<String> muppets)
     {
-        MuppetsRoot root = (MuppetsRoot) storageManager.root();
+        MuppetsRoot root = storageManager.root();
         root.setMuppets(muppets);
         Storer eagerStorer = storageManager.createEagerStorer();
         eagerStorer.store(root);

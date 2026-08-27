@@ -22,7 +22,9 @@ import org.eclipse.serializer.persistence.types.Unpersistable;
 import org.eclipse.serializer.typing.KeyValue;
 import org.eclipse.serializer.util.X;
 
+import java.util.Arrays;
 import java.util.function.Consumer;
+import java.util.function.ObjLongConsumer;
 import java.util.function.Predicate;
 
 
@@ -124,8 +126,30 @@ public interface BitmapIndex<E, K> extends IndexIdentifier<E, K>, GigaIndex<E>
 	 * @return the same {@link Consumer} instance passed as the parameter, after it has been applied to all keys
 	 */
 	public <C extends Consumer<? super K>> C iterateKeys(C logic);
-	
-	
+
+	/**
+	 * Iterates the {@code (key, entityId)} pairs held by this index — one call per indexed entity —
+	 * <b>without loading the indexed entities themselves</b>. The mapping is reconstructed from the
+	 * index's own bitmap structures, so this is cheap even for indices whose entities carry large
+	 * payloads.
+	 * <p>
+	 * Order is unspecified. The consumer receives the reconstructed key and the entity id
+	 * (the entity's position in the owning {@code GigaMap}).
+	 * <p>
+	 * Not every index family supports this yet; the default throws {@link UnsupportedOperationException}.
+	 * It is currently implemented by the binary (bit-sliced) indices.
+	 *
+	 * @param consumer receives {@code (key, entityId)} for each indexed entity; must not be null
+	 * @throws UnsupportedOperationException if this index family does not support pair enumeration
+	 */
+	public default void iterateKeyEntityPairs(final ObjLongConsumer<? super K> consumer)
+	{
+		throw new UnsupportedOperationException(
+			this.getClass().getSimpleName() + " does not support iterateKeyEntityPairs"
+		);
+	}
+
+
 	@Override
 	public default boolean test(final E entity, final K key)
 	{
@@ -136,17 +160,40 @@ public interface BitmapIndex<E, K> extends IndexIdentifier<E, K>, GigaIndex<E>
 	}
 		
 	
-	@SuppressWarnings("unchecked") // in case of this, S == E, but the compiler cannot understand that.
+	/**
+	 * {@inheritDoc}
+	 * <p>
+	 * Holding a {@code BitmapIndex} is not the same as holding the index registered under its name: the
+	 * registered instance is <b>replaced</b> by {@link BitmapIndices#update(Indexer)} and by a rebuild
+	 * ({@link GigaMap#reindex()}), and dropped by {@link BitmapIndices#removeIndex(String)}. A replaced
+	 * instance keeps its parent back-reference, so validating that reference is not enough to tell it apart
+	 * from the live one - and its data has been released
+	 * ({@link Internal#internalReleaseOffHeap()}), so answering from it would silently yield empty results.
+	 * This therefore re-resolves by name rather than returning {@code this}.
+	 *
+	 * @throws BitmapIndexException if {@code parent} is not this index' parent, or if no index is registered
+	 *         under this index' name and key type any more
+	 */
 	@Override
 	public default <S extends E> Internal<S, K> resolveFor(final BitmapIndices.Internal<S> parent)
 	{
-		// bitmap instance itself does not need to be resolved, but instead validated.
-		if(parent == this.parent())
+		if(parent != this.parent())
 		{
-			return (Internal<S, K>)this;
+			throw new BitmapIndexException("Invalid parent.", this);
 		}
-		
-		throw new BitmapIndexException("Invalid parent.", this);
+
+		final Internal<S, K> registered = parent.internalGet(this.keyType(), this.name());
+		if(registered == null)
+		{
+			throw new BitmapIndexException(
+				"Index \"" + this.name() + "\" is no longer registered under this name and key type "
+				+ this.keyType() + ". It was removed, or replaced by an index with a different key type; "
+				+ "resolve it again via the parent instead of holding the instance across such a change.",
+				this
+			);
+		}
+
+		return registered;
 	}
 	
 	/**
@@ -184,18 +231,49 @@ public interface BitmapIndex<E, K> extends IndexIdentifier<E, K>, GigaIndex<E>
 		public void internalAdd(long entityId, E entity);
 		
 		public void internalAddAll(long firstEntityId, Iterable<? extends E> entities);
-		
-		public void internalAddAll(long firstEntityId, E[] entities);
+
+		public default void internalAddAll(final long firstEntityId, final E[] entities)
+		{
+			this.internalAddAll(firstEntityId, Arrays.asList(entities));
+		}
 		
 		public void internalRemove(long entityId, E entity);
 		
 		public void internalRemoveAll();
 		
 		public boolean internalContains(E entity);
-		
+
+		/**
+		 * Like {@link #internalContains(Object)}, but ignores the entity registered under
+		 * {@code excludedEntityId}. Used by the unique-constraint check during an update: a key held only
+		 * by the very entity being updated (e.g. its own stale entry after a class evolution) is not a
+		 * duplicate, so it must not be reported as a unique violation. Only a <em>different</em> entity
+		 * holding the key is a real violation.
+		 * <p>
+		 * The default implementation ignores {@code excludedEntityId} and delegates to
+		 * {@link #internalContains(Object)}; index kinds that can back a unique constraint override it to
+		 * honor the exclusion.
+		 *
+		 * @param entity the entity whose key is checked
+		 * @param excludedEntityId the entity id to exclude from the containment check
+		 * @return whether any entity other than {@code excludedEntityId} is indexed under the entity's key
+		 */
+		public default boolean internalContains(final E entity, final long excludedEntityId)
+		{
+			return this.internalContains(entity);
+		}
+
 		public BitmapResult internalQuery(K key);
-		
+
 		public void clearStateChangeMarkers();
+
+		/**
+		 * Deterministically frees the off-heap memory held by this index' currently loaded bitmap
+		 * segments. Called when the index is dropped (see {@link BitmapIndices#removeIndex(String)} /
+		 * {@code update}) so native memory is released immediately rather than only when the garbage
+		 * collector eventually runs the segments' cleaners.
+		 */
+		public void internalReleaseOffHeap();
 	}
 	
 	
@@ -278,13 +356,32 @@ public interface BitmapIndex<E, K> extends IndexIdentifier<E, K>, GigaIndex<E>
 		}
 						
 		public abstract void iterateEntries(Consumer<? super BitmapEntry<?, ?, ?>> logic);
-		
+
+		// Concrete here so every index type (hashing, binary, single, composite — whose iterateEntries
+		// fans out to its sub-indices) inherits a correct release; satisfies BitmapIndex.Internal.
+		public void internalReleaseOffHeap()
+		{
+			this.iterateEntries(BitmapEntry::releaseOffHeap);
+		}
+
 		public abstract int entryCount();
 		
 		protected abstract K indexEntity(I entity);
 		
 		public abstract <C extends Consumer<? super K>> C iterateKeys(C logic);
-		
+
+		/**
+		 * See {@link BitmapIndex#iterateKeyEntityPairs(ObjLongConsumer)}. Concrete (not abstract) so
+		 * only the index families that support value-free pair enumeration need override it; the rest
+		 * inherit this unsupported default.
+		 */
+		public void iterateKeyEntityPairs(final ObjLongConsumer<? super K> consumer)
+		{
+			throw new UnsupportedOperationException(
+				this.getClass().getSimpleName() + " does not support iterateKeyEntityPairs"
+			);
+		}
+
 		public abstract boolean internalContains(I entity);
 		
 		
@@ -330,17 +427,7 @@ public interface BitmapIndex<E, K> extends IndexIdentifier<E, K>, GigaIndex<E>
 			}
 			this.markStateChangeChildren();
 		}
-		
-		public void internalAddAll(final long firstEntityId, final I[] entities)
-		{
-			long currentEntityId = firstEntityId;
-			for(final I entity : entities)
-			{
-				this.internalAddToEntry(currentEntityId++, entity);
-			}
-			this.markStateChangeChildren();
-		}
-		
+
 		protected abstract void internalAddToEntry(long entityId, I indexable);
 		
 		public BitmapEntry<E, I, K> internalEnsureEntry(final I indexable)

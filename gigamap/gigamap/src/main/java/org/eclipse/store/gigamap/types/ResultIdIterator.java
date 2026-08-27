@@ -336,7 +336,8 @@ public interface ResultIdIterator
 		private void updateLevel2IterationState(final int level3Index)
 		{
 			this.currentLevel3Index = level3Index;
-			this.level2BaseId       = level3Index * LEVEL_2_ID_COUNT;
+			// (long) cast mandatory: the int product overflows at level3 index 2^11, i.e. at entityId 2^31.
+			this.level2BaseId       = (long)level3Index * LEVEL_2_ID_COUNT;
 			this.level2IndexBound   = this.calculateIndexBoundLevel2();
 		}
 		
@@ -366,8 +367,9 @@ public interface ResultIdIterator
 		
 		private int calculateIndexBound(final long baseId, final int idCountPerSegment, final int totalSizeExp)
 		{
-			final int idRemainder = XTypes.to_int(this.highestUsedId - baseId);
-			
+			// long, not int: the remainder spans the whole id range, so it exceeds int for maps beyond 2^31.
+			final long idRemainder = this.highestUsedId - baseId;
+
 			/*
 			 * Nasty special case:
 			 * If the remainder is smaller than the id count per segment, the bound must be one more,
@@ -376,7 +378,8 @@ public interface ResultIdIterator
 			 */
 			return idRemainder >= idCountPerSegment
 				? idCountPerSegment >>> totalSizeExp
-				: (idRemainder >>> totalSizeExp) + 1
+				// safe narrowing: this branch has idRemainder < idCountPerSegment, which is an int.
+				: (int)(idRemainder >>> totalSizeExp) + 1
 			;
 		}
 		
@@ -385,7 +388,7 @@ public interface ResultIdIterator
 		@Override
 		public void close()
 		{
-			this.parent.closeIterator(this);
+			this.parent.closeReader(this);
 		}
 		
 		@Override

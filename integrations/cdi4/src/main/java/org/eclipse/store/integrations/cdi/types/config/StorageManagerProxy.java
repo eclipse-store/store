@@ -43,6 +43,7 @@ import org.eclipse.store.storage.types.StorageEntityCacheEvaluator;
 import org.eclipse.store.storage.types.StorageEntityTypeExportFileProvider;
 import org.eclipse.store.storage.types.StorageEntityTypeExportStatistics;
 import org.eclipse.store.storage.types.StorageEntityTypeHandler;
+import org.eclipse.store.storage.types.StorageIntegrityCheckResult;
 import org.eclipse.store.storage.types.StorageLiveFileProvider;
 import org.eclipse.store.storage.types.StorageManager;
 import org.eclipse.store.storage.types.StorageRawFileStatistics;
@@ -196,13 +197,13 @@ public class StorageManagerProxy extends UsageMarkable.Default implements Storag
     }
 
     @Override
-    public Object root()
+    public <R> R root()
     {
         return this.getStorageManager().root();
     }
 
     @Override
-    public Object setRoot(final Object newRoot)
+    public <R> R setRoot(final R newRoot)
     {
         return this.getStorageManager().setRoot(newRoot);
     }
@@ -238,6 +239,12 @@ public class StorageManagerProxy extends UsageMarkable.Default implements Storag
     }
 
     @Override
+    public StorageIntegrityCheckResult issueIntegrityCheck(final long nanoTimeBudget)
+    {
+        return this.getStorageManager().issueIntegrityCheck(nanoTimeBudget);
+    }
+
+    @Override
     public boolean issueCacheCheck(final long nanoTimeBudget, final StorageEntityCacheEvaluator entityEvaluator)
     {
         return this.getStorageManager().issueCacheCheck(nanoTimeBudget, entityEvaluator);
@@ -253,6 +260,12 @@ public class StorageManagerProxy extends UsageMarkable.Default implements Storag
     public void issueTransactionsLogCleanup()
     {
         this.getStorageManager().issueTransactionsLogCleanup();
+    }
+
+    @Override
+    public boolean issueStorageFlush()
+    {
+        return this.getStorageManager().issueStorageFlush();
     }
 
     @Override

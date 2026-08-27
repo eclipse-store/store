@@ -1,23 +1,662 @@
 = Queries
 
 The {product-name} engine takes care of persisting your object graph.
-When you do queries, they are not run on the data stored by {product-name}, queries run on your data in the local system memory.
-There is no need to use special query languages like SQL.
-All operations can be done with plain Java.
-{product-name} does not restrict you in the way you query your object graph.
-You are totally free to choose the best method fitting to your application.
+Queries do not run on the data stored on disk — they run on your data in the local JVM heap.
+There is no query language, no SQL dialect, no DSL, no annotations.
+Anything you can express in plain Java against your collections is a query.
 
-One possibility may be Streams if you use the standard Java collections.
+That means you keep full control over how your data is shaped, indexed and traversed.
+The fastest "query" is the one you do not write at all, because the data is already where you need it: a field on a parent object, an entry in a `HashMap`, an item in a sorted `List`.
+For everything else, the standard library — primarily Streams — is usually all you need.
+
+== Example model
+
+The examples on this page assume the following small model.
 
 [source, java]
 ----
-public List<Article> getUnAvailableArticles()
+public class Shop
 {
-	return shop.getArticles().stream()
-		.filter(a -> !a.available())
-		.collect(Collectors.toList())
-	;
+    private List<Article>  articles  = new ArrayList<>();
+    private List<Customer> customers = new ArrayList<>();
+    private List<Order>    orders    = new ArrayList<>();
+    // getters ...
+}
+
+public class Article
+{
+    private String  name;
+    private String  category;
+    private double  price;
+    private boolean available;
+}
+
+public class Customer
+{
+    private long   id;
+    private String name;
+    private String city;
+}
+
+public class Order
+{
+    private Customer        customer;
+    private List<OrderLine> lines;
+    private LocalDate       date;
+}
+
+public class OrderLine
+{
+    private Article article;
+    private int     quantity;
 }
 ----
 
-NOTE: Of course you must care about xref:loading-data/lazy-loading/index.adoc[lazy loading] if you use that feature.
+== Streams over collections
+
+The most common pattern is a `stream()` over the collection you already hold a reference to.
+
+[source, java]
+----
+// All articles that are currently out of stock
+List<Article> unavailable = shop.getArticles().stream()
+    .filter(a -> !a.isAvailable())
+    .toList();
+----
+
+[source, java]
+----
+// Find a specific article by name
+Optional<Article> coffee = shop.getArticles().stream()
+    .filter(a -> "Coffee".equals(a.getName()))
+    .findFirst();
+----
+
+[source, java]
+----
+// Count available articles
+long availableCount = shop.getArticles().stream()
+    .filter(Article::isAvailable)
+    .count();
+----
+
+The same works on `Set`, `Map.values()`, `Map.entrySet()` or any `Iterable` via `StreamSupport.stream(...)`.
+
+== Compared to SQL and Cypher
+
+If you come from SQL, JPQL, HQL or Cypher, you might expect a dedicated query syntax — and miss it for about a day.
+Once the data is an object graph in your own JVM, the language *is* Java.
+That alone gives you four things a query language cannot:
+
+* *Compile-time type safety* — rename `Article.price` and every "query" that touches it either updates or fails to compile.
+* *Real IDE support* — autocomplete, jump-to-definition, find-usages, refactor, all the way through the query.
+* *Step-through debugging* — set a breakpoint inside the lambda; inspect the entity that just failed the predicate.
+* *No mapping layer* — the result is already domain objects in the right types. No `ResultSet`, no `Object[]`, no DTO mapper.
+
+The side-by-sides below are not "Java is shorter than SQL" trophies (sometimes it's longer).
+The point is what each line *means*: in the SQL/Cypher version it's a string the database parses; in the Java version it's code your compiler and IDE already understand.
+
+=== Filter
+
+[source, sql]
+----
+SELECT * FROM article WHERE available = FALSE;
+----
+
+[source, java]
+----
+shop.getArticles().stream()
+    .filter(a -> !a.isAvailable())
+    .toList();
+----
+
+=== Aggregate per group
+
+[source, sql]
+----
+SELECT category, AVG(price)
+FROM   article
+GROUP  BY category;
+----
+
+[source, java]
+----
+shop.getArticles().stream()
+    .collect(Collectors.groupingBy(
+        Article::getCategory,
+        Collectors.averagingDouble(Article::getPrice)));
+----
+
+The SQL returns rows of `(VARCHAR, DOUBLE)` that you still have to map.
+The Java returns a typed `Map<String, Double>`, ready to use.
+
+=== Join
+
+This is where the gap really opens up.
+"All distinct articles ordered by customers from Berlin" needs four tables, three joins and a `WHERE` in SQL:
+
+[source, sql]
+----
+SELECT DISTINCT a.*
+FROM   customer    c
+JOIN   "order"     o ON o.customer_id = c.id
+JOIN   order_line  l ON l.order_id    = o.id
+JOIN   article     a ON a.id          = l.article_id
+WHERE  c.city = 'Berlin';
+----
+
+In Java the relationships *are* references, so the join is just dereferencing them in order:
+
+[source, java]
+----
+shop.getCustomers().stream()
+    .filter(c -> "Berlin".equals(c.getCity()))
+    .flatMap(c -> c.getOrders().stream())
+    .flatMap(o -> o.getLines().stream())
+    .map(OrderLine::getArticle)
+    .distinct()
+    .toList();
+----
+
+No join keys, no aliases, no foreign-key direction to reason about.
+If the relationship is bidirectional in your model, you can start from the article side and the query mirrors that — without rewriting any join clauses.
+
+=== Existence check
+
+[source, sql]
+----
+SELECT c.*
+FROM   customer c
+WHERE  EXISTS (
+    SELECT 1
+    FROM   "order"    o
+    JOIN   order_line l ON l.order_id = o.id
+    JOIN   article    a ON a.id       = l.article_id
+    WHERE  o.customer_id = c.id
+      AND  a.name = 'Coffee'
+);
+----
+
+[source, java]
+----
+shop.getCustomers().stream()
+    .filter(c -> c.getOrders().stream()
+        .flatMap(o -> o.getLines().stream())
+        .anyMatch(l -> "Coffee".equals(l.getArticle().getName())))
+    .toList();
+----
+
+The SQL needs a correlated subquery; the Java just nests the predicates the same way the data is nested.
+
+=== Graph traversal (Cypher)
+
+Cypher is closer in spirit, because it pattern-matches on a graph — but the pattern still lives in a separate language whose runtime is not your JVM.
+
+[source, cypher]
+----
+MATCH (c:Customer {city: 'Berlin'})-[:PLACED]->(:Order)
+      -[:CONTAINS]->(:OrderLine)-[:OF]->(a:Article)
+RETURN DISTINCT a;
+----
+
+The Java version is the join example above — same shape, no pattern syntax, no driver, no separate result mapper.
+
+For variable-length traversals (Cypher's `-[:KNOWS*1..3]->`), a small recursive method walks the references with full control over depth, cycle detection and pruning:
+
+[source, java]
+----
+Set<Person> withinDistance(Person start, int maxDepth)
+{
+    Set<Person> visited = new HashSet<>();
+    visit(start, maxDepth, visited);
+    return visited;
+}
+
+void visit(Person p, int depthLeft, Set<Person> visited)
+{
+    if(depthLeft < 0 || !visited.add(p))
+    {
+        return;
+    }
+    for(Person friend : p.getFriends())
+    {
+        visit(friend, depthLeft - 1, visited);
+    }
+}
+----
+
+The Cypher pattern is more concise when it fits.
+When it doesn't — branching depth, conditional pruning, custom scoring — pattern syntax tends to hit a wall.
+Plain Java has no such wall.
+
+[NOTE]
+====
+This is not a claim that SQL or Cypher are bad — they are excellent at what they do, particularly across a network boundary against a dataset and a process you do not own.
+The point is narrower: if your data is already a Java object graph in your own JVM, introducing a query language buys you very little and costs you the compile-time safety, IDE support and debugability you get for free in Java.
+====
+
+== Sorting and paging
+
+`sorted` takes any `Comparator`; chain `thenComparing` for tie-breakers, and use `skip` + `limit` for paging.
+
+[source, java]
+----
+List<Article> byPriceThenName = shop.getArticles().stream()
+    .sorted(Comparator.comparingDouble(Article::getPrice)
+        .thenComparing(Article::getName))
+    .toList();
+----
+
+[source, java]
+----
+int pageSize  = 50;
+int pageIndex = 2; // zero-based
+
+List<Article> page = shop.getArticles().stream()
+    .sorted(Comparator.comparing(Article::getName))
+    .skip((long) pageIndex * pageSize)
+    .limit(pageSize)
+    .toList();
+----
+
+For descending order, use `Comparator.reversed()` or `Comparator.comparing(...).reversed()`.
+
+== Mapping and aggregation
+
+The primitive stream specializations (`mapToInt`, `mapToLong`, `mapToDouble`) and `Collectors.summarizing*` cover the typical SQL aggregates.
+
+[source, java]
+----
+// Sum: total value of all available articles
+double inStockValue = shop.getArticles().stream()
+    .filter(Article::isAvailable)
+    .mapToDouble(Article::getPrice)
+    .sum();
+----
+
+[source, java]
+----
+// Average price across all articles
+OptionalDouble averagePrice = shop.getArticles().stream()
+    .mapToDouble(Article::getPrice)
+    .average();
+----
+
+[source, java]
+----
+// All aggregates in one pass
+DoubleSummaryStatistics stats = shop.getArticles().stream()
+    .collect(Collectors.summarizingDouble(Article::getPrice));
+
+double min     = stats.getMin();
+double max     = stats.getMax();
+double avg     = stats.getAverage();
+long   count   = stats.getCount();
+double sum     = stats.getSum();
+----
+
+== Projections with records
+
+When you only need a subset of fields, a `record` is a one-line typed shape that doubles as a DTO.
+
+[source, java]
+----
+record ArticleSummary(String name, double price) {}
+
+List<ArticleSummary> summaries = shop.getArticles().stream()
+    .filter(Article::isAvailable)
+    .map(a -> new ArticleSummary(a.getName(), a.getPrice()))
+    .toList();
+----
+
+That's the SQL `SELECT name, price FROM article WHERE available` — except the result is a list of typed, immutable objects, not a `ResultSet`, and the same record can flow straight into a controller, a test or a cache without any mapping layer.
+
+Records are also the cleanest way to build composite group-by keys.
+
+[source, java]
+----
+record CategoryYear(String category, int year) {}
+
+Map<CategoryYear, Long> ordersPerCategoryAndYear = shop.getOrders().stream()
+    .flatMap(o -> o.getLines().stream()
+        .map(l -> new CategoryYear(
+            l.getArticle().getCategory(),
+            o.getDate().getYear())))
+    .collect(Collectors.groupingBy(k -> k, Collectors.counting()));
+----
+
+== Grouping and partitioning
+
+`Collectors.groupingBy` covers SQL's `GROUP BY`; `partitioningBy` is the boolean special case.
+
+[source, java]
+----
+// Number of articles per category
+Map<String, Long> countByCategory = shop.getArticles().stream()
+    .collect(Collectors.groupingBy(
+        Article::getCategory,
+        Collectors.counting()));
+----
+
+[source, java]
+----
+// Average price per category
+Map<String, Double> avgPriceByCategory = shop.getArticles().stream()
+    .collect(Collectors.groupingBy(
+        Article::getCategory,
+        Collectors.averagingDouble(Article::getPrice)));
+----
+
+[source, java]
+----
+// Split into available / unavailable in one pass
+Map<Boolean, List<Article>> byAvailability = shop.getArticles().stream()
+    .collect(Collectors.partitioningBy(Article::isAvailable));
+----
+
+== Top-N per group
+
+SQL needs a window function for "the three most expensive articles per category":
+
+[source, sql]
+----
+SELECT *
+FROM (
+    SELECT a.*,
+           ROW_NUMBER() OVER (PARTITION BY category ORDER BY price DESC) AS rn
+    FROM   article a
+)
+WHERE rn <= 3;
+----
+
+In Java, a `groupingBy` whose downstream collector trims each group is enough.
+
+[source, java]
+----
+Map<String, List<Article>> topThreePerCategory = shop.getArticles().stream()
+    .collect(Collectors.groupingBy(
+        Article::getCategory,
+        Collectors.collectingAndThen(
+            Collectors.toList(),
+            list -> list.stream()
+                .sorted(Comparator.comparingDouble(Article::getPrice).reversed())
+                .limit(3)
+                .toList())));
+----
+
+The result is a typed `Map<String, List<Article>>` ready to render — no row-number column, no subquery wrapper, no result-set mapping.
+
+== Multiple criteria
+
+Compose `Predicate`s with `and`, `or` and `negate` instead of building one giant lambda.
+Reusable predicates make the call site read like a sentence and keep test coverage simple.
+
+[source, java]
+----
+Predicate<Article> available = Article::isAvailable;
+Predicate<Article> cheap     = a -> a.getPrice() < 10.0;
+Predicate<Article> drink     = a -> "Drinks".equals(a.getCategory());
+
+List<Article> cheapAvailableDrinks = shop.getArticles().stream()
+    .filter(available.and(cheap).and(drink))
+    .toList();
+
+List<Article> expensiveOrUnavailable = shop.getArticles().stream()
+    .filter(available.negate().or(cheap.negate()))
+    .toList();
+----
+
+== Traversing relationships
+
+What SQL solves with a `JOIN`, plain Java solves by following references.
+`flatMap` flattens nested collections; `anyMatch` / `allMatch` / `noneMatch` express "exists" / "for all" without materialising results.
+
+[source, java]
+----
+// All articles that have ever been ordered (with duplicates)
+List<Article> everOrdered = shop.getOrders().stream()
+    .flatMap(o -> o.getLines().stream())
+    .map(OrderLine::getArticle)
+    .toList();
+----
+
+[source, java]
+----
+// Distinct customers who ever bought "Coffee"
+Set<Customer> coffeeBuyers = shop.getOrders().stream()
+    .filter(o -> o.getLines().stream()
+        .anyMatch(l -> "Coffee".equals(l.getArticle().getName())))
+    .map(Order::getCustomer)
+    .collect(Collectors.toSet());
+----
+
+[source, java]
+----
+// Revenue per customer
+Map<Customer, Double> revenuePerCustomer = shop.getOrders().stream()
+    .collect(Collectors.groupingBy(
+        Order::getCustomer,
+        Collectors.summingDouble(o -> o.getLines().stream()
+            .mapToDouble(l -> l.getArticle().getPrice() * l.getQuantity())
+            .sum())));
+----
+
+[source, java]
+----
+// Customers who placed an order in 2026
+LocalDate from = LocalDate.of(2026, 1, 1);
+LocalDate to   = LocalDate.of(2027, 1, 1);
+
+Set<Customer> activeIn2026 = shop.getOrders().stream()
+    .filter(o -> !o.getDate().isBefore(from) && o.getDate().isBefore(to))
+    .map(Order::getCustomer)
+    .collect(Collectors.toSet());
+----
+
+== Encapsulate queries as domain methods
+
+Most "queries" are about a specific entity — a customer's revenue, an article's stock level.
+Put the query on the class instead of repeating it in every caller.
+
+[source, java]
+----
+public class Customer
+{
+    private List<Order> orders = new ArrayList<>();
+
+    public double totalRevenue()
+    {
+        return this.orders.stream()
+            .flatMap(o -> o.getLines().stream())
+            .mapToDouble(l -> l.getArticle().getPrice() * l.getQuantity())
+            .sum();
+    }
+
+    public boolean hasEverBought(String articleName)
+    {
+        return this.orders.stream()
+            .flatMap(o -> o.getLines().stream())
+            .anyMatch(l -> articleName.equals(l.getArticle().getName()));
+    }
+}
+----
+
+The call site becomes the readable version of the question:
+
+[source, java]
+----
+double revenue = customer.totalRevenue();
+
+List<Customer> coffeeBuyers = shop.getCustomers().stream()
+    .filter(c -> c.hasEverBought("Coffee"))
+    .toList();
+----
+
+This is what SQL views and Cypher procedures *try* to be — except here the method is part of the same compiled type, refactor-safe, debuggable and indistinguishable from any other piece of your domain model.
+
+== Maps as indexes
+
+Streams scan; maps look up.
+When a query is on the hot path and you know the access pattern, store the right map at the root and the query collapses to a single `get`.
+
+[source, java]
+----
+public class Shop
+{
+    // ...
+    private final Map<Long,   Customer>      customersById      = new HashMap<>();
+    private final Map<String, List<Article>> articlesByCategory = new HashMap<>();
+}
+----
+
+[source, java]
+----
+Customer c = shop.customersById.get(42L);
+
+List<Article> drinks = shop.articlesByCategory
+    .getOrDefault("Drinks", List.of());
+----
+
+You populate and maintain these maps yourself in the methods that add or change entities, and you store the map alongside the entity that changed.
+This is the same trade-off any database makes between a sequential scan and a secondary index — only here the index is just a regular Java field.
+
+TIP: For collections that are too large to keep fully resident, see xref:loading-data/lazy-loading/lazy-collections.adoc[Lazy Collections] (`LazyHashMap`, `LazyArrayList`, `LazyHashSet`).
+
+== Range queries with `NavigableMap`
+
+For range-based lookups — date windows, price bands, score thresholds — `TreeMap` (or any `NavigableMap`) covers the SQL `BETWEEN` / `>=` / `<=` cases without any scan.
+
+[source, java]
+----
+NavigableMap<LocalDate, List<Order>> ordersByDate = new TreeMap<>();
+// populate / maintain this alongside writes ...
+
+// All orders in March 2026
+// SQL: WHERE date >= '2026-03-01' AND date < '2026-04-01'
+NavigableMap<LocalDate, List<Order>> march = ordersByDate.subMap(
+    LocalDate.of(2026, 3, 1), true,
+    LocalDate.of(2026, 4, 1), false);
+
+// Most recent order at or before today
+// SQL: SELECT ... WHERE date <= ? ORDER BY date DESC LIMIT 1
+Map.Entry<LocalDate, List<Order>> latest = ordersByDate.floorEntry(LocalDate.now());
+----
+
+`subMap`, `headMap` and `tailMap` return *live views* that walk only the matching range, not copies.
+For multidimensional ranges (e.g. price *and* date), nest two `NavigableMap`s, or fall back to a xref:gigamap:queries/index.adoc[GigaMap] with the appropriate indices.
+
+== Materialized aggregates
+
+When an aggregate is queried often and only changes on specific writes, store it as a field and update it where the write happens.
+
+[source, java]
+----
+public class Shop
+{
+    private final List<Order>             orders             = new ArrayList<>();
+    private       long                    orderCount         = 0;
+    private       double                  revenueTotal       = 0.0;
+    private final Map<Customer, Double>   revenuePerCustomer = new HashMap<>();
+
+    public void addOrder(Order order)
+    {
+        this.orders.add(order);
+
+        double value = order.totalValue();
+        this.orderCount++;
+        this.revenueTotal += value;
+        this.revenuePerCustomer.merge(order.getCustomer(), value, Double::sum);
+
+        // store the changed entities in one transaction ...
+    }
+}
+----
+
+Now `shop.orderCount`, `shop.revenueTotal` and `shop.revenuePerCustomer.get(c)` are all O(1) reads — no stream, no scan.
+This is the same idea as a SQL materialized view, except the "refresh" runs synchronously inside the same method that performs the write, so the aggregate is always exactly consistent with the data.
+
+[NOTE]
+====
+Keep the derived state and the underlying entities under the same lock, and store them in the same transaction.
+A crash mid-method must not be able to leave the aggregate out of sync with its source — see xref:storing-data/transactions.adoc[Convenience Methods and Explicit Storing].
+====
+
+== Lazy references inside queries
+
+If part of the graph sits behind an xref:loading-data/lazy-loading/index.adoc[`Lazy<T>`] reference, you have to ask for it before you can stream it.
+Use the static `Lazy.get(...)` to stay null-safe.
+
+[source, java]
+----
+public class BusinessYear
+{
+    private Lazy<List<Order>> orders;
+    // ...
+}
+
+// Triggers load on first access; transparent on subsequent calls
+List<Order> orders = Lazy.get(year.getOrders());
+
+double yearRevenue = orders.stream()
+    .flatMap(o -> o.getLines().stream())
+    .mapToDouble(l -> l.getArticle().getPrice() * l.getQuantity())
+    .sum();
+----
+
+[IMPORTANT]
+====
+Streaming over a `Lazy<List<...>>` loads the whole list into memory.
+If the list is large and you only want a subset, design for it: split the data into multiple smaller lazy partitions (e.g. one `Lazy<List<Order>>` per year), or use xref:loading-data/lazy-loading/lazy-collections.adoc[Lazy Collections] which only load the segments you actually touch.
+====
+
+== Parallel streams
+
+Parallel streams are useful when the predicate or mapping does real CPU work over data that is *already* loaded.
+
+[source, java]
+----
+double total = shop.getArticles().parallelStream()
+    .filter(Article::isAvailable)
+    .mapToDouble(Article::getPrice)
+    .sum();
+----
+
+[WARNING]
+====
+Do not parallelise across `Lazy.get(...)` boundaries.
+A parallel stream over a list of `Lazy` references will trigger many concurrent storage loads — at best it just shifts the bottleneck to I/O, at worst it produces unpredictable latency spikes.
+Load first, parallelise second.
+====
+
+== Concurrency and consistency
+
+Queries see the live object graph, including changes made by other threads.
+If your application updates entities concurrently with read-only queries, you have to coordinate that yourself — {product-name} does not introduce hidden snapshots or transactions for queries.
+
+Two pragmatic patterns:
+
+* Synchronise reads and writes through a single lock or a `ReadWriteLock` around the affected sub-graph.
+  See xref:misc:locking/index.adoc[Locking] for ready-made utilities.
+* Take a defensive copy at the start of a long-running query (`new ArrayList<>(shop.getArticles())`) so concurrent mutations cannot affect the iteration.
+
+For most read-heavy workloads, the second pattern is enough and avoids any contention with writers.
+
+== When you outgrow plain Java: GigaMap
+
+Plain-Java queries assume the data you query against is loaded.
+Once a single collection grows beyond what is sensible to keep on the heap — millions of entities, frequent equality / range / full-text lookups, or a need to query before loading — switch that collection to a xref:gigamap:index.adoc[`GigaMap`].
+
+A `GigaMap` keeps an off-heap bitmap index, executes the query against the index, and only loads the segments that match.
+The query API is fluent and composable, but conceptually still operates on Java objects.
+
+[source, java]
+----
+GigaMap<Person> people = ...;
+
+List<Person> berliners = people.query()
+    .and(PersonIndices.city.is("Berlin"))
+    .and(PersonIndices.age.greaterThanEqual(18))
+    .toList();
+----
+
+For the full surface — defining indices, condition methods, executing queries, multithreaded execution — see xref:gigamap:queries/index.adoc[GigaMap Queries].

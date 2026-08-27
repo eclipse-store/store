@@ -24,16 +24,55 @@ import static org.eclipse.serializer.math.XMath.notNegative;
 import java.text.DecimalFormat;
 import java.util.Date;
 
+/**
+ * User-facing snapshot of a storage's raw file statistics, returned by
+ * {@code StorageManager.createStorageStatistics()}.
+ * <p>
+ * The statistics aggregate three metrics — file count, live data length, total data length —
+ * across the entire storage and break them down per channel ({@link ChannelStatistics}) and per
+ * file ({@link FileStatistics}). The ratio of live data length to total data length expresses the
+ * storage's space efficiency and is the primary indicator for how much benefit the next file
+ * cleanup pass can deliver.
+ *
+ * @see StorageRawFileStatisticsItem
+ */
 public interface StorageRawFileStatistics extends StorageRawFileStatisticsItem
 {
+	/**
+	 * Returns the wall-clock time at which this statistics snapshot was taken.
+	 *
+	 * @return the snapshot creation time.
+	 */
 	public Date creationTime();
 
+	/**
+	 * Returns the number of channels covered by this statistics snapshot.
+	 *
+	 * @return the channel count.
+	 */
 	public int channelCount();
 
+	/**
+	 * Returns the per-channel statistics keyed by channel index.
+	 *
+	 * @return a table of {@link ChannelStatistics} keyed by channel index.
+	 */
 	public XGettingTable<Integer, ? extends ChannelStatistics> channelStatistics();
 
-	
 
+
+	/**
+	 * Pseudo-constructor method to create a new {@link StorageRawFileStatistics} from the passed
+	 * aggregate values and per-channel breakdown.
+	 *
+	 * @param creationTime      the snapshot creation time; must be non-{@code null}.
+	 * @param fileCount         the total file count across all channels; must be non-negative.
+	 * @param liveDataLength    the total live data length across all channels; must be non-negative.
+	 * @param totalDataLength   the total file length across all channels; must be non-negative.
+	 * @param channelStatistics the per-channel statistics keyed by channel index; must be non-{@code null}.
+	 *
+	 * @return a new {@link StorageRawFileStatistics}.
+	 */
 	public static StorageRawFileStatistics New(
 		final Date                                                creationTime     ,
 		final long                                                fileCount        ,
@@ -51,6 +90,11 @@ public interface StorageRawFileStatistics extends StorageRawFileStatisticsItem
 		);
 	}
 
+	/**
+	 * Default immutable {@link StorageRawFileStatistics} implementation. Inherits the aggregate
+	 * counters from {@link StorageRawFileStatisticsItem.Abstract} and provides a human-readable
+	 * {@link #toString() multi-line summary} suitable for diagnostic output.
+	 */
 	public final class Default
 	extends StorageRawFileStatisticsItem.Abstract
 	implements StorageRawFileStatistics
@@ -162,14 +206,39 @@ public interface StorageRawFileStatistics extends StorageRawFileStatisticsItem
 
 
 
+	/**
+	 * Per-channel slice of a {@link StorageRawFileStatistics}, listing the channel's index and its
+	 * file-level breakdown along with the same aggregate counters as the parent statistics.
+	 */
 	public interface ChannelStatistics extends StorageRawFileStatisticsItem
 	{
+		/**
+		 * Returns the index of the channel this slice describes.
+		 *
+		 * @return the channel index.
+		 */
 		public int channelIndex();
 
+		/**
+		 * Returns the per-file statistics for this channel.
+		 *
+		 * @return a sequence of {@link FileStatistics} for this channel's data files.
+		 */
 		public XGettingSequence<? extends FileStatistics> files();
 
 
-		
+
+		/**
+		 * Pseudo-constructor method to create a new {@link ChannelStatistics}.
+		 *
+		 * @param channelIndex    the channel index; must be non-negative.
+		 * @param fileCount       the channel's file count; must be non-negative.
+		 * @param liveDataLength  the channel's live data length; must be non-negative.
+		 * @param totalDataLength the channel's total data length; must be non-negative.
+		 * @param files           the per-file statistics for this channel; must be non-{@code null}.
+		 *
+		 * @return a new {@link ChannelStatistics}.
+		 */
 		public static ChannelStatistics New(
 			final int                                        channelIndex   ,
 			final long                                       fileCount      ,
@@ -187,6 +256,11 @@ public interface StorageRawFileStatistics extends StorageRawFileStatisticsItem
 			);
 		}
 
+		/**
+		 * Default immutable {@link ChannelStatistics} implementation: a value holder combining the
+		 * channel index and its file-level breakdown with the aggregate counters from
+		 * {@link StorageRawFileStatisticsItem.Abstract}.
+		 */
 		public final class Default
 		extends StorageRawFileStatisticsItem.Abstract
 		implements ChannelStatistics
@@ -241,14 +315,38 @@ public interface StorageRawFileStatistics extends StorageRawFileStatisticsItem
 
 
 
+	/**
+	 * Per-file slice of a {@link ChannelStatistics}: the file's per-channel number, its identifying
+	 * path string, and its live/total data lengths.
+	 */
 	public interface FileStatistics extends StorageRawFileStatisticsItem
 	{
+		/**
+		 * Returns the per-channel file number.
+		 *
+		 * @return the per-channel file number.
+		 */
 		public long fileNumber();
 
+		/**
+		 * Returns the file's identifier (typically the path).
+		 *
+		 * @return the file identifier.
+		 */
 		public String file();
 
 
-		
+
+		/**
+		 * Pseudo-constructor method to create a new {@link FileStatistics}.
+		 *
+		 * @param fileNumber      the per-channel file number.
+		 * @param file            the file identifier.
+		 * @param liveDataLength  the file's live data length in bytes.
+		 * @param totalDataLength the file's total length in bytes.
+		 *
+		 * @return a new {@link FileStatistics}.
+		 */
 		public static FileStatistics New(
 			final long   fileNumber     ,
 			final String file           ,
@@ -264,6 +362,10 @@ public interface StorageRawFileStatistics extends StorageRawFileStatisticsItem
 			);
 		}
 
+		/**
+		 * Default immutable {@link FileStatistics} implementation: a value holder for a single
+		 * data file's metrics.
+		 */
 		public final class Default
 		extends StorageRawFileStatisticsItem.Abstract
 		implements FileStatistics
