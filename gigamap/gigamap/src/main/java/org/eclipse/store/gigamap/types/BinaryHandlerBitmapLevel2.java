@@ -79,7 +79,7 @@ public class BinaryHandlerBitmapLevel2 extends AbstractBinaryHandlerCustom<Bitma
 	{
 		// if the parent level3 segment decided to store a level2 segment, it must be stored in any case.
 		
-		instance.ensureCompressedForStore();
+		instance.ensureCompressed();
 		
 		// never persist a segment whose entries region does not match what the loading logic will walk.
 		BitmapLevel2.validateEntriesRegion(instance.level2Address);

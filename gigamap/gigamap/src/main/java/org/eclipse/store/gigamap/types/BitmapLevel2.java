@@ -520,6 +520,14 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 
 	long                  level2Address;
 	private final Cleanup cleanup     ;
+
+	/*
+	 * The persisted entries region is a cache of the transient level1 pointer index array. Dropping a
+	 * level1 segment changes the persisted segment bookkeeping without rebuilding that cache, and it
+	 * leaves no standalone segment behind, so #isCompressed alone cannot tell the two states apart.
+	 * Volatile because the storing thread is not necessarily the thread that mutated the segment.
+	 */
+	private volatile boolean entriesRegionStale;
 	
 	
 	
@@ -576,7 +584,15 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 	
 	final int remove(final long entityId)
 	{
-		return remove(this.level2Address, entityId);
+		final int removalType = remove(this.level2Address, entityId);
+		if(removalType == REMOVAL_TYPE_EMPTY)
+		{
+			// #removeLevel1StandaloneSegment dropped a level1 segment, so it changed
+			// highestLevel2Index/segmentCount without rebuilding the entries region.
+			this.entriesRegionStale = true;
+		}
+
+		return removalType;
 	}
 	
 	final boolean isCompressed()
@@ -595,24 +611,11 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 
 	final void ensureCompressed()
 	{
-		if(isCompressed(this.level2Address))
+		if(isCompressed(this.level2Address) && !this.entriesRegionStale)
 		{
 			return;
 		}
 
-		this.rebuildEntriesRegion();
-	}
-
-	/*
-	 * The store path may not use #ensureCompressed: a segment whose last standalone level1 segment
-	 * has just been emptied and dropped reports #isCompressed, but #removeLevel1StandaloneSegment
-	 * changed highestLevel2Index and segmentCount without rebuilding the entries region, so the
-	 * region no longer matches the level1 pointer index array. Persisting that state writes a record
-	 * whose length does not match its entries, which only fails on the next load - at which point
-	 * the storage can no longer be started. The rebuild is therefore unconditional here.
-	 */
-	final void ensureCompressedForStore()
-	{
 		this.rebuildEntriesRegion();
 	}
 
@@ -626,6 +629,8 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 
 		// address to the new memory block replaces the old (and now invalid) one.
 		this.setLevel2Address(newAddress);
+
+		this.entriesRegionStale = false;
 	}
 
 	final void ensureDecompressed()
@@ -1446,7 +1451,10 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 		{
 			if(entryHeader != ENTRY_HEADER_TYPE_ALL_ZEROES && entryHeader != ENTRY_HEADER_TYPE_ALL_ONES)
 			{
-				throw new BitmapLevel2Exception("Unknown trivial entry header: " + entryHeader);
+				throw createInconsistentEntriesRegionException(
+					level2Address,
+					"unknown trivial entry header: " + entryHeader
+				);
 			}
 
 			return ENTRY_TRIVIAL_TOTAL_LENGTH;
