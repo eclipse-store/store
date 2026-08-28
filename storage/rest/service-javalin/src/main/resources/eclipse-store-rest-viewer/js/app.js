@@ -8,7 +8,7 @@
 (() => {
     "use strict";
 
-    const PAGE_TITLE   = "Eclipse Store Client";
+    const PAGE_TITLE   = "EclipseStore Client";
     const HISTORY_KEY  = "eclipsestore-viewer-urls";
     const PRESET_URLS  = [
         "http://localhost:8080/store-data/default/",
