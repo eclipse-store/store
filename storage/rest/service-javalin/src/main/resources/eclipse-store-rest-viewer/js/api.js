@@ -89,7 +89,7 @@ const StorageApi = (() => {
      * @param {number} [opts.fixedLength]    — number of fixed-size members
      * @param {number} [opts.variableOffset] — offset for variable-size members
      * @param {number} [opts.variableLength] — number of variable-size members
-     * @param {boolean} [opts.resolveReferences] — resolve object references inline
+     * @param {boolean} [opts.references] — resolve object references inline (REST query param "references")
      * @returns {Promise<ViewerObjectDescription>}
      */
     function getObject(oid, opts) {

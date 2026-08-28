@@ -175,16 +175,28 @@ const UI = (() => {
                     cell.appendChild(indent);
 
                     if (element.hasMembers) {
-                        const toggle = el("span", "tree-toggle", expanded.has(element) ? "▾" : "▸");
-                        toggle.addEventListener("click", async (event) => {
+                        const isOpen = expanded.has(element);
+                        const toggle = el("span", "tree-toggle", isOpen ? "▾" : "▸");
+                        // Keyboard-accessible expand/collapse control.
+                        toggle.setAttribute("role", "button");
+                        toggle.setAttribute("tabindex", "0");
+                        toggle.setAttribute("aria-expanded", String(isOpen));
+                        const toggleAction = (event) => {
                             event.stopPropagation();
+                            event.preventDefault();
                             if (expanded.has(element)) {
                                 expanded.delete(element);
                             } else {
                                 expanded.add(element);
-                                await element.loadMembers();
                             }
+                            // Member loading happens in collectRows(), under rebuild()'s error handling.
                             rebuild();
+                        };
+                        toggle.addEventListener("click", toggleAction);
+                        toggle.addEventListener("keydown", (event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                                toggleAction(event);
+                            }
                         });
                         cell.appendChild(toggle);
                     } else {
@@ -211,23 +223,32 @@ const UI = (() => {
             }
         }
 
-        async function rebuild() {
-            const rows = [];
-            await collectRows(roots, 0, rows);
-            tbody.replaceChildren(...rows);
+        function showError(message) {
+            const tr = el("tr");
+            const td = el("td", "error-message", "Error: " + message);
+            td.colSpan = columns.length;
+            tr.appendChild(td);
+            tbody.replaceChildren(tr);
         }
 
-        (async () => {
-            if (expandRoots) {
-                for (const root of roots) {
-                    if (root.hasMembers) {
-                        expanded.add(root);
-                        await root.loadMembers();
-                    }
+        async function rebuild() {
+            try {
+                const rows = [];
+                await collectRows(roots, 0, rows);
+                tbody.replaceChildren(...rows);
+            } catch (err) {
+                showError(err && err.message ? err.message : String(err));
+            }
+        }
+
+        if (expandRoots) {
+            for (const root of roots) {
+                if (root.hasMembers) {
+                    expanded.add(root);
                 }
             }
-            rebuild();
-        })();
+        }
+        rebuild();
 
         container.appendChild(table);
         return container;

@@ -48,7 +48,12 @@
         if (!PRESET_URLS.includes(url)) {
             history.unshift(url);
         }
-        localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+        try {
+            localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+        } catch {
+            // localStorage may be unavailable (private mode) or full — remembering the URL is
+            // best-effort and must not break an otherwise successful connect.
+        }
     }
 
     function renderPresets() {
@@ -92,7 +97,8 @@
             statisticsView.innerHTML = "";
             selectTab("data");
         } catch (err) {
-            showConnectError("Error connecting to instance. Please ensure that a started REST service is available at " + url);
+            const reason = err && err.message ? " (" + err.message + ")" : "";
+            showConnectError("Error connecting to instance. Please ensure that a started REST service is available at " + url + "." + reason);
         } finally {
             btnConnect.disabled = false;
         }

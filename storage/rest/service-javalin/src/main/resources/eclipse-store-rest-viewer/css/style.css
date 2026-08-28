@@ -336,6 +336,11 @@ html, body {
     color: var(--primary-text);
 }
 
+.tree-toggle:focus-visible {
+    outline: 1px solid var(--primary-color);
+    outline-offset: 1px;
+}
+
 .tree-toggle-placeholder {
     display: inline-block;
     width: 16px;
