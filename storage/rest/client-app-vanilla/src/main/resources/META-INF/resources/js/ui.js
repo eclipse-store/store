@@ -162,6 +162,7 @@ const UI = (() => {
         function createRow(element, depth) {
             const tr = el("tr", "tree-row");
             tr._element = element;
+            tr.dataset.depth = depth;   // tree level, exposed for tests (mirrors Vaadin's --_level)
             if (element === selectedElement) {
                 tr.classList.add("selected");
             }
