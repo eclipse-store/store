@@ -1,0 +1,367 @@
+/*
+ * EclipseStore Vanilla Viewer — styles
+ *
+ * Mirrors the original Vaadin client's Lumo dark theme (shared-styles.css):
+ * monospace font, square corners, Eclipse Store blue (#00A0E3), dark surfaces.
+ */
+
+:root {
+    --font-mono: Consolas, "Andale Mono WT", "Andale Mono", "Lucida Console",
+        "Lucida Sans Typewriter", "DejaVu Sans Mono", "Bitstream Vera Sans Mono",
+        "Liberation Mono", "Nimbus Mono L", Monaco, "Courier New", Courier, monospace;
+
+    --base-color: #222430;
+    --header-color: #191520;
+    --surface-color: #2a2d3a;
+    --contrast-5: rgba(255, 255, 255, 0.05);
+    --contrast-10: rgba(255, 255, 255, 0.10);
+    --contrast-20: rgba(255, 255, 255, 0.20);
+    --text-color: rgba(235, 243, 255, 0.9);
+    --text-muted: #9a9caa;
+    --primary-color: #00A0E3;
+    --primary-text: #00A0E3;
+    --error-color: #faa;
+    --row-selected: rgba(0, 160, 227, 0.20);
+    --row-hover: rgba(0, 160, 227, 0.08);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+/* The hidden attribute must win over the explicit display values below. */
+[hidden] {
+    display: none !important;
+}
+
+html, body {
+    margin: 0;
+    height: 100%;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: var(--text-color);
+    background-color: var(--base-color);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────── */
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 6px 14px;
+    border: 1px solid var(--contrast-20);
+    border-radius: 0;
+    background: var(--surface-color);
+    color: var(--text-color);
+    cursor: pointer;
+}
+
+.btn:hover {
+    border-color: var(--primary-color);
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.btn-primary {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: #06222e;
+    font-weight: 600;
+}
+
+.btn-small {
+    padding: 3px 10px;
+    font-size: 13px;
+}
+
+.btn-icon {
+    width: 16px;
+    height: 16px;
+}
+
+/* ── Connect screen ──────────────────────────────────────────────────── */
+
+.connect-screen {
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    background-image: url('../images/theme.jpg');
+    background-size: contain;
+    background-position: center bottom;
+    background-repeat: no-repeat;
+}
+
+.box {
+    margin: 28px;
+    padding: 18px;
+    background: var(--base-color) linear-gradient(var(--contrast-5), var(--contrast-5));
+    box-shadow: 0 0 0 1px var(--contrast-10), 0 6px 24px rgba(0, 0, 0, 0.4);
+}
+
+.connect-box h3 {
+    margin: 0 0 14px;
+    font-size: 1.15rem;
+    font-weight: 600;
+}
+
+.connect-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.connect-row label {
+    color: var(--text-muted);
+}
+
+#base-url {
+    min-width: 50ch;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 6px 8px;
+    border: 1px solid var(--contrast-20);
+    border-radius: 0;
+    background: var(--surface-color);
+    color: var(--text-color);
+}
+
+#base-url:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.error {
+    color: var(--error-color);
+    margin-top: 12px;
+}
+
+/* ── Application shell ───────────────────────────────────────────────── */
+
+#app-screen {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.app-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 36px;
+    padding: 4px 8px;
+    background-color: var(--header-color);
+}
+
+.header-logo {
+    height: 24px;
+}
+
+.header-label {
+    color: var(--text-muted);
+}
+
+.header-spacer {
+    flex: 1;
+}
+
+.tabs {
+    display: flex;
+    gap: 2px;
+    background-color: var(--header-color);
+    padding: 0 6px;
+    border-bottom: 1px solid var(--contrast-10);
+}
+
+.tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 0 16px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.tab:hover {
+    color: var(--text-color);
+}
+
+.tab.active {
+    color: var(--primary-text);
+    border-bottom-color: var(--primary-color);
+}
+
+.tab-icon {
+    width: 18px;
+    height: 18px;
+}
+
+.pages {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+}
+
+.tab-content {
+    position: absolute;
+    inset: 0;
+}
+
+/* ── Vertical split layout (tree over detail) ────────────────────────── */
+
+.split-layout {
+    display: flex;
+    flex-direction: column;
+}
+
+.split-primary {
+    flex: 65 1 0;
+    min-height: 0;
+    display: flex;
+}
+
+.split-secondary {
+    flex: 35 1 0;
+    min-height: 0;
+    display: flex;
+    border-top: 1px solid var(--contrast-10);
+}
+
+.split-divider {
+    height: 6px;
+    background: var(--header-color);
+    cursor: row-resize;
+    flex: 0 0 auto;
+}
+
+.split-divider:hover {
+    background: var(--primary-color);
+}
+
+.scroll-pane {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    width: 100%;
+}
+
+.detail-pane {
+    padding: 4px;
+}
+
+/* ── Tree grid ───────────────────────────────────────────────────────── */
+
+.tree-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    white-space: nowrap;
+    /* Match the Vaadin grid cell metrics exactly. */
+    font-size: 13px;
+    line-height: 15.6px;
+    color: rgba(235, 243, 255, 0.9);
+}
+
+.tree-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    text-align: left;
+    font-weight: 500;
+    height: 40px;
+    padding: 0 8px;
+    vertical-align: middle;
+    background: var(--base-color);
+    border-bottom: 1px solid var(--contrast-20);
+}
+
+.tree-table thead th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.sort-indicator {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.sort-indicator.active {
+    color: var(--primary-text);
+}
+
+.tree-table td {
+    height: 28px;
+    padding: 2px 8px;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--contrast-5);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tree-row:hover td {
+    background: var(--row-hover);
+}
+
+.tree-row.selected td {
+    background: var(--row-selected);
+}
+
+.tree-indent {
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.tree-toggle {
+    display: inline-block;
+    width: 16px;
+    vertical-align: middle;
+    cursor: pointer;
+    color: rgba(235, 243, 255, 0.9);
+    user-select: none;
+}
+
+.tree-toggle:hover {
+    color: var(--primary-text);
+}
+
+.tree-toggle-placeholder {
+    display: inline-block;
+    width: 16px;
+    vertical-align: middle;
+}
+
+.field-name {
+    vertical-align: middle;
+}
+
+.error-message {
+    color: var(--error-color);
+}
+
+/* ── Detail text area ────────────────────────────────────────────────── */
+
+.detail-textarea {
+    width: 100%;
+    min-height: 120px;
+    box-sizing: border-box;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 8px;
+    border: 1px solid var(--contrast-20);
+    border-radius: 0;
+    background: var(--surface-color);
+    color: var(--text-color);
+    resize: vertical;
+}
