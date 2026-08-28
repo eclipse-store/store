@@ -28,7 +28,6 @@
         <module>service-javalin</module>
         <module>service-springboot</module>
         <module>client-app</module>
-        <module>client-app-vanilla</module>
         <module>client-app-standalone-assembly</module>
     </modules>
 
