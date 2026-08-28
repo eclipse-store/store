@@ -1,6 +1,58 @@
 = Client GUI
 
-Based on the REST API we provide a client, which serves a convenient web user interface to browse through the storage data.
+Based on the REST API {product-name} provides a web user interface to browse through the storage data
+and inspect storage statistics.
+
+Two variants exist:
+
+* the *bundled Storage Viewer* — a dependency-free Vanilla-JS UI served directly by the Javalin REST
+service (recommended), and
+* the *standalone Vaadin client* — a separate runnable jar (deprecated, see below).
+
+== Bundled Storage Viewer (recommended)
+
+The xref:rest-interface/setup.adoc#_javalin_java_rest_service[Javalin REST service] ships with a small
+static web viewer. It has *zero additional dependencies* (plain HTML/CSS/JS, ~65 KB of code) and is
+served from the REST service itself, so there is nothing extra to deploy and no CORS setup or reverse
+proxy is required.
+
+It is *disabled by default*. Enable it with the `eclipse_store_rest_ui_enabled` flag:
+
+[source, text, subs=attributes+]
+----
+java -Declipse_store_rest_ui_enabled=true -cp ... your.Main
+----
+
+Then open the root path of the REST service in your browser and enter the base URL of the REST service to
+connect:
+
+[source, text, subs=attributes+]
+----
+http://localhost:4567/            <- open this
+http://localhost:4567/store-data  <- enter this as the base URL, then click Connect
+----
+
+Because the viewer and the REST API share the same origin, the connection works without any additional
+configuration. The interface is identical to the screenshots shown below: browse the object graph in the
+*Data* tab and inspect storage statistics in the *Statistics* tab.
+
+[NOTE]
+====
+The bundled viewer is a pure client-side application: your browser calls the REST API directly. When you
+serve it from the REST service as described above this is same-origin and needs no extra setup. If you
+host the static files elsewhere (a different origin), the REST service must send CORS headers or you must
+place both behind a common reverse proxy.
+====
+
+== Standalone Vaadin client (deprecated)
+
+[WARNING]
+====
+The standalone Vaadin client (`storage-restclient-app` and
+`storage-restclient-app-standalone-assembly`) is *deprecated and scheduled for removal*. It pulls in
+Vaadin and Spring, which makes it heavyweight to run and hard to embed into existing projects. Use the
+*bundled Storage Viewer* described above instead.
+====
 
 It is a runnable jar which starts a simple web server which then can be accessed by a browser of your choice.
 

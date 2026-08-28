@@ -91,4 +91,26 @@ If you want to change the default port (4567) or instance name (_store-data_) it
 | `eclipse_store_rest_storage_name`
 | `store-data`
 | Instance name used in the base URL (without leading/trailing "/").
+
+| `eclipse_store_rest_ui_enabled`
+| `false`
+| Serve the bundled xref:rest-interface/client-gui.adoc[Storage Viewer] web UI from the REST service. See below.
 |===
+
+=== Bundled Storage Viewer (Web UI)
+
+The Javalin REST service ships with a small, dependency-free (Vanilla-JS) web viewer. It is *disabled by
+default*. Enable it by setting the `eclipse_store_rest_ui_enabled` flag to `true`, e.g. as a JVM system
+property:
+
+[source, text, subs=attributes+]
+----
+java -Declipse_store_rest_ui_enabled=true -cp ... your.Main
+----
+
+When enabled, the viewer is served from the root path of the same port as the REST service. Because the UI
+and the REST API share the same origin, no CORS configuration or reverse proxy is required. Open
+`http://localhost:4567/` in your browser and enter the base URL of the REST service
+(`http://localhost:4567/store-data`) to connect.
+
+See xref:rest-interface/client-gui.adoc[Client GUI] for details.
