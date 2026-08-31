@@ -23,6 +23,19 @@ import org.springframework.boot.web.servlet.support.SpringBootServletInitializer
 import org.springframework.context.annotation.Import;
 
 
+/**
+ * Runnable standalone assembly of the Vaadin-based storage REST client GUI.
+ *
+ * @deprecated This standalone Vaadin/Spring client GUI is deprecated and scheduled for removal.
+ * It pulls in Vaadin and Spring, which makes it heavyweight to run and embed.
+ * <p>
+ * Use the dependency-free Vanilla-JS storage viewer instead: it is bundled in
+ * {@code storage-restservice-javalin} and served from the REST service itself when the
+ * {@code eclipse_store_rest_ui_enabled} flag is set to {@code true}. See the "Client GUI"
+ * section of the storage REST interface documentation.
+ */
+@Deprecated(since = "5.0", forRemoval = true)
+@SuppressWarnings("deprecation")
 @SpringBootApplication
 @Import(RestClientAppAutoConfiguration.class)
 public class Application extends SpringBootServletInitializer
@@ -33,5 +46,5 @@ public class Application extends SpringBootServletInitializer
 	{
 		SpringApplication.run(Application.class, args);
 	}
-	
+
 }

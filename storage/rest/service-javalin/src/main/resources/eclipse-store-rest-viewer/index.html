@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EclipseStore Client</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="icon" href="images/icon.ico">
+</head>
+<body>
+
+<!-- Connect screen (ConnectView) -->
+<div id="connect-screen" class="connect-screen">
+    <div class="box connect-box">
+        <h3>Connect to instance</h3>
+        <div class="connect-row">
+            <label for="base-url">URL:</label>
+            <input id="base-url" type="url" list="url-presets" spellcheck="false" autocomplete="off">
+            <datalist id="url-presets"></datalist>
+            <button id="btn-connect" class="btn btn-primary">
+                <img src="images/login.svg" alt="" class="btn-icon"> Connect
+            </button>
+        </div>
+        <div id="connect-error" class="error" hidden></div>
+    </div>
+</div>
+
+<!-- Application screen (RootLayout + InstanceView) -->
+<div id="app-screen" hidden>
+    <header class="header app-header">
+        <img src="images/logo.png" alt="Logo" class="header-logo">
+        <span id="header-label" class="header-label">Client</span>
+        <span class="header-spacer"></span>
+        <button id="btn-disconnect" class="btn btn-small">
+            <img src="images/logout.svg" alt="" class="btn-icon"> Disconnect
+        </button>
+    </header>
+
+    <nav class="tabs">
+        <button class="tab active" data-tab="data">
+            <img src="images/data.svg" alt="" class="tab-icon"> Data
+        </button>
+        <button class="tab" data-tab="statistics">
+            <img src="images/statistics.svg" alt="" class="tab-icon"> Statistics
+        </button>
+    </nav>
+
+    <main class="pages">
+        <!-- Data tab: vertical split (tree over detail) -->
+        <section id="tab-data" class="tab-content split-layout">
+            <div class="split-primary">
+                <div id="data-tree" class="scroll-pane"></div>
+            </div>
+            <div id="split-divider" class="split-divider"></div>
+            <div class="split-secondary">
+                <div id="data-detail" class="scroll-pane detail-pane"></div>
+            </div>
+        </section>
+
+        <!-- Statistics tab -->
+        <section id="tab-statistics" class="tab-content" hidden>
+            <div id="statistics-view" class="scroll-pane"></div>
+        </section>
+    </main>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/storageview.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>
