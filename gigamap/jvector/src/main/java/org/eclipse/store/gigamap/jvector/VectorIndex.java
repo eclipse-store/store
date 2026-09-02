@@ -544,6 +544,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * compressed vectors are embedded in the graph file.
      * <p>
      * For in-memory indices ({@link #isOnDisk()} returns false), this method is a no-op.
+     * <p>
+     * An index that holds no vectors has nothing to write: any files from an earlier, non-empty
+     * state are removed instead, so the next load rebuilds from the stored vectors. This applies to
+     * this explicit persist and to background persistence. A persist on the shutdown path may
+     * instead leave those files in place, see {@link #close()}.
      *
      * <h4>Files Created</h4>
      * <ul>
@@ -935,8 +940,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         void initializeAfterLoad()
         {
-            final boolean diskLoaded = this.diskManager != null && this.diskManager.isLoaded();
-            if(this.builder == null && !diskLoaded)
+            if(!this.isIndexPresent())
             {
                 this.initializeIndex();
             }
@@ -949,13 +953,26 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         void ensureIndexInitialized()
         {
-            final boolean diskLoaded = this.diskManager != null && this.diskManager.isLoaded();
-            if(this.builder == null && !diskLoaded)
+            if(!this.isIndexPresent())
             {
                 this.initializeIndex();
             }
 
             this.ensureGraphRebuilt();
+        }
+
+        /**
+         * Returns whether the transient index state exists, i.e. whether there is either an
+         * in-memory builder or a loaded disk index. {@code false} before the first
+         * {@link #initializeIndex()} and after {@link #closeInternalResources()} has torn the
+         * state down again.
+         *
+         * @return {@code true} if an in-memory builder or a loaded disk index is present
+         */
+        private boolean isIndexPresent()
+        {
+            final boolean diskLoaded = this.diskManager != null && this.diskManager.isLoaded();
+            return this.builder != null || diskLoaded;
         }
 
         /**
@@ -2542,8 +2559,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * @param onShutdown {@code true} when invoked on the shutdown path. In incremental mode a
          *                   shutdown persist skips the O(n) full-graph consolidation entirely and
          *                   relies on the load-time self-heal, so shutdown is never blocked by a
-         *                   rebuild that would be discarded anyway. {@code false} for
-         *                   background/explicit persistence, which consolidates as before.
+         *                   rebuild that would be discarded anyway. Because that return happens
+         *                   before the empty-graph handling below, a shutdown persist in incremental
+         *                   mode also leaves an earlier, now stale on-disk index in place instead of
+         *                   removing it - harmless, since the same self-heal rejects it on load and
+         *                   the next non-shutdown persist replaces or removes it. A shutdown persist
+         *                   also never (re-)creates the transient index state, which would restart
+         *                   the background task manager mid-{@code close()}. {@code false} for
+         *                   background/explicit persistence, which consolidates and initializes as
+         *                   before.
          */
         @Override
         public void doPersistToDisk(final boolean onShutdown)
@@ -2583,6 +2607,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // New mutations see cleanupInProgress=true and defer.
                     synchronized(this.parentMap())
                     {
+                        if(onShutdown && !this.isIndexPresent())
+                        {
+                            // Nothing to persist, and nothing to (re-)create here. On the shutdown
+                            // path ensureIndexInitialized() must not run initializeIndex(): that
+                            // ends in startBackgroundManagersIfEnabled(), so an index already torn
+                            // down by closeInternalResources() would get a fresh background task
+                            // manager after its predecessor was shut down, and the caller does
+                            // not re-check the field, so that executor thread would outlive
+                            // close(). An index without builder and without a loaded disk index
+                            // holds nothing the store does not already have.
+                            LOG.debug("No index present for '{}' on shutdown, skipping persist", this.name);
+                            return;
+                        }
+
                         this.ensureIndexInitialized();
 
                         // If in incremental mode, exit it first by rebuilding the full graph.
@@ -2598,6 +2636,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                                 // source of truth — on the next boot. No vectors are lost, and
                                 // shutdown is not blocked by a rebuild that would be discarded
                                 // anyway. Full consolidation stays a background/explicit operation.
+                                //
+                                // This returns before the empty-graph handling below, so an index
+                                // emptied while in incremental mode keeps its now stale files until
+                                // the next non-shutdown persist. That is the same trade as skipping
+                                // the consolidation: the self-heal rejects them on load.
                                 LOG.info("Skipping full-graph consolidation for '{}' on shutdown; "
                                     + "on-disk index self-heals from store on next load", this.name);
                                 return;
@@ -2622,6 +2665,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                                 this.configuration.maxDegree(),
                                 this.configuration.parallelOnDiskWrite()
                             );
+                        }
+
+                        // An empty graph cannot be written: jvector's header writer dereferences
+                        // view.entryNode(), which is null while the graph holds no node, so the
+                        // write would fail with a NullPointerException.
+                        //
+                        // Reaching this point means the store itself holds no vectors: either none
+                        // were ever added, or the incremental exit above consolidated a graph
+                        // that is now empty: exitIncrementalMode() rebuilds from the store, the
+                        // source of truth. Any files written earlier therefore describe content
+                        // that no longer exists and are removed rather than left behind.
+                        if(this.index.size(0) == 0)
+                        {
+                            LOG.debug("Index '{}' holds no vectors, removing any on-disk index "
+                                + "instead of persisting", this.name);
+                            this.diskManager.deleteIndexFiles();
+                            return;
                         }
 
                         // Capture references for use outside the synchronized block.
@@ -2923,6 +2983,19 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 catch(final Exception e)
                 {
                     LOG.error("Shutdown persistence failed for '{}': {}", this.name, e.getMessage(), e);
+                }
+
+                // Belt and braces: the persist above no longer initializes the index, so nothing
+                // should have created a manager behind this method's null check. Should a future
+                // change reintroduce that, shut the manager down here rather than let its executor
+                // thread outlive close().
+                if(this.backgroundTaskManager != null)
+                {
+                    LOG.warn("Background task manager for '{}' was recreated during shutdown "
+                        + "persistence, shutting it down again", this.name);
+                    this.backgroundTaskManager.discardQueue();
+                    this.backgroundTaskManager.shutdown(false, false, false);
+                    this.backgroundTaskManager = null;
                 }
             }
         }
