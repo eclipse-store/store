@@ -93,9 +93,12 @@ class VectorIndexEmptyPersistTest
 
     private static List<String> backgroundThreadNames()
     {
+        // BackgroundTaskManager names its executor thread "VectorIndex-Background-" + index name.
+        final String threadName = "VectorIndex-Background-" + INDEX_NAME;
+
         return Thread.getAllStackTraces().keySet().stream()
             .map(Thread::getName)
-            .filter(name -> name.startsWith("VectorIndex-Background-" + INDEX_NAME))
+            .filter(threadName::equals)
             .sorted()
             .toList();
     }
