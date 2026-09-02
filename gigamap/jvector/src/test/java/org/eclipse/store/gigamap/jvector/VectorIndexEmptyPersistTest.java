@@ -136,6 +136,15 @@ class VectorIndexEmptyPersistTest
             storage.storeRoot();
         }
 
+        // writeIndex() opens with Files.createDirectories(indexDirectory), and nothing else on the
+        // persist path creates it, so an untouched directory is the proof that the shutdown persist
+        // did not even attempt the write. Asserting on the files alone would not catch the defect:
+        // the write failed inside jvector after writing to temp paths only, and the shutdown path
+        // swallows the exception into a log this module has no SLF4J binding to capture.
+        assertFalse(
+            Files.exists(indexDirectory),
+            "an empty index must not attempt a write on shutdown"
+        );
         assertFalse(indexFilesExist(indexDirectory), "an empty index must not write index files on shutdown");
 
         // The index is still usable after the restart that follows such a shutdown.

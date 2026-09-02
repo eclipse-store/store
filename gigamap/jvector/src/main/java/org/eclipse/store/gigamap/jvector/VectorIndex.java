@@ -546,7 +546,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * For in-memory indices ({@link #isOnDisk()} returns false), this method is a no-op.
      * <p>
      * An index that holds no vectors has nothing to write: any files from an earlier, non-empty
-     * state are removed instead, so the next load rebuilds from the stored vectors.
+     * state are removed instead, so the next load rebuilds from the stored vectors. This applies to
+     * this explicit persist and to background persistence. A persist on the shutdown path may
+     * instead leave those files in place, see {@link #close()}.
      *
      * <h4>Files Created</h4>
      * <ul>
@@ -2557,10 +2559,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * @param onShutdown {@code true} when invoked on the shutdown path. In incremental mode a
          *                   shutdown persist skips the O(n) full-graph consolidation entirely and
          *                   relies on the load-time self-heal, so shutdown is never blocked by a
-         *                   rebuild that would be discarded anyway. It also never (re-)creates the
-         *                   transient index state, which would restart the background task manager
-         *                   mid-{@code close()}. {@code false} for background/explicit persistence,
-         *                   which consolidates and initializes as before.
+         *                   rebuild that would be discarded anyway. Because that return happens
+         *                   before the empty-graph handling below, a shutdown persist in incremental
+         *                   mode also leaves an earlier, now stale on-disk index in place instead of
+         *                   removing it - harmless, since the same self-heal rejects it on load and
+         *                   the next non-shutdown persist replaces or removes it. A shutdown persist
+         *                   also never (re-)creates the transient index state, which would restart
+         *                   the background task manager mid-{@code close()}. {@code false} for
+         *                   background/explicit persistence, which consolidates and initializes as
+         *                   before.
          */
         @Override
         public void doPersistToDisk(final boolean onShutdown)
@@ -2629,6 +2636,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                                 // source of truth — on the next boot. No vectors are lost, and
                                 // shutdown is not blocked by a rebuild that would be discarded
                                 // anyway. Full consolidation stays a background/explicit operation.
+                                //
+                                // This returns before the empty-graph handling below, so an index
+                                // emptied while in incremental mode keeps its now stale files until
+                                // the next non-shutdown persist. That is the same trade as skipping
+                                // the consolidation: the self-heal rejects them on load.
                                 LOG.info("Skipping full-graph consolidation for '{}' on shutdown; "
                                     + "on-disk index self-heals from store on next load", this.name);
                                 return;
