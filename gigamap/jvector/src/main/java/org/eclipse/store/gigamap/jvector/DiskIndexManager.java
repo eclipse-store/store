@@ -142,6 +142,20 @@ interface DiskIndexManager extends Closeable
     ) throws IOException;
 
     /**
+     * Removes the persisted {@code .graph} and {@code .meta} files, if present.
+     * <p>
+     * Used when the index holds no vectors any more and therefore has nothing to persist: the
+     * files left over from an earlier, non-empty state describe content that no longer exists.
+     * Correctness does not depend on this removal - {@link #tryLoad(MetaState)} rejects a stale
+     * pair through its witness comparison - it only keeps dead files from occupying disk space.
+     * <p>
+     * Never throws: a failed deletion is logged and leaves a harmless stale file behind, which the
+     * next successful write replaces. This is called from the persist path, including on shutdown,
+     * where a cleanup failure must not mask or replace the outcome of the persist itself.
+     */
+    public void deleteIndexFiles();
+
+    /**
      * Closes disk-related resources.
      */
     public void close();
@@ -421,27 +435,54 @@ interface DiskIndexManager extends Closeable
                 // Remove any temp file left behind by a failed or interrupted write. Swallow cleanup
                 // errors so they cannot mask an in-flight write/move exception (which carries the real
                 // root cause); a leftover temp file is harmless and overwritten on the next persist.
-                this.deleteTempQuietly(graphTempPath);
-                this.deleteTempQuietly(metaTempPath);
+                this.deleteQuietly(graphTempPath);
+                this.deleteQuietly(metaTempPath);
             }
 
             LOG.info("Persisted index '{}' to disk with {} vectors", this.name, index.size(0));
         }
 
+        @Override
+        public void deleteIndexFiles()
+        {
+            if(this.indexDirectory == null)
+            {
+                return;
+            }
+
+            // Release the reader before unlinking: on Windows an open mapping makes the delete fail.
+            // A no-op unless a disk index is currently loaded.
+            this.close();
+
+            final boolean graphDeleted = this.deleteQuietly(this.indexDirectory.resolve(this.name + GRAPH_FILE_EXT));
+            final boolean metaDeleted  = this.deleteQuietly(this.indexDirectory.resolve(this.name + META_FILE_EXT ));
+
+            // Stays silent for the common case of an index that never wrote anything, so that an
+            // empty index does not log on every persist.
+            if(graphDeleted || metaDeleted)
+            {
+                LOG.info("Removed on-disk index '{}': it holds no vectors any more", this.name);
+            }
+        }
+
         /**
-         * Deletes a temp file if present, logging (never throwing) on failure. Used from the cleanup
+         * Deletes a file if present, logging (never throwing) on failure. Used from the cleanup
          * {@code finally} of {@link #writeIndex}, where a thrown cleanup error would mask the real
-         * write/move failure.
+         * write/move failure, and from {@link #deleteIndexFiles()}.
+         *
+         * @param path the file to delete
+         * @return {@code true} if the file existed and was deleted
          */
-        private void deleteTempQuietly(final Path tempPath)
+        private boolean deleteQuietly(final Path path)
         {
             try
             {
-                Files.deleteIfExists(tempPath);
+                return Files.deleteIfExists(path);
             }
             catch(final IOException e)
             {
-                LOG.warn("Failed to delete temp file '{}' after persist: {}", tempPath, e.getMessage());
+                LOG.warn("Failed to delete file '{}': {}", path, e.getMessage());
+                return false;
             }
         }
 
