@@ -26,9 +26,9 @@ permissions:
 jobs:
   generate-sbom:
     runs-on: ubuntu-latest
-    outputs:
-      # Make env var available in re-usuable workflow (see actions/runner#2372)
-      project-version: ${{ env.PROJECT_VERSION }}
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout repository at '${{ env.PROJECT_VERSION }}'
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -64,18 +64,8 @@ jobs:
               -DoutputDirectory=target/sbom
 
       - name: Upload
-        uses: actions/upload-artifact@v7
+        uses: eclipse-csi/workflows/upload-sbom@20e3c63807b2bd61b7f1a9f438e5ce588c054efc # main
         with:
-          name: sbom
-          path: target/sbom/Eclipse-Store-Sbom.json
-
-  # Store SBOM and metadata in a predefined format for otterdog to pick up
-  store-sbom-data:
-    needs: ['generate-sbom']
-    uses: eclipse-csi/workflows/.github/workflows/store-sbom-data.yml@main
-    with:
-      projectName: 'store'
-      projectVersion: ${{ needs.generate-sbom.outputs.project-version }}
-      bomArtifact: 'sbom'
-      bomFilename: 'Eclipse-Store-Sbom.json'
-      parentProject: '0a48ad69-bb92-4881-b35e-450e4f7264dc'
+          sbom-file: target/sbom/Eclipse-Store-Sbom.json
+          product-name: 'store'
+          product-version: ${{ env.PROJECT_VERSION }}
