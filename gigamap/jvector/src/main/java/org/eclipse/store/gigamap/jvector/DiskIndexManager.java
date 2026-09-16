@@ -64,12 +64,17 @@ interface DiskIndexManager extends Closeable
      *       graph-affecting mutation (including vec↔null transitions, which leave count
      *       and highestEntityId unchanged). Catches the crash-restart window where the
      *       store advanced past the on-disk graph but the two proxies stayed equal.</li>
+     *   <li>{@code 4} — no new fields. {@link VectorIndexConfiguration#enablePqCompression()} now
+     *       actually writes a FusedPQ graph; graphs written earlier with the flag set are
+     *       uncompressed despite it. An index that loads clean and is never mutated never
+     *       persists again, so without this bump such a graph would stay uncompressed
+     *       indefinitely.</li>
      * </ul>
      * Bumping this constant invalidates existing on-disk indices; they are
      * rebuilt from the GigaMap-stored source vectors on first load — no data
      * loss, but a one-time cold-start cost.
      */
-    final static int GRAPH_FILE_VERSION = 3;
+    final static int GRAPH_FILE_VERSION = 4;
 
     /**
      * File extension for graph files.
@@ -101,6 +106,19 @@ interface DiskIndexManager extends Closeable
      * @return the disk index
      */
     public OnDiskGraphIndex getDiskIndex();
+
+    /**
+     * Returns the PQ codebook embedded in the currently loaded graph, or {@code null} if no index is
+     * loaded or the loaded graph carries no {@link FeatureId#FUSED_PQ} feature.
+     * <p>
+     * The {@code .graph} file is self-describing: {@link FusedPQ} writes the codebook into its header
+     * and restores it on load, so a reloaded index can recover the exact codebook its fused codes were
+     * encoded with. That matters - re-training would produce a <i>different</i> codebook, which would
+     * score the existing codes as noise.
+     *
+     * @return the embedded codebook, or {@code null} if the loaded graph is not PQ-compressed
+     */
+    public ProductQuantization loadedProductQuantization();
 
     /**
      * Attempts to load the index from disk, validating the {@code .meta} witnesses against the
@@ -279,6 +297,19 @@ interface DiskIndexManager extends Closeable
         public OnDiskGraphIndex getDiskIndex()
         {
             return this.diskIndex;
+        }
+
+        @Override
+        public ProductQuantization loadedProductQuantization()
+        {
+            if(this.diskIndex == null)
+            {
+                return null;
+            }
+            return this.diskIndex.getFeatures().get(FeatureId.FUSED_PQ) instanceof FusedPQ fusedPQ
+                ? fusedPQ.getPQ()
+                : null
+            ;
         }
 
         @Override
@@ -534,7 +565,13 @@ interface DiskIndexManager extends Closeable
 
             // Create features for the on-disk index
             final InlineVectors inlineVectors = new InlineVectors(this.dimension);
-            final FusedPQ fusedPQ = new FusedPQ(this.maxDegree, pq);
+
+            // Take the degree from the graph, not from this.maxDegree: FusedPQ.load rebuilds the
+            // feature as new FusedPQ(header.layerInfo.get(0).degree, ...), i.e. the reader sizes its
+            // fused block from the graph header. Sourcing the writer's degree from the same place
+            // makes writer/reader agreement structural instead of relying on the configured
+            // maxDegree happening to match the degree the builder actually used.
+            final FusedPQ fusedPQ = new FusedPQ(index.getDegree(0), pq);
 
             // Create feature suppliers that provide feature state for each node
             final Map<FeatureId, IntFunction<Feature.State>> suppliers = new EnumMap<>(FeatureId.class);

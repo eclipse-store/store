@@ -1032,12 +1032,12 @@ class VectorIndexNullVectorTest
             final float[] known = randomUnit(random, dim);
             final long knownId = map.add(new Doc("known", known)); // highest ordinal, a real node
 
-            // Force PQ training so persist writes FusedPQ (the path that indexes the dense PQ array by
+            // The persist trains PQ and writes FusedPQ (the path that indexes the dense PQ array by
             // ordinal). Before the size() fix this threw IndexOutOfBoundsException while encoding /
             // writing the highest-ordinal node (ordinal > non-null count); it must now complete,
             // proving every graph ordinal up to highestUsedId is PQ-encoded and written.
-            ((VectorIndex.Internal<Doc>)index).trainCompressionIfNeeded();
             index.persistToDisk();
+            assertTrue(index.isPqCompressionActive(), "the persist must have trained a PQ codebook");
 
             // Approximate PQ search: assert it runs and yields only real (non-null) entities. (Exact
             // top-1 identity isn't guaranteed under lossy PQ, so we don't assert the query is #1.)

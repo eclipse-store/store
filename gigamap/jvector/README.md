@@ -7,7 +7,7 @@ A Java library that integrates [JVector](https://github.com/datastax/jvector) (h
 - **HNSW Vector Index**: Fast approximate k-nearest-neighbor search using JVector's HNSW graph implementation
 - **Persistent Storage**: Vectors are stored in GigaMap for durability and lazy loading
 - **On-Disk Index**: Memory-mapped graph storage for datasets larger than RAM
-- **PQ Compression**: Product Quantization for reduced memory footprint
+- **PQ Compression**: Product Quantization for faster graph traversal (trades disk space for search speed)
 - **Background Persistence**: Automatic asynchronous persistence at configurable intervals
 - **Background Optimization**: Periodic graph cleanup for improved query performance
 - **Eventual Indexing**: Deferred graph mutations via background thread for reduced write latency
@@ -167,7 +167,7 @@ List<Document> topDocs = result.stream()
 | `pqSubspaces` | `0` | Number of PQ subspaces (0 = auto: dimension/4) |
 | `parallelOnDiskWrite` | `false` | Use parallel direct buffers and multiple worker threads for on-disk index writing. Speeds up persistence for large indices but uses more resources. Only applies when `onDisk=true` |
 
-> **On-disk format version:** the graph file format is at version 2. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors — no data loss, expect a one-time cold-start cost on the first restart after upgrade.
+> **On-disk format version:** the graph file format is at version 4. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors — no data loss, expect a one-time cold-start cost on the first restart after upgrade.
 
 ### Eventual Indexing
 
@@ -206,7 +206,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     // On-disk storage
     .onDisk(true)
     .indexDirectory(Path.of("/data/vectors"))
-    // PQ compression (reduces memory significantly)
+    // PQ compression (speeds up graph traversal; makes the graph file larger)
     .enablePqCompression(true)
     .pqSubspaces(48)  // Must divide dimension evenly
     .build();
@@ -338,7 +338,7 @@ To benchmark with real SIFT data:
 
 - **Null vectors are not accepted**: The `Vectorizer.vectorize()` method must never return `null`. If it does, an `IllegalStateException` is thrown. Ensure that every entity added to the GigaMap can produce a valid vector.
 - **~2.1 billion vectors per index**: JVector uses `int` for graph node ordinals. For larger datasets, implement sharding across multiple indices.
-- **PQ compression requires maxDegree=32**: FusedPQ algorithm constraint (auto-enforced).
+- **PQ compression enlarges the index**: FusedPQ stores each node's neighbour codes inline, on top of the full-precision vectors. It buys search speed, not disk space.
 
 ## Building
 

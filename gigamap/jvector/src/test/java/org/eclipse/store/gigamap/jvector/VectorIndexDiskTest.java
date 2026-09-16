@@ -14,6 +14,10 @@ package org.eclipse.store.gigamap.jvector;
  * #L%
  */
 
+import io.github.jbellis.jvector.disk.ReaderSupplier;
+import io.github.jbellis.jvector.disk.ReaderSupplierFactory;
+import io.github.jbellis.jvector.graph.disk.OnDiskGraphIndex;
+import io.github.jbellis.jvector.graph.disk.feature.FeatureId;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
@@ -28,6 +32,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
@@ -293,9 +299,6 @@ class VectorIndexDiskTest
         // Add vectors
         addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
 
-        // Train compression
-        ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
-
         // Search should work
         final float[] queryVector = randomVector(random, dimension);
         final VectorSearchResult<Document> result = index.search(queryVector, 10);
@@ -305,14 +308,82 @@ class VectorIndexDiskTest
         // Verify all entities are accessible
         result.forEach(entry -> assertTrue(entry.entity().content().startsWith("doc_")));
 
-        // Persist to disk
+        // Persist to disk. No explicit training call: the persist path trains the codebook itself,
+        // which is precisely what was missing before.
         index.persistToDisk();
+
+        assertTrue(index.isPqCompressionActive(),
+            "persisting an index with >= 256 vectors must have trained a PQ codebook");
 
         // Verify graph file was created (FusedPQ is embedded in graph, no separate .pq file)
         assertTrue(Files.exists(indexDir.resolve("embeddings.graph")));
         assertTrue(Files.exists(indexDir.resolve("embeddings.meta")));
         assertFalse(Files.exists(indexDir.resolve("embeddings.pq")),
             "FusedPQ should be embedded in graph file, not in separate .pq file");
+
+        index.close();
+
+        // The core assertion: the flag must actually change what is written.
+        assertTrue(graphFeatures(indexDir.resolve("embeddings.graph")).contains(FeatureId.FUSED_PQ),
+            "enablePqCompression(true) must write a FusedPQ graph");
+    }
+
+    /**
+     * Counterpart to {@link #testOnDiskIndexWithCompression}: without the flag, no FusedPQ is
+     * written. Guards against the gate degenerating into "always compress".
+     */
+    @Test
+    void testOnDiskIndexWithoutCompressionHasNoFusedPq(@TempDir final Path tempDir) throws IOException
+    {
+        final int vectorCount = 500;
+        final int dimension   = 64;
+        final Random random   = new Random(42);
+
+        final Path indexDir = tempDir.resolve("index");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .build();
+
+        final VectorIndex<Document> index = vectorIndices.add(
+            "embeddings",
+            config,
+            new ComputedDocumentVectorizer()
+        );
+
+        addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
+        index.persistToDisk();
+
+        assertFalse(index.isPqCompressionActive(), "PQ must not activate when it was never enabled");
+
+        index.close();
+
+        final Set<FeatureId> features = graphFeatures(indexDir.resolve("embeddings.graph"));
+        assertFalse(features.contains(FeatureId.FUSED_PQ), "no FusedPQ without enablePqCompression");
+        assertTrue(features.contains(FeatureId.INLINE_VECTORS), "inline vectors are always written");
+    }
+
+    /**
+     * Reads back the feature set of a persisted graph file.
+     * <p>
+     * The index must be closed first: on Windows an open memory mapping blocks the read.
+     *
+     * @param graphPath the {@code .graph} file to inspect
+     * @return the features the file carries
+     */
+    private static Set<FeatureId> graphFeatures(final Path graphPath) throws IOException
+    {
+        try(final ReaderSupplier readerSupplier = ReaderSupplierFactory.open(graphPath);
+            final OnDiskGraphIndex graph = OnDiskGraphIndex.load(readerSupplier))
+        {
+            return EnumSet.copyOf(graph.getFeatureSet());
+        }
     }
 
     /**
@@ -493,9 +564,6 @@ class VectorIndexDiskTest
 
         gigaMap.add(new Document("needle", needleVector));
 
-        // Train PQ compression
-        ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
-
         // Search for the needle vector - it should be in the top results
         final VectorSearchResult<Document> result = index.search(needleVector, 5);
 
@@ -568,9 +636,6 @@ class VectorIndexDiskTest
 
                 addDocumentsFromVectors(gigaMap, vectors, "doc_");
 
-                // Train and search
-                ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
-
                 final VectorSearchResult<Document> result = index.search(queryVector, 10);
                 for(final ScoredSearchResult.Entry<Document> entry : result)
                 {
@@ -581,6 +646,7 @@ class VectorIndexDiskTest
                 index.persistToDisk();
                 assertTrue(Files.exists(indexDir.resolve("embeddings.graph")));
                 assertTrue(Files.exists(indexDir.resolve("embeddings.meta")));
+                assertTrue(index.isPqCompressionActive(), "the persist must have trained a codebook");
 
                 storage.storeRoot();
             }
@@ -599,6 +665,11 @@ class VectorIndexDiskTest
                 assertTrue(index.isOnDisk());
                 assertTrue(index.isPqCompressionEnabled());
 
+                // The codebook must come back from the graph header rather than being retrained -
+                // a retrained one would not match the codes already fused into the graph.
+                assertTrue(index.isPqCompressionActive(),
+                    "the reloaded index must recover its codebook from the graph");
+
                 // Search after reload
                 final VectorSearchResult<Document> result = index.search(queryVector, 10);
                 assertEquals(10, result.size());
@@ -616,6 +687,305 @@ class VectorIndexDiskTest
                 result.forEach(entry -> assertTrue(entry.entity().content().startsWith("doc_")));
             }
         }
+    }
+
+    /**
+     * Regression cover: a reload followed by a re-persist must keep writing a
+     * FusedPQ graph.
+     * <p>
+     * The load path used to call {@code markTrained()} unconditionally, which set the trained flag
+     * without a codebook. {@code trainIfNeeded()} then short-circuited forever while the write gate
+     * - which also requires a codebook - kept falling through to the uncompressed branch. The result
+     * was an index that compressed on its first persist and silently downgraded on every later one,
+     * with nothing in the {@code .meta} to reveal it.
+     */
+    @Test
+    void testPqCompressionSurvivesReloadAndRepersist(@TempDir final Path tempDir) throws IOException
+    {
+        final int    vectorCount = 400;
+        final int    dimension   = 64;
+        final Path   indexDir    = tempDir.resolve("index");
+        final Path   storageDir  = tempDir.resolve("storage");
+        final Path   graphPath   = indexDir.resolve("embeddings.graph");
+        final Random random      = new Random(4711);
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .enablePqCompression(true)
+            .pqSubspaces(16)
+            .build();
+
+        // Phase 1: build and persist - writes a FusedPQ graph.
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            storage.setRoot(gigaMap);
+
+            final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+                .add("embeddings", config, new ComputedDocumentVectorizer());
+
+            addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
+            index.persistToDisk();
+
+            assertTrue(index.isPqCompressionActive());
+            storage.storeRoot();
+        }
+        assertTrue(graphFeatures(graphPath).contains(FeatureId.FUSED_PQ),
+            "the first persist must write FusedPQ");
+
+        // Phase 2: reload, mutate so the persist is not skipped as incremental-clean, persist again.
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = storage.root();
+            final VectorIndex<Document> index = gigaMap.index()
+                .get(VectorIndices.Category())
+                .get("embeddings");
+
+            assertTrue(index.isPqCompressionActive(),
+                "the codebook must be recovered from the reloaded graph");
+
+            addRandomDocuments(gigaMap, random, dimension, 20, "more_");
+            index.persistToDisk();
+
+            assertTrue(index.isPqCompressionActive(), "the re-persist must not lose the codebook");
+            storage.storeRoot();
+        }
+
+        assertTrue(graphFeatures(graphPath).contains(FeatureId.FUSED_PQ),
+            "a re-persist after a reload must not silently downgrade to an uncompressed graph");
+
+        // Phase 3: the twice-written graph must still be loadable and searchable.
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = storage.root();
+            final VectorIndex<Document> index = gigaMap.index()
+                .get(VectorIndices.Category())
+                .get("embeddings");
+
+            assertTrue(index.isPqCompressionActive());
+            assertEquals(10, index.search(randomVector(random, dimension), 10).size());
+        }
+    }
+
+    /**
+     * PQ traversal is lossy, so this pins how much recall it may cost at the default settings.
+     * <p>
+     * Measured over seeds 7/11/23/42/99 with this configuration: exact recall@10 is 0.994-1.000 and
+     * PQ recall@10 is 0.996-1.000, i.e. indistinguishable (PQ is occasionally a hair higher, since
+     * approximate traversal explores a different part of the graph). The 0.95 floor therefore has
+     * roughly 0.045 of headroom against the worst observed run.
+     * <p>
+     * The point is not to police the exact figure but to catch a PQ path that has stopped working:
+     * scoring against the wrong node's fused codes, or a codebook that does not match the codes in
+     * the graph, collapses recall far below this floor rather than nudging it.
+     */
+    @Test
+    void testPqCompressionRecallStaysHigh(@TempDir final Path tempDir)
+    {
+        final int vectorCount = 2000;
+        final int dimension   = 64;
+        final int k           = 10;
+        final int queryCount  = 50;
+        final double minRecall = 0.95;
+
+        final Random random = new Random(7);
+
+        // Clustered rather than uniform-random vectors, which is both closer to real embeddings and
+        // the harder case for a graph index (near-duplicates compete for the same top-k slots).
+        final List<float[]> centroids = new ArrayList<>();
+        for(int c = 0; c < 20; c++)
+        {
+            centroids.add(randomVector(random, dimension));
+        }
+        final List<float[]> vectors = new ArrayList<>();
+        for(int i = 0; i < vectorCount; i++)
+        {
+            vectors.add(nearVector(random, centroids.get(i % centroids.size())));
+        }
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(32)
+            .beamWidth(100)
+            .onDisk(true)
+            .indexDirectory(tempDir.resolve("index"))
+            .enablePqCompression(true)
+            .pqSubspaces(dimension / 4)
+            .build();
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final List<Long> ids = new ArrayList<>();
+
+        double totalRecall = 0;
+
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", config, new ComputedDocumentVectorizer()))
+        {
+            for(int i = 0; i < vectorCount; i++)
+            {
+                ids.add(gigaMap.add(new Document("doc_" + i, vectors.get(i))));
+            }
+            index.persistToDisk();
+
+            assertTrue(index.isPqCompressionActive(), "the PQ path must be the one under test");
+
+            final Random queryRandom = new Random(4242);
+            for(int q = 0; q < queryCount; q++)
+            {
+                final float[] query = nearVector(queryRandom, vectors.get(queryRandom.nextInt(vectorCount)));
+
+                final Set<Long> expected = new HashSet<>(bruteForceTopK(query, vectors, ids, k));
+
+                final Set<Long> actual = new HashSet<>();
+                for(final ScoredSearchResult.Entry<Document> entry : index.search(query, k))
+                {
+                    actual.add(entry.entityId());
+                }
+
+                actual.retainAll(expected);
+                totalRecall += (double)actual.size() / k;
+            }
+        }
+
+        final double recall = totalRecall / queryCount;
+        assertTrue(recall >= minRecall,
+            "PQ recall@" + k + " was " + recall + ", below the " + minRecall + " floor");
+    }
+
+    /**
+     * Returns the ids of the {@code k} vectors most similar to {@code query} by cosine, by exhaustive
+     * scan - the ground truth the index is measured against.
+     */
+    private static List<Long> bruteForceTopK(
+        final float[]     query  ,
+        final List<float[]> vectors,
+        final List<Long>  ids    ,
+        final int         k
+    )
+    {
+        final List<Integer> order = new ArrayList<>();
+        for(int i = 0; i < vectors.size(); i++)
+        {
+            order.add(i);
+        }
+        order.sort(Comparator.comparingDouble(i -> -cosine(query, vectors.get(i))));
+
+        final List<Long> topK = new ArrayList<>(k);
+        for(int i = 0; i < k; i++)
+        {
+            topK.add(ids.get(order.get(i)));
+        }
+        return topK;
+    }
+
+    private static double cosine(final float[] a, final float[] b)
+    {
+        double dot = 0, na = 0, nb = 0;
+        for(int i = 0; i < a.length; i++)
+        {
+            dot += a[i] * b[i];
+            na  += a[i] * a[i];
+            nb  += b[i] * b[i];
+        }
+        return dot / (Math.sqrt(na) * Math.sqrt(nb));
+    }
+
+    /** A unit vector scattered around {@code centroid}, so the data set has cluster structure. */
+    private static float[] nearVector(final Random random, final float[] centroid)
+    {
+        final float[] v = new float[centroid.length];
+        double norm = 0;
+        for(int i = 0; i < v.length; i++)
+        {
+            v[i] = centroid[i] + (float)random.nextGaussian() * 0.35f;
+            norm += v[i] * v[i];
+        }
+        final float length = (float)Math.sqrt(norm);
+        for(int i = 0; i < v.length; i++)
+        {
+            v[i] /= length;
+        }
+        return v;
+    }
+
+    /**
+     * PQ is a speed optimisation, not a space one: FusedPQ stores the compressed codes of every
+     * neighbour inside each node's block, on top of the full-precision inline vectors that both
+     * layouts write. The graph therefore gets bigger, by roughly {@code pqSubspaces * maxDegree}
+     * bytes per node.
+     * <p>
+     * Pinned as a test because the documentation claimed the opposite, which is what led a
+     * downstream project to enable the flag expecting a memory saving.
+     */
+    @Test
+    void testPqCompressionMakesTheGraphLarger(@TempDir final Path tempDir) throws IOException
+    {
+        final int vectorCount = 400;
+        final int dimension   = 64;
+        final int maxDegree   = 32;
+
+        final long withoutPq = this.persistAndMeasureGraph(
+            tempDir.resolve("plain"), vectorCount, dimension, maxDegree, 0);
+        final long withPq = this.persistAndMeasureGraph(
+            tempDir.resolve("pq"), vectorCount, dimension, maxDegree, 16);
+
+        assertTrue(withPq > withoutPq,
+            "FusedPQ adds the neighbour codes on top of the inline vectors, so the graph must grow: "
+                + withPq + " vs " + withoutPq);
+
+        // Sanity-check the magnitude: the fused block is pqSubspaces * maxDegree bytes per node, so
+        // the delta should be in that ballpark rather than a rounding difference.
+        final long expectedDelta = (long)vectorCount * 16 * maxDegree;
+        assertTrue(withPq - withoutPq > expectedDelta / 2,
+            "the growth should be dominated by the fused block, expected around " + expectedDelta
+                + " but was " + (withPq - withoutPq));
+    }
+
+    /**
+     * Builds an on-disk index, persists it and returns the size of the resulting graph file.
+     *
+     * @param indexDir    the directory to write into
+     * @param vectorCount how many documents to index
+     * @param dimension   the vector dimension
+     * @param maxDegree   the graph out-degree
+     * @param pqSubspaces the PQ subspace count, or 0 to leave PQ disabled
+     * @return the size of the written {@code .graph} file in bytes
+     */
+    private long persistAndMeasureGraph(
+        final Path indexDir   ,
+        final int  vectorCount,
+        final int  dimension  ,
+        final int  maxDegree  ,
+        final int  pqSubspaces
+    ) throws IOException
+    {
+        final VectorIndexConfiguration.Builder builder = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(maxDegree)
+            .onDisk(true)
+            .indexDirectory(indexDir);
+
+        if(pqSubspaces > 0)
+        {
+            builder.enablePqCompression(true).pqSubspaces(pqSubspaces);
+        }
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", builder.build(), new ComputedDocumentVectorizer()))
+        {
+            // Same seed for both runs so the two graphs hold identical vectors.
+            addRandomDocuments(gigaMap, new Random(99), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+            assertEquals(pqSubspaces > 0, index.isPqCompressionActive());
+        }
+
+        return Files.size(indexDir.resolve("embeddings.graph"));
     }
 
     /**
@@ -650,8 +1020,6 @@ class VectorIndexDiskTest
         );
 
         addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
-
-        ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
 
         final float[] queryVector = randomVector(random, dimension);
         final VectorSearchResult<Document> result = index.search(queryVector, 10);
@@ -692,8 +1060,6 @@ class VectorIndexDiskTest
         );
 
         addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
-
-        ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
 
         final float[] queryVector = randomVector(random, dimension);
         final VectorSearchResult<Document> result = index.search(queryVector, 10);
@@ -737,8 +1103,6 @@ class VectorIndexDiskTest
 
         addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
 
-        ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
-
         final float[] queryVector = randomVector(random, dimension);
         final VectorSearchResult<Document> result = index.search(queryVector, 10);
 
@@ -779,8 +1143,6 @@ class VectorIndexDiskTest
         );
 
         addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
-
-        ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
 
         // Remove every other entity (even IDs)
         for(int i = 0; i < vectorCount; i += 2)
@@ -837,8 +1199,6 @@ class VectorIndexDiskTest
         );
 
         addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
-
-        ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
 
         // Run concurrent searches
         final int numSearches = 50;
@@ -916,9 +1276,6 @@ class VectorIndexDiskTest
         // Add initial vectors
         addRandomDocuments(gigaMap, random, dimension, initialCount, "initial_");
 
-        // Train PQ
-        ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
-
         // Search before adding more
         final float[] queryVector = randomVector(random, dimension);
         final VectorSearchResult<Document> resultBefore = index.search(queryVector, 10);
@@ -981,7 +1338,6 @@ class VectorIndexDiskTest
 
                 addRandomDocuments(gigaMap, random, dimension, 500, "doc_");
 
-                ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
                 index.persistToDisk();
 
                 // Verify search works before restart
@@ -1078,9 +1434,6 @@ class VectorIndexDiskTest
 
         final VectorIndices<Document> vectorIndicesAfter = gigaMap.index().get(VectorIndices.Category());
         final VectorIndex<Document> indexAfter = vectorIndicesAfter.get("embeddings");
-
-        // Train PQ on new data
-        ((VectorIndex.Internal<Document>)indexAfter).trainCompressionIfNeeded();
 
         // Search should find only new documents
         final VectorSearchResult<Document> result = indexAfter.search(randomVector(random, dimension), 20);
@@ -2355,7 +2708,6 @@ class VectorIndexDiskTest
 
             addDocumentsFromVectors(gigaMap, vectors, "doc_");
 
-            ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
             index.persistToDisk();
 
             assertTrue(Files.exists(indexDir.resolve("embeddings.graph")));
@@ -2470,9 +2822,6 @@ class VectorIndexDiskTest
         // Add vectors
         addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
 
-        // Train PQ compression
-        ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
-
         // This would deadlock before the fix
         index.persistToDisk();
 
@@ -2535,11 +2884,16 @@ class VectorIndexDiskTest
                 "embeddings", configParallel, new ComputedDocumentVectorizer()
         );
 
+        // Identical to configParallel except for parallelOnDiskWrite, which is the whole point of
+        // the comparison below. This config used to also set enablePqCompression(true); that was
+        // harmless only while the flag was inert. Now that PQ really is applied, the compressed
+        // index traverses on lossy approximate scores and its top-k can legitimately differ, which
+        // made this test flaky. Parallel writes with PQ are covered by
+        // testEmbeddedVectorizerWithPqAndParallelOnDiskWrite.
         final VectorIndexConfiguration configSequential = VectorIndexConfiguration.builder()
                 .dimension(dimension)
                 .similarityFunction(VectorSimilarityFunction.COSINE)
                 .maxDegree(16)
-                .enablePqCompression(true)
                 .beamWidth(100)
                 .onDisk(true)
                 .indexDirectory(sequentialIndexDir)

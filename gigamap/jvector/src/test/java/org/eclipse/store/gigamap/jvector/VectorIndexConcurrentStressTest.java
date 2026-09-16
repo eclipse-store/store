@@ -272,11 +272,7 @@ class VectorIndexConcurrentStressTest
                 defaultIndex.backgroundTaskManager.drainQueue();
             }
 
-            // If PQ compression, train before concurrent access
-            if (combo.pqCompression())
-            {
-                ((VectorIndex.Internal<Document>) index).trainCompressionIfNeeded();
-            }
+            // PQ needs no explicit training step: persistToDisk() trains the codebook itself.
 
             // Shared state for coordinating threads
             final AtomicLong nextEntityId = new AtomicLong(seedCount);

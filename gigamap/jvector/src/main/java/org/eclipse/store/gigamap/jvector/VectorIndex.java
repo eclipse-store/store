@@ -15,9 +15,12 @@ package org.eclipse.store.gigamap.jvector;
  */
 
 import io.github.jbellis.jvector.graph.*;
+import io.github.jbellis.jvector.graph.disk.OnDiskGraphIndex;
+import io.github.jbellis.jvector.graph.disk.feature.FeatureId;
 import io.github.jbellis.jvector.graph.similarity.BuildScoreProvider;
 import io.github.jbellis.jvector.graph.similarity.DefaultSearchScoreProvider;
 import io.github.jbellis.jvector.graph.similarity.SearchScoreProvider;
+import io.github.jbellis.jvector.quantization.ProductQuantization;
 import io.github.jbellis.jvector.util.Bits;
 import io.github.jbellis.jvector.util.ExplicitThreadLocal;
 import io.github.jbellis.jvector.vector.VectorizationProvider;
@@ -639,6 +642,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     }
 
     /**
+     * Returns whether PQ compression is actually in effect, as opposed to merely configured.
+     * <p>
+     * {@link #isPqCompressionEnabled()} reports what was asked for. This reports what the index is
+     * doing: it is {@code false} until a codebook exists, which happens on the first persist at
+     * which at least 256 vectors are present, and again on every load of a graph that carries the
+     * fused codes. An index can therefore be enabled but not yet active - while it is still too
+     * small to train, or before its first persist.
+     *
+     * @return true if a PQ codebook is currently held for this index
+     * @see #isPqCompressionEnabled()
+     */
+    public boolean isPqCompressionActive();
+
+    /**
      * Retrieves the vector associated with the given entity ID.
      * <p>
      * If the vectorizer is embedded, the vector is computed on-the-fly from the entity
@@ -723,12 +740,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         public void internalRemoveAll();
 
         public void clearStateChangeMarkers();
-
-        /**
-         * Trains PQ codebook if compression is enabled and sufficient vectors exist.
-         * Called before persistence to ensure compressed vectors are ready.
-         */
-        public void trainCompressionIfNeeded();
     }
 
 
@@ -1217,12 +1228,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 );
                 if(this.diskManager.tryLoad())
                 {
-                    // Mark PQ as trained if compression was enabled (FusedPQ is embedded)
-                    if(this.pqManager != null)
-                    {
-                        this.pqManager.markTrained();
-                        LOG.debug("FusedPQ compression loaded from disk for '{}'", this.name);
-                    }
+                    // Recover the codebook the loaded graph was actually written with, rather than
+                    // assuming one is present. A graph written before compression was enabled - or
+                    // written while too few vectors existed to train - carries no FusedPQ, and
+                    // claiming otherwise would leave the manager "trained" with a null codebook,
+                    // permanently suppressing training while every persist wrote uncompressed.
+                    this.adoptPqFromLoadedGraph();
 
                     // Enter incremental on-disk mode: disk index serves search,
                     // in-memory builder only handles new mutations.
@@ -2195,29 +2206,82 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private SearchResult searchDiskIndex(final VectorFloat<?> query, final int k, final int rerankK)
         {
-            // If PQ is available, use compressed scoring with reranking
-            if(this.pqManager != null && this.pqManager.isTrained() && this.pqManager.getCompressedVectors() != null)
-            {
-                final GraphSearcher searcher = this.inMemorySearcherPool.get();
-                return this.pqManager.searchWithRerank(
-                    query,
-                    k,
-                    rerankK,
-                    searcher,
-                    this.createCachingVectorValues(),
-                    this.jvectorSimilarityFunction()
-                );
-            }
+            final io.github.jbellis.jvector.vector.VectorSimilarityFunction vsf = this.jvectorSimilarityFunction();
 
-            // Otherwise, search disk index with exact vectors using pooled searcher
-            final SearchScoreProvider scoreProvider = DefaultSearchScoreProvider.exact(
+            final SearchScoreProvider exactProvider = DefaultSearchScoreProvider.exact(
                 query,
-                this.jvectorSimilarityFunction(),
+                vsf,
                 this.createCachingVectorValues()
             );
 
+            // In non-incremental disk mode initializeSearcherPool() puts the DISK searcher into
+            // inMemorySearcherPool - there is no second graph to search - so despite the field name
+            // this is the disk searcher.
             final GraphSearcher searcher = this.inMemorySearcherPool.get();
-            return searcher.search(scoreProvider, k, rerankK, 0f, 0f, Bits.ALL);
+            return searcher.search(
+                this.diskScoreProvider(searcher, query, vsf, exactProvider),
+                k,
+                rerankK,
+                0f,
+                0f,
+                Bits.ALL
+            );
+        }
+
+        /**
+         * Builds the score provider for a search against the on-disk graph: FusedPQ-approximate
+         * traversal with exact reranking against the inline vectors when the loaded graph actually
+         * carries that feature, and the plain exact provider otherwise.
+         * <p>
+         * The approximate function <b>must</b> be built from {@code searcher.getView()}, and the
+         * searcher must not have {@code setView(...)} called on it. {@code FusedPQDecoder}
+         * populates that view's neighbor scratch arrays as a side effect of reading the packed
+         * codes, and {@code View.processNeighbors} then reads exactly those arrays - a score
+         * function bound to any other view silently scores the wrong node's neighbors.
+         * <p>
+         * The gate is the <b>loaded graph's</b> feature set rather than {@link PQCompressionManager}
+         * state: the graph is self-describing, so the query path needs no happens-before edge with
+         * the training and persist paths.
+         *
+         * @param searcher      the searcher that will run the query, and whose view is used
+         * @param query         the query vector
+         * @param vsf           the similarity function
+         * @param exactFallback the provider to use when the graph carries no usable FusedPQ
+         * @return the score provider to search with
+         */
+        private SearchScoreProvider diskScoreProvider(
+            final GraphSearcher                                             searcher     ,
+            final VectorFloat<?>                                            query        ,
+            final io.github.jbellis.jvector.vector.VectorSimilarityFunction vsf          ,
+            final SearchScoreProvider                                       exactFallback
+        )
+        {
+            final OnDiskGraphIndex diskIndex = this.diskManager != null
+                ? this.diskManager.getDiskIndex()
+                : null
+            ;
+            if(diskIndex == null || !diskIndex.getFeatureSet().contains(FeatureId.FUSED_PQ))
+            {
+                return exactFallback;
+            }
+
+            // FusedPQDecoder.similarityTo(node) - used for the entry node and for every hop above
+            // level 0 - requires the node to be in the view's level-1 inline-source cache, which
+            // OnDiskGraphIndex only populates for a hierarchical graph. On a flat graph the first
+            // scoring call would throw. A PQ graph has at least 256 nodes and the builder is
+            // hierarchical, so this should never fire; it is cheap insurance on the query path.
+            if(!diskIndex.isHierarchical() || !(searcher.getView() instanceof OnDiskGraphIndex.View view))
+            {
+                return exactFallback;
+            }
+
+            // rerankerFor() is documented as not thread-safe: it closes over a scratch vector and
+            // reads through the view. Safe here because it is built fresh per query over a
+            // thread-confined ExplicitThreadLocal<GraphSearcher> and its view.
+            return new DefaultSearchScoreProvider(
+                view.approximateScoreFunctionFor(query, vsf),
+                view.rerankerFor(query, vsf)
+            );
         }
 
         /**
@@ -2226,9 +2290,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private SearchResult searchIncremental(final VectorFloat<?> query, final int k, final int rerankK)
         {
+            final io.github.jbellis.jvector.vector.VectorSimilarityFunction vsf = this.jvectorSimilarityFunction();
+
             final SearchScoreProvider scoreProvider = DefaultSearchScoreProvider.exact(
                 query,
-                this.jvectorSimilarityFunction(),
+                vsf,
                 this.createCachingVectorValues()
             );
 
@@ -2239,7 +2305,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 final GraphSearcher diskSearcher = this.diskSearcherPool.get();
                 final Bits acceptBits = this.createDiskAcceptBits();
-                diskResult = diskSearcher.search(scoreProvider, rerankK, rerankK, 0f, 0f, acceptBits);
+
+                // When the graph carries FusedPQ, traverse on the compressed codes and rerank
+                // against the inline vectors in the same memory-mapped file. Reranking from the
+                // graph rather than from createCachingVectorValues() also avoids a parentMap.get()
+                // - and, in embedded mode, a vectorizer.vectorize() - per reranked candidate. The
+                // accept bits already exclude every ordinal deleted or updated since the graph was
+                // written, so for every surviving candidate the on-disk vector IS the live vector.
+                final SearchScoreProvider diskProvider =
+                    this.diskScoreProvider(diskSearcher, query, vsf, scoreProvider);
+
+                diskResult = diskSearcher.search(diskProvider, rerankK, rerankK, 0f, 0f, acceptBits);
             }
 
             // 2. Search in-memory graph (new mutations only)
@@ -2684,6 +2760,34 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                             return;
                         }
 
+                        // Train the PQ codebook before capturing the manager for Phase 2:
+                        // DiskIndexManager.writeIndex takes the FusedPQ branch only if the manager
+                        // is trained AND holds a codebook, so without this the configured
+                        // enablePqCompression(true) never produced a compressed graph.
+                        //
+                        // Here, not in Phase 2: collectTrainingVectors() iterates the parent map, so
+                        // it needs the parentMap monitor. The cost is acceptable in this spot -
+                        // exitIncrementalMode() above runs a full O(n) graph rebuild under this very
+                        // monitor - and after the first qualifying persist this is a no-op forever,
+                        // because later sessions recover the codebook from the graph header instead
+                        // of retraining.
+                        //
+                        // A training failure must not fail the persist: the graph is still perfectly
+                        // writable uncompressed, and losing the index entirely would be far worse
+                        // than losing compression.
+                        if(this.pqManager != null)
+                        {
+                            try
+                            {
+                                this.pqManager.trainIfNeeded();
+                            }
+                            catch(final RuntimeException e)
+                            {
+                                LOG.warn("PQ training failed for '{}', writing an uncompressed graph: {}",
+                                    this.name, e.getMessage());
+                            }
+                        }
+
                         // Capture references for use outside the synchronized block.
                         // The parentMap monitor is released before cleanup and disk write
                         // so that worker threads (ForkJoinPool in cleanup, disk writer)
@@ -2852,10 +2956,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             if(this.diskManager.tryLoad(writtenMeta))
             {
-                if(this.pqManager != null)
-                {
-                    this.pqManager.markTrained();
-                }
+                this.adoptPqFromLoadedGraph();
 
                 // Reset in-memory builder to empty (all data is now on disk)
                 if(this.builder != null)
@@ -2893,15 +2994,40 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         @Override
-        public void trainCompressionIfNeeded()
+        public boolean isPqCompressionActive()
         {
-            if(this.pqManager != null)
+            final PQCompressionManager pqManager = this.pqManager;
+            return pqManager != null && pqManager.isTrained();
+        }
+
+        /**
+         * Syncs the PQ manager with the codebook actually embedded in the freshly loaded disk graph.
+         * <p>
+         * Called after every successful {@code tryLoad}. Passing {@code null} through is the point:
+         * it resets the manager to untrained so the next persist trains and writes a compressed
+         * graph, instead of the manager reporting itself trained while holding no codebook - the
+         * state in which {@link DiskIndexManager#writeIndex} silently writes uncompressed forever.
+         * <p>
+         * Must be called under {@code builderLock.writeLock()}, which both call sites hold.
+         */
+        private void adoptPqFromLoadedGraph()
+        {
+            if(this.pqManager == null)
             {
-                synchronized(this.parentMap())
-                {
-                    this.ensureIndexInitialized();
-                    this.pqManager.trainIfNeeded();
-                }
+                return;
+            }
+
+            final ProductQuantization loadedPq = this.diskManager.loadedProductQuantization();
+            this.pqManager.adoptTrainedPQ(loadedPq);
+
+            if(loadedPq != null)
+            {
+                LOG.debug("Recovered FusedPQ codebook from the disk graph for '{}'", this.name);
+            }
+            else
+            {
+                LOG.debug("Disk graph for '{}' carries no FusedPQ; PQ will be trained on the next persist",
+                    this.name);
             }
         }
 

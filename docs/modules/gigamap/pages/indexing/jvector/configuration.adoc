@@ -140,11 +140,11 @@ For datasets that exceed available memory, enable on-disk storage to use memory-
 
 |`enablePqCompression`
 |`false`
-|Enable Product Quantization compression.
+|Enable Product Quantization. Speeds up traversal of a large on-disk index, at the cost of a larger graph file.
 
 |`pqSubspaces`
 |`0`
-|Number of PQ subspaces (0 = auto: dimension/4).
+|Number of PQ subspaces (0 = auto: dimension/4). Costs `pqSubspaces * maxDegree` bytes per node, so prefer a smaller value than classic PQ guidance suggests.
 
 |`parallelOnDiskWrite`
 |`false`

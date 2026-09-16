@@ -4,7 +4,7 @@ This section covers advanced usage patterns for production deployments.
 
 == On-Disk Index with Compression
 
-For large datasets that exceed available memory, combine on-disk storage with Product Quantization (PQ) compression.
+For large on-disk datasets where search latency matters, combine on-disk storage with Product Quantization (PQ) compression.
 
 [source, java]
 ----
@@ -16,13 +16,13 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     // On-disk storage
     .onDisk(true)
     .indexDirectory(Path.of("/data/vectors"))
-    // PQ compression (reduces memory significantly)
+    // PQ compression (speeds up graph traversal)
     .enablePqCompression(true)
     .pqSubspaces(48)  // Must divide dimension evenly
     .build();
 ----
 
-NOTE: PQ compression automatically enforces `maxDegree=32` due to the FusedPQ algorithm constraint.
+IMPORTANT: PQ compression makes the on-disk index *larger*, not smaller. It is a speed optimisation. See <<_what_pq_compression_costs_and_buys>> before enabling it.
 
 === How the On-Disk Index Works
 
@@ -43,7 +43,7 @@ On startup, the index first checks whether valid graph and metadata files exist.
 
 If the metadata does not match (e.g., because new entities were added while the application was offline, or the configuration changed), the on-disk files are ignored and the graph is rebuilt in-memory from the stored vectors.
 
-NOTE: The on-disk graph file format is at version 2. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors -- no data loss, but expect a one-time cold-start cost on the first restart after upgrade.
+NOTE: The on-disk graph file format is at version 4. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors -- no data loss, but expect a one-time cold-start cost on the first restart after upgrade.
 
 ==== Memory-Mapped Access
 
@@ -55,30 +55,58 @@ The on-disk graph is accessed through memory mapping the graph file. The operati
 
 === Product Quantization (PQ) Compression
 
-Product Quantization is a lossy vector compression technique that drastically reduces the memory footprint of stored vectors while maintaining reasonable search accuracy.
+Product Quantization is a lossy vector compression technique. Here it is used to make graph traversal cheaper, not to shrink the index.
 
 ==== The Core Idea
 
-A raw float vector of dimension _D_ requires _D * 4_ bytes of storage. For a 768-dimensional embedding, that is 3,072 bytes per vector. At scale (e.g., 10 million vectors), this alone consumes roughly 30 GB of memory -- just for the vectors.
+A raw float vector of dimension _D_ requires _D * 4_ bytes. For a 768-dimensional embedding, that is 3,072 bytes per vector. Scoring a candidate during traversal therefore means reading 3 KB and computing a 768-element similarity.
 
-PQ reduces this by splitting each vector into _M_ subspaces (contiguous slices) and independently quantizing each subspace using a codebook of 256 centroids (cluster centers). Since 256 values fit in a single byte (2^8 = 256), each subspace is encoded as one byte. A full vector is thus compressed from _D * 4_ bytes down to _M_ bytes.
+PQ shrinks the *scoring* representation by splitting each vector into _M_ subspaces (contiguous slices) and independently quantizing each subspace using a codebook of 256 centroids (cluster centers). Since 256 values fit in a single byte (2^8 = 256), each subspace is encoded as one byte, so a vector is represented by _M_ bytes for scoring purposes.
 
 **Example:** A 768-dimensional vector with `pqSubspaces=48`:
 
 * Each subspace covers 768 / 48 = 16 dimensions.
 * Each subspace is encoded as 1 byte (index into its 256-entry codebook).
-* Compressed size: 48 bytes per vector (vs. 3,072 bytes raw) -- a **64x reduction**.
+* Scoring representation: 48 bytes per vector, vs. 3,072 bytes raw.
+
+[[_what_pq_compression_costs_and_buys]]
+==== What PQ Compression Costs and Buys
+
+The compressed codes are stored *in addition to* the full-precision vectors, not instead of them -- the exact vectors are still needed for reranking. Worse, FusedPQ stores the codes of every one of a node's neighbours inside that node's own block, so each code is duplicated `maxDegree` times.
+
+A node therefore costs `dimension * 4` bytes (inline vector) `+ pqSubspaces * maxDegree` bytes (fused codes), against `dimension * 4` with PQ disabled. At `dimension=768`, `maxDegree=32`:
+
+[options="header",cols="2,1,1"]
+|===
+|Configuration |Bytes per node |1M vectors
+
+|PQ disabled
+|~3,208
+|~3.2 GB
+
+|PQ, `pqSubspaces=48`
+|~4,744
+|~4.7 GB
+
+|PQ, `pqSubspaces=192` (the `dimension/4` default)
+|~9,352
+|~9.4 GB
+|===
+
+**What you get in return** is far less I/O per query. Without PQ, every hop scores its candidates by issuing one random read of a full vector each. With FusedPQ, a single sequential read of the node's fused block scores all of its neighbours at once, using SIMD table lookups instead of full-precision arithmetic. On a memory-mapped index whose working set exceeds RAM, that is the difference between one page fault per candidate and one per node.
+
+Enable PQ when query latency on a large on-disk index matters. Do not enable it to save disk space -- it does the opposite.
 
 ==== Training the Codebook
 
-Before vectors can be compressed, PQ must learn the codebooks by clustering the training data. This happens automatically when the index is persisted to disk for the first time (provided at least 256 vectors exist). The training process:
+Before vectors can be compressed, PQ must learn the codebooks by clustering the training data. This happens automatically when the index is persisted to disk, on the first persist at which at least 256 vectors exist. Below that threshold the graph is written uncompressed and training is retried on a later persist. The training process:
 
-1. Collects all stored vectors.
+1. Collects all stored vectors (entities without an embedding are skipped).
 2. Splits each vector into _M_ subspaces.
 3. Runs k-means clustering (k=256) independently on each subspace, producing 256 centroids per subspace.
 4. Encodes every vector by replacing each subspace with the index of its nearest centroid.
 
-The resulting codebook and compressed codes are stored alongside the graph.
+The codebook is written into the `.graph` header and recovered on every subsequent load, so it is trained exactly once for the life of that on-disk index. Re-training would produce a different codebook, which would not match the codes already fused into the graph.
 
 ==== Approximate Distance Computation
 
@@ -98,44 +126,77 @@ The on-disk graph file thus contains three types of data per node:
 * **Inline vectors** -- The full-precision float vectors, used for exact reranking.
 * **FusedPQ codes** -- The PQ-compressed representations of the node's neighbors, used for fast approximate scoring during traversal.
 
-The FusedPQ implementation requires exactly `maxDegree=32`. This is a fixed constraint of the algorithm's internal layout, which is why enabling PQ compression automatically enforces this value.
+FusedPQ places no constraint on `maxDegree`. The degree is recorded in the graph header, so the reader sizes each fused block from the file itself. Because a node's fused block holds `maxDegree` codes, however, `maxDegree` is what multiplies the storage and per-hop read cost of PQ.
 
 === Two-Phase Search with Reranking
 
 When PQ compression is active, searches use a **two-phase approach** to balance speed and accuracy:
 
-**Phase 1 -- Approximate candidate retrieval:** The HNSW graph is traversed using the FusedPQ-compressed vectors for fast approximate distance computation. This phase fetches `max(2 * k, minSearchBeamWidth)` candidates — at least twice the requested result count to absorb quantization error, and never less than the configured search beam width (see xref:indexing/jvector/configuration.adoc#_basic_hnsw_parameters[`minSearchBeamWidth`]) so the top-k stays stable across different `k` values. The per-query `search(query, k, searchBeamWidth)` overload raises this floor for a single call when higher recall is needed.
+**Phase 1 -- Approximate candidate retrieval:** The HNSW graph is traversed using the FusedPQ-compressed codes for fast approximate distance computation. This phase fetches `max(k, minSearchBeamWidth)` candidates -- never less than the configured search beam width (see xref:indexing/jvector/configuration.adoc#_basic_hnsw_parameters[`minSearchBeamWidth`]) so the top-k stays stable across different `k` values. The per-query `search(query, k, searchBeamWidth)` overload raises this floor for a single call when higher recall is needed.
 
 **Phase 2 -- Exact reranking:** The approximate candidates are then re-scored using the full-precision inline vectors stored in the graph file. The exact scores are sorted and the best _k_ results are returned.
 
-This two-phase approach achieves nearly the same recall as an uncompressed search while benefiting from the speed and memory advantages of PQ during graph traversal.
+This two-phase approach achieves nearly the same recall as an uncompressed search while making each traversal hop much cheaper.
 
 === Choosing PQ Subspaces
 
-The `pqSubspaces` parameter (often called _M_ in PQ literature) controls the compression ratio and accuracy trade-off:
+The `pqSubspaces` parameter (often called _M_ in PQ literature) controls the accuracy/cost trade-off. Under FusedPQ each node stores `maxDegree` codes, so the per-node cost is `pqSubspaces * maxDegree` bytes -- the figures below assume `maxDegree=32`:
 
 [options="header",cols="1,1,2"]
 |===
-|Subspaces |Bytes per Vector |Characteristics
+|Subspaces |Fused bytes per node |Characteristics
 
 |`dimension / 2` (e.g., 384 for dim=768)
-|384 bytes
-|Highest accuracy, least compression
+|12,288 bytes
+|Highest approximate accuracy, but each hop reads more than the full vectors it replaces -- rarely worth it
 
 |`dimension / 4` (e.g., 192 for dim=768)
-|192 bytes
-|Good balance of accuracy and compression (recommended starting point)
+|6,144 bytes
+|The auto default. Still twice the size of an inline vector per hop; prefer a smaller _M_ unless recall demands it
 
 |`dimension / 8` (e.g., 96 for dim=768)
-|96 bytes
-|More aggressive compression, some accuracy loss
+|3,072 bytes
+|Break-even against the inline vector, with mild accuracy loss
 
 |`dimension / 16` (e.g., 48 for dim=768)
-|48 bytes
-|Maximum compression, noticeable accuracy loss
+|1,536 bytes
+|Cheapest hops, but needs a wider `minSearchBeamWidth` to hold recall
 |===
 
 The dimension must be evenly divisible by the number of subspaces. If `pqSubspaces` is set to 0, it defaults to `dimension / 4`.
+
+==== Subspaces, Beam Width and Recall
+
+Lowering _M_ does not come for free, and the exact rerank does **not** compensate for it: reranking only reorders the candidates traversal already found, so candidates that lossy scoring never reached are lost for good. What recovers them is a wider search beam.
+
+Measured recall@10 over 2,000 clustered vectors at `dimension=256`, `maxDegree=32` (exact search scores 0.976 for reference):
+
+[options="header",cols="1,1,1,1,1"]
+|===
+|Subspaces |beam 100 |beam 200 |beam 400 |beam 800
+
+|`dimension / 16` (16)
+|0.74
+|0.89
+|0.98
+|1.00
+
+|`dimension / 8` (32)
+|0.94
+|0.99
+|1.00
+|1.00
+
+|`dimension / 4` (64, the default)
+|0.97
+|1.00
+|1.00
+|1.00
+|===
+
+At the default `minSearchBeamWidth` of 100, recall tracks _M_ closely, and the `dimension / 4` default is the safe choice -- it is within noise of exact search. Going lower is worthwhile, but only together with a larger xref:indexing/jvector/configuration.adoc#_basic_hnsw_parameters[`minSearchBeamWidth`]: `dimension / 16` at beam 400 reaches 0.98 recall while its fused block is a quarter the size of `dimension / 4`, so it is both smaller and more accurate than the default at beam 100. Spending PQ's cheaper hops on a wider beam is the trade the feature is built for.
+
+Tune with a measured recall figure for your own data; these numbers come from synthetic clustered vectors and are indicative, not a guarantee.
 
 === Parallel On-Disk Writes
 

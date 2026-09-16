@@ -9,36 +9,31 @@ package org.eclipse.store.gigamap.jvector;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
-import io.github.jbellis.jvector.graph.GraphSearcher;
-import io.github.jbellis.jvector.graph.RandomAccessVectorValues;
-import io.github.jbellis.jvector.graph.SearchResult;
-import io.github.jbellis.jvector.graph.similarity.DefaultSearchScoreProvider;
-import io.github.jbellis.jvector.graph.similarity.SearchScoreProvider;
-import io.github.jbellis.jvector.quantization.CompressedVectors;
 import io.github.jbellis.jvector.quantization.ProductQuantization;
-import io.github.jbellis.jvector.util.Bits;
-import io.github.jbellis.jvector.vector.VectorSimilarityFunction;
 import io.github.jbellis.jvector.vector.types.VectorFloat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Manages Product Quantization (PQ) compression for a VectorIndex.
+ * Owns the Product Quantization (PQ) codebook of a {@link VectorIndex}.
  * <p>
- * This manager handles:
- * <ul>
- *   <li>PQ codebook training from sampled vectors</li>
- *   <li>Vector compression using trained PQ</li>
- *   <li>Search with PQ-compressed scoring and exact reranking</li>
- * </ul>
+ * This manager is deliberately narrow: it trains a codebook, or adopts one recovered from an
+ * on-disk graph, and hands it to {@link DiskIndexManager#writeIndex} so the graph can be written
+ * with a {@code FusedPQ} feature. It takes no part in searching - a PQ-compressed graph is
+ * self-describing, so the query path builds its score functions from the loaded graph's own view
+ * rather than from any state held here.
+ * <p>
+ * The codebook is trained once, on the first persist that has enough vectors, and reused for the
+ * lifetime of the on-disk index: subsequent sessions recover it from the {@code .graph} header.
+ * Re-training on data drift is out of scope - a new codebook would not match the codes already
+ * fused into the graph.
  */
 interface PQCompressionManager
 {
@@ -48,64 +43,39 @@ interface PQCompressionManager
     final static int MIN_VECTORS_FOR_PQ_TRAINING = 256;
 
     /**
-     * Rerank multiplier - how many extra candidates to fetch for reranking.
-     */
-    final static int PQ_RERANK_MULTIPLIER = 2;
-
-    /**
-     * Returns whether PQ has been trained.
+     * Returns whether a codebook is available, whether trained here or adopted from disk.
      *
-     * @return true if trained
+     * @return true if a codebook is held
      */
     public boolean isTrained();
 
     /**
-     * Returns the trained ProductQuantization, or null if not trained.
+     * Returns the codebook, or null if none is held.
      *
      * @return the PQ instance
      */
     public ProductQuantization getPQ();
 
     /**
-     * Returns the compressed vectors, or null if not trained.
-     *
-     * @return the compressed vectors
-     */
-    public CompressedVectors getCompressedVectors();
-
-    /**
-     * Trains PQ if compression is enabled and sufficient vectors exist.
-     * Does nothing if already trained or insufficient vectors.
+     * Trains a codebook if none is held yet and sufficient vectors exist.
+     * Does nothing if already trained or if there are fewer than
+     * {@link #MIN_VECTORS_FOR_PQ_TRAINING} vectors.
      */
     public void trainIfNeeded();
 
     /**
-     * Searches using PQ-compressed vectors with reranking.
+     * Adopts the codebook recovered from a loaded on-disk graph.
+     * <p>
+     * A {@code null} argument means the loaded graph carries no {@code FusedPQ} feature and resets
+     * this manager to untrained, so the next {@link #trainIfNeeded()} actually trains instead of
+     * short-circuiting forever on a codebook it never had.
      *
-     * @param query              the query vector
-     * @param k                  the number of results to return
-     * @param rerankK            minimum beam width (search effort) for the HNSW search
-     * @param searcher           the graph searcher to use
-     * @param ravv               random access vector values for exact reranking
-     * @param similarityFunction the similarity function to use
-     * @return the search result with reranked nodes
+     * @param pq the codebook embedded in the loaded graph, or {@code null} if it carries none
      */
-    public SearchResult searchWithRerank(
-        VectorFloat<?>           query             ,
-        int                      k                 ,
-        int                      rerankK           ,
-        GraphSearcher            searcher          ,
-        RandomAccessVectorValues ravv              ,
-        VectorSimilarityFunction similarityFunction
-    );
+    public void adoptTrainedPQ(ProductQuantization pq);
 
     /**
-     * Marks PQ as trained (used when loading from disk where FusedPQ is embedded).
-     */
-    public void markTrained();
-
-    /**
-     * Resets PQ state (clears trained PQ and compressed vectors).
+     * Resets PQ state (clears the codebook).
      */
     public void reset();
 
@@ -143,9 +113,11 @@ interface PQCompressionManager
         private final int            dimension  ;
         private final int            pqSubspaces;
 
-        private ProductQuantization pq               ;
-        private CompressedVectors   compressedVectors;
-        private boolean             pqTrained        ;
+        // Written by the persist path (parentMap monitor + builderLock write lock) and by the load
+        // path (write lock). Volatile rather than synchronized: it publishes the codebook safely
+        // without introducing a second lock into an already lock-dense call chain.
+        private volatile ProductQuantization pq       ;
+        private volatile boolean             pqTrained;
 
         Default(
             final VectorProvider provider   ,
@@ -173,12 +145,6 @@ interface PQCompressionManager
         }
 
         @Override
-        public CompressedVectors getCompressedVectors()
-        {
-            return this.compressedVectors;
-        }
-
-        @Override
         public void trainIfNeeded()
         {
             if(this.pqTrained)
@@ -203,7 +169,12 @@ interface PQCompressionManager
         {
             LOG.info("Training PQ for index '{}'...", this.name);
 
-            // Collect training vectors
+            // The training set is DENSE (iteration order over the real vectors), not the graph
+            // ordinal space, and that is deliberate: the ordinal-spaced RAVV used for the disk write
+            // is wrapped in NullSafeVectorValues, so every deletion hole and null embedding would
+            // feed k-means a 1e-6 placeholder and drag the centroids toward the origin. Ordinal
+            // alignment matters only when encoding, which DiskIndexManager.writeIndexWithFusedPQ
+            // does separately against the ordinal-spaced RAVV.
             final List<VectorFloat<?>> trainingVectors = this.provider.collectTrainingVectors();
 
             if(trainingVectors.isEmpty())
@@ -220,86 +191,38 @@ interface PQCompressionManager
             final ListRandomAccessVectorValues ravv =
                 new ListRandomAccessVectorValues(trainingVectors, this.dimension);
 
-            // Train PQ - use 256 centroids per subspace (standard), center for better accuracy
-            this.pq = ProductQuantization.compute(
+            // Train PQ - 256 centroids per subspace, which is also the only cluster count FusedPQ
+            // accepts; center for better accuracy on low dimensions.
+            final ProductQuantization trained = ProductQuantization.compute(
                 ravv,
                 subspaces,
                 256,   // centroids per subspace (2^8 = 256 is standard)
                 this.dimension < 64 // use global centroid for low dimensions
             );
 
-            // Compress all vectors
-            this.compressedVectors = this.pq.encodeAll(ravv);
+            // Publish the codebook before the flag: isTrained() must never report true without a
+            // codebook, since that is exactly the state in which DiskIndexManager.writeIndex falls
+            // back to an uncompressed write while the index reports itself as compressed.
+            this.pq        = trained;
+            this.pqTrained = true   ;
 
-            this.pqTrained = true;
-            LOG.info("PQ training complete for '{}': {} subspaces, {} vectors compressed",
+            LOG.info("PQ training complete for '{}': {} subspaces, {} training vectors",
                 this.name, subspaces, trainingVectors.size());
         }
 
         @Override
-        public SearchResult searchWithRerank(
-            final VectorFloat<?>           query             ,
-            final int                      k                 ,
-            final int                      rerankK           ,
-            final GraphSearcher            searcher          ,
-            final RandomAccessVectorValues ravv              ,
-            final VectorSimilarityFunction similarityFunction
-        )
+        public void adoptTrainedPQ(final ProductQuantization pq)
         {
-            // Search with PQ for approximate results (fetch more candidates for reranking)
-            final int candidateCount = Math.max(k * PQ_RERANK_MULTIPLIER, rerankK);
-
-            // Use exact vectors for search but rerank with exact vectors
-            final SearchScoreProvider ssp = DefaultSearchScoreProvider.exact(
-                query,
-                similarityFunction,
-                ravv
-            );
-
-            final SearchResult result = searcher.search(ssp, candidateCount, candidateCount, 0f, 0f, Bits.ALL);
-
-            // Rerank with exact vectors to get the best k
-            final List<NodeScoreEntry> reranked = new ArrayList<>();
-
-            for(final SearchResult.NodeScore node : result.getNodes())
-            {
-                final VectorFloat<?> exactVector = ravv.getVector(node.node);
-                if(exactVector != null)
-                {
-                    final float exactScore = similarityFunction.compare(query, exactVector);
-                    reranked.add(new NodeScoreEntry(node.node, exactScore));
-                }
-            }
-
-            // Sort by score descending and take top k
-            reranked.sort((a, b) -> Float.compare(b.score, a.score));
-            final SearchResult.NodeScore[] topK = reranked.stream()
-                .limit(k)
-                .map(e -> new SearchResult.NodeScore(e.node, e.score))
-                .toArray(SearchResult.NodeScore[]::new);
-
-            // Create a SearchResult with the reranked nodes
-            return new SearchResult(topK, result.getVisitedCount(), 0, 0, 0, 0f);
-        }
-
-        @Override
-        public void markTrained()
-        {
-            this.pqTrained = true;
+            this.pq        = pq        ;
+            this.pqTrained = pq != null;
         }
 
         @Override
         public void reset()
         {
-            this.pq = null;
-            this.compressedVectors = null;
+            this.pq        = null ;
             this.pqTrained = false;
         }
-
-        /**
-         * Simple holder for node and score during reranking.
-         */
-        private record NodeScoreEntry(int node, float score) {}
 
     }
 

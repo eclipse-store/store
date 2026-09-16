@@ -243,7 +243,7 @@ List<Customer> lookalikes = behaviorIndex.search(targetCustomer.getBehaviorEmbed
 |Behavioral embeddings from matrix factorization work well with dot product
 
 |PQ compression
-|Customer databases can be very large
+|Customer databases can be very large, and PQ keeps per-hop I/O low
 
 |Compact dimension (128)
 |Behavioral features don't need high dimensionality
@@ -465,7 +465,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |Better index quality for precise matching
 
 |PQ compression
-|Reduces memory for large knowledge bases
+|Faster traversal over large knowledge bases
 
 |Background optimization
 |Maintains query performance as knowledge base grows
@@ -535,7 +535,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |Setting |Rationale
 
 |PQ compression enabled
-|Significantly reduces memory footprint
+|Speeds up traversal on a large on-disk index (at the cost of a larger graph file)
 
 |High change thresholds
 |Reduces I/O overhead for bulk operations
@@ -614,7 +614,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |Standard for normalized image embeddings
 
 |PQ compression
-|Handles large image collections efficiently
+|Keeps queries fast over large image collections
 
 |Moderate maxDegree (32)
 |Good balance for visual similarity

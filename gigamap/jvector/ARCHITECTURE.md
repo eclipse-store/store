@@ -46,7 +46,7 @@ flowchart TB
 
         subgraph Optim["Optimization subsystems"]
             BTM["BackgroundTaskManager<br/>queue + schedulers"]
-            PQM["PQCompressionManager<br/>codebook + rerank"]
+            PQM["PQCompressionManager<br/>codebook owner"]
             DIM["DiskIndexManager<br/>on-disk HNSW"]
         end
 
@@ -136,7 +136,6 @@ classDiagram
         <<interface>>
         +internalAdd / Update / Remove
         +clearStateChangeMarkers()
-        +trainCompressionIfNeeded()
     }
     class VectorIndex_Default~E~ {
         +parent
@@ -363,7 +362,7 @@ sequenceDiagram
         alt files present + 4-check metadata pass
             DIM->>DIM: OnDiskGraphIndex.load(readerSupplier)
             DIM-->>VI: true
-            VI->>VI: pqManager.markTrained() (FusedPQ embedded)
+            VI->>VI: adoptPqFromLoadedGraph() (codebook from FusedPQ header)
             VI->>VI: incrementalMode = true<br/>diskDeletedOrdinals = newKeySet()
         else metadata mismatch / files missing
             DIM-->>VI: false
@@ -463,7 +462,7 @@ sequenceDiagram
     else diskLoaded — no incremental mode
         VI->>Sp: inMemorySearcherPool.get over disk graph
         opt PQ trained
-            VI->>PQM: searchWithRerank query, k, rerankK
+            VI->>VI: diskScoreProvider builds FusedPQ ASF + exact reranker
             PQM->>PQM: HNSW returns k times RERANK_MULTIPLIER candidates
             PQM->>PQM: rescore with exact vectors via NodeScoreEntry
             PQM->>PQM: sort, top k
@@ -645,7 +644,9 @@ Product Quantization (PQ) trades exact distances for memory: each subspace of th
 - Requires ≥ 256 vectors. Below that, log a warning and skip (the index proceeds without compression).
 - `trainPQ()`: `provider.collectTrainingVectors()` → `ListRandomAccessVectorValues` → `ProductQuantization.compute(ravv, subspaces, 256, centerForLowDim)`. The `centerForLowDim` flag is `dimension < 64`. After `compute`, `pq.encodeAll(ravv)` produces the `CompressedVectors`; the manager flips `pqTrained = true`.
 
-Training is **one-shot**. The graph never retrains automatically — calling `reset()` is the only way to re-train. Once on-disk indices embed a `FusedPQ` feature in `.graph`, the PQ is implicitly considered trained on reload (`pqManager.markTrained()` in `reenterIncrementalMode` / load path).
+Training is **one-shot per on-disk index**, not merely per session. `doPersistToDisk` Phase 1 calls `pqManager.trainIfNeeded()` under the `parentMap` monitor (where `collectTrainingVectors()` is safe, and where `exitIncrementalMode()` already does an O(n) rebuild). Every later load calls `adoptPqFromLoadedGraph()`, which recovers the exact codebook from the `.graph` header via `DiskIndexManager.loadedProductQuantization()` → `FusedPQ.getPQ()`. Passing `null` through — the graph carries no `FUSED_PQ` — resets the manager to untrained so the next persist trains for real.
+
+> Historical note: the load path used to call `markTrained()` unconditionally, setting the flag without a codebook. `trainIfNeeded()` then short-circuited forever while the write gate, which also requires `getPQ() != null`, kept falling through to the uncompressed branch. Combined with there being no production caller of training at all, `enablePqCompression(true)` never produced a compressed graph.
 
 ### Subspaces
 
@@ -660,16 +661,42 @@ Default: `max(1, dimension / 4)`. Configurable via `pqSubspaces`; the configurat
 
 This keeps `PQCompressionManager` agnostic of GigaMap details.
 
-### Reranking
+### Search
 
-`searchWithRerank(query, k, rerankK, searcher, ravv, similarity)`:
+`PQCompressionManager` takes no part in searching. A PQ graph is self-describing, so the query path
+reads PQ off the loaded graph rather than off manager state, and therefore needs no happens-before
+edge with the training or persist paths.
 
-1. Ask HNSW for `max(k * PQ_RERANK_MULTIPLIER, rerankK)` approximate candidates.
-2. For each candidate, fetch the **exact** vector from `ravv` (always wrapped by `NullSafeVectorValues`) and compute exact similarity → `NodeScoreEntry(node, score)`.
-3. Sort `NodeScoreEntry` array by score descending, truncate to top-k.
-4. Return as `SearchResult.NodeScore[]`.
+`VectorIndex.Default.diskScoreProvider(searcher, query, vsf, exactFallback)` gates on
+`diskIndex.getFeatureSet().contains(FeatureId.FUSED_PQ)` and returns
 
-The `PQ_RERANK_MULTIPLIER` constant controls the fan-out: larger means better recall but more exact-similarity work.
+```java
+new DefaultSearchScoreProvider(
+    view.approximateScoreFunctionFor(query, vsf),  // FusedPQ traversal
+    view.rerankerFor(query, vsf)                   // exact, from INLINE_VECTORS
+)
+```
+
+falling back to `DefaultSearchScoreProvider.exact(...)` otherwise. Two constraints:
+
+- The view **must** be `searcher.getView()`. `FusedPQDecoder.enableSimilarityToNeighbors` populates
+  that view's neighbor scratch as a side effect of reading the packed codes, and
+  `View.processNeighbors` then reads exactly those arrays, so a foreign view silently scores the
+  wrong node's neighbors. Correspondingly, `setView(...)` is never called on the disk searcher.
+- `rerankerFor` is not thread-safe. It is built fresh per query over a thread-confined
+  `ExplicitThreadLocal<GraphSearcher>` and its view, which satisfies that.
+
+There is also a hierarchy guard: `FusedPQDecoder.similarityTo(node)`, used for the entry node and
+every hop above level 0, requires the node to be in the view's level-1 inline-source cache, which
+`OnDiskGraphIndex` populates only for a hierarchical graph. `diskScoreProvider` checks
+`isHierarchical()` before taking the PQ path.
+
+> Historical note: this used to be `PQCompressionManager.searchWithRerank`, which
+> advertised PQ scoring but built `DefaultSearchScoreProvider.exact(...)` and reranked exactly. It
+> read neither `pq` nor `compressedVectors`. Its only caller, `searchDiskIndex`, was itself
+> unreachable, because every successful `tryLoad` sets `incrementalMode = true` while
+> `exitIncrementalMode()` nulls `diskManager` before clearing the flag. The path that actually ran,
+> `searchIncremental`, had no PQ logic at all.
 
 ### `FusedPQ` feature on disk
 
@@ -678,11 +705,13 @@ When PQ is trained at persist time, `DiskIndexManager.writeIndexWithFusedPQ` emb
 - `InlineVectors` — full-precision vectors stored inline, used for exact reranking on disk loads.
 - `FusedPQ` — the codebook + per-node compressed code, used for fast candidate scoring.
 
-`FusedPQ` requires `maxDegree=32`. The configuration builder enforces this by silently overriding when PQ is enabled.
+`FusedPQ` imposes **no** constraint on `maxDegree` - its only precondition is a 256-cluster codebook - and it records the degree in the graph header, so `FusedPQ.load` sizes the fused block from the file itself. `writeIndexWithFusedPQ` therefore passes `index.getDegree(0)` rather than the configured `maxDegree`, making writer/reader agreement structural. The builder used to rewrite `maxDegree` to 32 here, a leftover from JVector 3's `FusedADC`; since nothing else about the flag worked, doubling the graph out-degree was its only observable effect.
+
+**Space cost.** Both write paths emit `InlineVectors` (`dimension * 4` bytes/node). PQ *adds* `FusedPQ` at `pqSubspaces * maxDegree` bytes/node, because each node's block carries the codes of all its neighbors. The graph therefore gets **larger** - by ~48% at `dimension=768, pqSubspaces=48, maxDegree=32`, and ~191% at the `dimension/4` default. FusedPQ buys per-hop I/O and cache locality, not disk space.
 
 ### Failure mode
 
-If `trainIfNeeded()` throws (training data degenerate, dimension mismatch, etc.), the exception is logged and `pqTrained` stays `false`. The next `writeIndex()` then falls back to the simple non-compressed path: `OnDiskGraphIndex.write(index, ravv, graphPath)`.
+If `trainIfNeeded()` throws (training data degenerate, dimension mismatch, etc.), `doPersistToDisk` catches the `RuntimeException`, logs it and continues: `pqTrained` stays `false` and `writeIndex` falls back to `OnDiskGraphIndex.write(index, ravv, identityOrdinalMap(index), graphPath)`. Losing compression is strictly better than losing the persist.
 
 ---
 
@@ -693,11 +722,12 @@ If `trainIfNeeded()` throws (training data degenerate, dimension mismatch, etc.)
 Two files per index, named after `VectorIndex.Default.name`:
 
 - `{name}.graph` — JVector's `OnDiskGraphIndex` payload. Contains the HNSW edges plus optional features (`InlineVectors`, `FusedPQ`). Sized in megabytes for millions of vectors.
-- `{name}.meta` — 24-byte sidecar:
-  - `int` format version (currently `2`, see [`DiskIndexManager.java:66`](src/main/java/org/eclipse/store/gigamap/jvector/DiskIndexManager.java))
+- `{name}.meta` — 32-byte sidecar:
+  - `int` format version (currently `4`, see [`DiskIndexManager.java`](src/main/java/org/eclipse/store/gigamap/jvector/DiskIndexManager.java))
   - `int` dimension
   - `long` `expectedVectorCount`
   - `long` `highestEntityId` (added in v2)
+  - `long` `structuralModCount` (added in v3)
 
 ### Format version history
 
@@ -705,6 +735,8 @@ Two files per index, named after `VectorIndex.Default.name`:
 |---|---|---|
 | 1 | version, dim, count | Vulnerable to balanced add/remove corruption (see below). |
 | 2 | + `highestEntityId` | Commit `3b7b01bc`. GigaMap allocates entity ids monotonically, so this catches add/remove pairs that leave the count unchanged. |
+| 3 | + `structuralModCount` | Catches a vec<->null transition that left count and highestId unchanged. |
+| 4 | (no new fields) | `enablePqCompression` finally writes a FusedPQ graph. Graphs written earlier with the flag set are uncompressed despite it, and an index that loads clean and is never mutated never persists again -- so the bump forces one rebuild rather than letting them sit uncompressed forever. |
 
 Bumping the version invalidates existing files; they are silently rebuilt from `vectorStore` (or the parent map for embedded mode) on first load — no data loss, one-time cold-start cost.
 
@@ -713,7 +745,7 @@ Bumping the version invalidates existing files; they are silently rebuilt from `
 `DiskIndexManager.writeIndex(index, ravv, pqManager, metaState)`:
 
 1. `Files.createDirectories(indexDirectory)`.
-2. If `pqManager != null && pqManager.isTrained() && pqManager.getPQ() != null` → `writeIndexWithFusedPQ` (parallel or sequential depending on `parallelOnDiskWrite`).
+2. If `pqManager != null && pqManager.isTrained() && pqManager.getPQ() != null` → `writeIndexWithFusedPQ` (parallel or sequential depending on `parallelOnDiskWrite`). The codebook is trained in persist Phase 1, so this branch is reachable from production — previously nothing trained it and the `else` was always taken.
 3. Otherwise → `OnDiskGraphIndex.write(index, ravv, identityOrdinalMap(index), graphPath)` (simple, no compression; identity map keeps on-disk node ids equal to graph ordinals).
 4. `writeMetadata(metaPath, metaState)` — stamps the `expectedVectorCount`, `highestEntityId`, and `structuralModCount` **captured in persist Phase 1** (the `DiskIndexManager.MetaState` sampled under the `parentMap` monitor next to `capturedIndex`), NOT re-read live from the `IndexStateProvider` — Phase 2 runs with the monitor released, so a live read could let a concurrent vec↔null mutation advance the witnesses past the written graph and reopen the crash-restart hole. The `.meta` layout is: `int version`, `int dimension`, `long expectedVectorCount`, `long highestEntityId`, `long structuralModCount` (version 3). On load, `verifyMetadata` (which still reads the `IndexStateProvider` live — it compares the persisted witness against the freshly-loaded store state) rejects the disk graph — forcing a rebuild from source — if any of these diverges; `structuralModCount` is what catches a vec↔null transition that left count/highestId unchanged.
 
@@ -774,7 +806,7 @@ Subtlety: `persistToDisk()` short-circuits via `isIncrementalClean()` when there
 
 | Mechanism | Type | Held by | Protects |
 |---|---|---|---|
-| `parentMap` monitor | intrinsic `synchronized` | GigaMap mutations; `optimize`/`persist` Phase 1; `trainCompressionIfNeeded` | Serialization of GigaMap mutations and barrier for index orchestration. |
+| `parentMap` monitor | intrinsic `synchronized` | GigaMap mutations; `optimize`/`persist` Phase 1 (which now also runs PQ training) | Serialization of GigaMap mutations and barrier for index orchestration. |
 | `builderLock` | `ReentrantReadWriteLock` | Read = search + background-applied mutations; Write = optimize, persist, removeAll, close | Exclusive access to the in-memory `GraphIndexBuilder`. |
 | `cleanupInProgress` | `volatile boolean` | Set by `optimize`/`persist`; read by sync-mutation paths | Defer-trigger: tells synchronous mutations to enqueue into `deferredBuilderOps` instead of touching the builder. **Not a lock.** |
 | `incrementalMode` | `volatile boolean` | Written under `builderLock.writeLock()`; read everywhere | Search-path mode flag. Always written **after** `diskDeletedOrdinals` is initialized (safe publication). |
@@ -905,7 +937,7 @@ sequenceDiagram
                 DIM->>FS: ReaderSupplierFactory.open(graph)
                 DIM->>DIM: OnDiskGraphIndex.load
                 DIM-->>VI: true
-                VI->>VI: pqManager.markTrained() if PQ enabled
+                VI->>VI: adoptPqFromLoadedGraph() if PQ enabled
                 VI->>VI: incrementalMode=true<br/>diskDeletedOrdinals=newKeySet()
             end
         end
