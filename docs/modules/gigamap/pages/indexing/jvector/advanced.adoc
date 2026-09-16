@@ -169,7 +169,7 @@ The dimension must be evenly divisible by the number of subspaces. If `pqSubspac
 
 Lowering _M_ does not come for free, and the exact rerank does **not** compensate for it: reranking only reorders the candidates traversal already found, so candidates that lossy scoring never reached are lost for good. What recovers them is a wider search beam.
 
-Measured recall@10 over 2,000 clustered vectors at `dimension=256`, `maxDegree=32` (exact search scores 0.976 for reference):
+The figures below come from a one-off benchmark, not from the test suite: 2,000 synthetic clustered vectors at `dimension=256`, `maxDegree=32`, 50 queries scored against brute-force ground truth, with exact search reaching 0.976 for reference. The suite's own `testPqCompressionRecallStaysHigh` pins a floor at `dimension=64` with `pqSubspaces=dimension/4`; it is a regression guard, not the source of this table.
 
 [options="header",cols="1,1,1,1,1"]
 |===

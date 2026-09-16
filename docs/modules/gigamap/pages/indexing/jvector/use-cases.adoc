@@ -516,7 +516,7 @@ For datasets with millions of vectors where memory efficiency is critical.
 VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .dimension(768)
     .similarityFunction(VectorSimilarityFunction.COSINE)
-    .maxDegree(32)                        // Required for PQ
+    .maxDegree(32)                        // Higher recall; also sets the fused block size
     .beamWidth(200)
     .onDisk(true)
     .indexDirectory(Path.of("/data/large-scale"))

@@ -928,6 +928,78 @@ class VectorIndexDiskTest
     }
 
     /**
+     * FusedPQ at a degree other than 32.
+     * <p>
+     * The writer takes the fused block size from {@code index.getDegree(0)} while the reader takes
+     * it from the graph header, so a mismatch would corrupt every approximate score. Every other PQ
+     * test runs at 32 - the value the builder used to force - so without this case the newly
+     * supported degrees would go untested and a mismatch would surface only as quietly wrong
+     * results.
+     */
+    @Test
+    void testPqCompressionWithNonDefaultMaxDegree(@TempDir final Path tempDir) throws IOException
+    {
+        final int vectorCount = 500;
+        final int dimension   = 64;
+        final int maxDegree   = 16;
+        final Random random   = new Random(31);
+
+        final Path indexDir = tempDir.resolve("index");
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(maxDegree)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .enablePqCompression(true)
+            .pqSubspaces(16)
+            .build();
+
+        assertEquals(maxDegree, config.maxDegree(), "PQ must not rewrite maxDegree");
+
+        final float[] queryVector = randomVector(new Random(99), dimension);
+        final List<Long> beforeIds = new ArrayList<>();
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", config, new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
+            index.persistToDisk();
+
+            assertTrue(index.isPqCompressionActive());
+
+            for(final ScoredSearchResult.Entry<Document> entry : index.search(queryVector, 10))
+            {
+                beforeIds.add(entry.entityId());
+            }
+            assertEquals(10, beforeIds.size());
+        }
+
+        assertTrue(graphFeatures(indexDir.resolve("embeddings.graph")).contains(FeatureId.FUSED_PQ),
+            "a non-32 maxDegree must still produce a FusedPQ graph");
+
+        // Reload through a fresh index over the same files: the reader sizes the fused block from
+        // the header, so a writer/reader degree mismatch would show up as garbage scores here.
+        final GigaMap<Document> reloadedMap = GigaMap.New();
+        try(final VectorIndex<Document> reloaded = reloadedMap.index().register(VectorIndices.Category())
+            .add("embeddings", config, new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(reloadedMap, new Random(31), dimension, vectorCount, "doc_");
+
+            final List<Long> afterIds = new ArrayList<>();
+            for(final ScoredSearchResult.Entry<Document> entry : reloaded.search(queryVector, 10))
+            {
+                afterIds.add(entry.entityId());
+            }
+
+            assertEquals(beforeIds, afterIds,
+                "search over the reloaded non-32-degree FusedPQ graph must match the pre-reload result");
+        }
+    }
+
+    /**
      * PQ is a speed optimisation, not a space one: FusedPQ stores the compressed codes of every
      * neighbour inside each node's block, on top of the full-precision inline vectors that both
      * layouts write. The graph therefore gets bigger, by roughly {@code pqSubspaces * maxDegree}
@@ -1127,6 +1199,11 @@ class VectorIndexDiskTest
         );
 
         addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
+
+        // Persist so the runtime dimension/4 default is actually exercised: without this the
+        // test only proves the builder stored a zero.
+        index.persistToDisk();
+        assertTrue(index.isPqCompressionActive());
 
         final float[] queryVector = randomVector(random, dimension);
         final VectorSearchResult<Document> result = index.search(queryVector, 10);

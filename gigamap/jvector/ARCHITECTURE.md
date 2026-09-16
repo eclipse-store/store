@@ -98,7 +98,7 @@ flowchart TB
 | `ListRandomAccessVectorValues` | no | single-threaded use | Training-only adapter over `List<VectorFloat<?>>`. |
 | `NullSafeVectorValues` | no | thread-safe (idempotent placeholder init) | Wrapper that returns a `1e-6f`-filled placeholder vector for null ordinals. |
 | `BackgroundTaskManager` (+ `IndexingOperation` family, `Callback`) | no | lock-free queue + single daemon executor | Queue-driven indexing, scheduled optimization, scheduled persistence. |
-| `PQCompressionManager` (+ `Default`, `VectorProvider`) | no | callable from executor thread; not re-entrant during training | Trains PQ codebook once; reranks search candidates with exact vectors. |
+| `PQCompressionManager` (+ `Default`, `VectorProvider`) | fields are `volatile` | callable from executor thread; not re-entrant during training | Owns the PQ codebook: trains it once, or adopts the one embedded in a loaded graph. Takes no part in searching. |
 | `DiskIndexManager` (+ `Default`, `IndexStateProvider`) | no | not thread-safe; protected by `builderLock.writeLock()` | Loads/writes `*.graph` + `*.meta` files via JVector's `OnDiskGraphIndex` and `ReaderSupplier`. |
 | `BinaryHandlerVectorIndexDefault` | — | stateless | EclipseStore binary handler for `VectorIndex.Default`. 40-byte payload, 5 references. |
 | `BinaryHandlerVectorIndicesDefault` | — | stateless | EclipseStore binary handler for `VectorIndices.Default`. 16-byte payload, 2 references; eager-stores the `vectorIndices` table. |
@@ -311,7 +311,7 @@ Empty-instance creation: `new VectorIndex.Default<>()`. After `updateState` patc
 | `vectorTypeSupport` | no | Looked up from JVector. |
 | `builder`, `index` | no | In-memory HNSW graph. Rebuilt from `vectorStore` (or fully empty in incremental mode). |
 | `diskManager` | no | Recreated; loads from disk if files exist. |
-| `pqManager` | no | Recreated; treated as trained if FusedPQ is embedded in `.graph`. |
+| `pqManager` | no | Recreated; adopts the codebook from the loaded `.graph` when it carries `FUSED_PQ`, otherwise reset to untrained so the next persist trains. |
 | `backgroundTaskManager` | no | Recreated only if eventual indexing or any background feature is enabled. |
 | `builderLock` | no | Fresh `ReentrantReadWriteLock`. |
 | `incrementalMode`, `diskDeletedOrdinals`, `cleanupInProgress`, `deferredBuilderOps` | no | All concurrency-control state. Reset on every load. |

@@ -45,10 +45,12 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Consumer;
 import java.util.stream.IntStream;
 
 import static org.eclipse.serializer.math.XMath.positive;
@@ -148,7 +150,7 @@ import static org.eclipse.serializer.math.XMath.positive;
  *     .similarityFunction(VectorSimilarityFunction.COSINE)
  *     .onDisk(true)
  *     .indexDirectory(Path.of("/data/vectors"))
- *     .enablePqCompression(true)     // Optional: reduce memory with Product Quantization
+ *     .enablePqCompression(true)     // Optional: faster traversal, larger graph file
  *     .pqSubspaces(48)               // Must divide dimension evenly
  *     .build();
  * }</pre>
@@ -764,6 +766,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                DiskIndexManager.IndexStateProvider
     {
         private static final Logger LOG = LoggerFactory.getLogger(Default.class);
+
+        /**
+         * Fixed seed for the PQ training-set reservoir sample, so that training the same data twice
+         * yields the same codebook. The value itself is arbitrary.
+         */
+        private static final long RESERVOIR_SEED = 0x5EEDL;
 
         static BinaryTypeHandler<Default<?>> provideTypeHandler()
         {
@@ -3258,37 +3266,50 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public List<VectorFloat<?>> collectTrainingVectors(final int limit)
         {
-            final List<VectorFloat<?>> vectors = new ArrayList<>();
+            // Reservoir sampling (Algorithm R): keeps a uniform sample of at most `limit` vectors
+            // without knowing the population size up front.
+            //
+            // A stride computed from getVectorCount() cannot do this job. That count is an upper
+            // bound, not the number of embeddings - in embedded mode it is parentMap.size(), which
+            // includes entities with no vector - so on a sparse map the stride is too coarse and the
+            // sample can fall below MIN_VECTORS_FOR_PQ_TRAINING, leaving PQ untrained forever. And
+            // integer division floors to a stride of 1 for any population between limit and 2*limit,
+            // which degenerates to taking the first `limit` vectors: exactly the insertion-ordered
+            // prefix that skews a codebook.
+            //
+            // The RNG is seeded per call so training is reproducible: the same data always yields
+            // the same codebook.
+            final List<VectorFloat<?>> reservoir = new ArrayList<>(Math.min(limit, 1024));
+            final Random               random    = new Random(RESERVOIR_SEED);
+            final long[]               seen      = {0L};
 
-            // Take every stride-th vector rather than the first `limit`, so the sample spans the
-            // whole data set: entity id order often correlates with insertion order, and training a
-            // codebook on the oldest slice alone would skew the centroids. The stride is derived
-            // from the (over-)estimated count, so the result can come in under `limit` - that is
-            // fine, it only ever samples fewer, never more.
-            final long estimatedCount = this.getVectorCount();
-            final int  stride         = estimatedCount > limit
-                ? (int)Math.min(Integer.MAX_VALUE, estimatedCount / limit)
-                : 1
-            ;
-
-            // Mutable cursor: the iterate(...) lambdas below cannot close over a plain int.
-            final int[] seen = {0};
+            final Consumer<float[]> sample = vector ->
+            {
+                final long n = ++seen[0];
+                if(reservoir.size() < limit)
+                {
+                    reservoir.add(this.vectorTypeSupport.createFloatVector(vector));
+                    return;
+                }
+                // Replace with probability limit/n, which leaves every vector seen so far equally
+                // likely to be in the reservoir. nextLong bound keeps this correct past 2^31 vectors.
+                final long candidate = Math.floorMod(random.nextLong(), n);
+                if(candidate < limit)
+                {
+                    reservoir.set((int)candidate, this.vectorTypeSupport.createFloatVector(vector));
+                }
+            };
 
             if(this.isEmbedded())
             {
                 this.parentMap().iterate(entity ->
                 {
-                    if(vectors.size() >= limit)
-                    {
-                        return;
-                    }
                     final float[] vector = this.vectorize(entity);
                     // Skip entities without an embedding — they are not part of the graph and
-                    // must not feed PQ codebook training. Only vectors that survive this filter
-                    // advance the stride cursor, so null embeddings cannot thin out the sample.
-                    if(vector != null && seen[0]++ % stride == 0)
+                    // must not feed PQ codebook training.
+                    if(vector != null)
                     {
-                        vectors.add(this.vectorTypeSupport.createFloatVector(vector));
+                        sample.accept(vector);
                     }
                 });
             }
@@ -3297,18 +3318,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // Computed mode never stores null-vector entries; guard defensively anyway.
                 this.vectorStore.iterate(entry ->
                 {
-                    if(vectors.size() >= limit)
+                    if(entry.vector != null)
                     {
-                        return;
-                    }
-                    if(entry.vector != null && seen[0]++ % stride == 0)
-                    {
-                        vectors.add(this.vectorTypeSupport.createFloatVector(entry.vector));
+                        sample.accept(entry.vector);
                     }
                 });
             }
 
-            return vectors;
+            return reservoir;
         }
 
         // DiskIndexManager.IndexStateProvider
