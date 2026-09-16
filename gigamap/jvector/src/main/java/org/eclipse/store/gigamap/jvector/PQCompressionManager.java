@@ -43,6 +43,15 @@ interface PQCompressionManager
     final static int MIN_VECTORS_FOR_PQ_TRAINING = 256;
 
     /**
+     * Upper bound on how many vectors are materialised to train the codebook.
+     * <p>
+     * Matches {@code ProductQuantization.MAX_PQ_TRAINING_SET_SIZE}, which is the size JVector
+     * subsamples down to internally anyway - collecting more than this only inflates peak heap
+     * (at 768 dimensions every 128k vectors is already ~390 MB) without improving the codebook.
+     */
+    final static int MAX_TRAINING_VECTORS = 128_000;
+
+    /**
      * Returns whether a codebook is available, whether trained here or adopted from disk.
      *
      * @return true if a codebook is held
@@ -93,11 +102,18 @@ interface PQCompressionManager
         public long getVectorCount();
 
         /**
-         * Collects training vectors for PQ training.
+         * Collects training vectors for PQ training, materialising at most {@code limit} of them.
+         * <p>
+         * Entities without an embedding are skipped, so the returned list can be shorter than the
+         * count reported by {@link #getVectorCount()}. Implementations must spread the sample across
+         * the whole data set rather than taking the first {@code limit} entries, and must not
+         * materialise more than {@code limit} vectors - the cap exists to bound peak heap on the
+         * very data sets this feature targets.
          *
+         * @param limit the maximum number of vectors to materialise
          * @return list of vectors for training
          */
-        public List<VectorFloat<?>> collectTrainingVectors();
+        public List<VectorFloat<?>> collectTrainingVectors(int limit);
     }
 
 
@@ -175,11 +191,16 @@ interface PQCompressionManager
             // feed k-means a 1e-6 placeholder and drag the centroids toward the origin. Ordinal
             // alignment matters only when encoding, which DiskIndexManager.writeIndexWithFusedPQ
             // does separately against the ordinal-spaced RAVV.
-            final List<VectorFloat<?>> trainingVectors = this.provider.collectTrainingVectors();
+            final List<VectorFloat<?>> trainingVectors = this.provider.collectTrainingVectors(MAX_TRAINING_VECTORS);
 
-            if(trainingVectors.isEmpty())
+            // Re-check against what was actually collected, not against the count the gate in
+            // trainIfNeeded() used. In embedded mode that count is parentMap.size(), which includes
+            // entities with no embedding, so a map of 256 entities can yield fewer than 256 vectors -
+            // and ProductQuantization.compute would then be asked for 256 clusters from fewer points.
+            if(trainingVectors.size() < MIN_VECTORS_FOR_PQ_TRAINING)
             {
-                LOG.warn("No vectors available for PQ training");
+                LOG.debug("Not enough non-null vectors for PQ training ({} < {}), leaving the index uncompressed",
+                    trainingVectors.size(), MIN_VECTORS_FOR_PQ_TRAINING);
                 return;
             }
 

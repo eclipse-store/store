@@ -773,7 +773,7 @@ class VectorIndexDiskTest
     /**
      * PQ traversal is lossy, so this pins how much recall it may cost at the default settings.
      * <p>
-     * Measured over seeds 7/11/23/42/99 with this configuration: exact recall@10 is 0.994-1.000 and
+     * Run over seeds 7/11/23/42/99. Measured with this configuration: exact recall@10 is 0.994-1.000 and
      * PQ recall@10 is 0.996-1.000, i.e. indistinguishable (PQ is occasionally a hair higher, since
      * approximate traversal explores a different part of the graph). The 0.95 floor therefore has
      * roughly 0.045 of headroom against the worst observed run.
@@ -785,13 +785,28 @@ class VectorIndexDiskTest
     @Test
     void testPqCompressionRecallStaysHigh(@TempDir final Path tempDir)
     {
+        for(final int seed : new int[]{7, 11, 23, 42, 99})
+        {
+            this.assertRecallForSeed(seed, tempDir.resolve("seed" + seed));
+        }
+    }
+
+    /**
+     * Builds a PQ index from {@code seed}, persists it and asserts recall@10 against brute-force
+     * ground truth.
+     *
+     * @param seed     the seed for both the data set and the queries
+     * @param indexDir the directory to build the index in
+     */
+    private void assertRecallForSeed(final int seed, final Path indexDir)
+    {
         final int vectorCount = 2000;
         final int dimension   = 64;
         final int k           = 10;
         final int queryCount  = 50;
         final double minRecall = 0.95;
 
-        final Random random = new Random(7);
+        final Random random = new Random(seed);
 
         // Clustered rather than uniform-random vectors, which is both closer to real embeddings and
         // the harder case for a graph index (near-duplicates compete for the same top-k slots).
@@ -812,7 +827,7 @@ class VectorIndexDiskTest
             .maxDegree(32)
             .beamWidth(100)
             .onDisk(true)
-            .indexDirectory(tempDir.resolve("index"))
+            .indexDirectory(indexDir)
             .enablePqCompression(true)
             .pqSubspaces(dimension / 4)
             .build();
@@ -833,7 +848,7 @@ class VectorIndexDiskTest
 
             assertTrue(index.isPqCompressionActive(), "the PQ path must be the one under test");
 
-            final Random queryRandom = new Random(4242);
+            final Random queryRandom = new Random(seed * 31 + 5);
             for(int q = 0; q < queryCount; q++)
             {
                 final float[] query = nearVector(queryRandom, vectors.get(queryRandom.nextInt(vectorCount)));
@@ -853,7 +868,7 @@ class VectorIndexDiskTest
 
         final double recall = totalRecall / queryCount;
         assertTrue(recall >= minRecall,
-            "PQ recall@" + k + " was " + recall + ", below the " + minRecall + " floor");
+            "PQ recall@" + k + " for seed " + seed + " was " + recall + ", below the " + minRecall + " floor");
     }
 
     /**
@@ -1021,6 +1036,11 @@ class VectorIndexDiskTest
 
         addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
 
+        // Persist so the search runs against a FusedPQ graph: the approximate score function
+        // is built per similarity function, so COSINE passing says nothing about this one.
+        index.persistToDisk();
+        assertTrue(index.isPqCompressionActive());
+
         final float[] queryVector = randomVector(random, dimension);
         final VectorSearchResult<Document> result = index.search(queryVector, 10);
 
@@ -1060,6 +1080,11 @@ class VectorIndexDiskTest
         );
 
         addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
+
+        // Persist so the search runs against a FusedPQ graph: the approximate score function
+        // is built per similarity function, so COSINE passing says nothing about this one.
+        index.persistToDisk();
+        assertTrue(index.isPqCompressionActive());
 
         final float[] queryVector = randomVector(random, dimension);
         final VectorSearchResult<Document> result = index.search(queryVector, 10);

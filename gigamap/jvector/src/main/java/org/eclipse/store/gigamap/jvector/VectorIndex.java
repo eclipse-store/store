@@ -67,7 +67,7 @@ import static org.eclipse.serializer.math.XMath.positive;
  *   <li><b>High Recall</b> - Configurable trade-offs between speed and accuracy</li>
  *   <li><b>Persistence</b> - Full integration with GigaMap's persistence layer</li>
  *   <li><b>On-Disk Storage</b> - Optional memory-mapped indices for large datasets</li>
- *   <li><b>PQ Compression</b> - Product Quantization for reduced memory footprint</li>
+ *   <li><b>PQ Compression</b> - Product Quantization for faster traversal of large on-disk indices</li>
  *   <li><b>Background Optimization</b> - Automatic graph cleanup for improved performance</li>
  *   <li><b>Eventual Indexing</b> - Deferred graph mutations via background thread for reduced write latency</li>
  *   <li><b>Parallel On-Disk Writes</b> - Multi-threaded index persistence for large on-disk indices</li>
@@ -626,11 +626,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     /**
      * Returns whether Product Quantization (PQ) compression is enabled for this index.
      * <p>
-     * PQ compression reduces memory usage by encoding vectors into compact codes, at the
-     * cost of some accuracy loss. This is particularly useful for large indices where
-     * memory is constrained.
+     * PQ speeds up graph traversal by scoring candidates from compact codes stored alongside the
+     * edges, then reranking the best ones exactly. It is a speed optimisation: the codes are written
+     * <i>in addition to</i> the full-precision vectors, so the on-disk graph gets larger rather than
+     * smaller. See {@link VectorIndexConfiguration#enablePqCompression()} for the trade-off.
      * <p>
-     * <b>Note:</b> PQ compression requires on-disk mode to be enabled.
+     * <b>Note:</b> PQ compression requires on-disk mode to be enabled. This reports what was
+     * configured; use {@link #isPqCompressionActive()} to find out whether a codebook actually
+     * exists yet.
      *
      * @return true if PQ compression is enabled via {@link VectorIndexConfiguration#enablePqCompression()}
      * @see VectorIndexConfiguration#enablePqCompression()
@@ -653,7 +656,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * @return true if a PQ codebook is currently held for this index
      * @see #isPqCompressionEnabled()
      */
-    public boolean isPqCompressionActive();
+    public default boolean isPqCompressionActive()
+    {
+        return false;
+    }
 
     /**
      * Retrieves the vector associated with the given entity ID.
@@ -2256,6 +2262,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final SearchScoreProvider                                       exactFallback
         )
         {
+            // The configured flag is part of the gate, not just the graph's feature set. The .meta
+            // carries no PQ marker, so an index re-created with enablePqCompression(false) over a
+            // directory still holding a compressed graph can load it - removeIndex() leaves the
+            // files behind. Without this check such an index would traverse approximately despite
+            // having opted out.
+            if(!this.configuration.enablePqCompression())
+            {
+                return exactFallback;
+            }
+
             final OnDiskGraphIndex diskIndex = this.diskManager != null
                 ? this.diskManager.getDiskIndex()
                 : null
@@ -2662,8 +2678,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.builderLock.writeLock().lock();
                 try
                 {
-                    // If incremental mode with no changes, skip persist entirely
-                    if(this.incrementalMode && this.isIncrementalClean())
+                    // If incremental mode with no changes, skip persist entirely.
+                    //
+                    // Exception: an index that wants PQ but has no codebook yet still has work to
+                    // do, even with no data changes. That happens when the first persist ran below
+                    // MIN_VECTORS_FOR_PQ_TRAINING, or when training threw and the graph was written
+                    // uncompressed. Without this carve-out the shortcut would make that state
+                    // permanent for an idle index, because nothing else ever re-enters this method.
+                    if(this.incrementalMode && this.isIncrementalClean() && !this.isPqTrainingPending())
                     {
                         LOG.debug("No incremental changes for '{}', skipping persist", this.name);
                         return;
@@ -2848,6 +2870,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // no builder) cannot strand the queue; builderLock is already released above.
                 this.drainDeferredBuilderOps();
             }
+        }
+
+        /**
+         * Returns whether this index is configured for PQ, holds no codebook yet, and now has enough
+         * vectors to train one - i.e. a persist would produce a compressed graph where the last one
+         * did not.
+         * <p>
+         * Used to keep the incremental-clean shortcut in {@code doPersistToDisk} from making a
+         * missed training permanent on an otherwise idle index.
+         */
+        private boolean isPqTrainingPending()
+        {
+            final PQCompressionManager pqManager = this.pqManager;
+            return pqManager != null
+                && !pqManager.isTrained()
+                && this.getVectorCount() >= PQCompressionManager.MIN_VECTORS_FOR_PQ_TRAINING
+            ;
         }
 
         /**
@@ -3217,18 +3256,37 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         @Override
-        public List<VectorFloat<?>> collectTrainingVectors()
+        public List<VectorFloat<?>> collectTrainingVectors(final int limit)
         {
             final List<VectorFloat<?>> vectors = new ArrayList<>();
+
+            // Take every stride-th vector rather than the first `limit`, so the sample spans the
+            // whole data set: entity id order often correlates with insertion order, and training a
+            // codebook on the oldest slice alone would skew the centroids. The stride is derived
+            // from the (over-)estimated count, so the result can come in under `limit` - that is
+            // fine, it only ever samples fewer, never more.
+            final long estimatedCount = this.getVectorCount();
+            final int  stride         = estimatedCount > limit
+                ? (int)Math.min(Integer.MAX_VALUE, estimatedCount / limit)
+                : 1
+            ;
+
+            // Mutable cursor: the iterate(...) lambdas below cannot close over a plain int.
+            final int[] seen = {0};
 
             if(this.isEmbedded())
             {
                 this.parentMap().iterate(entity ->
                 {
+                    if(vectors.size() >= limit)
+                    {
+                        return;
+                    }
                     final float[] vector = this.vectorize(entity);
                     // Skip entities without an embedding — they are not part of the graph and
-                    // must not feed PQ codebook training.
-                    if(vector != null)
+                    // must not feed PQ codebook training. Only vectors that survive this filter
+                    // advance the stride cursor, so null embeddings cannot thin out the sample.
+                    if(vector != null && seen[0]++ % stride == 0)
                     {
                         vectors.add(this.vectorTypeSupport.createFloatVector(vector));
                     }
@@ -3239,7 +3297,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // Computed mode never stores null-vector entries; guard defensively anyway.
                 this.vectorStore.iterate(entry ->
                 {
-                    if(entry.vector != null)
+                    if(vectors.size() >= limit)
+                    {
+                        return;
+                    }
+                    if(entry.vector != null && seen[0]++ % stride == 0)
                     {
                         vectors.add(this.vectorTypeSupport.createFloatVector(entry.vector));
                     }

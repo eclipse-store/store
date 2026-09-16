@@ -725,15 +725,16 @@ public interface VectorIndexConfiguration
      * Creates an on-disk configuration optimized for large datasets (&gt;1M vectors).
      * <p>
      * Uses higher parameter values for better recall at scale, with on-disk storage
-     * and background persistence/optimization. PQ compression can be optionally enabled
-     * for memory efficiency.
+     * and background persistence/optimization. PQ compression can be optionally enabled to
+     * speed up traversal; note that it makes the graph file larger, not smaller - see
+     * {@link #enablePqCompression()}.
      * <p>
      * <b>Configuration:</b> maxDegree=32, beamWidth=300, onDisk=true,
      * persistenceIntervalMs=30000, optimizationIntervalMs=60000
      *
      * @param dimension the vector dimension (must be positive)
      * @param indexDirectory the directory where index files will be stored
-     * @param enableCompression true to enable PQ compression (recommended for memory efficiency)
+     * @param enableCompression true to enable PQ compression (faster traversal, larger graph file)
      * @return a ready-to-use configuration for large datasets
      * @see #forLargeDataset(int, Path)
      * @see #builderForLargeDataset(int, Path)

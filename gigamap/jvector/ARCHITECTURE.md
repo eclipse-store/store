@@ -20,7 +20,7 @@ This document describes the **internals** of the `gigamap-jvector` module. Audie
 
 - **More than ~2.1 billion vectors per index.** JVector uses `int` for graph node ordinals; ordinals are GigaMap entity IDs, so the 32-bit ceiling is hard. Shard across multiple indices for larger datasets.
 - **Vectors that may be `null`.** The `Vectorizer.vectorize()` contract forbids `null` returns. Missing/deleted ordinals are handled internally by `NullSafeVectorValues`, but a `Vectorizer` returning `null` for a present entity throws `IllegalStateException`.
-- **PQ compression with `maxDegree != 32`.** The `FusedPQ` feature in JVector requires `maxDegree=32`; the configuration builder enforces this automatically when PQ is enabled.
+- **PQ compression changing `maxDegree`.** JVector 4's `FusedPQ` accepts any degree and records it in the graph header, so the configuration is passed through untouched. Note that `maxDegree` multiplies the per-node cost of PQ: a node's fused block is `pqSubspaces * maxDegree` bytes.
 
 ---
 
@@ -463,9 +463,8 @@ sequenceDiagram
         VI->>Sp: inMemorySearcherPool.get over disk graph
         opt PQ trained
             VI->>VI: diskScoreProvider builds FusedPQ ASF + exact reranker
-            PQM->>PQM: HNSW returns k times RERANK_MULTIPLIER candidates
-            PQM->>PQM: rescore with exact vectors via NodeScoreEntry
-            PQM->>PQM: sort, top k
+            VI->>Sp: diskSearcherPool.get, then view.approximateScoreFunctionFor + view.rerankerFor
+            Sp->>Sp: FusedPQ traversal, exact rerank against inline vectors
         end
     else in-memory only
         VI->>Sp: inMemorySearcherPool.get over builder.index
@@ -551,7 +550,7 @@ sequenceDiagram
     VI->>Bx: cleanup()<br/>(ForkJoinPool may now call parentMap.get safely)
     VI->>DIM: writeIndex(index, ravv, pqManager)
     DIM->>FS: write name.graph.tmp then atomic rename (+ FusedPQ feature if PQ trained)
-    DIM->>FS: write name.meta.tmp then atomic rename (version=3, dim, count, highestEntityId, structuralModCount)
+    DIM->>FS: write name.meta.tmp then atomic rename (version=4, dim, count, highestEntityId, structuralModCount)
     VI->>VI: reenterIncrementalMode()<br/>(reload disk, reset in-memory builder, set incrementalMode=true)
     VI->>L: writeLock().unlock()
     VI->>VI: cleanupInProgress = false
@@ -634,15 +633,15 @@ Defined in [`BackgroundTaskManager.java:53`](src/main/java/org/eclipse/store/gig
 
 ## 9. PQ compression subsystem
 
-Product Quantization (PQ) trades exact distances for memory: each subspace of the vector is quantized to one of 256 centroids, so a 768-dim float vector (3 KB) collapses to ~192 bytes. The HNSW graph then operates on these compressed codes for fast candidate selection, and a final reranking pass uses exact vectors.
+Product Quantization (PQ) trades exact distances for cheap ones: each subspace of the vector is quantized to one of 256 centroids, so scoring a candidate reads `pqSubspaces` bytes instead of a `dimension * 4` byte vector. The HNSW graph traverses on these compressed codes, and a final reranking pass uses the exact inline vectors. Note that the codes are stored *in addition to* the full-precision vectors, so this costs disk space rather than saving it - see **Space cost** below.
 
 ### Training
 
 `PQCompressionManager.Default.trainIfNeeded()`:
 
 - Idempotent — if `pqTrained == true`, return.
-- Requires ≥ 256 vectors. Below that, log a warning and skip (the index proceeds without compression).
-- `trainPQ()`: `provider.collectTrainingVectors()` → `ListRandomAccessVectorValues` → `ProductQuantization.compute(ravv, subspaces, 256, centerForLowDim)`. The `centerForLowDim` flag is `dimension < 64`. After `compute`, `pq.encodeAll(ravv)` produces the `CompressedVectors`; the manager flips `pqTrained = true`.
+- Requires ≥ 256 vectors. The gate in `trainIfNeeded()` uses the provider's count, which in embedded mode counts entities rather than embeddings, so `trainPQ()` re-checks against the vectors actually collected. Below the threshold it logs and skips, and the index proceeds without compression.
+- `trainPQ()`: `provider.collectTrainingVectors(MAX_TRAINING_VECTORS)` → `ListRandomAccessVectorValues` → `ProductQuantization.compute(ravv, subspaces, 256, centerForLowDim)`. The `centerForLowDim` flag is `dimension < 64`. The manager keeps only the codebook; encoding happens in `DiskIndexManager.writeIndexWithFusedPQ`, against the ordinal-spaced RAVV. The collection is stride-sampled and capped at 128k vectors (what JVector subsamples to anyway) so an automatic persist cannot materialise the whole corpus on the heap.
 
 Training is **one-shot per on-disk index**, not merely per session. `doPersistToDisk` Phase 1 calls `pqManager.trainIfNeeded()` under the `parentMap` monitor (where `collectTrainingVectors()` is safe, and where `exitIncrementalMode()` already does an O(n) rebuild). Every later load calls `adoptPqFromLoadedGraph()`, which recovers the exact codebook from the `.graph` header via `DiskIndexManager.loadedProductQuantization()` → `FusedPQ.getPQ()`. Passing `null` through — the graph carries no `FUSED_PQ` — resets the manager to untrained so the next persist trains for real.
 
@@ -976,7 +975,7 @@ PQ "trained" is restored implicitly: the codebook lives inside the `FusedPQ` fea
 
 | Test class | Scope |
 |---|---|
-| `VectorIndexConfigurationTest` | Builder validation: required fields, value ranges, FusedPQ `maxDegree=32` enforcement, factory presets. |
+| `VectorIndexConfigurationTest` | Builder validation: required fields, value ranges, that PQ leaves `maxDegree` untouched and `build()` does not mutate the builder, factory presets. |
 | `VectorIndicesTest` | Registry semantics: `add` / `ensure` / `get`, fan-out broadcast, iteration. |
 | `VectorValuesTest` | `RandomAccessVectorValues` impls: getVector, copy, null handling. |
 | `VectorIndexTest` | End-to-end smoke: register, add, search, optimize, close. |
