@@ -928,6 +928,49 @@ class VectorIndexDiskTest
     }
 
     /**
+     * A dimension whose quarter does not divide it must still train.
+     * <p>
+     * With {@code pqSubspaces} left at 0 the count is {@code dimension / 4}, which is not always a
+     * divisor - 14/4 is 3, and 14 % 3 != 0. That is fine:
+     * {@code ProductQuantization.getSubvectorSizesAndOffsets} distributes the remainder across the
+     * subvectors (here 5/5/4) and only requires {@code M <= dimension}. The builder's divisibility
+     * check applies to an explicitly configured {@code pqSubspaces}, not to the automatic value, so
+     * this test pins that the automatic path is not subject to it - and that nobody "fixes" it by
+     * snapping the count down to a divisor, which for a prime dimension would collapse it to 1.
+     */
+    @Test
+    void testPqCompressionAutoSubspacesForIndivisibleDimension(@TempDir final Path tempDir) throws IOException
+    {
+        final int vectorCount = 400;
+        final int dimension   = 14; // 14 / 4 = 3, and 14 % 3 != 0
+        final Path indexDir   = tempDir.resolve("index");
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .enablePqCompression(true)
+            .build();
+
+        assertEquals(0, config.pqSubspaces(), "this test is about the automatic subspace count");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", config, new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, new Random(5), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+
+            assertTrue(index.isPqCompressionActive(),
+                "an automatic subspace count must be a divisor of the dimension, so training succeeds");
+            assertEquals(10, index.search(randomVector(new Random(6), dimension), 10).size());
+        }
+
+        assertTrue(graphFeatures(indexDir.resolve("embeddings.graph")).contains(FeatureId.FUSED_PQ));
+    }
+
+    /**
      * FusedPQ at a degree other than 32.
      * <p>
      * The writer takes the fused block size from {@code index.getDegree(0)} while the reader takes
@@ -1302,6 +1345,11 @@ class VectorIndexDiskTest
 
         addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
 
+        // Persist first: without a FusedPQ graph on disk the workers below would hammer the
+        // in-memory exact path, and this test would say nothing about concurrent PQ search.
+        index.persistToDisk();
+        assertTrue(index.isPqCompressionActive());
+
         // Run concurrent searches
         final int numSearches = 50;
         final AtomicInteger successfulSearches = new AtomicInteger(0);
@@ -1377,6 +1425,11 @@ class VectorIndexDiskTest
 
         // Add initial vectors
         addRandomDocuments(gigaMap, random, dimension, initialCount, "initial_");
+
+        // persistToDisk() is the only thing that trains a codebook, so without it the searches
+        // below would run untrained and the "after training" scenario would not exist.
+        index.persistToDisk();
+        assertTrue(index.isPqCompressionActive());
 
         // Search before adding more
         final float[] queryVector = randomVector(random, dimension);

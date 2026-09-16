@@ -107,8 +107,8 @@ interface PQCompressionManager
          * Entities without an embedding are skipped, so the returned list can be shorter than the
          * count reported by {@link #getVectorCount()}. Implementations must spread the sample across
          * the whole data set rather than taking the first {@code limit} entries, and must not
-         * materialise more than {@code limit} vectors - the cap exists to bound peak heap on the
-         * very data sets this feature targets.
+         * materialise more than {@code limit} vectors - the cap exists to bound peak heap on exactly
+         * the large data sets this feature targets.
          *
          * @param limit the maximum number of vectors to materialise
          * @return list of vectors for training
@@ -204,7 +204,10 @@ interface PQCompressionManager
                 return;
             }
 
-            // Determine number of subspaces
+            // Determine number of subspaces. The quotient need not divide the dimension: JVector's
+            // getSubvectorSizesAndOffsets distributes the remainder across the subvectors, and its
+            // only constraint is M <= dimension. (The builder's stricter divisibility check applies
+            // to an explicitly configured pqSubspaces, not to this automatic value.)
             final int subspaces = this.pqSubspaces > 0
                 ? this.pqSubspaces
                 : Math.max(1, this.dimension / 4);

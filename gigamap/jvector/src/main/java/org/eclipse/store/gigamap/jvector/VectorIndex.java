@@ -816,6 +816,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // Managers (transient - recreated on load)
         private transient DiskIndexManager      diskManager          ;
         private transient PQCompressionManager  pqManager            ;
+
+        /**
+         * {@code structuralModCount} at which a PQ training attempt last declined or failed, or
+         * {@code -1} if none has. Guards the training carve-out in {@code doPersistToDisk} so a
+         * repeatedly-declining index does not force a full graph rebuild on every idle persist.
+         * Transient like the rest of the PQ state: a fresh session simply tries once more.
+         */
+        private transient long pqTrainingDeclinedAtModCount = -1L;
                 transient BackgroundTaskManager backgroundTaskManager;
 
         // GraphSearcher pool for thread-local reuse
@@ -2816,6 +2824,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                                 LOG.warn("PQ training failed for '{}', writing an uncompressed graph: {}",
                                     this.name, e.getMessage());
                             }
+
+                            if(!this.pqManager.isTrained())
+                            {
+                                // Remember the state this attempt failed at, so isPqTrainingPending()
+                                // stops forcing a full rebuild on every subsequent idle persist and
+                                // only re-arms once the data has actually changed.
+                                this.pqTrainingDeclinedAtModCount = this.getStructuralModCount();
+                            }
                         }
 
                         // Capture references for use outside the synchronized block.
@@ -2891,8 +2907,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private boolean isPqTrainingPending()
         {
             final PQCompressionManager pqManager = this.pqManager;
-            return pqManager != null
-                && !pqManager.isTrained()
+            if(pqManager == null || pqManager.isTrained())
+            {
+                return false;
+            }
+
+            // Only worth another attempt once something graph-affecting has changed since the last
+            // one failed. Without this witness the carve-out never clears for a map that has enough
+            // ENTITIES but not enough EMBEDDINGS: getVectorCount() is parentMap.size() in embedded
+            // mode, so the count test stays true, trainPQ keeps declining on the collected list, and
+            // every idle background persist would exit incremental mode, rebuild the whole graph and
+            // rewrite it - an O(n) retry on a loop, forever.
+            //
+            // structuralModCount is the right witness because it also moves on vec<->null
+            // transitions, which change the embedding population without changing the entity count.
+            return this.getStructuralModCount() != this.pqTrainingDeclinedAtModCount
                 && this.getVectorCount() >= PQCompressionManager.MIN_VECTORS_FOR_PQ_TRAINING
             ;
         }
