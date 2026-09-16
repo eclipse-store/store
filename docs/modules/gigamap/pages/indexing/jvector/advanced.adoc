@@ -163,7 +163,7 @@ The `pqSubspaces` parameter (often called _M_ in PQ literature) controls the acc
 |Cheapest hops, but needs a wider `minSearchBeamWidth` to hold recall
 |===
 
-The dimension must be evenly divisible by the number of subspaces. If `pqSubspaces` is set to 0, it defaults to `dimension / 4`.
+An explicitly configured `pqSubspaces` must divide the dimension evenly. If `pqSubspaces` is left at 0 it defaults to `dimension / 4`, which is not subject to that rule: JVector distributes any remainder across the subvectors and only requires the count to be at most the dimension.
 
 ==== Subspaces, Beam Width and Recall
 

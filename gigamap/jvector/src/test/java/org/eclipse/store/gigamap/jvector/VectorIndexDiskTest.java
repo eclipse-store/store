@@ -564,6 +564,11 @@ class VectorIndexDiskTest
 
         gigaMap.add(new Document("needle", needleVector));
 
+        // Persist first, otherwise the search below runs the in-memory exact path and this says
+        // nothing about PQ search quality.
+        index.persistToDisk();
+        assertTrue(index.isPqCompressionActive());
+
         // Search for the needle vector - it should be in the top results
         final VectorSearchResult<Document> result = index.search(needleVector, 5);
 
@@ -985,9 +990,9 @@ class VectorIndexDiskTest
         final int vectorCount = 500;
         final int dimension   = 64;
         final int maxDegree   = 16;
-        final Random random   = new Random(31);
 
-        final Path indexDir = tempDir.resolve("index");
+        final Path indexDir   = tempDir.resolve("index");
+        final Path storageDir = tempDir.resolve("storage");
 
         final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
             .dimension(dimension)
@@ -1004,11 +1009,18 @@ class VectorIndexDiskTest
         final float[] queryVector = randomVector(new Random(99), dimension);
         final List<Long> beforeIds = new ArrayList<>();
 
-        final GigaMap<Document> gigaMap = GigaMap.New();
-        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
-            .add("embeddings", config, new ComputedDocumentVectorizer()))
+        // Phase 1: build and persist through the storage manager, so phase 2 can reload the very
+        // same GigaMap. Registering a fresh index over an empty map would not reload anything - the
+        // metadata check compares against the live store and rejects the files.
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
         {
-            addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            storage.setRoot(gigaMap);
+
+            final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+                .add("embeddings", config, new ComputedDocumentVectorizer());
+
+            addRandomDocuments(gigaMap, new Random(31), dimension, vectorCount, "doc_");
             index.persistToDisk();
 
             assertTrue(index.isPqCompressionActive());
@@ -1018,18 +1030,24 @@ class VectorIndexDiskTest
                 beforeIds.add(entry.entityId());
             }
             assertEquals(10, beforeIds.size());
+
+            storage.storeRoot();
         }
 
         assertTrue(graphFeatures(indexDir.resolve("embeddings.graph")).contains(FeatureId.FUSED_PQ),
             "a non-32 maxDegree must still produce a FusedPQ graph");
 
-        // Reload through a fresh index over the same files: the reader sizes the fused block from
-        // the header, so a writer/reader degree mismatch would show up as garbage scores here.
-        final GigaMap<Document> reloadedMap = GigaMap.New();
-        try(final VectorIndex<Document> reloaded = reloadedMap.index().register(VectorIndices.Category())
-            .add("embeddings", config, new ComputedDocumentVectorizer()))
+        // Phase 2: reload. The reader sizes the fused block from the graph header while the writer
+        // sized it from index.getDegree(0), so a mismatch surfaces here as different results.
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
         {
-            addRandomDocuments(reloadedMap, new Random(31), dimension, vectorCount, "doc_");
+            final GigaMap<Document> gigaMap = storage.root();
+            final VectorIndex<Document> reloaded = gigaMap.index()
+                .get(VectorIndices.Category())
+                .get("embeddings");
+
+            assertTrue(reloaded.isPqCompressionActive(),
+                "the codebook must come back from the reloaded graph");
 
             final List<Long> afterIds = new ArrayList<>();
             for(final ScoredSearchResult.Entry<Document> entry : reloaded.search(queryVector, 10))
@@ -1288,6 +1306,11 @@ class VectorIndexDiskTest
         );
 
         addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
+
+        // Persist before removing, so the removals are masked against a real FusedPQ graph
+        // rather than just mutating an in-memory builder.
+        index.persistToDisk();
+        assertTrue(index.isPqCompressionActive());
 
         // Remove every other entity (even IDs)
         for(int i = 0; i < vectorCount; i += 2)
@@ -1567,7 +1590,7 @@ class VectorIndexDiskTest
             .pqSubspaces(pqSubspaces)
             .build();
 
-        vectorIndices.add(
+        final VectorIndex<Document> index = vectorIndices.add(
             "embeddings",
             config,
             new ComputedDocumentVectorizer()
@@ -1577,6 +1600,10 @@ class VectorIndexDiskTest
         addRandomDocuments(gigaMap, random, dimension, 500, "old_");
 
         assertEquals(500, gigaMap.size());
+
+        // Persist the initial population so the removeAll below operates on a PQ graph.
+        index.persistToDisk();
+        assertTrue(index.isPqCompressionActive());
 
         // Clear all
         gigaMap.removeAll();
@@ -1589,6 +1616,10 @@ class VectorIndexDiskTest
 
         final VectorIndices<Document> vectorIndicesAfter = gigaMap.index().get(VectorIndices.Category());
         final VectorIndex<Document> indexAfter = vectorIndicesAfter.get("embeddings");
+
+        // Persist the repopulated graph too, so the search runs against the rebuilt PQ index.
+        indexAfter.persistToDisk();
+        assertTrue(indexAfter.isPqCompressionActive());
 
         // Search should find only new documents
         final VectorSearchResult<Document> result = indexAfter.search(randomVector(random, dimension), 20);

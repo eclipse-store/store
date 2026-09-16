@@ -641,7 +641,7 @@ Product Quantization (PQ) trades exact distances for cheap ones: each subspace o
 
 - Idempotent — if `pqTrained == true`, return.
 - Requires ≥ 256 vectors. The gate in `trainIfNeeded()` uses the provider's count, which in embedded mode counts entities rather than embeddings, so `trainPQ()` re-checks against the vectors actually collected. Below the threshold it logs and skips, and the index proceeds without compression.
-- `trainPQ()`: `provider.collectTrainingVectors(MAX_TRAINING_VECTORS)` → `ListRandomAccessVectorValues` → `ProductQuantization.compute(ravv, subspaces, 256, centerForLowDim)`. The `centerForLowDim` flag is `dimension < 64`. The manager keeps only the codebook; encoding happens in `DiskIndexManager.writeIndexWithFusedPQ`, against the ordinal-spaced RAVV. The collection is stride-sampled and capped at 128k vectors (what JVector subsamples to anyway) so an automatic persist cannot materialise the whole corpus on the heap.
+- `trainPQ()`: `provider.collectTrainingVectors(MAX_TRAINING_VECTORS)` → `ListRandomAccessVectorValues` → `ProductQuantization.compute(ravv, subspaces, 256, centerForLowDim)`. The `centerForLowDim` flag is `dimension < 64`. The manager keeps only the codebook; encoding happens in `DiskIndexManager.writeIndexWithFusedPQ`, against the ordinal-spaced RAVV. The collection is a uniform reservoir sample (Algorithm R) capped at 128k vectors - what JVector subsamples to anyway - so an automatic persist cannot materialise the whole corpus on the heap. The RNG is seeded from a constant, so the same data yields the same codebook.
 
 Training is **one-shot per on-disk index**, not merely per session. `doPersistToDisk` Phase 1 calls `pqManager.trainIfNeeded()` under the `parentMap` monitor (where `collectTrainingVectors(int limit)` is safe, and where `exitIncrementalMode()` already does an O(n) rebuild). A persist whose training declines or throws records the `structuralModCount` it failed at, so the carve-out that keeps the incremental-clean shortcut from burying an untrained index only re-arms once the data changes. Every later load calls `adoptPqFromLoadedGraph()`, which recovers the exact codebook from the `.graph` header via `DiskIndexManager.loadedProductQuantization()` → `FusedPQ.getPQ()`. Passing `null` through — the graph carries no `FUSED_PQ` — resets the manager to untrained so the next persist trains for real.
 
@@ -922,7 +922,7 @@ sequenceDiagram
         alt either file missing
             DIM-->>VI: false
         else both present
-            DIM->>FS: read .meta (24 bytes)
+            DIM->>FS: read .meta (32 bytes)
             DIM->>DIM: verifyMetadata
             alt version != GRAPH_FILE_VERSION
                 DIM-->>VI: false
