@@ -70,9 +70,13 @@ interface DiskIndexManager extends Closeable
      *       persists again, so without this bump such a graph would stay uncompressed
      *       indefinitely.</li>
      * </ul>
-     * Bumping this constant invalidates existing on-disk indices; they are
-     * rebuilt from the GigaMap-stored source vectors on first load — no data
-     * loss, but a one-time cold-start cost.
+     * Bumping this constant invalidates existing on-disk indices: {@code tryLoad} rejects the
+     * {@code .meta} and the graph is rebuilt from the GigaMap-stored source vectors, so no data is
+     * lost. The rebuild happens in memory, though - the stale files are replaced only when something
+     * subsequently persists. With the default {@link VectorIndexConfiguration#persistOnShutdown()},
+     * or with background persistence, that follows on its own and the cold-start cost is paid once.
+     * An index that has both disabled and never calls {@code persistToDisk()} keeps the old files
+     * and repeats the rebuild on every restart.
      */
     final static int GRAPH_FILE_VERSION = 4;
 

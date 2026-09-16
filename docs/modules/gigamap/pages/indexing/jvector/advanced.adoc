@@ -35,15 +35,15 @@ The graph is always **built in-memory** first. Entities are added to the graph o
 Persistence creates two files in the configured `indexDirectory`:
 
 * `{indexName}.graph` -- The full HNSW graph structure, including node connectivity (edges), and optionally embedded inline vectors and FusedPQ compressed data.
-* `{indexName}.meta` -- A small metadata file containing the file format version, the vector dimension, the current vector count, and the highest allocated entity id. This is used on startup to verify that the on-disk graph matches the current data.
+* `{indexName}.meta` -- A small metadata file containing the file format version, the vector dimension, the current vector count, the highest allocated entity id, and a structural modification counter. This is used on startup to verify that the on-disk graph matches the current data. The configuration is *not* recorded here.
 
 ==== Loading from Disk
 
-On startup, the index first checks whether valid graph and metadata files exist. The metadata is verified: the file format version, the dimension, the vector count, and the highest allocated entity id must all match the current state. The entity-id check closes a corruption window where equal numbers of additions and removals between persists would leave the count unchanged but the on-disk graph stale. If all checks pass, the graph is loaded directly from disk using memory-mapped I/O. This avoids rebuilding the graph from scratch, which can be expensive for large datasets.
+On startup, the index first checks whether valid graph and metadata files exist. All five metadata fields are verified: the file format version, the dimension, the vector count, the highest allocated entity id, and the structural modification counter must match the current state. The entity-id check closes a corruption window where equal numbers of additions and removals between persists would leave the count unchanged but the on-disk graph stale; the modification counter closes the same window for changes that alter neither, such as an entity's embedding being set to or from null. If all checks pass, the graph is loaded directly from disk using memory-mapped I/O. This avoids rebuilding the graph from scratch, which can be expensive for large datasets.
 
-If the metadata does not match (e.g., because new entities were added while the application was offline, or the configuration changed), the on-disk files are ignored and the graph is rebuilt in-memory from the stored vectors.
+If the metadata does not match -- for example because entities were added while the application was offline -- the on-disk files are ignored and the graph is rebuilt in-memory from the stored vectors. A configuration change does not trigger this: the configuration is not part of the metadata.
 
-NOTE: The on-disk graph file format is at version 4. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors -- no data loss, but expect a one-time cold-start cost on the first restart after upgrade.
+NOTE: The on-disk graph file format is at version 4. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors -- no data loss, but expect a cold-start cost on the first restart after upgrade. The rebuilt graph replaces the stale files only once something persists it: with the default `persistOnShutdown(true)`, or with background persistence, that happens on its own and the cost is paid once. If both are disabled and `persistToDisk()` is never called, the old files remain and the rebuild repeats on every restart.
 
 ==== Memory-Mapped Access
 
@@ -104,7 +104,7 @@ Before vectors can be compressed, PQ must learn the codebooks by clustering the 
 1. Collects a training sample: entities without an embedding are skipped, and at most 128,000 vectors are materialised, drawn as a uniform reservoir sample when the index holds more than that. The cap bounds the memory the persist needs and matches the size JVector subsamples to internally, so a larger sample would not improve the codebook.
 2. Splits each vector into _M_ subspaces.
 3. Runs k-means clustering (k=256) independently on each subspace, producing 256 centroids per subspace.
-4. Encodes every vector by replacing each subspace with the index of its nearest centroid.
+4. Keeps the resulting codebook. Encoding is a separate step: the persist encodes against the ordinal-spaced vectors it is about to write, not against the dense training sample, so sparse ordinals stay aligned.
 
 The codebook is written into the `.graph` header and recovered on every subsequent load, so it is trained exactly once for the life of that on-disk index. Re-training would produce a different codebook, which would not match the codes already fused into the graph.
 
