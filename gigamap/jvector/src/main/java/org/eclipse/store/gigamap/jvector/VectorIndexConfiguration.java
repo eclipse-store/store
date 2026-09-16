@@ -349,7 +349,9 @@ public interface VectorIndexConfiguration
      *       reads that whole block</li>
      * </ul>
      * <p>
-     * The vector dimension must be evenly divisible by this value.
+     * The vector dimension must be evenly divisible by an explicitly configured value. The
+     * automatic value is not subject to that rule: JVector distributes any remainder across the
+     * subvectors and only requires the count to be at most the dimension.
      * <p>
      * <b>Recommendation:</b> the auto default of dimension/4 is the safe choice - measured recall@10
      * at the default {@link #minSearchBeamWidth()} of 100 is within noise of exact search. Lowering
@@ -968,8 +970,9 @@ public interface VectorIndexConfiguration
         /**
          * Sets the number of PQ subspaces.
          * <p>
-         * The vector dimension must be evenly divisible by this value.
-         * Use 0 for auto-calculation (dimension/4).
+         * The vector dimension must be evenly divisible by this value. Use 0 for auto-calculation
+         * (dimension/4), which is not subject to that rule - JVector distributes any remainder
+         * across the subvectors.
          *
          * @param pqSubspaces the number of subspaces, or 0 for auto
          * @return this builder for method chaining

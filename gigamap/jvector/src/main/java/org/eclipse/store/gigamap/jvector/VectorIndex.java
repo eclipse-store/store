@@ -2803,7 +2803,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         // is trained AND holds a codebook, so without this the configured
                         // enablePqCompression(true) never produced a compressed graph.
                         //
-                        // Here, not in Phase 2: collectTrainingVectors() iterates the parent map, so
+                        // Here, not in Phase 2: collectTrainingVectors(int) iterates the parent map, so
                         // it needs the parentMap monitor. The cost is acceptable in this spot -
                         // exitIncrementalMode() above runs a full O(n) graph rebuild under this very
                         // monitor - and after the first qualifying persist this is a no-op forever,

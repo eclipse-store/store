@@ -272,10 +272,12 @@ class VectorIndexConcurrentStressTest
                 defaultIndex.backgroundTaskManager.drainQueue();
             }
 
-            // No training step here, and none is possible: this harness seeds far fewer than
-            // MIN_VECTORS_FOR_PQ_TRAINING and never persists, so the PQ combinations exercise the
-            // configuration and index lifecycle under concurrency, not compressed search itself.
-            // Compressed search is covered by the PQ tests in VectorIndexDiskTest.
+            // No explicit training step: persistToDisk() is what trains a codebook, and this
+            // harness never calls it directly. The background-persistence combinations can still
+            // persist on their own once the workers have added enough vectors, so PQ may or may
+            // not become active here - that is deliberately not asserted either way, since this
+            // test is about surviving concurrency, not about compression. Compressed search is
+            // covered deterministically by the PQ tests in VectorIndexDiskTest.
 
             // Shared state for coordinating threads
             final AtomicLong nextEntityId = new AtomicLong(seedCount);

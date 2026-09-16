@@ -164,7 +164,7 @@ classDiagram
     class VectorProvider {
         <<interface>>
         +getVectorCount()
-        +collectTrainingVectors()
+        +collectTrainingVectors(int limit)
     }
     class IndexStateProvider {
         <<interface>>
@@ -653,10 +653,12 @@ Default: `max(1, dimension / 4)`. Configurable via `pqSubspaces`; the configurat
 
 ### `VectorProvider` indirection
 
-`collectTrainingVectors()` is implemented by `VectorIndex.Default` and switches on `isEmbedded()`:
+`collectTrainingVectors(int limit)` is implemented by `VectorIndex.Default` and switches on `isEmbedded()`:
 
 - Computed mode: iterate `vectorStore`, materialize `VectorFloat<?>` from each `VectorEntry`.
 - Embedded mode: iterate `parentMap`, call `vectorizer.vectorize(entity)`.
+
+Either way entries without a vector are skipped, and the result is a reservoir sample of at most `limit` vectors, so the caller - not the data size - bounds how much is materialised.
 
 This keeps `PQCompressionManager` agnostic of GigaMap details.
 
@@ -961,7 +963,7 @@ PQ "trained" is restored implicitly: the codebook lives inside the `FusedPQ` fea
 | Scenario | Behavior | Recovery |
 |---|---|---|
 | Background indexing op throws | `processAllPendingIndexingOps` logs `error`, drops the op, continues. | Graph desync until next manual `optimize()`/`persistToDisk()` rebuilds. Exposed by `VectorIndexConcurrentStressTest`. |
-| PQ training throws | `trainPQ` logs and leaves `pqTrained=false`. | Next persist falls back to non-compressed `OnDiskGraphIndex.write()`. Will retry on the persist after that. |
+| PQ training throws | `doPersistToDisk` logs and leaves `pqTrained=false`, then records the `structuralModCount` it failed at. | The graph is written non-compressed via `OnDiskGraphIndex.write()`. A retry happens on the first persist after a graph-affecting change, or in a fresh session - deliberately not on an unchanged index, which would rebuild the whole graph on every idle persist. |
 | Disk write IOException mid-`writeIndex` | Wrapped as `IORuntimeException` and propagated out of `doPersistToDisk`. The `.graph` may be partially written and `.meta` may be missing. | On next load, `verifyMetadata` fails (missing or mismatched .meta) → rebuild from source. |
 | Disk load IOException | Caught in `tryLoad`, logs warning, calls `close()`, returns `false`. | `initializeIndex` leaves `incrementalMode` false. On a loaded index the deferred `ensureGraphRebuilt()` then rebuilds from source on first access; a freshly created one is populated by the registration back-fill instead (see §6). |
 | Count-collision corruption | v2 metadata mismatch on load. | Rebuild from source via `rebuildGraphFromStore`. |
