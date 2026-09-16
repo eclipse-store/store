@@ -43,7 +43,7 @@ On startup, the index first checks whether valid graph and metadata files exist.
 
 If the metadata does not match -- for example because entities were added while the application was offline -- the on-disk files are ignored and the graph is rebuilt in-memory from the stored vectors. A configuration change does not trigger this: the configuration is not part of the metadata.
 
-NOTE: The on-disk graph file format is at version 4. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors -- no data loss, but expect a cold-start cost on the first restart after upgrade. The rebuilt graph replaces the stale files only once something persists it: with the default `persistOnShutdown(true)`, or with background persistence, that happens on its own and the cost is paid once. If both are disabled and `persistToDisk()` is never called, the old files remain and the rebuild repeats on every restart.
+NOTE: The on-disk graph file format is at version 4. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors -- no data loss, but expect a cold-start cost on the first restart after upgrade. That rebuild is in-memory: the stale files are replaced by the next persist that actually runs. An index that is written to after the upgrade therefore migrates on its next persist and pays the cost once, while a purely read-only one rebuilds again on every restart until `persistToDisk()` is called. The same applies to an index picking up PQ compression for the first time.
 
 ==== Memory-Mapped Access
 

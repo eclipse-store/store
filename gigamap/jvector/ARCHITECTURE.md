@@ -649,7 +649,7 @@ Training is **one-shot per on-disk index**, not merely per session. `doPersistTo
 
 ### Subspaces
 
-Default: `max(1, dimension / 4)`. Configurable via `pqSubspaces`; the configuration validator requires `dimension % pqSubspaces == 0`.
+Default: `max(1, dimension / 4)`. Configurable via `pqSubspaces`; the configuration validator requires `dimension % pqSubspaces == 0` for an **explicitly configured** value only. The automatic default is not subject to it - JVector's `getSubvectorSizesAndOffsets` distributes any remainder across the subvectors and only requires `M <= dimension` - so e.g. dimension 14 trains fine at M=3 (subvectors 5/5/4). Snapping the automatic value down to a divisor would be wrong: for a prime dimension it collapses to M=1.
 
 ### `VectorProvider` indirection
 

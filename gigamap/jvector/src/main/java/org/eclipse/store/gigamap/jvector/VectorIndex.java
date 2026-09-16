@@ -2701,7 +2701,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // MIN_VECTORS_FOR_PQ_TRAINING, or when training threw and the graph was written
                     // uncompressed. Without this carve-out the shortcut would make that state
                     // permanent for an idle index, because nothing else ever re-enters this method.
-                    if(this.incrementalMode && this.isIncrementalClean() && !this.isPqTrainingPending())
+                    // The carve-out deliberately does not apply on the shutdown path. Training needs
+                    // the consolidated graph, so it can only run after exitIncrementalMode(), and the
+                    // shutdown branch below returns before that on purpose - shutdown must not be
+                    // blocked by an O(n) rebuild. Letting a pending training through here would only
+                    // reach that return anyway, so this states the outcome instead of discovering it
+                    // two steps later. The consequence is that an index whose only persist is the
+                    // shutdown persist stays uncompressed; it trains on the first explicit
+                    // persistToDisk() or the first background persist after a change.
+                    if(this.incrementalMode
+                        && this.isIncrementalClean()
+                        && (onShutdown || !this.isPqTrainingPending()))
                     {
                         LOG.debug("No incremental changes for '{}', skipping persist", this.name);
                         return;
@@ -2902,7 +2912,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * did not.
          * <p>
          * Used to keep the incremental-clean shortcut in {@code doPersistToDisk} from making a
-         * missed training permanent on an otherwise idle index.
+         * missed training permanent on an otherwise idle index. It has no effect on the shutdown
+         * path, which returns before the consolidation that training depends on.
          */
         private boolean isPqTrainingPending()
         {

@@ -72,11 +72,16 @@ interface DiskIndexManager extends Closeable
      * </ul>
      * Bumping this constant invalidates existing on-disk indices: {@code tryLoad} rejects the
      * {@code .meta} and the graph is rebuilt from the GigaMap-stored source vectors, so no data is
-     * lost. The rebuild happens in memory, though - the stale files are replaced only when something
-     * subsequently persists. With the default {@link VectorIndexConfiguration#persistOnShutdown()},
-     * or with background persistence, that follows on its own and the cold-start cost is paid once.
-     * An index that has both disabled and never calls {@code persistToDisk()} keeps the old files
-     * and repeats the rebuild on every restart.
+     * lost.
+     * <p>
+     * That rebuild is in memory. The stale files are replaced only by a persist that actually runs,
+     * and none is triggered by the rejection itself: background persistence fires only once its
+     * change counter reaches the configured minimum, the background shutdown persist requires that
+     * counter to be non-zero, and the direct shutdown persist skips a clean incremental index. So an
+     * index that is mutated after the upgrade migrates on its next persist and pays the cold start
+     * once, while a purely read-only one keeps the old files and rebuilds again on every restart
+     * until something calls {@code persistToDisk()}. The same applies to a PQ-enabled index picking
+     * up compression for the first time.
      */
     final static int GRAPH_FILE_VERSION = 4;
 
