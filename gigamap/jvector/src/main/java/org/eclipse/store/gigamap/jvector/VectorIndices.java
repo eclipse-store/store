@@ -71,9 +71,11 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
      * <p>
      * <b>For an on-disk index, delete the index directory's {@code .graph} and {@code .meta} files
      * between the two calls.</b> {@link #removeIndex(String)} only closes the index and drops the
-     * registry entry; it deliberately leaves those files in place. The metadata records no
-     * configuration, so re-adding under the same name and directory can load the old graph instead
-     * of rebuilding it - which would, for instance, keep serving an uncompressed graph after PQ was
+     * registry entry; it deliberately leaves those files in place. The metadata does validate the
+     * dimension alongside the format version and the content witnesses, so a changed dimension is
+     * caught - but it records none of the tuning settings, {@code enablePqCompression} among them.
+     * Re-adding under the same name and directory can therefore load the old graph instead of
+     * rebuilding it, which would for instance keep serving an uncompressed graph after PQ was
      * switched on.
      *
      * @param name          the name of the index
