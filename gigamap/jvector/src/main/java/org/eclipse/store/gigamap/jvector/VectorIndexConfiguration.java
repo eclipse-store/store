@@ -325,7 +325,9 @@ public interface VectorIndexConfiguration
      * large on-disk index matters, not when disk footprint does.
      * <p>
      * The codebook is trained once, on the first persist at which at least 256 vectors exist; below
-     * that threshold the graph is written uncompressed and training is retried on a later persist.
+     * that threshold the graph is written uncompressed and training is reattempted on the next
+     * persist that follows a graph-affecting change, or in a later session. An unchanged index is
+     * deliberately not retried, since that would rebuild the whole graph on every idle persist.
      * Once trained, the codebook is stored in the graph header and recovered on every subsequent
      * load, so it is never retrained for the life of that on-disk index.
      * <p>

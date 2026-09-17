@@ -272,7 +272,6 @@ interface DiskIndexManager extends Closeable
         private final String             name                ;
         private final Path               indexDirectory      ;
         private final int                dimension           ;
-        private final int                maxDegree           ;
         private final boolean            parallelOnDiskWrite ;
 
         private OnDiskGraphIndex diskIndex     ;
@@ -284,7 +283,6 @@ interface DiskIndexManager extends Closeable
             final String             name                ,
             final Path               indexDirectory      ,
             final int                dimension           ,
-            final int                maxDegree           ,
             final boolean            parallelOnDiskWrite
         )
         {
@@ -292,7 +290,6 @@ interface DiskIndexManager extends Closeable
             this.name                = name                ;
             this.indexDirectory      = indexDirectory      ;
             this.dimension           = dimension           ;
-            this.maxDegree           = maxDegree           ;
             this.parallelOnDiskWrite = parallelOnDiskWrite ;
         }
 

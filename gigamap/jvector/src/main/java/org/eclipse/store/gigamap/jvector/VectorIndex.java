@@ -1245,7 +1245,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.name,
                     this.configuration.indexDirectory(),
                     this.configuration.dimension(),
-                    this.configuration.maxDegree(),
                     this.configuration.parallelOnDiskWrite()
                 );
                 if(this.diskManager.tryLoad())
@@ -2709,9 +2708,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // two steps later. The consequence is that an index whose only persist is the
                     // shutdown persist stays uncompressed; it trains on the first explicit
                     // persistToDisk() or the first background persist after a change.
-                    if(this.incrementalMode
-                        && this.isIncrementalClean()
-                        && (onShutdown || !this.isPqTrainingPending()))
+                    // isPqTrainingPending() reads GigaMap state (the structural mod count and, in
+                    // embedded mode, the entity count), so it needs the parentMap monitor to see a
+                    // consistent snapshot - otherwise a persist racing a mutation could observe the
+                    // pre-mutation count, take the shortcut, and defer a training that was due.
+                    // Taking the monitor while already holding builderLock.writeLock() is the
+                    // established order here (Phase 1 below does exactly that); the deadlock hazard
+                    // is the reverse, which internalRemoveAll takes and this never does.
+                    final boolean skipPersist;
+                    synchronized(this.parentMap())
+                    {
+                        skipPersist = this.incrementalMode
+                            && this.isIncrementalClean()
+                            && (onShutdown || !this.isPqTrainingPending())
+                        ;
+                    }
+
+                    if(skipPersist)
                     {
                         LOG.debug("No incremental changes for '{}', skipping persist", this.name);
                         return;
@@ -2786,7 +2799,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                                 this.name,
                                 this.configuration.indexDirectory(),
                                 this.configuration.dimension(),
-                                this.configuration.maxDegree(),
                                 this.configuration.parallelOnDiskWrite()
                             );
                         }
@@ -3037,7 +3049,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.name,
                 this.configuration.indexDirectory(),
                 this.configuration.dimension(),
-                this.configuration.maxDegree(),
                 this.configuration.parallelOnDiskWrite()
             );
 

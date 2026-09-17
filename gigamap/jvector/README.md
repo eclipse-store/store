@@ -167,7 +167,7 @@ List<Document> topDocs = result.stream()
 | `pqSubspaces` | `0` | Number of PQ subspaces (0 = auto: dimension/4) |
 | `parallelOnDiskWrite` | `false` | Use parallel direct buffers and multiple worker threads for on-disk index writing. Speeds up persistence for large indices but uses more resources. Only applies when `onDisk=true` |
 
-> **On-disk format version:** the graph file format is at version 4. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors — no data loss, expect a one-time cold-start cost on the first restart after upgrade.
+> **On-disk format version:** the graph file format is at version 4. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors — no data loss, but expect a cold-start cost on the first restart after upgrade. That rebuild happens in memory and does not replace the old files; a mutated index migrates on its next persist, while a read-only one rebuilds again on every restart until `persistToDisk()` is called.
 
 ### Eventual Indexing
 
@@ -195,7 +195,7 @@ List<Document> topDocs = result.stream()
 
 ### On-Disk Index with Compression
 
-For large datasets that exceed available memory:
+For large on-disk datasets where search latency matters. Note that PQ keeps the full-precision vectors and adds the fused codes on top, so it speeds up traversal at the cost of a larger graph file - on-disk mode, not PQ, is what lets an index exceed available memory:
 
 ```java
 VectorIndexConfiguration config = VectorIndexConfiguration.builder()

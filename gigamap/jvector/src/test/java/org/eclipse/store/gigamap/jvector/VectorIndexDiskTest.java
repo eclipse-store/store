@@ -737,6 +737,9 @@ class VectorIndexDiskTest
 
             assertTrue(index.isPqCompressionActive());
             storage.storeRoot();
+            // graphFeatures() below opens the graph file, which Windows refuses while the
+            // index still holds it memory-mapped.
+            index.close();
         }
         assertTrue(graphFeatures(graphPath).contains(FeatureId.FUSED_PQ),
             "the first persist must write FusedPQ");
@@ -757,6 +760,7 @@ class VectorIndexDiskTest
 
             assertTrue(index.isPqCompressionActive(), "the re-persist must not lose the codebook");
             storage.storeRoot();
+            index.close();
         }
 
         assertTrue(graphFeatures(graphPath).contains(FeatureId.FUSED_PQ),
@@ -772,6 +776,8 @@ class VectorIndexDiskTest
 
             assertTrue(index.isPqCompressionActive());
             assertEquals(10, index.search(randomVector(random, dimension), 10).size());
+            // Release the mapping before @TempDir cleanup, which Windows would otherwise fail.
+            index.close();
         }
     }
 
@@ -1032,6 +1038,9 @@ class VectorIndexDiskTest
             assertEquals(10, beforeIds.size());
 
             storage.storeRoot();
+            // graphFeatures() below opens the graph file, which Windows refuses while the
+            // index still holds it memory-mapped.
+            index.close();
         }
 
         assertTrue(graphFeatures(indexDir.resolve("embeddings.graph")).contains(FeatureId.FUSED_PQ),
@@ -1057,6 +1066,8 @@ class VectorIndexDiskTest
 
             assertEquals(beforeIds, afterIds,
                 "search over the reloaded non-32-degree FusedPQ graph must match the pre-reload result");
+
+            reloaded.close();
         }
     }
 

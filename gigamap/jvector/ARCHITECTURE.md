@@ -739,7 +739,7 @@ Two files per index, named after `VectorIndex.Default.name`:
 | 3 | + `structuralModCount` | Catches a vec<->null transition that left count and highestId unchanged. |
 | 4 | (no new fields) | `enablePqCompression` finally writes a FusedPQ graph. Graphs written earlier with the flag set are uncompressed despite it, and an index that loads clean and is never mutated never persists again -- so the bump forces one rebuild rather than letting them sit uncompressed forever. |
 
-Bumping the version invalidates existing files; they are silently rebuilt from `vectorStore` (or the parent map for embedded mode) on first load — no data loss, one-time cold-start cost.
+Bumping the version invalidates existing files; they are silently rebuilt from `vectorStore` (or the parent map for embedded mode) on first load — no data loss. The rebuild is in memory and does not rewrite the stale files, so the cold start is paid once only if a persist follows: an index that is mutated after the upgrade migrates on its next persist, while a read-only one rebuilds again on every restart until `persistToDisk()` runs.
 
 ### Write path
 

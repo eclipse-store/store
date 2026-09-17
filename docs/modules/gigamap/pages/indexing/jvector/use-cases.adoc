@@ -509,7 +509,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 
 == Large-Scale Vector Database
 
-For datasets with millions of vectors where memory efficiency is critical.
+For datasets with millions of vectors where on-disk search latency is critical. On-disk mode is what lets the index exceed available memory; PQ then reduces the I/O per traversal hop, at the cost of a larger graph file.
 
 [source, java]
 ----

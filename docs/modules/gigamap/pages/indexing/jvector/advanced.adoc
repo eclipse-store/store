@@ -99,7 +99,7 @@ Enable PQ when query latency on a large on-disk index matters. Do not enable it 
 
 ==== Training the Codebook
 
-Before vectors can be compressed, PQ must learn the codebooks by clustering the training data. This happens automatically when the index is persisted to disk, on the first persist at which at least 256 vectors exist. Below that threshold the graph is written uncompressed and training is retried on a later persist. The training process:
+Before vectors can be compressed, PQ must learn the codebooks by clustering the training data. This happens automatically when the index is persisted to disk, on the first persist at which at least 256 vectors exist. Below that threshold the graph is written uncompressed, and training is reattempted on the next persist that follows a graph-affecting change, or in a later session -- an unchanged index is deliberately not retried, since that would rebuild the whole graph on every idle persist. The training process:
 
 1. Collects a training sample: entities without an embedding are skipped, and at most 128,000 vectors are materialised, drawn as a uniform reservoir sample when the index holds more than that. The cap bounds the memory the persist needs and matches the size JVector subsamples to internally, so a larger sample would not improve the codebook.
 2. Splits each vector into _M_ subspaces.
