@@ -57,10 +57,30 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
 
     /**
      * Ensures that a vector index exists in this group.
+     * <p>
+     * <b>If an index of that name already exists, it is returned unchanged and the supplied
+     * {@code configuration} and {@code vectorizer} are ignored</b> - the persisted ones win. This
+     * call cannot be used to reconfigure an existing index: after the parent map has been loaded
+     * from storage the index is already registered, so passing a changed configuration here has no
+     * effect and no error is reported. Inspect the effective settings with
+     * {@code get(name).configuration()}.
+     * <p>
+     * Changing the configuration of an existing index requires {@link #removeIndex(String)} followed
+     * by {@link #add(String, VectorIndexConfiguration, Vectorizer)}, which re-indexes every entity in
+     * the parent map.
+     * <p>
+     * <b>For an on-disk index, delete the index directory's {@code .graph} and {@code .meta} files
+     * between the two calls.</b> {@link #removeIndex(String)} only closes the index and drops the
+     * registry entry; it deliberately leaves those files in place. The metadata does validate the
+     * dimension alongside the format version and the content witnesses, so a changed dimension is
+     * caught - but it records none of the tuning settings, {@code enablePqCompression} among them.
+     * Re-adding under the same name and directory can therefore load the old graph instead of
+     * rebuilding it, which would for instance keep serving an uncompressed graph after PQ was
+     * switched on.
      *
      * @param name          the name of the index
-     * @param configuration the index configuration
-     * @param vectorizer    the vectorizer
+     * @param configuration the index configuration, ignored if an index of that name already exists
+     * @param vectorizer    the vectorizer, ignored if an index of that name already exists
      * @return the resulting index (existing or newly created)
      */
     public VectorIndex<E> ensure(

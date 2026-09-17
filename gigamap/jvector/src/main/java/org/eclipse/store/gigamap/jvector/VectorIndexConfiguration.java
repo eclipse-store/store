@@ -294,10 +294,14 @@ public interface VectorIndexConfiguration
      * <p>
      * Required when {@link #onDisk()} is true. The directory will contain:
      * <ul>
-     *   <li>{@code {name}.graph} - The graph structure file</li>
-     *   <li>{@code {name}.pq} - Product quantization codebook and compressed vectors (if compression enabled)</li>
-     *   <li>{@code {name}.meta} - Metadata file (version, config hash, vector count)</li>
+     *   <li>{@code {name}.graph} - The graph structure: HNSW edges, the full-precision inline
+     *       vectors used for exact reranking, and, when {@link #enablePqCompression()} is active,
+     *       the PQ codebook and fused compressed codes. There is no separate codebook file.</li>
+     *   <li>{@code {name}.meta} - Metadata file (format version, dimension, vector count, highest
+     *       entity id, structural modification count)</li>
      * </ul>
+     * Both are written to {@code .tmp} siblings and renamed into place, so an interrupted persist
+     * leaves at most a stale temporary file.
      *
      * @return the index directory path, or null if not using on-disk mode
      * @see #onDisk()
@@ -307,12 +311,37 @@ public interface VectorIndexConfiguration
     /**
      * Returns whether Product Quantization (PQ) compression is enabled.
      * <p>
-     * When enabled, vectors are compressed using Product Quantization, which:
-     * <ul>
-     *   <li><b>Reduces memory</b>: Compresses vectors significantly (e.g., 768 floats → 48 bytes)</li>
-     *   <li><b>Enables scale</b>: Allows much larger datasets to fit in memory</li>
-     *   <li><b>Approximate scoring</b>: Uses compressed vectors for initial scoring, then reranks with exact vectors</li>
-     * </ul>
+     * When enabled, the on-disk graph additionally carries {@code FusedPQ}: each node stores the
+     * PQ-compressed codes of all its neighbours alongside its edges, so one sequential read scores
+     * every candidate during traversal instead of one random full-vector read per candidate. The
+     * full-precision inline vectors are still written, and the best candidates are reranked against
+     * them exactly.
+     * <p>
+     * <b>This is a speed optimisation, not a space one.</b> Fusing the neighbour codes into every
+     * node duplicates them {@code maxDegree} times, so enabling PQ makes the {@code .graph} file
+     * <i>larger</i> by roughly {@code pqSubspaces * maxDegree} bytes per node - it does not shrink
+     * the index. What it buys is far less I/O and far better cache locality while traversing, and a
+     * smaller working set of full vectors touched per query. Choose it when search latency on a
+     * large on-disk index matters, not when disk footprint does.
+     * <p>
+     * <b>Memory.</b> The resident working set during search goes <i>down</i>: a hop reads one
+     * contiguous fused block instead of {@link #maxDegree()} scattered full vectors, and
+     * reranking reads the inline vectors out of the mapping into a reused buffer. The costs are
+     * transient heap at persist time - encoding allocates {@code nodes * pqSubspaces} bytes for the
+     * whole ordinal space, and the persist walks every vector twice, once to encode and once to
+     * write the inline vectors - plus the larger mapping itself. Note that
+     * if the whole index already fits in RAM there are no page faults left to avoid, so PQ buys
+     * only cheaper arithmetic and cache locality while still costing the extra resident bytes:
+     * it is a way to scale past available memory rather than a general latency tweak.
+     * <p>
+     * The codebook is trained once, on the first persist at which at least 256 <i>embeddings</i>
+     * exist - entities without one are skipped, so an index of 256 entities of which some have no
+     * vector does not yet qualify. Below that threshold the graph is written uncompressed and
+     * training is reattempted on the next persist that follows a graph-affecting change, or in a
+     * later session. An unchanged index is deliberately not retried, since that would rebuild the
+     * whole graph on every idle persist.
+     * Once trained, the codebook is stored in the graph header and recovered on every subsequent
+     * load, so it is never retrained for the life of that on-disk index.
      * <p>
      * Requires {@link #onDisk()} to be true.
      *
@@ -328,14 +357,23 @@ public interface VectorIndexConfiguration
      * Product Quantization divides each vector into M subspaces, each encoded
      * with 256 centroids (8 bits). More subspaces means:
      * <ul>
-     *   <li><b>Higher accuracy</b>: Finer-grained quantization</li>
-     *   <li><b>More storage</b>: Each vector uses M bytes</li>
+     *   <li><b>Higher accuracy</b>: Finer-grained quantization, so fewer candidates need reranking</li>
+     *   <li><b>Slower traversal</b>: Under {@code FusedPQ} each node stores the codes of all its
+     *       neighbours, so a node costs {@code M * maxDegree} bytes - not {@code M} - and every hop
+     *       reads that whole block</li>
      * </ul>
      * <p>
-     * The vector dimension must be evenly divisible by this value.
+     * The vector dimension must be evenly divisible by an explicitly configured value. The
+     * automatic value is not subject to that rule: JVector distributes any remainder across the
+     * subvectors and only requires the count to be at most the dimension.
      * <p>
-     * <b>Recommendation:</b> Use dimension/4 for a good balance (e.g., 768-dim → 192 subspaces → 192 bytes/vector).
-     * Use dimension/8 for more compression with some accuracy loss.
+     * <b>Recommendation:</b> the auto default of dimension/4 is the safe choice - measured recall@10
+     * at the default {@link #minSearchBeamWidth()} of 100 is within noise of exact search. Lowering
+     * M makes hops cheaper but costs real recall (dimension/16 measured ~0.74 at that beam width),
+     * and the exact rerank does <b>not</b> compensate: it only reorders candidates that traversal
+     * already found. A wider {@link #minSearchBeamWidth()} does - dimension/16 at beam 400 measured
+     * ~0.98, at a quarter of the per-node cost. Lower M and widen the beam together, or leave both
+     * at their defaults.
      *
      * @return the number of PQ subspaces, or 0 for auto-calculation (dimension/4)
      * @see #enablePqCompression()
@@ -679,8 +717,11 @@ public interface VectorIndexConfiguration
     /**
      * Creates an on-disk configuration optimized for large datasets (&gt;1M vectors) with PQ compression.
      * <p>
-     * Uses higher parameter values for better recall at scale, with on-disk storage,
-     * PQ compression for memory efficiency, and background persistence/optimization.
+     * Uses higher parameter values for better recall at scale, with on-disk storage, PQ compression
+     * for faster traversal, and background persistence/optimization. Note that PQ trades disk space
+     * for search speed - it makes the graph file larger, not smaller; see
+     * {@link #enablePqCompression()}. Use {@link #forLargeDataset(int, Path, boolean)} with
+     * {@code false} to opt out.
      * <p>
      * <b>Configuration:</b> maxDegree=32, beamWidth=300, onDisk=true, enablePqCompression=true,
      * persistenceIntervalMs=30000, optimizationIntervalMs=60000
@@ -700,15 +741,16 @@ public interface VectorIndexConfiguration
      * Creates an on-disk configuration optimized for large datasets (&gt;1M vectors).
      * <p>
      * Uses higher parameter values for better recall at scale, with on-disk storage
-     * and background persistence/optimization. PQ compression can be optionally enabled
-     * for memory efficiency.
+     * and background persistence/optimization. PQ compression can be optionally enabled to
+     * speed up traversal; note that it makes the graph file larger, not smaller - see
+     * {@link #enablePqCompression()}.
      * <p>
      * <b>Configuration:</b> maxDegree=32, beamWidth=300, onDisk=true,
      * persistenceIntervalMs=30000, optimizationIntervalMs=60000
      *
      * @param dimension the vector dimension (must be positive)
      * @param indexDirectory the directory where index files will be stored
-     * @param enableCompression true to enable PQ compression (recommended for memory efficiency)
+     * @param enableCompression true to enable PQ compression (faster traversal, larger graph file)
      * @return a ready-to-use configuration for large datasets
      * @see #forLargeDataset(int, Path)
      * @see #builderForLargeDataset(int, Path)
@@ -942,8 +984,9 @@ public interface VectorIndexConfiguration
         /**
          * Sets the number of PQ subspaces.
          * <p>
-         * The vector dimension must be evenly divisible by this value.
-         * Use 0 for auto-calculation (dimension/4).
+         * The vector dimension must be evenly divisible by this value. Use 0 for auto-calculation
+         * (dimension/4), which is not subject to that rule - JVector distributes any remainder
+         * across the subvectors.
          *
          * @param pqSubspaces the number of subspaces, or 0 for auto
          * @return this builder for method chaining
@@ -1058,11 +1101,6 @@ public interface VectorIndexConfiguration
         public static class Default implements Builder
         {
             private static final Logger LOG = LoggerFactory.getLogger(Default.class);
-
-            /**
-             * FusedPQ compression requires maxDegree to be exactly 32.
-             */
-            private static final int FUSED_PQ_REQUIRED_MAX_DEGREE = 32;
 
             /**
              * Default upper bound (30s) on how long a shutdown persist may run before it is aborted.
@@ -1297,13 +1335,12 @@ public interface VectorIndexConfiguration
                     );
                 }
 
-                // FusedPQ requires maxDegree=32 - enforce when compression is enabled
-                if(this.enablePqCompression && this.maxDegree != FUSED_PQ_REQUIRED_MAX_DEGREE)
-                {
-                    LOG.warn("FusedPQ requires maxDegree={}, overriding configured value {}",
-                        FUSED_PQ_REQUIRED_MAX_DEGREE, this.maxDegree);
-                    this.maxDegree = FUSED_PQ_REQUIRED_MAX_DEGREE;
-                }
+                // No maxDegree constraint is applied for PQ. JVector 4's FusedPQ accepts any degree -
+                // its only precondition is a 256-cluster codebook - and it records the degree in the
+                // graph header, so FusedPQ.load sizes the fused block from the file itself. The
+                // "FusedPQ requires maxDegree=32" rule this builder used to enforce was a leftover
+                // from JVector 3's FusedADC; it silently doubled the graph's out-degree, which was
+                // the only effect enablePqCompression had before the feature worked.
 
                 return new VectorIndexConfiguration.Default(
                     this.dimension,

@@ -15,9 +15,12 @@ package org.eclipse.store.gigamap.jvector;
  */
 
 import io.github.jbellis.jvector.graph.*;
+import io.github.jbellis.jvector.graph.disk.OnDiskGraphIndex;
+import io.github.jbellis.jvector.graph.disk.feature.FeatureId;
 import io.github.jbellis.jvector.graph.similarity.BuildScoreProvider;
 import io.github.jbellis.jvector.graph.similarity.DefaultSearchScoreProvider;
 import io.github.jbellis.jvector.graph.similarity.SearchScoreProvider;
+import io.github.jbellis.jvector.quantization.ProductQuantization;
 import io.github.jbellis.jvector.util.Bits;
 import io.github.jbellis.jvector.util.ExplicitThreadLocal;
 import io.github.jbellis.jvector.vector.VectorizationProvider;
@@ -42,10 +45,12 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Consumer;
 import java.util.stream.IntStream;
 
 import static org.eclipse.serializer.math.XMath.positive;
@@ -64,7 +69,7 @@ import static org.eclipse.serializer.math.XMath.positive;
  *   <li><b>High Recall</b> - Configurable trade-offs between speed and accuracy</li>
  *   <li><b>Persistence</b> - Full integration with GigaMap's persistence layer</li>
  *   <li><b>On-Disk Storage</b> - Optional memory-mapped indices for large datasets</li>
- *   <li><b>PQ Compression</b> - Product Quantization for reduced memory footprint</li>
+ *   <li><b>PQ Compression</b> - Product Quantization for faster traversal of large on-disk indices</li>
  *   <li><b>Background Optimization</b> - Automatic graph cleanup for improved performance</li>
  *   <li><b>Eventual Indexing</b> - Deferred graph mutations via background thread for reduced write latency</li>
  *   <li><b>Parallel On-Disk Writes</b> - Multi-threaded index persistence for large on-disk indices</li>
@@ -145,7 +150,7 @@ import static org.eclipse.serializer.math.XMath.positive;
  *     .similarityFunction(VectorSimilarityFunction.COSINE)
  *     .onDisk(true)
  *     .indexDirectory(Path.of("/data/vectors"))
- *     .enablePqCompression(true)     // Optional: reduce memory with Product Quantization
+ *     .enablePqCompression(true)     // Optional: faster traversal, larger graph file
  *     .pqSubspaces(48)               // Must divide dimension evenly
  *     .build();
  * }</pre>
@@ -623,11 +628,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     /**
      * Returns whether Product Quantization (PQ) compression is enabled for this index.
      * <p>
-     * PQ compression reduces memory usage by encoding vectors into compact codes, at the
-     * cost of some accuracy loss. This is particularly useful for large indices where
-     * memory is constrained.
+     * PQ speeds up graph traversal by scoring candidates from compact codes stored alongside the
+     * edges, then reranking the best ones exactly. It is a speed optimisation: the codes are written
+     * <i>in addition to</i> the full-precision vectors, so the on-disk graph gets larger rather than
+     * smaller. See {@link VectorIndexConfiguration#enablePqCompression()} for the trade-off.
      * <p>
-     * <b>Note:</b> PQ compression requires on-disk mode to be enabled.
+     * <b>Note:</b> PQ compression requires on-disk mode to be enabled. This reports what was
+     * configured; use {@link #isPqCompressionActive()} to find out whether a codebook actually
+     * exists yet.
      *
      * @return true if PQ compression is enabled via {@link VectorIndexConfiguration#enablePqCompression()}
      * @see VectorIndexConfiguration#enablePqCompression()
@@ -636,6 +644,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     public default boolean isPqCompressionEnabled()
     {
         return this.configuration().enablePqCompression();
+    }
+
+    /**
+     * Returns whether PQ compression is actually in effect, as opposed to merely configured.
+     * <p>
+     * {@link #isPqCompressionEnabled()} reports what was asked for. This reports what the index is
+     * doing: it is {@code false} until a codebook exists, which happens on the first persist at
+     * which at least 256 vectors are present, and again on every load of a graph that carries the
+     * fused codes. An index can therefore be enabled but not yet active - while it is still too
+     * small to train, or before its first persist.
+     *
+     * @return true if a PQ codebook is currently held for this index
+     * @see #isPqCompressionEnabled()
+     */
+    public default boolean isPqCompressionActive()
+    {
+        return false;
     }
 
     /**
@@ -725,9 +750,18 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         public void clearStateChangeMarkers();
 
         /**
-         * Trains PQ codebook if compression is enabled and sufficient vectors exist.
-         * Called before persistence to ensure compressed vectors are ready.
+         * Trains the PQ codebook now, if compression is enabled, none is held yet and enough vectors
+         * exist.
+         * <p>
+         * No longer necessary: {@code persistToDisk()} trains the codebook itself, which is what
+         * makes {@link VectorIndexConfiguration#enablePqCompression()} take effect. This remains for
+         * source and binary compatibility - {@code Internal} is a public interface in an exported
+         * package - and as a way to pay the training cost at a chosen moment rather than inside the
+         * first persist. Calling it is otherwise a no-op.
+         *
+         * @deprecated training is part of the persist path; this method is no longer required
          */
+        @Deprecated
         public void trainCompressionIfNeeded();
     }
 
@@ -747,6 +781,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                DiskIndexManager.IndexStateProvider
     {
         private static final Logger LOG = LoggerFactory.getLogger(Default.class);
+
+        /**
+         * Fixed seed for the PQ training-set reservoir sample, so that training the same data twice
+         * yields the same codebook. The value itself is arbitrary.
+         */
+        private static final long RESERVOIR_SEED = 0x5EEDL;
 
         static BinaryTypeHandler<Default<?>> provideTypeHandler()
         {
@@ -791,6 +831,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // Managers (transient - recreated on load)
         private transient DiskIndexManager      diskManager          ;
         private transient PQCompressionManager  pqManager            ;
+
+        /**
+         * {@code structuralModCount} at which a PQ training attempt last declined or failed, or
+         * {@code -1} if none has. Guards the training carve-out in {@code doPersistToDisk} so a
+         * repeatedly-declining index does not force a full graph rebuild on every idle persist.
+         * Transient like the rest of the PQ state: a fresh session simply tries once more.
+         */
+        private transient volatile long pqTrainingDeclinedAtModCount = -1L;
                 transient BackgroundTaskManager backgroundTaskManager;
 
         // GraphSearcher pool for thread-local reuse
@@ -1174,6 +1222,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             this.vectorTypeSupport = VectorizationProvider.getInstance().getVectorTypeSupport();
 
+            // Set when a persisted on-disk index was found but rejected, so the rebuilt graph has to
+            // be written back over the stale files. Acted on after the background manager is started.
+            boolean diskRebuildPending = false;
+
             // Initialize builder lock (always, for consistent locking semantics)
             if(this.builderLock == null)
             {
@@ -1212,17 +1264,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.name,
                     this.configuration.indexDirectory(),
                     this.configuration.dimension(),
-                    this.configuration.maxDegree(),
+                    this.configuration.enablePqCompression(),
                     this.configuration.parallelOnDiskWrite()
                 );
                 if(this.diskManager.tryLoad())
                 {
-                    // Mark PQ as trained if compression was enabled (FusedPQ is embedded)
-                    if(this.pqManager != null)
-                    {
-                        this.pqManager.markTrained();
-                        LOG.debug("FusedPQ compression loaded from disk for '{}'", this.name);
-                    }
+                    // Recover the codebook the loaded graph was actually written with, rather than
+                    // assuming one is present. A graph written before compression was enabled - or
+                    // written while too few vectors existed to train - carries no FusedPQ, and
+                    // claiming otherwise would leave the manager "trained" with a null codebook,
+                    // permanently suppressing training while every persist wrote uncompressed.
+                    this.adoptPqFromLoadedGraph();
 
                     // Enter incremental on-disk mode: disk index serves search,
                     // in-memory builder only handles new mutations.
@@ -1234,6 +1286,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 else
                 {
                     LOG.info("Could not load disk index for '{}', will build in-memory and persist later", this.name);
+
+                    // Distinguish "a persisted index was rejected" from "nothing persisted yet":
+                    // only the former leaves stale files that the rebuilt graph has to replace.
+                    diskRebuildPending = this.diskManager.indexFilesExist();
                 }
             }
 
@@ -1242,6 +1298,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // Start background managers if enabled
             this.startBackgroundManagersIfEnabled();
+
+            // A rejected load is not a change, so nothing would otherwise schedule the persist that
+            // replaces the stale files: background persistence waits for its change threshold and the
+            // shutdown persist for a non-zero count. Left alone, a read-mostly index would rebuild
+            // from the store on every restart, which is exactly what the format bump was supposed to
+            // cost only once. Must follow the start above, since the manager does not exist before it.
+            //
+            // This only reaches indices that run a background task manager - without one there is
+            // nothing to schedule against. Such an index is not stranded, though: close() calls
+            // doPersistToDisk directly for it, and a rejected load leaves incrementalMode false, so
+            // that persist proceeds and replaces the files. The gap is a process that is killed
+            // rather than closed, which repeats the rebuild on the next start.
+            if(diskRebuildPending && this.backgroundTaskManager != null)
+            {
+                this.backgroundTaskManager.markPersistRequired();
+            }
         }
 
         /**
@@ -2195,29 +2267,92 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private SearchResult searchDiskIndex(final VectorFloat<?> query, final int k, final int rerankK)
         {
-            // If PQ is available, use compressed scoring with reranking
-            if(this.pqManager != null && this.pqManager.isTrained() && this.pqManager.getCompressedVectors() != null)
-            {
-                final GraphSearcher searcher = this.inMemorySearcherPool.get();
-                return this.pqManager.searchWithRerank(
-                    query,
-                    k,
-                    rerankK,
-                    searcher,
-                    this.createCachingVectorValues(),
-                    this.jvectorSimilarityFunction()
-                );
-            }
+            final io.github.jbellis.jvector.vector.VectorSimilarityFunction vsf = this.jvectorSimilarityFunction();
 
-            // Otherwise, search disk index with exact vectors using pooled searcher
-            final SearchScoreProvider scoreProvider = DefaultSearchScoreProvider.exact(
+            final SearchScoreProvider exactProvider = DefaultSearchScoreProvider.exact(
                 query,
-                this.jvectorSimilarityFunction(),
+                vsf,
                 this.createCachingVectorValues()
             );
 
+            // In non-incremental disk mode initializeSearcherPool() puts the DISK searcher into
+            // inMemorySearcherPool - there is no second graph to search - so despite the field name
+            // this is the disk searcher.
             final GraphSearcher searcher = this.inMemorySearcherPool.get();
-            return searcher.search(scoreProvider, k, rerankK, 0f, 0f, Bits.ALL);
+            return searcher.search(
+                this.diskScoreProvider(searcher, query, vsf, exactProvider),
+                k,
+                rerankK,
+                0f,
+                0f,
+                Bits.ALL
+            );
+        }
+
+        /**
+         * Builds the score provider for a search against the on-disk graph: FusedPQ-approximate
+         * traversal with exact reranking against the inline vectors when the loaded graph actually
+         * carries that feature, and the plain exact provider otherwise.
+         * <p>
+         * The approximate function <b>must</b> be built from {@code searcher.getView()}, and the
+         * searcher must not have {@code setView(...)} called on it. {@code FusedPQDecoder}
+         * populates that view's neighbor scratch arrays as a side effect of reading the packed
+         * codes, and {@code View.processNeighbors} then reads exactly those arrays - a score
+         * function bound to any other view silently scores the wrong node's neighbors.
+         * <p>
+         * The gate is the <b>loaded graph's</b> feature set rather than {@link PQCompressionManager}
+         * state: the graph is self-describing, so the query path needs no happens-before edge with
+         * the training and persist paths.
+         *
+         * @param searcher      the searcher that will run the query, and whose view is used
+         * @param query         the query vector
+         * @param vsf           the similarity function
+         * @param exactFallback the provider to use when the graph carries no usable FusedPQ
+         * @return the score provider to search with
+         */
+        private SearchScoreProvider diskScoreProvider(
+            final GraphSearcher                                             searcher     ,
+            final VectorFloat<?>                                            query        ,
+            final io.github.jbellis.jvector.vector.VectorSimilarityFunction vsf          ,
+            final SearchScoreProvider                                       exactFallback
+        )
+        {
+            // The configured flag is part of the gate, not just the graph's feature set. The .meta
+            // carries no PQ marker, so an index re-created with enablePqCompression(false) over a
+            // directory still holding a compressed graph can load it - removeIndex() leaves the
+            // files behind. Without this check such an index would traverse approximately despite
+            // having opted out.
+            if(!this.configuration.enablePqCompression())
+            {
+                return exactFallback;
+            }
+
+            final OnDiskGraphIndex diskIndex = this.diskManager != null
+                ? this.diskManager.getDiskIndex()
+                : null
+            ;
+            if(diskIndex == null || !diskIndex.getFeatureSet().contains(FeatureId.FUSED_PQ))
+            {
+                return exactFallback;
+            }
+
+            // FusedPQDecoder.similarityTo(node) - used for the entry node and for every hop above
+            // level 0 - requires the node to be in the view's level-1 inline-source cache, which
+            // OnDiskGraphIndex only populates for a hierarchical graph. On a flat graph the first
+            // scoring call would throw. A PQ graph has at least 256 nodes and the builder is
+            // hierarchical, so this should never fire; it is cheap insurance on the query path.
+            if(!diskIndex.isHierarchical() || !(searcher.getView() instanceof OnDiskGraphIndex.View view))
+            {
+                return exactFallback;
+            }
+
+            // rerankerFor() is documented as not thread-safe: it closes over a scratch vector and
+            // reads through the view. Safe here because it is built fresh per query over a
+            // thread-confined ExplicitThreadLocal<GraphSearcher> and its view.
+            return new DefaultSearchScoreProvider(
+                view.approximateScoreFunctionFor(query, vsf),
+                view.rerankerFor(query, vsf)
+            );
         }
 
         /**
@@ -2226,9 +2361,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private SearchResult searchIncremental(final VectorFloat<?> query, final int k, final int rerankK)
         {
+            final io.github.jbellis.jvector.vector.VectorSimilarityFunction vsf = this.jvectorSimilarityFunction();
+
             final SearchScoreProvider scoreProvider = DefaultSearchScoreProvider.exact(
                 query,
-                this.jvectorSimilarityFunction(),
+                vsf,
                 this.createCachingVectorValues()
             );
 
@@ -2239,7 +2376,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 final GraphSearcher diskSearcher = this.diskSearcherPool.get();
                 final Bits acceptBits = this.createDiskAcceptBits();
-                diskResult = diskSearcher.search(scoreProvider, rerankK, rerankK, 0f, 0f, acceptBits);
+
+                // When the graph carries FusedPQ, traverse on the compressed codes and rerank
+                // against the inline vectors in the same memory-mapped file. Reranking from the
+                // graph rather than from createCachingVectorValues() also avoids a parentMap.get()
+                // - and, in embedded mode, a vectorizer.vectorize() - per reranked candidate. The
+                // accept bits already exclude every ordinal deleted or updated since the graph was
+                // written, so for every surviving candidate the on-disk vector IS the live vector.
+                final SearchScoreProvider diskProvider =
+                    this.diskScoreProvider(diskSearcher, query, vsf, scoreProvider);
+
+                diskResult = diskSearcher.search(diskProvider, rerankK, rerankK, 0f, 0f, acceptBits);
             }
 
             // 2. Search in-memory graph (new mutations only)
@@ -2577,6 +2724,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return; // No-op for in-memory indices
             }
 
+            this.trainPqBeforeLocking(onShutdown);
+
             // Signal sync-mode mutations to defer builder ops during cleanup + disk write.
             this.cleanupInProgress = true;
             try
@@ -2586,8 +2735,38 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.builderLock.writeLock().lock();
                 try
                 {
-                    // If incremental mode with no changes, skip persist entirely
-                    if(this.incrementalMode && this.isIncrementalClean())
+                    // If incremental mode with no changes, skip persist entirely.
+                    //
+                    // Exception: an index that wants PQ but has no codebook yet still has work to
+                    // do, even with no data changes. That happens when the first persist ran below
+                    // MIN_VECTORS_FOR_PQ_TRAINING, or when training threw and the graph was written
+                    // uncompressed. Without this carve-out the shortcut would make that state
+                    // permanent for an idle index, because nothing else ever re-enters this method.
+                    // The carve-out deliberately does not apply on the shutdown path. Training needs
+                    // the consolidated graph, so it can only run after exitIncrementalMode(), and the
+                    // shutdown branch below returns before that on purpose - shutdown must not be
+                    // blocked by an O(n) rebuild. Letting a pending training through here would only
+                    // reach that return anyway, so this states the outcome instead of discovering it
+                    // two steps later. The consequence is that an index whose only persist is the
+                    // shutdown persist stays uncompressed; it trains on the first explicit
+                    // persistToDisk() or the first background persist after a change.
+                    // isPqTrainingPending() reads GigaMap state (the structural mod count and, in
+                    // embedded mode, the entity count), so it needs the parentMap monitor to see a
+                    // consistent snapshot - otherwise a persist racing a mutation could observe the
+                    // pre-mutation count, take the shortcut, and defer a training that was due.
+                    // Taking the monitor while already holding builderLock.writeLock() is the
+                    // established order here (Phase 1 below does exactly that); the deadlock hazard
+                    // is the reverse, which internalRemoveAll takes and this never does.
+                    final boolean skipPersist;
+                    synchronized(this.parentMap())
+                    {
+                        skipPersist = this.incrementalMode
+                            && this.isIncrementalClean()
+                            && (onShutdown || !this.isPqTrainingPending())
+                        ;
+                    }
+
+                    if(skipPersist)
                     {
                         LOG.debug("No incremental changes for '{}', skipping persist", this.name);
                         return;
@@ -2662,7 +2841,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                                 this.name,
                                 this.configuration.indexDirectory(),
                                 this.configuration.dimension(),
-                                this.configuration.maxDegree(),
+                                this.configuration.enablePqCompression(),
                                 this.configuration.parallelOnDiskWrite()
                             );
                         }
@@ -2683,6 +2862,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                             this.diskManager.deleteIndexFiles();
                             return;
                         }
+
 
                         // Capture references for use outside the synchronized block.
                         // The parentMap monitor is released before cleanup and disk write
@@ -2744,6 +2924,114 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // no builder) cannot strand the queue; builderLock is already released above.
                 this.drainDeferredBuilderOps();
             }
+        }
+
+        /**
+         * Returns whether this index is configured for PQ, holds no codebook yet, and now has enough
+         * vectors to train one - i.e. a persist would produce a compressed graph where the last one
+         * did not.
+         * <p>
+         * Used to keep the incremental-clean shortcut in {@code doPersistToDisk} from making a
+         * missed training permanent on an otherwise idle index. It has no effect on the shutdown
+         * path, which returns before the consolidation that training depends on.
+         */
+        /**
+         * Trains the PQ codebook, if one is due, before {@code doPersistToDisk} takes any lock.
+         * <p>
+         * Only the collection needs the {@code parentMap} monitor, because it iterates the map. The
+         * clustering that follows is by far the longer half - seconds to tens of seconds at the
+         * 128k-vector cap - and touches nothing but the collected sample, so it runs with no locks
+         * held. Doing it inside the persist would stall every GigaMap operation and every search for
+         * that whole time, on the first persist of a large index that has just enabled PQ.
+         * <p>
+         * Skipped on the shutdown path: the persist itself returns before the consolidation training
+         * depends on, and shutdown must not wait for k-means either.
+         * <p>
+         * A failure here must not fail the persist. The graph is perfectly writable uncompressed, so
+         * the exception is logged and the attempt recorded, and the write proceeds.
+         *
+         * @param onShutdown whether this persist is the shutdown persist
+         */
+        private void trainPqBeforeLocking(final boolean onShutdown)
+        {
+            if(onShutdown || this.pqManager == null)
+            {
+                return;
+            }
+
+            final List<VectorFloat<?>> trainingSample;
+            synchronized(this.parentMap())
+            {
+                this.ensureIndexInitialized();
+
+                // pqManager is re-created by ensureIndexInitialized, so re-read it rather than
+                // trusting the reference tested above.
+                final PQCompressionManager pqManager = this.pqManager;
+                if(pqManager == null || !this.isPqTrainingPending())
+                {
+                    return;
+                }
+                trainingSample = pqManager.collectTrainingSampleIfNeeded();
+
+                if(trainingSample == null && !pqManager.isTrained())
+                {
+                    // Record the decline here as well, not only after a failed compute below. The
+                    // collection declines whenever the sample turns out too small, which in embedded
+                    // mode happens with enough entities but too few embeddings - the gate counts
+                    // parentMap.size(). Without this the witness never advances, isPqTrainingPending()
+                    // stays true, and every idle persist leaves incremental mode to rebuild and
+                    // rewrite the whole graph.
+                    this.pqTrainingDeclinedAtModCount = this.getStructuralModCount();
+                }
+            }
+
+            if(trainingSample == null)
+            {
+                return;
+            }
+
+            try
+            {
+                this.pqManager.trainFrom(trainingSample);
+            }
+            catch(final RuntimeException e)
+            {
+                // Log the throwable, not just its message: the interesting cases here are degenerate
+                // training data and dimension mismatches, and the cause chain is what identifies them.
+                LOG.warn("PQ training failed for '{}', writing an uncompressed graph", this.name, e);
+            }
+
+            if(!this.pqManager.isTrained())
+            {
+                // Remember the state this attempt failed at, so isPqTrainingPending() stops forcing a
+                // full rebuild on every subsequent idle persist and only re-arms once data changes.
+                synchronized(this.parentMap())
+                {
+                    this.pqTrainingDeclinedAtModCount = this.getStructuralModCount();
+                }
+            }
+        }
+
+        private boolean isPqTrainingPending()
+        {
+            final PQCompressionManager pqManager = this.pqManager;
+            if(pqManager == null || pqManager.isTrained())
+            {
+                return false;
+            }
+
+            // Only worth another attempt once something graph-affecting has changed since the last
+            // one failed. Without this witness the carve-out never clears for a map that has enough
+            // ENTITIES but not enough EMBEDDINGS: getVectorCount() is parentMap.size() in embedded
+            // mode, so the count test stays true, trainPQ keeps declining on the collected list, and
+            // every idle background persist would exit incremental mode, rebuild the whole graph and
+            // rewrite it - an O(n) retry on a loop, forever.
+            //
+            // structuralModCount is the right witness because it also moves on vec<->null
+            // transitions, which change the embedding population without changing the entity count.
+            return this.getStructuralModCount() != this.pqTrainingDeclinedAtModCount
+                && this.getVectorCount() >= PQCompressionManager.MIN_VECTORS_FOR_PQ_TRAINING
+            ;
         }
 
         /**
@@ -2846,16 +3134,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.name,
                 this.configuration.indexDirectory(),
                 this.configuration.dimension(),
-                this.configuration.maxDegree(),
+                this.configuration.enablePqCompression(),
                 this.configuration.parallelOnDiskWrite()
             );
 
             if(this.diskManager.tryLoad(writtenMeta))
             {
-                if(this.pqManager != null)
-                {
-                    this.pqManager.markTrained();
-                }
+                this.adoptPqFromLoadedGraph();
 
                 // Reset in-memory builder to empty (all data is now on disk)
                 if(this.builder != null)
@@ -2892,6 +3177,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
         }
 
+        @Deprecated
         @Override
         public void trainCompressionIfNeeded()
         {
@@ -2902,6 +3188,44 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.ensureIndexInitialized();
                     this.pqManager.trainIfNeeded();
                 }
+            }
+        }
+
+        @Override
+        public boolean isPqCompressionActive()
+        {
+            final PQCompressionManager pqManager = this.pqManager;
+            return pqManager != null && pqManager.isTrained();
+        }
+
+        /**
+         * Syncs the PQ manager with the codebook actually embedded in the freshly loaded disk graph.
+         * <p>
+         * Called after every successful {@code tryLoad}. Passing {@code null} through is the point:
+         * it resets the manager to untrained so the next persist trains and writes a compressed
+         * graph, instead of the manager reporting itself trained while holding no codebook - the
+         * state in which {@link DiskIndexManager#writeIndex} silently writes uncompressed forever.
+         * <p>
+         * Must be called under {@code builderLock.writeLock()}, which both call sites hold.
+         */
+        private void adoptPqFromLoadedGraph()
+        {
+            if(this.pqManager == null)
+            {
+                return;
+            }
+
+            final ProductQuantization loadedPq = this.diskManager.loadedProductQuantization();
+            this.pqManager.adoptTrainedPQ(loadedPq);
+
+            if(loadedPq != null)
+            {
+                LOG.debug("Recovered FusedPQ codebook from the disk graph for '{}'", this.name);
+            }
+            else
+            {
+                LOG.debug("Disk graph for '{}' carries no FusedPQ; PQ will be trained on the next persist",
+                    this.name);
             }
         }
 
@@ -3091,9 +3415,44 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         @Override
-        public List<VectorFloat<?>> collectTrainingVectors()
+        public List<VectorFloat<?>> collectTrainingVectors(final int limit)
         {
-            final List<VectorFloat<?>> vectors = new ArrayList<>();
+            // Reservoir sampling (Algorithm R): keeps a uniform sample of at most `limit` vectors
+            // without knowing the population size up front.
+            //
+            // A stride computed from getVectorCount() cannot do this job. That count is an upper
+            // bound, not the number of embeddings - in embedded mode it is parentMap.size(), which
+            // includes entities with no vector - so on a sparse map the stride is too coarse and the
+            // sample can fall below MIN_VECTORS_FOR_PQ_TRAINING, leaving PQ untrained forever. And
+            // integer division floors to a stride of 1 for any population between limit and 2*limit,
+            // which degenerates to taking the first `limit` vectors: exactly the insertion-ordered
+            // prefix that skews a codebook.
+            //
+            // The RNG is seeded per call so training is reproducible: the same data always yields
+            // the same codebook.
+            final List<VectorFloat<?>> reservoir = new ArrayList<>(Math.min(limit, 1024));
+            final Random               random    = new Random(RESERVOIR_SEED);
+            final long[]               seen      = {0L};
+
+            final Consumer<float[]> sample = vector ->
+            {
+                final long n = ++seen[0];
+                if(reservoir.size() < limit)
+                {
+                    reservoir.add(this.vectorTypeSupport.createFloatVector(vector));
+                    return;
+                }
+                // Replace with probability limit/n, which leaves every vector seen so far equally
+                // likely to be in the reservoir. The bounded nextLong is required for that: taking
+                // a full-width value modulo n biases the low indices whenever n is not a power of
+                // two, which would quietly break the uniformity this sample is chosen for. The long
+                // overload also keeps the arithmetic correct past 2^31 vectors.
+                final long candidate = random.nextLong(n);
+                if(candidate < limit)
+                {
+                    reservoir.set((int)candidate, this.vectorTypeSupport.createFloatVector(vector));
+                }
+            };
 
             if(this.isEmbedded())
             {
@@ -3104,7 +3463,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // must not feed PQ codebook training.
                     if(vector != null)
                     {
-                        vectors.add(this.vectorTypeSupport.createFloatVector(vector));
+                        sample.accept(vector);
                     }
                 });
             }
@@ -3115,12 +3474,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     if(entry.vector != null)
                     {
-                        vectors.add(this.vectorTypeSupport.createFloatVector(entry.vector));
+                        sample.accept(entry.vector);
                     }
                 });
             }
 
-            return vectors;
+            return reservoir;
         }
 
         // DiskIndexManager.IndexStateProvider

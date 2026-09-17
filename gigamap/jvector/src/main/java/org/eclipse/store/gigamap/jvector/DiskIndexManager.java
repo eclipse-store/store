@@ -64,12 +64,27 @@ interface DiskIndexManager extends Closeable
      *       graph-affecting mutation (including vec↔null transitions, which leave count
      *       and highestEntityId unchanged). Catches the crash-restart window where the
      *       store advanced past the on-disk graph but the two proxies stayed equal.</li>
+     *   <li>{@code 4} — adds a {@code boolean} recording whether
+     *       {@link VectorIndexConfiguration#enablePqCompression()} was on when the graph was
+     *       written. That setting changes what the graph contains but appears nowhere else in
+     *       the file, so without it flipping the flag over an existing directory went
+     *       undetected and the old graph was reused. The bump also retires graphs written while
+     *       the flag was inert, which were uncompressed despite being configured for PQ.</li>
      * </ul>
-     * Bumping this constant invalidates existing on-disk indices; they are
-     * rebuilt from the GigaMap-stored source vectors on first load — no data
-     * loss, but a one-time cold-start cost.
+     * Bumping this constant invalidates existing on-disk indices: {@code tryLoad} rejects the
+     * {@code .meta} and the graph is rebuilt from the GigaMap-stored source vectors, so no data is
+     * lost.
+     * <p>
+     * That rebuild is in memory. The stale files are replaced only by a persist that actually runs,
+     * and none is triggered by the rejection itself: background persistence fires only once its
+     * change counter reaches the configured minimum, the background shutdown persist requires that
+     * counter to be non-zero, and the direct shutdown persist skips a clean incremental index. So an
+     * index that is mutated after the upgrade migrates on its next persist and pays the cold start
+     * once, while a purely read-only one keeps the old files and rebuilds again on every restart
+     * until something calls {@code persistToDisk()}. The same applies to a PQ-enabled index picking
+     * up compression for the first time.
      */
-    final static int GRAPH_FILE_VERSION = 3;
+    final static int GRAPH_FILE_VERSION = 4;
 
     /**
      * File extension for graph files.
@@ -103,6 +118,19 @@ interface DiskIndexManager extends Closeable
     public OnDiskGraphIndex getDiskIndex();
 
     /**
+     * Returns the PQ codebook embedded in the currently loaded graph, or {@code null} if no index is
+     * loaded or the loaded graph carries no {@link FeatureId#FUSED_PQ} feature.
+     * <p>
+     * The {@code .graph} file is self-describing: {@link FusedPQ} writes the codebook into its header
+     * and restores it on load, so a reloaded index can recover the exact codebook its fused codes were
+     * encoded with. That matters - re-training would produce a <i>different</i> codebook, which would
+     * score the existing codes as noise.
+     *
+     * @return the embedded codebook, or {@code null} if the loaded graph is not PQ-compressed
+     */
+    public ProductQuantization loadedProductQuantization();
+
+    /**
      * Attempts to load the index from disk, validating the {@code .meta} witnesses against the
      * current live store state. This is the load-time self-heal check: a graph the store has
      * advanced past is rejected so it gets rebuilt from the source vectors.
@@ -110,6 +138,17 @@ interface DiskIndexManager extends Closeable
      * @return true if successfully loaded, false otherwise
      */
     public boolean tryLoad();
+
+    /**
+     * Returns whether a {@code .graph}/{@code .meta} pair is present on disk, regardless of
+     * whether it is usable.
+     * <p>
+     * Distinguishes "nothing persisted yet" from "a persisted index was rejected", which a
+     * {@code false} from {@link #tryLoad()} alone does not.
+     *
+     * @return {@code true} if both files exist
+     */
+    public boolean indexFilesExist();
 
     /**
      * Attempts to load the index from disk, validating the {@code .meta} witnesses against
@@ -245,7 +284,7 @@ interface DiskIndexManager extends Closeable
         private final String             name                ;
         private final Path               indexDirectory      ;
         private final int                dimension           ;
-        private final int                maxDegree           ;
+        private final boolean            pqCompressionEnabled;
         private final boolean            parallelOnDiskWrite ;
 
         private OnDiskGraphIndex diskIndex     ;
@@ -257,16 +296,16 @@ interface DiskIndexManager extends Closeable
             final String             name                ,
             final Path               indexDirectory      ,
             final int                dimension           ,
-            final int                maxDegree           ,
+            final boolean            pqCompressionEnabled,
             final boolean            parallelOnDiskWrite
         )
         {
-            this.provider            = provider            ;
-            this.name                = name                ;
-            this.indexDirectory      = indexDirectory      ;
-            this.dimension           = dimension           ;
-            this.maxDegree           = maxDegree           ;
-            this.parallelOnDiskWrite = parallelOnDiskWrite ;
+            this.provider             = provider            ;
+            this.name                 = name                ;
+            this.indexDirectory       = indexDirectory      ;
+            this.dimension            = dimension           ;
+            this.pqCompressionEnabled = pqCompressionEnabled;
+            this.parallelOnDiskWrite  = parallelOnDiskWrite ;
         }
 
         @Override
@@ -279,6 +318,28 @@ interface DiskIndexManager extends Closeable
         public OnDiskGraphIndex getDiskIndex()
         {
             return this.diskIndex;
+        }
+
+        @Override
+        public boolean indexFilesExist()
+        {
+            return this.indexDirectory != null
+                && Files.exists(this.indexDirectory.resolve(this.name + GRAPH_FILE_EXT))
+                && Files.exists(this.indexDirectory.resolve(this.name + META_FILE_EXT))
+            ;
+        }
+
+        @Override
+        public ProductQuantization loadedProductQuantization()
+        {
+            if(this.diskIndex == null)
+            {
+                return null;
+            }
+            return this.diskIndex.getFeatures().get(FeatureId.FUSED_PQ) instanceof FusedPQ fusedPQ
+                ? fusedPQ.getPQ()
+                : null
+            ;
         }
 
         @Override
@@ -378,6 +439,19 @@ interface DiskIndexManager extends Closeable
                     // vec↔null transition committed via storeRoot() but not yet persistToDisk()).
                     // Reject the disk graph so it is rebuilt from the current source vectors.
                     LOG.debug("Structural mod count mismatch: expected {}, got {}", expected.structuralModCount, structuralModCount);
+                    return false;
+                }
+
+                final boolean filePqEnabled = dis.readBoolean();
+                if(filePqEnabled != this.pqCompressionEnabled)
+                {
+                    // Switching enablePqCompression over an existing directory changes what the
+                    // graph should contain, and removeIndex() leaves the files behind. Without
+                    // this check the old graph would simply be reused: an uncompressed one kept
+                    // serving after PQ was switched on, or a FusedPQ one traversed after it was
+                    // switched off. Reject it so the graph is rebuilt for the current setting.
+                    LOG.info("PQ compression setting changed for '{}' (file={}, configured={}), rebuilding",
+                        this.name, filePqEnabled, this.pqCompressionEnabled);
                     return false;
                 }
 
@@ -534,7 +608,13 @@ interface DiskIndexManager extends Closeable
 
             // Create features for the on-disk index
             final InlineVectors inlineVectors = new InlineVectors(this.dimension);
-            final FusedPQ fusedPQ = new FusedPQ(this.maxDegree, pq);
+
+            // Take the degree from the graph, not from this.maxDegree: FusedPQ.load rebuilds the
+            // feature as new FusedPQ(header.layerInfo.get(0).degree, ...), i.e. the reader sizes its
+            // fused block from the graph header. Sourcing the writer's degree from the same place
+            // makes writer/reader agreement structural instead of relying on the configured
+            // maxDegree happening to match the degree the builder actually used.
+            final FusedPQ fusedPQ = new FusedPQ(index.getDegree(0), pq);
 
             // Create feature suppliers that provide feature state for each node
             final Map<FeatureId, IntFunction<Feature.State>> suppliers = new EnumMap<>(FeatureId.class);
@@ -625,6 +705,11 @@ interface DiskIndexManager extends Closeable
                 dos.writeLong(metaState.expectedVectorCount);
                 dos.writeLong(metaState.highestEntityId);
                 dos.writeLong(metaState.structuralModCount);
+                // The PQ setting is configuration rather than a content witness, but it has to be
+                // recorded: nothing else in the file reveals whether the graph was built for
+                // compression, so without it a flag flipped over an existing directory goes
+                // undetected and the old graph is reused under the new configuration.
+                dos.writeBoolean(this.pqCompressionEnabled);
             }
         }
 

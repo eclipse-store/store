@@ -1018,7 +1018,7 @@ class VectorIndexConfigurationTest
 
     /**
      * Test on-disk configuration with compression.
-     * FusedPQ requires maxDegree=32, so it should be auto-set.
+     * Enabling PQ must not change any other configured value.
      */
     @Test
     void testOnDiskConfigurationWithCompression(@TempDir final Path tempDir)
@@ -1027,7 +1027,7 @@ class VectorIndexConfigurationTest
         final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
                 .dimension(128)
                 .similarityFunction(VectorSimilarityFunction.COSINE)
-                .maxDegree(16) // Will be overridden to 32 for FusedPQ
+                .maxDegree(16)
                 .onDisk(true)
                 .indexDirectory(tempDir)
                 .enablePqCompression(true)
@@ -1037,16 +1037,19 @@ class VectorIndexConfigurationTest
         assertTrue(config.onDisk());
         assertTrue(config.enablePqCompression());
         assertEquals(32, config.pqSubspaces());
-        assertEquals(32, config.maxDegree(), "FusedPQ requires maxDegree=32");
+        assertEquals(16, config.maxDegree(), "enabling PQ must not override the configured maxDegree");
     }
 
     /**
-     * Test that maxDegree is auto-set to 32 when compression is enabled.
+     * JVector 4's FusedPQ imposes no constraint on maxDegree - its only precondition is a
+     * 256-cluster codebook, and it records the degree in the graph header so the reader sizes the
+     * fused block from the file. The builder used to silently rewrite maxDegree to 32 here, a
+     * leftover from JVector 3's FusedADC; since nothing else about the flag worked, doubling the
+     * graph out-degree was its only observable effect.
      */
     @Test
-    void testFusedPQRequiresMaxDegree32(@TempDir final Path tempDir)
+    void testPqCompressionDoesNotConstrainMaxDegree(@TempDir final Path tempDir)
     {
-        // Try to set maxDegree to 64 with compression enabled
         final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
                 .dimension(128)
                 .maxDegree(64)
@@ -1055,8 +1058,29 @@ class VectorIndexConfigurationTest
                 .enablePqCompression(true)
                 .build();
 
-        // Should be overridden to 32
-        assertEquals(32, config.maxDegree(), "FusedPQ should enforce maxDegree=32");
+        assertEquals(64, config.maxDegree(), "PQ must not constrain maxDegree");
+    }
+
+    /**
+     * The override also used to write back to the builder field, so it leaked into every later
+     * build() from the same builder - even one with compression switched off again.
+     */
+    @Test
+    void testBuildDoesNotMutateBuilderMaxDegree(@TempDir final Path tempDir)
+    {
+        final VectorIndexConfiguration.Builder builder = VectorIndexConfiguration.builder()
+                .dimension(128)
+                .maxDegree(16)
+                .onDisk(true)
+                .indexDirectory(tempDir)
+                .enablePqCompression(true);
+
+        assertEquals(16, builder.build().maxDegree());
+
+        builder.enablePqCompression(false);
+
+        assertEquals(16, builder.build().maxDegree(),
+            "build() must not mutate the builder's maxDegree");
     }
 
     /**

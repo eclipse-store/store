@@ -491,12 +491,7 @@ class VectorIndexPerformanceTest
             System.err.print("populating... ");
             gigaMap.addAll(documents);
 
-            if(enablePq)
-            {
-                System.err.print("training PQ... ");
-                ((VectorIndex.Internal<Document>)index).trainCompressionIfNeeded();
-            }
-
+            // PQ training is part of the persist below, so it is included in the measurement.
             System.err.print("persisting... ");
 
             final long start = System.nanoTime();

@@ -27,6 +27,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -1032,12 +1033,12 @@ class VectorIndexNullVectorTest
             final float[] known = randomUnit(random, dim);
             final long knownId = map.add(new Doc("known", known)); // highest ordinal, a real node
 
-            // Force PQ training so persist writes FusedPQ (the path that indexes the dense PQ array by
+            // The persist trains PQ and writes FusedPQ (the path that indexes the dense PQ array by
             // ordinal). Before the size() fix this threw IndexOutOfBoundsException while encoding /
             // writing the highest-ordinal node (ordinal > non-null count); it must now complete,
             // proving every graph ordinal up to highestUsedId is PQ-encoded and written.
-            ((VectorIndex.Internal<Doc>)index).trainCompressionIfNeeded();
             index.persistToDisk();
+            assertTrue(index.isPqCompressionActive(), "the persist must have trained a PQ codebook");
 
             // Approximate PQ search: assert it runs and yields only real (non-null) entities. (Exact
             // top-1 identity isn't guaranteed under lossy PQ, so we don't assert the query is #1.)
@@ -1046,6 +1047,69 @@ class VectorIndexNullVectorTest
             assertTrue(result.stream().allMatch(e -> index.getVector(e.entityId()) != null),
                 "no null-embedding entity may appear in PQ search results");
             assertNotNull(index.getVector(knownId), "the highest-ordinal node remains stored and resolvable");
+        }
+    }
+
+    /**
+     * An index that cannot train must not rebuild its graph on every idle persist.
+     * <p>
+     * In embedded mode the training gate counts entities, not embeddings, so a map with at least 256
+     * entities but fewer embeddings passes the gate and is then declined by the re-check against the
+     * collected sample. If that decline is not recorded, {@code isPqTrainingPending()} stays true,
+     * the incremental-clean shortcut in {@code doPersistToDisk} never applies, and every subsequent
+     * persist leaves incremental mode, rebuilds the whole graph and rewrites the files - an O(n) loop
+     * on an index where nothing changed.
+     * <p>
+     * Observed through {@code persistPhase2TestHook}, which only runs when a persist actually reaches
+     * the write phase.
+     */
+    @Test
+    @Timeout(value = 120, unit = TimeUnit.SECONDS)
+    @SuppressWarnings("unchecked")
+    void sparseUntrainableIndexDoesNotRepersistWhenIdle(@TempDir final Path dir)
+    {
+        final int dim = 16;
+        final Random random = new Random(17);
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dim)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(dir.resolve("index"))
+            .enablePqCompression(true)
+            .pqSubspaces(dim / 4)
+            .build();
+
+        final GigaMap<Doc> map = GigaMap.New();
+        try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("embeddings", config, new NullableEmbeddedVectorizer()))
+        {
+            // Embedded mode specifically: there the training gate counts entities (parentMap.size()),
+            // so 300 entities pass it while only 100 embeddings reach the collected-sample re-check.
+            // In computed mode the count already excludes null-vector entries and the gate never trips.
+            for(int i = 0; i < 100; i++)
+            {
+                map.add(new Doc("v" + i, randomUnit(random, dim)));
+            }
+            for(int i = 0; i < 200; i++)
+            {
+                map.add(new Doc("none" + i, null));
+            }
+
+            index.persistToDisk();
+            assertFalse(index.isPqCompressionActive(),
+                "100 embeddings is below the training minimum, so no codebook can exist");
+
+            final AtomicInteger phase2Runs = new AtomicInteger();
+            final VectorIndex.Default<Doc> def = (VectorIndex.Default<Doc>)index;
+            def.persistPhase2TestHook = phase2Runs::incrementAndGet;
+
+            // Nothing has changed, so neither of these may reach the write phase.
+            index.persistToDisk();
+            index.persistToDisk();
+
+            assertEquals(0, phase2Runs.get(),
+                "an idle persist must not rebuild and rewrite the graph just because PQ never trained");
         }
     }
 
