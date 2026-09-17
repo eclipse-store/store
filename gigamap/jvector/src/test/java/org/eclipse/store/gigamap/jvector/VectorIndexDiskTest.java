@@ -974,7 +974,7 @@ class VectorIndexDiskTest
             index.persistToDisk();
 
             assertTrue(index.isPqCompressionActive(),
-                "an automatic subspace count must be a divisor of the dimension, so training succeeds");
+                "the automatic subspace count need not divide the dimension, so training must succeed");
             assertEquals(10, index.search(randomVector(new Random(6), dimension), 10).size());
         }
 

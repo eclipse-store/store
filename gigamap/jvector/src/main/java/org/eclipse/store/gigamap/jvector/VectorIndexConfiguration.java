@@ -324,10 +324,12 @@ public interface VectorIndexConfiguration
      * smaller working set of full vectors touched per query. Choose it when search latency on a
      * large on-disk index matters, not when disk footprint does.
      * <p>
-     * The codebook is trained once, on the first persist at which at least 256 vectors exist; below
-     * that threshold the graph is written uncompressed and training is reattempted on the next
-     * persist that follows a graph-affecting change, or in a later session. An unchanged index is
-     * deliberately not retried, since that would rebuild the whole graph on every idle persist.
+     * The codebook is trained once, on the first persist at which at least 256 <i>embeddings</i>
+     * exist - entities without one are skipped, so an index of 256 entities of which some have no
+     * vector does not yet qualify. Below that threshold the graph is written uncompressed and
+     * training is reattempted on the next persist that follows a graph-affecting change, or in a
+     * later session. An unchanged index is deliberately not retried, since that would rebuild the
+     * whole graph on every idle persist.
      * Once trained, the codebook is stored in the graph header and recovered on every subsequent
      * load, so it is never retrained for the life of that on-disk index.
      * <p>
