@@ -748,6 +748,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         public void internalRemoveAll();
 
         public void clearStateChangeMarkers();
+
+        /**
+         * Trains the PQ codebook now, if compression is enabled, none is held yet and enough vectors
+         * exist.
+         * <p>
+         * No longer necessary: {@code persistToDisk()} trains the codebook itself, which is what
+         * makes {@link VectorIndexConfiguration#enablePqCompression()} take effect. This remains for
+         * source and binary compatibility - {@code Internal} is a public interface in an exported
+         * package - and as a way to pay the training cost at a chosen moment rather than inside the
+         * first persist. Calling it is otherwise a no-op.
+         *
+         * @deprecated training is part of the persist path; this method is no longer required
+         */
+        @Deprecated
+        public void trainCompressionIfNeeded();
     }
 
 
@@ -2843,8 +2858,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                             }
                             catch(final RuntimeException e)
                             {
-                                LOG.warn("PQ training failed for '{}', writing an uncompressed graph: {}",
-                                    this.name, e.getMessage());
+                                // Log the throwable, not just its message: the interesting cases here
+                                // are degenerate training data and dimension mismatches, and the cause
+                                // chain is what identifies them.
+                                LOG.warn("PQ training failed for '{}', writing an uncompressed graph",
+                                    this.name, e);
                             }
 
                             if(!this.pqManager.isTrained())
@@ -3088,6 +3106,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             else
             {
                 LOG.warn("Failed to reload disk index for '{}' after persist, staying in full in-memory mode", this.name);
+            }
+        }
+
+        @Deprecated
+        @Override
+        public void trainCompressionIfNeeded()
+        {
+            if(this.pqManager != null)
+            {
+                synchronized(this.parentMap())
+                {
+                    this.ensureIndexInitialized();
+                    this.pqManager.trainIfNeeded();
+                }
             }
         }
 
@@ -3343,8 +3375,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     return;
                 }
                 // Replace with probability limit/n, which leaves every vector seen so far equally
-                // likely to be in the reservoir. nextLong bound keeps this correct past 2^31 vectors.
-                final long candidate = Math.floorMod(random.nextLong(), n);
+                // likely to be in the reservoir. The bounded nextLong is required for that: taking
+                // a full-width value modulo n biases the low indices whenever n is not a power of
+                // two, which would quietly break the uniformity this sample is chosen for. The long
+                // overload also keeps the arithmetic correct past 2^31 vectors.
+                final long candidate = random.nextLong(n);
                 if(candidate < limit)
                 {
                     reservoir.set((int)candidate, this.vectorTypeSupport.createFloatVector(vector));
