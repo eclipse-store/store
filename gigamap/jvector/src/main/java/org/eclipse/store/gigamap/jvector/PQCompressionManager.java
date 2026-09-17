@@ -47,7 +47,9 @@ interface PQCompressionManager
      * <p>
      * Matches {@code ProductQuantization.MAX_PQ_TRAINING_SET_SIZE}, which is the size JVector
      * subsamples down to internally anyway - collecting more than this only inflates peak heap
-     * (at 768 dimensions every 128k vectors is already ~390 MB) without improving the codebook.
+     * without improving the codebook. The sample references the store's vectors rather than copying
+     * them, so the cap bounds how many are pinned and how much work the clustering does rather than
+     * bounding a large allocation.
      */
     final static int MAX_TRAINING_VECTORS = 128_000;
 
@@ -71,6 +73,27 @@ interface PQCompressionManager
      * {@link #MIN_VECTORS_FOR_PQ_TRAINING} vectors.
      */
     public void trainIfNeeded();
+
+    /**
+     * Collects a training sample if a codebook is still needed, or returns {@code null} if one is
+     * already held or there are too few vectors.
+     * <p>
+     * Split from {@link #trainFrom(List)} so the caller can hold the GigaMap monitor for the
+     * collection - which iterates the map - and drop it before the clustering, which is by far the
+     * longer half and needs no access to the map at all.
+     *
+     * @return the sample to train from, or {@code null} if no training is due
+     */
+    public List<VectorFloat<?>> collectTrainingSampleIfNeeded();
+
+    /**
+     * Computes and adopts a codebook from a previously collected sample.
+     * <p>
+     * Does nothing if a codebook has been adopted in the meantime. Safe to call with no locks held.
+     *
+     * @param trainingVectors the sample from {@link #collectTrainingSampleIfNeeded()}
+     */
+    public void trainFrom(List<VectorFloat<?>> trainingVectors);
 
     /**
      * Adopts the codebook recovered from a loaded on-disk graph.
@@ -163,27 +186,27 @@ interface PQCompressionManager
         @Override
         public void trainIfNeeded()
         {
+            final List<VectorFloat<?>> sample = this.collectTrainingSampleIfNeeded();
+            if(sample != null)
+            {
+                this.trainFrom(sample);
+            }
+        }
+
+        @Override
+        public List<VectorFloat<?>> collectTrainingSampleIfNeeded()
+        {
             if(this.pqTrained)
             {
-                return; // Already trained
+                return null; // Already trained
             }
 
             final long vectorCount = this.provider.getVectorCount();
             if(vectorCount < MIN_VECTORS_FOR_PQ_TRAINING)
             {
                 LOG.debug("Not enough vectors for PQ training ({} < {})", vectorCount, MIN_VECTORS_FOR_PQ_TRAINING);
-                return;
+                return null;
             }
-
-            this.trainPQ();
-        }
-
-        /**
-         * Trains the PQ codebook from current vectors.
-         */
-        private void trainPQ()
-        {
-            LOG.info("Training PQ for index '{}'...", this.name);
 
             // The training set is DENSE (iteration order over the real vectors), not the graph
             // ordinal space, and that is deliberate: the ordinal-spaced RAVV used for the disk write
@@ -193,16 +216,32 @@ interface PQCompressionManager
             // does separately against the ordinal-spaced RAVV.
             final List<VectorFloat<?>> trainingVectors = this.provider.collectTrainingVectors(MAX_TRAINING_VECTORS);
 
-            // Re-check against what was actually collected, not against the count the gate in
-            // trainIfNeeded() used. In embedded mode that count is parentMap.size(), which includes
-            // entities with no embedding, so a map of 256 entities can yield fewer than 256 vectors -
-            // and ProductQuantization.compute would then be asked for 256 clusters from fewer points.
+            // Re-check against what was actually collected, not against the count used above. In
+            // embedded mode that count is parentMap.size(), which includes entities with no
+            // embedding, so a map of 256 entities can yield fewer than 256 vectors - and
+            // ProductQuantization.compute would then be asked for 256 clusters from fewer points.
             if(trainingVectors.size() < MIN_VECTORS_FOR_PQ_TRAINING)
             {
                 LOG.debug("Not enough non-null vectors for PQ training ({} < {}), leaving the index uncompressed",
                     trainingVectors.size(), MIN_VECTORS_FOR_PQ_TRAINING);
-                return;
+                return null;
             }
+
+            return trainingVectors;
+        }
+
+        /**
+         * Trains the PQ codebook from current vectors.
+         */
+        @Override
+        public void trainFrom(final List<VectorFloat<?>> trainingVectors)
+        {
+            if(this.pqTrained)
+            {
+                return; // Adopted from a loaded graph, or trained, since the sample was collected
+            }
+
+            LOG.info("Training PQ for index '{}'...", this.name);
 
             // Determine number of subspaces. The quotient need not divide the dimension: JVector's
             // getSubvectorSizesAndOffsets distributes the remainder across the subvectors, and its
@@ -215,12 +254,12 @@ interface PQCompressionManager
             final ListRandomAccessVectorValues ravv =
                 new ListRandomAccessVectorValues(trainingVectors, this.dimension);
 
-            // Train PQ - 256 centroids per subspace, which is also the only cluster count FusedPQ
-            // accepts; center for better accuracy on low dimensions.
+            // The expensive half: k-means over the sample. Deliberately reachable with no locks
+            // held - it touches only the collected sample, never the GigaMap or the graph.
             final ProductQuantization trained = ProductQuantization.compute(
                 ravv,
                 subspaces,
-                256,   // centroids per subspace (2^8 = 256 is standard)
+                256,   // centroids per subspace (2^8 = 256, and FusedPQ accepts nothing else)
                 this.dimension < 64 // use global centroid for low dimensions
             );
 

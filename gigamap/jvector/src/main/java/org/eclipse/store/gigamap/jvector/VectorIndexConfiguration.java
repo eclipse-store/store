@@ -327,8 +327,9 @@ public interface VectorIndexConfiguration
      * <b>Memory.</b> The resident working set during search goes <i>down</i>: a hop reads one
      * contiguous fused block instead of {@link #maxDegree()} scattered full vectors, and
      * reranking reads the inline vectors out of the mapping into a reused buffer. The costs are
-     * transient heap at persist time - encoding allocates {@code nodes * pqSubspaces} bytes, and
-     * the one-off training sample up to 128k vectors - plus the larger mapping itself. Note that
+     * transient heap at persist time - encoding allocates {@code nodes * pqSubspaces} bytes for the
+     * whole ordinal space, and the persist walks every vector twice, once to encode and once to
+     * write the inline vectors - plus the larger mapping itself. Note that
      * if the whole index already fits in RAM there are no page faults left to avoid, so PQ buys
      * only cheaper arithmetic and cache locality while still costing the extra resident bytes:
      * it is a way to scale past available memory rather than a general latency tweak.

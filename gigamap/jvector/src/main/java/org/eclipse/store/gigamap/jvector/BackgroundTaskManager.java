@@ -389,6 +389,20 @@ class BackgroundTaskManager
     }
 
     /**
+     * Forces the next persistence check to persist, regardless of how many changes have
+     * accumulated.
+     * <p>
+     * Used when the on-disk graph was rejected at load: the rebuilt in-memory graph has to
+     * replace the stale files, but a rejection is not a change and so would never trip the
+     * {@code minChangesBetweenPersists} threshold on its own. Without this a read-mostly index
+     * would rebuild from the store on every restart.
+     */
+    void markPersistRequired()
+    {
+        this.persistenceChangeCount.updateAndGet(count -> Math.max(count, this.persistenceMinChanges));
+    }
+
+    /**
      * Returns the number of times optimization has been performed.
      */
     long getOptimizationCount()

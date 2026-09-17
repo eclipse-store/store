@@ -982,6 +982,65 @@ class VectorIndexDiskTest
     }
 
     /**
+     * Turning {@code enablePqCompression} on over an existing uncompressed index directory ends up
+     * with a FusedPQ graph.
+     * <p>
+     * {@code removeIndex} deliberately leaves the {@code .graph} and {@code .meta} behind, so the
+     * new index opens on top of the old files. Two mechanisms can produce the right end state here:
+     * the PQ marker in the metadata rejects the stale graph at load, and failing that the
+     * training carve-out makes the next persist retrain and rewrite it. This test pins the outcome,
+     * not which of the two got there - it passes with the marker check disabled, so it is end-to-end
+     * cover rather than a guard on the marker itself. The marker's contribution is that the
+     * correction happens at load rather than being deferred to the next persist.
+     */
+    @Test
+    void testEnablingPqCompressionOverExistingFilesYieldsFusedPq(@TempDir final Path tempDir) throws IOException
+    {
+        final int vectorCount = 400;
+        final int dimension   = 64;
+        final Path indexDir   = tempDir.resolve("index");
+        final Path graphPath  = indexDir.resolve("embeddings.graph");
+
+        // First index: PQ off.
+        final GigaMap<Document> plainMap = GigaMap.New();
+        try(final VectorIndex<Document> plain = plainMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(plainMap, new Random(3), dimension, vectorCount, "doc_");
+            plain.persistToDisk();
+        }
+        assertFalse(graphFeatures(graphPath).contains(FeatureId.FUSED_PQ));
+
+        // Second index: same name, same directory, same data - but PQ on. The old files are still
+        // there, so this only works if the metadata records the setting.
+        final GigaMap<Document> pqMap = GigaMap.New();
+        try(final VectorIndex<Document> pq = pqMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .enablePqCompression(true)
+                .pqSubspaces(16)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(pqMap, new Random(3), dimension, vectorCount, "doc_");
+            pq.persistToDisk();
+
+            assertTrue(pq.isPqCompressionActive(), "switching PQ on must train rather than reuse the old graph");
+            assertEquals(10, pq.search(randomVector(new Random(4), dimension), 10).size());
+        }
+
+        assertTrue(graphFeatures(graphPath).contains(FeatureId.FUSED_PQ),
+            "the graph must have been rebuilt for the new PQ setting");
+    }
+
+    /**
      * FusedPQ at a degree other than 32.
      * <p>
      * The writer takes the fused block size from {@code index.getDegree(0)} while the reader takes

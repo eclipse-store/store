@@ -64,11 +64,12 @@ interface DiskIndexManager extends Closeable
      *       graph-affecting mutation (including vec↔null transitions, which leave count
      *       and highestEntityId unchanged). Catches the crash-restart window where the
      *       store advanced past the on-disk graph but the two proxies stayed equal.</li>
-     *   <li>{@code 4} — no new fields. {@link VectorIndexConfiguration#enablePqCompression()} now
-     *       actually writes a FusedPQ graph; graphs written earlier with the flag set are
-     *       uncompressed despite it. An index that loads clean and is never mutated never
-     *       persists again, so without this bump such a graph would stay uncompressed
-     *       indefinitely.</li>
+     *   <li>{@code 4} — adds a {@code boolean} recording whether
+     *       {@link VectorIndexConfiguration#enablePqCompression()} was on when the graph was
+     *       written. That setting changes what the graph contains but appears nowhere else in
+     *       the file, so without it flipping the flag over an existing directory went
+     *       undetected and the old graph was reused. The bump also retires graphs written while
+     *       the flag was inert, which were uncompressed despite being configured for PQ.</li>
      * </ul>
      * Bumping this constant invalidates existing on-disk indices: {@code tryLoad} rejects the
      * {@code .meta} and the graph is rebuilt from the GigaMap-stored source vectors, so no data is
@@ -137,6 +138,17 @@ interface DiskIndexManager extends Closeable
      * @return true if successfully loaded, false otherwise
      */
     public boolean tryLoad();
+
+    /**
+     * Returns whether a {@code .graph}/{@code .meta} pair is present on disk, regardless of
+     * whether it is usable.
+     * <p>
+     * Distinguishes "nothing persisted yet" from "a persisted index was rejected", which a
+     * {@code false} from {@link #tryLoad()} alone does not.
+     *
+     * @return {@code true} if both files exist
+     */
+    public boolean indexFilesExist();
 
     /**
      * Attempts to load the index from disk, validating the {@code .meta} witnesses against
@@ -272,6 +284,7 @@ interface DiskIndexManager extends Closeable
         private final String             name                ;
         private final Path               indexDirectory      ;
         private final int                dimension           ;
+        private final boolean            pqCompressionEnabled;
         private final boolean            parallelOnDiskWrite ;
 
         private OnDiskGraphIndex diskIndex     ;
@@ -283,14 +296,16 @@ interface DiskIndexManager extends Closeable
             final String             name                ,
             final Path               indexDirectory      ,
             final int                dimension           ,
+            final boolean            pqCompressionEnabled,
             final boolean            parallelOnDiskWrite
         )
         {
-            this.provider            = provider            ;
-            this.name                = name                ;
-            this.indexDirectory      = indexDirectory      ;
-            this.dimension           = dimension           ;
-            this.parallelOnDiskWrite = parallelOnDiskWrite ;
+            this.provider             = provider            ;
+            this.name                 = name                ;
+            this.indexDirectory       = indexDirectory      ;
+            this.dimension            = dimension           ;
+            this.pqCompressionEnabled = pqCompressionEnabled;
+            this.parallelOnDiskWrite  = parallelOnDiskWrite ;
         }
 
         @Override
@@ -303,6 +318,15 @@ interface DiskIndexManager extends Closeable
         public OnDiskGraphIndex getDiskIndex()
         {
             return this.diskIndex;
+        }
+
+        @Override
+        public boolean indexFilesExist()
+        {
+            return this.indexDirectory != null
+                && Files.exists(this.indexDirectory.resolve(this.name + GRAPH_FILE_EXT))
+                && Files.exists(this.indexDirectory.resolve(this.name + META_FILE_EXT))
+            ;
         }
 
         @Override
@@ -415,6 +439,19 @@ interface DiskIndexManager extends Closeable
                     // vec↔null transition committed via storeRoot() but not yet persistToDisk()).
                     // Reject the disk graph so it is rebuilt from the current source vectors.
                     LOG.debug("Structural mod count mismatch: expected {}, got {}", expected.structuralModCount, structuralModCount);
+                    return false;
+                }
+
+                final boolean filePqEnabled = dis.readBoolean();
+                if(filePqEnabled != this.pqCompressionEnabled)
+                {
+                    // Switching enablePqCompression over an existing directory changes what the
+                    // graph should contain, and removeIndex() leaves the files behind. Without
+                    // this check the old graph would simply be reused: an uncompressed one kept
+                    // serving after PQ was switched on, or a FusedPQ one traversed after it was
+                    // switched off. Reject it so the graph is rebuilt for the current setting.
+                    LOG.info("PQ compression setting changed for '{}' (file={}, configured={}), rebuilding",
+                        this.name, filePqEnabled, this.pqCompressionEnabled);
                     return false;
                 }
 
@@ -668,6 +705,11 @@ interface DiskIndexManager extends Closeable
                 dos.writeLong(metaState.expectedVectorCount);
                 dos.writeLong(metaState.highestEntityId);
                 dos.writeLong(metaState.structuralModCount);
+                // The PQ setting is configuration rather than a content witness, but it has to be
+                // recorded: nothing else in the file reveals whether the graph was built for
+                // compression, so without it a flag flipped over an existing directory goes
+                // undetected and the old graph is reused under the new configuration.
+                dos.writeBoolean(this.pqCompressionEnabled);
             }
         }
 

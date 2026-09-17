@@ -838,7 +838,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * repeatedly-declining index does not force a full graph rebuild on every idle persist.
          * Transient like the rest of the PQ state: a fresh session simply tries once more.
          */
-        private transient long pqTrainingDeclinedAtModCount = -1L;
+        private transient volatile long pqTrainingDeclinedAtModCount = -1L;
                 transient BackgroundTaskManager backgroundTaskManager;
 
         // GraphSearcher pool for thread-local reuse
@@ -1222,6 +1222,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             this.vectorTypeSupport = VectorizationProvider.getInstance().getVectorTypeSupport();
 
+            // Set when a persisted on-disk index was found but rejected, so the rebuilt graph has to
+            // be written back over the stale files. Acted on after the background manager is started.
+            boolean diskRebuildPending = false;
+
             // Initialize builder lock (always, for consistent locking semantics)
             if(this.builderLock == null)
             {
@@ -1260,6 +1264,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.name,
                     this.configuration.indexDirectory(),
                     this.configuration.dimension(),
+                    this.configuration.enablePqCompression(),
                     this.configuration.parallelOnDiskWrite()
                 );
                 if(this.diskManager.tryLoad())
@@ -1281,6 +1286,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 else
                 {
                     LOG.info("Could not load disk index for '{}', will build in-memory and persist later", this.name);
+
+                    // Distinguish "a persisted index was rejected" from "nothing persisted yet":
+                    // only the former leaves stale files that the rebuilt graph has to replace.
+                    diskRebuildPending = this.diskManager.indexFilesExist();
                 }
             }
 
@@ -1289,6 +1298,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // Start background managers if enabled
             this.startBackgroundManagersIfEnabled();
+
+            // A rejected load is not a change, so nothing would otherwise schedule the persist that
+            // replaces the stale files: background persistence waits for its change threshold and the
+            // shutdown persist for a non-zero count. Left alone, a read-mostly index would rebuild
+            // from the store on every restart, which is exactly what the format bump was supposed to
+            // cost only once. Must follow the start above, since the manager does not exist before it.
+            if(diskRebuildPending && this.backgroundTaskManager != null)
+            {
+                this.backgroundTaskManager.markPersistRequired();
+            }
         }
 
         /**
@@ -2699,6 +2718,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return; // No-op for in-memory indices
             }
 
+            this.trainPqBeforeLocking(onShutdown);
+
             // Signal sync-mode mutations to defer builder ops during cleanup + disk write.
             this.cleanupInProgress = true;
             try
@@ -2814,6 +2835,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                                 this.name,
                                 this.configuration.indexDirectory(),
                                 this.configuration.dimension(),
+                                this.configuration.enablePqCompression(),
                                 this.configuration.parallelOnDiskWrite()
                             );
                         }
@@ -2835,44 +2857,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                             return;
                         }
 
-                        // Train the PQ codebook before capturing the manager for Phase 2:
-                        // DiskIndexManager.writeIndex takes the FusedPQ branch only if the manager
-                        // is trained AND holds a codebook, so without this the configured
-                        // enablePqCompression(true) never produced a compressed graph.
-                        //
-                        // Here, not in Phase 2: collectTrainingVectors(int) iterates the parent map, so
-                        // it needs the parentMap monitor. The cost is acceptable in this spot -
-                        // exitIncrementalMode() above runs a full O(n) graph rebuild under this very
-                        // monitor - and after the first qualifying persist this is a no-op forever,
-                        // because later sessions recover the codebook from the graph header instead
-                        // of retraining.
-                        //
-                        // A training failure must not fail the persist: the graph is still perfectly
-                        // writable uncompressed, and losing the index entirely would be far worse
-                        // than losing compression.
-                        if(this.pqManager != null)
-                        {
-                            try
-                            {
-                                this.pqManager.trainIfNeeded();
-                            }
-                            catch(final RuntimeException e)
-                            {
-                                // Log the throwable, not just its message: the interesting cases here
-                                // are degenerate training data and dimension mismatches, and the cause
-                                // chain is what identifies them.
-                                LOG.warn("PQ training failed for '{}', writing an uncompressed graph",
-                                    this.name, e);
-                            }
-
-                            if(!this.pqManager.isTrained())
-                            {
-                                // Remember the state this attempt failed at, so isPqTrainingPending()
-                                // stops forcing a full rebuild on every subsequent idle persist and
-                                // only re-arms once the data has actually changed.
-                                this.pqTrainingDeclinedAtModCount = this.getStructuralModCount();
-                            }
-                        }
 
                         // Capture references for use outside the synchronized block.
                         // The parentMap monitor is released before cleanup and disk write
@@ -2945,6 +2929,72 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * missed training permanent on an otherwise idle index. It has no effect on the shutdown
          * path, which returns before the consolidation that training depends on.
          */
+        /**
+         * Trains the PQ codebook, if one is due, before {@code doPersistToDisk} takes any lock.
+         * <p>
+         * Only the collection needs the {@code parentMap} monitor, because it iterates the map. The
+         * clustering that follows is by far the longer half - seconds to tens of seconds at the
+         * 128k-vector cap - and touches nothing but the collected sample, so it runs with no locks
+         * held. Doing it inside the persist would stall every GigaMap operation and every search for
+         * that whole time, on the first persist of a large index that has just enabled PQ.
+         * <p>
+         * Skipped on the shutdown path: the persist itself returns before the consolidation training
+         * depends on, and shutdown must not wait for k-means either.
+         * <p>
+         * A failure here must not fail the persist. The graph is perfectly writable uncompressed, so
+         * the exception is logged and the attempt recorded, and the write proceeds.
+         *
+         * @param onShutdown whether this persist is the shutdown persist
+         */
+        private void trainPqBeforeLocking(final boolean onShutdown)
+        {
+            if(onShutdown || this.pqManager == null)
+            {
+                return;
+            }
+
+            final List<VectorFloat<?>> trainingSample;
+            synchronized(this.parentMap())
+            {
+                this.ensureIndexInitialized();
+
+                // pqManager is re-created by ensureIndexInitialized, so re-read it rather than
+                // trusting the reference tested above.
+                final PQCompressionManager pqManager = this.pqManager;
+                if(pqManager == null || !this.isPqTrainingPending())
+                {
+                    return;
+                }
+                trainingSample = pqManager.collectTrainingSampleIfNeeded();
+            }
+
+            if(trainingSample == null)
+            {
+                return;
+            }
+
+            try
+            {
+                this.pqManager.trainFrom(trainingSample);
+            }
+            catch(final RuntimeException e)
+            {
+                // Log the throwable, not just its message: the interesting cases here are degenerate
+                // training data and dimension mismatches, and the cause chain is what identifies them.
+                LOG.warn("PQ training failed for '{}', writing an uncompressed graph", this.name, e);
+            }
+
+            if(!this.pqManager.isTrained())
+            {
+                // Remember the state this attempt failed at, so isPqTrainingPending() stops forcing a
+                // full rebuild on every subsequent idle persist and only re-arms once data changes.
+                synchronized(this.parentMap())
+                {
+                    this.pqTrainingDeclinedAtModCount = this.getStructuralModCount();
+                }
+            }
+        }
+
         private boolean isPqTrainingPending()
         {
             final PQCompressionManager pqManager = this.pqManager;
@@ -3067,6 +3117,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.name,
                 this.configuration.indexDirectory(),
                 this.configuration.dimension(),
+                this.configuration.enablePqCompression(),
                 this.configuration.parallelOnDiskWrite()
             );
 
