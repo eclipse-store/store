@@ -220,6 +220,36 @@ Quantizing is not free: each vector's nonlinearity is fitted by a grid search at
 
 Sequentially NVQ costs about 3x the persist time. Under the parallel writer that falls to about 1.2x, because the encode runs per node on the writer's worker threads rather than in one pass up front. **Set `parallelOnDiskWrite(true)` when using NVQ**, unless you have a specific reason not to.
 
+=== PQ_IN_MEMORY: The Same Codes, Kept Out of the Graph
+
+`FUSED_PQ` and `PQ_IN_MEMORY` buy the same approximate traversal and differ only in where the codes live. Fusing writes each node's code into every neighbour that references it, so the cost is `pqSubspaces * maxDegree` bytes per node *on disk*. Keeping them in a sidecar costs `pqSubspaces` bytes per vector *once*, in a `{indexName}.pqv` file that is read into heap when the index loads.
+
+At `dimension=768`, `maxDegree=32` and the automatic `pqSubspaces` of 192, that is 6,144 bytes per node of graph file against 192 bytes per vector of heap.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .maxDegree(32)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/vectors"))
+    .vectorStorage(VectorStorage.NVQ)                        // smallest graph
+    .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)     // codes out of the graph entirely
+    .parallelOnDiskWrite(true)
+    .build();
+----
+
+IMPORTANT: The heap cost is linear and has no ceiling. It is `pqSubspaces` bytes for every ordinal up to the highest in use -- deletion holes included, because the codes are indexed by entity id -- and it stays resident for as long as the index is open. Roughly 192 MB per million vectors at the settings above, and roughly 19 GB at a hundred million. Size it before choosing this over `FUSED_PQ`, which pays in disk and page cache instead.
+
+==== The Third File
+
+`PQ_IN_MEMORY` adds `{indexName}.pqv` beside the graph and the metadata. It is written first and the metadata last, so the metadata only becomes visible once everything it describes is in place; a crash at any earlier point leaves a stale metadata file, which is rejected on load and self-heals from the store.
+
+A missing or unreadable sidecar is treated the same way. The index is *not* served without it: the metadata says this index traverses on PQ codes, and quietly scoring it exactly instead would make the configuration untrue. Rejecting rebuilds from the store, which restores the graph and the sidecar together.
+
+The codebook lives in the sidecar too. A fused graph carries it in the graph header, but this mode writes no fused feature, so the sidecar is the only copy.
+
 [[_two_phase_search]]
 === Two-Phase Search with Reranking
 

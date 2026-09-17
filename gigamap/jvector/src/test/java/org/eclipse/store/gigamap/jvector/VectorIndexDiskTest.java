@@ -36,6 +36,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -885,7 +886,9 @@ class VectorIndexDiskTest
             }
             index.persistToDisk();
 
-            assertEquals(scoring == ApproximateScoring.FUSED_PQ, index.isPqCompressionActive(),
+            // Both PQ-based scoring modes train a codebook; they differ only in where the encoded
+            // codes are kept, so this reports true for either.
+            assertEquals(scoring != ApproximateScoring.NONE, index.isPqCompressionActive(),
                 "the configured scoring path must be the one under test");
             assertEquals(storage == VectorStorage.NVQ, index.isNvqCompressionActive(),
                 "the configured storage path must be the one under test");
@@ -4527,6 +4530,405 @@ class VectorIndexDiskTest
                 "the quantizer must be recovered from the loaded graph, not left untrained until the next persist");
             assertEquals(5, reloaded.search(queryVector, 5).size());
         }
+    }
+
+    // ==================== In-Memory PQ (sidecar) Tests ====================
+
+    /**
+     * The defining property of {@link ApproximateScoring#PQ_IN_MEMORY}: it buys the same approximate
+     * traversal as {@link ApproximateScoring#FUSED_PQ} without touching the graph file at all.
+     * <p>
+     * The graph must therefore be byte-for-byte what {@link ApproximateScoring#NONE} produces, and
+     * the codes must live entirely in the sidecar. That is the whole trade - fused codes cost
+     * {@code pqSubspaces * maxDegree} bytes per node on disk, these cost {@code pqSubspaces} bytes
+     * per vector, once, in a file and then in heap.
+     */
+    @Test
+    void testPqInMemoryLeavesTheGraphUntouched(@TempDir final Path tempDir) throws IOException
+    {
+        final int vectorCount = 400;
+        final int dimension   = 64;
+        final int maxDegree   = 32;
+
+        final Path noneDir     = tempDir.resolve("none");
+        final Path inMemoryDir = tempDir.resolve("inmemory");
+        final Path fusedDir    = tempDir.resolve("fused");
+
+        final long none = this.persistAndMeasureGraph(
+            noneDir, vectorCount, dimension, maxDegree, VectorStorage.INLINE, ApproximateScoring.NONE);
+        final long inMemory = this.persistAndMeasureGraph(
+            inMemoryDir, vectorCount, dimension, maxDegree, VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY);
+        final long fused = this.persistAndMeasureGraph(
+            fusedDir, vectorCount, dimension, maxDegree, VectorStorage.INLINE, ApproximateScoring.FUSED_PQ);
+
+        assertEquals(none, inMemory,
+            "PQ_IN_MEMORY must add nothing to the graph file - the codes belong in the sidecar");
+        assertTrue(fused > none, "FUSED_PQ must still enlarge the graph, for contrast");
+
+        // The graph carries no fused feature, and the sidecar exists only for this mode.
+        assertFalse(graphFeatures(inMemoryDir.resolve("embeddings.graph")).contains(FeatureId.FUSED_PQ));
+        assertTrue(Files.exists(inMemoryDir.resolve("embeddings.pqv")), "the sidecar must be written");
+        assertFalse(Files.exists(noneDir.resolve("embeddings.pqv")), "no sidecar without PQ_IN_MEMORY");
+        assertFalse(Files.exists(fusedDir.resolve("embeddings.pqv")), "no sidecar for the fused mode");
+
+        // What the graph saved, the sidecar spends - but once per vector rather than per edge.
+        final long sidecar = Files.size(inMemoryDir.resolve("embeddings.pqv"));
+        assertTrue(sidecar < fused - none,
+            "the sidecar (" + sidecar + ") must cost less than the fused codes it replaces ("
+                + (fused - none) + ")");
+    }
+
+    /**
+     * The sidecar is loaded back into heap on reload, and the codebook comes with it.
+     * <p>
+     * A fused graph carries its codebook in the graph header; this mode has no fused feature, so the
+     * codebook can only come from the sidecar. If that recovery were missed the index would report
+     * itself uncompressed and silently fall back to exact scoring.
+     */
+    @Test
+    void testPqInMemorySidecarIsReloaded(@TempDir final Path tempDir) throws IOException
+    {
+        final int     dimension   = 64;
+        final int     vectorCount = 400;
+        final Path    storageDir  = tempDir.resolve("storage");
+        final Path    indexDir    = tempDir.resolve("vectors");
+        final float[] query       = randomVector(new Random(999), dimension);
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+            .pqSubspaces(16)
+            .build();
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            storage.setRoot(gigaMap);
+
+            final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+                .add("embeddings", config, new ComputedDocumentVectorizer());
+
+            addRandomDocuments(gigaMap, new Random(55), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+            assertTrue(index.isPqCompressionActive(), "the persist must have trained a codebook");
+
+            storage.storeRoot();
+        }
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = storage.root();
+            final VectorIndex<Document> reloaded =
+                gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+
+            assertTrue(reloaded.isPqCompressionActive(),
+                "the codebook must be recovered from the sidecar, which is the only place it exists");
+            assertEquals(5, reloaded.search(query, 5).size());
+        }
+    }
+
+    /**
+     * A missing sidecar must be a rejection, not a silent degrade.
+     * <p>
+     * The metadata says this index traverses on PQ codes. Serving it exactly instead would work, and
+     * would be wrong: the configuration would no longer describe what the index does. Rejecting
+     * rebuilds from the store, which restores both the graph and its sidecar.
+     */
+    @Test
+    void testMissingPqSidecarForcesRebuild(@TempDir final Path tempDir) throws IOException
+    {
+        final int  dimension = 64;
+        final Path indexDir  = tempDir.resolve("vectors");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+                .pqSubspaces(16)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, new Random(66), dimension, 400, "doc_");
+            index.persistToDisk();
+        }
+
+        final VectorIndex.Default<Document> written =
+            (VectorIndex.Default<Document>)gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+        final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
+            written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
+        final GraphFormat format = new GraphFormat(
+            VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY, 16, 0);
+
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, format, false))
+        {
+            assertTrue(manager.tryLoad(state), "the complete index must load");
+            assertNotNull(manager.loadedPqVectors(), "and bring its codes into heap");
+        }
+
+        Files.delete(indexDir.resolve("embeddings.pqv"));
+
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, format, false))
+        {
+            assertFalse(manager.tryLoad(state),
+                "a missing sidecar must reject the index rather than serving it without its codes");
+        }
+    }
+
+    /**
+     * The codes are indexed by graph ordinal, which is the source entity id, so the array spans
+     * every ordinal up to the highest in use rather than only the vectors that exist. That is what
+     * makes the heap cost proportional to the ordinal space - deletion holes included - and it is
+     * the number the documentation quotes.
+     */
+    @Test
+    void testPqInMemoryHeapCostMatchesTheOrdinalSpace(@TempDir final Path tempDir) throws IOException
+    {
+        final int  dimension   = 64;
+        final int  pqSubspaces = 16;
+        final int  vectorCount = 400;
+        final Path indexDir    = tempDir.resolve("vectors");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+                .pqSubspaces(pqSubspaces)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, new Random(77), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+        }
+
+        final VectorIndex.Default<Document> written =
+            (VectorIndex.Default<Document>)gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+        final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
+            written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
+
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension,
+            new GraphFormat(VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY, pqSubspaces, 0), false))
+        {
+            assertTrue(manager.tryLoad(state));
+
+            final var codes = manager.loadedPqVectors();
+            assertEquals(written.getHighestEntityId() + 1, codes.count(),
+                "one code per ordinal up to the highest in use, not one per vector");
+
+            // The documented formula, allowing for the codebook itself and object overhead.
+            final long dataBytes = (long)codes.count() * pqSubspaces;
+            assertTrue(codes.ramBytesUsed() >= dataBytes,
+                "resident bytes " + codes.ramBytesUsed() + " must cover the codes themselves (" + dataBytes + ")");
+            assertTrue(codes.ramBytesUsed() < dataBytes * 2 + 100_000,
+                "resident bytes " + codes.ramBytesUsed() + " should be close to " + dataBytes);
+        }
+    }
+
+    /**
+     * Proves the sidecar codes actually drive traversal, rather than merely being written, loaded
+     * and then ignored.
+     * <p>
+     * Every other test here passes whether or not the search path consults them: the codes only
+     * choose which candidates traversal visits, and reranking is exact either way, so with enough
+     * beam width the same top-k comes back regardless. The one thing that cannot survive the codes
+     * being ignored is the codes being <i>wrong</i>.
+     * <p>
+     * So this swaps in a sidecar encoded from entirely different vectors. The metadata witnesses
+     * describe the store, not the sidecar, so the index loads happily and traverses on codes that
+     * describe nothing about its own data. Results must degrade. If they do not, the codes are not
+     * being used.
+     */
+    @Test
+    void testPqInMemoryCodesActuallyDriveTraversal(@TempDir final Path tempDir) throws IOException
+    {
+        final int dimension   = 64;
+        final int vectorCount = 2000;
+        final int k           = 10;
+        final int queryCount  = 30;
+
+        final Path realDir  = tempDir.resolve("real");
+        final Path aliasDir = tempDir.resolve("alias");
+
+        final Random random = new Random(4711);
+
+        // Clustered, so traversal quality is what decides the top-k.
+        final List<float[]> centroids = new ArrayList<>();
+        for(int c = 0; c < 20; c++)
+        {
+            centroids.add(randomVector(random, dimension));
+        }
+        final List<float[]> vectors = new ArrayList<>();
+        for(int i = 0; i < vectorCount; i++)
+        {
+            vectors.add(nearVector(random, centroids.get(i % centroids.size())));
+        }
+
+        // A decoy index of the same shape, whose codes describe unrelated vectors.
+        final GigaMap<Document> decoy = GigaMap.New();
+        try(final VectorIndex<Document> index = decoy.index().register(VectorIndices.Category())
+            .add("embeddings", this.pqInMemoryConfig(dimension, aliasDir), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(decoy, new Random(999), dimension, vectorCount, "decoy_");
+            index.persistToDisk();
+        }
+
+        // Build and persist through real storage, so that reopening restores the GigaMap with its
+        // vectors already in place. Registering an index against an empty map instead would make
+        // tryLoad reject on the count witness, rebuild in memory, and never touch the sidecar at all.
+        final Path storageDir = tempDir.resolve("storage");
+        final List<Long> ids = new ArrayList<>();
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            storage.setRoot(gigaMap);
+
+            final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+                .add("embeddings", this.pqInMemoryConfig(dimension, realDir), new ComputedDocumentVectorizer());
+
+            for(int i = 0; i < vectorCount; i++)
+            {
+                ids.add(gigaMap.add(new Document("doc_" + i, vectors.get(i))));
+            }
+            index.persistToDisk();
+            assertTrue(index.isPqCompressionActive());
+
+            storage.storeRoot();
+        }
+
+        final double honestRecall = this.reopenAndMeasureRecall(
+            storageDir, vectors, ids, k, queryCount, 4711);
+
+        // Swap the decoy's codes in. Nothing in the metadata describes the sidecar, so the index
+        // still loads - it simply traverses on codes that mean nothing for its data.
+        Files.copy(aliasDir.resolve("embeddings.pqv"), realDir.resolve("embeddings.pqv"),
+            StandardCopyOption.REPLACE_EXISTING);
+
+        final double aliasRecall = this.reopenAndMeasureRecall(
+            storageDir, vectors, ids, k, queryCount, 4711);
+
+        assertTrue(honestRecall >= 0.90,
+            "the honest index should retrieve well, measured " + honestRecall);
+        assertTrue(aliasRecall < honestRecall - 0.10,
+            "traversing on codes that describe other vectors must measurably degrade retrieval -"
+                + " honest " + honestRecall + " against aliased " + aliasRecall
+                + ". If these match, the sidecar codes are not being used for scoring at all.");
+    }
+
+    /**
+     * Reopens a persisted store and measures recall against the disk index it loads.
+     */
+    private double reopenAndMeasureRecall(
+        final Path          storageDir ,
+        final List<float[]> vectors    ,
+        final List<Long>    ids        ,
+        final int           k          ,
+        final int           queryCount ,
+        final int           seed
+    )
+    {
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = storage.root();
+            final VectorIndex<Document> index =
+                gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+
+            assertTrue(index.isPqCompressionActive(),
+                "the reopened index must have loaded its codes, or this measures nothing");
+
+            return this.measureRecall(index, vectors, ids, k, queryCount, seed);
+        }
+    }
+
+    private VectorIndexConfiguration pqInMemoryConfig(final int dimension, final Path indexDir)
+    {
+        return VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(16)
+            .beamWidth(100)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+            .pqSubspaces(dimension / 4)
+            .build();
+    }
+
+    private double measureRecall(
+        final VectorIndex<Document> index      ,
+        final List<float[]>         vectors    ,
+        final List<Long>            ids        ,
+        final int                   k          ,
+        final int                   queryCount ,
+        final int                   seed
+    )
+    {
+        final Random queryRandom = new Random(seed * 31 + 5);
+        double       total       = 0;
+
+        for(int q = 0; q < queryCount; q++)
+        {
+            final float[] query = nearVector(queryRandom, vectors.get(queryRandom.nextInt(vectors.size())));
+
+            final Set<Long> expected = new HashSet<>(bruteForceTopK(query, vectors, ids, k));
+            final Set<Long> actual   = new HashSet<>();
+            for(final ScoredSearchResult.Entry<Document> entry : index.search(query, k))
+            {
+                actual.add(entry.entityId());
+            }
+            actual.retainAll(expected);
+            total += (double)actual.size() / k;
+        }
+        return total / queryCount;
+    }
+
+    @Test
+    void testPqInMemoryRecallMatchesFusedPq(@TempDir final Path tempDir)
+    {
+        for(final int seed : new int[]{7, 11, 23, 42, 99})
+        {
+            this.assertRecallForSeed(seed, tempDir.resolve("mem_" + seed),
+                VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY);
+        }
+    }
+
+    /**
+     * The target configuration of the whole exercise: quantized vectors in the graph and the PQ
+     * codes out of it entirely.
+     */
+    @Test
+    void testNvqWithPqInMemoryIsTheSmallestConfiguration(@TempDir final Path tempDir) throws IOException
+    {
+        final int vectorCount = 400;
+        final int dimension   = 256;
+        final int maxDegree   = 32;
+
+        final long baseline = this.persistAndMeasureGraph(
+            tempDir.resolve("baseline"), vectorCount, dimension, maxDegree,
+            VectorStorage.INLINE, ApproximateScoring.NONE);
+        final long fused = this.persistAndMeasureGraph(
+            tempDir.resolve("fused"), vectorCount, dimension, maxDegree,
+            VectorStorage.INLINE, ApproximateScoring.FUSED_PQ);
+        final long target = this.persistAndMeasureGraph(
+            tempDir.resolve("target"), vectorCount, dimension, maxDegree,
+            VectorStorage.NVQ, ApproximateScoring.PQ_IN_MEMORY);
+
+        assertTrue(target < baseline / 2,
+            "the target configuration must more than halve the uncompressed baseline: "
+                + target + " against " + baseline);
+        assertTrue(target < fused / 4,
+            "and be far smaller than today's compressed one: " + target + " against " + fused);
     }
 
     /**

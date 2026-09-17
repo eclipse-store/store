@@ -1652,6 +1652,23 @@ public interface VectorIndexConfiguration
                     );
                 }
 
+                // PQ_IN_MEMORY trades the fused codes' disk cost for a heap cost that is linear in
+                // the ordinal space and resident for as long as the index is open. That is easy to
+                // choose without pricing, and the failure mode is an OutOfMemoryError at scale
+                // rather than anything the configuration can catch, so state the rate up front.
+                if(this.approximateScoring == ApproximateScoring.PQ_IN_MEMORY)
+                {
+                    final int codeBytes = this.pqSubspaces > 0
+                        ? this.pqSubspaces
+                        : Math.max(1, this.dimension / 4);
+                    LOG.info(
+                        "PQ_IN_MEMORY holds {} bytes per ordinal in heap for as long as the index is open"
+                            + " (about {} MB per million vectors, and deletion holes count). FUSED_PQ pays"
+                            + " in graph size and page cache instead.",
+                        codeBytes, codeBytes
+                    );
+                }
+
                 // NVQ costs 1 byte per dimension plus a fixed 28 bytes of nonlinearity parameters
                 // per subvector, against 4 bytes per dimension for full precision. At a high enough
                 // subvector count that stops being a saving, which is a configuration mistake rather

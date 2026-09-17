@@ -14,8 +14,10 @@ package org.eclipse.store.gigamap.jvector;
  * #L%
  */
 
+import io.github.jbellis.jvector.disk.RandomAccessReader;
 import io.github.jbellis.jvector.disk.ReaderSupplier;
 import io.github.jbellis.jvector.disk.ReaderSupplierFactory;
+import io.github.jbellis.jvector.disk.SimpleWriter;
 import io.github.jbellis.jvector.graph.OnHeapGraphIndex;
 import io.github.jbellis.jvector.graph.RandomAccessVectorValues;
 import io.github.jbellis.jvector.graph.disk.OnDiskGraphIndex;
@@ -115,6 +117,16 @@ interface DiskIndexManager extends Closeable
     final static String META_FILE_EXT = ".meta";
 
     /**
+     * File extension for the sidecar holding the PQ codes of an
+     * {@link ApproximateScoring#PQ_IN_MEMORY} index.
+     * <p>
+     * A third file rather than a graph feature, because the whole point of that mode is to keep the
+     * codes out of the graph: fusing them duplicates each one {@code maxDegree} times, while this
+     * holds one flat array that is read into heap on load.
+     */
+    final static String PQV_FILE_EXT = ".pqv";
+
+    /**
      * Extension appended to a live file's name while it is being written. The graph and meta are
      * written to {@code <name><ext>.tmp} and then atomically renamed onto the live path, so an
      * interrupted write (e.g. {@code shutdownNow()} mid-persist) can never leave a torn live file.
@@ -162,6 +174,18 @@ interface DiskIndexManager extends Closeable
      * @return the embedded quantizer, or {@code null} if the loaded graph stores full-precision vectors
      */
     public NVQuantization loadedNVQuantization();
+
+    /**
+     * Returns the PQ codes loaded from the sidecar, or {@code null} unless this index is configured
+     * for {@link ApproximateScoring#PQ_IN_MEMORY} and a sidecar was loaded.
+     * <p>
+     * Unlike the graph's own features these are heap-resident for as long as the index is open,
+     * costing {@code pqSubspaces} bytes for every ordinal up to the highest in use. That is the
+     * trade this mode makes: the graph stays small and the codes are paid for in memory instead.
+     *
+     * @return the loaded codes, or {@code null} if this index does not use them
+     */
+    public PQVectors loadedPqVectors();
 
     /**
      * Attempts to load the index from disk, validating the {@code .meta} witnesses against the
@@ -324,6 +348,7 @@ interface DiskIndexManager extends Closeable
 
         private OnDiskGraphIndex diskIndex     ;
         private ReaderSupplier   readerSupplier;
+        private PQVectors        pqVectors     ;
         private boolean          loaded        ;
 
         Default(
@@ -371,6 +396,14 @@ interface DiskIndexManager extends Closeable
             {
                 return null;
             }
+            final PQVectors loadedPqVectors = this.pqVectors;
+            if(loadedPqVectors != null)
+            {
+                // PQ_IN_MEMORY writes no fused feature, so the graph header carries no codebook. The
+                // sidecar embeds its own, which PQVectors.load has already restored.
+                return loadedPqVectors.getCompressor();
+            }
+
             return this.diskIndex.getFeatures().get(FeatureId.FUSED_PQ) instanceof FusedPQ fusedPQ
                 ? fusedPQ.getPQ()
                 : null
@@ -388,6 +421,12 @@ interface DiskIndexManager extends Closeable
                 ? nvqFeature.getNVQuantization()
                 : null
             ;
+        }
+
+        @Override
+        public PQVectors loadedPqVectors()
+        {
+            return this.pqVectors;
         }
 
         @Override
@@ -426,10 +465,28 @@ interface DiskIndexManager extends Closeable
                     return false;
                 }
 
-                // Load the on-disk graph index
-                // FusedPQ and InlineVectors features are embedded in the graph file
+                // Load the on-disk graph index. The storage and fused-PQ features are embedded in
+                // the graph file itself and come back with it.
                 this.readerSupplier = ReaderSupplierFactory.open(graphPath);
                 this.diskIndex = OnDiskGraphIndex.load(this.readerSupplier);
+
+                // The in-memory PQ codes are not, so they are loaded separately. A missing or
+                // unreadable sidecar is a rejection rather than a degrade: the meta says this index
+                // traverses on PQ codes, and silently serving it exactly instead would make the
+                // configuration a lie. Returning false rebuilds from the store, which restores both.
+                if(this.format.usesInMemoryPq())
+                {
+                    final Path pqvPath = this.indexDirectory.resolve(this.name + PQV_FILE_EXT);
+                    if(!Files.exists(pqvPath))
+                    {
+                        LOG.info("PQ sidecar missing for '{}', will rebuild", this.name);
+                        this.close();
+                        return false;
+                    }
+                    this.pqVectors = this.readPqSidecar(pqvPath);
+                    LOG.info("Loaded PQ sidecar for '{}': {} vectors, {} bytes resident",
+                        this.name, this.pqVectors.count(), this.pqVectors.ramBytesUsed());
+                }
 
                 this.loaded = true;
                 LOG.info("Loaded disk index '{}' with {} nodes", this.name, this.diskIndex.size(0));
@@ -554,6 +611,8 @@ interface DiskIndexManager extends Closeable
             final Path metaPath      = this.indexDirectory.resolve(this.name + META_FILE_EXT );
             final Path graphTempPath = this.indexDirectory.resolve(this.name + GRAPH_FILE_EXT + TEMP_FILE_EXT);
             final Path metaTempPath  = this.indexDirectory.resolve(this.name + META_FILE_EXT  + TEMP_FILE_EXT);
+            final Path pqvPath       = this.indexDirectory.resolve(this.name + PQV_FILE_EXT );
+            final Path pqvTempPath   = this.indexDirectory.resolve(this.name + PQV_FILE_EXT  + TEMP_FILE_EXT);
 
             // Write both files to temp paths first, then atomically rename them into place. This way an
             // interrupted write (e.g. shutdownNow() mid-persist) leaves at most a stale temp file — never
@@ -572,7 +631,17 @@ interface DiskIndexManager extends Closeable
                     ? nvqManager.getNVQ()
                     : null;
 
-                if(pq == null && nvq == null)
+                // Where the codebook goes depends on the scoring mode: fused into the graph, or into
+                // the sidecar. Only one of these is ever non-null.
+                final ProductQuantization fusedPq    = this.format.usesFusedPq()    ? pq : null;
+                final ProductQuantization sidecarPq  = this.format.usesInMemoryPq() ? pq : null;
+
+                if(sidecarPq != null)
+                {
+                    this.writePqSidecar(ravv, sidecarPq, pqvTempPath);
+                }
+
+                if(fusedPq == null && nvq == null)
                 {
                     // Fast path for the plain, feature-less graph. Kept separate so the overwhelmingly
                     // common configuration keeps producing byte-identical files to the ones written
@@ -583,17 +652,21 @@ interface DiskIndexManager extends Closeable
                 }
                 else
                 {
-                    this.writeIndexWithFeatures(index, ravv, pq, nvq, graphTempPath);
+                    this.writeIndexWithFeatures(index, ravv, fusedPq, nvq, graphTempPath);
                 }
 
                 // Write metadata using the witnesses captured with the graph in Phase 1 (see MetaState):
                 // NOT re-read live here, since Phase 2 runs with the parentMap monitor released.
                 this.writeMetadata(metaTempPath, metaState);
 
-                // Commit: rename the graph first, then the meta last. The meta is the validity stamp
-                // that verifyMetadata reads first on load, so it must only become visible once the graph
-                // it describes is fully in place. A crash between the two renames leaves the graph new and
-                // the meta stale, which verifyMetadata rejects and self-heals from the store.
+                // Commit: sidecar, then graph, then meta LAST. The meta is the validity stamp that
+                // verifyMetadata reads first on load, so it must only become visible once everything
+                // it describes is in place. A crash at any earlier point leaves a stale meta, which
+                // verifyMetadata rejects and self-heals from the store.
+                if(sidecarPq != null)
+                {
+                    this.atomicMove(pqvTempPath, pqvPath);
+                }
                 this.atomicMove(graphTempPath, graphPath);
                 this.atomicMove(metaTempPath, metaPath);
             }
@@ -604,6 +677,7 @@ interface DiskIndexManager extends Closeable
                 // root cause); a leftover temp file is harmless and overwritten on the next persist.
                 this.deleteQuietly(graphTempPath);
                 this.deleteQuietly(metaTempPath);
+                this.deleteQuietly(pqvTempPath);
             }
 
             LOG.info("Persisted index '{}' to disk with {} vectors", this.name, index.size(0));
@@ -623,6 +697,7 @@ interface DiskIndexManager extends Closeable
 
             final boolean graphDeleted = this.deleteQuietly(this.indexDirectory.resolve(this.name + GRAPH_FILE_EXT));
             final boolean metaDeleted  = this.deleteQuietly(this.indexDirectory.resolve(this.name + META_FILE_EXT ));
+            this.deleteQuietly(this.indexDirectory.resolve(this.name + PQV_FILE_EXT));
 
             // Stays silent for the common case of an index that never wrote anything, so that an
             // empty index does not log on every persist.
@@ -683,6 +758,56 @@ interface DiskIndexManager extends Closeable
                     nonAtomicFailure.addSuppressed(atomicFailure);
                     throw nonAtomicFailure;
                 }
+            }
+        }
+
+        /**
+         * Encodes every graph ordinal against the codebook and writes the result to the sidecar.
+         * <p>
+         * The encoding is identical to the one the fused path performs; only where it lands differs.
+         * {@code encodeAll} sizes its output from {@code ravv.size()}, which for the ordinal-spaced
+         * view is the highest used id plus one, so the resulting array is indexed by graph ordinal -
+         * and therefore by source entity id - exactly as the fused codes are.
+         * <p>
+         * Written through {@code PQVectors.write}, whose counterpart is {@code PQVectors.load}. Note
+         * that {@code writeSidecarHeader} is <b>not</b> the method for this despite its name: it
+         * emits the codebook and counts only, for a caller that streams the chunks itself.
+         *
+         * @param ravv    the ordinal-spaced vectors, aligned with the graph's node ids
+         * @param pq      the trained codebook
+         * @param pqvPath the (temporary) path to write to
+         * @throws IOException if writing fails
+         */
+        private void writePqSidecar(
+            final RandomAccessVectorValues ravv   ,
+            final ProductQuantization      pq     ,
+            final Path                     pqvPath
+        ) throws IOException
+        {
+            final PQVectors pqVectors = (PQVectors)pq.encodeAll(ravv);
+
+            try(final SimpleWriter writer = new SimpleWriter(pqvPath))
+            {
+                pqVectors.write(writer, OnDiskGraphIndex.CURRENT_VERSION);
+            }
+
+            LOG.info("Wrote PQ sidecar for '{}': {} vectors, {} bytes per code, {} bytes resident when loaded",
+                this.name, pqVectors.count(), pqVectors.getCompressedSize(), pqVectors.ramBytesUsed());
+        }
+
+        /**
+         * Reads the PQ sidecar back into heap.
+         *
+         * @param pqvPath the sidecar path
+         * @return the loaded codes
+         * @throws IOException if the file is missing or unreadable
+         */
+        private PQVectors readPqSidecar(final Path pqvPath) throws IOException
+        {
+            try(final ReaderSupplier supplier = ReaderSupplierFactory.open(pqvPath);
+                final RandomAccessReader reader = supplier.get())
+            {
+                return PQVectors.load(reader);
             }
         }
 
@@ -889,7 +1014,10 @@ interface DiskIndexManager extends Closeable
                 }
                 this.readerSupplier = null;
             }
-            this.loaded = false;
+            // Heap, not a mapping, so there is nothing to close - but dropping the reference is what
+            // releases it, and this mode's whole cost is that it holds one byte array per ordinal.
+            this.pqVectors = null;
+            this.loaded    = false;
         }
 
     }

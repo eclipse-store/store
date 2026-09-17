@@ -144,7 +144,7 @@ For datasets that exceed available memory, enable on-disk storage to use memory-
 
 |`approximateScoring`
 |`NONE`
-|How traversal scores candidates. `NONE` scores from whatever the storage mode holds. `FUSED_PQ` writes Product Quantization codes into every node, which speeds up traversal of a large on-disk index at the cost of a *larger* graph file.
+|How traversal scores candidates. `NONE` scores from whatever the storage mode holds. `FUSED_PQ` writes Product Quantization codes into every node, which speeds up traversal of a large on-disk index at the cost of a *larger* graph file. `PQ_IN_MEMORY` buys the same approximate traversal without touching the graph, keeping the codes in a `.pqv` sidecar that is read into heap on load - `pqSubspaces` bytes per ordinal, resident, against `pqSubspaces * maxDegree` bytes per node on disk.
 
 |`nvqSubvectors`
 |`0`
@@ -156,7 +156,7 @@ For datasets that exceed available memory, enable on-disk storage to use memory-
 
 |`pqSubspaces`
 |`0`
-|Number of PQ subspaces (0 = auto: dimension/4). Costs `pqSubspaces * maxDegree` bytes per node, so prefer a smaller value than classic PQ guidance suggests. Only applies when `approximateScoring=FUSED_PQ`.
+|Number of PQ subspaces (0 = auto: dimension/4). Under `FUSED_PQ` this costs `pqSubspaces * maxDegree` bytes per node on disk, so prefer a smaller value than classic PQ guidance suggests; under `PQ_IN_MEMORY` it is `pqSubspaces` bytes per ordinal in heap. Only applies when `approximateScoring` is one of those two.
 
 |`parallelOnDiskWrite`
 |`false`
