@@ -91,7 +91,7 @@ NOTE: The `jdk.incubator.vector` module is an incubator feature in Java 17-21. S
 
 |`maxDegree`
 |16
-|Maximum connections per node in HNSW graph. Higher values improve recall but increase memory usage.
+|Maximum connections per node in HNSW graph. Higher values improve recall but increase memory usage. With `enablePqCompression`, this also multiplies the per-node fused block (`pqSubspaces * maxDegree` bytes), so it drives both the graph size and the bytes read per traversal hop.
 
 |`beamWidth`
 |100
@@ -103,11 +103,11 @@ NOTE: The `jdk.incubator.vector` module is an incubator feature in Java 17-21. S
 
 |`neighborOverflow`
 |1.2
-|Overflow factor for neighbor lists.
+|How many candidate neighbours construction keeps before pruning, as a multiple of `maxDegree`. Higher values select neighbours slightly better at the cost of more memory while building. Minimal effect on final quality or query speed - the default suits almost everything.
 
 |`alpha`
 |1.2
-|Pruning parameter for the HNSW graph.
+|Aggressiveness of the RNG pruning heuristic during construction. `1.0` keeps every Voronoi neighbour; higher values drop edges reachable by other paths, giving a sparser graph and faster queries at the cost of some recall. Raise it only under memory pressure.
 |===
 
 === Example
@@ -132,7 +132,7 @@ For datasets that exceed available memory, enable on-disk storage to use memory-
 
 |`onDisk`
 |`false`
-|Enable on-disk graph storage.
+|Store the graph in a memory-mapped file instead of on the Java heap. This is what lets an index exceed available RAM: the OS pages the graph in and out, so heap stays flat and the cost moves to page cache and query latency. In-memory mode is faster per query but its graph is heap-resident, with the GC pressure that implies at scale.
 
 |`indexDirectory`
 |`null`
@@ -229,11 +229,15 @@ Setting `persistenceIntervalMs` to a value greater than 0 enables background per
 
 |`minChangesBetweenPersists`
 |`100`
-|Minimum changes before persisting.
+|Debounce threshold: the background thread persists only once this many changes have accumulated. Lower values keep the on-disk graph closer to the live state, at the cost of more write amplification; higher values mean a crash discards more work, which the load-time rebuild then has to redo. `0` or `1` persists on every interval.
 
 |`persistOnShutdown`
 |`true`
 |Persist pending changes on `close()` when `onDisk=true`. Applies whether or not background persistence is enabled.
+
+|`shutdownPersistTimeoutMillis`
+|`30000`
+|How long `close()` waits for the final drain, optimize and persist before interrupting it and continuing. An aborted persist never loses data or leaves a torn file - on-disk indices write atomically and self-heal from the store - it only degrades to a rebuild on the next boot. In incremental on-disk mode the shutdown persist returns immediately, so in practice this bounds a first-time (non-incremental) persist or an unexpectedly slow drain.
 |===
 
 === Example
@@ -266,11 +270,11 @@ Setting `optimizationIntervalMs` to a value greater than 0 enables background op
 
 |`minChangesBetweenOptimizations`
 |`1000`
-|Minimum changes before optimizing.
+|Debounce threshold for background optimization. Should be higher than `minChangesBetweenPersists`, since a cleanup is the more expensive of the two. `0` or `1` optimizes on every interval.
 
 |`optimizeOnShutdown`
 |`false`
-|Optimize pending changes on `close()`.
+|Run a cleanup on pending changes during `close()`. Disabled by default because it blocks shutdown; leaving it off trades a slower first query after restart for a faster exit.
 |===
 
 === Example

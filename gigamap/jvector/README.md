@@ -152,19 +152,20 @@ List<Document> topDocs = result.stream()
 |-----------|---------|-------------|
 | `dimension` | (required) | Vector dimensionality |
 | `similarityFunction` | `COSINE` | Similarity metric (`COSINE`, `DOT_PRODUCT`, `EUCLIDEAN`) |
-| `maxDegree` | 16 | Maximum connections per node in HNSW graph |
-| `beamWidth` | 100 | Search beam width during index construction |
-| `neighborOverflow` | 1.2 | Overflow factor for neighbor lists |
-| `alpha` | 1.2 | Pruning parameter |
+| `maxDegree` | 16 | Maximum connections per node in HNSW graph. Higher improves recall, costs memory. With PQ it also multiplies the per-node fused block (`pqSubspaces * maxDegree` bytes) |
+| `beamWidth` | 100 | Beam width during index construction (HNSW *efConstruction*). Higher improves graph quality, slows construction. No effect at query time |
+| `minSearchBeamWidth` | 100 | Minimum beam width during search (*efSearch* floor); effective width is `max(k, minSearchBeamWidth)`. Raising it recovers recall lost to a small `pqSubspaces` |
+| `neighborOverflow` | 1.2 | Candidate neighbours kept before pruning, as a multiple of `maxDegree`. Slightly better selection for slightly more memory while building; minimal effect on the finished index |
+| `alpha` | 1.2 | RNG pruning aggressiveness. Higher gives a sparser graph and faster queries at some recall cost; raise only under memory pressure |
 
 ### On-Disk Storage
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `onDisk` | `false` | Enable on-disk graph storage |
+| `onDisk` | `false` | Store the graph in a memory-mapped file rather than on the Java heap. This is what lets an index exceed RAM; in-memory mode is faster per query but keeps the graph on the heap |
 | `indexDirectory` | `null` | Directory for index files (required if `onDisk=true`) |
-| `enablePqCompression` | `false` | Enable Product Quantization compression |
-| `pqSubspaces` | `0` | Number of PQ subspaces (0 = auto: dimension/4) |
+| `enablePqCompression` | `false` | Enable Product Quantization. Speeds up traversal of a large on-disk index; **makes the graph file larger** and adds transient heap at persist time. See the memory notes in the docs |
+| `pqSubspaces` | `0` | Number of PQ subspaces (0 = auto: dimension/4). Costs `pqSubspaces * maxDegree` bytes per node, so a smaller value than classic PQ guidance suggests is usually right - paired with a wider `minSearchBeamWidth` |
 | `parallelOnDiskWrite` | `false` | Use parallel direct buffers and multiple worker threads for on-disk index writing. Speeds up persistence for large indices but uses more resources. Only applies when `onDisk=true` |
 
 > **On-disk format version:** the graph file format is at version 4. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors — no data loss, but expect a cold-start cost on the first restart after upgrade. That rebuild happens in memory and does not replace the old files; a mutated index migrates on its next persist, while a read-only one rebuilds again on every restart until `persistToDisk()` is called.
@@ -180,16 +181,17 @@ List<Document> topDocs = result.stream()
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `persistenceIntervalMs` | `0` | Check interval in milliseconds. A value > 0 enables background persistence, 0 disables it |
-| `minChangesBetweenPersists` | `100` | Minimum changes before persisting |
+| `minChangesBetweenPersists` | `100` | Debounce threshold. Lower keeps the on-disk graph fresher at the cost of write amplification; higher means a crash discards more work for the load-time rebuild to redo |
 | `persistOnShutdown` | `true` | Persist pending changes on close() when `onDisk=true`. Applies whether or not background persistence is enabled |
+| `shutdownPersistTimeoutMillis` | `30000` | How long `close()` waits for the final drain, optimize and persist before interrupting it. An aborted persist loses no data - the index self-heals from the store - it only degrades to a rebuild on the next boot |
 
 ### Background Optimization
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `optimizationIntervalMs` | `0` | Check interval in milliseconds. A value > 0 enables background optimization, 0 disables it |
-| `minChangesBetweenOptimizations` | `1000` | Minimum changes before optimizing |
-| `optimizeOnShutdown` | `false` | Optimize pending changes on close() |
+| `minChangesBetweenOptimizations` | `1000` | Debounce threshold; should exceed `minChangesBetweenPersists`, since a cleanup is the more expensive operation |
+| `optimizeOnShutdown` | `false` | Run a cleanup during `close()`. Off by default: trades a slower first query after restart for a faster exit |
 
 ## Advanced Usage
 

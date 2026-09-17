@@ -97,6 +97,18 @@ A node therefore costs `dimension * 4` bytes (inline vector) `+ pqSubspaces * ma
 
 Enable PQ when query latency on a large on-disk index matters. Do not enable it to save disk space -- it does the opposite.
 
+===== Memory, not just disk
+
+The disk growth above is also RAM growth for whatever part of the file is resident, so it is worth being explicit about where PQ helps and where it costs.
+
+**It reduces the resident working set during search.** Without PQ, each traversal hop scores its candidates by issuing `maxDegree` scattered reads of a full `dimension * 4` byte vector -- at dimension 768 and `maxDegree=32`, around 98 KB touched across many pages per hop. With FusedPQ it is a single contiguous read of the node's fused block: 6 KB at `pqSubspaces=192`, 1.5 KB at 48. Reranking is also cheaper on the heap, since it reads the inline vectors straight out of the mapping into one reused buffer rather than materialising each candidate.
+
+**It costs transient heap at persist time.** Encoding the graph allocates `nodes * pqSubspaces` bytes for the whole ordinal space -- roughly 192 MB per persist for 1M vectors at the default `pqSubspaces`, or 48 MB at 48. Training additionally materialises its sample once per index lifetime, up to 128,000 vectors (about 390 MB at dimension 768), after which the codebook is recovered from the graph header instead. Steady-state heap is unaffected beyond the codebook itself and a small cache of the top graph layer's codes.
+
+**It buys much less if the whole index fits in RAM.** PQ's dominant win is avoiding page faults. Once the index is fully cached there are none left to avoid, and what remains is CPU-cache locality and cheaper arithmetic -- real, but far smaller. At that point the extra bytes are simply resident: at 1M vectors and dimension 768, roughly 3.2 GB without PQ against 5.3 GB at `pqSubspaces=48` or 9.9 GB at the default. Treat PQ as a way to scale past available memory, not as a general latency tweak; if the index already fits, measure before assuming it pays.
+
+NOTE: These figures are extrapolated from a small synthetic benchmark. Per-node costs scale cleanly with dimension and `maxDegree`, but measure at your own size before sizing hardware.
+
 ==== Training the Codebook
 
 Before vectors can be compressed, PQ must learn the codebooks by clustering the training data. This happens automatically when the index is persisted to disk, on the first persist at which at least 256 vectors exist. Below that threshold the graph is written uncompressed, and training is reattempted on the next persist that follows a graph-affecting change, or in a later session -- an unchanged index is deliberately not retried, since that would rebuild the whole graph on every idle persist. The training process:
