@@ -1184,4 +1184,338 @@ class VectorIndexConfigurationTest
         assertTrue(config.optimizeOnShutdown());
     }
 
+    // ==================== Vector Storage / Approximate Scoring Tests ====================
+
+    @Test
+    void testStorageAndScoringDefaults()
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .build();
+
+        assertEquals(VectorStorage.INLINE, config.vectorStorage());
+        assertEquals(ApproximateScoring.NONE, config.approximateScoring());
+        assertEquals(1, config.nvqSubvectors());
+        assertFalse(config.enablePqCompression());
+    }
+
+    @Test
+    void testEnablePqCompressionIsADelegateForApproximateScoring(@TempDir final Path tempDir)
+    {
+        final VectorIndexConfiguration enabled = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .onDisk(true)
+            .indexDirectory(tempDir)
+            .enablePqCompression(true)
+            .build();
+        assertEquals(ApproximateScoring.FUSED_PQ, enabled.approximateScoring());
+
+        final VectorIndexConfiguration viaEnum = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .onDisk(true)
+            .indexDirectory(tempDir)
+            .approximateScoring(ApproximateScoring.FUSED_PQ)
+            .build();
+        assertTrue(viaEnum.enablePqCompression());
+    }
+
+    /**
+     * The deprecated setter writes the very same field as the enum setter, so the two are not
+     * competing settings needing a precedence rule - whichever was called last simply wins. Pinned
+     * in both orders, because a delegate implemented as a second field would pass one and fail the
+     * other.
+     */
+    @Test
+    void testDeprecatedAndEnumSettersAreLastWriterWins(@TempDir final Path tempDir)
+    {
+        final VectorIndexConfiguration deprecatedLast = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .onDisk(true)
+            .indexDirectory(tempDir)
+            .approximateScoring(ApproximateScoring.FUSED_PQ)
+            .enablePqCompression(false)
+            .build();
+        assertEquals(ApproximateScoring.NONE, deprecatedLast.approximateScoring());
+        assertFalse(deprecatedLast.enablePqCompression());
+
+        final VectorIndexConfiguration enumLast = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .onDisk(true)
+            .indexDirectory(tempDir)
+            .enablePqCompression(true)
+            .approximateScoring(ApproximateScoring.NONE)
+            .build();
+        assertEquals(ApproximateScoring.NONE, enumLast.approximateScoring());
+        assertFalse(enumLast.enablePqCompression());
+    }
+
+    @Test
+    void testNvqStorageRequiresOnDisk()
+    {
+        final VectorIndexConfiguration.Builder builder = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .vectorStorage(VectorStorage.NVQ);
+
+        final IllegalStateException e = assertThrows(IllegalStateException.class, builder::build);
+        assertTrue(e.getMessage().contains("onDisk"), e.getMessage());
+    }
+
+    @Test
+    void testApproximateScoringRequiresOnDisk()
+    {
+        final VectorIndexConfiguration.Builder builder = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .approximateScoring(ApproximateScoring.FUSED_PQ);
+
+        final IllegalStateException e = assertThrows(IllegalStateException.class, builder::build);
+        assertTrue(e.getMessage().contains("onDisk"), e.getMessage());
+    }
+
+    @Test
+    void testBuilderRequiresNonNegativeNvqSubvectors()
+    {
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> VectorIndexConfiguration.builder().nvqSubvectors(-1)
+        );
+    }
+
+    @Test
+    void testBuilderRejectsNullStorageAndScoring()
+    {
+        assertThrows(
+            NullPointerException.class,
+            () -> VectorIndexConfiguration.builder().vectorStorage(null)
+        );
+        assertThrows(
+            NullPointerException.class,
+            () -> VectorIndexConfiguration.builder().approximateScoring(null)
+        );
+    }
+
+    /**
+     * Unlike pqSubspaces there is no divisibility rule - JVector distributes the remainder across
+     * the subvectors - but there must be at least one dimension per subvector.
+     */
+    @Test
+    void testNvqSubvectorsMustNotExceedDimension(@TempDir final Path tempDir)
+    {
+        final VectorIndexConfiguration.Builder builder = VectorIndexConfiguration.builder()
+            .dimension(16)
+            .onDisk(true)
+            .indexDirectory(tempDir)
+            .vectorStorage(VectorStorage.NVQ)
+            .nvqSubvectors(17);
+
+        assertThrows(IllegalArgumentException.class, builder::build);
+    }
+
+    @Test
+    void testNvqSubvectorsNotDividingDimensionIsAllowed(@TempDir final Path tempDir)
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(14)
+            .onDisk(true)
+            .indexDirectory(tempDir)
+            .vectorStorage(VectorStorage.NVQ)
+            .nvqSubvectors(3)
+            .build();
+
+        assertEquals(3, config.nvqSubvectors());
+    }
+
+    @Test
+    void testNvqSubvectorsZeroMeansAuto()
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .nvqSubvectors(0)
+            .build();
+
+        assertEquals(1, config.nvqSubvectors());
+    }
+
+    /**
+     * A subvector count high enough that NVQ costs more than full precision is a tuning mistake,
+     * not an illegal state: the index still works, it just pays quantization recall for nothing.
+     * It must warn rather than throw.
+     */
+    @Test
+    void testNvqThatSavesNothingIsAllowedRatherThanRejected(@TempDir final Path tempDir)
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .onDisk(true)
+            .indexDirectory(tempDir)
+            .vectorStorage(VectorStorage.NVQ)
+            .nvqSubvectors(64)
+            .build();
+
+        assertEquals(VectorStorage.NVQ, config.vectorStorage());
+        assertEquals(64, config.nvqSubvectors());
+    }
+
+    @Test
+    void testForCompactLargeDatasetUsesNvqAndFusedPq(@TempDir final Path tempDir)
+    {
+        final Path indexDir = tempDir.resolve("vectors");
+        final VectorIndexConfiguration config = VectorIndexConfiguration.forCompactLargeDataset(768, indexDir);
+
+        assertEquals(768, config.dimension());
+        assertEquals(32, config.maxDegree());
+        assertEquals(300, config.beamWidth());
+        assertTrue(config.onDisk());
+        assertEquals(indexDir, config.indexDirectory());
+        assertEquals(VectorStorage.NVQ, config.vectorStorage());
+        assertEquals(ApproximateScoring.FUSED_PQ, config.approximateScoring());
+        assertTrue(config.enablePqCompression());
+        assertTrue(config.backgroundPersistence());
+        assertTrue(config.backgroundOptimization());
+    }
+
+    /**
+     * The existing preset must not have silently changed on-disk format when vectorStorage was
+     * introduced: an application that upgrades and keeps calling forLargeDataset gets exactly the
+     * graph it got before.
+     */
+    @Test
+    void testForLargeDatasetKeepsInlineStorage(@TempDir final Path tempDir)
+    {
+        final VectorIndexConfiguration config =
+            VectorIndexConfiguration.forLargeDataset(768, tempDir.resolve("vectors"));
+
+        assertEquals(VectorStorage.INLINE, config.vectorStorage());
+        assertEquals(ApproximateScoring.FUSED_PQ, config.approximateScoring());
+    }
+
+    @Test
+    void testForHighPrecisionDisablesBothDimensions()
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.forHighPrecision(64);
+
+        assertEquals(VectorStorage.INLINE, config.vectorStorage());
+        assertEquals(ApproximateScoring.NONE, config.approximateScoring());
+    }
+
+    @Test
+    void testStorageAndScoringSettersAreFluent()
+    {
+        final VectorIndexConfiguration.Builder builder = VectorIndexConfiguration.builder();
+
+        assertSame(builder, builder.vectorStorage(VectorStorage.INLINE));
+        assertSame(builder, builder.approximateScoring(ApproximateScoring.NONE));
+        assertSame(builder, builder.nvqSubvectors(2));
+    }
+
+    // ==================== Stable Code Tests ====================
+
+    /**
+     * The codes are written into the index metadata file, so they are a file-format contract: an
+     * existing constant's code may never change, and a new one must be appended with a fresh code.
+     * Pinned literally rather than derived, so that renumbering a constant fails here instead of
+     * silently making every previously written index unreadable - or, worse, misread.
+     */
+    @Test
+    void testStableCodesArePinned()
+    {
+        assertEquals(1, VectorStorage.INLINE.code());
+        assertEquals(2, VectorStorage.NVQ.code());
+
+        assertEquals(1, ApproximateScoring.NONE.code());
+        assertEquals(2, ApproximateScoring.FUSED_PQ.code());
+    }
+
+    @Test
+    void testCodesRoundTrip()
+    {
+        for(final VectorStorage storage : VectorStorage.values())
+        {
+            assertSame(storage, VectorStorage.fromCode(storage.code()));
+        }
+        for(final ApproximateScoring scoring : ApproximateScoring.values())
+        {
+            assertSame(scoring, ApproximateScoring.fromCode(scoring.code()));
+        }
+    }
+
+    /**
+     * An unknown code is what a metadata file written by a newer version carrying a constant this
+     * build does not know looks like. It must resolve to null so the caller can treat it as a
+     * mismatch and rebuild, rather than throwing or - far worse - mapping it onto a constant that
+     * means something else.
+     */
+    @Test
+    void testUnknownCodeResolvesToNull()
+    {
+        assertNull(VectorStorage.fromCode(0));
+        assertNull(VectorStorage.fromCode(99));
+        assertNull(ApproximateScoring.fromCode(0));
+        assertNull(ApproximateScoring.fromCode(3));  // reserved for PQ_IN_MEMORY
+        assertNull(ApproximateScoring.fromCode(99));
+    }
+
+    // ==================== Schema Evolution Tests ====================
+
+    /**
+     * A {@link VectorIndexConfiguration} round-trips through Eclipse Store as part of the index, and
+     * Eclipse Store fills a field added by schema evolution with the zero value. So a configuration
+     * persisted by a build that predates these enums loads with both of them null, with only the
+     * legacy boolean carrying the setting.
+     * <p>
+     * The accessors must derive the truth from that boolean rather than reporting the enum
+     * defaults. Getting this wrong would silently switch PQ off for every existing on-disk index on
+     * upgrade - and, because the metadata records the configured scoring mode, would also invalidate
+     * its graph and force a full rebuild.
+     * <p>
+     * The builder cannot produce this shape, since it derives the boolean from the enum, so the
+     * fields are forced by reflection. That is the point: this is the only way the shape occurs, and
+     * it occurs on every upgrade.
+     */
+    @Test
+    void testLegacyConfigWithoutModesDerivesFromTheBoolean(@TempDir final Path tempDir) throws Exception
+    {
+        final VectorIndexConfiguration pqEnabled = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .onDisk(true)
+            .indexDirectory(tempDir)
+            .approximateScoring(ApproximateScoring.FUSED_PQ)
+            .build();
+        zeroFillEvolvedFields(pqEnabled);
+
+        assertEquals(VectorStorage.INLINE, pqEnabled.vectorStorage(),
+            "a configuration predating vectorStorage described an INLINE graph");
+        assertEquals(ApproximateScoring.FUSED_PQ, pqEnabled.approximateScoring(),
+            "PQ must survive the upgrade, derived from the legacy boolean");
+        assertTrue(pqEnabled.enablePqCompression());
+        assertEquals(1, pqEnabled.nvqSubvectors());
+
+        final VectorIndexConfiguration pqDisabled = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .build();
+        zeroFillEvolvedFields(pqDisabled);
+
+        assertEquals(VectorStorage.INLINE, pqDisabled.vectorStorage());
+        assertEquals(ApproximateScoring.NONE, pqDisabled.approximateScoring());
+        assertFalse(pqDisabled.enablePqCompression());
+    }
+
+    /**
+     * Forces the shape Eclipse Store produces for a configuration stored before the storage and
+     * scoring fields existed: both references null and the int zero, with the legacy
+     * {@code enablePqCompression} boolean left exactly as it was persisted.
+     */
+    private static void zeroFillEvolvedFields(final VectorIndexConfiguration config) throws Exception
+    {
+        setField(config, "vectorStorage"     , null);
+        setField(config, "approximateScoring", null);
+        setField(config, "nvqSubvectors"     , 0   );
+    }
+
+    private static void setField(final Object target, final String name, final Object value) throws Exception
+    {
+        final java.lang.reflect.Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
 }
