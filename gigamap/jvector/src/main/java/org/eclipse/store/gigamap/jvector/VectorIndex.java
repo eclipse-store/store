@@ -1304,6 +1304,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // shutdown persist for a non-zero count. Left alone, a read-mostly index would rebuild
             // from the store on every restart, which is exactly what the format bump was supposed to
             // cost only once. Must follow the start above, since the manager does not exist before it.
+            //
+            // This only reaches indices that run a background task manager - without one there is
+            // nothing to schedule against. Such an index is not stranded, though: close() calls
+            // doPersistToDisk directly for it, and a rejected load leaves incrementalMode false, so
+            // that persist proceeds and replaces the files. The gap is a process that is killed
+            // rather than closed, which repeats the rebuild on the next start.
             if(diskRebuildPending && this.backgroundTaskManager != null)
             {
                 this.backgroundTaskManager.markPersistRequired();
@@ -2966,6 +2972,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     return;
                 }
                 trainingSample = pqManager.collectTrainingSampleIfNeeded();
+
+                if(trainingSample == null && !pqManager.isTrained())
+                {
+                    // Record the decline here as well, not only after a failed compute below. The
+                    // collection declines whenever the sample turns out too small, which in embedded
+                    // mode happens with enough entities but too few embeddings - the gate counts
+                    // parentMap.size(). Without this the witness never advances, isPqTrainingPending()
+                    // stays true, and every idle persist leaves incremental mode to rebuild and
+                    // rewrite the whole graph.
+                    this.pqTrainingDeclinedAtModCount = this.getStructuralModCount();
+                }
             }
 
             if(trainingSample == null)

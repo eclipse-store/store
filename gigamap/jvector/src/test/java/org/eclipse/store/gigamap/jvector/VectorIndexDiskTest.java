@@ -982,6 +982,55 @@ class VectorIndexDiskTest
     }
 
     /**
+     * Direct guard on the PQ marker in the metadata: a graph written with PQ off must be rejected by
+     * a manager configured with PQ on, and vice versa, even though every other witness matches.
+     * <p>
+     * Exercises {@code verifyMetadata} through {@code tryLoad} rather than end-to-end, because the
+     * end-to-end path reaches the right state either way - the training carve-out rewrites the graph
+     * on the next persist. Only this level shows that the stale graph is refused at load.
+     */
+    @Test
+    void testMetadataRejectsAMismatchedPqSetting(@TempDir final Path tempDir) throws IOException
+    {
+        final int vectorCount = 300;
+        final int dimension   = 64;
+        final Path indexDir   = tempDir.resolve("index");
+
+        // Write a graph with PQ off.
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, new Random(8), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+        }
+
+        // The witnesses the file was written with: everything except the PQ flag agrees.
+        final VectorIndex.Default<Document> written =
+            (VectorIndex.Default<Document>)gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+        final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
+            written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
+
+        try(final DiskIndexManager matching = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, false, false))
+        {
+            assertTrue(matching.tryLoad(state), "the same PQ setting must load");
+        }
+
+        try(final DiskIndexManager mismatched = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, true, false))
+        {
+            assertFalse(mismatched.tryLoad(state),
+                "a graph written with PQ off must not load into an index configured with PQ on");
+        }
+    }
+
+    /**
      * Turning {@code enablePqCompression} on over an existing uncompressed index directory ends up
      * with a FusedPQ graph.
      * <p>
