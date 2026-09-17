@@ -1051,6 +1051,97 @@ class VectorIndexNullVectorTest
     }
 
     /**
+     * NVQ storage over sparse ordinals: the graph ordinal is the source entity id, so null
+     * embeddings leave holes and the highest ordinal exceeds the vector count. Quantizing and
+     * writing every ordinal up to that bound must work, and no null-embedding entity may surface in
+     * the results.
+     * <p>
+     * The NVQ counterpart of {@link #pqCompressionWithSparseOrdinals_trainedAndSearched}, and it
+     * covers the same class of defect: a per-node encode driven by graph ordinal over a space
+     * containing holes.
+     * <p>
+     * It compares a half-null index against a dense one to show the holes change nothing observable.
+     * Note what that does <i>not</i> establish: NVQ recentres on a global mean and then scales each
+     * subvector by its own min/max, so it is largely insensitive to the mean being off. Halving the
+     * mean in an experiment left these rankings identical. The reasons the quantizer is trained from
+     * the dense sample rather than the ordinal-spaced view are the dimension probe at ordinal 0 and
+     * the cost of walking the whole corpus, not mean pollution - see {@code NVQCompressionManager}.
+     */
+    @Test
+    @Timeout(value = 120, unit = TimeUnit.SECONDS)
+    void nvqStorageWithSparseOrdinalsIgnoresNullEmbeddings(@TempDir final Path dir)
+    {
+        final int    dim    = 64;
+        final Random random = new Random(4242);
+
+        // Same vectors in both indices; the sparse one just has nulls interleaved between them.
+        final int vectorCount = 300;
+        final List<float[]> vectors = new ArrayList<>();
+        for(int i = 0; i < vectorCount; i++)
+        {
+            vectors.add(randomUnit(random, dim));
+        }
+        final float[] query = vectors.get(7);
+
+        final List<String> denseTop  = this.nvqTopContents(dir.resolve("dense"), dim, vectors, false, query);
+        final List<String> sparseTop = this.nvqTopContents(dir.resolve("sparse"), dim, vectors, true, query);
+
+        assertEquals("v7", denseTop.get(0), "the query is one of the indexed vectors, so it must rank first");
+        assertEquals(denseTop, sparseTop,
+            "interleaving null embeddings must not change the ranking - the holes are not part of the"
+                + " data, only of the ordinal space");
+    }
+
+    /**
+     * Builds an on-disk NVQ index over {@code vectors}, optionally interleaving null-embedding
+     * entities, and returns the contents of the top 5 results for {@code query}.
+     */
+    private List<String> nvqTopContents(
+        final Path          indexDir   ,
+        final int           dim        ,
+        final List<float[]> vectors    ,
+        final boolean       withNulls  ,
+        final float[]       query
+    )
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dim)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .vectorStorage(VectorStorage.NVQ)
+            .build();
+
+        final GigaMap<Doc> map = GigaMap.New();
+        try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("embeddings", config, new NullableComputedVectorizer()))
+        {
+            for(int i = 0; i < vectors.size(); i++)
+            {
+                map.add(new Doc("v" + i, vectors.get(i)));
+                if(withNulls)
+                {
+                    // One null per real vector: sparse ordinals, and half the entity count with no
+                    // embedding at all.
+                    map.add(new Doc("none" + i, null));
+                }
+            }
+
+            index.persistToDisk();
+            assertTrue(index.isNvqCompressionActive(), "the persist must have trained a quantizer");
+
+            final VectorSearchResult<Doc> result = index.search(query, 5);
+            assertFalse(result.isEmpty(), "NVQ search over sparse ordinals must return results");
+            assertTrue(result.stream().allMatch(e -> index.getVector(e.entityId()) != null),
+                "no null-embedding entity may appear in NVQ search results");
+
+            final List<String> contents = new ArrayList<>();
+            result.forEach(e -> contents.add(e.entity().content));
+            return contents;
+        }
+    }
+
+    /**
      * An index that cannot train must not rebuild its graph on every idle persist.
      * <p>
      * In embedded mode the training gate counts entities, not embeddings, so a map with at least 256

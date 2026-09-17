@@ -91,7 +91,7 @@ NOTE: The `jdk.incubator.vector` module is an incubator feature in Java 17-21. S
 
 |`maxDegree`
 |16
-|Maximum connections per node in HNSW graph. Higher values improve recall but increase memory usage. With `enablePqCompression`, this also multiplies the per-node fused block (`pqSubspaces * maxDegree` bytes), so it drives both the graph size and the bytes read per traversal hop.
+|Maximum connections per node in HNSW graph. Higher values improve recall but increase memory usage. With `approximateScoring=FUSED_PQ`, this also multiplies the per-node fused block (`pqSubspaces * maxDegree` bytes), so it drives both the graph size and the bytes read per traversal hop.
 
 |`beamWidth`
 |100
@@ -172,7 +172,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .similarityFunction(VectorSimilarityFunction.COSINE)
     .onDisk(true)
     .indexDirectory(Path.of("/data/vectors"))
-    .enablePqCompression(true)
+    .approximateScoring(ApproximateScoring.FUSED_PQ)
     .pqSubspaces(48)  // Must divide dimension evenly
     .build();
 ----

@@ -217,7 +217,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .beamWidth(150)
     .onDisk(true)
     .indexDirectory(Path.of("/data/customer-embeddings"))
-    .enablePqCompression(true)            // Large customer bases benefit from compression
+    .approximateScoring(ApproximateScoring.FUSED_PQ) // Large customer bases benefit from compression
     .pqSubspaces(32)
     .persistenceIntervalMs(30_000)
     .build();
@@ -445,7 +445,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .beamWidth(300)
     .onDisk(true)
     .indexDirectory(Path.of("/data/rag-index"))
-    .enablePqCompression(true)
+    .approximateScoring(ApproximateScoring.FUSED_PQ)
     .pqSubspaces(64)                      // 768 / 64 = 12 dims per subspace
     .persistenceIntervalMs(30_000)
     .minChangesBetweenPersists(100)
@@ -509,7 +509,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 
 == Large-Scale Vector Database
 
-For datasets with millions of vectors where on-disk search latency is critical. On-disk mode is what lets the index exceed available memory; PQ then reduces the I/O per traversal hop, at the cost of a larger graph file.
+For datasets with millions of vectors where on-disk search latency is critical. On-disk mode is what lets the index exceed available memory; PQ then reduces the I/O per traversal hop, at the cost of a larger graph file, and NVQ storage brings the file back down well below where it started.
 
 [source, java]
 ----
@@ -520,8 +520,10 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .beamWidth(200)
     .onDisk(true)
     .indexDirectory(Path.of("/data/large-scale"))
-    .enablePqCompression(true)
+    .approximateScoring(ApproximateScoring.FUSED_PQ)
     .pqSubspaces(48)                      // 768 / 48 = 16 dims per subspace
+    .vectorStorage(VectorStorage.NVQ)     // ~3.4x smaller graph; reranking becomes approximate
+    .parallelOnDiskWrite(true)            // Absorbs almost all of the NVQ encode cost
     .persistenceIntervalMs(60_000)
     .minChangesBetweenPersists(1000)
     .optimizationIntervalMs(600_000)      // Every 10 minutes
@@ -534,8 +536,14 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |===
 |Setting |Rationale
 
-|PQ compression enabled
+|`FUSED_PQ` scoring
 |Speeds up traversal on a large on-disk index (at the cost of a larger graph file)
+
+|`NVQ` storage
+|About 3.4x fewer bytes per node, so more of the graph stays in page cache. Reranking is then approximate - drop it if the last fraction of a percent of recall matters more than the footprint
+
+|Parallel on-disk write
+|The NVQ encode runs per node on the writer's threads; without this the persist takes about 3x as long rather than about 1.2x
 
 |High change thresholds
 |Reduces I/O overhead for bulk operations
@@ -599,7 +607,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .beamWidth(150)
     .onDisk(true)
     .indexDirectory(Path.of("/data/image-index"))
-    .enablePqCompression(true)
+    .approximateScoring(ApproximateScoring.FUSED_PQ)
     .pqSubspaces(32)                      // 512 / 32 = 16 dims per subspace
     .persistenceIntervalMs(30_000)
     .minChangesBetweenPersists(100)
@@ -745,16 +753,17 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 
 == Configuration Summary
 
-[options="header",cols="2,1,1,1,1,1,1"]
+[options="header",cols="2,1,1,1,1,1,1,1"]
 |===
-|Use Case |Similarity |maxDegree |beamWidth |On-Disk |PQ |Background
+|Use Case |Similarity |maxDegree |beamWidth |On-Disk |Scoring |Storage |Background
 
 |Development
 |COSINE
 |16
 |100
 |No
-|No
+|NONE
+|INLINE
 |No
 
 |Semantic Search
@@ -762,7 +771,8 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |32
 |200
 |Yes
-|No
+|NONE
+|INLINE
 |Persistence
 
 |RAG
@@ -770,7 +780,8 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |48
 |300
 |Yes
-|Yes
+|FUSED_PQ
+|NVQ
 |Both
 
 |Recommendations
@@ -778,7 +789,8 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |16
 |100
 |Yes
-|No
+|NONE
+|INLINE
 |Persistence
 
 |Large-Scale
@@ -786,7 +798,8 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |32
 |200
 |Yes
-|Yes
+|FUSED_PQ
+|NVQ
 |Both
 
 |High-Precision
@@ -794,7 +807,8 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |64
 |500
 |Yes
-|No
+|NONE
+|INLINE
 |Optimization
 
 |Image Search
@@ -802,7 +816,8 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |32
 |150
 |Yes
-|Yes
+|FUSED_PQ
+|NVQ
 |Persistence
 
 |Face Recognition
@@ -810,7 +825,8 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |32
 |200
 |Yes
-|No
+|NONE
+|INLINE
 |No
 
 |Geographic
@@ -818,7 +834,8 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |16
 |100
 |No
-|No
+|NONE
+|INLINE
 |No
 
 |Sensor Data
@@ -826,7 +843,8 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |24
 |150
 |Yes
-|No
+|NONE
+|INLINE
 |Persistence
 
 |MIPS
@@ -834,7 +852,8 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |24
 |150
 |Yes
-|No
+|NONE
+|INLINE
 |Persistence
 
 |Similar Products
@@ -842,7 +861,8 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |32
 |200
 |Yes
-|No
+|NONE
+|INLINE
 |Persistence
 
 |Customer Similarity
@@ -850,7 +870,8 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |24
 |150
 |Yes
-|Yes
+|FUSED_PQ
+|INLINE
 |Persistence
 
 |FAQ/Tickets
@@ -858,7 +879,8 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |48
 |300
 |Yes
-|No
+|NONE
+|INLINE
 |Persistence
 
 |Content Recommendations
@@ -866,6 +888,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |32
 |200
 |Yes
-|No
+|NONE
+|INLINE
 |Optimization
 |===

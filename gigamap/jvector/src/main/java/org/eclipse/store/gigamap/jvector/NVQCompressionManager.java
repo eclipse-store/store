@@ -178,18 +178,25 @@ interface NVQCompressionManager
                 : 1;
 
             // NVQuantization.create rather than NVQuantization.compute, deliberately. compute()
-            // takes a RandomAccessVectorValues and walks every ordinal of it, which would mean
-            // handing it the NullSafeVectorValues view used for the disk write: every deletion hole
-            // and null embedding would contribute a 1e-6 placeholder to the mean and pull it toward
-            // the origin. That is the same hazard PQCompressionManager documents for k-means. It
-            // would also walk the whole corpus instead of the capped sample, and probe ordinal 0 for
-            // the dimension, which is null whenever ordinal 0 is a hole.
+            // takes a RandomAccessVectorValues and walks every ordinal of it, which here would mean
+            // the ordinal-spaced NullSafeVectorValues view used for the disk write. Two concrete
+            // problems follow, in order of severity:
+            //
+            //  - it probes getVector(0) for the dimension, which is a placeholder - or on some paths
+            //    null - whenever ordinal 0 is a deletion hole;
+            //  - it walks the whole corpus rather than the capped sample, on exactly the data sets
+            //    where that is most expensive.
+            //
+            // A third effect, that the placeholders standing in for holes would drag the mean toward
+            // the origin, turns out to matter far less than it does for PQ's k-means: NVQ uses the
+            // mean only to recentre before per-vector, per-subvector min/max scaling, and that range
+            // absorbs a shifted mean almost entirely. Halving the mean in an experiment left search
+            // results unchanged. So this is defence in depth rather than the reason.
             //
             // Computing the mean here from the dense sample avoids all three. The sample is a
             // uniform reservoir sample, whose mean is an unbiased estimator of the population mean;
             // at the 128k cap the per-component standard error is well under a percent of that
-            // component's standard deviation, and NVQ uses the mean only to recentre before
-            // per-vector, per-subvector min/max scaling, which absorbs an error of that size.
+            // component's standard deviation.
             final VectorFloat<?> mean = VECTOR_TYPE_SUPPORT.createFloatVector(this.dimension);
             for(final VectorFloat<?> vector : trainingVectors)
             {

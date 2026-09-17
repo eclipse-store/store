@@ -55,6 +55,7 @@ You can combine vector search with bitmap indices for hybrid queries - for examp
 * *Persistent Storage*: Vectors are stored in GigaMap for durability and lazy loading
 * *On-Disk Index*: Memory-mapped graph storage for datasets larger than RAM
 * *PQ Compression*: Product Quantization for faster graph traversal (trades disk space for search speed)
+* *NVQ Storage*: quantized vectors in the on-disk graph, about 3x smaller than full precision (trades a little recall for space)
 * *Background Persistence*: Automatic asynchronous persistence at configurable intervals
 * *Background Optimization*: Periodic graph cleanup for improved query performance
 * *Lazy Entity Access*: Search results provide direct access to entities without additional lookups
@@ -301,7 +302,8 @@ VectorIndex<Document> index = vectorIndices.get("embeddings");
 
 * *Null vectors are rejected by default*: `Vectorizer.vectorize()` must not return `null` unless the vectorizer opts in via `Vectorizer.allowsNullVectors()`. By default a `null` vector throws an `IllegalStateException`. When opted in, a `null` vector means the entity has no embedding: it stays in the GigaMap but is excluded from the vector index and never appears in search results (see xref:indexing/jvector/advanced.adoc[Advanced Topics]).
 * *~2.1 billion vectors per index*: JVector uses `int` for graph node ordinals. For larger datasets, implement sharding across multiple indices.
-* *PQ compression enlarges the index*: FusedPQ stores each node's neighbour codes inline, on top of the full-precision vectors. It buys search speed, not disk space.
+* *`FUSED_PQ` scoring enlarges the index*: it stores each node's neighbour codes inline, on top of whatever the storage mode holds. It buys search speed, not disk space. To make the index *smaller*, set `vectorStorage` to `NVQ`.
+* *`NVQ` storage costs traversal quality, not scores*: the graph keeps no full-precision copy, but reranking reads the vectors held in the GigaMap, so the scores and the ordering a search returns are exact. What quantization changes is which candidates traversal finds on the way there.
 
 == Examples
 
