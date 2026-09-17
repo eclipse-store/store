@@ -1,0 +1,113 @@
+package org.eclipse.store.gigamap.jvector;
+
+/*-
+ * #%L
+ * EclipseStore GigaMap JVector
+ * %%
+ * Copyright (C) 2023 - 2026 MicroStream Software
+ * %%
+ * This program and the accompanying materials are made
+ * available under the terms of the Eclipse Public License 2.0
+ * which is available at https://www.eclipse.org/legal/epl-2.0/
+ *
+ * SPDX-License-Identifier: EPL-2.0
+ * #L%
+ */
+
+import java.util.Objects;
+
+/**
+ * The subset of a {@link VectorIndexConfiguration} that decides what an on-disk graph file
+ * actually contains.
+ * <p>
+ * {@link DiskIndexManager} needs exactly these four values and nothing else from the configuration,
+ * and they are also what the {@code .meta} file records so that a configuration change over an
+ * existing index directory is detected rather than silently ignored. Bundling them keeps the disk
+ * manager's constructor from growing a positional parameter per format option, and gives
+ * {@code verifyMetadata} a single value to compare.
+ * <p>
+ * This type is <b>not</b> persisted by EclipseStore. It is derived from the persisted configuration
+ * whenever a disk manager is constructed, so adding a component here is not a schema change - only
+ * adding one to {@link VectorIndexConfiguration.Default} is.
+ *
+ * @param storage       how the graph stores each vector
+ * @param scoring       how traversal scores candidates
+ * @param pqSubspaces   the configured PQ subspace count, or 0 for automatic
+ * @param nvqSubvectors the configured NVQ subvector count, or 0 for automatic
+ *
+ * @see VectorStorage
+ * @see ApproximateScoring
+ */
+record GraphFormat(
+    VectorStorage      storage      ,
+    ApproximateScoring scoring      ,
+    int                pqSubspaces  ,
+    int                nvqSubvectors
+)
+{
+    GraphFormat
+    {
+        Objects.requireNonNull(storage, "storage");
+        Objects.requireNonNull(scoring, "scoring");
+        if(pqSubspaces < 0)
+        {
+            throw new IllegalArgumentException("pqSubspaces must be non-negative, got: " + pqSubspaces);
+        }
+        if(nvqSubvectors < 0)
+        {
+            throw new IllegalArgumentException("nvqSubvectors must be non-negative, got: " + nvqSubvectors);
+        }
+    }
+
+    /**
+     * Derives the format from a configuration.
+     *
+     * @param configuration the configuration to read the format options from
+     * @return the format the configuration describes
+     */
+    static GraphFormat of(final VectorIndexConfiguration configuration)
+    {
+        return new GraphFormat(
+            configuration.vectorStorage()     ,
+            configuration.approximateScoring(),
+            configuration.pqSubspaces()       ,
+            configuration.nvqSubvectors()
+        );
+    }
+
+    /**
+     * Returns whether the graph this format describes carries fused PQ codes, assuming a codebook
+     * was successfully trained.
+     *
+     * @return true if the scoring mode is {@link ApproximateScoring#FUSED_PQ}
+     */
+    boolean usesFusedPq()
+    {
+        return this.scoring == ApproximateScoring.FUSED_PQ;
+    }
+
+    /**
+     * Returns whether the graph this format describes stores quantized rather than full-precision
+     * vectors.
+     *
+     * @return true if the storage mode is {@link VectorStorage#NVQ}
+     */
+    boolean usesNvq()
+    {
+        return this.storage == VectorStorage.NVQ;
+    }
+
+    /**
+     * Returns whether this format is the one the plain, feature-less write path produces.
+     * <p>
+     * That path is kept as a fast path precisely so the overwhelmingly common configuration keeps
+     * writing byte-identical files to the ones produced before the format became configurable.
+     *
+     * @return true if the graph carries full-precision inline vectors and nothing else
+     */
+    boolean isPlainInline()
+    {
+        return this.storage == VectorStorage.INLINE && this.scoring == ApproximateScoring.NONE;
+    }
+
+}

@@ -722,13 +722,19 @@ If `trainIfNeeded()` throws (training data degenerate, dimension mismatch, etc.)
 
 Two files per index, named after `VectorIndex.Default.name`:
 
-- `{name}.graph` — JVector's `OnDiskGraphIndex` payload. Contains the HNSW edges plus optional features (`InlineVectors`, `FusedPQ`). Sized in megabytes for millions of vectors.
-- `{name}.meta` — 32-byte sidecar:
-  - `int` format version (currently `4`, see [`DiskIndexManager.java`](src/main/java/org/eclipse/store/gigamap/jvector/DiskIndexManager.java))
+- `{name}.graph` — JVector's `OnDiskGraphIndex` payload. Contains the HNSW edges plus exactly one vector-storage feature (`InlineVectors` **or** `NVQ`) and optionally `FusedPQ`. Sized in megabytes for millions of vectors.
+- `{name}.meta` — 40-byte sidecar:
+  - `int` format version (currently `5`, see [`DiskIndexManager.java`](src/main/java/org/eclipse/store/gigamap/jvector/DiskIndexManager.java))
   - `int` dimension
   - `long` `expectedVectorCount`
   - `long` `highestEntityId` (added in v2)
   - `long` `structuralModCount` (added in v3)
+  - `int` `vectorStorage` code (v5, replacing the v4 boolean)
+  - `int` `approximateScoring` code (v5, replacing the v4 boolean)
+
+The first five are **content witnesses** — they describe the data the graph was built from, and a mismatch means the store has moved on. The last two are **configuration**: nothing else in the file reveals which features the graph carries, so without them a setting changed over a directory `removeIndex()` left behind would go undetected and the stale graph would be reused.
+
+The configured values are recorded, not the ones the write achieved. If training declines, the graph is written without the feature while the meta still names it; the query path copes because it gates on the loaded graph's own feature set. Recording what was achieved instead would loop: config says NVQ, file says INLINE, verify rejects, rebuild, training declines again, forever.
 
 ### Format version history
 
@@ -737,7 +743,10 @@ Two files per index, named after `VectorIndex.Default.name`:
 | 1 | version, dim, count | Vulnerable to balanced add/remove corruption (see below). |
 | 2 | + `highestEntityId` | Commit `3b7b01bc`. GigaMap allocates entity ids monotonically, so this catches add/remove pairs that leave the count unchanged. |
 | 3 | + `structuralModCount` | Catches a vec<->null transition that left count and highestId unchanged. |
-| 4 | (no new fields) | `enablePqCompression` finally writes a FusedPQ graph. Graphs written earlier with the flag set are uncompressed despite it, and an index that loads clean and is never mutated never persists again -- so the bump forces one rebuild rather than letting them sit uncompressed forever. |
+| 4 | + `boolean` PQ enabled | `enablePqCompression` finally writes a FusedPQ graph. Graphs written earlier with the flag set are uncompressed despite it, and an index that loads clean and is never mutated never persists again -- so the bump forces one rebuild rather than letting them sit uncompressed forever. |
+| 5 | boolean → two `int` codes | The format grew a second dimension. A boolean could say whether fused codes were written but not whether the vectors beside them were full-precision or quantized, so it is replaced by `vectorStorage` and `approximateScoring` codes. |
+
+The codes are `VectorStorage.code()` and `ApproximateScoring.code()`, deliberately **not** ordinals. An existing constant's code never changes and a new one is appended, so inserting a constant cannot silently reinterpret a file already on disk; a code this build does not know resolves to `null` and is treated as a mismatch. A newer version's file is therefore rejected and rebuilt rather than misread — which is also why adding a future storage or scoring mode needs no further version bump.
 
 Bumping the version invalidates existing files; they are silently rebuilt from `vectorStore` (or the parent map for embedded mode) on first load — no data loss. The rebuild is in memory and does not rewrite the stale files, so the cold start is paid once only if a persist follows: an index that is mutated after the upgrade migrates on its next persist, while a read-only one rebuilds again on every restart until `persistToDisk()` runs.
 

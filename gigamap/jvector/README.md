@@ -8,6 +8,7 @@ A Java library that integrates [JVector](https://github.com/datastax/jvector) (h
 - **Persistent Storage**: Vectors are stored in GigaMap for durability and lazy loading
 - **On-Disk Index**: Memory-mapped graph storage for datasets larger than RAM
 - **PQ Compression**: Product Quantization for faster graph traversal (trades disk space for search speed)
+- **NVQ Storage**: quantized vectors in the on-disk graph, about 3x smaller than full precision (trades a little recall for space)
 - **Background Persistence**: Automatic asynchronous persistence at configurable intervals
 - **Background Optimization**: Periodic graph cleanup for improved query performance
 - **Eventual Indexing**: Deferred graph mutations via background thread for reduced write latency
@@ -164,7 +165,10 @@ List<Document> topDocs = result.stream()
 |-----------|---------|-------------|
 | `onDisk` | `false` | Store the graph in a memory-mapped file rather than on the Java heap. This is what lets an index exceed RAM; in-memory mode is faster per query but keeps the graph on the heap |
 | `indexDirectory` | `null` | Directory for index files (required if `onDisk=true`) |
-| `enablePqCompression` | `false` | Enable Product Quantization. Speeds up traversal of a large on-disk index; **makes the graph file larger** and adds transient heap at persist time. See the memory notes in the docs |
+| `vectorStorage` | `INLINE` | How the graph stores each vector. `NVQ` stores 8-bit quantized vectors instead of full precision - about **3x smaller**, the only setting that shrinks the file. It makes reranking approximate only when the graph also carries fused codes |
+| `approximateScoring` | `NONE` | How traversal scores candidates. `FUSED_PQ` writes Product Quantization codes into every node: faster traversal of a large on-disk index, but **makes the graph file larger** and adds transient heap at persist time |
+| `nvqSubvectors` | `0` | Number of NVQ subvectors (0 = auto: 1). Each one adds a fixed 28 bytes per node, so the default is almost always right. **Not** the same parameter as `pqSubspaces` |
+| `enablePqCompression` | `false` | *Deprecated*, use `approximateScoring`. A literal delegate: `true` means `FUSED_PQ` |
 | `pqSubspaces` | `0` | Number of PQ subspaces (0 = auto: dimension/4). Costs `pqSubspaces * maxDegree` bytes per node, so a smaller value than classic PQ guidance suggests is usually right - paired with a wider `minSearchBeamWidth` |
 | `parallelOnDiskWrite` | `false` | Use parallel direct buffers and multiple worker threads for on-disk index writing. Speeds up persistence for large indices but uses more resources. Only applies when `onDisk=true` |
 
@@ -340,7 +344,8 @@ To benchmark with real SIFT data:
 
 - **Null vectors are not accepted**: The `Vectorizer.vectorize()` method must never return `null`. If it does, an `IllegalStateException` is thrown. Ensure that every entity added to the GigaMap can produce a valid vector.
 - **~2.1 billion vectors per index**: JVector uses `int` for graph node ordinals. For larger datasets, implement sharding across multiple indices.
-- **PQ compression enlarges the index**: FusedPQ stores each node's neighbour codes inline, on top of the full-precision vectors. It buys search speed, not disk space.
+- **`FUSED_PQ` scoring enlarges the index**: it stores each node's neighbour codes inline, on top of whatever the storage mode holds. It buys search speed, not disk space. To make the index *smaller*, set `vectorStorage` to `NVQ`, which is the other dimension of the format entirely.
+- **NVQ storage makes reranking approximate**: the graph keeps no full-precision copy to compare against, so the final top-k ordering is computed from dequantized vectors. Measured at about 0.002 recall@10 against an exact baseline, but that gap depends on the data.
 
 ## Building
 

@@ -138,13 +138,25 @@ For datasets that exceed available memory, enable on-disk storage to use memory-
 |`null`
 |Directory for index files. Required if `onDisk=true`.
 
+|`vectorStorage`
+|`INLINE`
+|How the graph stores its own copy of each vector. `INLINE` keeps full precision (`dimension * 4` bytes per node). `NVQ` stores 8-bit quantized vectors (`4 + dimension + 28 * nvqSubvectors` bytes per node), which is about 3x smaller, and is the only setting that makes the graph file *smaller*. Whether it also makes reranking approximate depends on `approximateScoring`: with `NONE` the rerank reads the vectors held in the GigaMap and stays exact, with `FUSED_PQ` it reads the graph's quantized copy.
+
+|`approximateScoring`
+|`NONE`
+|How traversal scores candidates. `NONE` scores from whatever the storage mode holds. `FUSED_PQ` writes Product Quantization codes into every node, which speeds up traversal of a large on-disk index at the cost of a *larger* graph file.
+
+|`nvqSubvectors`
+|`0`
+|Number of NVQ subvectors (0 = auto: 1). Each subvector adds a fixed 28 bytes per node on top of the one byte per dimension, so the default is almost always right. Not the same parameter as `pqSubspaces`, whose auto value would make an NVQ block larger than the vector it replaces. Only applies when `vectorStorage=NVQ`.
+
 |`enablePqCompression`
 |`false`
-|Enable Product Quantization. Speeds up traversal of a large on-disk index, at the cost of a larger graph file.
+|*Deprecated*, use `approximateScoring` instead. A literal delegate: `true` means `FUSED_PQ`, `false` means `NONE`.
 
 |`pqSubspaces`
 |`0`
-|Number of PQ subspaces (0 = auto: dimension/4). Costs `pqSubspaces * maxDegree` bytes per node, so prefer a smaller value than classic PQ guidance suggests.
+|Number of PQ subspaces (0 = auto: dimension/4). Costs `pqSubspaces * maxDegree` bytes per node, so prefer a smaller value than classic PQ guidance suggests. Only applies when `approximateScoring=FUSED_PQ`.
 
 |`parallelOnDiskWrite`
 |`false`

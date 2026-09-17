@@ -113,44 +113,16 @@ interface PQCompressionManager
 
 
     /**
-     * Provider interface for accessing vectors needed for PQ training.
-     */
-    public static interface VectorProvider
-    {
-        /**
-         * Returns the current vector count.
-         *
-         * @return the vector count
-         */
-        public long getVectorCount();
-
-        /**
-         * Collects training vectors for PQ training, materialising at most {@code limit} of them.
-         * <p>
-         * Entities without an embedding are skipped, so the returned list can be shorter than the
-         * count reported by {@link #getVectorCount()}. Implementations must spread the sample across
-         * the whole data set rather than taking the first {@code limit} entries, and must not
-         * materialise more than {@code limit} vectors - the cap exists to bound peak heap on exactly
-         * the large data sets this feature targets.
-         *
-         * @param limit the maximum number of vectors to materialise
-         * @return list of vectors for training
-         */
-        public List<VectorFloat<?>> collectTrainingVectors(int limit);
-    }
-
-
-    /**
      * Default implementation of PQCompressionManager.
      */
     public static class Default implements PQCompressionManager
     {
         private static final Logger LOG = LoggerFactory.getLogger(PQCompressionManager.class);
 
-        private final VectorProvider provider   ;
-        private final String         name       ;
-        private final int            dimension  ;
-        private final int            pqSubspaces;
+        private final TrainingVectorProvider provider   ;
+        private final String                 name       ;
+        private final int                    dimension  ;
+        private final int                    pqSubspaces;
 
         // Written by the persist path (parentMap monitor + builderLock write lock) and by the load
         // path (write lock). Volatile rather than synchronized: it publishes the codebook safely
@@ -159,10 +131,10 @@ interface PQCompressionManager
         private volatile boolean             pqTrained;
 
         Default(
-            final VectorProvider provider   ,
-            final String         name       ,
-            final int            dimension  ,
-            final int            pqSubspaces
+            final TrainingVectorProvider provider   ,
+            final String                 name       ,
+            final int                    dimension  ,
+            final int                    pqSubspaces
         )
         {
             this.provider    = provider   ;
