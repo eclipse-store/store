@@ -470,22 +470,46 @@ interface DiskIndexManager extends Closeable
                 this.readerSupplier = ReaderSupplierFactory.open(graphPath);
                 this.diskIndex = OnDiskGraphIndex.load(this.readerSupplier);
 
-                // The in-memory PQ codes are not, so they are loaded separately. A missing or
-                // unreadable sidecar is a rejection rather than a degrade: the meta says this index
+                // The in-memory PQ codes are not, so they are loaded separately. A sidecar that has
+                // gone missing is a rejection rather than a degrade: the meta says this index
                 // traverses on PQ codes, and silently serving it exactly instead would make the
                 // configuration a lie. Returning false rebuilds from the store, which restores both.
+                //
+                // Absence is not always loss, though. PQ training needs MIN_VECTORS_FOR_PQ_TRAINING
+                // embeddings, and below that the persist writes no codebook and so no sidecar, while
+                // the meta still records the CONFIGURED scoring mode - as it must, since recording
+                // what the write achieved instead would reject its own output and rebuild forever.
+                // Treating that as loss would do the same by a different route: an index under the
+                // threshold would rebuild on every restart for as long as it stayed small. So the
+                // count witness, which is already verified above, decides which case this is.
                 if(this.format.usesInMemoryPq())
                 {
                     final Path pqvPath = this.indexDirectory.resolve(this.name + PQV_FILE_EXT);
                     if(!Files.exists(pqvPath))
                     {
-                        LOG.info("PQ sidecar missing for '{}', will rebuild", this.name);
-                        this.close();
-                        return false;
+                        if(expected.expectedVectorCount < PQCompressionManager.MIN_VECTORS_FOR_PQ_TRAINING)
+                        {
+                            // Too small to have trained: there are no codes to be missing. Traversal
+                            // falls back to exact scoring, exactly as a FusedPQ graph whose training
+                            // declined does, and the next persist past the threshold writes both.
+                            LOG.debug("No PQ sidecar for '{}' and only {} vectors, below the {} needed"
+                                + " to train - loading without compressed scoring",
+                                this.name, expected.expectedVectorCount,
+                                PQCompressionManager.MIN_VECTORS_FOR_PQ_TRAINING);
+                        }
+                        else
+                        {
+                            LOG.info("PQ sidecar missing for '{}', will rebuild", this.name);
+                            this.close();
+                            return false;
+                        }
                     }
-                    this.pqVectors = this.readPqSidecar(pqvPath);
-                    LOG.info("Loaded PQ sidecar for '{}': {} vectors, {} bytes resident",
-                        this.name, this.pqVectors.count(), this.pqVectors.ramBytesUsed());
+                    else
+                    {
+                        this.pqVectors = this.readPqSidecar(pqvPath);
+                        LOG.info("Loaded PQ sidecar for '{}': {} vectors, {} bytes resident",
+                            this.name, this.pqVectors.count(), this.pqVectors.ramBytesUsed());
+                    }
                 }
 
                 this.loaded = true;

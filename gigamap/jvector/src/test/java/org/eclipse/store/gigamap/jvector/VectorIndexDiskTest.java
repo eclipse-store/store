@@ -4538,10 +4538,15 @@ class VectorIndexDiskTest
      * The defining property of {@link ApproximateScoring#PQ_IN_MEMORY}: it buys the same approximate
      * traversal as {@link ApproximateScoring#FUSED_PQ} without touching the graph file at all.
      * <p>
-     * The graph must therefore be byte-for-byte what {@link ApproximateScoring#NONE} produces, and
-     * the codes must live entirely in the sidecar. That is the whole trade - fused codes cost
-     * {@code pqSubspaces * maxDegree} bytes per node on disk, these cost {@code pqSubspaces} bytes
-     * per vector, once, in a file and then in heap.
+     * The graph must therefore come out the same size as {@link ApproximateScoring#NONE} produces
+     * and carry no PQ feature, with the codes living entirely in the sidecar. That is the whole
+     * trade - fused codes cost {@code pqSubspaces * maxDegree} bytes per node on disk, these cost
+     * {@code pqSubspaces} bytes per vector, once, in a file and then in heap.
+     * <p>
+     * Size and feature set rather than byte equality, deliberately: graph construction is not
+     * deterministic, so two builds of the same vectors can differ in their neighbour lists without
+     * either being wrong. Size is what the claim is actually about - nothing was added to the
+     * file - and the absence of {@code FUSED_PQ} is what says where the codes went instead.
      */
     @Test
     void testPqInMemoryLeavesTheGraphUntouched(@TempDir final Path tempDir) throws IOException
@@ -4627,6 +4632,74 @@ class VectorIndexDiskTest
             assertTrue(reloaded.isPqCompressionActive(),
                 "the codebook must be recovered from the sidecar, which is the only place it exists");
             assertEquals(5, reloaded.search(query, 5).size());
+        }
+    }
+
+    /**
+     * An index configured for {@code PQ_IN_MEMORY} but too small to have trained a codebook must
+     * still load.
+     * <p>
+     * PQ training needs {@code MIN_VECTORS_FOR_PQ_TRAINING} embeddings. Below that the persist
+     * writes no codebook and therefore no sidecar, while the metadata records the <i>configured</i>
+     * scoring mode - as it must, since recording what the write achieved would have the loader
+     * reject its own output and rebuild forever. If a missing sidecar were taken as loss, that same
+     * forever-rebuild would arrive by the other route: an index under the threshold would pay a cold
+     * start on every restart for as long as it stayed small.
+     * <p>
+     * Asserted through {@code tryLoad} rather than end to end, for the reason
+     * {@link #testMetadataRejectsAMismatchedPqSetting} gives: a rejected load is invisible from the
+     * outside, because the graph is rebuilt from the store and the index answers queries either way.
+     * Only at this level does the difference show.
+     * <p>
+     * Loss above the threshold stays a rejection - {@link #testMissingPqSidecarForcesRebuild} covers
+     * that side.
+     */
+    @Test
+    void testPqInMemoryBelowTrainingThresholdStillLoads(@TempDir final Path tempDir) throws IOException
+    {
+        final int  dimension   = 64;
+        final int  vectorCount = 100;   // deliberately under MIN_VECTORS_FOR_PQ_TRAINING
+        final Path indexDir    = tempDir.resolve("vectors");
+
+        final GraphFormat format = new GraphFormat(
+            VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY, 16, 0);
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+                .pqSubspaces(16)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, new Random(66), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+
+            assertFalse(index.isPqCompressionActive(),
+                "the fixture depends on training declining at this size");
+        }
+
+        // No sidecar was written, because there was no codebook to write.
+        assertFalse(Files.exists(indexDir.resolve("embeddings.pqv")),
+            "a declined training must not leave a sidecar behind");
+        assertTrue(Files.exists(indexDir.resolve("embeddings.graph")), "the graph must still be written");
+
+        final VectorIndex.Default<Document> written =
+            (VectorIndex.Default<Document>)gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+        final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
+            written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
+
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, format, false))
+        {
+            assertTrue(manager.tryLoad(state),
+                "a PQ_IN_MEMORY index below the training threshold has no codes to be missing, so "
+                    + "its graph must load rather than being rebuilt on every restart");
+            assertNull(manager.loadedPqVectors(),
+                "there is no codebook at this size, so nothing should have been loaded into heap");
         }
     }
 
