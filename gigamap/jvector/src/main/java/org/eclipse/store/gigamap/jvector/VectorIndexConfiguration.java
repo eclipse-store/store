@@ -319,9 +319,9 @@ public interface VectorIndexConfiguration
      * combination of the two is legal.
      * <p>
      * {@link VectorStorage#NVQ} is the only setting on either dimension that makes the
-     * {@code .graph} file <i>smaller</i>: roughly 3x. What that costs in accuracy depends on the
-     * scoring mode, since reranking only compares against the graph's quantized copy when the graph
-     * also carries fused codes. See the constant's own documentation.
+     * {@code .graph} file <i>smaller</i>: roughly 3x. What it costs is traversal quality rather
+     * than the scores: reranking compares against the vectors held in the GigaMap, so a search
+     * returns exact similarities either way. See the constant's own documentation.
      * <p>
      * Requires {@link #onDisk()} to be true, since it describes the on-disk format only.
      * <p>
@@ -922,8 +922,8 @@ public interface VectorIndexConfiguration
      * <b>What it gives up is traversal speed, not accuracy.</b> Without the fused codes each hop
      * reads its candidates' own stored vectors rather than one contiguous block - though those
      * vectors are now 800 bytes rather than 3072, so a hop is far cheaper than it would be on an
-     * uncompressed graph. Reranking stays exact: with no fused codes the search path reranks against
-     * the vectors held in the GigaMap rather than against the graph's quantized copy. Use
+     * uncompressed graph. Reranking stays exact, as it does under every setting a live index
+     * reaches: the search path reranks against the vectors held in the GigaMap. Use
      * {@link #forLargeDataset(int, Path)} when query latency matters more than footprint.
      * <p>
      * <b>Configuration:</b> maxDegree=32, beamWidth=300, onDisk=true, vectorStorage=NVQ,

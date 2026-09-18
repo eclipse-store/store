@@ -69,7 +69,7 @@ public enum VectorStorage
      * Non-uniform vector quantization (NVQ): 8-bit quantized vectors stored inline in the graph.
      * <ul>
      *   <li><b>Cost:</b> {@code 4 + dimension + 28 * nvqSubvectors} bytes per node</li>
-     *   <li><b>Reranking:</b> approximate, against the dequantized vectors</li>
+     *   <li><b>Reranking:</b> exact, against the vectors held in the GigaMap</li>
      * </ul>
      * Each vector is recentred on a global mean and then scaled per subvector through a learned
      * nonlinearity, which is what lets 8 bits per dimension carry as much as it does.
@@ -78,20 +78,18 @@ public enum VectorStorage
      * file: roughly 3x fewer bytes per node than {@link #INLINE}, so more of the graph stays in page
      * cache and cold traversal touches fewer pages.
      * <p>
-     * <b>What it costs in accuracy depends on the scoring mode</b>, because that decides where the
-     * reranking pass reads from:
-     * <ul>
-     *   <li>With {@link ApproximateScoring#NONE} reranking stays <b>exact</b>. Traversal scores
-     *       candidates from the quantized vectors in the graph, and the reranking pass then compares
-     *       against the vectors held in the GigaMap, which are full precision.</li>
-     *   <li>With {@link ApproximateScoring#FUSED_PQ} reranking becomes <b>approximate</b>. The graph
-     *       holds no full-precision copy, so the final ordering of the top-k is computed from
-     *       dequantized vectors. In measurements at {@code dimension=256} this cost about 0.002
-     *       recall@10 against an exact baseline, but the size of that gap depends on the data.</li>
-     * </ul>
-     * The one exception is incremental mode, where a query merges a disk result with an in-memory
-     * one by raw score. There the disk half is always reranked exactly, whatever the scoring mode,
-     * so that the two halves stay on the same scale.
+     * <b>What it costs is traversal quality, not the scores.</b> Reranking compares against the
+     * vectors held in the GigaMap, which are full precision, so the top-k a search returns carries
+     * exact similarities and exact ordering whatever the scoring mode is. Quantization changes only
+     * which candidates traversal finds on the way there - and a candidate that traversal never
+     * reaches is one reranking cannot recover.
+     * <p>
+     * The dispatch does hold one branch that reranks from the graph's own quantized copy instead,
+     * for a non-incremental disk search. An on-disk index does not currently enter that state -
+     * loading enters incremental mode and each persist re-enters it - so the branch is unreached
+     * today and kept for correctness if that changes. Were it reached, the final ordering would be
+     * computed from dequantized vectors; a raw jvector probe reranked that way at
+     * {@code dimension=256} measured about 0.002 recall@10 below an exact baseline.
      * <p>
      * <b>Best for:</b>
      * <ul>
