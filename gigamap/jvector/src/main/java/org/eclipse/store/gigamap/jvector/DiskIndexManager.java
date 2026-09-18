@@ -498,9 +498,12 @@ interface DiskIndexManager extends Closeable
                 final VectorStorage fileStorage = VectorStorage.fromCode(dis.readInt());
                 if(fileStorage != this.format.storage())
                 {
-                    // Changing the storage mode over an existing directory changes what the graph
-                    // should contain, and removeIndex() leaves the files behind. Without this check
-                    // the old graph would simply be reused under the new configuration.
+                    // The file's configuration is verified rather than assumed. Note this is not
+                    // what protects the removeIndex()/add() path - a new index starts at
+                    // structuralModCount 0 against a persisted >= 1, so that load is already refused
+                    // above. What reaches here is a file whose witnesses do match but whose format
+                    // does not, the concrete case being a downgrade: same index, same store, same
+                    // counter, written by a build that knew a mode this one does not.
                     LOG.info("Vector storage setting changed for '{}' (file={}, configured={}), rebuilding",
                         this.name, fileStorage, this.format.storage());
                     return false;
@@ -835,8 +838,9 @@ interface DiskIndexManager extends Closeable
                 dos.writeLong(metaState.structuralModCount);
                 // The format settings are configuration rather than content witnesses, but they have
                 // to be recorded: nothing else in the file reveals which features the graph was built
-                // with, so without them a setting changed over an existing directory goes undetected
-                // and the old graph is reused under the new configuration.
+                // with, so a loader without them has to assume its own configuration describes the
+                // file. See verifyMetadata for which case actually reaches that comparison - it is
+                // not the removeIndex()/add() one, which the counter witness refuses first.
                 //
                 // The CONFIGURED values are written, not the ones the write actually achieved. If
                 // training declines, the graph is written without the feature while the meta still
