@@ -90,12 +90,19 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
      * {@link VectorStorage#INLINE}, changes nothing in the file and triggers no rebuild.
      * <p>
      * What is <b>not</b> recorded is everything that shapes the graph without changing what a
-     * reader must know to interpret it - {@code maxDegree}, {@code beamWidth}, {@code alpha},
-     * {@code neighborOverflow} and the similarity function among them. A graph built under a
-     * previous value of one of those still loads, because nothing in the file contradicts the new
+     * reader must know to interpret it: {@code maxDegree}, {@code beamWidth}, {@code alpha},
+     * {@code neighborOverflow} and
+     * {@link VectorIndexConfiguration#similarityFunction() similarityFunction}. A graph built under
+     * a previous value of one of those still loads, because nothing in the file contradicts the new
      * configuration; it simply keeps the structure it was built with until something rebuilds it.
-     * Delete the two files between the calls if a change to one of those must take effect
-     * immediately.
+     * <p>
+     * <b>The similarity function is the one to be careful with.</b> The others change how good the
+     * graph is; that one changes what "near" means. Edges are built by searching with it, so a graph
+     * built under one metric and reopened under another keeps neighbour lists chosen for the old
+     * one. Queries still return, and their scores are computed with the new metric and so are
+     * correct in themselves, but traversal follows edges optimised for the wrong distance and recall
+     * degrades with nothing reporting it. <b>Delete the {@code .graph} and {@code .meta} files when
+     * changing it</b> - and when changing any of the others whose effect must be immediate.
      *
      * @param name          the name of the index
      * @param configuration the index configuration, ignored if an index of that name already exists

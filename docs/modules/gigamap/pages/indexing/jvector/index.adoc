@@ -55,7 +55,7 @@ You can combine vector search with bitmap indices for hybrid queries - for examp
 * *Persistent Storage*: Vectors are stored in GigaMap for durability and lazy loading
 * *On-Disk Index*: Memory-mapped graph storage for datasets larger than RAM
 * *PQ Compression*: Product Quantization for faster graph traversal (trades disk space for search speed)
-* *NVQ Storage*: quantized vectors in the on-disk graph, about 3x smaller than full precision (trades a little recall for space)
+* *NVQ Storage*: quantized vectors in the on-disk graph, about 3x smaller than full precision (scores stay exact; costs a little candidate recall only when `approximateScoring` is `NONE`)
 * *Background Persistence*: Automatic asynchronous persistence at configurable intervals
 * *Background Optimization*: Periodic graph cleanup for improved query performance
 * *Lazy Entity Access*: Search results provide direct access to entities without additional lookups

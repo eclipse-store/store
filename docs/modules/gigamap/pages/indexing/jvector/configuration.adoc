@@ -140,7 +140,7 @@ For datasets that exceed available memory, enable on-disk storage to use memory-
 
 |`vectorStorage`
 |`INLINE`
-|How the graph stores its own copy of each vector. `INLINE` keeps full precision (`dimension * 4` bytes per node). `NVQ` stores 8-bit quantized vectors (`4 + dimension + 28 * nvqSubvectors` bytes per node), which is about 3x smaller, and is the only setting that makes the graph file *smaller*. Reranking reads the vectors held in the GigaMap either way, so the scores a search returns stay exact. With `approximateScoring=NONE` traversal reads the quantized vectors and so finds slightly different candidates; with `FUSED_PQ` the codes drive traversal and candidate selection is unchanged.
+|How the graph stores its own copy of each vector. `INLINE` keeps full precision (`dimension * 4` bytes per node). `NVQ` stores 8-bit quantized vectors (`4 + dimension + 28 * nvqSubvectors` bytes per node), which is about 3x smaller, and is the only setting that makes the graph file *smaller*. Reranking is exact under both, but reads from different places: an inline graph carrying fused codes reranks from its own mapping, while an NVQ graph has no full-precision copy and reads the GigaMap. With `approximateScoring=NONE` traversal reads the quantized vectors and so finds slightly different candidates; with `FUSED_PQ` the codes drive traversal and candidate selection is unchanged.
 
 |`approximateScoring`
 |`NONE`

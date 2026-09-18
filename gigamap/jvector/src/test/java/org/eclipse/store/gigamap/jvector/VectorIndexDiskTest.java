@@ -4747,8 +4747,11 @@ class VectorIndexDiskTest
      * recall@10 - but puts the two halves on systematically different scales when their scores are
      * compared against each other. The symptom is not a crash or an empty result; it is a quietly
      * biased merge, where entities on one side of the split are preferred over better matches on the
-     * other. So the assertion is recall of the merged result against brute-force ground truth over
-     * the union, with the answer deliberately straddling both halves.
+     * other. So the assertion is on the scores themselves: every entity a search returns must carry
+     * its exact similarity, which a dequantized disk half would violate immediately even where the
+     * ordering happens to survive. Recall against brute-force ground truth is checked as well, but
+     * as a floor rather than as the thing that catches a scale mismatch - it is too blunt for that,
+     * which is why this test was rewritten once already.
      */
     @Test
     void testNvqIncrementalMergeStaysOnOneScoreScale(@TempDir final Path tempDir)

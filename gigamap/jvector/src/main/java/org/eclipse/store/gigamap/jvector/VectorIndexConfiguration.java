@@ -56,7 +56,7 @@ import static org.eclipse.serializer.util.X.notNull;
  *     .similarityFunction(VectorSimilarityFunction.COSINE)
  *     .onDisk(true)
  *     .indexDirectory(Path.of("/data/vectors"))
- *     .enablePqCompression(true)                         // Optional: Product Quantization compression
+ *     .approximateScoring(ApproximateScoring.FUSED_PQ)   // Optional: faster traversal, larger file
  *     .pqSubspaces(48)                                   // Must divide dimension evenly
  *     .build();
  * }</pre>
@@ -316,9 +316,10 @@ public interface VectorIndexConfiguration
      * Returns how the on-disk graph stores its own copy of each vector.
      * <p>
      * This is one of two independent dimensions of the on-disk format; the other is
-     * {@link #approximateScoring()}. Storage decides how many bytes each node costs and how exact
-     * the reranking pass can be, scoring decides how traversal finds its candidates, and any
-     * combination of the two is legal.
+     * {@link #approximateScoring()}. Storage decides how many bytes each node costs and where the
+     * reranking pass reads its full-precision vectors from, scoring decides how traversal finds its
+     * candidates, and any combination of the two is legal. Neither affects how exact the reranking
+     * is: it is exact under all four.
      * <p>
      * {@link VectorStorage#NVQ} is the only setting on either dimension that makes the
      * {@code .graph} file <i>smaller</i>: roughly 3x. It never costs score accuracy - reranking

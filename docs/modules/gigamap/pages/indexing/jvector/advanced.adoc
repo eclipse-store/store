@@ -4,7 +4,7 @@ This section covers advanced usage patterns for production deployments.
 
 == On-Disk Index with Compression
 
-The on-disk format has two independent settings. `approximateScoring` controls how traversal scores candidates and trades disk space for search speed; `vectorStorage` controls how each vector is stored and trades a little recall for a much smaller file. This section covers the first; see <<_nvq_quantized_vectors_in_the_graph>> for the second.
+The on-disk format has two independent settings. `approximateScoring` controls how traversal scores candidates and trades disk space for search speed; `vectorStorage` controls how each vector is stored and trades a much smaller file for a little candidate recall, and only when `approximateScoring` is `NONE`. This section covers the first; see <<_nvq_quantized_vectors_in_the_graph>> for the second.
 
 For large on-disk datasets where search latency matters, combine on-disk storage with Product Quantization (PQ) compression.
 

@@ -152,7 +152,7 @@ import static org.eclipse.serializer.math.XMath.positive;
  *     .similarityFunction(VectorSimilarityFunction.COSINE)
  *     .onDisk(true)
  *     .indexDirectory(Path.of("/data/vectors"))
- *     .enablePqCompression(true)     // Optional: faster traversal, larger graph file
+ *     .approximateScoring(ApproximateScoring.FUSED_PQ) // Optional: faster traversal, larger file
  *     .pqSubspaces(48)               // Must divide dimension evenly
  *     .build();
  * }</pre>
