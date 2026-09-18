@@ -794,6 +794,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * source and binary compatibility - {@code Internal} is a public interface in an exported
          * package - and as a way to pay the training cost at a chosen moment rather than inside the
          * first persist. Calling it is otherwise a no-op.
+         * <p>
+         * <b>It does nothing for an in-memory index using
+         * {@link ApproximateScoring#PQ_IN_MEMORY}</b>, and that is deliberate rather than an
+         * oversight. There a codebook on its own is not a usable state: the transition also encodes
+         * every ordinal and rebuilds the graph to score from the codes, and it must happen under the
+         * builder lock at optimization. Training here would leave the manager holding a codebook
+         * that the switch reads as work already done, so the index would report compressed scoring
+         * while still traversing exactly, with nothing able to correct it. Call {@code optimize()}
+         * to pay that cost at a chosen moment instead; {@code isPqCompressionActive()} reports when
+         * the transition has happened.
          *
          * @deprecated training is part of the persist path; this method is no longer required
          */
@@ -1161,11 +1171,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private PqSwitchPlan planPqSwitch()
         {
+            // Read once. close() does not take this monitor, so closeInternalResources can null the
+            // field between two reads of it and turn the guard below into an NPE.
+            final PQCompressionManager manager = this.pqManager;
+
             if(this.configuration.onDisk()
                 || this.configuration.approximateScoring() != ApproximateScoring.PQ_IN_MEMORY
                 || this.inMemoryPqVectors != null
-                || this.pqManager == null
-                || this.pqManager.isTrained()
+                || manager == null
+                || manager.isTrained()
                 || !this.isPqTrainingPending())
             {
                 return null;
@@ -1186,7 +1200,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // instance in its place while they do - so reading this.pqManager there would train,
             // or reset, whichever manager happened to be installed at that moment.
             return new PqSwitchPlan(
-                this.pqManager, sample, this.collectStoredVectors(), this.getStructuralModCount());
+                manager, sample, this.collectStoredVectors(), this.getStructuralModCount());
         }
 
         /**
@@ -1319,13 +1333,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.closeSearcherPools();
             this.closeBuilderAndGraph();
 
-            // Published together: the codes decide the score provider for every later insertion, and
-            // the pair they belong to must be the one that is scoring from them.
-            this.inMemoryPqVectors = prepared.codes();
-            this.builder           = prepared.builder();
-            this.index             = prepared.index();
-
+            // Order matters, and the codes go last. isPqCompressionActive() reads them without any
+            // lock, so publishing them first would announce the switch while the old graph was
+            // already closed and the new one not yet installed - a caller reading the status in
+            // that instant is told the index is doing something it cannot do yet. Everything the
+            // codes imply is in place before they become visible.
+            this.builder = prepared.builder();
+            this.index   = prepared.index();
             this.initializeSearcherPool();
+
+            this.inMemoryPqVectors = prepared.codes();
 
             LOG.info("Switched in-memory index '{}' to PQ-compressed scoring ({} codes)",
                 this.name, prepared.codes().count());
@@ -3224,6 +3241,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
 
             this.doOptimize();
+
+            // An explicit call satisfies whatever a bootstrap request was asking for, and it does
+            // not go through runOptimizationIfDirty, which is what would otherwise clear the
+            // counter. Left armed, the next scheduled tick would run a second full pass for nothing.
+            // After doOptimize, so that a switch discarded in there can re-arm it again.
+            if(this.backgroundTaskManager != null && this.inMemoryPqVectors != null)
+            {
+                this.backgroundTaskManager.clearOptimizationRequest();
+            }
         }
 
         /**
@@ -3283,50 +3309,66 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // cleanup() uses ForkJoinPool internally — must be outside
                 // synchronized(parentMap) to avoid deadlock with embedded vectorizers
                 // whose worker threads call parentMap.get().
-                if(capturedBuilder != null)
+                boolean adopted = false;
+                try
                 {
-                    boolean adopted = false;
-
-                    // Write lock blocks background worker mutations (readLock) and searches.
-                    this.builderLock.writeLock().lock();
-                    try
+                    if(capturedBuilder != null)
                     {
-                        // Checked before anything touches the captured builder. The monitor was
-                        // released before this lock was taken, so internalRemoveAll can run in
-                        // between - it takes the monitor and then this lock - and would have closed
-                        // this builder and put a different one in its place. Cleaning the old one
-                        // would then operate on a closed object.
-                        if(this.builder != capturedBuilder)
+                        // Write lock blocks background worker mutations (readLock) and searches.
+                        this.builderLock.writeLock().lock();
+                        try
                         {
-                            LOG.info("Skipping optimization of '{}': the index was rebuilt after the"
-                                + " builder was captured", this.name);
-                        }
-                        else
-                        {
-                            capturedBuilder.cleanup();
-
-                            // Phase 3: adopt the replacement, or decide it no longer describes this
-                            // index. A pointer swap either way - the expensive part is already done.
-                            if(prepared != null)
+                            // Checked before anything touches the captured builder. The monitor was
+                            // released before this lock was taken, so internalRemoveAll can run in
+                            // between - it takes the monitor and then this lock - and would have closed
+                            // this builder and put a different one in its place. Cleaning the old one
+                            // would then operate on a closed object.
+                            if(this.builder != capturedBuilder)
                             {
-                                adopted = this.adoptPqSwitch(pqSwitch, prepared, capturedBuilder);
+                                LOG.info("Skipping optimization of '{}': the index was rebuilt after the"
+                                    + " builder was captured", this.name);
+                            }
+                            else
+                            {
+                                capturedBuilder.cleanup();
+
+                                // Phase 3: adopt the replacement, or decide it no longer describes this
+                                // index. A pointer swap either way - the expensive part is already done.
+                                if(prepared != null)
+                                {
+                                    adopted = this.adoptPqSwitch(pqSwitch, prepared, capturedBuilder);
+                                }
                             }
                         }
-                    }
-                    finally
-                    {
-                        this.builderLock.writeLock().unlock();
-                    }
-
-                    if(prepared != null && !adopted)
-                    {
-                        // Outside the lock: closing a graph nobody has seen needs no exclusion.
-                        this.discardPreparedPqSwitch(pqSwitch, prepared);
+                        finally
+                        {
+                            this.builderLock.writeLock().unlock();
+                        }
                     }
                 }
-                else if(prepared != null)
+                finally
                 {
-                    this.discardPreparedPqSwitch(pqSwitch, prepared);
+                    // In a finally, because anything in the locked block can throw - cleanup() most
+                    // obviously - and an abandoned replacement is not merely a leak. Its manager is
+                    // trained, so every later plan returns at that check while no codes were ever
+                    // published: the index would stay on exact scoring for good, with the builder
+                    // and graph unreleased alongside.
+                    if(prepared != null && !adopted)
+                    {
+                        // Outside the write lock: closing a graph nobody has seen needs no exclusion.
+                        this.discardPreparedPqSwitch(pqSwitch, prepared);
+
+                        // And ask for the retry this discard implies. The background manager clears
+                        // the optimization counter after every callback that returns normally, so
+                        // the mutation that invalidated this plan is erased with it - without
+                        // re-arming, an index that keeps losing the race stays on exact scoring
+                        // until something calls optimize() by hand, which is exactly the outcome
+                        // "the switch waits" is supposed to rule out.
+                        if(this.backgroundTaskManager != null)
+                        {
+                            this.backgroundTaskManager.requestInitialOptimization();
+                        }
+                    }
                 }
             }
             finally
@@ -3897,7 +3939,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void trainCompressionIfNeeded()
         {
-            // Not for an in-memory PQ index. There, training is one step of a transition that also
+            // Not for an in-memory PQ index - see the contract note on the interface method.
+            // There, training is one step of a transition that also
             // encodes every ordinal and rebuilds the graph against the codes, and that has to happen
             // under the write lock at optimization. Training the codebook alone here would leave the
             // manager trained with no codes and no graph to match, which the switch reads as already
@@ -4568,14 +4611,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final OnHeapGraphIndex currentIndex = graphOf(currentBuilder);
             if(currentIndex.containsNode(ordinal))
             {
-                currentIndex.getDeletedNodes().clear(ordinal);
-
                 // The node keeps its place in the graph, but its vector may not be the one it was
                 // inserted with - this path also serves an update whose embedding changed. Exact
                 // scoring never notices, because it reads the vector live from the GigaMap. A PQ
                 // code is a copy, so leaving it stale would keep scoring this node by the embedding
                 // it used to have, and it would stop being findable by its new one.
+                //
+                // Before the node becomes visible, not after. This path holds no builderLock, so a
+                // search can be traversing concurrently: clearing the deleted bit first would make
+                // the node reachable for the instant before its code is written, and it would be
+                // scored against whatever the code used to be - the old embedding, or zero. Every
+                // add path already writes the code before the node becomes reachable; this is the
+                // same rule for the resurrect path.
                 this.trackPqCode(ordinal, vf);
+
+                currentIndex.getDeletedNodes().clear(ordinal);
                 return;
             }
             // containsNode only inspects layer 0, so "absent" can still mean "present in an upper

@@ -397,6 +397,18 @@ class BackgroundTaskManager
     }
 
     /**
+     * Clears a pending bootstrap request, because the optimization it was asking for has happened.
+     * <p>
+     * An explicit {@code optimize()} does the same work as the scheduled one it was armed for and
+     * does not go through {@code runOptimizationIfDirty}, so the counter it set would still be at
+     * the threshold afterwards and the next tick would run a second full pass for nothing.
+     */
+    void clearOptimizationRequest()
+    {
+        this.optimizationChangeCount.set(0);
+    }
+
+    /**
      * Marks dirty for optimization and persistence tracking.
      */
     void markDirty(final int count)
