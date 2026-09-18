@@ -10,7 +10,7 @@ This document describes the **internals** of the `gigamap-jvector` module. Audie
 
 ### Module boundaries
 
-- **Depends on**: `org.eclipse.store.gigamap` (transitively, the EclipseStore serializer + persistence stack), and `io.github.jbellis:jvector` (`4.0.0-rc.8`, see [`pom.xml`](pom.xml)).
+- **Depends on**: `org.eclipse.store.gigamap` (transitively, the EclipseStore serializer + persistence stack), and `io.github.jbellis:jvector` (`4.0.0-rc.9`, see [`pom.xml`](pom.xml)).
 - **Depended on by**: nothing in the EclipseStore tree. Consumers use it directly.
 - **Java module name**: `org.eclipes.store.gigamap.jvector` (sic — typo preserved for compatibility; see [`module-info.java`](src/main/java/module-info.java)).
 - **Public package**: `org.eclipse.store.gigamap.jvector`. The module exports this package and opens it to `org.eclipse.serializer.persistence` so the persistence layer can discover binary handlers via reflection.
@@ -1007,7 +1007,7 @@ opens               org.eclipse.store.gigamap.jvector to org.eclipse.serializer.
 
 [`pom.xml`](pom.xml) properties:
 
-- `jvector.version = 4.0.0-rc.8`
+- `jvector.version = 4.0.0-rc.9`
 
 Surefire `argLine` (required for tests and recommended for production deployment):
 
