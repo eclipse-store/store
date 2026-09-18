@@ -2368,6 +2368,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * would sit on a systematically different scale and bias every merge. Whenever the two
          * halves are compared, both must be exact.
          * <p>
+         * That rule currently governs every live query against an on-disk index, because
+         * {@code incremental} is never false for one: {@code tryLoad} enters incremental mode on
+         * load and each persist ends in {@code reenterIncrementalMode}. The graph-backed reranker
+         * below is therefore unreached today. It is kept because it is the right behaviour should a
+         * non-incremental disk search become reachable, not because it runs.
+         * <p>
          * The gate is the <b>loaded graph's</b> feature set as well as the configuration: the graph
          * is self-describing, so the query path needs no happens-before edge with the training and
          * persist paths, and a graph whose training declined carries no feature to use however it is

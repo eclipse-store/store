@@ -69,7 +69,7 @@ public enum VectorStorage
      * Non-uniform vector quantization (NVQ): 8-bit quantized vectors stored inline in the graph.
      * <ul>
      *   <li><b>Cost:</b> {@code 4 + dimension + 28 * nvqSubvectors} bytes per node</li>
-     *   <li><b>Reranking:</b> approximate, against the dequantized vectors</li>
+     *   <li><b>Reranking:</b> exact, against the vectors held in the GigaMap</li>
      * </ul>
      * Each vector is recentred on a global mean and then scaled per subvector through a learned
      * nonlinearity, which is what lets 8 bits per dimension carry as much as it does.
@@ -81,8 +81,8 @@ public enum VectorStorage
      * <b>What it costs is traversal quality, not the scores.</b> Reranking compares against the
      * vectors held in the GigaMap, which are full precision, so the top-k a search returns carries
      * exact similarities and exact ordering whatever the scoring mode is. Quantization changes only
-     * which candidates traversal finds on the way there, and a candidate traversal never reaches
-     * cannot be recovered by reranking.
+     * which candidates traversal finds on the way there - and a candidate that traversal never
+     * reaches is one reranking cannot recover.
      * <p>
      * The dispatch does hold one branch that reranks from the graph's own quantized copy instead,
      * for a non-incremental disk search. An on-disk index does not currently enter that state -

@@ -345,7 +345,7 @@ To benchmark with real SIFT data:
 - **Null vectors are not accepted**: The `Vectorizer.vectorize()` method must never return `null`. If it does, an `IllegalStateException` is thrown. Ensure that every entity added to the GigaMap can produce a valid vector.
 - **~2.1 billion vectors per index**: JVector uses `int` for graph node ordinals. For larger datasets, implement sharding across multiple indices.
 - **`FUSED_PQ` scoring enlarges the index**: it stores each node's neighbour codes inline, on top of whatever the storage mode holds. It buys search speed, not disk space. To make the index *smaller*, set `vectorStorage` to `NVQ`, which is the other dimension of the format entirely.
-- **NVQ storage makes reranking approximate**: the graph keeps no full-precision copy to compare against, so the final top-k ordering is computed from dequantized vectors. Measured at about 0.002 recall@10 against an exact baseline, but that gap depends on the data.
+- **NVQ storage costs traversal quality, not scores**: the graph keeps no full-precision copy, but reranking compares against the vectors held in the GigaMap, so the scores and the ordering a search returns are exact. What quantization changes is which candidates traversal finds on the way there, and a candidate it never reaches is one reranking cannot recover.
 
 ## Building
 
