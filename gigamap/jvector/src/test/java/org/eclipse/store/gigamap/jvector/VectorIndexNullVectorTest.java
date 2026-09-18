@@ -1116,6 +1116,16 @@ class VectorIndexNullVectorTest
         try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("embeddings", config, new NullableComputedVectorizer()))
         {
+            if(withNulls)
+            {
+                // Ordinal 0 is a hole on purpose. It is the one ordinal NVQuantization.compute
+                // probes for the dimension, so a training path that walked the ordinal space rather
+                // than the collected sample would read a placeholder here rather than a vector -
+                // and a fixture whose first entity carries an embedding cannot tell the two apart.
+                final long firstId = map.add(new Doc("none_first", null));
+                assertEquals(0L, firstId, "the fixture depends on the first entity taking ordinal 0");
+                assertNull(index.getVector(firstId), "ordinal 0 must carry no vector for this test to mean anything");
+            }
             for(int i = 0; i < vectors.size(); i++)
             {
                 map.add(new Doc("v" + i, vectors.get(i)));

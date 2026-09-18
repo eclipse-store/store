@@ -4519,21 +4519,28 @@ class VectorIndexDiskTest
     }
 
     /**
-     * NVQ under the parallel on-disk writer, with searches running throughout.
+     * NVQ under the parallel on-disk writer, with searches running <b>while the write is in
+     * flight</b> rather than after it.
      * <p>
      * Worth its own test because of how the NVQ feature is written. The fused PQ path encodes every
      * vector up front, because a node's block needs its neighbours' codes; NVQ instead encodes per
      * node, from a supplier the writer calls on its own worker threads, to avoid materialising the
-     * whole encoded corpus on the heap. That makes {@code NVQuantization.encodeTo} a concurrently
-     * invoked method - and NVQ has no users in JVector's own published sources, so nothing upstream
-     * exercises it that way.
+     * whole encoded corpus on the heap. That makes {@code NVQuantization.encode} - and the
+     * {@code encodeTo} it delegates to - concurrently invoked, and NVQ has no users in JVector's own
+     * published sources, so nothing upstream exercises it that way.
+     * <p>
+     * The searchers therefore loop until the persist returns instead of being submitted after it.
+     * Submitting them afterwards would only prove that a finished graph can be read from several
+     * threads, which is a different and much weaker claim. A count of the searches that completed
+     * before the writer finished is asserted, so the test fails rather than silently degrading if
+     * the overlap ever stops happening.
      */
     @Test
     void testNvqWithParallelOnDiskWriteAndConcurrentSearch(@TempDir final Path tempDir) throws Exception
     {
-        final int vectorCount = 800;
+        final int vectorCount = 4000;
         final int dimension   = 64;
-        final int searchCount = 50;
+        final int searchers   = 4;
 
         final Path indexDir = tempDir.resolve("index");
 
@@ -4552,43 +4559,59 @@ class VectorIndexDiskTest
 
         addRandomDocuments(gigaMap, new Random(42), dimension, vectorCount, "doc_");
 
-        index.persistToDisk();
-        assertTrue(index.isNvqCompressionActive(), "the parallel write must have produced a quantized graph");
-        assertTrue(index.isPqCompressionActive());
-
-        final AtomicInteger  succeeded = new AtomicInteger();
-        final AtomicBoolean  failed    = new AtomicBoolean();
-        final CountDownLatch latch     = new CountDownLatch(searchCount);
-        final ExecutorService executor = Executors.newFixedThreadPool(4);
+        final AtomicInteger   duringWrite = new AtomicInteger();
+        final AtomicBoolean   writing     = new AtomicBoolean(true);
+        final AtomicBoolean   failed      = new AtomicBoolean();
+        final CountDownLatch  started     = new CountDownLatch(searchers);
+        final ExecutorService executor    = Executors.newFixedThreadPool(searchers);
 
         try
         {
-            for(int i = 0; i < searchCount; i++)
+            for(int i = 0; i < searchers; i++)
             {
-                final float[] query = randomVector(new Random(i), dimension);
+                final int seed = i;
                 executor.submit(() ->
                 {
-                    try
+                    started.countDown();
+                    final Random random = new Random(seed);
+                    while(writing.get())
                     {
-                        if(index.search(query, 10).size() == 10)
+                        try
                         {
-                            succeeded.incrementAndGet();
+                            if(index.search(randomVector(random, dimension), 10).size() == 10)
+                            {
+                                duringWrite.incrementAndGet();
+                            }
                         }
-                    }
-                    catch(final RuntimeException e)
-                    {
-                        failed.set(true);
-                    }
-                    finally
-                    {
-                        latch.countDown();
+                        catch(final RuntimeException e)
+                        {
+                            failed.set(true);
+                            return;
+                        }
                     }
                 });
             }
 
-            assertTrue(latch.await(60, TimeUnit.SECONDS), "concurrent NVQ searches timed out");
-            assertFalse(failed.get(), "a concurrent NVQ search threw");
-            assertEquals(searchCount, succeeded.get(), "every concurrent NVQ search must return a full result");
+            // Every searcher is in its loop before the writer starts, so the overlap is not a race
+            // between thread startup and a fast persist.
+            assertTrue(started.await(30, TimeUnit.SECONDS), "the search threads did not start");
+
+            index.persistToDisk();
+            writing.set(false);
+
+            executor.shutdown();
+            assertTrue(executor.awaitTermination(60, TimeUnit.SECONDS), "concurrent NVQ searches timed out");
+
+            assertFalse(failed.get(), "a search running during the parallel NVQ write threw");
+            assertTrue(duringWrite.get() > 0,
+                "no search completed while the parallel NVQ write was in flight, so this test "
+                    + "proved nothing about concurrent encoding");
+
+            assertTrue(index.isNvqCompressionActive(), "the parallel write must have produced a quantized graph");
+            assertTrue(index.isPqCompressionActive());
+
+            // And the graph is still readable once the writer is done.
+            assertEquals(10, index.search(randomVector(new Random(99), dimension), 10).size());
         }
         finally
         {
