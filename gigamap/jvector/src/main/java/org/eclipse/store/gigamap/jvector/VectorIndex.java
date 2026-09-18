@@ -850,7 +850,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // DiskIndexManager.verifyMetadata. Unlike parentMap().size()/highestUsedId(), it changes on
         // a vec↔null transition, so it catches the crash-restart window those proxies are blind to.
         // Not transient — it must survive (de)serialization.
-        long structuralModCount;
+        //
+        // Volatile because it is also the witness the in-memory PQ switch revalidates against before
+        // adopting a replacement. Mutations bump it holding only the parentMap monitor, and that
+        // revalidation happens under builderLock with the monitor released, so the write lock
+        // supplies no happens-before edge between them: without volatile the switch could read a
+        // stale count and adopt a graph built before a mutation it never saw.
+        volatile long structuralModCount;
 
         // HNSW graph components (transient - rebuilt on load)
         // Volatile: the pair is swapped wholesale by exitIncrementalMode / reenterIncrementalMode /
@@ -1217,7 +1223,18 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return null;
             }
 
-            final MutablePQVectors codes = new MutablePQVectors(manager.getPQ());
+            // Captured once. isTrained() above and getPQ() here are separate reads of a manager a
+            // teardown can reset in between, which would hand MutablePQVectors a null codebook and
+            // fail before the identity guard in phase 3 could decline the switch.
+            final ProductQuantization codebook = manager.getPQ();
+            if(codebook == null)
+            {
+                LOG.info("The codebook for '{}' was reset while the switch was being prepared;"
+                    + " leaving it to a later optimization", this.name);
+                return null;
+            }
+
+            final MutablePQVectors codes = new MutablePQVectors(codebook);
 
             final GraphIndexBuilder replacement = new GraphIndexBuilder(
                 BuildScoreProvider.pqBuildScoreProvider(this.jvectorSimilarityFunction(), codes),
@@ -1338,12 +1355,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // it would make every later plan return early while the graph stayed exact, so the index
             // would report compressed scoring it is not doing and never correct itself.
             //
-            // Only the one this switch trained, and only while it is still the index's. This runs
-            // with no lock held, so a teardown may already have nulled the field or installed a
-            // replacement - resetting that one would clear a codebook belonging to a switch that
-            // did succeed, or throw.
+            // Only the one this switch trained, only while it is still the index's, and only while
+            // nothing has been published from it. This runs with no lock held, so two things can
+            // have happened meanwhile: a teardown may have nulled the field or installed a
+            // replacement, and - because nothing serialises two optimizations - another switch may
+            // have adopted a graph built from this very manager. That second case is why the
+            // published codes are checked too: the loser of such a race discards on the builder
+            // identity above, and resetting here would strip the codebook out from under the
+            // winner's graph.
             final PQCompressionManager manager = plan.manager();
-            if(manager != null && this.pqManager == manager)
+            if(manager != null && this.pqManager == manager && this.inMemoryPqVectors == null)
             {
                 manager.reset();
             }
@@ -1774,6 +1795,18 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         this.configuration.minChangesBetweenPersists(),
                         this.configuration.shutdownPersistTimeoutMillis()
                     );
+
+                    // An in-memory index that has not switched yet needs one optimization to do it,
+                    // and after a restart it can never earn one: its entities are already in the
+                    // store, so nothing bumps the change count and every scheduled optimization is
+                    // skipped. Arm the first one so the switch happens on schedule rather than only
+                    // if the index later happens to take minChangesBetweenOptimizations writes.
+                    if(!this.configuration.onDisk()
+                        && this.configuration.approximateScoring() == ApproximateScoring.PQ_IN_MEMORY
+                        && this.inMemoryPqVectors == null)
+                    {
+                        this.backgroundTaskManager.requestInitialOptimization();
+                    }
                 }
             }
         }
@@ -2329,11 +2362,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         // entity would stop being findable by its new one. Refreshing the code is the
                         // compressed equivalent of "search re-scores it live" - one encode, no pool,
                         // and therefore monitor-safe.
-                        if(this.inMemoryPqVectors != null)
-                        {
-                            final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                            this.executeOrDeferBuilderOp(() -> this.trackPqCode(ordinal, vf));
-                        }
+                        //
+                        // Queued unconditionally rather than only when codes already exist. During a
+                        // PQ switch there are none yet - they are published at the very end - so a
+                        // check here would skip the refresh for any update that lands while the
+                        // replacement is being built, and after the swap nothing would ever revisit
+                        // it: the switch does not run again once codes are present, so that entity
+                        // would be scored by its old embedding for the rest of the index's life.
+                        // trackPqCode is a no-op while there are no codes, so queueing always costs
+                        // nothing and is re-evaluated when the op actually runs.
+                        final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+                        this.executeOrDeferBuilderOp(() -> this.trackPqCode(ordinal, vf));
                     }
                     changed = true;
                 }
@@ -4287,8 +4326,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 final int ordinal = toOrdinal(entry.sourceEntityId);
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
-                this.trackPqCode(ordinal, vf);
-                this.builder.addGraphNode(ordinal, vf);
+
+                // Through the idempotent helper rather than addGraphNode directly. This callback is
+                // queued by a mutation and applied later, and in between the in-memory PQ switch can
+                // have replayed the same ordinal into a replacement graph from its own snapshot -
+                // the snapshot is taken after the mutation, so the change counter does not reject
+                // it. Adding an ordinal the graph already holds throws. The helper also reads the
+                // builder once, which matters here for the same reason it does on the sync path.
+                this.internalAddGraphNodeIdempotent(ordinal, vf);
             }
             finally
             {
@@ -4312,8 +4357,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     }
                     final int ordinal = toOrdinal(entry.sourceEntityId);
                     final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
-                    this.trackPqCode(ordinal, vf);
-                this.builder.addGraphNode(ordinal, vf);
+
+                    // Idempotent, for the reason given on applyGraphAdd.
+                    this.internalAddGraphNodeIdempotent(ordinal, vf);
                 }
             }
             finally

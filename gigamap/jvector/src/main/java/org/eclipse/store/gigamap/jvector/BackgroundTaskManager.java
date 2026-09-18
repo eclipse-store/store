@@ -380,6 +380,23 @@ class BackgroundTaskManager
     // ========================================================================
 
     /**
+     * Arms the next scheduled optimization regardless of how few changes have accumulated.
+     * <p>
+     * For the one case that needs an optimization it will never earn through mutations: an in-memory
+     * index configured for {@code PQ_IN_MEMORY} switches to compressed scoring at
+     * optimization, and after a restart its entities are already in the store, so nothing bumps the
+     * change count and the scheduled optimization is skipped forever. The index would stay on exact
+     * scoring for the rest of the session despite being configured for, and capable of, the switch.
+     * <p>
+     * Only the optimization counter, deliberately - persistence has no equivalent transition to
+     * bootstrap, and an in-memory index does not persist at all.
+     */
+    void requestInitialOptimization()
+    {
+        this.optimizationChangeCount.set(this.optimizationMinChanges);
+    }
+
+    /**
      * Marks dirty for optimization and persistence tracking.
      */
     void markDirty(final int count)
