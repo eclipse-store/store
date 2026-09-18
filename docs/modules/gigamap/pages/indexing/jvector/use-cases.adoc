@@ -540,7 +540,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |Speeds up traversal on a large on-disk index (at the cost of a larger graph file)
 
 |`NVQ` storage
-|Shrinks the vector block about 3.8x, but the fused codes above are unaffected, so the node as a whole goes from 4,744 to 2,472 bytes -- about 1.9x. Drop `FUSED_PQ` as well and it is 936 bytes, about 3.4x smaller than a plain `INLINE` node. Scores stay exact either way; what quantization affects is which candidates traversal finds, so raise the search beam if recall matters more than the footprint
+|Shrinks the vector block about 3.8x, but the fused codes above are unaffected, so the node as a whole goes from 4,744 to 2,472 bytes -- about 1.9x. Drop `FUSED_PQ` as well and it is 936 bytes, about 3.4x smaller than a plain `INLINE` node. Here the fused codes drive traversal, so quantizing the block does not change which candidates are found; it costs footprint only, and the rerank reads the GigaMap rather than the graph. Scores stay exact
 
 |Parallel on-disk write
 |The NVQ encode runs per node on the writer's threads; without this the persist takes about 3x as long rather than about 1.2x

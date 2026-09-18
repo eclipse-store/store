@@ -38,7 +38,7 @@ The graph is always **built in-memory** first. Entities are added to the graph o
 
 Persistence creates two files in the configured `indexDirectory`:
 
-* `{indexName}.graph` -- The full HNSW graph structure, including node connectivity (edges), and optionally embedded inline vectors and FusedPQ compressed data.
+* `{indexName}.graph` -- The full HNSW graph structure: node connectivity (edges), one vector block per node -- full-precision inline vectors or NVQ-quantized ones, depending on `vectorStorage` -- and, when `approximateScoring` is `FUSED_PQ`, the PQ codebook and the fused neighbour codes.
 * `{indexName}.meta` -- A small metadata file containing the file format version, the vector dimension, the current vector count, the highest allocated entity id, a structural modification counter, the two format settings (`vectorStorage` and `approximateScoring`), and the two counts that shape the encoded blocks within those settings (`pqSubspaces` and `nvqSubvectors`). This is used on startup to verify that the on-disk graph matches both the current data and the current configuration.
 
 ==== Loading from Disk
@@ -191,7 +191,11 @@ Measured at dimension 768, `maxDegree` 32, 20,000 vectors:
 
 That is a **3.4x reduction**, and it is the only setting on either dimension that shrinks the file. The ratio depends on the dimension, because the fixed per-node costs weigh less as it grows, and on `nvqSubvectors`: eight subvectors add 28 bytes each and bring it down to about 2.8x, which is why the default is one.
 
-**What it costs is traversal quality, not the scores.** Reranking compares against the vectors held in the GigaMap, which are full precision, so the scores and the ordering a search returns are exact whatever `approximateScoring` is set to. What quantization changes is which candidates traversal finds on the way there -- and a candidate it never reaches is one reranking cannot recover. What recovers those is a wider search beam, the same lever that answers a low `pqSubspaces`.
+**It never costs score accuracy**, whatever `approximateScoring` is set to: reranking compares against the full-precision vectors held in the GigaMap, so the scores and the ordering a search returns are exact. What it costs beyond that depends on the scoring mode, because that decides whether the quantized vectors are read during traversal at all.
+
+With `NONE` they are, so quantization changes which candidates traversal finds -- and a candidate it never reaches is one reranking cannot recover. What recovers those is a wider search beam, the same lever that answers a low `pqSubspaces`.
+
+With `FUSED_PQ` the fused codes drive traversal and the quantized block is not consulted, so candidate selection is exactly what it would be with `INLINE` storage. What changes there is the footprint, and that the rerank now reads the GigaMap rather than the graph's own mapping -- one lookup per reranked candidate where there was none.
 
 The suite's five-seed recall check, at dimension 64, puts all four storage/scoring combinations within noise of each other. For a sense of what the traversal-only loss can look like where it does bite, a raw jvector probe that reranked from the quantized vectors -- which this integration does not do -- measured recall@10 of 0.921 against an exact baseline of 0.923 at dimension 256. Both figures come from synthetic data, so measure it on yours if the last fraction of a percent matters.
 
@@ -222,6 +226,8 @@ When PQ compression is active, searches use a **two-phase approach** to balance 
 **Phase 1 -- Approximate candidate retrieval:** The HNSW graph is traversed using the FusedPQ-compressed codes for fast approximate distance computation. This phase fetches `max(k, minSearchBeamWidth)` candidates -- never less than the configured search beam width (see xref:indexing/jvector/configuration.adoc#_basic_hnsw_parameters[`minSearchBeamWidth`]) so the top-k stays stable across different `k` values. The per-query `search(query, k, searchBeamWidth)` overload raises this floor for a single call when higher recall is needed.
 
 **Phase 2 -- Exact reranking:** The approximate candidates are then re-scored against full-precision vectors, and the exact scores are sorted so the best _k_ results are returned.
+
+The two phases above describe `FUSED_PQ`, which is the mode they exist for. The other combinations are shorter: `NVQ + NONE` traverses on the graph's quantized vectors and then reranks, and `INLINE + NONE` scores exactly during traversal and has no second phase to run.
 
 Reranking is exact under every combination of the two settings, but it does not always read the same vectors:
 

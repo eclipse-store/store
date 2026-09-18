@@ -78,11 +78,18 @@ public enum VectorStorage
      * file: roughly 3x fewer bytes per node than {@link #INLINE}, so more of the graph stays in page
      * cache and cold traversal touches fewer pages.
      * <p>
-     * <b>What it costs is traversal quality, not the scores.</b> Reranking compares against the
-     * vectors held in the GigaMap, which are full precision, so the top-k a search returns carries
-     * exact similarities and exact ordering whatever the scoring mode is. Quantization changes only
-     * which candidates traversal finds on the way there - and a candidate that traversal never
-     * reaches is one reranking cannot recover.
+     * <b>It never costs score accuracy.</b> Reranking compares against the vectors held in the
+     * GigaMap, which are full precision, so the top-k a search returns carries exact similarities
+     * and exact ordering whatever the scoring mode is.
+     * <p>
+     * <b>What else it costs depends on that mode</b>, because that decides whether these vectors are
+     * read during traversal at all. With {@link ApproximateScoring#NONE} they are, so quantization
+     * changes which candidates traversal finds - and a candidate that traversal never reaches is one
+     * reranking cannot recover; a wider search beam is what gets them back. With
+     * {@link ApproximateScoring#FUSED_PQ} the fused codes drive traversal and this block is not
+     * consulted, so candidate selection is exactly what it would be under {@link #INLINE}, and the
+     * cost is the footprint saving plus one GigaMap lookup per reranked candidate where an inline
+     * graph reads them from its own mapping.
      * <p>
      * The dispatch does hold one branch that reranks from the graph's own quantized copy instead,
      * for a non-incremental disk search. An on-disk index does not currently enter that state -

@@ -4287,7 +4287,8 @@ class VectorIndexDiskTest
     /**
      * NVQ quantizes what the <i>graph</i> holds, not what a search returns. Every path that a live
      * index actually takes reranks against the vectors held in the GigaMap, so the scores and the
-     * final ordering are exact, and quantization only changes which candidates traversal finds.
+     * final ordering are exact; what quantization can change is which candidates traversal finds,
+     * and only in the modes that traverse on the stored block at all.
      * <p>
      * That is worth a test rather than an argument, because it is the property the compact preset
      * is recommended on. It is asserted on the score values rather than on recall: recall cannot

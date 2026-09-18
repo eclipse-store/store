@@ -165,7 +165,7 @@ List<Document> topDocs = result.stream()
 |-----------|---------|-------------|
 | `onDisk` | `false` | Store the graph in a memory-mapped file rather than on the Java heap. This is what lets an index exceed RAM; in-memory mode is faster per query but keeps the graph on the heap |
 | `indexDirectory` | `null` | Directory for index files (required if `onDisk=true`) |
-| `vectorStorage` | `INLINE` | How the graph stores each vector. `NVQ` stores 8-bit quantized vectors instead of full precision - about **3x smaller**, the only setting that shrinks the file. Reranking still reads the GigaMap, so scores stay exact; what it costs is traversal quality |
+| `vectorStorage` | `INLINE` | How the graph stores each vector. `NVQ` stores 8-bit quantized vectors instead of full precision - about **3x smaller**, the only setting that shrinks the file. Reranking still reads the GigaMap, so scores stay exact; with `approximateScoring(NONE)` it also changes which candidates traversal finds |
 | `approximateScoring` | `NONE` | How traversal scores candidates. `FUSED_PQ` writes Product Quantization codes into every node: faster traversal of a large on-disk index, but **makes the graph file larger** and adds transient heap at persist time |
 | `nvqSubvectors` | `0` | Number of NVQ subvectors (0 = auto: 1). Each one adds a fixed 28 bytes per node, so the default is almost always right. **Not** the same parameter as `pqSubspaces` |
 | `enablePqCompression` | `false` | *Deprecated*, use `approximateScoring`. A literal delegate: `true` means `FUSED_PQ` |
@@ -345,7 +345,7 @@ To benchmark with real SIFT data:
 - **Null vectors are not accepted**: The `Vectorizer.vectorize()` method must never return `null`. If it does, an `IllegalStateException` is thrown. Ensure that every entity added to the GigaMap can produce a valid vector.
 - **~2.1 billion vectors per index**: JVector uses `int` for graph node ordinals. For larger datasets, implement sharding across multiple indices.
 - **`FUSED_PQ` scoring enlarges the index**: it stores each node's neighbour codes inline, on top of whatever the storage mode holds. It buys search speed, not disk space. To make the index *smaller*, set `vectorStorage` to `NVQ`, which is the other dimension of the format entirely.
-- **NVQ storage costs traversal quality, not scores**: the graph keeps no full-precision copy, but reranking compares against the vectors held in the GigaMap, so the scores and the ordering a search returns are exact. What quantization changes is which candidates traversal finds on the way there, and a candidate it never reaches is one reranking cannot recover.
+- **NVQ storage never costs score accuracy**: the graph keeps no full-precision copy, but reranking compares against the vectors held in the GigaMap, so the scores and the ordering a search returns are exact. With `approximateScoring(NONE)` traversal reads the quantized vectors, so quantization changes which candidates it finds, and a candidate it never reaches is one reranking cannot recover. With `FUSED_PQ` the fused codes drive traversal, so candidate selection is unchanged and the cost is footprint plus a GigaMap lookup per reranked candidate.
 
 ## Building
 
