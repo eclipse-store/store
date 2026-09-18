@@ -18,7 +18,10 @@ import io.github.jbellis.jvector.disk.ReaderSupplier;
 import io.github.jbellis.jvector.disk.ReaderSupplierFactory;
 import io.github.jbellis.jvector.graph.disk.OnDiskGraphIndex;
 import io.github.jbellis.jvector.graph.disk.feature.FeatureId;
+import io.github.jbellis.jvector.quantization.NVQuantization;
 import io.github.jbellis.jvector.vector.VectorizationProvider;
+import io.github.jbellis.jvector.vector.VectorUtil;
+import io.github.jbellis.jvector.vector.types.VectorFloat;
 import io.github.jbellis.jvector.vector.types.VectorTypeSupport;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.ScoredSearchResult;
@@ -45,6 +48,7 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -1432,6 +1436,32 @@ class VectorIndexDiskTest
         final ApproximateScoring scoring
     ) throws IOException
     {
+        return this.persistAndMeasureGraph(indexDir, vectorCount, dimension, maxDegree, storage, scoring, 0);
+    }
+
+    /**
+     * As above, with an explicit NVQ subvector count so a test can measure what the count costs.
+     *
+     * @param indexDir      the directory to build the index in
+     * @param vectorCount   how many vectors to index
+     * @param dimension     the vector dimension
+     * @param maxDegree     the graph's maximum degree
+     * @param storage       how the graph stores its vectors
+     * @param scoring       how traversal scores candidates
+     * @param nvqSubvectors the NVQ subvector count, or 0 for the automatic value
+     * @return the size of the written graph file in bytes
+     * @throws IOException if the file cannot be measured
+     */
+    private long persistAndMeasureGraph(
+        final Path               indexDir     ,
+        final int                vectorCount  ,
+        final int                dimension    ,
+        final int                maxDegree    ,
+        final VectorStorage      storage      ,
+        final ApproximateScoring scoring      ,
+        final int                nvqSubvectors
+    ) throws IOException
+    {
         final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
             .dimension(dimension)
             .similarityFunction(VectorSimilarityFunction.COSINE)
@@ -1440,6 +1470,7 @@ class VectorIndexDiskTest
             .indexDirectory(indexDir)
             .vectorStorage(storage)
             .approximateScoring(scoring)
+            .nvqSubvectors(nvqSubvectors)
             .build();
 
         final GigaMap<Document> gigaMap = GigaMap.New();
@@ -4429,6 +4460,23 @@ class VectorIndexDiskTest
     }
 
     /**
+     * The uncompressed baseline the other three formats are compared against.
+     * <p>
+     * Without it the suite measures three of the four storage/scoring combinations and the fourth is
+     * assumed, which is the one that decides whether the others are near it or merely near each
+     * other.
+     */
+    @Test
+    void testPlainInlineRecallStaysHigh(@TempDir final Path tempDir)
+    {
+        for(final int seed : new int[]{7, 11, 23, 42, 99})
+        {
+            this.assertRecallForSeed(seed, tempDir.resolve("inline_" + seed),
+                VectorStorage.INLINE, ApproximateScoring.NONE);
+        }
+    }
+
+    /**
      * The quantizer must come back off the graph header on reload rather than being retrained, which
      * is what lets the index report itself compressed before it has persisted again.
      */
@@ -4516,36 +4564,140 @@ class VectorIndexDiskTest
         assertWithinFivePercent(
             (long)expectedBytesPerNode(dimension, maxDegree, VectorStorage.NVQ, 1) * vectorCount,
             nvq, "NVQ graph size at dimension " + dimension);
+
+        // The lower end of the documented range, which is a claim about nvqSubvectors rather than
+        // about the dimension, so it needs its own measurement rather than the default count.
+        final long nvqEightSubvectors = this.persistAndMeasureGraph(
+            tempDir.resolve("nvq8"), vectorCount, dimension, maxDegree,
+            VectorStorage.NVQ, ApproximateScoring.NONE, 8);
+
+        final double eightRatio = (double)inline / nvqEightSubvectors;
+        assertTrue(eightRatio > 2.6 && eightRatio < 3.0,
+            "expected about 2.8x with eight subvectors, measured " + eightRatio
+                + " (" + inline + " vs " + nvqEightSubvectors + " bytes)");
+        assertTrue(nvqEightSubvectors > nvq,
+            "eight subvectors must cost more than one: 28 bytes of parameters each");
+        assertWithinFivePercent(
+            (long)expectedBytesPerNode(dimension, maxDegree, VectorStorage.NVQ, 8) * vectorCount,
+            nvqEightSubvectors, "NVQ graph size with eight subvectors");
+    }
+
+
+
+    /**
+     * The per-node NVQ encode must produce the same result on a writer worker thread as it does on
+     * one thread.
+     * <p>
+     * This is the property {@code parallelOnDiskWrite(true)} depends on, and it is specific to how
+     * the NVQ feature is written here. The fused PQ path encodes every vector up front, because a
+     * node's block needs its neighbours' codes; NVQ instead encodes per node, from a supplier the
+     * writer calls on its own worker threads, to avoid materialising the whole encoded corpus on the
+     * heap. That makes {@code NVQuantization.encode} - and the {@code encodeTo} it delegates to -
+     * concurrently invoked against one shared quantizer, and NVQ has no users in JVector's own
+     * published sources, so nothing upstream exercises it that way.
+     * <p>
+     * <b>It is asserted against the quantizer directly rather than through a persist.</b> Two routes
+     * through the index were tried first and neither can carry the claim. A search cannot overlap
+     * the encode, because {@code doPersistToDisk} holds {@code builderLock.writeLock()} across the
+     * whole of phase 2 including {@code writeIndex}, while {@code search} needs the read lock - so a
+     * test firing queries during a persist measures only the windows before and after the lock.
+     * Comparing a parallel-written graph against a sequential one byte for byte does not work
+     * either: graph construction is not deterministic, and two <i>sequential</i> writes of the same
+     * vectors already differ, so the comparison cannot tell an unsafe encoder from an ordinary
+     * run-to-run difference.
+     */
+    @Test
+    void testNvqEncodeIsThreadSafe() throws Exception
+    {
+        final int dimension   = 64;
+        final int vectorCount = 200;
+        final int threads     = 8;
+        final int repeats     = 4;
+
+        final VectorTypeSupport vts    = VectorizationProvider.getInstance().getVectorTypeSupport();
+        final Random            random = new Random(4711);
+
+        final List<VectorFloat<?>> vectors = new ArrayList<>();
+        for(int i = 0; i < vectorCount; i++)
+        {
+            vectors.add(vts.createFloatVector(randomVector(random, dimension)));
+        }
+
+        // The same shape the compression manager builds: a mean over the sample, one subvector.
+        final VectorFloat<?> mean = vts.createFloatVector(dimension);
+        for(final VectorFloat<?> vector : vectors)
+        {
+            VectorUtil.addInPlace(mean, vector);
+        }
+        VectorUtil.scale(mean, 1f / vectors.size());
+
+        final NVQuantization quantizer = NVQuantization.create(mean, 1);
+
+        final List<NVQuantization.QuantizedVector> sequential = new ArrayList<>();
+        for(final VectorFloat<?> vector : vectors)
+        {
+            sequential.add(quantizer.encode(vector));
+        }
+
+        final ExecutorService executor = Executors.newFixedThreadPool(threads);
+        final AtomicInteger   mismatch = new AtomicInteger();
+        final AtomicInteger   compared = new AtomicInteger();
+
+        try
+        {
+            final List<Future<?>> tasks = new ArrayList<>();
+            for(int t = 0; t < threads; t++)
+            {
+                tasks.add(executor.submit(() ->
+                {
+                    // Every thread encodes every vector, repeatedly, against the one shared
+                    // quantizer - the access pattern the parallel writer produces, concentrated.
+                    for(int repeat = 0; repeat < repeats; repeat++)
+                    {
+                        for(int i = 0; i < vectors.size(); i++)
+                        {
+                            if(!quantizer.encode(vectors.get(i)).equals(sequential.get(i)))
+                            {
+                                mismatch.incrementAndGet();
+                            }
+                            compared.incrementAndGet();
+                        }
+                    }
+                }));
+            }
+            for(final Future<?> task : tasks)
+            {
+                task.get(60, TimeUnit.SECONDS);
+            }
+        }
+        finally
+        {
+            executor.shutdownNow();
+        }
+
+        assertEquals(threads * repeats * vectorCount, compared.get(),
+            "every concurrent encode must have been compared");
+        assertEquals(0, mismatch.get(),
+            mismatch.get() + " of " + compared.get() + " concurrent encodes differed from the "
+                + "single-threaded result, so the per-node encode is not safe on the writer's threads");
     }
 
     /**
-     * NVQ under the parallel on-disk writer, with searches running <b>while the write is in
-     * flight</b> rather than after it.
+     * The parallel writer produces a well-formed, searchable quantized graph.
      * <p>
-     * Worth its own test because of how the NVQ feature is written. The fused PQ path encodes every
-     * vector up front, because a node's block needs its neighbours' codes; NVQ instead encodes per
-     * node, from a supplier the writer calls on its own worker threads, to avoid materialising the
-     * whole encoded corpus on the heap. That makes {@code NVQuantization.encode} - and the
-     * {@code encodeTo} it delegates to - concurrently invoked, and NVQ has no users in JVector's own
-     * published sources, so nothing upstream exercises it that way.
-     * <p>
-     * The searchers therefore loop until the persist returns instead of being submitted after it.
-     * Submitting them afterwards would only prove that a finished graph can be read from several
-     * threads, which is a different and much weaker claim. A count of the searches that completed
-     * before the writer finished is asserted, so the test fails rather than silently degrading if
-     * the overlap ever stops happening.
+     * The narrower claim that survives the note on {@link #testNvqEncodeIsThreadSafe}: this cannot
+     * show that the encode is concurrency-safe, only that the write completes and its output loads
+     * and answers queries. Both are worth having, and neither substitutes for the other.
      */
     @Test
-    void testNvqWithParallelOnDiskWriteAndConcurrentSearch(@TempDir final Path tempDir) throws Exception
+    void testNvqWithParallelOnDiskWriteProducesAWellFormedGraph(@TempDir final Path tempDir) throws IOException
     {
-        final int vectorCount = 4000;
-        final int dimension   = 64;
-        final int searchers   = 4;
-
-        final Path indexDir = tempDir.resolve("index");
+        final int  vectorCount = 800;
+        final int  dimension   = 64;
+        final Path indexDir    = tempDir.resolve("index");
 
         final GigaMap<Document> gigaMap = GigaMap.New();
-        final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
             .add("embeddings", VectorIndexConfiguration.builder()
                 .dimension(dimension)
                 .similarityFunction(VectorSimilarityFunction.COSINE)
@@ -4555,71 +4707,17 @@ class VectorIndexDiskTest
                 .approximateScoring(ApproximateScoring.FUSED_PQ)
                 .pqSubspaces(16)
                 .parallelOnDiskWrite(true)
-                .build(), new ComputedDocumentVectorizer());
-
-        addRandomDocuments(gigaMap, new Random(42), dimension, vectorCount, "doc_");
-
-        final AtomicInteger   duringWrite = new AtomicInteger();
-        final AtomicBoolean   writing     = new AtomicBoolean(true);
-        final AtomicBoolean   failed      = new AtomicBoolean();
-        final CountDownLatch  started     = new CountDownLatch(searchers);
-        final ExecutorService executor    = Executors.newFixedThreadPool(searchers);
-
-        try
+                .build(), new ComputedDocumentVectorizer()))
         {
-            for(int i = 0; i < searchers; i++)
-            {
-                final int seed = i;
-                executor.submit(() ->
-                {
-                    started.countDown();
-                    final Random random = new Random(seed);
-                    while(writing.get())
-                    {
-                        try
-                        {
-                            if(index.search(randomVector(random, dimension), 10).size() == 10)
-                            {
-                                duringWrite.incrementAndGet();
-                            }
-                        }
-                        catch(final RuntimeException e)
-                        {
-                            failed.set(true);
-                            return;
-                        }
-                    }
-                });
-            }
-
-            // Every searcher is in its loop before the writer starts, so the overlap is not a race
-            // between thread startup and a fast persist.
-            assertTrue(started.await(30, TimeUnit.SECONDS), "the search threads did not start");
-
+            addRandomDocuments(gigaMap, new Random(42), dimension, vectorCount, "doc_");
             index.persistToDisk();
-            writing.set(false);
-
-            executor.shutdown();
-            assertTrue(executor.awaitTermination(60, TimeUnit.SECONDS), "concurrent NVQ searches timed out");
-
-            assertFalse(failed.get(), "a search running during the parallel NVQ write threw");
-            assertTrue(duringWrite.get() > 0,
-                "no search completed while the parallel NVQ write was in flight, so this test "
-                    + "proved nothing about concurrent encoding");
 
             assertTrue(index.isNvqCompressionActive(), "the parallel write must have produced a quantized graph");
             assertTrue(index.isPqCompressionActive());
-
-            // And the graph is still readable once the writer is done.
-            assertEquals(10, index.search(randomVector(new Random(99), dimension), 10).size());
-        }
-        finally
-        {
-            executor.shutdownNow();
-            index.close();
+            assertEquals(10, index.search(randomVector(new Random(1), dimension), 10).size(),
+                "the parallel-written graph must answer queries");
         }
 
-        // Written by the parallel writer, and still a well-formed quantized graph afterwards.
         final Set<FeatureId> features = graphFeatures(indexDir.resolve("embeddings.graph"));
         assertTrue(features.contains(FeatureId.NVQ_VECTORS), features.toString());
         assertTrue(features.contains(FeatureId.FUSED_PQ), features.toString());
