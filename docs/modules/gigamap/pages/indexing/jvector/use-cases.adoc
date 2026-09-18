@@ -522,7 +522,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .indexDirectory(Path.of("/data/large-scale"))
     .approximateScoring(ApproximateScoring.FUSED_PQ)
     .pqSubspaces(48)                      // 768 / 48 = 16 dims per subspace
-    .vectorStorage(VectorStorage.NVQ)     // ~3.4x smaller graph; scores stay exact
+    .vectorStorage(VectorStorage.NVQ)     // ~1.9x smaller than INLINE here; scores stay exact
     .parallelOnDiskWrite(true)            // Absorbs almost all of the NVQ encode cost
     .persistenceIntervalMs(60_000)
     .minChangesBetweenPersists(1000)
@@ -540,7 +540,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |Speeds up traversal on a large on-disk index (at the cost of a larger graph file)
 
 |`NVQ` storage
-|About 3.4x fewer bytes per node, so more of the graph stays in page cache. Scores stay exact; what quantization affects is which candidates traversal finds, so raise the search beam or drop it if the last fraction of a percent of recall matters more than the footprint
+|Shrinks the vector block about 3.8x, but the fused codes above are unaffected, so the node as a whole goes from 4,744 to 2,472 bytes -- about 1.9x. Drop `FUSED_PQ` as well and it is 936 bytes, about 3.4x smaller than a plain `INLINE` node. Scores stay exact either way; what quantization affects is which candidates traversal finds, so raise the search beam if recall matters more than the footprint
 
 |Parallel on-disk write
 |The NVQ encode runs per node on the writer's threads; without this the persist takes about 3x as long rather than about 1.2x
