@@ -300,7 +300,9 @@ public interface VectorIndexConfiguration
      *       block is written depends on {@link #vectorStorage()}: full-precision inline vectors, or
      *       the smaller quantized ones.</li>
      *   <li>{@code {name}.meta} - Metadata file (format version, dimension, vector count, highest
-     *       entity id, structural modification count, and the two format settings)</li>
+     *       entity id, structural modification count, the two format settings, and the two
+     *       quantization counts they encode with - the latter in effective form, so that an
+     *       automatic count and the value it resolves to are recorded identically)</li>
      * </ul>
      * Both are written to {@code .tmp} siblings and renamed into place, so an interrupted persist
      * leaves at most a stale temporary file.
@@ -439,9 +441,10 @@ public interface VectorIndexConfiguration
      * resident bytes: it is a way to scale past available memory rather than a general latency tweak.
      * <p>
      * <b>With {@link VectorStorage#NVQ} storage</b> the arithmetic above does not carry over. There
-     * are no full-precision inline vectors: the graph holds quantized ones, so both the bytes a
-     * rerank reads and the bytes the persist writes are roughly a quarter of the figures quoted
-     * above, and reranking compares against those quantized vectors rather than exact ones. The
+     * are no full-precision inline vectors: the graph holds quantized ones, so the bytes the persist
+     * writes are roughly a quarter of the figures quoted above. Reranking is unaffected in accuracy
+     * but changes source - with no full-precision copy in the graph it reads the vectors held in the
+     * GigaMap, so it costs a lookup per reranked candidate instead of a read from the mapping. The
      * fused block is unchanged, and remains the dominant per-node cost.
      * <p>
      * The codebook is trained once, on the first persist at which at least 256 <i>embeddings</i>

@@ -66,8 +66,9 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
      * {@code get(name).configuration()}.
      * <p>
      * Changing the configuration of an existing index requires {@link #removeIndex(String)} followed
-     * by {@link #add(String, VectorIndexConfiguration, Vectorizer)}, which re-indexes every entity in
-     * the parent map.
+     * by {@link #add(String, VectorIndexConfiguration, Vectorizer)}. For an in-memory index that
+     * re-indexes every entity in the parent map; for an on-disk one it may not, since the files left
+     * behind can still be usable - see below.
      * <p>
      * <b>For an on-disk index, {@link #removeIndex(String)} leaves the index directory's
      * {@code .graph} and {@code .meta} files in place</b> - it only closes the index and drops the
@@ -77,9 +78,16 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
      * They are checked rather than trusted. The metadata records the format version, the dimension,
      * three content witnesses, and the settings that decide what the graph contains: the vector
      * storage mode, the approximate scoring mode, and the quantization counts those two encode with.
-     * A change to any of them is a mismatch, so the stale graph is rejected and rebuilt from the
+     * A change to one of them is a mismatch, so the stale graph is rejected and rebuilt from the
      * vectors in the parent map rather than served under the new configuration. Deleting the files
      * by hand is not required for these settings.
+     * <p>
+     * The two counts are compared in <i>effective</i> form, which makes them narrower than the modes
+     * they belong to. An automatic count and the value it resolves to describe the same graph and so
+     * compare equal, and a count that the recorded format does not encode with is not compared at
+     * all - changing {@code pqSubspaces} while the scoring mode is
+     * {@link ApproximateScoring#NONE}, or {@code nvqSubvectors} while storage is
+     * {@link VectorStorage#INLINE}, changes nothing in the file and triggers no rebuild.
      * <p>
      * What is <b>not</b> recorded is everything that shapes the graph without changing what a
      * reader must know to interpret it - {@code maxDegree}, {@code beamWidth}, {@code alpha},

@@ -143,7 +143,7 @@ During graph traversal (search), the HNSW algorithm must evaluate the distance f
 The on-disk graph file thus contains, per node:
 
 * **Graph edges** -- The connections to neighboring nodes (the HNSW structure).
-* **One vector-storage block** -- either full-precision **inline vectors** or **NVQ** quantized vectors, which are about a third of the size. It is read during traversal only when `approximateScoring` is `NONE`; with `FUSED_PQ` the codes below drive traversal instead, whatever the block holds. See <<_nvq_quantized_vectors_in_the_graph>>.
+* **One vector-storage block** -- either full-precision **inline vectors** or **NVQ** quantized vectors, which are about a third of the size. Whether a search reads it at all depends on both settings; the table under <<_two_phase_search>> gives the four cases. See <<_nvq_quantized_vectors_in_the_graph>>.
 * **FusedPQ codes**, when `approximateScoring` is `FUSED_PQ` -- The PQ-compressed representations of the node's neighbors, used for fast approximate scoring during traversal.
 
 FusedPQ places no constraint on `maxDegree`. The degree is recorded in the graph header, so the reader sizes each fused block from the file itself. Because a node's fused block holds `maxDegree` codes, however, `maxDegree` is what multiplies the storage and per-hop read cost of PQ.
@@ -214,6 +214,7 @@ Quantizing is not free: each vector's nonlinearity is fitted by a grid search at
 
 Sequentially NVQ costs about 3x the persist time. Under the parallel writer that falls to about 1.2x, because the encode runs per node on the writer's worker threads rather than in one pass up front. **Set `parallelOnDiskWrite(true)` when using NVQ**, unless you have a specific reason not to.
 
+[[_two_phase_search]]
 === Two-Phase Search with Reranking
 
 When PQ compression is active, searches use a **two-phase approach** to balance speed and accuracy:
