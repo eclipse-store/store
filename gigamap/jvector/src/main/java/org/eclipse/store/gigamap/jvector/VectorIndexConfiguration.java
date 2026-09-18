@@ -346,13 +346,17 @@ public interface VectorIndexConfiguration
     /**
      * Returns how graph traversal scores the candidates it visits.
      * <p>
-     * This is one of two independent dimensions of the on-disk format; the other is
-     * {@link #vectorStorage()}. Whatever is chosen here, the best candidates are always reranked
-     * before they are returned, so this governs which candidates traversal finds rather than how
-     * the final top-k is ordered.
+     * For an on-disk index this is one of two independent dimensions of the format; the other is
+     * {@link #vectorStorage()}, which has no in-memory counterpart. This setting, though, is not
+     * confined to the format: {@link ApproximateScoring#PQ_IN_MEMORY} governs traversal for an
+     * in-memory index too, where nothing is written at all. Whatever is chosen here, the best
+     * candidates are always reranked before they are returned, so this governs which candidates
+     * traversal finds rather than how the final top-k is ordered.
      * <p>
-     * Requires {@link #onDisk()} to be true for any value other than
-     * {@link ApproximateScoring#NONE}.
+     * {@link ApproximateScoring#FUSED_PQ} requires {@link #onDisk()}, since its codes are written
+     * into the graph file. {@link ApproximateScoring#PQ_IN_MEMORY} does not - it keeps its codes in
+     * heap, which an in-memory index can do too, though there it needs a scheduled optimization to
+     * switch over; see that constant.
      *
      * <p>
      * A {@code default} for the same reason as {@link #vectorStorage()}, and it derives from the
@@ -1182,8 +1186,10 @@ public interface VectorIndexConfiguration
         /**
          * Sets how graph traversal scores the candidates it visits.
          * <p>
-         * Requires {@link #onDisk(boolean)} to be true for any value other than
-         * {@link ApproximateScoring#NONE}.
+         * {@link ApproximateScoring#FUSED_PQ} requires {@link #onDisk(boolean)}, since its codes are
+         * written into the graph file. {@link ApproximateScoring#PQ_IN_MEMORY} does not - it keeps
+         * its codes in heap - but on an in-memory index it needs a scheduled optimization, which is
+         * where the switch to compressed scoring happens.
          *
          * <p>
          * A {@code default} so that a builder implementation written against an earlier version of
@@ -1349,7 +1355,8 @@ public interface VectorIndexConfiguration
          *
          * @return a new immutable {@link VectorIndexConfiguration}
          * @throws IllegalStateException if onDisk is true but indexDirectory is null
-         * @throws IllegalStateException if approximateScoring is not NONE but onDisk is false
+         * @throws IllegalStateException if approximateScoring is FUSED_PQ but onDisk is false, or
+         *         if it is PQ_IN_MEMORY without onDisk and no optimization is scheduled
          * @throws IllegalStateException if vectorStorage is not INLINE but onDisk is false
          * @throws IllegalArgumentException if pqSubspaces > 0 and dimension is not divisible by pqSubspaces
          * @throws IllegalArgumentException if nvqSubvectors exceeds the dimension
@@ -1616,9 +1623,48 @@ public interface VectorIndexConfiguration
                 {
                     throw new IllegalStateException("indexDirectory is required when onDisk is true");
                 }
-                if(this.approximateScoring != ApproximateScoring.NONE && !this.onDisk)
+                // FUSED_PQ writes its codes into the graph file, so it is on-disk only. PQ_IN_MEMORY
+                // keeps them in heap, which an in-memory index can do just as well - there it simply
+                // has no sidecar to write.
+                if(this.approximateScoring == ApproximateScoring.FUSED_PQ && !this.onDisk)
                 {
                     throw new IllegalStateException("Compression requires onDisk mode to be enabled");
+                }
+
+                // An in-memory index has no persist to hang the switch to compressed scoring on, and
+                // doing it on a mutation would mean an O(n) train, encode and rebuild inside the
+                // GigaMap monitor. It happens at optimization instead, so there has to be one
+                // scheduled - otherwise the mode would be configured and silently never take effect.
+                if(this.approximateScoring == ApproximateScoring.PQ_IN_MEMORY
+                    && !this.onDisk
+                    && this.optimizationIntervalMs <= 0)
+                {
+                    throw new IllegalStateException(
+                        "In-memory PQ scoring switches the score provider at optimization, so one has to"
+                            + " be scheduled: set optimizationIntervalMs to a positive value. An explicit"
+                            + " optimize() call performs the switch too, but the configuration cannot"
+                            + " rely on one happening."
+                    );
+                }
+
+                // A scheduled optimization is necessary but not sufficient: the background manager
+                // skips one until minChangesBetweenOptimizations changes have accumulated, and that
+                // defaults to 1000. An index that settles between the 256 vectors PQ training needs
+                // and that threshold would be configured for compressed scoring and never switch,
+                // so the setting has to be reachable rather than merely positive.
+                if(this.approximateScoring == ApproximateScoring.PQ_IN_MEMORY
+                    && !this.onDisk
+                    && this.optimizationIntervalMs > 0
+                    && this.minChangesBetweenOptimizations > PQCompressionManager.MIN_VECTORS_FOR_PQ_TRAINING)
+                {
+                    LOG.warn(
+                        "Index configured for in-memory PQ scoring has minChangesBetweenOptimizations={},"
+                            + " above the {} vectors PQ training needs. An index that stops growing in"
+                            + " between will stay on exact scoring until something calls optimize()"
+                            + " explicitly. Lower the threshold to switch automatically.",
+                        this.minChangesBetweenOptimizations,
+                        PQCompressionManager.MIN_VECTORS_FOR_PQ_TRAINING
+                    );
                 }
                 if(this.vectorStorage != VectorStorage.INLINE && !this.onDisk)
                 {
