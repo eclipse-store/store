@@ -396,19 +396,26 @@ public interface VectorIndexConfiguration
      * node duplicates them {@code maxDegree} times, so enabling PQ makes the {@code .graph} file
      * <i>larger</i> by roughly {@code pqSubspaces * maxDegree} bytes per node - it does not shrink
      * the index. {@link VectorStorage#NVQ} is the setting that shrinks it, and the two compose:
-     * the fused codes cost the same either way, while the vector beside them gets smaller. What it buys is far less I/O and far better cache locality while traversing, and a
-     * smaller working set of full vectors touched per query. Choose it when search latency on a
-     * large on-disk index matters, not when disk footprint does.
+     * the fused codes cost the same either way, while the vector beside them gets smaller. What it
+     * buys is far less I/O and far better cache locality while traversing, and a smaller working set
+     * of vectors touched per query. Choose it when search latency on a large on-disk index matters,
+     * not when disk footprint does.
      * <p>
-     * <b>Memory.</b> The resident working set during search goes <i>down</i>: a hop reads one
-     * contiguous fused block instead of {@link #maxDegree()} scattered full vectors, and
-     * reranking reads the inline vectors out of the mapping into a reused buffer. The costs are
-     * transient heap at persist time - encoding allocates {@code nodes * pqSubspaces} bytes for the
-     * whole ordinal space, and the persist walks every vector twice, once to encode and once to
-     * write the inline vectors - plus the larger mapping itself. Note that
-     * if the whole index already fits in RAM there are no page faults left to avoid, so PQ buys
-     * only cheaper arithmetic and cache locality while still costing the extra resident bytes:
-     * it is a way to scale past available memory rather than a general latency tweak.
+     * <b>Memory, with {@link VectorStorage#INLINE} storage.</b> The resident working set during
+     * search goes <i>down</i>: a hop reads one contiguous fused block instead of
+     * {@link #maxDegree()} scattered full vectors, and reranking reads the inline vectors out of the
+     * mapping into a reused buffer. The costs are transient heap at persist time - encoding
+     * allocates {@code nodes * pqSubspaces} bytes for the whole ordinal space, and the persist walks
+     * every vector twice, once to encode and once to write the inline vectors - plus the larger
+     * mapping itself. Note that if the whole index already fits in RAM there are no page faults left
+     * to avoid, so PQ buys only cheaper arithmetic and cache locality while still costing the extra
+     * resident bytes: it is a way to scale past available memory rather than a general latency tweak.
+     * <p>
+     * <b>With {@link VectorStorage#NVQ} storage</b> the arithmetic above does not carry over. There
+     * are no full-precision inline vectors: the graph holds quantized ones, so both the bytes a
+     * rerank reads and the bytes the persist writes are roughly a quarter of the figures quoted
+     * above, and reranking compares against those quantized vectors rather than exact ones. The
+     * fused block is unchanged, and remains the dominant per-node cost.
      * <p>
      * The codebook is trained once, on the first persist at which at least 256 <i>embeddings</i>
      * exist - entities without one are skipped, so an index of 256 entities of which some have no
@@ -1583,14 +1590,17 @@ public interface VectorIndexConfiguration
                 // recall for nothing. Warn instead of throwing.
                 if(this.vectorStorage == VectorStorage.NVQ)
                 {
-                    final int nvqBytes = 4 + this.dimension + 28 * (this.nvqSubvectors > 0 ? this.nvqSubvectors : 1);
+                    // The effective count, not the raw field: 0 means "auto" and resolves to one, so
+                    // logging the raw value would report "0 subvectors" for a size computed from one.
+                    final int effectiveSubvectors = this.nvqSubvectors > 0 ? this.nvqSubvectors : 1;
+                    final int nvqBytes            = 4 + this.dimension + 28 * effectiveSubvectors;
                     if(nvqBytes >= this.dimension * Float.BYTES)
                     {
                         LOG.warn(
                             "NVQ storage would cost {} bytes per node against {} for full precision at dimension {}"
                                 + " and {} subvectors, so it saves nothing. Lower nvqSubvectors or use"
                                 + " VectorStorage.INLINE.",
-                            nvqBytes, this.dimension * Float.BYTES, this.dimension, this.nvqSubvectors
+                            nvqBytes, this.dimension * Float.BYTES, this.dimension, effectiveSubvectors
                         );
                     }
                 }
