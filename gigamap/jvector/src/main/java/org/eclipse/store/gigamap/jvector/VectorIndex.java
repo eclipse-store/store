@@ -2680,11 +2680,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // beam width, and that count grows with the data set. Each one is a lookup the cache
             // cannot avoid. Scoring from the codes removes all of them, leaving only the reranked
             // candidates to be fetched.
-            // Non-empty, unlike the build-path gate in initializeInMemoryBuilder, and the
-            // difference is deliberate. There the store is empty by design at the moment the
-            // builder is made and the replay fills it; here a query only ever runs after that
-            // replay, so an empty store would mean there is nothing to score from and falling back
-            // to exact is the right answer rather than a missed optimisation.
+            // Non-null and non-empty. The switch publishes the codes already populated - they are
+            // encoded in preparePqSwitch, before anything is swapped in - so in practice a store
+            // that is present is also filled. The count is checked anyway because an empty one
+            // would mean there is nothing to score from, and falling back to exact is then the
+            // right answer rather than a missed optimisation.
             final MutablePQVectors pqVectors = this.inMemoryPqVectors;
             final SearchScoreProvider scoreProvider = pqVectors != null && pqVectors.count() > 0
                 ? new DefaultSearchScoreProvider(
