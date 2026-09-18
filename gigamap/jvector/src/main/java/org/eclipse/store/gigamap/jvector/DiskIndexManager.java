@@ -487,14 +487,22 @@ interface DiskIndexManager extends Closeable
                     final Path pqvPath = this.indexDirectory.resolve(this.name + PQV_FILE_EXT);
                     if(!Files.exists(pqvPath))
                     {
-                        if(expected.expectedVectorCount < PQCompressionManager.MIN_VECTORS_FOR_PQ_TRAINING)
+                        // The graph's own node count, not expectedVectorCount. The latter counts
+                        // entities, and in embedded mode an entity without an embedding is counted
+                        // but not indexed - so a map of 300 entities holding 100 vectors reads as
+                        // 300 here while PQ training saw 100 and declined. Using it would restore
+                        // the rebuild-every-restart loop for exactly the corpus shape that provoked
+                        // training to decline in the first place. The graph is already open at this
+                        // point and its node count is what was actually written.
+                        final int indexedVectors = this.diskIndex.size(0);
+                        if(indexedVectors < PQCompressionManager.MIN_VECTORS_FOR_PQ_TRAINING)
                         {
                             // Too small to have trained: there are no codes to be missing. Traversal
                             // falls back to exact scoring, exactly as a FusedPQ graph whose training
                             // declined does, and the next persist past the threshold writes both.
-                            LOG.debug("No PQ sidecar for '{}' and only {} vectors, below the {} needed"
-                                + " to train - loading without compressed scoring",
-                                this.name, expected.expectedVectorCount,
+                            LOG.debug("No PQ sidecar for '{}' and only {} indexed vectors, below the"
+                                + " {} needed to train - loading without compressed scoring",
+                                this.name, indexedVectors,
                                 PQCompressionManager.MIN_VECTORS_FOR_PQ_TRAINING);
                         }
                         else
