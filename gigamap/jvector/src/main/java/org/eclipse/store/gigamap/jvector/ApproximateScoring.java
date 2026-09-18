@@ -95,16 +95,16 @@ public enum ApproximateScoring
      * Product Quantization codes held in memory, in a sidecar file beside the graph rather than
      * fused into it.
      * <ul>
-     *   <li><b>Cost:</b> nothing is added to the graph; {@code pqSubspaces} bytes per vector in a
+     *   <li><b>Cost:</b> nothing is added to the graph; {@code pqSubspaces} bytes per ordinal in a
      *       sidecar file, and the same again resident in heap while the index is open</li>
      *   <li><b>Per hop:</b> candidates are scored from the in-heap codes, with no disk read at all</li>
      * </ul>
      * The same approximate scoring as {@link #FUSED_PQ}, bought differently. Fusing duplicates each
      * node's code into every neighbour that references it, which costs
      * {@code pqSubspaces * maxDegree} bytes per node <i>on disk</i>; holding the codes in one flat
-     * array costs {@code pqSubspaces} bytes per vector <i>once</i>. At {@code dimension=768},
+     * array costs {@code pqSubspaces} bytes per ordinal <i>once</i>. At {@code dimension=768},
      * {@code maxDegree=32} and the automatic {@code pqSubspaces} of 192, that is 6144 bytes per node
-     * of graph file against 192 bytes per vector of heap.
+     * of graph file against 192 bytes per ordinal of heap.
      * <p>
      * <b>The heap cost is linear and unbounded.</b> It is {@code pqSubspaces} bytes for every
      * ordinal up to the highest in use - deletion holes included - resident for as long as the index

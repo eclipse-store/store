@@ -222,9 +222,9 @@ Sequentially NVQ costs about 3x the persist time. Under the parallel writer that
 
 === PQ_IN_MEMORY: The Same Codes, Kept Out of the Graph
 
-`FUSED_PQ` and `PQ_IN_MEMORY` buy the same approximate traversal and differ only in where the codes live. Fusing writes each node's code into every neighbour that references it, so the cost is `pqSubspaces * maxDegree` bytes per node *on disk*. Keeping them in a sidecar costs `pqSubspaces` bytes per vector *once*, in a `{indexName}.pqv` file that is read into heap when the index loads.
+`FUSED_PQ` and `PQ_IN_MEMORY` buy the same approximate traversal and differ only in where the codes live. Fusing writes each node's code into every neighbour that references it, so the cost is `pqSubspaces * maxDegree` bytes per node *on disk*. Keeping them in a sidecar costs `pqSubspaces` bytes per ordinal *once*, in a `{indexName}.pqv` file that is read into heap when the index loads.
 
-At `dimension=768`, `maxDegree=32` and the automatic `pqSubspaces` of 192, that is 6,144 bytes per node of graph file against 192 bytes per vector of heap.
+At `dimension=768`, `maxDegree=32` and the automatic `pqSubspaces` of 192, that is 6,144 bytes per node of graph file against 192 bytes per ordinal of heap. Per ordinal rather than per vector because the codes are indexed by entity id, so a deletion hole still costs its bytes -- the IMPORTANT note below puts numbers on that.
 
 [source, java]
 ----

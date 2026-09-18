@@ -4784,6 +4784,36 @@ class VectorIndexDiskTest
                 "a sidecar covering fewer ordinals than the graph must be rejected, not left to fail"
                     + " on a lookup mid-search");
         }
+
+        // The other checkable mismatch: enough ordinals, wrong code length. A different pqSubspaces
+        // is its own metadata witness, so this can only be reached by the sidecar arriving from
+        // elsewhere - which is the case the check exists for.
+        final Path wrongShapeDir = tempDir.resolve("wrongshape");
+        final GigaMap<Document> wrongShape = GigaMap.New();
+        try(final VectorIndex<Document> index = wrongShape.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(wrongShapeDir)
+                .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+                .pqSubspaces(pqSubspaces / 2)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(wrongShape, new Random(88), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+        }
+
+        Files.copy(wrongShapeDir.resolve("embeddings.pqv"), indexDir.resolve("embeddings.pqv"),
+            StandardCopyOption.REPLACE_EXISTING);
+
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, format, false))
+        {
+            assertFalse(manager.tryLoad(state),
+                "a sidecar encoding " + (pqSubspaces / 2) + " bytes per vector must be rejected by an"
+                    + " index configured for " + pqSubspaces);
+        }
     }
 
     /**
