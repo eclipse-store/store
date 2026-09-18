@@ -4817,6 +4817,111 @@ class VectorIndexDiskTest
     }
 
     /**
+     * A sidecar must never outlive the graph it was written for.
+     * <p>
+     * The sequence review reproduced: an index persists with a codebook, so a {@code .pqv} exists;
+     * a later persist writes none, because training declined for that generation; the graph and the
+     * metadata are replaced but the old sidecar stays on disk. The next load finds a file that is
+     * present, correctly shaped and large enough, so every check it had passed - and the index came
+     * up reporting compressed scoring, traversing on codes describing vectors it no longer holds.
+     * Silent, and worst exactly when the vectors changed in between, which is the case that put the
+     * index in this state.
+     * <p>
+     * Two things stop it, and both are needed. The persist removes a sidecar it is not replacing,
+     * so the pair on disk stays consistent at every point a crash can stop at. And the sidecar
+     * carries the {@code structuralModCount} of the persist that wrote it, so one that survives by
+     * any other route - a crash between the two renames, a file copied in - is recognised rather
+     * than merely looking plausible. Without the removal the witness alone would reject the stale
+     * file forever, rebuilding on every restart, since the rebuild would decline again and leave it
+     * in place again.
+     */
+    @Test
+    void testSidecarFromAnEarlierGenerationIsNotUsed(@TempDir final Path tempDir) throws IOException
+    {
+        final int  dimension   = 64;
+        final int  pqSubspaces = 16;
+        final Path storageDir  = tempDir.resolve("storage");
+        final Path indexDir    = tempDir.resolve("vectors");
+        final Path pqvPath     = indexDir.resolve("embeddings.pqv");
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+            .pqSubspaces(pqSubspaces)
+            .build();
+
+        // Generation one: enough vectors to train, so a sidecar is written.
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            storage.setRoot(gigaMap);
+
+            final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+                .add("embeddings", config, new ComputedDocumentVectorizer());
+
+            addRandomDocuments(gigaMap, new Random(11), dimension, 400, "doc_");
+            index.persistToDisk();
+
+            assertTrue(index.isPqCompressionActive(), "generation one must have trained");
+            storage.storeRoot();
+        }
+
+        assertTrue(Files.exists(pqvPath), "generation one must have left a sidecar");
+        final byte[] firstGeneration = Files.readAllBytes(pqvPath);
+
+        // Generation two: the same directory, a graph small enough that training declines. Built
+        // through a fresh index rather than by mutating the first, which is what a rejected load
+        // followed by a rebuild amounts to.
+        final Path storageDir2 = tempDir.resolve("storage2");
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir2))
+        {
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            storage.setRoot(gigaMap);
+
+            final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+                .add("embeddings", config, new ComputedDocumentVectorizer());
+
+            addRandomDocuments(gigaMap, new Random(22), dimension, 100, "doc_");
+            index.persistToDisk();
+
+            assertFalse(index.isPqCompressionActive(),
+                "generation two must decline training, or this test is not in the state it targets");
+            storage.storeRoot();
+        }
+
+        assertFalse(Files.exists(pqvPath),
+            "a persist that writes no sidecar must not leave the previous one behind");
+
+        // And if one survives anyway - a crash between the renames, or a file restored by hand -
+        // the witness it carries is what gives it away.
+        Files.write(pqvPath, firstGeneration);
+
+        final VectorIndex.Default<Document> written;
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir2))
+        {
+            final GigaMap<Document> gigaMap = storage.root();
+            written = (VectorIndex.Default<Document>)
+                gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+
+            final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
+                written.getExpectedVectorCount(), written.getHighestEntityId(),
+                written.getStructuralModCount());
+            final GraphFormat format = new GraphFormat(
+                VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY, pqSubspaces, 0);
+
+            try(final DiskIndexManager manager = new DiskIndexManager.Default(
+                written, "embeddings", indexDir, dimension, format, false))
+            {
+                assertFalse(manager.tryLoad(state),
+                    "a sidecar from an earlier generation must be refused, not scored from");
+            }
+        }
+    }
+
+    /**
      * A missing sidecar must be a rejection, not a silent degrade.
      * <p>
      * The metadata says this index traverses on PQ codes. Serving it exactly instead would work, and

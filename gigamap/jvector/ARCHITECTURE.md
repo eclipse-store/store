@@ -723,7 +723,7 @@ If `trainIfNeeded()` throws (training data degenerate, dimension mismatch, etc.)
 Two files per index, named after `VectorIndex.Default.name`, plus a third for one scoring mode:
 
 - `{name}.graph` — JVector's `OnDiskGraphIndex` payload. Contains the HNSW edges plus exactly one vector-storage feature (`InlineVectors` **or** `NVQ`) and optionally `FusedPQ`. Sized in megabytes for millions of vectors.
-- `{name}.pqv` — **only** for `approximateScoring = PQ_IN_MEMORY`. The PQ codes and their codebook, written through `PQVectors.write` and read back by `PQVectors.load`. Indexed by graph ordinal, so it spans the whole ordinal space including deletion holes, and it is heap-resident for as long as the index is open. Note that `PQVectors.writeSidecarHeader` is *not* the writer for this despite the name: it emits the codebook and counts only, for a caller that streams the chunks itself.
+- `{name}.pqv` — **only** for `approximateScoring = PQ_IN_MEMORY`. The PQ codes and their codebook, written through `PQVectors.write` and read back by `PQVectors.load`, followed by a 12-byte trailer holding a magic and the `structuralModCount` of the persist that wrote it. Indexed by graph ordinal, so it spans the whole ordinal space including deletion holes, and it is heap-resident for as long as the index is open. Note that `PQVectors.writeSidecarHeader` is *not* the writer for this despite the name: it emits the codebook and counts only, for a caller that streams the chunks itself.
 - `{name}.meta` — 48-byte sidecar:
   - `int` format version (currently `5`, see [`DiskIndexManager.java`](src/main/java/org/eclipse/store/gigamap/jvector/DiskIndexManager.java))
   - `int` dimension
@@ -751,7 +751,11 @@ The configured values are recorded, not the ones the write achieved. If training
 
 `PQ_IN_MEMORY` was added after v5 shipped on this branch and needed **no** bump: it is a new scoring code, and an older build rejects an unknown code rather than misreading it. That is the property the explicit codes exist for, and the same applies to any future mode.
 
-The commit order is sidecar, then graph, then meta — meta last, because it is the validity stamp. A missing sidecar is a rejection rather than a degrade: the meta asserts that this index traverses on PQ codes, so serving it exactly instead would leave the configuration describing something the index is not doing.
+The commit order is sidecar, then graph, then meta — meta last, because it is the validity stamp. A persist that writes **no** sidecar deletes any existing one in the same step, before the graph becomes visible: a codebook is not always produced (training needs 256 embeddings), and a sidecar left from an earlier generation would otherwise be picked up beside a graph it does not describe.
+
+A missing sidecar is a rejection rather than a degrade **unless the graph holds too few vectors to have trained** — read from `diskIndex.size(0)`, not from `expectedVectorCount`, which counts entities and so over-counts in embedded mode. Below that threshold there are no codes to be missing and traversal scores exactly, the same fallback a FusedPQ graph whose training declined already gets; above it, absence is loss and the graph is rebuilt.
+
+A sidecar that is present is checked three ways: its code length against the configured subspace count, its ordinal span against the highest entity id in use, and its trailer against the `structuralModCount` the metadata carries. The last is what catches a file that outlived its graph by a route the delete above does not cover — a crash between the sidecar and graph renames, or a file restored by hand. Content is not checkable: a correctly shaped sidecar holding codes for other vectors passes, which is what `testPqInMemoryCodesActuallyDriveTraversal` relies on to prove the codes are consulted at all.
 
 The codes are `VectorStorage.code()` and `ApproximateScoring.code()`, deliberately **not** ordinals. An existing constant's code never changes and a new one is appended, so inserting a constant cannot silently reinterpret a file already on disk; a code this build does not know resolves to `null` and is treated as a mismatch. A newer version's file is therefore rejected and rebuilt rather than misread — which is also why adding a future storage or scoring mode needs no further version bump.
 

@@ -124,6 +124,16 @@ interface DiskIndexManager extends Closeable
      * codes out of the graph: fusing them duplicates each one {@code maxDegree} times, while this
      * holds one flat array that is read into heap on load.
      */
+    /**
+     * Marks the generation witness appended to a {@code .pqv} by {@code writePqSidecar}, so a file
+     * without one - written before the witness existed, or truncated - is told apart from a file
+     * whose witness simply disagrees.
+     */
+    final static int PQV_WITNESS_MAGIC = 0x5051_5657;
+
+    /** Size of that trailer: the magic plus the {@code structuralModCount} it carries. */
+    final static int PQV_WITNESS_BYTES = Integer.BYTES + Long.BYTES;
+
     final static String PQV_FILE_EXT = ".pqv";
 
     /**
@@ -514,8 +524,8 @@ interface DiskIndexManager extends Closeable
                     }
                     else
                     {
-                        final PQVectors loadedCodes = this.readPqSidecar(pqvPath);
-                        if(!this.sidecarFitsTheGraph(loadedCodes, expected))
+                        final PQVectors loadedCodes = this.readPqSidecar(pqvPath, expected.structuralModCount);
+                        if(loadedCodes == null || !this.sidecarFitsTheGraph(loadedCodes, expected))
                         {
                             this.close();
                             return false;
@@ -676,7 +686,7 @@ interface DiskIndexManager extends Closeable
 
                 if(sidecarPq != null)
                 {
-                    this.writePqSidecar(ravv, sidecarPq, pqvTempPath);
+                    this.writePqSidecar(ravv, sidecarPq, pqvTempPath, metaState.structuralModCount);
                 }
 
                 if(fusedPq == null && nvq == null)
@@ -704,6 +714,15 @@ interface DiskIndexManager extends Closeable
                 if(sidecarPq != null)
                 {
                     this.atomicMove(pqvTempPath, pqvPath);
+                }
+                else
+                {
+                    // No codebook this time - training declined, or this mode writes none. Any
+                    // sidecar from an earlier generation describes vectors this graph no longer
+                    // holds, and leaving it would have the next load pick it up beside the new
+                    // graph. Removing it before the graph becomes visible keeps the pair consistent
+                    // at every point a crash can stop at.
+                    this.deleteQuietly(pqvPath);
                 }
                 this.atomicMove(graphTempPath, graphPath);
                 this.atomicMove(metaTempPath, metaPath);
@@ -817,9 +836,10 @@ interface DiskIndexManager extends Closeable
          * @throws IOException if writing fails
          */
         private void writePqSidecar(
-            final RandomAccessVectorValues ravv   ,
-            final ProductQuantization      pq     ,
-            final Path                     pqvPath
+            final RandomAccessVectorValues ravv              ,
+            final ProductQuantization      pq                ,
+            final Path                     pqvPath           ,
+            final long                     structuralModCount
         ) throws IOException
         {
             final PQVectors pqVectors = (PQVectors)pq.encodeAll(ravv);
@@ -827,6 +847,14 @@ interface DiskIndexManager extends Closeable
             try(final SimpleWriter writer = new SimpleWriter(pqvPath))
             {
                 pqVectors.write(writer, OnDiskGraphIndex.CURRENT_VERSION);
+
+                // Stamp the generation this sidecar belongs to, after JVector's payload so its
+                // format is untouched and a reader that only wants the codes still works. The graph
+                // and the meta carry the same counter, so a sidecar that outlived its graph - left
+                // by a persist that wrote no codebook, or by a crash between the two renames - is
+                // recognisable rather than merely plausible.
+                writer.writeInt(PQV_WITNESS_MAGIC);
+                writer.writeLong(structuralModCount);
             }
 
             LOG.info("Wrote PQ sidecar for '{}': {} vectors, {} bytes per code, {} bytes resident when loaded",
@@ -884,12 +912,41 @@ interface DiskIndexManager extends Closeable
          * @return the loaded codes
          * @throws IOException if the file is missing or unreadable
          */
-        private PQVectors readPqSidecar(final Path pqvPath) throws IOException
+        private PQVectors readPqSidecar(final Path pqvPath, final long expectedModCount) throws IOException
         {
+            final long trailerStart = Files.size(pqvPath) - PQV_WITNESS_BYTES;
+            if(trailerStart < 0)
+            {
+                LOG.info("PQ sidecar for '{}' is too short to carry its generation witness, rebuilding",
+                    this.name);
+                return null;
+            }
+
             try(final ReaderSupplier supplier = ReaderSupplierFactory.open(pqvPath);
                 final RandomAccessReader reader = supplier.get())
             {
-                return PQVectors.load(reader);
+                final PQVectors codes = PQVectors.load(reader);
+
+                reader.seek(trailerStart);
+                if(reader.readInt() != PQV_WITNESS_MAGIC)
+                {
+                    LOG.info("PQ sidecar for '{}' carries no generation witness, rebuilding", this.name);
+                    return null;
+                }
+
+                final long sidecarModCount = reader.readLong();
+                if(sidecarModCount != expectedModCount)
+                {
+                    // The graph beside it was written by a different persist. Most often a persist
+                    // whose training declined, which writes no sidecar and leaves the previous one
+                    // behind; the codes then describe vectors the graph no longer holds, and using
+                    // them would degrade traversal with nothing to show for it.
+                    LOG.info("PQ sidecar for '{}' belongs to generation {}, graph to {}, rebuilding",
+                        this.name, sidecarModCount, expectedModCount);
+                    return null;
+                }
+
+                return codes;
             }
         }
 
