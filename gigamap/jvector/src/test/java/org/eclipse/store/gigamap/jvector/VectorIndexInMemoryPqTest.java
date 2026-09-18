@@ -234,6 +234,68 @@ class VectorIndexInMemoryPqTest
     }
 
     /**
+     * An explicit {@code optimize()} must not erase changes that have not been optimized.
+     * <p>
+     * The bootstrap request and the mutation count answer different questions - "this index was
+     * armed for an optimization it cannot earn" against "this much has changed" - so consuming the
+     * request must not consume the count. An explicit {@code optimize()} clears the request,
+     * because it does the work the request was asking for; the mutations that accrued before it are
+     * a separate claim on a later optimization and stay standing.
+     * <p>
+     * Set up so the erasure is the only thing that can decide the outcome: 300 changes before the
+     * explicit call and 250 after, against a threshold of 500. Together they clear it, so a
+     * scheduled optimization must follow. Each alone does not, so if the first 300 are erased none
+     * ever runs.
+     */
+    @Test
+    @Timeout(value = 300, unit = TimeUnit.SECONDS)
+    void anExplicitOptimizeDoesNotEraseUnoptimizedChanges() throws InterruptedException
+    {
+        final Random        random  = new Random(2718);
+        final List<float[]> vectors = clusteredVectors(random, 550);
+
+        final GigaMap<Doc> map = GigaMap.New();
+        try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(DIM)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .maxDegree(16)
+                .beamWidth(100)
+                .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+                .pqSubspaces(DIM / 4)
+                .optimizationIntervalMs(1_000)
+                .minChangesBetweenOptimizations(500)
+                .build(), new CountingVectorizer()))
+        {
+            final VectorIndex.Default<Doc> internal = (VectorIndex.Default<Doc>)index;
+
+            for(int i = 0; i < 300; i++)
+            {
+                map.add(new Doc("d" + i, vectors.get(i)));
+            }
+
+            // Below the threshold, so nothing has been scheduled on its own yet.
+            assertEquals(0L, internal.backgroundTaskManager.getOptimizationCount(),
+                "the threshold was reached during setup, so this run cannot tell the two apart");
+
+            index.optimize();
+            assertTrue(index.isPqCompressionActive());
+
+            for(int i = 300; i < 550; i++)
+            {
+                map.add(new Doc("d" + i, vectors.get(i)));
+            }
+
+            // Several tick intervals.
+            Thread.sleep(4_000L);
+
+            assertTrue(internal.backgroundTaskManager.getOptimizationCount() > 0L,
+                "no scheduled optimization ran, so the 300 changes made before the explicit"
+                    + " optimize() were erased along with the bootstrap request");
+        }
+    }
+
+    /**
      * The mode is on-disk-free but not optimization-free: without a scheduled optimization there is
      * no point at which the switch could happen, so the configuration would be accepted and then
      * silently never take effect. That is rejected rather than allowed.

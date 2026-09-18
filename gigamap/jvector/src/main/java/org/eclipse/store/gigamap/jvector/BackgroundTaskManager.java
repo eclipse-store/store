@@ -188,10 +188,11 @@ class BackgroundTaskManager
     private final AtomicBoolean                            indexingTaskScheduled ;
 
     // Optimization state
-    private final AtomicInteger optimizationChangeCount;
-    private final AtomicLong    optimizationCount      ;
-    private final int           optimizationMinChanges ;
-    private ScheduledFuture<?>  optimizationTask       ;
+    private final AtomicInteger optimizationChangeCount  ;
+    private final AtomicLong    optimizationCount        ;
+    private final int           optimizationMinChanges   ;
+    private ScheduledFuture<?>  optimizationTask         ;
+    private volatile boolean    optimizationBootstrapDue ;
 
     // Persistence state
     private final AtomicInteger persistenceChangeCount;
@@ -388,24 +389,31 @@ class BackgroundTaskManager
      * change count and the scheduled optimization is skipped forever. The index would stay on exact
      * scoring for the rest of the session despite being configured for, and capable of, the switch.
      * <p>
-     * Only the optimization counter, deliberately - persistence has no equivalent transition to
-     * bootstrap, and an in-memory index does not persist at all.
+     * A request of its own rather than a value written into {@code optimizationChangeCount}, so
+     * that arming it, and later clearing it, cannot add to or erase what mutations have accrued
+     * there. Only optimization has one - persistence has no equivalent transition to bootstrap,
+     * and an in-memory index does not persist at all.
      */
     void requestInitialOptimization()
     {
-        this.optimizationChangeCount.set(this.optimizationMinChanges);
+        this.optimizationBootstrapDue = true;
     }
 
     /**
      * Clears a pending bootstrap request, because the optimization it was asking for has happened.
      * <p>
      * An explicit {@code optimize()} does the same work as the scheduled one it was armed for and
-     * does not go through {@code runOptimizationIfDirty}, so the counter it set would still be at
-     * the threshold afterwards and the next tick would run a second full pass for nothing.
+     * does not go through {@code runOptimizationIfDirty}, so without this the request would still
+     * be standing afterwards and the next tick would run a second full pass for nothing.
+     * <p>
+     * Only the request. It deliberately leaves {@code optimizationChangeCount} alone: that counter
+     * belongs to {@code markDirty}, and a mutation arriving while the optimization ran has accrued
+     * to it legitimately. Clearing it here would erase that mutation's claim on a future
+     * optimization along with the request.
      */
     void clearOptimizationRequest()
     {
-        this.optimizationChangeCount.set(0);
+        this.optimizationBootstrapDue = false;
     }
 
     /**
@@ -659,7 +667,11 @@ class BackgroundTaskManager
             return;
         }
 
-        if(this.optimizationChangeCount.get() < this.optimizationMinChanges)
+        // Either enough has changed, or this index was armed for an optimization it cannot earn.
+        // Two separate pieces of state, because they answer different questions and one must not
+        // consume the other: the bootstrap is a single request, the count is how much has changed.
+        if(!this.optimizationBootstrapDue
+            && this.optimizationChangeCount.get() < this.optimizationMinChanges)
         {
             return;
         }
@@ -680,6 +692,7 @@ class BackgroundTaskManager
 
             cb.doOptimize();
 
+            this.optimizationBootstrapDue = false;
             this.optimizationChangeCount.set(0);
             this.optimizationCount.incrementAndGet();
 
