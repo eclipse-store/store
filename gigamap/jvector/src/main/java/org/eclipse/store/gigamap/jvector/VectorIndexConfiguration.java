@@ -1643,10 +1643,16 @@ public interface VectorIndexConfiguration
         private final VectorStorage            vectorStorage                 ;
         private final ApproximateScoring       approximateScoring            ;
         private final int                      nvqSubvectors                 ;
-        // Retained although approximateScoring now carries the same information. Removing a
-        // persisted field is a schema change, and keeping it means a build predating the enums can
-        // still read a config written by this one and see the truth in the field it knows.
-        // It is derived in the constructor and never set independently.
+        // Retained although approximateScoring now carries the same information, because this is
+        // the field a configuration written before the enums existed carries its setting in: when
+        // those enum fields come back null, approximateScoring() derives the value from here. It is
+        // derived in the constructor and never set independently.
+        //
+        // It is NOT a downgrade path, and must not be read as one. Once this build has persisted a
+        // configuration, VectorStorage and ApproximateScoring are in the type dictionary, and a
+        // build predating them cannot open the storage at all - it fails with a missing runtime
+        // type for the required type handler rather than falling back to this field. Verified by
+        // restarting a storage across the two module versions.
         private final boolean                  enablePqCompression           ;
         private final int                      pqSubspaces                   ;
         private final long                     persistenceIntervalMs         ;
