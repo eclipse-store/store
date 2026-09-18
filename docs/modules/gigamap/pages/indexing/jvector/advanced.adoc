@@ -262,6 +262,10 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
     // Required here: the switch to compressed scoring happens at optimization
     .optimizationIntervalMs(600_000)
+    // And the optimization has to actually run: the background manager skips one until this many
+    // changes have accumulated, and the default of 1000 would strand an index of a few hundred
+    // vectors on exact scoring for good.
+    .minChangesBetweenOptimizations(100)
     .build();
 ----
 
