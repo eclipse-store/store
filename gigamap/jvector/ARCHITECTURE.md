@@ -866,7 +866,7 @@ Two consequences follow, and both are deliberate:
 
 A teardown is the one thing the monitor does not exclude: `close()` and `internalRemoveAll` take the write lock, and `close()` does not take the monitor at all. The switch therefore captures the builder it was planned against and checks it is still the index's own immediately before publishing, so a replacement built for an index that has since been torn down is dropped rather than resurrecting it over closed searcher pools.
 
-Publication order is graph, then builder, then codes — all `volatile`. `isPqCompressionActive()` and the search path read the codes with no lock, so the codes going last means a reader that sees them also sees the graph that scores from them.
+Publication order is **codes, then graph, then builder** — all `volatile`. The codes lead because the replacement builder cannot be used without them: it scores every incoming node against the code store, and `trackPqCode` is a no-op while there are none, so a callback that reached the new builder first would insert a node with no code of its own and link it by a code that is not there. Nothing else has that dependency — codes are keyed by ordinal and both graphs carry the same ordinals, so codes visible before the graph are already correct for the graph still in place. The cost is that `isPqCompressionActive()` and the search path, which read the codes with no lock, can see them a few instructions early; that reports nothing untrue, because at that moment a search really would score from them, and correctly.
 
 ### `cleanupInProgress` / `deferredBuilderOps` protocol
 

@@ -151,6 +151,22 @@ class BackgroundTaskManager
         void markDirtyForBackgroundManagers(int count);
 
         /**
+         * Whether this index needs an optimization it cannot earn through the change count.
+         * <p>
+         * Asked on every scheduled tick, rather than answered once and remembered, because the
+         * answer changes with the index: an index restored below the codebook's training minimum
+         * says no until enough vectors arrive, and then says yes. A remembered request would have
+         * been consumed by the optimization that declined in between, and nothing would ask again.
+         *
+         * @return true if the next scheduled optimization should run regardless of the threshold
+         */
+        default boolean needsUnearnedOptimization()
+        {
+            // The ordinary answer: an index earns its optimizations through the change count.
+            return false;
+        }
+
+        /**
          * Core optimization logic without queue drain.
          * Called from the executor thread (inline drain already done).
          */
@@ -188,11 +204,10 @@ class BackgroundTaskManager
     private final AtomicBoolean                            indexingTaskScheduled ;
 
     // Optimization state
-    private final AtomicInteger optimizationChangeCount  ;
-    private final AtomicLong    optimizationCount        ;
-    private final int           optimizationMinChanges   ;
-    private ScheduledFuture<?>  optimizationTask         ;
-    private volatile boolean    optimizationBootstrapDue ;
+    private final AtomicInteger optimizationChangeCount;
+    private final AtomicLong    optimizationCount      ;
+    private final int           optimizationMinChanges ;
+    private ScheduledFuture<?>  optimizationTask       ;
 
     // Persistence state
     private final AtomicInteger persistenceChangeCount;
@@ -379,42 +394,6 @@ class BackgroundTaskManager
     // ========================================================================
     // Optimization monitoring
     // ========================================================================
-
-    /**
-     * Arms the next scheduled optimization regardless of how few changes have accumulated.
-     * <p>
-     * For the one case that needs an optimization it will never earn through mutations: an in-memory
-     * index configured for {@code PQ_IN_MEMORY} switches to compressed scoring at
-     * optimization, and after a restart its entities are already in the store, so nothing bumps the
-     * change count and the scheduled optimization is skipped forever. The index would stay on exact
-     * scoring for the rest of the session despite being configured for, and capable of, the switch.
-     * <p>
-     * A request of its own rather than a value written into {@code optimizationChangeCount}, so
-     * that arming it, and later clearing it, cannot add to or erase what mutations have accrued
-     * there. Only optimization has one - persistence has no equivalent transition to bootstrap,
-     * and an in-memory index does not persist at all.
-     */
-    void requestInitialOptimization()
-    {
-        this.optimizationBootstrapDue = true;
-    }
-
-    /**
-     * Clears a pending bootstrap request, because the optimization it was asking for has happened.
-     * <p>
-     * An explicit {@code optimize()} does the same work as the scheduled one it was armed for and
-     * does not go through {@code runOptimizationIfDirty}, so without this the request would still
-     * be standing afterwards and the next tick would run a second full pass for nothing.
-     * <p>
-     * Only the request. It deliberately leaves {@code optimizationChangeCount} alone: that counter
-     * belongs to {@code markDirty}, and a mutation arriving while the optimization ran has accrued
-     * to it legitimately. Clearing it here would erase that mutation's claim on a future
-     * optimization along with the request.
-     */
-    void clearOptimizationRequest()
-    {
-        this.optimizationBootstrapDue = false;
-    }
 
     /**
      * Marks dirty for optimization and persistence tracking.
@@ -667,19 +646,19 @@ class BackgroundTaskManager
             return;
         }
 
-        // Either enough has changed, or this index was armed for an optimization it cannot earn.
-        // Two separate pieces of state, because they answer different questions and one must not
-        // consume the other: the bootstrap is a single request, the count is how much has changed.
-        if(!this.optimizationBootstrapDue
-            && this.optimizationChangeCount.get() < this.optimizationMinChanges)
-        {
-            return;
-        }
-
         final Callback cb = this.liveCallback();
         if(cb == null)
         {
             return; // index abandoned; liveCallback() has already self-terminated the manager
+        }
+
+        // Either enough has changed, or the index needs an optimization it cannot earn that way.
+        // The second is a question asked fresh each tick rather than a request held somewhere, so
+        // it cannot be consumed by an optimization that did not do what it was needed for.
+        if(this.optimizationChangeCount.get() < this.optimizationMinChanges
+            && !cb.needsUnearnedOptimization())
+        {
+            return;
         }
 
         LOG.debug("Background optimizing index '{}' with {} changes",
@@ -692,7 +671,6 @@ class BackgroundTaskManager
 
             cb.doOptimize();
 
-            this.optimizationBootstrapDue = false;
             this.optimizationChangeCount.set(0);
             this.optimizationCount.incrementAndGet();
 

@@ -16,10 +16,14 @@ package org.eclipse.store.gigamap.jvector;
 
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.ScoredSearchResult;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -386,6 +390,75 @@ class VectorIndexInMemoryPqTest
     }
 
     /**
+     * An index restored from storage switches on a scheduled optimization it could never earn.
+     * <p>
+     * This is the case the whole unearned-optimization path exists for, and the only one that
+     * reaches it. A reloaded index has its entities already in the store, so nothing bumps the
+     * change count for them and the threshold is never approached - yet it starts on exact scoring,
+     * because the codes are transient and do not survive the round trip. Without the carve-out it
+     * would stay that way for the rest of the session.
+     * <p>
+     * Deliberately end to end, with a real storage round trip and no {@code optimize()} call after
+     * the reload: everything the carve-out depends on - the restored flag being set on the load
+     * path, the scheduled tick asking for it, the switch finding enough vectors - has to hold at
+     * once for this to pass. The threshold is far out of reach, so a scheduled optimization can
+     * only happen because the index was recognised as restored.
+     *
+     * @param dir the temporary storage directory
+     */
+    @Test
+    @Timeout(value = 300, unit = TimeUnit.SECONDS)
+    void aRestoredIndexSwitchesWithoutReachingTheChangeThreshold(@TempDir final Path dir)
+        throws InterruptedException
+    {
+        final Random        random  = new Random(31415);
+        final List<float[]> vectors = clusteredVectors(random, 300);
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(dir))
+        {
+            final GigaMap<Doc> map = GigaMap.New();
+            storage.setRoot(map);
+            map.index().register(VectorIndices.Category())
+                .add("embeddings", tickingInMemoryPqConfig(), new CountingVectorizer());
+            for(int i = 0; i < vectors.size(); i++)
+            {
+                map.add(new Doc("d" + i, vectors.get(i)));
+            }
+            storage.storeRoot();
+        }
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(dir))
+        {
+            final GigaMap<Doc>     map   = storage.root();
+            final VectorIndex<Doc> index = map.index()
+                .get(VectorIndices.Category())
+                .get("embeddings")
+            ;
+
+            assertEquals(300, map.size(), "the entities came back");
+            assertFalse(index.isPqCompressionActive(),
+                "the codes are transient, so a restored index starts on exact scoring");
+
+            // A search, to force the deferred initialization the load path leaves for first access.
+            // Nothing here mutates, so nothing contributes to the change count.
+            topK(index, vectors.get(0), 10);
+
+            // Several tick intervals. No optimize() call - the scheduled one has to happen by
+            // itself, 300 entities short of a threshold of 50000.
+            Thread.sleep(6_000L);
+
+            assertTrue(index.isPqCompressionActive(),
+                "a restored index never switched: it cannot earn a scheduled optimization, so"
+                    + " without the carve-out for exactly this case it stays on exact scoring for"
+                    + " the whole session");
+            // And the graph it switched to is the restored data, not an empty one.
+            assertEquals(10, topK(index, vectors.get(7), 10).size(),
+                "the index returns no results after switching, so the replacement was not built"
+                    + " from the restored entities");
+        }
+    }
+
+    /**
      * The mode is on-disk-free but not optimization-free: without a scheduled optimization there is
      * no point at which the switch could happen, so the configuration would be accepted and then
      * silently never take effect. That is rejected rather than allowed.
@@ -629,9 +702,11 @@ class VectorIndexInMemoryPqTest
      * stretch while {@code searchInMemoryIndex} was still selecting the exact provider, which is the
      * opposite of what "actually in effect, as opposed to merely configured" promises.
      * <p>
-     * The published codes are the witness instead: they appear last, after the graph that scores
-     * from them. The hook observes exactly that instant - the replacement is complete, the codebook
-     * exists, and nothing has been published yet.
+     * The published codes are the witness instead, and the hook observes the instant before any of
+     * the publication happens: the replacement is complete, the codebook exists, and nothing at all
+     * is visible yet. That is the whole window the status must stay false for - the codes are
+     * published first of the three, so from the first visible write onwards the index really is
+     * scoring from them.
      */
     @Test
     @Timeout(value = 300, unit = TimeUnit.SECONDS)

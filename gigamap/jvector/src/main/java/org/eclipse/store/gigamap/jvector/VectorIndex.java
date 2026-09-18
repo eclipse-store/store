@@ -798,8 +798,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * <b>It does nothing for an in-memory index using
          * {@link ApproximateScoring#PQ_IN_MEMORY}</b>, and that is deliberate rather than an
          * oversight. There a codebook on its own is not a usable state: the transition also encodes
-         * every ordinal and rebuilds the graph to score from the codes, and it must happen under the
-         * builder lock at optimization. Training here would leave the manager holding a codebook
+         * every ordinal and rebuilds the graph to score from the codes, and it happens at
+         * optimization, under the parent GigaMap's monitor. Training here would leave the manager
+         * holding a codebook
          * that the switch reads as work already done, so the index would report compressed scoring
          * while still traversing exactly, with nothing able to correct it. Call {@code optimize()}
          * to pay that cost at a chosen moment instead; {@code isPqCompressionActive()} reports when
@@ -963,10 +964,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         /**
          * Whether this instance came back from storage rather than being newly constructed.
          * <p>
-         * Set by {@link #initializeAfterLoad()} and consumed once, by the optimization bootstrap in
-         * {@code startBackgroundManagersIfEnabled()}. The distinction matters because only a
-         * restored index is unable to earn a scheduled optimization: its entities are already in
-         * the store, so nothing bumps the change count for them.
+         * Set by {@link #initializeAfterLoad()} and then left alone: it is a fact about this
+         * instance, not a request to be consumed. {@link #needsUnearnedOptimization()} reads it on
+         * every scheduled tick. The distinction matters because only a restored index is unable to
+         * earn a scheduled optimization: its entities are already in the store, so nothing bumps
+         * the change count for them.
          * <p>
          * Deliberately not inferred from the vector count. An index registered on an
          * already-populated GigaMap reads a non-empty count here too, while being every bit as new
@@ -1351,19 +1353,27 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return false;
             }
 
-            // Publication, and the order matters. isPqCompressionActive() and the search path read
-            // the codes with no lock at all, so the codes go last: once they are visible the graph
-            // that scores from them already is. All three fields are volatile, which is what makes
+            // Publication, and the order matters: the codes first, then the graph, then the
+            // builder that scores from them. All three fields are volatile, which is what makes
             // that ordering mean anything to another thread.
             //
-            // A search running concurrently reads the codes and then the graph, so it sees either
-            // the old pair or the new codes with the new graph. The remaining combination is
-            // harmless anyway: codes are keyed by ordinal, ordinals are source entity ids, and both
-            // graphs carry the same ones, so the old graph scores correctly against the new codes.
+            // The codes lead because the replacement builder cannot be used without them. It
+            // scores every incoming node against the code store, and trackPqCode is a no-op while
+            // there are none - so a background callback that reached the new builder first would
+            // insert a node with no code of its own, linking it by a code that is not there and
+            // leaving it that way for good. Nothing else has that dependency: the codes are keyed
+            // by ordinal, ordinals are source entity ids, and both graphs carry the same ones, so
+            // codes that arrive before the graph are already correct for the graph still in place.
+            //
+            // The cost is that isPqCompressionActive() and the search path, which read the codes
+            // with no lock, can see them a few instructions before the new graph. That reports
+            // nothing untrue: at that moment the codes really are what a search would score from,
+            // and it would score correctly, because they describe the old graph's ordinals just as
+            // well as the replacement's.
+            this.inMemoryPqVectors = codes;
+
             this.index   = (OnHeapGraphIndex)replacement.getGraph();
             this.builder = replacement;
-
-            this.inMemoryPqVectors = codes;
 
             LOG.info("Switched in-memory index '{}' to PQ-compressed scoring ({} codes)",
                 this.name, codes.count());
@@ -1734,32 +1744,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         this.configuration.shutdownPersistTimeoutMillis()
                     );
 
-                    // An in-memory index that has not switched yet needs one optimization to do
-                    // it, and after a restart it can never earn one: its entities are already in
-                    // the store, so nothing bumps the change count and every scheduled optimization
-                    // is skipped. Arm the first one so the switch happens on schedule rather than
-                    // only if the index later happens to take minChangesBetweenOptimizations
-                    // writes.
-                    //
-                    // Only for an index restored from storage, which is precisely the case that
-                    // cannot earn the optimization. A new index earns it the ordinary way, and that
-                    // includes one registered on an already-populated GigaMap: its entities arrive
-                    // immediately afterwards through the backfill, and every one of them bumps the
-                    // change count on its way in. Arming it too would let a small index switch on
-                    // the first tick without reaching the threshold that
-                    // minChangesBetweenOptimizations documents.
-                    //
-                    // Consumed here, so that a later re-initialization - internalRemoveAll closes
-                    // and rebuilds this state - does not arm a second one for an index that is
-                    // empty again by then.
-                    if(this.restoredFromStorage
-                        && !this.configuration.onDisk()
-                        && this.configuration.approximateScoring() == ApproximateScoring.PQ_IN_MEMORY
-                        && this.inMemoryPqVectors == null)
-                    {
-                        this.restoredFromStorage = false;
-                        this.backgroundTaskManager.requestInitialOptimization();
-                    }
                 }
             }
         }
@@ -2445,6 +2429,38 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         /**
          * Marks dirty for background managers with the specified change count.
          */
+        /**
+         * {@inheritDoc}
+         * <p>
+         * True for an in-memory index that is configured for compressed scoring, has not switched
+         * yet, was restored from storage, and currently holds enough vectors to train a codebook.
+         * <p>
+         * Restored, because that is the one case that cannot earn the optimization: its entities
+         * are already in the store, so nothing bumps the change count for them. A new index earns
+         * it the ordinary way, and that includes one registered on an already-populated GigaMap -
+         * its entities arrive immediately afterwards through the backfill and each one counts, so
+         * saying yes here would let a small index switch on the first tick without reaching the
+         * threshold {@code minChangesBetweenOptimizations} documents.
+         * <p>
+         * Asked fresh each tick rather than remembered, which is what makes the answer track the
+         * index. A restored index holding fewer vectors than the codebook needs says no, so it
+         * costs no optimization passes while it cannot switch anyway; when enough vectors arrive it
+         * says yes, and the switch happens on the next tick however far it still is from the change
+         * threshold. {@link #isPqTrainingPending()} carries both conditions, including the witness
+         * that stops a training attempt that has already declined at this exact state from being
+         * repeated.
+         */
+        @Override
+        public boolean needsUnearnedOptimization()
+        {
+            return this.restoredFromStorage
+                && !this.configuration.onDisk()
+                && this.configuration.approximateScoring() == ApproximateScoring.PQ_IN_MEMORY
+                && this.inMemoryPqVectors == null
+                && this.isPqTrainingPending()
+            ;
+        }
+
         @Override
         public void markDirtyForBackgroundManagers(final int count)
         {
@@ -3177,14 +3193,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
 
             this.doOptimize();
-
-            // An explicit call satisfies whatever a bootstrap request was asking for, and it does
-            // not go through runOptimizationIfDirty, which is what would otherwise clear the
-            // counter. Left armed, the next scheduled tick would run a second full pass for nothing.
-            if(this.backgroundTaskManager != null && this.inMemoryPqVectors != null)
-            {
-                this.backgroundTaskManager.clearOptimizationRequest();
-            }
         }
 
         /**

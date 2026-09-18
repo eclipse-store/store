@@ -346,10 +346,12 @@ public interface VectorIndexConfiguration
     /**
      * Returns how graph traversal scores the candidates it visits.
      * <p>
-     * This is one of two independent dimensions of the on-disk format; the other is
-     * {@link #vectorStorage()}. Whatever is chosen here, the best candidates are always reranked
-     * before they are returned, so this governs which candidates traversal finds rather than how
-     * the final top-k is ordered.
+     * For an on-disk index this is one of two independent dimensions of the format; the other is
+     * {@link #vectorStorage()}, which has no in-memory counterpart. This setting, though, is not
+     * confined to the format: {@link ApproximateScoring#PQ_IN_MEMORY} governs traversal for an
+     * in-memory index too, where nothing is written at all. Whatever is chosen here, the best
+     * candidates are always reranked before they are returned, so this governs which candidates
+     * traversal finds rather than how the final top-k is ordered.
      * <p>
      * {@link ApproximateScoring#FUSED_PQ} requires {@link #onDisk()}, since its codes are written
      * into the graph file. {@link ApproximateScoring#PQ_IN_MEMORY} does not - it keeps its codes in
