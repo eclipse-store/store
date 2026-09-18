@@ -66,21 +66,25 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
      * {@code get(name).configuration()}.
      * <p>
      * Changing the configuration of an existing index requires {@link #removeIndex(String)} followed
-     * by {@link #add(String, VectorIndexConfiguration, Vectorizer)}. For an in-memory index that
-     * re-indexes every entity in the parent map; for an on-disk one it may not, since the files left
-     * behind can still be usable - see below.
+     * by {@link #add(String, VectorIndexConfiguration, Vectorizer)}, which re-indexes every entity in
+     * the parent map.
      * <p>
-     * <b>For an on-disk index, {@link #removeIndex(String)} leaves the index directory's
-     * {@code .graph} and {@code .meta} files in place</b> - it only closes the index and drops the
-     * registry entry. Re-adding under the same name and directory therefore loads those files if
-     * they still describe the data and the configuration.
+     * <b>That holds for an on-disk index too, whatever the configuration changed to, and without
+     * deleting anything by hand.</b> {@link #removeIndex(String)} leaves the index directory's
+     * {@code .graph} and {@code .meta} files in place - it only closes the index and drops the
+     * registry entry - but the index that
+     * {@link #add(String, VectorIndexConfiguration, Vectorizer)} creates never adopts them. It is a
+     * new instance, so its structural modification counter starts at zero, while any {@code .meta}
+     * that was ever written carries at least one. The load is refused on that witness before the
+     * recorded settings are even reached, and the graph is rebuilt from the vectors in the parent
+     * map.
      * <p>
-     * They are checked rather than trusted. The metadata records the format version, the dimension,
-     * three content witnesses, and the settings that decide what the graph contains: the vector
-     * storage mode, the approximate scoring mode, and the quantization counts those two encode with.
-     * A change to one of them is a mismatch, so the stale graph is rejected and rebuilt from the
-     * vectors in the parent map rather than served under the new configuration. Deleting the files
-     * by hand is not required for these settings.
+     * The recorded settings decide the other path, where an index comes back through storage with
+     * its counter intact so the content witnesses agree. What is recorded is the format version, the
+     * dimension, three content witnesses, and the settings that decide what the graph contains - the
+     * vector storage mode, the approximate scoring mode, and the quantization counts those two
+     * encode with. A divergence in any of them rejects the graph and rebuilds it rather than serving
+     * it under a configuration it was not written for.
      * <p>
      * The two counts are compared in <i>effective</i> form, which makes them narrower than the modes
      * they belong to. An automatic count and the value it resolves to describe the same graph and so
@@ -89,20 +93,17 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
      * {@link ApproximateScoring#NONE}, or {@code nvqSubvectors} while storage is
      * {@link VectorStorage#INLINE}, changes nothing in the file and triggers no rebuild.
      * <p>
-     * What is <b>not</b> recorded is everything that shapes the graph without changing what a
-     * reader must know to interpret it: {@code maxDegree}, {@code beamWidth}, {@code alpha},
+     * What is <b>not</b> recorded is everything that shapes the graph without changing what a reader
+     * must know to interpret it: {@code maxDegree}, {@code beamWidth}, {@code alpha},
      * {@code neighborOverflow} and
-     * {@link VectorIndexConfiguration#similarityFunction() similarityFunction}. A graph built under
-     * a previous value of one of those still loads, because nothing in the file contradicts the new
-     * configuration; it simply keeps the structure it was built with until something rebuilds it.
-     * <p>
-     * <b>The similarity function is the one to be careful with.</b> The others change how good the
-     * graph is; that one changes what "near" means. Edges are built by searching with it, so a graph
-     * built under one metric and reopened under another keeps neighbour lists chosen for the old
-     * one. Queries still return, and their scores are computed with the new metric and so are
-     * correct in themselves, but traversal follows edges optimised for the wrong distance and recall
-     * degrades with nothing reporting it. <b>Delete the {@code .graph} and {@code .meta} files when
-     * changing it</b> - and when changing any of the others whose effect must be immediate.
+     * {@link VectorIndexConfiguration#similarityFunction() similarityFunction}. Nothing in the file
+     * would contradict a new value for any of those, so a graph built under a previous one would be
+     * served under it if the two were ever brought together. The counter witness is what keeps that
+     * from arising: presenting a graph with a different configuration means building a new index,
+     * and a new index does not adopt an existing graph. The similarity function is the one where
+     * that would matter rather than merely costing graph quality, since edges are built by searching
+     * with it and reusing them under another metric would leave traversal following neighbours
+     * chosen for the wrong distance.
      *
      * @param name          the name of the index
      * @param configuration the index configuration, ignored if an index of that name already exists
