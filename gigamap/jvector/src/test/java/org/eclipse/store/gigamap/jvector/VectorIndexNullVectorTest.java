@@ -1139,10 +1139,18 @@ class VectorIndexNullVectorTest
         {
             if(withNulls)
             {
-                // Ordinal 0 is a hole on purpose. It is the one ordinal NVQuantization.compute
-                // probes for the dimension, so a training path that walked the ordinal space rather
-                // than the collected sample would read a placeholder here rather than a vector -
-                // and a fixture whose first entity carries an embedding cannot tell the two apart.
+                // Ordinal 0 is a hole on purpose, so the sparse case includes the one ordinal that
+                // gets special treatment anywhere in the training path rather than only interior
+                // holes.
+                //
+                // Being honest about the limit of that: this asserts on search results, so it
+                // cannot by itself distinguish training from the collected sample from training
+                // over the ordinal space. NullSafeVectorValues hands out a placeholder of the right
+                // dimension for a hole, so NVQuantization.compute would not fail on ordinal 0, and
+                // the placeholders only shift the mean - which the mean-pollution experiment in
+                // NVQCompressionManager showed the per-subvector scaling absorbs. What this covers
+                // is the end-to-end claim: holes anywhere in the ordinal space, including the first,
+                // must not change which vectors NVQ search can reach.
                 final long firstId = map.add(new Doc("none_first", null));
                 assertEquals(0L, firstId, "the fixture depends on the first entity taking ordinal 0");
                 assertNull(index.getVector(firstId), "ordinal 0 must carry no vector for this test to mean anything");

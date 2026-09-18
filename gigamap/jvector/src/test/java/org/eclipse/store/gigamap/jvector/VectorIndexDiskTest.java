@@ -4814,6 +4814,7 @@ class VectorIndexDiskTest
             double worstDeviation    = 0;
             int    diskHalfChecked   = 0;
             int    memoryHalfChecked = 0;
+            int    mixedResultSets   = 0;
 
             for(int q = 0; q < queryCount; q++)
             {
@@ -4824,6 +4825,9 @@ class VectorIndexDiskTest
 
                 final Set<Long> expected = new HashSet<>(bruteForceTopK(query, vectors, ids, k));
                 final Set<Long> actual   = new HashSet<>();
+
+                boolean diskInThisResult   = false;
+                boolean memoryInThisResult = false;
 
                 for(final ScoredSearchResult.Entry<Document> entry : index.search(query, k))
                 {
@@ -4840,24 +4844,35 @@ class VectorIndexDiskTest
                     if(index0 < persisted)
                     {
                         diskHalfChecked++;
+                        diskInThisResult = true;
                     }
                     else
                     {
                         memoryHalfChecked++;
+                        memoryInThisResult = true;
                     }
+                }
+
+                if(diskInThisResult && memoryInThisResult)
+                {
+                    mixedResultSets++;
                 }
 
                 actual.retainAll(expected);
                 totalRecall += (double)actual.size() / k;
             }
 
-            // Both halves have to appear in the results, or the two score scales never meet and this
-            // is a test of one reranker rather than of the merge between two.
+            // Both halves have to meet inside ONE result set. Counting them across the whole query
+            // set is not enough: one query could contribute every disk hit and another every memory
+            // hit, and no single merge would ever have compared the two scales against each other.
             assertTrue(diskHalfChecked > 0,
                 "the queries never returned a disk-resident entity, so this proves nothing about the merge");
             assertTrue(memoryHalfChecked > 0,
                 "the queries never returned an entity from the in-memory half, so the merge was never "
                     + "exercised and only the disk reranker was measured");
+            assertTrue(mixedResultSets > 0,
+                "no single query returned entities from both halves, so the two score scales were "
+                    + "never compared against each other within one merge");
 
             // The threshold sits between the two regimes rather than at an arbitrary round number:
             // with the exact reranker the deviation is float-arithmetic noise, well under 1e-4,
