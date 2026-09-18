@@ -1356,7 +1356,7 @@ class VectorIndexConfigurationTest
     }
 
     @Test
-    void testForCompactLargeDatasetUsesNvqAndFusedPq(@TempDir final Path tempDir)
+    void testForCompactLargeDatasetIsActuallyTheSmallestOnDisk(@TempDir final Path tempDir)
     {
         final Path indexDir = tempDir.resolve("vectors");
         final VectorIndexConfiguration config = VectorIndexConfiguration.forCompactLargeDataset(768, indexDir);
@@ -1367,10 +1367,27 @@ class VectorIndexConfigurationTest
         assertTrue(config.onDisk());
         assertEquals(indexDir, config.indexDirectory());
         assertEquals(VectorStorage.NVQ, config.vectorStorage());
-        assertEquals(ApproximateScoring.FUSED_PQ, config.approximateScoring());
-        assertTrue(config.enablePqCompression());
+
+        // No fused codes, and that is the point rather than an omission. They are duplicated
+        // maxDegree times per node, so at 768/32 they cost 6144 bytes against the 800 the quantized
+        // vector occupies - a preset that carried them would be larger than the plain uncompressed
+        // one it claims to improve on, which is exactly the kind of claim this module has had to
+        // correct before.
+        assertEquals(ApproximateScoring.NONE, config.approximateScoring());
+        assertFalse(config.enablePqCompression());
+
         assertTrue(config.backgroundPersistence());
         assertTrue(config.backgroundOptimization());
+
+        // Pinned against the node layout: the compact preset must come out below both the
+        // large-dataset preset and the plain uncompressed configuration.
+        final int compact = bytesPerNode(768, 32, VectorStorage.NVQ, 1);
+        final int plain   = bytesPerNode(768, 32, VectorStorage.INLINE, 1);
+        final int fused   = plain + 192 * 32;
+        assertTrue(compact < plain / 3,
+            "the compact preset must be far smaller than plain inline storage: " + compact + " vs " + plain);
+        assertTrue(compact < fused / 7,
+            "and far smaller than forLargeDataset: " + compact + " vs " + fused);
     }
 
     /**
@@ -1395,6 +1412,23 @@ class VectorIndexConfigurationTest
 
         assertEquals(VectorStorage.INLINE, config.vectorStorage());
         assertEquals(ApproximateScoring.NONE, config.approximateScoring());
+    }
+
+    /**
+     * The on-disk node layout: node id, the inline feature block, and the neighbour list of
+     * {@code maxDegree + 1} ints.
+     */
+    private static int bytesPerNode(
+        final int           dimension    ,
+        final int           maxDegree    ,
+        final VectorStorage storage      ,
+        final int           nvqSubvectors
+    )
+    {
+        final int featureBlock = storage == VectorStorage.NVQ
+            ? 4 + dimension + 28 * nvqSubvectors
+            : dimension * Float.BYTES;
+        return Integer.BYTES + featureBlock + Integer.BYTES * (maxDegree + 1);
     }
 
     @Test

@@ -365,7 +365,10 @@ public interface VectorIndexConfiguration
      * <p>
      * Only meaningful when {@link #vectorStorage()} is {@link VectorStorage#NVQ}.
      *
-     * @return the number of NVQ subvectors, or 0 for auto-calculation (1)
+     * @return the effective number of NVQ subvectors, never zero: a configured 0 means "auto" and
+     *         resolves to 1 here, so callers always receive a usable count. Note this differs from
+     *         {@link #pqSubspaces()}, which returns its raw sentinel and leaves resolution to the
+     *         caller.
      * @see VectorStorage#NVQ
      * @see #vectorStorage()
      */
@@ -380,14 +383,20 @@ public interface VectorIndexConfiguration
      * <p>
      * When enabled, the on-disk graph additionally carries {@code FusedPQ}: each node stores the
      * PQ-compressed codes of all its neighbours alongside its edges, so one sequential read scores
-     * every candidate during traversal instead of one random full-vector read per candidate. The
-     * full-precision inline vectors are still written, and the best candidates are reranked against
-     * them exactly.
+     * every candidate during traversal instead of one random full-vector read per candidate.
+     * <p>
+     * <b>What the graph stores beside those codes is now a separate setting.</b> With the default
+     * {@link VectorStorage#INLINE} the full-precision vectors are still written and the best
+     * candidates are reranked against them exactly, as before. With {@link VectorStorage#NVQ} the
+     * graph holds quantized vectors instead, so reranking compares against those - a legal and
+     * useful combination, but not the exact one this flag used to imply on its own. See
+     * {@link #vectorStorage()}.
      * <p>
      * <b>This is a speed optimisation, not a space one.</b> Fusing the neighbour codes into every
      * node duplicates them {@code maxDegree} times, so enabling PQ makes the {@code .graph} file
      * <i>larger</i> by roughly {@code pqSubspaces * maxDegree} bytes per node - it does not shrink
-     * the index. What it buys is far less I/O and far better cache locality while traversing, and a
+     * the index. {@link VectorStorage#NVQ} is the setting that shrinks it, and the two compose:
+     * the fused codes cost the same either way, while the vector beside them gets smaller. What it buys is far less I/O and far better cache locality while traversing, and a
      * smaller working set of full vectors touched per query. Choose it when search latency on a
      * large on-disk index matters, not when disk footprint does.
      * <p>
@@ -864,19 +873,27 @@ public interface VectorIndexConfiguration
      * Creates an on-disk configuration for large datasets (&gt;1M vectors) that minimizes the size of
      * the index on disk.
      * <p>
-     * Same tuning as {@link #forLargeDataset(int, Path)}, but the graph stores quantized rather than
-     * full-precision vectors and traversal scores against fused PQ codes. At {@code dimension=768}
-     * and the pre-configured {@code maxDegree=32} that is roughly 3x fewer bytes per node than
-     * {@link VectorStorage#INLINE} storage.
+     * Same tuning as {@link #forLargeDataset(int, Path)}, but the graph stores quantized vectors and
+     * carries no fused PQ codes. Both parts matter, and the second is the larger one: fused codes are
+     * duplicated {@code maxDegree} times per node, so at {@code dimension=768} and the pre-configured
+     * {@code maxDegree=32} they alone cost 6144 bytes against the 800 the quantized vector occupies.
+     *
+     * <table border="1">
+     *   <tr><th>Configuration</th><th>Bytes per node</th></tr>
+     *   <tr><td>{@link #forLargeDataset(int, Path)} - INLINE + FUSED_PQ</td><td>~9,352</td></tr>
+     *   <tr><td>INLINE + NONE, for reference</td><td>~3,208</td></tr>
+     *   <tr><td>this preset - NVQ + NONE</td><td>~936</td></tr>
+     * </table>
      * <p>
-     * <b>The trade-off is that reranking is no longer exact</b>, because the graph holds no
-     * full-precision copy to compare against. Measured at about 0.002 recall@10 against an exact
-     * baseline, but that gap depends on the data - see {@link VectorStorage#NVQ}. Use
-     * {@link #forLargeDataset(int, Path)} when the last fraction of recall matters more than the
-     * footprint.
+     * <b>What it gives up is traversal speed, not accuracy.</b> Without the fused codes each hop
+     * reads its candidates' own stored vectors rather than one contiguous block - though those
+     * vectors are now 800 bytes rather than 3072, so a hop is far cheaper than it would be on an
+     * uncompressed graph. Reranking stays exact: with no fused codes the search path reranks against
+     * the vectors held in the GigaMap rather than against the graph's quantized copy. Use
+     * {@link #forLargeDataset(int, Path)} when query latency matters more than footprint.
      * <p>
      * <b>Configuration:</b> maxDegree=32, beamWidth=300, onDisk=true, vectorStorage=NVQ,
-     * approximateScoring=FUSED_PQ, persistenceIntervalMs=30000, optimizationIntervalMs=60000
+     * approximateScoring=NONE, persistenceIntervalMs=30000, optimizationIntervalMs=60000
      *
      * @param dimension the vector dimension (must be positive)
      * @param indexDirectory the directory where index files will be stored
@@ -898,7 +915,7 @@ public interface VectorIndexConfiguration
      * makes.
      * <p>
      * <b>Pre-configured values:</b> maxDegree=32, beamWidth=300, onDisk=true, vectorStorage=NVQ,
-     * approximateScoring=FUSED_PQ, persistenceIntervalMs=30000, optimizationIntervalMs=60000
+     * approximateScoring=NONE, persistenceIntervalMs=30000, optimizationIntervalMs=60000
      *
      * @param dimension the vector dimension (must be positive)
      * @param indexDirectory the directory where index files will be stored
@@ -910,7 +927,7 @@ public interface VectorIndexConfiguration
     {
         return builderForLargeDataset(dimension, indexDirectory)
             .vectorStorage(VectorStorage.NVQ)
-            .approximateScoring(ApproximateScoring.FUSED_PQ);
+            .approximateScoring(ApproximateScoring.NONE);
     }
 
     /**
