@@ -4643,6 +4643,11 @@ class VectorIndexDiskTest
         final AtomicInteger   mismatch = new AtomicInteger();
         final AtomicInteger   compared = new AtomicInteger();
 
+        // Without this the pool is free to run one task to completion before starting the next, and
+        // a stateful encoder would never be caught: the calls have to actually overlap.
+        final CountDownLatch ready = new CountDownLatch(threads);
+        final CountDownLatch start = new CountDownLatch(1);
+
         try
         {
             final List<Future<?>> tasks = new ArrayList<>();
@@ -4650,6 +4655,9 @@ class VectorIndexDiskTest
             {
                 tasks.add(executor.submit(() ->
                 {
+                    ready.countDown();
+                    start.await();
+
                     // Every thread encodes every vector, repeatedly, against the one shared
                     // quantizer - the access pattern the parallel writer produces, concentrated.
                     for(int repeat = 0; repeat < repeats; repeat++)
@@ -4663,8 +4671,13 @@ class VectorIndexDiskTest
                             compared.incrementAndGet();
                         }
                     }
+                    return null;
                 }));
             }
+
+            assertTrue(ready.await(30, TimeUnit.SECONDS), "the encode threads did not start");
+            start.countDown();
+
             for(final Future<?> task : tasks)
             {
                 task.get(60, TimeUnit.SECONDS);
@@ -4798,8 +4811,9 @@ class VectorIndexDiskTest
             }
 
             final Random queryRandom = new Random(77 * 31 + 5);
-            double worstDeviation  = 0;
-            int    diskHalfChecked = 0;
+            double worstDeviation    = 0;
+            int    diskHalfChecked   = 0;
+            int    memoryHalfChecked = 0;
 
             for(int q = 0; q < queryCount; q++)
             {
@@ -4827,14 +4841,23 @@ class VectorIndexDiskTest
                     {
                         diskHalfChecked++;
                     }
+                    else
+                    {
+                        memoryHalfChecked++;
+                    }
                 }
 
                 actual.retainAll(expected);
                 totalRecall += (double)actual.size() / k;
             }
 
+            // Both halves have to appear in the results, or the two score scales never meet and this
+            // is a test of one reranker rather than of the merge between two.
             assertTrue(diskHalfChecked > 0,
                 "the queries never returned a disk-resident entity, so this proves nothing about the merge");
+            assertTrue(memoryHalfChecked > 0,
+                "the queries never returned an entity from the in-memory half, so the merge was never "
+                    + "exercised and only the disk reranker was measured");
 
             // The threshold sits between the two regimes rather than at an arbitrary round number:
             // with the exact reranker the deviation is float-arithmetic noise, well under 1e-4,
@@ -4977,12 +5000,29 @@ class VectorIndexDiskTest
         final int  scoringCode
     ) throws IOException
     {
-        final byte[]     bytes  = Files.readAllBytes(metaPath);
+        final byte[] bytes = Files.readAllBytes(metaPath);
+
+        // Anchored from the start of the record, and the length is asserted, because the fields are
+        // no longer last: pqSubspaces and nvqSubvectors follow them. Addressing from the end here
+        // used to write into those two counts instead, and the test still passed - the load was
+        // rejected on a count mismatch before the unknown code was ever parsed. A layout change
+        // must break this loudly rather than quietly retarget it.
+        assertEquals(META_SIZE, bytes.length,
+            "the .meta layout changed; the offsets below need revisiting");
+
         final ByteBuffer buffer = ByteBuffer.wrap(bytes);
-        buffer.putInt(bytes.length - 2 * Integer.BYTES, storageCode);
-        buffer.putInt(bytes.length - Integer.BYTES, scoringCode);
+        buffer.putInt(META_STORAGE_CODE_OFFSET, storageCode);
+        buffer.putInt(META_SCORING_CODE_OFFSET, scoringCode);
         Files.write(metaPath, bytes);
     }
+
+    /**
+     * The {@code .meta} layout: {@code int} version, {@code int} dimension, three {@code long}
+     * witnesses, then the storage and scoring codes and the two quantization counts.
+     */
+    private static final int META_SIZE                 = 6 * Integer.BYTES + 3 * Long.BYTES;
+    private static final int META_STORAGE_CODE_OFFSET  = 2 * Integer.BYTES + 3 * Long.BYTES;
+    private static final int META_SCORING_CODE_OFFSET  = META_STORAGE_CODE_OFFSET + Integer.BYTES;
 
     /**
      * NVQ traversal must work for every similarity function {@code NVQScorer} supports. Each case
