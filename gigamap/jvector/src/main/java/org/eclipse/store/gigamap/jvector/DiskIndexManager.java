@@ -78,7 +78,10 @@ interface DiskIndexManager extends Closeable
      *       {@link VectorIndexConfiguration#vectorStorage()} and
      *       {@link VectorIndexConfiguration#approximateScoring()}. The boolean could express only
      *       one of the two dimensions the format now has, so it could not distinguish a graph
-     *       holding quantized vectors from one holding full-precision ones.</li>
+     *       holding quantized vectors from one holding full-precision ones. Two further
+     *       {@code int}s record the effective {@link VectorIndexConfiguration#pqSubspaces()} and
+     *       {@link VectorIndexConfiguration#nvqSubvectors()}, which shape the encoded blocks
+     *       within a mode rather than selecting between modes.</li>
      * </ul>
      * The codes are {@link VectorStorage#code()} and {@link ApproximateScoring#code()}, which are
      * deliberately not ordinals: an existing constant's code never changes and a new one is
@@ -511,6 +514,24 @@ interface DiskIndexManager extends Closeable
                     return false;
                 }
 
+                final int filePqSubspaces = dis.readInt();
+                final int pqSubspaces     = this.format.effectivePqSubspaces(this.dimension);
+                if(filePqSubspaces != pqSubspaces)
+                {
+                    LOG.info("PQ subspace count changed for '{}' (file={}, configured={}), rebuilding",
+                        this.name, filePqSubspaces, pqSubspaces);
+                    return false;
+                }
+
+                final int fileNvqSubvectors = dis.readInt();
+                final int nvqSubvectors     = this.format.effectiveNvqSubvectors();
+                if(fileNvqSubvectors != nvqSubvectors)
+                {
+                    LOG.info("NVQ subvector count changed for '{}' (file={}, configured={}), rebuilding",
+                        this.name, fileNvqSubvectors, nvqSubvectors);
+                    return false;
+                }
+
                 return true;
             }
         }
@@ -824,6 +845,16 @@ interface DiskIndexManager extends Closeable
                 // says INLINE, verify rejects, rebuild, training declines again, forever.
                 dos.writeInt(this.format.storage().code());
                 dos.writeInt(this.format.scoring().code());
+
+                // The subspace and subvector counts shape the encoded blocks, and neither is
+                // recoverable by comparing configuration alone: a quantizer is adopted from the
+                // loaded graph rather than retrained, so a changed count would otherwise be
+                // silently ignored - the old quantizer kept, and every later persist writing the
+                // old shape. Recorded in effective form, with the sentinel resolved and a count
+                // that this format does not encode with written as zero, so that two
+                // configurations producing the same graph do not force a pointless rebuild.
+                dos.writeInt(this.format.effectivePqSubspaces(this.dimension));
+                dos.writeInt(this.format.effectiveNvqSubvectors());
             }
         }
 

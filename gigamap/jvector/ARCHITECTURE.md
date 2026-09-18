@@ -723,7 +723,7 @@ If `trainIfNeeded()` throws (training data degenerate, dimension mismatch, etc.)
 Two files per index, named after `VectorIndex.Default.name`:
 
 - `{name}.graph` — JVector's `OnDiskGraphIndex` payload. Contains the HNSW edges plus exactly one vector-storage feature (`InlineVectors` **or** `NVQ`) and optionally `FusedPQ`. Sized in megabytes for millions of vectors.
-- `{name}.meta` — 40-byte sidecar:
+- `{name}.meta` — 48-byte sidecar:
   - `int` format version (currently `5`, see [`DiskIndexManager.java`](src/main/java/org/eclipse/store/gigamap/jvector/DiskIndexManager.java))
   - `int` dimension
   - `long` `expectedVectorCount`
@@ -731,8 +731,10 @@ Two files per index, named after `VectorIndex.Default.name`:
   - `long` `structuralModCount` (added in v3)
   - `int` `vectorStorage` code (v5, replacing the v4 boolean)
   - `int` `approximateScoring` code (v5, replacing the v4 boolean)
+  - `int` effective `pqSubspaces` (v5, `0` when the graph carries no fused codes)
+  - `int` effective `nvqSubvectors` (v5, `0` when the graph stores full precision)
 
-The first five are **content witnesses** — they describe the data the graph was built from, and a mismatch means the store has moved on. The last two are **configuration**: nothing else in the file reveals which features the graph carries, so without them a setting changed over a directory `removeIndex()` left behind would go undetected and the stale graph would be reused.
+The first five are **content witnesses** — they describe the data the graph was built from, and a mismatch means the store has moved on. The last four are **configuration**: nothing else in the file reveals which features the graph carries or what shape they were encoded in, so without them a setting changed over a directory `removeIndex()` left behind would go undetected and the stale graph would be reused. The two counts matter for a reason the mode codes do not share: a quantizer is adopted from the loaded graph rather than retrained, so a changed count would otherwise be silently ignored and every later persist would keep writing the old shape. They are recorded in effective form — the automatic sentinel resolved, and a count the format does not encode with written as zero — so two configurations that produce the same graph do not force a pointless rebuild.
 
 The configured values are recorded, not the ones the write achieved. If training declines, the graph is written without the feature while the meta still names it; the query path copes because it gates on the loaded graph's own feature set. Recording what was achieved instead would loop: config says NVQ, file says INLINE, verify rejects, rebuild, training declines again, forever.
 

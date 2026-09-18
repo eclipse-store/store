@@ -1071,6 +1071,119 @@ class VectorIndexDiskTest
     }
 
     /**
+     * The subspace and subvector counts shape the encoded blocks within a mode, and a changed count
+     * has to invalidate the graph for a reason the mode codes do not share: a quantizer is adopted
+     * from the loaded graph rather than retrained, so a count that is not checked here is not
+     * merely tolerated - it is silently ignored, and every later persist keeps writing the shape
+     * the old quantizer carries.
+     * <p>
+     * The counts are compared in effective form, so the two negative cases below are paired with
+     * two cases that must still load: the automatic sentinel is the same setting as the value it
+     * resolves to, and a count carries no meaning in a mode that does not encode with it. Rebuilding
+     * on either would cost a cold start for no change in the file.
+     */
+    @Test
+    void testMetadataRejectsAChangedSubvectorOrSubspaceCount(@TempDir final Path tempDir) throws IOException
+    {
+        final int  vectorCount = 300;
+        final int  dimension   = 64;
+        final Path indexDir    = tempDir.resolve("index");
+
+        // An NVQ graph with fused codes exercises both counts from one file.
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .vectorStorage(VectorStorage.NVQ)
+                .approximateScoring(ApproximateScoring.FUSED_PQ)
+                .pqSubspaces(16)
+                .nvqSubvectors(2)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, new Random(8), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+        }
+
+        final VectorIndex.Default<Document> written =
+            (VectorIndex.Default<Document>)gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+        final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
+            written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
+
+        assertTrue(this.loadsWith(written, indexDir, dimension,
+            new GraphFormat(VectorStorage.NVQ, ApproximateScoring.FUSED_PQ, 16, 2), state),
+            "the format it was written with must load");
+
+        assertFalse(this.loadsWith(written, indexDir, dimension,
+            new GraphFormat(VectorStorage.NVQ, ApproximateScoring.FUSED_PQ, 16, 4), state),
+            "a graph encoded with two NVQ subvectors must not load into an index configured for four");
+
+        assertFalse(this.loadsWith(written, indexDir, dimension,
+            new GraphFormat(VectorStorage.NVQ, ApproximateScoring.FUSED_PQ, 32, 2), state),
+            "a graph encoded with 16 PQ subspaces must not load into an index configured for 32");
+
+        // dimension / 4 is what the sentinel resolves to, so these describe the same graph.
+        final Path autoDir = tempDir.resolve("auto");
+        final GigaMap<Document> autoMap = GigaMap.New();
+        try(final VectorIndex<Document> index = autoMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(autoDir)
+                .approximateScoring(ApproximateScoring.FUSED_PQ)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(autoMap, new Random(9), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+        }
+
+        final VectorIndex.Default<Document> autoWritten =
+            (VectorIndex.Default<Document>)autoMap.index().get(VectorIndices.Category()).get("embeddings");
+        final DiskIndexManager.MetaState autoState = new DiskIndexManager.MetaState(
+            autoWritten.getExpectedVectorCount(), autoWritten.getHighestEntityId(),
+            autoWritten.getStructuralModCount());
+
+        assertTrue(this.loadsWith(autoWritten, autoDir, dimension,
+            new GraphFormat(VectorStorage.INLINE, ApproximateScoring.FUSED_PQ, dimension / 4, 0), autoState),
+            "spelling out the value the automatic setting resolves to must not force a rebuild");
+
+        assertTrue(this.loadsWith(autoWritten, autoDir, dimension,
+            new GraphFormat(VectorStorage.INLINE, ApproximateScoring.FUSED_PQ, 0, 8), autoState),
+            "an NVQ subvector count must not invalidate a graph that stores full-precision vectors");
+    }
+
+    /**
+     * Opens a disk manager over an already written index directory and reports whether it accepts
+     * the files under the given format.
+     *
+     * @param provider  the index whose state the manager reads
+     * @param indexDir  the directory holding the written files
+     * @param dimension the configured vector dimension
+     * @param format    the format to open the files under
+     * @param state     the witnesses to verify against
+     * @return whether the files loaded
+     * @throws IOException if closing the manager fails
+     */
+    private boolean loadsWith(
+        final VectorIndex.Default<Document> provider ,
+        final Path                          indexDir ,
+        final int                           dimension,
+        final GraphFormat                   format   ,
+        final DiskIndexManager.MetaState    state
+    )
+        throws IOException
+    {
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            provider, "embeddings", indexDir, dimension, format, false))
+        {
+            return manager.tryLoad(state);
+        }
+    }
+
+    /**
      * Turning {@code enablePqCompression} on over an existing uncompressed index directory ends up
      * with a FusedPQ graph.
      * <p>

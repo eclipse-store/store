@@ -98,6 +98,41 @@ record GraphFormat(
     }
 
     /**
+     * Returns the PQ subspace count this format actually encodes with, resolved from the sentinel
+     * and reduced to zero when the format carries no PQ codes at all.
+     * <p>
+     * This is the form the metadata records, so that two configurations which produce the same
+     * graph compare equal: the automatic sentinel and the value it resolves to are the same
+     * setting, and a subspace count carries no meaning when nothing is quantized with it.
+     *
+     * @param dimension the configured vector dimension, which the automatic value derives from
+     * @return the effective subspace count, or 0 if this format writes no fused PQ codes
+     */
+    int effectivePqSubspaces(final int dimension)
+    {
+        if(!this.usesFusedPq())
+        {
+            return 0;
+        }
+        return this.pqSubspaces > 0 ? this.pqSubspaces : dimension / 4;
+    }
+
+    /**
+     * Returns the NVQ subvector count this format actually encodes with, resolved from the sentinel
+     * and reduced to zero when the format stores full-precision vectors.
+     *
+     * @return the effective subvector count, or 0 if this format writes no quantized vectors
+     */
+    int effectiveNvqSubvectors()
+    {
+        if(!this.usesNvq())
+        {
+            return 0;
+        }
+        return this.nvqSubvectors > 0 ? this.nvqSubvectors : 1;
+    }
+
+    /**
      * Returns whether this format is the one the plain, feature-less write path produces.
      * <p>
      * That path is kept as a fast path precisely so the overwhelmingly common configuration keeps
