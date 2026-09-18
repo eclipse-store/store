@@ -140,7 +140,7 @@ For datasets that exceed available memory, enable on-disk storage to use memory-
 
 |`vectorStorage`
 |`INLINE`
-|How the graph stores its own copy of each vector. `INLINE` keeps full precision (`dimension * 4` bytes per node). `NVQ` stores 8-bit quantized vectors (`4 + dimension + 28 * nvqSubvectors` bytes per node), which is about 3x smaller, and is the only setting that makes the graph file *smaller*. Whether it also makes reranking approximate depends on `approximateScoring`: with `NONE` the rerank reads the vectors held in the GigaMap and stays exact, with `FUSED_PQ` it reads the graph's quantized copy.
+|How the graph stores its own copy of each vector. `INLINE` keeps full precision (`dimension * 4` bytes per node). `NVQ` stores 8-bit quantized vectors (`4 + dimension + 28 * nvqSubvectors` bytes per node), which is about 3x smaller, and is the only setting that makes the graph file *smaller*. Reranking reads the vectors held in the GigaMap either way, so the scores a search returns stay exact; what quantization affects is which candidates traversal finds.
 
 |`approximateScoring`
 |`NONE`

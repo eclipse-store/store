@@ -2421,16 +2421,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return exactFallback;
             }
 
-            // An NVQ graph holds no full-precision copy, so the view's reranker dequantizes. That is
-            // acceptable for a plain top-k - it cost about 0.002 recall@10 in measurement - but not
-            // when the score has to be comparable with an exactly scored in-memory half.
-            final ScoreFunction.ExactScoreFunction reranker = hasNvq && incremental
-                ? exactFallback.exactScoreFunction()
-                : view.rerankerFor(query, vsf)
-            ;
-
             if(useFusedPq)
             {
+                // Traversal reads the fused codes; the rerank then reads the graph's own vector
+                // block, which for an NVQ graph means the view's reranker dequantizes. That is
+                // acceptable for a plain top-k - it cost about 0.002 recall@10 in measurement - but
+                // not when the score has to be comparable with an exactly scored in-memory half, so
+                // incremental mode takes the exact function instead.
+                final ScoreFunction.ExactScoreFunction reranker = hasNvq && incremental
+                    ? exactFallback.exactScoreFunction()
+                    : view.rerankerFor(query, vsf)
+                ;
                 return new DefaultSearchScoreProvider(
                     view.approximateScoreFunctionFor(query, vsf),
                     reranker
@@ -2441,6 +2442,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // the point of storing them, and rerank exactly from the GigaMap. The view's reranker is
             // an ExactScoreFunction by type only - against an NVQ graph it dequantizes - so it is
             // adapted to the approximate slot rather than being handed over as if it were exact.
+            // The rerank is exact here whether or not this is incremental mode, which is what makes
+            // NVQ storage lossless for the final ordering as long as no fused codes are present.
             final ScoreFunction.ExactScoreFunction quantizedScorer = view.rerankerFor(query, vsf);
             return new DefaultSearchScoreProvider(
                 (ScoreFunction.ApproximateScoreFunction)quantizedScorer::similarityTo,

@@ -37,6 +37,7 @@ import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -4135,6 +4136,157 @@ class VectorIndexDiskTest
         assertTrue(features.contains(FeatureId.NVQ_VECTORS), features.toString());
         assertTrue(features.contains(FeatureId.FUSED_PQ), features.toString());
         assertFalse(features.contains(FeatureId.INLINE_VECTORS), features.toString());
+    }
+
+    /**
+     * NVQ quantizes what the <i>graph</i> holds, not what a search returns. Every path that a live
+     * index actually takes reranks against the vectors held in the GigaMap, so the scores and the
+     * final ordering are exact, and quantization only changes which candidates traversal finds.
+     * <p>
+     * That is worth a test rather than an argument, because it is the property the compact preset
+     * is recommended on. It is asserted on the score values rather than on recall: recall cannot
+     * distinguish an exact reranker from a dequantizing one at this scale, whereas a dequantized
+     * score deviates immediately.
+     * <p>
+     * Both scoring modes are covered, and the reason they behave alike is worth stating. The
+     * dispatch does have a branch that reranks from the graph's own quantized copy - fused codes
+     * for traversal, {@code view.rerankerFor} for the rerank - but it sits behind
+     * {@code incremental == false}, and an on-disk index does not currently reach that state:
+     * loading enters incremental mode, and each persist re-enters it. The branch is kept because it
+     * is the correct behaviour if that ever changes, not because it runs today.
+     */
+    @Test
+    void testNvqReturnsExactScoresInBothScoringModes(@TempDir final Path tempDir)
+    {
+        final int dimension   = 64;
+        final int vectorCount = 400;
+        final int k           = 10;
+
+        final Random  random = new Random(4711);
+        final float[] query  = randomVector(random, dimension);
+
+        for(final ApproximateScoring scoring : new ApproximateScoring[]{
+            ApproximateScoring.NONE, ApproximateScoring.FUSED_PQ})
+        {
+            final double deviation = this.maxScoreDeviation(
+                tempDir.resolve("nvq_" + scoring), dimension, vectorCount, k, query, 31, scoring);
+
+            // Float arithmetic in a different order than the brute-force loop, nothing more. A
+            // reranker reading the graph's 8-bit vectors instead lands orders of magnitude above.
+            assertTrue(deviation < 1e-5,
+                "NVQ storage with " + scoring + " must still rerank from the GigaMap, but the top-"
+                    + k + " scores deviated from the exact similarities by up to " + deviation);
+        }
+    }
+
+    /**
+     * Builds an NVQ index in the given scoring mode, reopens it so the search runs against the
+     * loaded graph, and returns how far its scores stray from cosine similarities computed by hand
+     * over the source vectors.
+     *
+     * @param baseDir     the directory to build the storage and the index in
+     * @param dimension   the vector dimension
+     * @param vectorCount how many vectors to index
+     * @param k           how many results to score
+     * @param query       the query vector
+     * @param seed        the data seed
+     * @param scoring     the scoring mode under test
+     * @return the largest absolute difference between a returned score and the exact similarity
+     */
+    private double maxScoreDeviation(
+        final Path               baseDir    ,
+        final int                dimension  ,
+        final int                vectorCount,
+        final int                k          ,
+        final float[]            query      ,
+        final int                seed       ,
+        final ApproximateScoring scoring
+    )
+    {
+        final Path storageDir = baseDir.resolve("storage");
+        final Path indexDir   = baseDir.resolve("vectors");
+
+        final Random        random  = new Random(seed);
+        final List<float[]> vectors = new ArrayList<>();
+        for(int i = 0; i < vectorCount; i++)
+        {
+            vectors.add(randomVector(random, dimension));
+        }
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .vectorStorage(VectorStorage.NVQ)
+            .approximateScoring(scoring)
+            .pqSubspaces(dimension / 4)
+            .build();
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            storage.setRoot(gigaMap);
+
+            final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+                .add("embeddings", config, new ComputedDocumentVectorizer());
+
+            for(final float[] vector : vectors)
+            {
+                gigaMap.add(new Document("doc", vector));
+            }
+            index.persistToDisk();
+
+            assertTrue(index.isNvqCompressionActive(), "the NVQ path must be the one under test");
+            assertEquals(scoring != ApproximateScoring.NONE, index.isPqCompressionActive(),
+                "the configured scoring path must be the one under test");
+
+            storage.storeRoot();
+        }
+
+        double maxDeviation = 0;
+
+        // Reopened rather than searched in place, so the query runs against a graph loaded from the
+        // file this test is about rather than one still held by the builder that wrote it.
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = storage.root();
+            final VectorIndex<Document> index =
+                gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+
+            assertTrue(index.isNvqCompressionActive(),
+                "the reloaded graph must still be the quantized one");
+
+            for(final ScoredSearchResult.Entry<Document> entry : index.search(query, k))
+            {
+                final float exact = cosineSimilarity(query, entry.entity().embedding());
+                maxDeviation = Math.max(maxDeviation, Math.abs(exact - entry.score()));
+            }
+        }
+
+        return maxDeviation;
+    }
+
+    /**
+     * Cosine similarity in jvector's normalized form, where 1 means identical - the same scale the
+     * index reports its scores on.
+     *
+     * @param a the first vector
+     * @param b the second vector
+     * @return the similarity of the two vectors
+     */
+    private static float cosineSimilarity(final float[] a, final float[] b)
+    {
+        double dot   = 0;
+        double normA = 0;
+        double normB = 0;
+        for(int i = 0; i < a.length; i++)
+        {
+            dot   += (double)a[i] * b[i];
+            normA += (double)a[i] * a[i];
+            normB += (double)b[i] * b[i];
+        }
+        return (float)((1 + dot / (Math.sqrt(normA) * Math.sqrt(normB))) / 2);
     }
 
     /**

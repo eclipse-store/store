@@ -165,7 +165,7 @@ List<Document> topDocs = result.stream()
 |-----------|---------|-------------|
 | `onDisk` | `false` | Store the graph in a memory-mapped file rather than on the Java heap. This is what lets an index exceed RAM; in-memory mode is faster per query but keeps the graph on the heap |
 | `indexDirectory` | `null` | Directory for index files (required if `onDisk=true`) |
-| `vectorStorage` | `INLINE` | How the graph stores each vector. `NVQ` stores 8-bit quantized vectors instead of full precision - about **3x smaller**, the only setting that shrinks the file. It makes reranking approximate only when the graph also carries fused codes |
+| `vectorStorage` | `INLINE` | How the graph stores each vector. `NVQ` stores 8-bit quantized vectors instead of full precision - about **3x smaller**, the only setting that shrinks the file. Reranking still reads the GigaMap, so scores stay exact; what it costs is traversal quality |
 | `approximateScoring` | `NONE` | How traversal scores candidates. `FUSED_PQ` writes Product Quantization codes into every node: faster traversal of a large on-disk index, but **makes the graph file larger** and adds transient heap at persist time |
 | `nvqSubvectors` | `0` | Number of NVQ subvectors (0 = auto: 1). Each one adds a fixed 28 bytes per node, so the default is almost always right. **Not** the same parameter as `pqSubspaces` |
 | `enablePqCompression` | `false` | *Deprecated*, use `approximateScoring`. A literal delegate: `true` means `FUSED_PQ` |

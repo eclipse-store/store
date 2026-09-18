@@ -319,9 +319,9 @@ public interface VectorIndexConfiguration
      * combination of the two is legal.
      * <p>
      * {@link VectorStorage#NVQ} is the only setting on either dimension that makes the
-     * {@code .graph} file <i>smaller</i>: roughly 3x. What that costs in accuracy depends on the
-     * scoring mode, since reranking only compares against the graph's quantized copy when the graph
-     * also carries fused codes. See the constant's own documentation.
+     * {@code .graph} file <i>smaller</i>: roughly 3x. What it costs is traversal quality rather
+     * than the scores: reranking compares against the vectors held in the GigaMap, so a search
+     * returns exact similarities either way. See the constant's own documentation.
      * <p>
      * Requires {@link #onDisk()} to be true, since it describes the on-disk format only.
      * <p>
