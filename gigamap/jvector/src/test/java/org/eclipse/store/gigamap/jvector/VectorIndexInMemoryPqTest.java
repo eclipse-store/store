@@ -243,26 +243,28 @@ class VectorIndexInMemoryPqTest
     }
 
     /**
-     * An update landing between the switch plan and the write lock must survive the rebuild.
+     * A mutation landing between the plan and the swap must discard the switch, not be overwritten
+     * by it.
      * <p>
-     * The gap is real: the plan is captured under the GigaMap monitor, the monitor is released, and
-     * only then is the write lock taken. An eventual-indexing callback needs only the read lock, so
-     * it fits in that gap. When the plan carried the list of vectors to replay, the rebuild replayed
-     * a list captured before the update and undid it - the entity kept its old vector in the graph,
-     * with a PQ code to match, and no later optimization would notice.
+     * The gap is real and cannot be locked away. Phase 1 reads the GigaMap under the monitor, phase
+     * 2 builds the replacement with no lock held, and only phase 3 takes the write lock - because
+     * holding the write lock and then reaching for the monitor is the order that deadlocks against
+     * {@code internalRemoveAll}. So the index can move on while the replacement is being built, and
+     * a replacement built from the older picture would undo whatever moved.
      * <p>
-     * The fix is to collect the replay list under the write lock instead, so there is no snapshot to
-     * go stale. The test drives a mutation into the window through the same kind of seam the
-     * persist-window regression test uses, and then asks the index for the new vector.
+     * The resolution is to discard rather than reconcile: {@code structuralModCount} is checked
+     * again under the write lock, and a replacement that no longer describes the index is dropped.
+     * The switch is not lost, only deferred - the next optimization plans again from the current
+     * state. That is the trade this test pins: <b>the data always wins, the switch waits.</b>
      * <p>
-     * It runs with <b>eventual indexing on</b>, which is the whole point: that is what makes the
-     * mutation reach the graph through a background callback holding only the read lock, which is
-     * the path that can overtake the plan. Under the synchronous path the mutation would defer its
-     * builder op on {@code cleanupInProgress} and the window would never be entered.
+     * Runs with eventual indexing so the mutation reaches the graph through a background callback
+     * holding only the read lock, which is the path that can overtake the plan. The queue is drained
+     * before asserting, because {@code map.set} under eventual indexing only enqueues - asserting
+     * without the drain races the background thread, and an earlier version of this test did.
      */
     @Test
     @Timeout(value = 300, unit = TimeUnit.SECONDS)
-    void anUpdateInTheSwitchWindowSurvivesTheRebuild()
+    void aMutationWhilePreparingDiscardsTheSwitchRatherThanTheMutation()
     {
         final Random        random  = new Random(31337);
         final List<float[]> vectors = clusteredVectors(random, 1000);
@@ -277,27 +279,36 @@ class VectorIndexInMemoryPqTest
                 ids.add(map.add(new Doc("d" + i, vectors.get(i))));
             }
 
-            // The entity that will be updated inside the window, and the vector it moves to - far
-            // from where it started, so a search near the new one cannot find it by accident.
-            final int     target    = 42;
-            final long    targetId  = ids.get(target);
-            final float[] moved     = nearVector(new Random(99), vectors.get(900));
-
             final VectorIndex.Default<Doc> internal = (VectorIndex.Default<Doc>)index;
+
+            // The entity updated inside the window, and the vector it moves to - far from where it
+            // started, so a search near the new one cannot find it by accident.
+            final int     target   = 42;
+            final long    targetId = ids.get(target);
+            final float[] moved    = nearVector(new Random(99), vectors.get(900));
+
             internal.pqSwitchWindowTestHook = () ->
                 map.set(targetId, new Doc("d" + target, moved));
 
             index.optimize();
 
-            assertTrue(index.isPqCompressionActive(), "the optimization must have switched");
+            assertFalse(index.isPqCompressionActive(),
+                "a mutation while the replacement was being prepared must discard it: adopting a"
+                    + " graph built from the older picture would undo that mutation");
 
-            // Asking for the vector it moved to must return it. If the rebuild replayed the list
-            // captured before the hook ran, the graph still holds the old vector for this entity and
-            // this query does not find it.
-            final Set<Long> hits = topK(index, moved, 10);
-            assertTrue(hits.contains(targetId),
-                "the entity updated between the plan and the write lock was replayed away: searching"
-                    + " near its new vector returned " + hits + " without " + targetId);
+            // The mutation itself is untouched - it went through the ordinary path.
+            internal.backgroundTaskManager.drainQueue();
+            assertTrue(topK(index, moved, 10).contains(targetId),
+                "the mutation must survive: it is the switch that waits, not the data");
+
+            // And the switch is deferred, not abandoned. Nothing mutates this time, so it lands.
+            internal.pqSwitchWindowTestHook = null;
+            index.optimize();
+
+            assertTrue(index.isPqCompressionActive(),
+                "the next optimization must switch, planning from the state the mutation left");
+            assertTrue(topK(index, moved, 10).contains(targetId),
+                "the mutation must still be found after the switch finally happens");
         }
     }
 
