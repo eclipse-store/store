@@ -1095,22 +1095,91 @@ class VectorIndexNullVectorTest
         assertEquals("v7", sparseTop.get(0),
             "interleaving null embeddings must not stop the query's own vector ranking first");
 
-        // Deliberately not asserting that the two ordered lists are equal. Graph construction is not
-        // deterministic - two builds of the same vectors can produce different neighbour lists, as
-        // the parallel-write test in VectorIndexDiskTest documents - and NVQ traversal is
-        // approximate on top of that, so a legitimate variation would make that assertion flaky
-        // rather than failing it for the reason it was written for. What the holes must not do is
-        // change which vectors are candidates at all, so the two results are compared as sets.
         assertEquals(denseTop.size(), sparseTop.size(),
             "both indices hold the same embeddings, so both must return a full result set");
         assertTrue(sparseTop.stream().allMatch(content -> content.startsWith("v")),
             "no null-embedding entity may appear among the results: " + sparseTop);
 
-        final Set<String> overlap = new HashSet<>(denseTop);
-        overlap.retainAll(sparseTop);
-        assertTrue(overlap.size() >= 4,
-            "the holes are not part of the data, only of the ordinal space, so the two result sets "
-                + "must agree on all but at most one entry - dense " + denseTop + " vs sparse " + sparseTop);
+        // Measured against brute force rather than against each other. The two indices are
+        // independently built approximate graphs, and graph construction is not deterministic - two
+        // builds of the same vectors can produce different neighbour lists - so nothing bounds how
+        // far two valid results may diverge from one another. Ground truth does not move, so it can
+        // carry the claim the comparison cannot: the sparse index must retrieve the true nearest
+        // neighbours as well as the dense one does.
+        final List<String> groundTruth = bruteForceTopContents(vectors, query, denseTop.size());
+
+        assertTrue(recallAgainst(groundTruth, denseTop) >= 0.8,
+            "the dense index missed the true nearest neighbours: expected " + groundTruth
+                + ", got " + denseTop);
+        assertTrue(recallAgainst(groundTruth, sparseTop) >= 0.8,
+            "interleaving null embeddings cost recall against ground truth - the holes are not part "
+                + "of the data, only of the ordinal space: expected " + groundTruth
+                + ", got " + sparseTop);
+    }
+
+    /**
+     * The contents of the {@code k} vectors nearest {@code query} by cosine, by exhaustive scan.
+     *
+     * @param vectors the indexed vectors, named {@code v0}, {@code v1}, ... by position
+     * @param query   the query vector
+     * @param k       how many to return
+     * @return the contents of the nearest {@code k}, nearest first
+     */
+    private static List<String> bruteForceTopContents(
+        final List<float[]> vectors,
+        final float[]       query  ,
+        final int           k
+    )
+    {
+        final List<Integer> byDistance = new ArrayList<>();
+        for(int i = 0; i < vectors.size(); i++)
+        {
+            byDistance.add(i);
+        }
+        byDistance.sort((a, b) -> Double.compare(
+            cosineDistance(query, vectors.get(b)), cosineDistance(query, vectors.get(a))));
+
+        final List<String> top = new ArrayList<>();
+        for(int i = 0; i < k && i < byDistance.size(); i++)
+        {
+            top.add("v" + byDistance.get(i));
+        }
+        return top;
+    }
+
+    /**
+     * Cosine similarity, higher being nearer.
+     *
+     * @param a the first vector
+     * @param b the second vector
+     * @return the similarity of the two vectors
+     */
+    private static double cosineDistance(final float[] a, final float[] b)
+    {
+        double dot = 0;
+        double normA = 0;
+        double normB = 0;
+        for(int i = 0; i < a.length; i++)
+        {
+            dot   += (double)a[i] * b[i];
+            normA += (double)a[i] * a[i];
+            normB += (double)b[i] * b[i];
+        }
+        return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+    }
+
+    /**
+     * The fraction of {@code groundTruth} that {@code actual} contains.
+     *
+     * @param groundTruth the exhaustively computed nearest neighbours
+     * @param actual      what the index returned
+     * @return the recall, between 0 and 1
+     */
+    private static double recallAgainst(final List<String> groundTruth, final List<String> actual)
+    {
+        final Set<String> found = new HashSet<>(groundTruth);
+        found.retainAll(new HashSet<>(actual));
+        return (double)found.size() / groundTruth.size();
     }
 
     /**
