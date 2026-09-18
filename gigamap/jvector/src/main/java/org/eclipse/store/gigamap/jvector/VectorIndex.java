@@ -22,6 +22,7 @@ import io.github.jbellis.jvector.graph.similarity.DefaultSearchScoreProvider;
 import io.github.jbellis.jvector.graph.similarity.ScoreFunction;
 import io.github.jbellis.jvector.graph.similarity.SearchScoreProvider;
 import io.github.jbellis.jvector.quantization.NVQuantization;
+import io.github.jbellis.jvector.quantization.PQVectors;
 import io.github.jbellis.jvector.quantization.ProductQuantization;
 import io.github.jbellis.jvector.util.Bits;
 import io.github.jbellis.jvector.util.ExplicitThreadLocal;
@@ -1280,7 +1281,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // Initialize the compression managers for whichever format dimensions are configured on.
             // Both must exist before the tryLoad() below, which adopts their quantizers from the
             // loaded graph.
-            if(this.configuration.approximateScoring() == ApproximateScoring.FUSED_PQ)
+            // Both PQ-based scoring modes need a trained codebook; they differ only in where the
+            // encoded codes end up, which is the disk manager's concern rather than this one's.
+            if(GraphFormat.of(this.configuration).usesPq())
             {
                 this.pqManager = new PQCompressionManager.Default(
                     this,
@@ -2408,6 +2411,26 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             final Set<FeatureId> features = diskIndex.getFeatureSet();
             final boolean        hasNvq   = features.contains(FeatureId.NVQ_VECTORS);
+
+            // PQ_IN_MEMORY first, because it is the one mode whose approximate function comes from
+            // neither the graph nor the view. The codes are a heap-resident array loaded from the
+            // sidecar, so scoring a candidate touches no disk at all - which also means the
+            // view-scratch rule that governs the fused path does not apply here.
+            //
+            // Reranking is exact from the GigaMap in both modes, not only the incremental one. There
+            // is nothing else it could be: this graph carries no fused codes to rerank against, and
+            // when it is combined with NVQ storage it carries no full-precision vectors either.
+            final PQVectors pqVectors = this.configuration.approximateScoring() == ApproximateScoring.PQ_IN_MEMORY
+                ? this.diskManager.loadedPqVectors()
+                : null
+            ;
+            if(pqVectors != null)
+            {
+                return new DefaultSearchScoreProvider(
+                    pqVectors.precomputedScoreFunctionFor(query, vsf),
+                    exactFallback.exactScoreFunction()
+                );
+            }
 
             // FusedPQDecoder.similarityTo(node) - used for the entry node and for every hop above
             // level 0 - requires the node to be in the view's level-1 inline-source cache, which

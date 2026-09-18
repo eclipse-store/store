@@ -87,6 +87,27 @@ record GraphFormat(
     }
 
     /**
+     * Returns whether this format keeps its PQ codes in a sidecar file and in heap rather than
+     * fused into the graph.
+     *
+     * @return true if the scoring mode is {@link ApproximateScoring#PQ_IN_MEMORY}
+     */
+    boolean usesInMemoryPq()
+    {
+        return this.scoring == ApproximateScoring.PQ_IN_MEMORY;
+    }
+
+    /**
+     * Returns whether this format needs a trained PQ codebook, whichever way it holds the codes.
+     *
+     * @return true if the scoring mode is any of the PQ-based ones
+     */
+    boolean usesPq()
+    {
+        return this.usesFusedPq() || this.usesInMemoryPq();
+    }
+
+    /**
      * Returns whether the graph this format describes stores quantized rather than full-precision
      * vectors.
      *
@@ -110,7 +131,10 @@ record GraphFormat(
      */
     int effectivePqSubspaces(final int dimension)
     {
-        if(!this.usesFusedPq())
+        // usesPq, not usesFusedPq: PQ_IN_MEMORY encodes with this count too, it just keeps the
+        // result in a sidecar instead of the graph. Gating on the fused mode alone would record a
+        // zero for an in-memory index and lose the witness that makes a changed count take effect.
+        if(!this.usesPq())
         {
             return 0;
         }

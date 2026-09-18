@@ -1463,6 +1463,7 @@ class VectorIndexConfigurationTest
 
         assertEquals(1, ApproximateScoring.NONE.code());
         assertEquals(2, ApproximateScoring.FUSED_PQ.code());
+        assertEquals(3, ApproximateScoring.PQ_IN_MEMORY.code());
     }
 
     @Test
@@ -1490,7 +1491,7 @@ class VectorIndexConfigurationTest
         assertNull(VectorStorage.fromCode(0));
         assertNull(VectorStorage.fromCode(99));
         assertNull(ApproximateScoring.fromCode(0));
-        assertNull(ApproximateScoring.fromCode(3));  // reserved for PQ_IN_MEMORY
+        assertNull(ApproximateScoring.fromCode(4));  // the next code, not yet taken
         assertNull(ApproximateScoring.fromCode(99));
     }
 

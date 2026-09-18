@@ -21,6 +21,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -1049,6 +1051,77 @@ class VectorIndexNullVectorTest
             assertTrue(result.stream().allMatch(e -> index.getVector(e.entityId()) != null),
                 "no null-embedding entity may appear in PQ search results");
             assertNotNull(index.getVector(knownId), "the highest-ordinal node remains stored and resolvable");
+        }
+    }
+
+    /**
+     * An index whose entity count clears the PQ training threshold but whose embedding count does
+     * not must still load its graph, rather than rebuilding on every restart.
+     * <p>
+     * This is the corner where the two counts disagree, and it needs an <b>embedded</b> vectorizer
+     * to reach: there {@code expectedVectorCount} counts <i>entities</i>, so a map of 300 entities
+     * holding 100 embeddings reads as 300 - over the threshold - while PQ training saw 100 and
+     * declined. With a computed vectorizer the count follows the stored vectors and the two agree. A loader that asked "should this have
+     * trained?" of the entity count would answer yes, treat the absent sidecar as loss, reject, and
+     * rebuild; the rebuild would decline again, write no sidecar again, and the next restart would
+     * repeat it. The graph's own node count is what was actually indexed, and that is what decides.
+     * <p>
+     * Asserted through {@code tryLoad}, since a rejected load is invisible from outside: the graph
+     * is rebuilt from the store and the index answers queries either way.
+     */
+    @Test
+    void nullEmbeddingsDoNotCausePerpetualRebuildForInMemoryPq(@TempDir final Path dir) throws IOException
+    {
+        final int  dimension    = 64;
+        final int  entityCount  = 300;   // above MIN_VECTORS_FOR_PQ_TRAINING
+        final int  embeddedEvery = 3;    // so only ~100 of them carry a vector
+        final int  pqSubspaces  = 16;
+        final Path indexDir     = dir.resolve("vectors");
+
+        final Random random = new Random(1234);
+
+        final GigaMap<Doc> map = GigaMap.New();
+        try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+                .pqSubspaces(pqSubspaces)
+                .build(), new NullableEmbeddedVectorizer()))
+        {
+            for(int i = 0; i < entityCount; i++)
+            {
+                map.add(new Doc("d" + i, i % embeddedEvery == 0 ? randomUnit(random, dimension) : null));
+            }
+            index.persistToDisk();
+
+            assertFalse(index.isPqCompressionActive(),
+                "the fixture depends on training declining: too few embeddings despite enough entities");
+        }
+
+        assertFalse(Files.exists(indexDir.resolve("embeddings.pqv")),
+            "training declined, so no sidecar should exist");
+
+        final VectorIndex.Default<Doc> written =
+            (VectorIndex.Default<Doc>)map.index().get(VectorIndices.Category()).get("embeddings");
+
+        assertTrue(written.getExpectedVectorCount() >= 256,
+            "the entity count must clear the threshold, or this test is not in the corner it targets");
+
+        final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
+            written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
+        final GraphFormat format = new GraphFormat(
+            VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY, pqSubspaces, 0);
+
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, format, false))
+        {
+            assertTrue(manager.tryLoad(state),
+                "the graph holds fewer vectors than PQ training needs, so its missing sidecar is"
+                    + " absence rather than loss and the graph must load");
+            assertNull(manager.loadedPqVectors(), "there is no codebook, so nothing to load into heap");
         }
     }
 
