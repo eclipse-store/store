@@ -143,7 +143,7 @@ During graph traversal (search), the HNSW algorithm must evaluate the distance f
 The on-disk graph file thus contains, per node:
 
 * **Graph edges** -- The connections to neighboring nodes (the HNSW structure).
-* **One vector-storage block** -- either full-precision **inline vectors** or **NVQ** quantized vectors, which are about a third of the size. Which one is present affects how traversal scores candidates, not how the final top-k is ordered: reranking reads full-precision vectors either way, from the graph itself when it holds inline vectors and from the GigaMap when it holds quantized ones. See <<_nvq_quantized_vectors_in_the_graph>>.
+* **One vector-storage block** -- either full-precision **inline vectors** or **NVQ** quantized vectors, which are about a third of the size. It is read during traversal only when `approximateScoring` is `NONE`; with `FUSED_PQ` the codes below drive traversal instead, whatever the block holds. See <<_nvq_quantized_vectors_in_the_graph>>.
 * **FusedPQ codes**, when `approximateScoring` is `FUSED_PQ` -- The PQ-compressed representations of the node's neighbors, used for fast approximate scoring during traversal.
 
 FusedPQ places no constraint on `maxDegree`. The degree is recorded in the graph header, so the reader sizes each fused block from the file itself. Because a node's fused block holds `maxDegree` codes, however, `maxDegree` is what multiplies the storage and per-hop read cost of PQ.
@@ -168,7 +168,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .build();
 ----
 
-Or use the `forCompactLargeDataset(dimension, indexDirectory)` preset, which sets `NVQ` together with `NONE`. That pairing is the smallest on-disk footprint available, because it drops the fused codes as well as shrinking the vectors.
+Or use the `forCompactLargeDataset(dimension, indexDirectory)` preset, which sets `NVQ` together with `NONE` and turns on `parallelOnDiskWrite` for the reason given below. That pairing is the smallest on-disk footprint available, because it drops the fused codes as well as shrinking the vectors.
 
 ==== What NVQ Costs and Buys
 
@@ -220,7 +220,36 @@ When PQ compression is active, searches use a **two-phase approach** to balance 
 
 **Phase 1 -- Approximate candidate retrieval:** The HNSW graph is traversed using the FusedPQ-compressed codes for fast approximate distance computation. This phase fetches `max(k, minSearchBeamWidth)` candidates -- never less than the configured search beam width (see xref:indexing/jvector/configuration.adoc#_basic_hnsw_parameters[`minSearchBeamWidth`]) so the top-k stays stable across different `k` values. The per-query `search(query, k, searchBeamWidth)` overload raises this floor for a single call when higher recall is needed.
 
-**Phase 2 -- Exact reranking:** The approximate candidates are then re-scored against full-precision vectors, and the exact scores are sorted so the best _k_ results are returned. Where those vectors are read from depends on `vectorStorage`: with `INLINE` they come from the graph file itself, which costs no GigaMap lookup per candidate, and with `NVQ` the graph holds no full-precision copy so they come from the GigaMap instead. Either way the reranking is exact; see <<_nvq_quantized_vectors_in_the_graph>>.
+**Phase 2 -- Exact reranking:** The approximate candidates are then re-scored against full-precision vectors, and the exact scores are sorted so the best _k_ results are returned.
+
+Reranking is exact under every combination of the two settings, but it does not always read the same vectors:
+
+[options="header",cols="1,1,2,2"]
+|===
+|`vectorStorage` |`approximateScoring` |Traversal scores from |Reranking reads
+
+|`INLINE`
+|`NONE`
+|the GigaMap
+|the GigaMap -- traversal is already exact, so nothing is re-scored
+
+|`INLINE`
+|`FUSED_PQ`
+|the fused neighbour codes
+|the graph's inline vectors, at no lookup per candidate
+
+|`NVQ`
+|`NONE`
+|the quantized vectors in the graph
+|the GigaMap
+
+|`NVQ`
+|`FUSED_PQ`
+|the fused neighbour codes
+|the GigaMap
+|===
+
+The GigaMap is the source wherever the graph holds no full-precision copy to read, and for the default `INLINE` + `NONE`, where the on-disk vectors are deliberately left unused so that the default configuration keeps the behaviour it has always had. See <<_nvq_quantized_vectors_in_the_graph>>.
 
 This two-phase approach achieves nearly the same recall as an uncompressed search while making each traversal hop much cheaper.
 
