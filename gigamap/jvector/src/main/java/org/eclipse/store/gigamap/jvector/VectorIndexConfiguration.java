@@ -414,10 +414,10 @@ public interface VectorIndexConfiguration
      * <p>
      * <b>What the graph stores beside those codes is now a separate setting.</b> With the default
      * {@link VectorStorage#INLINE} the full-precision vectors are still written and the best
-     * candidates are reranked against them exactly, as before. With {@link VectorStorage#NVQ} the
-     * graph holds quantized vectors instead, so reranking compares against those - a legal and
-     * useful combination, but not the exact one this flag used to imply on its own. See
-     * {@link #vectorStorage()}.
+     * candidates are reranked against them, read straight from the memory-mapped graph, as before.
+     * With {@link VectorStorage#NVQ} the graph holds quantized vectors instead, so the rerank reads
+     * the full-precision vectors held in the GigaMap: still exact, but one lookup per reranked
+     * candidate rather than none. See {@link #vectorStorage()}.
      * <p>
      * <b>This is a speed optimisation, not a space one.</b> Fusing the neighbour codes into every
      * node duplicates them {@code maxDegree} times, so enabling PQ makes the {@code .graph} file
@@ -927,7 +927,8 @@ public interface VectorIndexConfiguration
      * {@link #forLargeDataset(int, Path)} when query latency matters more than footprint.
      * <p>
      * <b>Configuration:</b> maxDegree=32, beamWidth=300, onDisk=true, vectorStorage=NVQ,
-     * approximateScoring=NONE, persistenceIntervalMs=30000, optimizationIntervalMs=60000
+     * approximateScoring=NONE, parallelOnDiskWrite=true, persistenceIntervalMs=30000,
+     * optimizationIntervalMs=60000
      *
      * @param dimension the vector dimension (must be positive)
      * @param indexDirectory the directory where index files will be stored
@@ -949,7 +950,8 @@ public interface VectorIndexConfiguration
      * makes.
      * <p>
      * <b>Pre-configured values:</b> maxDegree=32, beamWidth=300, onDisk=true, vectorStorage=NVQ,
-     * approximateScoring=NONE, persistenceIntervalMs=30000, optimizationIntervalMs=60000
+     * approximateScoring=NONE, parallelOnDiskWrite=true, persistenceIntervalMs=30000,
+     * optimizationIntervalMs=60000
      *
      * @param dimension the vector dimension (must be positive)
      * @param indexDirectory the directory where index files will be stored
@@ -961,7 +963,12 @@ public interface VectorIndexConfiguration
     {
         return builderForLargeDataset(dimension, indexDirectory)
             .vectorStorage(VectorStorage.NVQ)
-            .approximateScoring(ApproximateScoring.NONE);
+            .approximateScoring(ApproximateScoring.NONE)
+            // Quantizing fits a nonlinearity per vector at write time, which costs about 3x the
+            // persist wall time sequentially and about 1.2x under the parallel writer, because the
+            // per-node encode then runs on the writer's worker threads. A preset that chose the
+            // quantized format and left this off would hand out the cost without the mitigation.
+            .parallelOnDiskWrite(true);
     }
 
     /**
