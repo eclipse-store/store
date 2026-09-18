@@ -294,11 +294,13 @@ public interface VectorIndexConfiguration
      * <p>
      * Required when {@link #onDisk()} is true. The directory will contain:
      * <ul>
-     *   <li>{@code {name}.graph} - The graph structure: HNSW edges, the full-precision inline
-     *       vectors used for exact reranking, and, when {@link #enablePqCompression()} is active,
-     *       the PQ codebook and fused compressed codes. There is no separate codebook file.</li>
+     *   <li>{@code {name}.graph} - The graph structure: HNSW edges, one vector block per node, and,
+     *       when {@link #approximateScoring()} is {@link ApproximateScoring#FUSED_PQ}, the PQ
+     *       codebook and fused compressed codes. There is no separate codebook file. Which vector
+     *       block is written depends on {@link #vectorStorage()}: full-precision inline vectors, or
+     *       the smaller quantized ones.</li>
      *   <li>{@code {name}.meta} - Metadata file (format version, dimension, vector count, highest
-     *       entity id, structural modification count)</li>
+     *       entity id, structural modification count, and the two format settings)</li>
      * </ul>
      * Both are written to {@code .tmp} siblings and renamed into place, so an interrupted persist
      * leaves at most a stale temporary file.
@@ -317,9 +319,9 @@ public interface VectorIndexConfiguration
      * combination of the two is legal.
      * <p>
      * {@link VectorStorage#NVQ} is the only setting on either dimension that makes the
-     * {@code .graph} file <i>smaller</i>: roughly 3x, at the cost of a reranking pass that compares
-     * against dequantized rather than full-precision vectors. See the constant's own documentation
-     * for the trade-off.
+     * {@code .graph} file <i>smaller</i>: roughly 3x. What that costs in accuracy depends on the
+     * scoring mode, since reranking only compares against the graph's quantized copy when the graph
+     * also carries fused codes. See the constant's own documentation.
      * <p>
      * Requires {@link #onDisk()} to be true, since it describes the on-disk format only.
      *

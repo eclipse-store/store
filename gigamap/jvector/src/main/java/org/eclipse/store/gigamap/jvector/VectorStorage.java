@@ -78,10 +78,20 @@ public enum VectorStorage
      * file: roughly 3x fewer bytes per node than {@link #INLINE}, so more of the graph stays in page
      * cache and cold traversal touches fewer pages.
      * <p>
-     * <b>The trade is that reranking is no longer exact.</b> The graph holds no full-precision copy
-     * to compare against, so the final ordering of the top-k is computed from dequantized vectors.
-     * In measurements at {@code dimension=256} this cost about 0.002 recall@10 against an exact
-     * baseline, but the size of that gap depends on the data.
+     * <b>What it costs in accuracy depends on the scoring mode</b>, because that decides where the
+     * reranking pass reads from:
+     * <ul>
+     *   <li>With {@link ApproximateScoring#NONE} reranking stays <b>exact</b>. Traversal scores
+     *       candidates from the quantized vectors in the graph, and the reranking pass then compares
+     *       against the vectors held in the GigaMap, which are full precision.</li>
+     *   <li>With {@link ApproximateScoring#FUSED_PQ} reranking becomes <b>approximate</b>. The graph
+     *       holds no full-precision copy, so the final ordering of the top-k is computed from
+     *       dequantized vectors. In measurements at {@code dimension=256} this cost about 0.002
+     *       recall@10 against an exact baseline, but the size of that gap depends on the data.</li>
+     * </ul>
+     * The one exception is incremental mode, where a query merges a disk result with an in-memory
+     * one by raw score. There the disk half is always reranked exactly, whatever the scoring mode,
+     * so that the two halves stay on the same scale.
      * <p>
      * <b>Best for:</b>
      * <ul>
