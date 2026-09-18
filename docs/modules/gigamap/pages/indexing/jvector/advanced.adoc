@@ -273,6 +273,10 @@ An index cannot start compressed. The graph builder takes its scoring strategy a
 
 That is why `optimizationIntervalMs` must be set for this mode. Without a scheduled optimization there is no point at which the switch could happen, so the configuration would be accepted and then silently never take effect; it is rejected at build time instead. `isPqCompressionActive()` reports which side of the switch the index is on.
 
+The switch holds the GigaMap's lock for its duration, so writes to the map wait for it while searches continue against the pre-switch graph. It is the same exclusion a `removeAll()` or an on-disk persist takes, and it happens at most once per index generation -- but on a large index it is an O(n) rebuild, so schedule optimization accordingly.
+
+An index restored from storage is a special case: its entities are already in the store, so nothing bumps the change count and a scheduled optimization would be skipped forever. Its first one is therefore armed automatically, regardless of `minChangesBetweenOptimizations`. A newly created index is not armed -- its entities arrive afterwards and each one counts -- so the threshold applies there in full.
+
 WARNING: Construction under compressed scoring does no reranking, so graph quality can drop relative to an exactly built graph. Measured recall stays above 0.90 on clustered data at the default beam width, but raise `beamWidth` for this mode if your own measurements come in lower.
 
 [[_two_phase_search]]

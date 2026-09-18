@@ -125,10 +125,10 @@ class VectorIndexInMemoryPqTest
     }
 
     /**
-     * As {@link #inMemoryPqConfig()}, but with eventual indexing on, so a mutation is applied by a
-     * background callback holding only the read lock rather than synchronously under the monitor.
-     * That is the path the switch window has to survive, and the synchronous one does not exercise
-     * it: there a mutation defers its builder op on {@code cleanupInProgress} instead.
+     * As {@link #inMemoryPqConfig()}, but with eventual indexing on, so a graph update is applied by
+     * a background callback holding only the read lock rather than synchronously under the monitor.
+     * That is the one path that can run <i>while</i> the switch holds the monitor, so it is the path
+     * the switch's concurrency argument has to survive.
      *
      * @return the configuration
      */
@@ -159,6 +159,78 @@ class VectorIndexInMemoryPqTest
             // A long interval, because these tests call optimize() directly rather than waiting.
             .optimizationIntervalMs(3_600_000)
             .build();
+    }
+
+    /**
+     * As {@link #inMemoryPqConfig()}, but ticking often and with a change threshold far out of
+     * reach, so that a scheduled optimization can only happen if something armed it.
+     *
+     * @return the configuration
+     */
+    private static VectorIndexConfiguration tickingInMemoryPqConfig()
+    {
+        return VectorIndexConfiguration.builder()
+            .dimension(DIM)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(16)
+            .beamWidth(100)
+            .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+            .pqSubspaces(DIM / 4)
+            // Long enough that the entities are all in before the first tick: a tick that finds
+            // too few vectors to train declines and clears the counter, which would mask whether
+            // the tick was armed at all.
+            .optimizationIntervalMs(1_500)
+            .minChangesBetweenOptimizations(50_000)
+            .build();
+    }
+
+    /**
+     * A newly created index must earn its optimization like any other.
+     * <p>
+     * A restarted index gets its first optimization armed for it, because it cannot earn one: its
+     * entities are already in the store, so nothing bumps the change count and every scheduled
+     * optimization is skipped. That bootstrap must not reach a <i>new</i> index, which is not in
+     * that position at all - its entities arrive afterwards and each one bumps the count on its way
+     * in. Arming it too would let a small index switch on the first tick without ever reaching
+     * {@code minChangesBetweenOptimizations}, contradicting what that setting documents.
+     * <p>
+     * The index here holds more than enough vectors to train, so the switch not happening can only
+     * be the threshold - which the explicit {@code optimize()} at the end confirms by making it
+     * happen at once.
+     */
+    @Test
+    @Timeout(value = 300, unit = TimeUnit.SECONDS)
+    void aNewIndexDoesNotSwitchBeforeReachingTheChangeThreshold() throws InterruptedException
+    {
+        final Random        random  = new Random(4242);
+        final List<float[]> vectors = clusteredVectors(random, 300);
+
+        final GigaMap<Doc> map = GigaMap.New();
+        try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("embeddings", tickingInMemoryPqConfig(), new CountingVectorizer()))
+        {
+            for(int i = 0; i < vectors.size(); i++)
+            {
+                map.add(new Doc("d" + i, vectors.get(i)));
+            }
+
+            // Several tick intervals, so this is not merely a race the switch lost.
+            Thread.sleep(5_000L);
+
+            assertEquals(0L, ((VectorIndex.Default<Doc>)index).backgroundTaskManager.getOptimizationCount(),
+                "a scheduled optimization ran although the change threshold was never reached, so"
+                    + " the first one was armed for an index that had not earned it");
+
+            assertFalse(index.isPqCompressionActive(),
+                "a new index switched on a scheduled optimization it never earned: 300 changes"
+                    + " against a threshold of 50000");
+
+            index.optimize();
+
+            assertTrue(index.isPqCompressionActive(),
+                "and it must be capable of switching, so the absence above is the threshold rather"
+                    + " than an index that could not switch anyway");
+        }
     }
 
     /**
@@ -244,30 +316,115 @@ class VectorIndexInMemoryPqTest
     }
 
     /**
-     * A mutation landing between the plan and the swap must discard the switch, not be overwritten
-     * by it.
+     * A mutation cannot interleave with the switch: it waits for it, and then survives it.
      * <p>
-     * The gap is real and cannot be locked away. Phase 1 reads the GigaMap under the monitor, phase
-     * 2 builds the replacement with no lock held, and only phase 3 takes the write lock - because
-     * holding the write lock and then reaching for the monitor is the order that deadlocks against
-     * {@code internalRemoveAll}. So the index can move on while the replacement is being built, and
-     * a replacement built from the older picture would undo whatever moved.
+     * The switch holds the {@code parentMap} monitor from the moment it reads the GigaMap to the
+     * moment it publishes the replacement, and every GigaMap mutator is synchronized on that same
+     * monitor. So there is no picture for a mutation to invalidate - it either landed before the
+     * snapshot, and the replay carries it into the replacement, or it has not run yet and applies to
+     * the replacement afterwards.
      * <p>
-     * The resolution is to discard rather than reconcile: {@code structuralModCount} is checked
-     * again under the write lock, and a replacement that no longer describes the index is dropped.
-     * The switch is not lost, only deferred - the next optimization plans again from the current
-     * state. That is the trade this test pins: <b>the data always wins, the switch waits.</b>
+     * This pins both halves. The hook runs with the replacement built and unpublished, which is the
+     * latest instant at which an interleaving mutation could still do damage; a mutator thread
+     * started there must be found blocked rather than proceeding. Once the switch completes the
+     * mutation goes through, and the entity it adds must then be findable - which it can only be if
+     * the add reached the graph the switch published rather than the one it abandoned.
      * <p>
-     * Runs with eventual indexing so the mutation reaches the graph through a background callback
-     * holding only the read lock, which is the path that can overtake the plan. The queue is drained
-     * before asserting, because {@code map.set} under eventual indexing only enqueues - asserting
-     * without the drain races the background thread, and an earlier version of this test did.
+     * An add rather than an update, deliberately: an embedded vec&rarr;vec update leaves the graph
+     * connections alone by contract (see the update path) and is findable at its new vector only
+     * after a later rebuild, so it could not tell the two graphs apart here. A new node is linked in
+     * on the spot.
+     * <p>
+     * The test fails if the switch stops holding the monitor across the rebuild: the mutator thread
+     * would then run to completion inside the window.
      */
     @Test
     @Timeout(value = 300, unit = TimeUnit.SECONDS)
-    void aMutationWhilePreparingDiscardsTheSwitchRatherThanTheMutation()
+    void aConcurrentMutationWaitsForTheSwitchAndThenSurvivesIt() throws InterruptedException
     {
         final Random        random  = new Random(31337);
+        final List<float[]> vectors = clusteredVectors(random, 1000);
+
+        final GigaMap<Doc> map = GigaMap.New();
+        try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("embeddings", inMemoryPqConfig(), new CountingVectorizer()))
+        {
+            for(int i = 0; i < vectors.size(); i++)
+            {
+                map.add(new Doc("d" + i, vectors.get(i)));
+            }
+
+            final VectorIndex.Default<Doc> internal = (VectorIndex.Default<Doc>)index;
+
+            // The entity added during the switch, at a vector of its own.
+            final float[]    added      = nearVector(new Random(99), vectors.get(900));
+            final AtomicLong addedId    = new AtomicLong(-1L);
+
+            final Thread        mutator    = new Thread(
+                () -> addedId.set(map.add(new Doc("added", added))), "pq-switch-mutator");
+            final AtomicBoolean wasBlocked = new AtomicBoolean();
+            final AtomicBoolean hookRan    = new AtomicBoolean();
+
+            internal.pqSwitchPublishTestHook = () ->
+            {
+                hookRan.set(true);
+                mutator.start();
+
+                // A thread waiting on a monitor reports BLOCKED. Polled rather than slept on, so
+                // the test neither races a slow thread start nor pauses for a fixed time.
+                final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+                while(System.nanoTime() < deadline)
+                {
+                    if(mutator.getState() == Thread.State.BLOCKED)
+                    {
+                        wasBlocked.set(true);
+                        return;
+                    }
+                    Thread.onSpinWait();
+                }
+            };
+
+            index.optimize();
+            mutator.join(TimeUnit.SECONDS.toMillis(30));
+
+            assertTrue(hookRan.get(), "the switch did not reach the publication point");
+            assertTrue(wasBlocked.get(),
+                "a mutation started while the replacement was being published was not blocked on"
+                    + " the GigaMap monitor, so it could interleave with the switch");
+            assertFalse(mutator.isAlive(), "the mutation must complete once the switch releases the monitor");
+
+            assertTrue(index.isPqCompressionActive(),
+                "the switch must complete - a concurrent mutation delays it, it does not cancel it");
+            assertTrue(topK(index, added, 10).contains(addedId.get()),
+                "the entity added during the switch must be findable, which it can only be if the"
+                    + " add reached the graph the switch published");
+        }
+    }
+
+    /**
+     * Graph updates still queued when the switch runs must neither be lost nor rejected.
+     * <p>
+     * Under eventual indexing a mutation applies to the GigaMap synchronously and only its graph
+     * update is deferred to a background callback, which takes the read lock and never the monitor.
+     * So a callback can be pending, or running, while the switch holds the monitor - the single case
+     * the switch cannot lock out, and the reason it does not try to.
+     * <p>
+     * What this pins is that nothing is lost. The snapshot is taken under the monitor from the
+     * GigaMap, which the mutation has already updated, so every pending entity is in the replacement
+     * even though its callback has not run - and the callbacks that drain afterwards, into a
+     * replacement that already carries their ordinals, must not disturb it either. It drives that by
+     * calling {@code doOptimize()} directly, the entry point that does <i>not</i> drain the queue
+     * first.
+     * <p>
+     * Whether callbacks are still outstanding when the switch runs is up to the background thread,
+     * so the overlap is asserted rather than assumed: a run in which the queue had already drained
+     * proves nothing, and fails here instead of passing quietly.
+     */
+    @Test
+    @Timeout(value = 300, unit = TimeUnit.SECONDS)
+    void queuedGraphUpdatesSurviveTheSwitch()
+    {
+        final Random        random  = new Random(8191);
         final List<float[]> vectors = clusteredVectors(random, 1000);
 
         final GigaMap<Doc> map = GigaMap.New();
@@ -282,54 +439,49 @@ class VectorIndexInMemoryPqTest
 
             final VectorIndex.Default<Doc> internal = (VectorIndex.Default<Doc>)index;
 
-            // The entity updated inside the window, and the vector it moves to - far from where it
-            // started, so a search near the new one cannot find it by accident.
-            final int     target   = 42;
-            final long    targetId = ids.get(target);
-            final float[] moved    = nearVector(new Random(99), vectors.get(900));
+            final AtomicLong pendingAtSwitch = new AtomicLong(-1L);
+            internal.pqSwitchPublishTestHook = () ->
+                pendingAtSwitch.set(internal.backgroundTaskManager.getPendingIndexingCount());
 
-            internal.pqSwitchWindowTestHook = () ->
-                map.set(targetId, new Doc("d" + target, moved));
+            // Deliberately not drained: optimize() would drain first, which is exactly the overlap
+            // this test needs to keep.
+            internal.doOptimize();
 
-            index.optimize();
-
-            assertFalse(index.isPqCompressionActive(),
-                "a mutation while the replacement was being prepared must discard it: adopting a"
-                    + " graph built from the older picture would undo that mutation");
-
-            // The mutation itself is untouched - it went through the ordinary path.
-            internal.backgroundTaskManager.drainQueue();
-            assertTrue(topK(index, moved, 10).contains(targetId),
-                "the mutation must survive: it is the switch that waits, not the data");
-
-            // And the switch is deferred, not abandoned. Nothing mutates this time, so it lands.
-            internal.pqSwitchWindowTestHook = null;
-            index.optimize();
-
+            assertTrue(pendingAtSwitch.get() > 0,
+                "the background queue had already drained when the switch ran (" + pendingAtSwitch
+                    + " pending), so this run did not exercise the overlap it exists for");
             assertTrue(index.isPqCompressionActive(),
-                "the next optimization must switch, planning from the state the mutation left");
-            assertTrue(topK(index, moved, 10).contains(targetId),
-                "the mutation must still be found after the switch finally happens");
+                "the switch must happen even with graph updates still queued");
+
+            internal.backgroundTaskManager.drainQueue();
+
+            // Every entity, not a sample: a lost ordinal is the failure this is looking for, and it
+            // would be one entity among a thousand.
+            for(int i = 0; i < ids.size(); i++)
+            {
+                assertTrue(topK(index, vectors.get(i), 10).contains(ids.get(i)),
+                    "entity " + i + " is not in the graph the switch published, so a graph update"
+                        + " queued across the switch was lost");
+            }
         }
     }
 
     /**
-     * While the replacement is being prepared, the index must not yet report compressed scoring.
+     * Until the codes are published, the index must not report compressed scoring.
      * <p>
      * Training is only the first step of the transition - the codes still have to be encoded and the
-     * graph rebuilt against them - and all of it runs with no lock held, so it can take as long as a
-     * full rebuild. Reporting from the codebook would make {@code isPqCompressionActive()} true for
-     * that whole stretch while {@code searchInMemoryIndex} was still selecting the exact provider,
-     * which is the opposite of what "actually in effect, as opposed to merely configured" promises.
+     * graph rebuilt against them - so a codebook exists well before anything can score from it.
+     * Reporting from the codebook would make {@code isPqCompressionActive()} true for that whole
+     * stretch while {@code searchInMemoryIndex} was still selecting the exact provider, which is the
+     * opposite of what "actually in effect, as opposed to merely configured" promises.
      * <p>
-     * The published codes are the witness instead: they appear at the same instant as the graph that
-     * scores from them. This observes the window through the seam the switch already exposes - the
-     * hook runs after phase 1 and before the swap, by which point a codebook may exist but nothing
-     * has been published.
+     * The published codes are the witness instead: they appear last, after the graph that scores
+     * from them. The hook observes exactly that instant - the replacement is complete, the codebook
+     * exists, and nothing has been published yet.
      */
     @Test
     @Timeout(value = 300, unit = TimeUnit.SECONDS)
-    void theIndexDoesNotReportCompressedScoringUntilTheSwapHappens()
+    void theIndexDoesNotReportCompressedScoringUntilTheCodesArePublished()
     {
         final Random        random  = new Random(606);
         final List<float[]> vectors = clusteredVectors(random, 1000);
@@ -345,20 +497,22 @@ class VectorIndexInMemoryPqTest
 
             final VectorIndex.Default<Doc> internal = (VectorIndex.Default<Doc>)index;
 
+            final AtomicBoolean hookRan           = new AtomicBoolean();
             final AtomicBoolean activeInTheWindow = new AtomicBoolean();
-            // After the replacement is built, before it is swapped in: a codebook exists here, so
-            // reporting from it rather than from the published codes shows up as a true reading.
-            internal.pqSwitchPreparedTestHook = () ->
+            internal.pqSwitchPublishTestHook = () ->
+            {
+                hookRan.set(true);
                 activeInTheWindow.set(index.isPqCompressionActive());
+            };
 
             index.optimize();
 
+            assertTrue(hookRan.get(), "the switch did not reach the publication point");
             assertFalse(activeInTheWindow.get(),
-                "the index reported compressed scoring before the graph that scores from the codes"
-                    + " had been swapped in, so callers would have believed a switch that had not"
-                    + " happened yet");
+                "the index reported compressed scoring before the codes were published, so callers"
+                    + " would have believed a switch that had not happened yet");
             assertTrue(index.isPqCompressionActive(),
-                "and it must report it once the swap is done");
+                "and it must report it once the codes are published");
         }
     }
 
@@ -546,10 +700,19 @@ class VectorIndexInMemoryPqTest
             assertFalse(topK(index, fresh, 5).contains(freshId),
                 "a removed vector must not come back");
 
-            // And an update.
+            // And an update. An embedded vec->vec update leaves the graph connections alone by
+            // contract - the node keeps the neighbours it earned at its old position - so it
+            // becomes reachable from its new one only once they are rebuilt. Hence the optimize:
+            // without it this asserts reachability the module does not promise, and passes or
+            // fails on how the graph happened to be wired.
+            //
+            // It still pins the code refresh, and more tightly than the bare search did. The
+            // rebuild re-links from the codes, so a node whose code was never refreshed would be
+            // linked at its old position and stay unreachable from the new one.
             final long updated = ids.get(3);
             final float[] replacement = randomUnit(new Random(9191));
             map.set(updated, new Doc("d3-updated", replacement));
+            index.optimize();
             assertTrue(topK(index, replacement, 5).contains(updated),
                 "an updated vector must be findable by its new embedding");
         }
@@ -589,9 +752,11 @@ class VectorIndexInMemoryPqTest
             map.removeById(freshId);
             assertFalse(topK(index, fresh, 5).contains(freshId), "control: removed not returned");
 
+            // Same sequence, same rebuild, so the two remain comparable.
             final long updated = ids.get(3);
             final float[] replacement = randomUnit(new Random(9191));
             map.set(updated, new Doc("d3-updated", replacement));
+            index.optimize();
             assertTrue(topK(index, replacement, 5).contains(updated),
                 "control: an updated vector must be findable by its new embedding on an exact index");
         }

@@ -853,6 +853,17 @@ builderLock.writeLock {           // still exclusive against searches/applies
 }
 ```
 
+### The in-memory PQ switch: monitor only
+
+`performPqSwitch()` (optimize, `PQ_IN_MEMORY` without `onDisk`) is the one O(n) step that runs entirely inside the monitor block and takes **no** `builderLock` at all — the same posture as `ensureGraphRebuilt()`, and safe for the same reason: a thread holding only the monitor waits for no lock a write-lock holder needs, so it cannot sit in a monitor/`builderLock` cycle. Its replacement builder scores from PQ codes rather than the GigaMap, so its workers never call `parentMap.get()` either.
+
+Two consequences follow, and both are deliberate:
+
+- **The replaced builder and graph are not closed.** Searches hold `builderLock.readLock()` and never the monitor, so one can be traversing the old graph at the instant it is replaced. They are heap objects; the garbage collector takes them.
+- **The background indexing worker is not excluded.** Its callbacks take the read lock only, so one can run throughout. It cannot corrupt the result: every such callback was enqueued by a mutation that had already applied to the GigaMap *under the monitor*, so the snapshot the switch takes already reflects it. A callback still holding the old builder writes a change the replacement already has, into a graph that is not closed; one that finds the replacement goes through `internalAddGraphNodeIdempotent`, which tolerates an ordinal already present.
+
+Publication order is graph, then builder, then codes — all `volatile`. `isPqCompressionActive()` and the search path read the codes with no lock, so the codes going last means a reader that sees them also sees the graph that scores from them.
+
 ### `cleanupInProgress` / `deferredBuilderOps` protocol
 
 Synchronous mutations (`internalAdd` etc.) hold the `parentMap` monitor and can't take `builderLock` (lock-ordering rule). Instead:
