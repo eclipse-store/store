@@ -506,7 +506,13 @@ interface DiskIndexManager extends Closeable
                     }
                     else
                     {
-                        this.pqVectors = this.readPqSidecar(pqvPath);
+                        final PQVectors loadedCodes = this.readPqSidecar(pqvPath);
+                        if(!this.sidecarFitsTheGraph(loadedCodes, expected))
+                        {
+                            this.close();
+                            return false;
+                        }
+                        this.pqVectors = loadedCodes;
                         LOG.info("Loaded PQ sidecar for '{}': {} vectors, {} bytes resident",
                             this.name, this.pqVectors.count(), this.pqVectors.ramBytesUsed());
                     }
@@ -817,6 +823,50 @@ interface DiskIndexManager extends Closeable
 
             LOG.info("Wrote PQ sidecar for '{}': {} vectors, {} bytes per code, {} bytes resident when loaded",
                 this.name, pqVectors.count(), pqVectors.getCompressedSize(), pqVectors.ramBytesUsed());
+        }
+
+        /**
+         * Checks that a loaded sidecar describes the graph it was loaded beside.
+         * <p>
+         * The witnesses in the metadata cover the cases that arise from a torn or interrupted write,
+         * since the metadata is committed last and a changed {@code pqSubspaces} is itself a
+         * witness. What they do not cover is a sidecar that survived from somewhere else - copied
+         * in, restored from a different backup generation, or truncated by something outside this
+         * code - and reaching the score function with one is worse than rejecting it: a code array
+         * shorter than the graph's ordinal space fails on a lookup rather than at load.
+         * <p>
+         * Note the limit of this. Shape is checkable, content is not: a sidecar of exactly the right
+         * dimensions holding codes for different vectors passes here and degrades traversal
+         * silently, which is precisely what
+         * {@code VectorIndexDiskTest.testPqInMemoryCodesActuallyDriveTraversal} relies on to prove
+         * the codes are consulted at all. Detecting that would need a checksum the format does not
+         * carry.
+         *
+         * @param codes    the sidecar just read
+         * @param expected the witnesses this load was verified against
+         * @return whether the sidecar can be used
+         */
+        private boolean sidecarFitsTheGraph(final PQVectors codes, final MetaState expected)
+        {
+            final int configuredSubspaces = this.format.effectivePqSubspaces(this.dimension);
+            if(codes.getCompressedSize() != configuredSubspaces)
+            {
+                LOG.info("PQ sidecar for '{}' encodes {} bytes per vector, configured for {},"
+                    + " rebuilding", this.name, codes.getCompressedSize(), configuredSubspaces);
+                return false;
+            }
+
+            // Ordinals are source entity ids, so the codes have to span up to the highest one in use
+            // or a search can ask for a code that is not there.
+            final long requiredOrdinals = expected.highestEntityId + 1;
+            if(codes.count() < requiredOrdinals)
+            {
+                LOG.info("PQ sidecar for '{}' covers {} ordinals, graph needs {}, rebuilding",
+                    this.name, codes.count(), requiredOrdinals);
+                return false;
+            }
+
+            return true;
         }
 
         /**

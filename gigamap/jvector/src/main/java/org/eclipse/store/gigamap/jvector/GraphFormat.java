@@ -131,7 +131,10 @@ record GraphFormat(
      */
     int effectivePqSubspaces(final int dimension)
     {
-        if(!this.usesFusedPq())
+        // usesPq, not usesFusedPq: PQ_IN_MEMORY encodes with this count too, it just keeps the
+        // result in a sidecar instead of the graph. Gating on the fused mode alone would record a
+        // zero for an in-memory index and lose the witness that makes a changed count take effect.
+        if(!this.usesPq())
         {
             return 0;
         }

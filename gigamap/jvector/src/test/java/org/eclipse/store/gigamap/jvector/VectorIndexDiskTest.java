@@ -4704,6 +4704,89 @@ class VectorIndexDiskTest
     }
 
     /**
+     * A sidecar that does not describe this graph must be rejected rather than scored from.
+     * <p>
+     * The metadata witnesses cover what a torn write can produce, since the metadata is committed
+     * last and a changed {@code pqSubspaces} is itself a witness. They do not cover a file that
+     * arrived from somewhere else - copied in, restored from another backup generation, or
+     * truncated outside this code - and the failure that would follow is worse than a rebuild: a
+     * code array shorter than the graph's ordinal space fails on a lookup during a search rather
+     * than at load, when there is still something sensible to do about it.
+     * <p>
+     * Both checkable mismatches are covered here: the wrong code length, and too few ordinals.
+     * Content is not checkable - see {@link #testPqInMemoryCodesActuallyDriveTraversal}, which
+     * relies on a correctly shaped sidecar full of the wrong codes being accepted.
+     */
+    @Test
+    void testSidecarNotDescribingTheGraphIsRejected(@TempDir final Path tempDir) throws IOException
+    {
+        final int  dimension   = 64;
+        final int  vectorCount = 400;
+        final int  pqSubspaces = 16;
+        final Path indexDir    = tempDir.resolve("vectors");
+        final Path foreignDir  = tempDir.resolve("foreign");
+
+        // The index under test, and its sidecar.
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+                .pqSubspaces(pqSubspaces)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, new Random(66), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+        }
+
+        final VectorIndex.Default<Document> written =
+            (VectorIndex.Default<Document>)gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+        final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
+            written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
+        final GraphFormat format = new GraphFormat(
+            VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY, pqSubspaces, 0);
+
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, format, false))
+        {
+            assertTrue(manager.tryLoad(state), "its own sidecar must load");
+        }
+
+        // A sidecar from a smaller index of the same shape: right code length, too few ordinals to
+        // cover this graph. Still above the training threshold, or it would write no sidecar at all
+        // and the test would be exercising absence rather than mismatch.
+        final int foreignCount = 300;
+        final GigaMap<Document> smaller = GigaMap.New();
+        try(final VectorIndex<Document> index = smaller.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(foreignDir)
+                .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+                .pqSubspaces(pqSubspaces)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(smaller, new Random(77), dimension, foreignCount, "doc_");
+            index.persistToDisk();
+        }
+
+        Files.copy(foreignDir.resolve("embeddings.pqv"), indexDir.resolve("embeddings.pqv"),
+            StandardCopyOption.REPLACE_EXISTING);
+
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, format, false))
+        {
+            assertFalse(manager.tryLoad(state),
+                "a sidecar covering fewer ordinals than the graph must be rejected, not left to fail"
+                    + " on a lookup mid-search");
+        }
+    }
+
+    /**
      * A missing sidecar must be a rejection, not a silent degrade.
      * <p>
      * The metadata says this index traverses on PQ codes. Serving it exactly instead would work, and
