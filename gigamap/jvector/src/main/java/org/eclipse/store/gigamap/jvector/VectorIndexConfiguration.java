@@ -324,13 +324,20 @@ public interface VectorIndexConfiguration
      * also carries fused codes. See the constant's own documentation.
      * <p>
      * Requires {@link #onDisk()} to be true, since it describes the on-disk format only.
+     * <p>
+     * A {@code default} so that an implementation written against an earlier version of this
+     * interface still compiles and links. Such an implementation predates the storage dimension, so
+     * {@link VectorStorage#INLINE} is what it described.
      *
      * @return the vector storage mode (default: {@link VectorStorage#INLINE})
      * @see VectorStorage
      * @see #approximateScoring()
      * @see #nvqSubvectors()
      */
-    public VectorStorage vectorStorage();
+    public default VectorStorage vectorStorage()
+    {
+        return VectorStorage.INLINE;
+    }
 
     /**
      * Returns how graph traversal scores the candidates it visits.
@@ -343,12 +350,23 @@ public interface VectorIndexConfiguration
      * Requires {@link #onDisk()} to be true for any value other than
      * {@link ApproximateScoring#NONE}.
      *
+     * <p>
+     * A {@code default} for the same reason as {@link #vectorStorage()}, and it derives from the
+     * deprecated flag rather than returning a constant: an implementation predating this method
+     * expresses the same setting through {@link #enablePqCompression()}, so deriving keeps it
+     * answering correctly instead of silently reporting no approximate scoring.
+     *
      * @return the approximate scoring mode (default: {@link ApproximateScoring#NONE})
      * @see ApproximateScoring
      * @see #vectorStorage()
      * @see #pqSubspaces()
      */
-    public ApproximateScoring approximateScoring();
+    public default ApproximateScoring approximateScoring()
+    {
+        return this.enablePqCompression()
+            ? ApproximateScoring.FUSED_PQ
+            : ApproximateScoring.NONE;
+    }
 
     /**
      * Returns the number of NVQ subvectors.
@@ -367,6 +385,10 @@ public interface VectorIndexConfiguration
      * <p>
      * Only meaningful when {@link #vectorStorage()} is {@link VectorStorage#NVQ}.
      *
+     * <p>
+     * A {@code default} for the same reason as {@link #vectorStorage()}. One is both the
+     * recommended value and what an implementation predating this method implies.
+     *
      * @return the effective number of NVQ subvectors, never zero: a configured 0 means "auto" and
      *         resolves to 1 here, so callers always receive a usable count. Note this differs from
      *         {@link #pqSubspaces()}, which returns its raw sentinel and leaves resolution to the
@@ -374,7 +396,10 @@ public interface VectorIndexConfiguration
      * @see VectorStorage#NVQ
      * @see #vectorStorage()
      */
-    public int nvqSubvectors();
+    public default int nvqSubvectors()
+    {
+        return 1;
+    }
 
     /**
      * Returns whether Product Quantization (PQ) compression is enabled.
@@ -1126,11 +1151,21 @@ public interface VectorIndexConfiguration
          * Requires {@link #onDisk(boolean)} to be true for any value other than
          * {@link VectorStorage#INLINE}.
          *
+         * <p>
+         * A {@code default} so that a builder implementation written against an earlier version of
+         * this interface still compiles and links. It throws rather than ignoring the call, because
+         * a builder that cannot carry the setting must not report success and then hand back a
+         * configuration that silently says something else.
+         *
          * @param vectorStorage the storage mode, never null
          * @return this builder for method chaining
+         * @throws UnsupportedOperationException from the default implementation
          * @see VectorIndexConfiguration#vectorStorage()
          */
-        public Builder vectorStorage(VectorStorage vectorStorage);
+        public default Builder vectorStorage(final VectorStorage vectorStorage)
+        {
+            throw new UnsupportedOperationException("vectorStorage is not supported by " + this.getClass().getName());
+        }
 
         /**
          * Sets how graph traversal scores the candidates it visits.
@@ -1138,11 +1173,21 @@ public interface VectorIndexConfiguration
          * Requires {@link #onDisk(boolean)} to be true for any value other than
          * {@link ApproximateScoring#NONE}.
          *
+         * <p>
+         * A {@code default} so that a builder implementation written against an earlier version of
+         * this interface still compiles and links. It throws rather than ignoring the call, because
+         * a builder that cannot carry the setting must not report success and then hand back a
+         * configuration that silently says something else.
+         *
          * @param approximateScoring the scoring mode, never null
          * @return this builder for method chaining
+         * @throws UnsupportedOperationException from the default implementation
          * @see VectorIndexConfiguration#approximateScoring()
          */
-        public Builder approximateScoring(ApproximateScoring approximateScoring);
+        public default Builder approximateScoring(final ApproximateScoring approximateScoring)
+        {
+            throw new UnsupportedOperationException("approximateScoring is not supported by " + this.getClass().getName());
+        }
 
         /**
          * Sets the number of NVQ subvectors.
@@ -1151,11 +1196,21 @@ public interface VectorIndexConfiguration
          * recommended setting - see {@link VectorIndexConfiguration#nvqSubvectors()} for why a
          * higher count is usually pure overhead.
          *
+         * <p>
+         * A {@code default} so that a builder implementation written against an earlier version of
+         * this interface still compiles and links. It throws rather than ignoring the call, because
+         * a builder that cannot carry the setting must not report success and then hand back a
+         * configuration that silently says something else.
+         *
          * @param nvqSubvectors the number of subvectors, or 0 for auto
          * @return this builder for method chaining
+         * @throws UnsupportedOperationException from the default implementation
          * @see VectorIndexConfiguration#nvqSubvectors()
          */
-        public Builder nvqSubvectors(int nvqSubvectors);
+        public default Builder nvqSubvectors(final int nvqSubvectors)
+        {
+            throw new UnsupportedOperationException("nvqSubvectors is not supported by " + this.getClass().getName());
+        }
 
         /**
          * Enables or disables Product Quantization compression.

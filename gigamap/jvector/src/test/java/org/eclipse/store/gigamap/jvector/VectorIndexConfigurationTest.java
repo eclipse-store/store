@@ -1533,6 +1533,326 @@ class VectorIndexConfigurationTest
         assertFalse(pqDisabled.enablePqCompression());
     }
 
+    // ==================== Binary Compatibility Tests ====================
+
+    /**
+     * The three format accessors are {@code default} methods, so an implementation written before
+     * they existed - one that implements only the accessors this interface had in the previous
+     * release - still compiles and links. {@link LegacyConfiguration} is exactly such an
+     * implementation: it overrides none of the three, and this test would not compile if any of
+     * them were abstract.
+     * <p>
+     * The scoring default is the interesting one. It derives from the deprecated flag rather than
+     * returning a constant, so a legacy implementation that enables PQ keeps answering correctly
+     * instead of reporting no approximate scoring at all.
+     */
+    @Test
+    void testLegacyImplementationInheritsFormatAccessors()
+    {
+        final VectorIndexConfiguration pqOff = new LegacyConfiguration(false);
+
+        assertEquals(VectorStorage.INLINE   , pqOff.vectorStorage()     );
+        assertEquals(ApproximateScoring.NONE, pqOff.approximateScoring());
+        assertEquals(1                      , pqOff.nvqSubvectors()     );
+
+        final VectorIndexConfiguration pqOn = new LegacyConfiguration(true);
+
+        assertEquals(VectorStorage.INLINE       , pqOn.vectorStorage()     );
+        assertEquals(ApproximateScoring.FUSED_PQ, pqOn.approximateScoring());
+    }
+
+    /**
+     * The new {@code Builder} mutators are {@code default} too, for the same linkage reason, but
+     * they throw instead of silently ignoring the call: a builder that cannot carry the setting
+     * must not report success and then hand back a configuration that says something else.
+     */
+    @Test
+    void testLegacyBuilderRejectsTheNewMutators()
+    {
+        final VectorIndexConfiguration.Builder legacyBuilder = new LegacyBuilder();
+
+        assertThrows(UnsupportedOperationException.class, () -> legacyBuilder.vectorStorage(VectorStorage.NVQ));
+        assertThrows(UnsupportedOperationException.class, () -> legacyBuilder.approximateScoring(ApproximateScoring.NONE));
+        assertThrows(UnsupportedOperationException.class, () -> legacyBuilder.nvqSubvectors(1));
+    }
+
+    /**
+     * A third-party implementation of {@link VectorIndexConfiguration} as it stood before the
+     * format accessors were added. The returned values are irrelevant; what matters is that this
+     * class declares no {@code vectorStorage}, {@code approximateScoring} or {@code nvqSubvectors}.
+     */
+    private static final class LegacyConfiguration implements VectorIndexConfiguration
+    {
+        private final boolean pqCompression;
+
+        LegacyConfiguration(final boolean pqCompression)
+        {
+            super();
+            this.pqCompression = pqCompression;
+        }
+
+        @Override
+        public int dimension()
+        {
+            return 64;
+        }
+
+        @Override
+        public VectorSimilarityFunction similarityFunction()
+        {
+            return VectorSimilarityFunction.COSINE;
+        }
+
+        @Override
+        public int maxDegree()
+        {
+            return 16;
+        }
+
+        @Override
+        public int beamWidth()
+        {
+            return 100;
+        }
+
+        @Override
+        public int minSearchBeamWidth()
+        {
+            return 50;
+        }
+
+        @Override
+        public float neighborOverflow()
+        {
+            return 1.2f;
+        }
+
+        @Override
+        public float alpha()
+        {
+            return 1.2f;
+        }
+
+        @Override
+        public boolean onDisk()
+        {
+            return true;
+        }
+
+        @Override
+        public Path indexDirectory()
+        {
+            return Path.of("legacy");
+        }
+
+        @Override
+        @SuppressWarnings("deprecation")
+        public boolean enablePqCompression()
+        {
+            return this.pqCompression;
+        }
+
+        @Override
+        public int pqSubspaces()
+        {
+            return 0;
+        }
+
+        @Override
+        public long persistenceIntervalMs()
+        {
+            return 0L;
+        }
+
+        @Override
+        public boolean persistOnShutdown()
+        {
+            return true;
+        }
+
+        @Override
+        public long shutdownPersistTimeoutMillis()
+        {
+            return 30_000L;
+        }
+
+        @Override
+        public int minChangesBetweenPersists()
+        {
+            return 0;
+        }
+
+        @Override
+        public long optimizationIntervalMs()
+        {
+            return 0L;
+        }
+
+        @Override
+        public int minChangesBetweenOptimizations()
+        {
+            return 0;
+        }
+
+        @Override
+        public boolean optimizeOnShutdown()
+        {
+            return false;
+        }
+
+        @Override
+        public boolean eventualIndexing()
+        {
+            return false;
+        }
+
+        @Override
+        public boolean parallelOnDiskWrite()
+        {
+            return false;
+        }
+    }
+
+    /**
+     * A third-party {@link VectorIndexConfiguration.Builder} as it stood before the format
+     * mutators were added. Every method that existed then throws, since this test exercises only
+     * the three inherited defaults.
+     */
+    private static final class LegacyBuilder implements VectorIndexConfiguration.Builder
+    {
+        LegacyBuilder()
+        {
+            super();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder dimension(final int dimension)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder similarityFunction(final VectorSimilarityFunction similarityFunction)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder maxDegree(final int maxDegree)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder beamWidth(final int beamWidth)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder minSearchBeamWidth(final int minSearchBeamWidth)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder neighborOverflow(final float neighborOverflow)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder alpha(final float alpha)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder onDisk(final boolean onDisk)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder indexDirectory(final Path indexDirectory)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        @SuppressWarnings("deprecation")
+        public VectorIndexConfiguration.Builder enablePqCompression(final boolean enablePqCompression)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder pqSubspaces(final int pqSubspaces)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder persistenceIntervalMs(final long persistenceIntervalMs)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder persistOnShutdown(final boolean persistOnShutdown)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder shutdownPersistTimeoutMillis(final long shutdownPersistTimeoutMillis)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder minChangesBetweenPersists(final int minChangesBetweenPersists)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder optimizationIntervalMs(final long optimizationIntervalMs)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder minChangesBetweenOptimizations(final int minChangesBetweenOptimizations)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder optimizeOnShutdown(final boolean optimizeOnShutdown)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder eventualIndexing(final boolean eventualIndexing)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration.Builder parallelOnDiskWrite(final boolean parallelOnDiskWrite)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public VectorIndexConfiguration build()
+        {
+            throw new UnsupportedOperationException();
+        }
+    }
+
     /**
      * Forces the shape Eclipse Store produces for a configuration stored before the storage and
      * scoring fields existed: both references null and the int zero, with the legacy
