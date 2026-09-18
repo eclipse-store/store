@@ -222,7 +222,9 @@ Sequentially NVQ costs about 3x the persist time. Under the parallel writer that
 
 === PQ_IN_MEMORY: The Same Codes, Kept Out of the Graph
 
-`FUSED_PQ` and `PQ_IN_MEMORY` buy the same approximate traversal and differ only in where the codes live. Fusing writes each node's code into every neighbour that references it, so the cost is `pqSubspaces * maxDegree` bytes per node *on disk*. Keeping them in a sidecar costs `pqSubspaces` bytes per ordinal *once*, in a `{indexName}.pqv` file that is read into heap when the index loads.
+`FUSED_PQ` and `PQ_IN_MEMORY` buy the same approximate traversal and differ only in where the codes live. Fusing writes each node's code into every neighbour that references it, so the cost is `pqSubspaces * maxDegree` bytes per node *on disk*. Keeping them out of the graph costs `pqSubspaces` bytes per ordinal *once*, in heap.
+
+NOTE: This section describes `PQ_IN_MEMORY` on an **on-disk** index, where the codes are persisted in a `{indexName}.pqv` sidecar and read back into heap on load. An in-memory index has no persist and therefore no sidecar at all; it builds the codes at optimization instead. See <<_compressed_scoring_for_an_in_memory_index>>.
 
 At `dimension=768`, `maxDegree=32` and the automatic `pqSubspaces` of 192, that is 6,144 bytes per node of graph file against 192 bytes per ordinal of heap. Per ordinal rather than per vector because the codes are indexed by entity id, so a deletion hole still costs its bytes -- the IMPORTANT note below puts numbers on that.
 
@@ -244,15 +246,16 @@ IMPORTANT: The heap cost is linear and has no ceiling. It is `pqSubspaces` bytes
 
 ==== The Third File
 
-`PQ_IN_MEMORY` adds `{indexName}.pqv` beside the graph and the metadata. It is written first and the metadata last, so the metadata only becomes visible once everything it describes is in place; a crash at any earlier point leaves a stale metadata file, which is rejected on load and self-heals from the store.
+On an on-disk index, `PQ_IN_MEMORY` adds `{indexName}.pqv` beside the graph and the metadata. It is written first and the metadata last, so the metadata only becomes visible once everything it describes is in place; a crash at any earlier point leaves a stale metadata file, which is rejected on load and self-heals from the store.
 
 A missing or unreadable sidecar is treated the same way. The index is *not* served without it: the metadata says this index traverses on PQ codes, and quietly scoring it exactly instead would make the configuration untrue. Rejecting rebuilds from the store, which restores the graph and the sidecar together.
 
 The codebook lives in the sidecar too. A fused graph carries it in the graph header, but this mode writes no fused feature, so the sidecar is the only copy.
 
+[[_compressed_scoring_for_an_in_memory_index]]
 ==== Compressed Scoring for an In-Memory Index
 
-`PQ_IN_MEMORY` is the one *PQ-based* scoring mode an in-memory index can use - `NONE`, the default, stays available and is what an index uses until it switches. It is worth having there: profiling an in-memory index shows about 2,000 vector lookups per insertion during construction, and well over a thousand distinct lookups per query during search. The per-query cache dedupes repeat visits to the same node, but not the distinct ones, and both counts grow with the data set. Scoring from in-heap codes removes them.
+`PQ_IN_MEMORY` is the one *PQ-based* scoring mode an in-memory index can use - `NONE`, the default, stays available and is what an index uses until it switches. Everything above about the `.pqv` sidecar applies to on-disk indices only: there is no persist here, so there is no file, and the codes live in heap for as long as the index is open. It is worth having there: profiling an in-memory index shows about 2,000 vector lookups per insertion during construction, and well over a thousand distinct lookups per query during search. The per-query cache dedupes repeat visits to the same node, but not the distinct ones, and both counts grow with the data set. Scoring from in-heap codes removes them.
 
 [source, java]
 ----

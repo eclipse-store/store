@@ -296,6 +296,57 @@ class VectorIndexInMemoryPqTest
     }
 
     /**
+     * An index that only ever mutates through eventual indexing must still reach the switch on its
+     * own.
+     * <p>
+     * The bootstrap that arms a restored index is deliberately not given to a new one, which is
+     * expected to earn its optimization through the change count. Under eventual indexing nothing
+     * bumps that count at mutation time - {@code enqueue} only queues the operation - so the
+     * question is whether the count is ever bumped at all. It is: each queued operation marks dirty
+     * when it is <i>applied</i>, on the executor thread. This pins that, because the two mechanisms
+     * would otherwise cancel out and leave such an index on exact scoring for good.
+     * <p>
+     * No {@code optimize()} call anywhere - the whole point is that the scheduled one happens by
+     * itself.
+     */
+    @Test
+    @Timeout(value = 300, unit = TimeUnit.SECONDS)
+    void anEventuallyIndexedIndexReachesTheSwitchOnItsOwn() throws InterruptedException
+    {
+        final Random        random  = new Random(1618);
+        final List<float[]> vectors = clusteredVectors(random, 300);
+
+        final GigaMap<Doc> map = GigaMap.New();
+        try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(DIM)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .maxDegree(16)
+                .beamWidth(100)
+                .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+                .pqSubspaces(DIM / 4)
+                .eventualIndexing(true)
+                .optimizationIntervalMs(1_000)
+                .minChangesBetweenOptimizations(200)
+                .build(), new CountingVectorizer()))
+        {
+            for(int i = 0; i < vectors.size(); i++)
+            {
+                map.add(new Doc("d" + i, vectors.get(i)));
+            }
+
+            // 300 changes against a threshold of 200, so a scheduled optimization is due once the
+            // queued operations have been applied. Several tick intervals to let that happen.
+            Thread.sleep(6_000L);
+
+            assertTrue(index.isPqCompressionActive(),
+                "an eventually indexed index never switched: its mutations are queued rather than"
+                    + " counted at mutation time, so if applying them does not mark dirty either,"
+                    + " the scheduled optimization is skipped forever");
+        }
+    }
+
+    /**
      * The mode is on-disk-free but not optimization-free: without a scheduled optimization there is
      * no point at which the switch could happen, so the configuration would be accepted and then
      * silently never take effect. That is rejected rather than allowed.
