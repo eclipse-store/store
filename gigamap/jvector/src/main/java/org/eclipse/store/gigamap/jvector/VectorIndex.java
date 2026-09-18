@@ -973,6 +973,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // Null (and a no-op) in production.
         transient volatile Runnable pqSwitchWindowTestHook;
 
+        // Test-only seam: run after the replacement has been built and before the write lock that
+        // swaps it in. A codebook exists at that point but nothing has been published, which is the
+        // window isPqCompressionActive() must still report exact scoring in.
+        // Null (and a no-op) in production.
+        transient volatile Runnable pqSwitchPreparedTestHook;
+
         // Test-only seam: run on entry to drainDeferredBuilderOps, BEFORE the parentMap monitor is
         // acquired. Lets a test collide two drains deterministically (persist thread vs application
         // thread) to assert that the drain is serialized. Null (and a no-op) in production.
@@ -1169,7 +1175,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             this.warnIfOrdinalSpaceIsSparse();
 
-            return new PqSwitchPlan(sample, this.collectStoredVectors(), this.getStructuralModCount());
+            // The manager travels with the plan. Phases two and three run outside the monitor, and
+            // internalRemoveAll can null this field and initializeIndex can put a different
+            // instance in its place while they do - so reading this.pqManager there would train,
+            // or reset, whichever manager happened to be installed at that moment.
+            return new PqSwitchPlan(
+                this.pqManager, sample, this.collectStoredVectors(), this.getStructuralModCount());
         }
 
         /**
@@ -1188,16 +1199,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private PreparedPqSwitch preparePqSwitch(final PqSwitchPlan plan)
         {
+            final PQCompressionManager manager = plan.manager();
             try
             {
-                this.pqManager.trainFrom(plan.sample());
+                manager.trainFrom(plan.sample());
             }
             catch(final RuntimeException e)
             {
                 LOG.warn("PQ training failed for '{}', staying on exact scoring", this.name, e);
             }
 
-            if(!this.pqManager.isTrained())
+            if(!manager.isTrained())
             {
                 // Assigning the witness needs no monitor: the value it holds was read under one,
                 // which is the part that had to be consistent.
@@ -1205,7 +1217,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return null;
             }
 
-            final MutablePQVectors codes = new MutablePQVectors(this.pqManager.getPQ());
+            final MutablePQVectors codes = new MutablePQVectors(manager.getPQ());
 
             final GraphIndexBuilder replacement = new GraphIndexBuilder(
                 BuildScoreProvider.pqBuildScoreProvider(this.jvectorSimilarityFunction(), codes),
@@ -1277,6 +1289,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     + " prepared, so the replacement no longer describes it", this.name);
                 return false;
             }
+            if(this.pqManager != plan.manager())
+            {
+                // A teardown replaced the manager, so the codebook these codes were encoded with is
+                // no longer the index's own. Checked separately from the builder because
+                // closeInternalResources nulls this field and initializeIndex installs a new one.
+                LOG.info("Discarding the PQ switch for '{}': its compression manager was replaced"
+                    + " while the replacement was being prepared", this.name);
+                return false;
+            }
 
             this.closeSearcherPools();
             this.closeBuilderAndGraph();
@@ -1297,9 +1318,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         /**
          * Releases a prepared replacement that was never adopted.
          *
+         * @param plan     the plan it was built from, which owns the manager to roll back
          * @param prepared what phase 2 built
          */
-        private void discardPreparedPqSwitch(final PreparedPqSwitch prepared)
+        private void discardPreparedPqSwitch(final PqSwitchPlan plan, final PreparedPqSwitch prepared)
         {
             try
             {
@@ -1315,7 +1337,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // The manager holds a codebook trained for a switch that did not happen. Left trained,
             // it would make every later plan return early while the graph stayed exact, so the index
             // would report compressed scoring it is not doing and never correct itself.
-            this.pqManager.reset();
+            //
+            // Only the one this switch trained, and only while it is still the index's. This runs
+            // with no lock held, so a teardown may already have nulled the field or installed a
+            // replacement - resetting that one would clear a codebook belonging to a switch that
+            // did succeed, or throw.
+            final PQCompressionManager manager = plan.manager();
+            if(manager != null && this.pqManager == manager)
+            {
+                manager.reset();
+            }
         }
 
         /**
@@ -1348,11 +1379,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         /**
          * What phase 1 reads under the GigaMap monitor so the later phases need none.
          *
+         * @param manager            the compression manager this switch belongs to, captured so the
+         *                           later phases cannot act on one that replaced it
          * @param sample             the training sample for the codebook
          * @param entries            every stored vector, to replay into the replacement graph
          * @param structuralModCount the index's change counter at the moment of capture
          */
         private record PqSwitchPlan(
+            PQCompressionManager manager           ,
             List<VectorFloat<?>> sample            ,
             List<VectorEntry>    entries           ,
             long                 structuralModCount
@@ -3199,6 +3233,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     : null
                 ;
 
+                // Test-only injection point: the replacement exists, nothing is published yet.
+                // No-op in production.
+                final Runnable preparedHook = this.pqSwitchPreparedTestHook;
+                if(preparedHook != null)
+                {
+                    preparedHook.run();
+                }
+
                 // cleanup() uses ForkJoinPool internally — must be outside
                 // synchronized(parentMap) to avoid deadlock with embedded vectorizers
                 // whose worker threads call parentMap.get().
@@ -3240,12 +3282,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     if(prepared != null && !adopted)
                     {
                         // Outside the lock: closing a graph nobody has seen needs no exclusion.
-                        this.discardPreparedPqSwitch(prepared);
+                        this.discardPreparedPqSwitch(pqSwitch, prepared);
                     }
                 }
                 else if(prepared != null)
                 {
-                    this.discardPreparedPqSwitch(prepared);
+                    this.discardPreparedPqSwitch(pqSwitch, prepared);
                 }
             }
             finally
@@ -3839,6 +3881,19 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public boolean isPqCompressionActive()
         {
+            if(!this.configuration.onDisk()
+                && this.configuration.approximateScoring() == ApproximateScoring.PQ_IN_MEMORY)
+            {
+                // For an in-memory index the codes are the witness, not the codebook. Training is
+                // one step of a transition that also encodes every ordinal and rebuilds the graph,
+                // and it runs with no lock held - so between the codebook existing and the graph
+                // being swapped in there is a window, as long as the rebuild, during which the
+                // manager reports trained while search is still scoring exactly. The published
+                // codes appear at the same instant as the graph that scores from them, which is
+                // what "actually in effect" has to mean here.
+                return this.inMemoryPqVectors != null;
+            }
+
             final PQCompressionManager pqManager = this.pqManager;
             return pqManager != null && pqManager.isTrained();
         }

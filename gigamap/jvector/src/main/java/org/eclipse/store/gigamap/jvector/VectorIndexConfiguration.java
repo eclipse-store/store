@@ -1184,8 +1184,10 @@ public interface VectorIndexConfiguration
         /**
          * Sets how graph traversal scores the candidates it visits.
          * <p>
-         * Requires {@link #onDisk(boolean)} to be true for any value other than
-         * {@link ApproximateScoring#NONE}.
+         * {@link ApproximateScoring#FUSED_PQ} requires {@link #onDisk(boolean)}, since its codes are
+         * written into the graph file. {@link ApproximateScoring#PQ_IN_MEMORY} does not - it keeps
+         * its codes in heap - but on an in-memory index it needs a scheduled optimization, which is
+         * where the switch to compressed scoring happens.
          *
          * <p>
          * A {@code default} so that a builder implementation written against an earlier version of

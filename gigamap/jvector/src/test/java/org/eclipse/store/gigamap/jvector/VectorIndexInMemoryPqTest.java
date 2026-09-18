@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -309,6 +310,55 @@ class VectorIndexInMemoryPqTest
                 "the next optimization must switch, planning from the state the mutation left");
             assertTrue(topK(index, moved, 10).contains(targetId),
                 "the mutation must still be found after the switch finally happens");
+        }
+    }
+
+    /**
+     * While the replacement is being prepared, the index must not yet report compressed scoring.
+     * <p>
+     * Training is only the first step of the transition - the codes still have to be encoded and the
+     * graph rebuilt against them - and all of it runs with no lock held, so it can take as long as a
+     * full rebuild. Reporting from the codebook would make {@code isPqCompressionActive()} true for
+     * that whole stretch while {@code searchInMemoryIndex} was still selecting the exact provider,
+     * which is the opposite of what "actually in effect, as opposed to merely configured" promises.
+     * <p>
+     * The published codes are the witness instead: they appear at the same instant as the graph that
+     * scores from them. This observes the window through the seam the switch already exposes - the
+     * hook runs after phase 1 and before the swap, by which point a codebook may exist but nothing
+     * has been published.
+     */
+    @Test
+    @Timeout(value = 300, unit = TimeUnit.SECONDS)
+    void theIndexDoesNotReportCompressedScoringUntilTheSwapHappens()
+    {
+        final Random        random  = new Random(606);
+        final List<float[]> vectors = clusteredVectors(random, 1000);
+
+        final GigaMap<Doc> map = GigaMap.New();
+        try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("embeddings", inMemoryPqConfig(), new CountingVectorizer()))
+        {
+            for(int i = 0; i < vectors.size(); i++)
+            {
+                map.add(new Doc("d" + i, vectors.get(i)));
+            }
+
+            final VectorIndex.Default<Doc> internal = (VectorIndex.Default<Doc>)index;
+
+            final AtomicBoolean activeInTheWindow = new AtomicBoolean();
+            // After the replacement is built, before it is swapped in: a codebook exists here, so
+            // reporting from it rather than from the published codes shows up as a true reading.
+            internal.pqSwitchPreparedTestHook = () ->
+                activeInTheWindow.set(index.isPqCompressionActive());
+
+            index.optimize();
+
+            assertFalse(activeInTheWindow.get(),
+                "the index reported compressed scoring before the graph that scores from the codes"
+                    + " had been swapped in, so callers would have believed a switch that had not"
+                    + " happened yet");
+            assertTrue(index.isPqCompressionActive(),
+                "and it must report it once the swap is done");
         }
     }
 
