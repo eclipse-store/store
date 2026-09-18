@@ -960,6 +960,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // Volatile: written under writeLock (reenterIncrementalMode, exitIncrementalMode)
         // but read by mutation methods (internalUpdate, internalRemove) under parentMap
         // monitor only, without builderLock.
+        /**
+         * Whether this instance came back from storage rather than being newly constructed.
+         * <p>
+         * Set by {@link #initializeAfterLoad()} and consumed once, by the optimization bootstrap in
+         * {@code startBackgroundManagersIfEnabled()}. The distinction matters because only a
+         * restored index is unable to earn a scheduled optimization: its entities are already in
+         * the store, so nothing bumps the change count for them.
+         * <p>
+         * Deliberately not inferred from the vector count. An index registered on an
+         * already-populated GigaMap reads a non-empty count here too, while being every bit as new
+         * as one registered on an empty map - its entities arrive immediately afterwards through
+         * the backfill in {@code VectorIndices.add}, and each of them counts.
+         */
+        private transient boolean                            restoredFromStorage;
+
         private transient volatile boolean                   incrementalMode    ;
         private transient Set<Integer>                       diskDeletedOrdinals;
         private transient ExplicitThreadLocal<GraphSearcher> diskSearcherPool    ;
@@ -1073,6 +1088,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         void initializeAfterLoad()
         {
+            // Before initializeIndex, which is where the flag is read. This is the only path that
+            // reaches an index restored from storage, which is what makes it the discriminator the
+            // optimization bootstrap needs - see startBackgroundManagersIfEnabled().
+            this.restoredFromStorage = true;
+
             if(!this.isIndexPresent())
             {
                 this.initializeIndex();
@@ -1213,6 +1233,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             this.warnIfOrdinalSpaceIsSparse();
 
+            // The generation this switch is being built for. close() and internalRemoveAll take the
+            // write lock without this monitor, so either can replace or null the builder while the
+            // work below runs; publishing regardless would resurrect a graph on an index that has
+            // been torn down, with its searcher pools already closed.
+            final GraphIndexBuilder plannedFor = this.builder;
+
             try
             {
                 manager.trainFrom(sample);
@@ -1228,20 +1254,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return;
             }
 
+            // Either exit from here leaves the manager untrained, and for the same reason. A
+            // codebook trained for a switch that did not happen would make every later attempt
+            // return at the isTrained() guard above while no codes were ever published, so the
+            // index would report the switch as done and go on scoring exactly - permanently.
+            // Unambiguous here in a way it was not when this ran off-lock: the monitor is held,
+            // nothing was published, and this is the manager the training went into.
+            boolean published = false;
             try
             {
-                this.buildAndPublishPqReplacement(manager);
+                published = this.buildAndPublishPqReplacement(manager, plannedFor);
             }
-            catch(final RuntimeException | Error e)
+            finally
             {
-                // The manager holds a codebook trained for a switch that did not happen. Left
-                // trained, it would make every later attempt return at the isTrained() guard above
-                // while no codes were ever published, so the index would report the switch as done
-                // and go on scoring exactly - permanently. Unambiguous here in a way it was not
-                // when this ran off-lock: the monitor is held, nothing was published, and this is
-                // the manager the training went into.
-                manager.reset();
-                throw e;
+                if(!published)
+                {
+                    manager.reset();
+                }
             }
         }
 
@@ -1249,13 +1278,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * Builds the compressed replacement and publishes it, the second half of
          * {@link #performPqSwitch()}.
          * <p>
-         * Separate only so that the caller can roll the trained codebook back if any of it throws.
+         * Separate so that the caller can roll the trained codebook back on either way out of here -
+         * a throw, or a replacement that turned out to describe an index that no longer exists.
          * Carries the same preconditions: {@code parentMap} monitor held, no {@code builderLock},
          * and a trained {@code manager}.
          *
-         * @param manager the compression manager holding the freshly trained codebook
+         * @param manager    the compression manager holding the freshly trained codebook
+         * @param plannedFor the builder this switch was planned against, which must still be the
+         *                   index's own for the replacement to describe it
+         * @return whether the replacement was published
          */
-        private void buildAndPublishPqReplacement(final PQCompressionManager manager)
+        private boolean buildAndPublishPqReplacement(
+            final PQCompressionManager manager   ,
+            final GraphIndexBuilder    plannedFor
+        )
         {
             final ProductQuantization codebook = manager.getPQ();
             if(codebook == null)
@@ -1303,6 +1339,18 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 hook.run();
             }
 
+            if(this.builder != plannedFor)
+            {
+                // A teardown took the write lock while this was being built - close() nulls the
+                // builder, internalRemoveAll replaces it - so the replacement describes an index
+                // that no longer exists. Dropping it is the whole response: the caller's rollback
+                // untrains the codebook, and a later optimization plans again from whatever the
+                // index is then. Nothing has been published, so there is nothing else to undo.
+                LOG.info("Discarding the PQ switch for '{}': the index was torn down or rebuilt"
+                    + " while the replacement was being built", this.name);
+                return false;
+            }
+
             // Publication, and the order matters. isPqCompressionActive() and the search path read
             // the codes with no lock at all, so the codes go last: once they are visible the graph
             // that scores from them already is. All three fields are volatile, which is what makes
@@ -1319,6 +1367,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             LOG.info("Switched in-memory index '{}' to PQ-compressed scoring ({} codes)",
                 this.name, codes.count());
+            return true;
         }
 
         /**
@@ -1692,17 +1741,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // only if the index later happens to take minChangesBetweenOptimizations
                     // writes.
                     //
-                    // Only when the index already holds vectors, which is precisely the case that
-                    // cannot earn the optimization. A newly constructed index is empty here - the
-                    // entities of an already-populated map arrive afterwards, through the backfill
-                    // in VectorIndices.add - and every one of them bumps the change count on its
-                    // way in. Arming it too would let a small index switch on the first tick
-                    // without reaching the threshold that minChangesBetweenOptimizations documents.
-                    if(!this.configuration.onDisk()
+                    // Only for an index restored from storage, which is precisely the case that
+                    // cannot earn the optimization. A new index earns it the ordinary way, and that
+                    // includes one registered on an already-populated GigaMap: its entities arrive
+                    // immediately afterwards through the backfill, and every one of them bumps the
+                    // change count on its way in. Arming it too would let a small index switch on
+                    // the first tick without reaching the threshold that
+                    // minChangesBetweenOptimizations documents.
+                    //
+                    // Consumed here, so that a later re-initialization - internalRemoveAll closes
+                    // and rebuilds this state - does not arm a second one for an index that is
+                    // empty again by then.
+                    if(this.restoredFromStorage
+                        && !this.configuration.onDisk()
                         && this.configuration.approximateScoring() == ApproximateScoring.PQ_IN_MEMORY
-                        && this.inMemoryPqVectors == null
-                        && this.getVectorCount() > 0)
+                        && this.inMemoryPqVectors == null)
                     {
+                        this.restoredFromStorage = false;
                         this.backgroundTaskManager.requestInitialOptimization();
                     }
                 }
@@ -4241,15 +4296,28 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.readLock().lock();
             try
             {
+                // One generation, captured once. This callback holds only the read lock, and the
+                // in-memory PQ switch publishes a replacement while holding neither - so reading
+                // this.builder or this.index again further down could land on the other side of
+                // that publication. Split across the two, this method would delete the node from
+                // the graph being abandoned and then add an ordinal the replacement already carries,
+                // which throws. The graph comes from the captured builder for the same reason.
+                final GraphIndexBuilder currentBuilder = this.builder;
+                if(currentBuilder == null)
+                {
+                    return;
+                }
+                final OnHeapGraphIndex currentIndex = graphOf(currentBuilder);
+
                 final int ordinal = toOrdinal(entry.sourceEntityId);
-                final boolean inGraph = this.index != null && this.index.containsNode(ordinal);
+                final boolean inGraph = currentIndex != null && currentIndex.containsNode(ordinal);
 
                 if(entry.vector == null)
                 {
                     // vec→null / null→null: remove the node if present, otherwise nothing to do.
                     if(inGraph)
                     {
-                        this.builder.markNodeDeleted(ordinal);
+                        currentBuilder.markNodeDeleted(ordinal);
                         // After the delete, so no in-flight scorer sees a zeroed code for a node
                         // that is still live. The eventual-indexing paths need this as much as the
                         // synchronous ones: without it a deleted node keeps a code traversal can
@@ -4263,12 +4331,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // so add it directly without the (invalid) delete.
                 if(inGraph)
                 {
-                    this.builder.markNodeDeleted(ordinal);
-                    this.builder.removeDeletedNodes();
+                    currentBuilder.markNodeDeleted(ordinal);
+                    currentBuilder.removeDeletedNodes();
                 }
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
                 this.trackPqCode(ordinal, vf);
-                this.builder.addGraphNode(ordinal, vf);
+                currentBuilder.addGraphNode(ordinal, vf);
             }
             finally
             {
@@ -4282,11 +4350,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.readLock().lock();
             try
             {
+                // One generation, for the reason given on applyGraphUpdate: the containment test
+                // and the delete must be about the same graph.
+                final GraphIndexBuilder currentBuilder = this.builder;
+
                 // Guard against removing a never-indexed entity (e.g. one that never had an
                 // embedding): markNodeDeleted on an absent node would fail.
-                if(this.index != null && this.index.containsNode(ordinal))
+                if(currentBuilder != null && graphOf(currentBuilder).containsNode(ordinal))
                 {
-                    this.builder.markNodeDeleted(ordinal);
+                    currentBuilder.markNodeDeleted(ordinal);
                     this.untrackPqCode(ordinal);
                 }
             }

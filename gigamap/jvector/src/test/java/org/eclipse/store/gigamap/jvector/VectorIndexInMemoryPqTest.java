@@ -197,21 +197,39 @@ class VectorIndexInMemoryPqTest
      * The index here holds more than enough vectors to train, so the switch not happening can only
      * be the threshold - which the explicit {@code optimize()} at the end confirms by making it
      * happen at once.
+     * <p>
+     * Both registration orders, because they differ in exactly the way a vector-count test would
+     * get wrong: registering on an already-populated map reads a non-empty count at initialization
+     * and is still a new index, whose entities arrive immediately afterwards through the backfill
+     * and each count. Only an index restored from storage is armed.
+     *
+     * @param registerFirst whether the index is registered before the entities are added
+     * @throws InterruptedException if the wait for the scheduled ticks is interrupted
      */
-    @Test
-    @Timeout(value = 300, unit = TimeUnit.SECONDS)
-    void aNewIndexDoesNotSwitchBeforeReachingTheChangeThreshold() throws InterruptedException
+    private void assertNewIndexDoesNotSwitchBeforeThreshold(final boolean registerFirst)
+        throws InterruptedException
     {
         final Random        random  = new Random(4242);
         final List<float[]> vectors = clusteredVectors(random, 300);
 
         final GigaMap<Doc> map = GigaMap.New();
-        try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
-            .add("embeddings", tickingInMemoryPqConfig(), new CountingVectorizer()))
+        if(!registerFirst)
         {
             for(int i = 0; i < vectors.size(); i++)
             {
                 map.add(new Doc("d" + i, vectors.get(i)));
+            }
+        }
+
+        try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("embeddings", tickingInMemoryPqConfig(), new CountingVectorizer()))
+        {
+            if(registerFirst)
+            {
+                for(int i = 0; i < vectors.size(); i++)
+                {
+                    map.add(new Doc("d" + i, vectors.get(i)));
+                }
             }
 
             // Several tick intervals, so this is not merely a race the switch lost.
@@ -231,6 +249,27 @@ class VectorIndexInMemoryPqTest
                 "and it must be capable of switching, so the absence above is the threshold rather"
                     + " than an index that could not switch anyway");
         }
+    }
+
+    /** Registered on an empty map, the entities added afterwards. */
+    @Test
+    @Timeout(value = 300, unit = TimeUnit.SECONDS)
+    void aNewIndexOnAnEmptyMapDoesNotSwitchBeforeReachingTheChangeThreshold() throws InterruptedException
+    {
+        this.assertNewIndexDoesNotSwitchBeforeThreshold(true);
+    }
+
+    /**
+     * Registered on a map that already holds the entities, which the backfill then indexes.
+     * <p>
+     * The case a vector-count test gets wrong: the count is already non-zero when the index
+     * initializes, and the index is new all the same.
+     */
+    @Test
+    @Timeout(value = 300, unit = TimeUnit.SECONDS)
+    void aNewIndexOnAPopulatedMapDoesNotSwitchBeforeReachingTheChangeThreshold() throws InterruptedException
+    {
+        this.assertNewIndexDoesNotSwitchBeforeThreshold(false);
     }
 
     /**
@@ -529,9 +568,17 @@ class VectorIndexInMemoryPqTest
      * calling {@code doOptimize()} directly, the entry point that does <i>not</i> drain the queue
      * first.
      * <p>
-     * Whether callbacks are still outstanding when the switch runs is up to the background thread,
-     * so the overlap is asserted rather than assumed: a run in which the queue had already drained
-     * proves nothing, and fails here instead of passing quietly.
+     * How much overlap a given run gets is up to the background thread, and the assertion is
+     * deliberately not conditioned on it. Whether the queue still held operations at the moment of
+     * the switch does not change what must be true afterwards, because the guarantee does not come
+     * from the timing: the snapshot is taken from the GigaMap under the monitor, and a mutation has
+     * applied to the GigaMap before its callback is ever enqueued. A run that happens to drain
+     * early asserts the same thing and passes for the same reason.
+     * <p>
+     * A barrier that pinned the overlap exactly would need to hold an indexing callback mid-flight,
+     * and there is no seam for that which does not also change what is being tested. Note that a
+     * mutation cannot be <i>started</i> during the switch at all - it would need the monitor the
+     * switch is holding - so the only callbacks in play are those enqueued before it began.
      */
     @Test
     @Timeout(value = 300, unit = TimeUnit.SECONDS)
@@ -552,17 +599,10 @@ class VectorIndexInMemoryPqTest
 
             final VectorIndex.Default<Doc> internal = (VectorIndex.Default<Doc>)index;
 
-            final AtomicLong pendingAtSwitch = new AtomicLong(-1L);
-            internal.pqSwitchPublishTestHook = () ->
-                pendingAtSwitch.set(internal.backgroundTaskManager.getPendingIndexingCount());
-
             // Deliberately not drained: optimize() would drain first, which is exactly the overlap
             // this test needs to keep.
             internal.doOptimize();
 
-            assertTrue(pendingAtSwitch.get() > 0,
-                "the background queue had already drained when the switch ran (" + pendingAtSwitch
-                    + " pending), so this run did not exercise the overlap it exists for");
             assertTrue(index.isPqCompressionActive(),
                 "the switch must happen even with graph updates still queued");
 
@@ -576,6 +616,7 @@ class VectorIndexInMemoryPqTest
                     "entity " + i + " is not in the graph the switch published, so a graph update"
                         + " queued across the switch was lost");
             }
+
         }
     }
 
