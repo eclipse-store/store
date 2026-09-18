@@ -18,6 +18,11 @@ import io.github.jbellis.jvector.disk.ReaderSupplier;
 import io.github.jbellis.jvector.disk.ReaderSupplierFactory;
 import io.github.jbellis.jvector.graph.disk.OnDiskGraphIndex;
 import io.github.jbellis.jvector.graph.disk.feature.FeatureId;
+import io.github.jbellis.jvector.quantization.NVQuantization;
+import io.github.jbellis.jvector.vector.VectorizationProvider;
+import io.github.jbellis.jvector.vector.VectorUtil;
+import io.github.jbellis.jvector.vector.types.VectorFloat;
+import io.github.jbellis.jvector.vector.types.VectorTypeSupport;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
@@ -43,6 +48,7 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -1430,6 +1436,32 @@ class VectorIndexDiskTest
         final ApproximateScoring scoring
     ) throws IOException
     {
+        return this.persistAndMeasureGraph(indexDir, vectorCount, dimension, maxDegree, storage, scoring, 0);
+    }
+
+    /**
+     * As above, with an explicit NVQ subvector count so a test can measure what the count costs.
+     *
+     * @param indexDir      the directory to build the index in
+     * @param vectorCount   how many vectors to index
+     * @param dimension     the vector dimension
+     * @param maxDegree     the graph's maximum degree
+     * @param storage       how the graph stores its vectors
+     * @param scoring       how traversal scores candidates
+     * @param nvqSubvectors the NVQ subvector count, or 0 for the automatic value
+     * @return the size of the written graph file in bytes
+     * @throws IOException if the file cannot be measured
+     */
+    private long persistAndMeasureGraph(
+        final Path               indexDir     ,
+        final int                vectorCount  ,
+        final int                dimension    ,
+        final int                maxDegree    ,
+        final VectorStorage      storage      ,
+        final ApproximateScoring scoring      ,
+        final int                nvqSubvectors
+    ) throws IOException
+    {
         final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
             .dimension(dimension)
             .similarityFunction(VectorSimilarityFunction.COSINE)
@@ -1438,6 +1470,7 @@ class VectorIndexDiskTest
             .indexDirectory(indexDir)
             .vectorStorage(storage)
             .approximateScoring(scoring)
+            .nvqSubvectors(nvqSubvectors)
             .build();
 
         final GigaMap<Document> gigaMap = GigaMap.New();
@@ -4254,7 +4287,8 @@ class VectorIndexDiskTest
     /**
      * NVQ quantizes what the <i>graph</i> holds, not what a search returns. Every path that a live
      * index actually takes reranks against the vectors held in the GigaMap, so the scores and the
-     * final ordering are exact, and quantization only changes which candidates traversal finds.
+     * final ordering are exact; what quantization can change is which candidates traversal finds,
+     * and only in the modes that traverse on the stored block at all.
      * <p>
      * That is worth a test rather than an argument, because it is the property the compact preset
      * is recommended on. It is asserted on the score values rather than on recall: recall cannot
@@ -4427,6 +4461,23 @@ class VectorIndexDiskTest
     }
 
     /**
+     * The uncompressed baseline the other three formats are compared against.
+     * <p>
+     * Without it the suite measures three of the four storage/scoring combinations and the fourth is
+     * assumed, which is the one that decides whether the others are near it or merely near each
+     * other.
+     */
+    @Test
+    void testPlainInlineRecallStaysHigh(@TempDir final Path tempDir)
+    {
+        for(final int seed : new int[]{7, 11, 23, 42, 99})
+        {
+            this.assertRecallForSeed(seed, tempDir.resolve("inline_" + seed),
+                VectorStorage.INLINE, ApproximateScoring.NONE);
+        }
+    }
+
+    /**
      * The quantizer must come back off the graph header on reload rather than being retrained, which
      * is what lets the index report itself compressed before it has persisted again.
      */
@@ -4476,6 +4527,381 @@ class VectorIndexDiskTest
                 "the quantizer must be recovered from the loaded graph, not left untrained until the next persist");
             assertEquals(5, reloaded.search(queryVector, 5).size());
         }
+    }
+
+    /**
+     * The size claim at the dimension it is actually made about.
+     * <p>
+     * {@link #testNvqStorageShrinksTheGraph} runs at dimension 256 to stay cheap, but the ratio is a
+     * function of the dimension - the fixed per-node costs (node id, neighbour list, subvector
+     * parameters) weigh less as it grows. The documented figure of about 3.4x is for dimension 768
+     * at {@code maxDegree=32}, so that combination is measured rather than extrapolated. Also pins
+     * the lower end: eight subvectors cost 28 bytes each and drop the ratio to about 2.8x, which is
+     * why {@code nvqSubvectors} defaults to one.
+     */
+    @Test
+    void testNvqSizeRatioAtProductionDimensions(@TempDir final Path tempDir) throws IOException
+    {
+        final int vectorCount = 400;
+        final int dimension   = 768;
+        final int maxDegree   = 32;
+
+        final long inline = this.persistAndMeasureGraph(
+            tempDir.resolve("inline"), vectorCount, dimension, maxDegree,
+            VectorStorage.INLINE, ApproximateScoring.NONE);
+        final long nvq = this.persistAndMeasureGraph(
+            tempDir.resolve("nvq"), vectorCount, dimension, maxDegree,
+            VectorStorage.NVQ, ApproximateScoring.NONE);
+
+        final double ratio = (double)inline / nvq;
+        assertTrue(ratio > 3.0 && ratio < 3.8,
+            "expected about 3.4x at dimension " + dimension + " and maxDegree " + maxDegree
+                + ", measured " + ratio + " (" + inline + " vs " + nvq + " bytes)");
+
+        // The closed form the documented figures come from: 3208 vs 936 bytes per node here.
+        assertWithinFivePercent(
+            (long)expectedBytesPerNode(dimension, maxDegree, VectorStorage.INLINE, 1) * vectorCount,
+            inline, "inline graph size at dimension " + dimension);
+        assertWithinFivePercent(
+            (long)expectedBytesPerNode(dimension, maxDegree, VectorStorage.NVQ, 1) * vectorCount,
+            nvq, "NVQ graph size at dimension " + dimension);
+
+        // The lower end of the documented range, which is a claim about nvqSubvectors rather than
+        // about the dimension, so it needs its own measurement rather than the default count.
+        final long nvqEightSubvectors = this.persistAndMeasureGraph(
+            tempDir.resolve("nvq8"), vectorCount, dimension, maxDegree,
+            VectorStorage.NVQ, ApproximateScoring.NONE, 8);
+
+        final double eightRatio = (double)inline / nvqEightSubvectors;
+        assertTrue(eightRatio > 2.6 && eightRatio < 3.0,
+            "expected about 2.8x with eight subvectors, measured " + eightRatio
+                + " (" + inline + " vs " + nvqEightSubvectors + " bytes)");
+        assertTrue(nvqEightSubvectors > nvq,
+            "eight subvectors must cost more than one: 28 bytes of parameters each");
+        assertWithinFivePercent(
+            (long)expectedBytesPerNode(dimension, maxDegree, VectorStorage.NVQ, 8) * vectorCount,
+            nvqEightSubvectors, "NVQ graph size with eight subvectors");
+    }
+
+
+
+    /**
+     * The per-node NVQ encode must produce the same result on a writer worker thread as it does on
+     * one thread.
+     * <p>
+     * This is the property {@code parallelOnDiskWrite(true)} depends on, and it is specific to how
+     * the NVQ feature is written here. The fused PQ path encodes every vector up front, because a
+     * node's block needs its neighbours' codes; NVQ instead encodes per node, from a supplier the
+     * writer calls on its own worker threads, to avoid materialising the whole encoded corpus on the
+     * heap. That makes {@code NVQuantization.encode} - and the {@code encodeTo} it delegates to -
+     * concurrently invoked against one shared quantizer, and NVQ has no users in JVector's own
+     * published sources, so nothing upstream exercises it that way.
+     * <p>
+     * <b>It is asserted against the quantizer directly rather than through a persist.</b> Two routes
+     * through the index were tried first and neither can carry the claim. A search cannot overlap
+     * the encode, because {@code doPersistToDisk} holds {@code builderLock.writeLock()} across the
+     * whole of phase 2 including {@code writeIndex}, while {@code search} needs the read lock - so a
+     * test firing queries during a persist measures only the windows before and after the lock.
+     * Comparing a parallel-written graph against a sequential one byte for byte does not work
+     * either: graph construction is not deterministic, and two <i>sequential</i> writes of the same
+     * vectors already differ, so the comparison cannot tell an unsafe encoder from an ordinary
+     * run-to-run difference.
+     */
+    @Test
+    void testNvqEncodeIsThreadSafe() throws Exception
+    {
+        final int dimension   = 64;
+        final int vectorCount = 200;
+        final int threads     = 8;
+        final int repeats     = 4;
+
+        final VectorTypeSupport vts    = VectorizationProvider.getInstance().getVectorTypeSupport();
+        final Random            random = new Random(4711);
+
+        final List<VectorFloat<?>> vectors = new ArrayList<>();
+        for(int i = 0; i < vectorCount; i++)
+        {
+            vectors.add(vts.createFloatVector(randomVector(random, dimension)));
+        }
+
+        // The same shape the compression manager builds: a mean over the sample, one subvector.
+        final VectorFloat<?> mean = vts.createFloatVector(dimension);
+        for(final VectorFloat<?> vector : vectors)
+        {
+            VectorUtil.addInPlace(mean, vector);
+        }
+        VectorUtil.scale(mean, 1f / vectors.size());
+
+        final NVQuantization quantizer = NVQuantization.create(mean, 1);
+
+        final List<NVQuantization.QuantizedVector> sequential = new ArrayList<>();
+        for(final VectorFloat<?> vector : vectors)
+        {
+            sequential.add(quantizer.encode(vector));
+        }
+
+        final ExecutorService executor = Executors.newFixedThreadPool(threads);
+        final AtomicInteger   mismatch = new AtomicInteger();
+        final AtomicInteger   compared = new AtomicInteger();
+
+        // Without this the pool is free to run one task to completion before starting the next, and
+        // a stateful encoder would never be caught: the calls have to actually overlap.
+        final CountDownLatch ready = new CountDownLatch(threads);
+        final CountDownLatch start = new CountDownLatch(1);
+
+        try
+        {
+            final List<Future<?>> tasks = new ArrayList<>();
+            for(int t = 0; t < threads; t++)
+            {
+                tasks.add(executor.submit(() ->
+                {
+                    ready.countDown();
+                    start.await();
+
+                    // Every thread encodes every vector, repeatedly, against the one shared
+                    // quantizer - the access pattern the parallel writer produces, concentrated.
+                    for(int repeat = 0; repeat < repeats; repeat++)
+                    {
+                        for(int i = 0; i < vectors.size(); i++)
+                        {
+                            if(!quantizer.encode(vectors.get(i)).equals(sequential.get(i)))
+                            {
+                                mismatch.incrementAndGet();
+                            }
+                            compared.incrementAndGet();
+                        }
+                    }
+                    return null;
+                }));
+            }
+
+            assertTrue(ready.await(30, TimeUnit.SECONDS), "the encode threads did not start");
+            start.countDown();
+
+            for(final Future<?> task : tasks)
+            {
+                task.get(60, TimeUnit.SECONDS);
+            }
+        }
+        finally
+        {
+            executor.shutdownNow();
+        }
+
+        assertEquals(threads * repeats * vectorCount, compared.get(),
+            "every concurrent encode must have been compared");
+        assertEquals(0, mismatch.get(),
+            mismatch.get() + " of " + compared.get() + " concurrent encodes differed from the "
+                + "single-threaded result, so the per-node encode is not safe on the writer's threads");
+    }
+
+    /**
+     * The parallel writer produces a well-formed, searchable quantized graph.
+     * <p>
+     * The narrower claim that survives the note on {@link #testNvqEncodeIsThreadSafe}: this cannot
+     * show that the encode is concurrency-safe, only that the write completes and its output loads
+     * and answers queries. Both are worth having, and neither substitutes for the other.
+     */
+    @Test
+    void testNvqWithParallelOnDiskWriteProducesAWellFormedGraph(@TempDir final Path tempDir) throws IOException
+    {
+        final int  vectorCount = 800;
+        final int  dimension   = 64;
+        final Path indexDir    = tempDir.resolve("index");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .vectorStorage(VectorStorage.NVQ)
+                .approximateScoring(ApproximateScoring.FUSED_PQ)
+                .pqSubspaces(16)
+                .parallelOnDiskWrite(true)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, new Random(42), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+
+            assertTrue(index.isNvqCompressionActive(), "the parallel write must have produced a quantized graph");
+            assertTrue(index.isPqCompressionActive());
+            assertEquals(10, index.search(randomVector(new Random(1), dimension), 10).size(),
+                "the parallel-written graph must answer queries");
+        }
+
+        final Set<FeatureId> features = graphFeatures(indexDir.resolve("embeddings.graph"));
+        assertTrue(features.contains(FeatureId.NVQ_VECTORS), features.toString());
+        assertTrue(features.contains(FeatureId.FUSED_PQ), features.toString());
+    }
+
+    /**
+     * In incremental mode a query searches the disk graph and the in-memory builder separately and
+     * merges the two result sets <b>by raw score</b>. The in-memory half is always scored exactly,
+     * so the disk half must be too.
+     * <p>
+     * This is the one rule NVQ storage introduces that is not visible in a plain top-k: the view's
+     * reranker dequantizes against an NVQ graph, which is fine on its own - it costs about 0.002
+     * recall@10 - but puts the two halves on systematically different scales when their scores are
+     * compared against each other. The symptom is not a crash or an empty result; it is a quietly
+     * biased merge, where entities on one side of the split are preferred over better matches on the
+     * other. So the assertion is on the scores themselves: every entity a search returns must carry
+     * its exact similarity, which a dequantized disk half would violate immediately even where the
+     * ordering happens to survive. Recall against brute-force ground truth is checked as well, but
+     * as a floor rather than as the thing that catches a scale mismatch - it is too blunt for that,
+     * which is why this test was rewritten once already.
+     */
+    @Test
+    void testNvqIncrementalMergeStaysOnOneScoreScale(@TempDir final Path tempDir)
+    {
+        final int persisted  = 1500;
+        final int addedAfter = 500;
+        final int dimension  = 64;
+        final int k          = 10;
+        final int queryCount = 50;
+
+        final Random random = new Random(77);
+
+        final List<float[]> centroids = new ArrayList<>();
+        for(int c = 0; c < 20; c++)
+        {
+            centroids.add(randomVector(random, dimension));
+        }
+        final List<float[]> vectors = new ArrayList<>();
+        for(int i = 0; i < persisted + addedAfter; i++)
+        {
+            vectors.add(nearVector(random, centroids.get(i % centroids.size())));
+        }
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(32)
+            .beamWidth(100)
+            .onDisk(true)
+            .indexDirectory(tempDir.resolve("vectors"))
+            .vectorStorage(VectorStorage.NVQ)
+            // Fused codes as well, deliberately: this is the combination in which the reranker is
+            // a free choice. With NVQ alone the quantized vectors are the traversal function and
+            // the reranker is exact by construction, so that configuration cannot exercise the rule.
+            .approximateScoring(ApproximateScoring.FUSED_PQ)
+            .pqSubspaces(dimension / 4)
+            .build();
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final List<Long>        ids     = new ArrayList<>();
+
+        double totalRecall = 0;
+
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", config, new ComputedDocumentVectorizer()))
+        {
+            for(int i = 0; i < persisted; i++)
+            {
+                ids.add(gigaMap.add(new Document("doc_" + i, vectors.get(i))));
+            }
+
+            // Everything so far moves into the disk graph, and the in-memory builder is reset empty.
+            index.persistToDisk();
+            assertTrue(index.isNvqCompressionActive(), "the NVQ path must be the one under test");
+
+            // These stay in the in-memory builder: no persist follows, so the index is now in
+            // incremental mode and every query merges a disk half with a memory half.
+            for(int i = persisted; i < vectors.size(); i++)
+            {
+                ids.add(gigaMap.add(new Document("doc_" + i, vectors.get(i))));
+            }
+
+            final Random queryRandom = new Random(77 * 31 + 5);
+            double worstDeviation    = 0;
+            int    diskHalfChecked   = 0;
+            int    memoryHalfChecked = 0;
+            int    mixedResultSets   = 0;
+
+            for(int q = 0; q < queryCount; q++)
+            {
+                // Query near a vector from the in-memory half, so the true top-k mixes entities from
+                // both halves and the two score scales actually meet in one result set.
+                final int    anchor = persisted + queryRandom.nextInt(addedAfter);
+                final float[] query = nearVector(queryRandom, vectors.get(anchor));
+
+                final Set<Long> expected = new HashSet<>(bruteForceTopK(query, vectors, ids, k));
+                final Set<Long> actual   = new HashSet<>();
+
+                boolean diskInThisResult   = false;
+                boolean memoryInThisResult = false;
+
+                for(final ScoredSearchResult.Entry<Document> entry : index.search(query, k))
+                {
+                    actual.add(entry.entityId());
+
+                    // The score reported for an entity must be its exact similarity. Recall alone is
+                    // too blunt to catch a scale mismatch here - quantization error at this dimension
+                    // rarely reorders the top-k - but a dequantized score deviates from the exact one
+                    // immediately and measurably.
+                    final int index0 = ids.indexOf(entry.entityId());
+                    final float exact = exactSimilarity(query, vectors.get(index0));
+                    worstDeviation = Math.max(worstDeviation, Math.abs(entry.score() - exact));
+
+                    if(index0 < persisted)
+                    {
+                        diskHalfChecked++;
+                        diskInThisResult = true;
+                    }
+                    else
+                    {
+                        memoryHalfChecked++;
+                        memoryInThisResult = true;
+                    }
+                }
+
+                if(diskInThisResult && memoryInThisResult)
+                {
+                    mixedResultSets++;
+                }
+
+                actual.retainAll(expected);
+                totalRecall += (double)actual.size() / k;
+            }
+
+            // Both halves have to meet inside ONE result set. Counting them across the whole query
+            // set is not enough: one query could contribute every disk hit and another every memory
+            // hit, and no single merge would ever have compared the two scales against each other.
+            assertTrue(diskHalfChecked > 0,
+                "the queries never returned a disk-resident entity, so this proves nothing about the merge");
+            assertTrue(memoryHalfChecked > 0,
+                "the queries never returned an entity from the in-memory half, so the merge was never "
+                    + "exercised and only the disk reranker was measured");
+            assertTrue(mixedResultSets > 0,
+                "no single query returned entities from both halves, so the two score scales were "
+                    + "never compared against each other within one merge");
+
+            // The threshold sits between the two regimes rather than at an arbitrary round number:
+            // with the exact reranker the deviation is float-arithmetic noise, well under 1e-4,
+            // because the reranker recomputes the very similarity this test does. Score the disk
+            // half through the NVQ reranker instead and it measures 7.9e-4 - small in absolute
+            // terms, which is precisely why recall alone does not catch it.
+            assertTrue(worstDeviation < 1e-4,
+                "a returned score deviated from the exact similarity by " + worstDeviation
+                    + ", so the disk half is being scored on a different scale from the in-memory half");
+        }
+
+        final double recall = totalRecall / queryCount;
+        assertTrue(recall >= 0.95,
+            "merged incremental recall@" + k + " was " + recall + ", below the 0.95 floor");
+    }
+
+    /**
+     * The similarity JVector itself would compute, so that a score reported by the index can be
+     * compared against it directly rather than against a reimplementation with its own conventions.
+     */
+    private static float exactSimilarity(final float[] query, final float[] vector)
+    {
+        final VectorTypeSupport vts = VectorizationProvider.getInstance().getVectorTypeSupport();
+        return io.github.jbellis.jvector.vector.VectorSimilarityFunction.COSINE.compare(
+            vts.createFloatVector(query), vts.createFloatVector(vector));
     }
 
     /**
@@ -4593,12 +5019,29 @@ class VectorIndexDiskTest
         final int  scoringCode
     ) throws IOException
     {
-        final byte[]     bytes  = Files.readAllBytes(metaPath);
+        final byte[] bytes = Files.readAllBytes(metaPath);
+
+        // Anchored from the start of the record, and the length is asserted, because the fields are
+        // no longer last: pqSubspaces and nvqSubvectors follow them. Addressing from the end here
+        // used to write into those two counts instead, and the test still passed - the load was
+        // rejected on a count mismatch before the unknown code was ever parsed. A layout change
+        // must break this loudly rather than quietly retarget it.
+        assertEquals(META_SIZE, bytes.length,
+            "the .meta layout changed; the offsets below need revisiting");
+
         final ByteBuffer buffer = ByteBuffer.wrap(bytes);
-        buffer.putInt(bytes.length - 2 * Integer.BYTES, storageCode);
-        buffer.putInt(bytes.length - Integer.BYTES, scoringCode);
+        buffer.putInt(META_STORAGE_CODE_OFFSET, storageCode);
+        buffer.putInt(META_SCORING_CODE_OFFSET, scoringCode);
         Files.write(metaPath, bytes);
     }
+
+    /**
+     * The {@code .meta} layout: {@code int} version, {@code int} dimension, three {@code long}
+     * witnesses, then the storage and scoring codes and the two quantization counts.
+     */
+    private static final int META_SIZE                 = 6 * Integer.BYTES + 3 * Long.BYTES;
+    private static final int META_STORAGE_CODE_OFFSET  = 2 * Integer.BYTES + 3 * Long.BYTES;
+    private static final int META_SCORING_CODE_OFFSET  = META_STORAGE_CODE_OFFSET + Integer.BYTES;
 
     /**
      * NVQ traversal must work for every similarity function {@code NVQScorer} supports. Each case

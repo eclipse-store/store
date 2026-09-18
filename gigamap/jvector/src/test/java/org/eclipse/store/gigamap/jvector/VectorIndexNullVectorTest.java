@@ -24,8 +24,10 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -1047,6 +1049,203 @@ class VectorIndexNullVectorTest
             assertTrue(result.stream().allMatch(e -> index.getVector(e.entityId()) != null),
                 "no null-embedding entity may appear in PQ search results");
             assertNotNull(index.getVector(knownId), "the highest-ordinal node remains stored and resolvable");
+        }
+    }
+
+    /**
+     * NVQ storage over sparse ordinals: the graph ordinal is the source entity id, so null
+     * embeddings leave holes and the highest ordinal exceeds the vector count. Quantizing and
+     * writing every ordinal up to that bound must work, and no null-embedding entity may surface in
+     * the results.
+     * <p>
+     * The NVQ counterpart of {@link #pqCompressionWithSparseOrdinals_trainedAndSearched}, and it
+     * covers the same class of defect: a per-node encode driven by graph ordinal over a space
+     * containing holes.
+     * <p>
+     * It compares a half-null index against a dense one to show the holes change nothing observable.
+     * Note what that does <i>not</i> establish: NVQ recentres on a global mean and then scales each
+     * subvector by its own min/max, so it is largely insensitive to the mean being off. Halving the
+     * mean in an experiment left these rankings identical. The reasons the quantizer is trained from
+     * the dense sample rather than the ordinal-spaced view are the dimension probe at ordinal 0 and
+     * the cost of walking the whole corpus, not mean pollution - see {@code NVQCompressionManager}.
+     */
+    @Test
+    @Timeout(value = 120, unit = TimeUnit.SECONDS)
+    void nvqStorageWithSparseOrdinalsIgnoresNullEmbeddings(@TempDir final Path dir)
+    {
+        final int    dim    = 64;
+        final Random random = new Random(4242);
+
+        // Same vectors in both indices; the sparse one just has nulls interleaved between them.
+        final int vectorCount = 300;
+        final List<float[]> vectors = new ArrayList<>();
+        for(int i = 0; i < vectorCount; i++)
+        {
+            vectors.add(randomUnit(random, dim));
+        }
+        final float[] query = vectors.get(7);
+
+        final List<String> denseTop  = this.nvqTopContents(dir.resolve("dense"), dim, vectors, false, query);
+        final List<String> sparseTop = this.nvqTopContents(dir.resolve("sparse"), dim, vectors, true, query);
+
+        // The exact match must come back first from both, which is the invariant the holes could
+        // break: a quantizer trained over placeholder vectors, or an ordinal space read as if it
+        // were dense, would not rank the query's own vector top.
+        assertEquals("v7", denseTop.get(0), "the query is one of the indexed vectors, so it must rank first");
+        assertEquals("v7", sparseTop.get(0),
+            "interleaving null embeddings must not stop the query's own vector ranking first");
+
+        assertEquals(denseTop.size(), sparseTop.size(),
+            "both indices hold the same embeddings, so both must return a full result set");
+        assertTrue(sparseTop.stream().allMatch(content -> content.startsWith("v")),
+            "no null-embedding entity may appear among the results: " + sparseTop);
+
+        // Measured against brute force rather than against each other. The two indices are
+        // independently built approximate graphs, and graph construction is not deterministic - two
+        // builds of the same vectors can produce different neighbour lists - so nothing bounds how
+        // far two valid results may diverge from one another. Ground truth does not move, so it can
+        // carry the claim the comparison cannot: the sparse index must retrieve the true nearest
+        // neighbours as well as the dense one does.
+        final List<String> groundTruth = bruteForceTopContents(vectors, query, denseTop.size());
+
+        assertTrue(recallAgainst(groundTruth, denseTop) >= 0.8,
+            "the dense index missed the true nearest neighbours: expected " + groundTruth
+                + ", got " + denseTop);
+        assertTrue(recallAgainst(groundTruth, sparseTop) >= 0.8,
+            "interleaving null embeddings cost recall against ground truth - the holes are not part "
+                + "of the data, only of the ordinal space: expected " + groundTruth
+                + ", got " + sparseTop);
+    }
+
+    /**
+     * The contents of the {@code k} vectors nearest {@code query} by cosine, by exhaustive scan.
+     *
+     * @param vectors the indexed vectors, named {@code v0}, {@code v1}, ... by position
+     * @param query   the query vector
+     * @param k       how many to return
+     * @return the contents of the nearest {@code k}, nearest first
+     */
+    private static List<String> bruteForceTopContents(
+        final List<float[]> vectors,
+        final float[]       query  ,
+        final int           k
+    )
+    {
+        final List<Integer> byDistance = new ArrayList<>();
+        for(int i = 0; i < vectors.size(); i++)
+        {
+            byDistance.add(i);
+        }
+        byDistance.sort((a, b) -> Double.compare(
+            cosineDistance(query, vectors.get(b)), cosineDistance(query, vectors.get(a))));
+
+        final List<String> top = new ArrayList<>();
+        for(int i = 0; i < k && i < byDistance.size(); i++)
+        {
+            top.add("v" + byDistance.get(i));
+        }
+        return top;
+    }
+
+    /**
+     * Cosine similarity, higher being nearer.
+     *
+     * @param a the first vector
+     * @param b the second vector
+     * @return the similarity of the two vectors
+     */
+    private static double cosineDistance(final float[] a, final float[] b)
+    {
+        double dot = 0;
+        double normA = 0;
+        double normB = 0;
+        for(int i = 0; i < a.length; i++)
+        {
+            dot   += (double)a[i] * b[i];
+            normA += (double)a[i] * a[i];
+            normB += (double)b[i] * b[i];
+        }
+        return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+    }
+
+    /**
+     * The fraction of {@code groundTruth} that {@code actual} contains.
+     *
+     * @param groundTruth the exhaustively computed nearest neighbours
+     * @param actual      what the index returned
+     * @return the recall, between 0 and 1
+     */
+    private static double recallAgainst(final List<String> groundTruth, final List<String> actual)
+    {
+        final Set<String> found = new HashSet<>(groundTruth);
+        found.retainAll(new HashSet<>(actual));
+        return (double)found.size() / groundTruth.size();
+    }
+
+    /**
+     * Builds an on-disk NVQ index over {@code vectors}, optionally interleaving null-embedding
+     * entities, and returns the contents of the top 5 results for {@code query}.
+     */
+    private List<String> nvqTopContents(
+        final Path          indexDir   ,
+        final int           dim        ,
+        final List<float[]> vectors    ,
+        final boolean       withNulls  ,
+        final float[]       query
+    )
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dim)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .vectorStorage(VectorStorage.NVQ)
+            .build();
+
+        final GigaMap<Doc> map = GigaMap.New();
+        try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("embeddings", config, new NullableComputedVectorizer()))
+        {
+            if(withNulls)
+            {
+                // Ordinal 0 is a hole on purpose, so the sparse case includes the one ordinal that
+                // gets special treatment anywhere in the training path rather than only interior
+                // holes.
+                //
+                // Being honest about the limit of that: this asserts on search results, so it
+                // cannot by itself distinguish training from the collected sample from training
+                // over the ordinal space. NullSafeVectorValues hands out a placeholder of the right
+                // dimension for a hole, so NVQuantization.compute would not fail on ordinal 0, and
+                // the placeholders only shift the mean - which the mean-pollution experiment in
+                // NVQCompressionManager showed the per-subvector scaling absorbs. What this covers
+                // is the end-to-end claim: holes anywhere in the ordinal space, including the first,
+                // must not change which vectors NVQ search can reach.
+                final long firstId = map.add(new Doc("none_first", null));
+                assertEquals(0L, firstId, "the fixture depends on the first entity taking ordinal 0");
+                assertNull(index.getVector(firstId), "ordinal 0 must carry no vector for this test to mean anything");
+            }
+            for(int i = 0; i < vectors.size(); i++)
+            {
+                map.add(new Doc("v" + i, vectors.get(i)));
+                if(withNulls)
+                {
+                    // One null per real vector: sparse ordinals, and half the entity count with no
+                    // embedding at all.
+                    map.add(new Doc("none" + i, null));
+                }
+            }
+
+            index.persistToDisk();
+            assertTrue(index.isNvqCompressionActive(), "the persist must have trained a quantizer");
+
+            final VectorSearchResult<Doc> result = index.search(query, 5);
+            assertFalse(result.isEmpty(), "NVQ search over sparse ordinals must return results");
+            assertTrue(result.stream().allMatch(e -> index.getVector(e.entityId()) != null),
+                "no null-embedding entity may appear in NVQ search results");
+
+            final List<String> contents = new ArrayList<>();
+            result.forEach(e -> contents.add(e.entity().content));
+            return contents;
         }
     }
 

@@ -56,7 +56,7 @@ import static org.eclipse.serializer.util.X.notNull;
  *     .similarityFunction(VectorSimilarityFunction.COSINE)
  *     .onDisk(true)
  *     .indexDirectory(Path.of("/data/vectors"))
- *     .enablePqCompression(true)                         // Optional: Product Quantization compression
+ *     .approximateScoring(ApproximateScoring.FUSED_PQ)   // Optional: faster traversal, larger file
  *     .pqSubspaces(48)                                   // Must divide dimension evenly
  *     .build();
  * }</pre>
@@ -300,7 +300,9 @@ public interface VectorIndexConfiguration
      *       block is written depends on {@link #vectorStorage()}: full-precision inline vectors, or
      *       the smaller quantized ones.</li>
      *   <li>{@code {name}.meta} - Metadata file (format version, dimension, vector count, highest
-     *       entity id, structural modification count, and the two format settings)</li>
+     *       entity id, structural modification count, the two format settings, and the two
+     *       quantization counts they encode with - the latter in effective form, so that an
+     *       automatic count and the value it resolves to are recorded identically)</li>
      * </ul>
      * Both are written to {@code .tmp} siblings and renamed into place, so an interrupted persist
      * leaves at most a stale temporary file.
@@ -314,14 +316,16 @@ public interface VectorIndexConfiguration
      * Returns how the on-disk graph stores its own copy of each vector.
      * <p>
      * This is one of two independent dimensions of the on-disk format; the other is
-     * {@link #approximateScoring()}. Storage decides how many bytes each node costs and how exact
-     * the reranking pass can be, scoring decides how traversal finds its candidates, and any
-     * combination of the two is legal.
+     * {@link #approximateScoring()}. Storage decides how many bytes each node costs and where the
+     * reranking pass reads its full-precision vectors from, scoring decides how traversal finds its
+     * candidates, and any combination of the two is legal. Neither affects how exact the reranking
+     * is: it is exact under all four.
      * <p>
      * {@link VectorStorage#NVQ} is the only setting on either dimension that makes the
-     * {@code .graph} file <i>smaller</i>: roughly 3x. What it costs is traversal quality rather
-     * than the scores: reranking compares against the vectors held in the GigaMap, so a search
-     * returns exact similarities either way. See the constant's own documentation.
+     * {@code .graph} file <i>smaller</i>: roughly 3x. It never costs score accuracy - reranking
+     * compares against the vectors held in the GigaMap, so a search returns exact similarities
+     * either way - and whether it costs anything else depends on {@link #approximateScoring()}. See
+     * the constant's own documentation.
      * <p>
      * Requires {@link #onDisk()} to be true, since it describes the on-disk format only.
      * <p>
@@ -414,10 +418,10 @@ public interface VectorIndexConfiguration
      * <p>
      * <b>What the graph stores beside those codes is now a separate setting.</b> With the default
      * {@link VectorStorage#INLINE} the full-precision vectors are still written and the best
-     * candidates are reranked against them exactly, as before. With {@link VectorStorage#NVQ} the
-     * graph holds quantized vectors instead, so reranking compares against those - a legal and
-     * useful combination, but not the exact one this flag used to imply on its own. See
-     * {@link #vectorStorage()}.
+     * candidates are reranked against them, read straight from the memory-mapped graph, as before.
+     * With {@link VectorStorage#NVQ} the graph holds quantized vectors instead, so the rerank reads
+     * the full-precision vectors held in the GigaMap: still exact, but one lookup per reranked
+     * candidate rather than none. See {@link #vectorStorage()}.
      * <p>
      * <b>This is a speed optimisation, not a space one.</b> Fusing the neighbour codes into every
      * node duplicates them {@code maxDegree} times, so enabling PQ makes the {@code .graph} file
@@ -439,9 +443,10 @@ public interface VectorIndexConfiguration
      * resident bytes: it is a way to scale past available memory rather than a general latency tweak.
      * <p>
      * <b>With {@link VectorStorage#NVQ} storage</b> the arithmetic above does not carry over. There
-     * are no full-precision inline vectors: the graph holds quantized ones, so both the bytes a
-     * rerank reads and the bytes the persist writes are roughly a quarter of the figures quoted
-     * above, and reranking compares against those quantized vectors rather than exact ones. The
+     * are no full-precision inline vectors: the graph holds quantized ones, so the bytes the persist
+     * writes are roughly a quarter of the figures quoted above. Reranking is unaffected in accuracy
+     * but changes source - with no full-precision copy in the graph it reads the vectors held in the
+     * GigaMap, so it costs a lookup per reranked candidate instead of a read from the mapping. The
      * fused block is unchanged, and remains the dominant per-node cost.
      * <p>
      * The codebook is trained once, on the first persist at which at least 256 <i>embeddings</i>
@@ -927,7 +932,8 @@ public interface VectorIndexConfiguration
      * {@link #forLargeDataset(int, Path)} when query latency matters more than footprint.
      * <p>
      * <b>Configuration:</b> maxDegree=32, beamWidth=300, onDisk=true, vectorStorage=NVQ,
-     * approximateScoring=NONE, persistenceIntervalMs=30000, optimizationIntervalMs=60000
+     * approximateScoring=NONE, parallelOnDiskWrite=true, persistenceIntervalMs=30000,
+     * optimizationIntervalMs=60000
      *
      * @param dimension the vector dimension (must be positive)
      * @param indexDirectory the directory where index files will be stored
@@ -949,7 +955,8 @@ public interface VectorIndexConfiguration
      * makes.
      * <p>
      * <b>Pre-configured values:</b> maxDegree=32, beamWidth=300, onDisk=true, vectorStorage=NVQ,
-     * approximateScoring=NONE, persistenceIntervalMs=30000, optimizationIntervalMs=60000
+     * approximateScoring=NONE, parallelOnDiskWrite=true, persistenceIntervalMs=30000,
+     * optimizationIntervalMs=60000
      *
      * @param dimension the vector dimension (must be positive)
      * @param indexDirectory the directory where index files will be stored
@@ -961,7 +968,12 @@ public interface VectorIndexConfiguration
     {
         return builderForLargeDataset(dimension, indexDirectory)
             .vectorStorage(VectorStorage.NVQ)
-            .approximateScoring(ApproximateScoring.NONE);
+            .approximateScoring(ApproximateScoring.NONE)
+            // Quantizing fits a nonlinearity per vector at write time, which costs about 3x the
+            // persist wall time sequentially and about 1.2x under the parallel writer, because the
+            // per-node encode then runs on the writer's worker threads. A preset that chose the
+            // quantized format and left this off would hand out the cost without the mitigation.
+            .parallelOnDiskWrite(true);
     }
 
     /**

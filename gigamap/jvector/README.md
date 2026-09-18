@@ -8,7 +8,7 @@ A Java library that integrates [JVector](https://github.com/datastax/jvector) (h
 - **Persistent Storage**: Vectors are stored in GigaMap for durability and lazy loading
 - **On-Disk Index**: Memory-mapped graph storage for datasets larger than RAM
 - **PQ Compression**: Product Quantization for faster graph traversal (trades disk space for search speed)
-- **NVQ Storage**: quantized vectors in the on-disk graph, about 3x smaller than full precision (trades a little recall for space)
+- **NVQ Storage**: quantized vectors in the on-disk graph, about 3x smaller than full precision (scores stay exact; costs a little candidate recall only when `approximateScoring` is `NONE`)
 - **Background Persistence**: Automatic asynchronous persistence at configurable intervals
 - **Background Optimization**: Periodic graph cleanup for improved query performance
 - **Eventual Indexing**: Deferred graph mutations via background thread for reduced write latency
@@ -165,14 +165,14 @@ List<Document> topDocs = result.stream()
 |-----------|---------|-------------|
 | `onDisk` | `false` | Store the graph in a memory-mapped file rather than on the Java heap. This is what lets an index exceed RAM; in-memory mode is faster per query but keeps the graph on the heap |
 | `indexDirectory` | `null` | Directory for index files (required if `onDisk=true`) |
-| `vectorStorage` | `INLINE` | How the graph stores each vector. `NVQ` stores 8-bit quantized vectors instead of full precision - about **3x smaller**, the only setting that shrinks the file. Reranking still reads the GigaMap, so scores stay exact; what it costs is traversal quality |
+| `vectorStorage` | `INLINE` | How the graph stores each vector. `NVQ` stores 8-bit quantized vectors instead of full precision - about **3x smaller**, the only setting that shrinks the file. Reranking still reads the GigaMap, so scores stay exact; with `approximateScoring(NONE)` it also changes which candidates traversal finds |
 | `approximateScoring` | `NONE` | How traversal scores candidates. `FUSED_PQ` writes Product Quantization codes into every node: faster traversal of a large on-disk index, but **makes the graph file larger** and adds transient heap at persist time |
 | `nvqSubvectors` | `0` | Number of NVQ subvectors (0 = auto: 1). Each one adds a fixed 28 bytes per node, so the default is almost always right. **Not** the same parameter as `pqSubspaces` |
 | `enablePqCompression` | `false` | *Deprecated*, use `approximateScoring`. A literal delegate: `true` means `FUSED_PQ` |
 | `pqSubspaces` | `0` | Number of PQ subspaces (0 = auto: dimension/4). Costs `pqSubspaces * maxDegree` bytes per node, so a smaller value than classic PQ guidance suggests is usually right - paired with a wider `minSearchBeamWidth` |
 | `parallelOnDiskWrite` | `false` | Use parallel direct buffers and multiple worker threads for on-disk index writing. Speeds up persistence for large indices but uses more resources. Only applies when `onDisk=true` |
 
-> **On-disk format version:** the graph file format is at version 4. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors — no data loss, but expect a cold-start cost on the first restart after upgrade. That rebuild happens in memory and does not replace the old files; a mutated index migrates on its next persist, while a read-only one rebuilds again on every restart until `persistToDisk()` is called.
+> **On-disk format version:** the graph file format is at version 5. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors — no data loss, but expect a cold-start cost on the first restart after upgrade. That rebuild happens in memory and does not replace the old files; a mutated index migrates on its next persist, while a read-only one rebuilds again on every restart until `persistToDisk()` is called.
 
 ### Eventual Indexing
 
@@ -213,7 +213,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .onDisk(true)
     .indexDirectory(Path.of("/data/vectors"))
     // PQ compression (speeds up graph traversal; makes the graph file larger)
-    .enablePqCompression(true)
+    .approximateScoring(ApproximateScoring.FUSED_PQ)
     .pqSubspaces(48)  // Must divide dimension evenly
     .build();
 ```
@@ -342,10 +342,10 @@ To benchmark with real SIFT data:
 
 ## Limitations
 
-- **Null vectors are not accepted**: The `Vectorizer.vectorize()` method must never return `null`. If it does, an `IllegalStateException` is thrown. Ensure that every entity added to the GigaMap can produce a valid vector.
+- **Null vectors are rejected unless opted into**: `Vectorizer.vectorize()` returning `null` throws an `IllegalStateException` by default. Override `Vectorizer.allowsNullVectors()` to return `true` for a corpus where some entities legitimately have no embedding; they are then skipped rather than indexed, leaving holes in the ordinal space that the index handles.
 - **~2.1 billion vectors per index**: JVector uses `int` for graph node ordinals. For larger datasets, implement sharding across multiple indices.
 - **`FUSED_PQ` scoring enlarges the index**: it stores each node's neighbour codes inline, on top of whatever the storage mode holds. It buys search speed, not disk space. To make the index *smaller*, set `vectorStorage` to `NVQ`, which is the other dimension of the format entirely.
-- **NVQ storage costs traversal quality, not scores**: the graph keeps no full-precision copy, but reranking compares against the vectors held in the GigaMap, so the scores and the ordering a search returns are exact. What quantization changes is which candidates traversal finds on the way there, and a candidate it never reaches is one reranking cannot recover.
+- **NVQ storage never costs score accuracy**: the graph keeps no full-precision copy, but reranking compares against the vectors held in the GigaMap, so the scores and the ordering a search returns are exact. With `approximateScoring(NONE)` traversal reads the quantized vectors, so quantization changes which candidates it finds, and a candidate it never reaches is one reranking cannot recover. With `FUSED_PQ` the fused codes drive traversal, so candidate selection is unchanged and the cost is footprint plus a GigaMap lookup per reranked candidate.
 
 ## Building
 

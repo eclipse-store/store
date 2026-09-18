@@ -152,7 +152,7 @@ import static org.eclipse.serializer.math.XMath.positive;
  *     .similarityFunction(VectorSimilarityFunction.COSINE)
  *     .onDisk(true)
  *     .indexDirectory(Path.of("/data/vectors"))
- *     .enablePqCompression(true)     // Optional: faster traversal, larger graph file
+ *     .approximateScoring(ApproximateScoring.FUSED_PQ) // Optional: faster traversal, larger file
  *     .pqSubspaces(48)               // Must divide dimension evenly
  *     .build();
  * }</pre>
@@ -2377,8 +2377,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * The gate is the <b>loaded graph's</b> feature set as well as the configuration: the graph
          * is self-describing, so the query path needs no happens-before edge with the training and
          * persist paths, and a graph whose training declined carries no feature to use however it is
-         * configured. The configuration is still consulted because {@code removeIndex()} leaves files
-         * behind, so a directory can hold a graph built under a setting since changed.
+         * configured. The configuration is still consulted so that the two must agree rather than
+         * the graph being taken at its word - a file can carry a feature this build would not have
+         * written, a downgrade being the concrete case.
          *
          * @param searcher      the searcher that will run the query, and whose view is used
          * @param query         the query vector

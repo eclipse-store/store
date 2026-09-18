@@ -1376,6 +1376,12 @@ class VectorIndexConfigurationTest
         assertEquals(ApproximateScoring.NONE, config.approximateScoring());
         assertFalse(config.enablePqCompression());
 
+        // Not incidental: the quantized format costs about 3x the persist wall time written
+        // sequentially and about 1.2x under the parallel writer, so a preset that picks NVQ and
+        // leaves this off hands out the cost without the mitigation.
+        assertTrue(config.parallelOnDiskWrite(),
+            "the compact preset must pair NVQ with the parallel writer");
+
         assertTrue(config.backgroundPersistence());
         assertTrue(config.backgroundOptimization());
 
