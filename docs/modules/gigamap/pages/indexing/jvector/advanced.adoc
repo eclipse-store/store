@@ -4,6 +4,8 @@ This section covers advanced usage patterns for production deployments.
 
 == On-Disk Index with Compression
 
+The on-disk format has two independent settings. `approximateScoring` controls how traversal scores candidates and trades disk space for search speed; `vectorStorage` controls how each vector is stored and trades a much smaller file for a little candidate recall, and only when `approximateScoring` is `NONE`. This section covers the first; see <<_nvq_quantized_vectors_in_the_graph>> for the second.
+
 For large on-disk datasets where search latency matters, combine on-disk storage with Product Quantization (PQ) compression.
 
 [source, java]
@@ -17,12 +19,14 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .onDisk(true)
     .indexDirectory(Path.of("/data/vectors"))
     // PQ compression (speeds up graph traversal)
-    .enablePqCompression(true)
+    .approximateScoring(ApproximateScoring.FUSED_PQ)
     .pqSubspaces(48)  // Must divide dimension evenly
     .build();
 ----
 
-IMPORTANT: PQ compression makes the on-disk index *larger*, not smaller. It is a speed optimisation. See <<_what_pq_compression_costs_and_buys>> before enabling it.
+IMPORTANT: PQ compression makes the on-disk index *larger*, not smaller. It is a speed optimisation. See <<_what_pq_compression_costs_and_buys>> before enabling it. To make the index *smaller*, set `vectorStorage` to `NVQ` -- see <<_nvq_quantized_vectors_in_the_graph>>.
+
+NOTE: `enablePqCompression(true)` is the deprecated spelling of `approximateScoring(ApproximateScoring.FUSED_PQ)`. Both write the same setting.
 
 === How the On-Disk Index Works
 
@@ -34,16 +38,20 @@ The graph is always **built in-memory** first. Entities are added to the graph o
 
 Persistence creates two files in the configured `indexDirectory`:
 
-* `{indexName}.graph` -- The full HNSW graph structure, including node connectivity (edges), and optionally embedded inline vectors and FusedPQ compressed data.
-* `{indexName}.meta` -- A small metadata file containing the file format version, the vector dimension, the current vector count, the highest allocated entity id, and a structural modification counter. This is used on startup to verify that the on-disk graph matches the current data. The configuration is *not* recorded here.
+* `{indexName}.graph` -- The full HNSW graph structure: node connectivity (edges), one vector block per node -- full-precision inline vectors or NVQ-quantized ones, depending on `vectorStorage` -- and, when `approximateScoring` is `FUSED_PQ`, the PQ codebook and the fused neighbour codes.
+* `{indexName}.meta` -- A small metadata file containing the file format version, the vector dimension, the current vector count, the highest allocated entity id, a structural modification counter, the two format settings (`vectorStorage` and `approximateScoring`), and the two counts that shape the encoded blocks within those settings (`pqSubspaces` and `nvqSubvectors`). This is used on startup to verify that the on-disk graph matches both the current data and the current configuration.
 
 ==== Loading from Disk
 
-On startup, the index first checks whether valid graph and metadata files exist. All five metadata fields are verified: the file format version, the dimension, the vector count, the highest allocated entity id, and the structural modification counter must match the current state. The entity-id check closes a corruption window where equal numbers of additions and removals between persists would leave the count unchanged but the on-disk graph stale; the modification counter closes the same window for changes that alter neither, such as an entity's embedding being set to or from null. If all checks pass, the graph is loaded directly from disk using memory-mapped I/O. This avoids rebuilding the graph from scratch, which can be expensive for large datasets.
+On startup, the index first checks whether valid graph and metadata files exist. Every metadata field is verified: the file format version, the dimension, the vector count, the highest allocated entity id, the structural modification counter, the two format settings, and the two quantization counts must all match the current state. The entity-id check closes a corruption window where equal numbers of additions and removals between persists would leave the count unchanged but the on-disk graph stale; the modification counter closes the same window for changes that alter neither, such as an entity's embedding being set to or from null. If all checks pass, the graph is loaded directly from disk using memory-mapped I/O. This avoids rebuilding the graph from scratch, which can be expensive for large datasets.
 
-If the metadata does not match -- for example because entities were added while the application was offline -- the on-disk files are ignored and the graph is rebuilt in-memory from the stored vectors. A configuration change does not trigger this: the configuration is not part of the metadata.
+If the metadata does not match -- for example because entities were added while the application was offline -- the on-disk files are ignored and the graph is rebuilt in-memory from the stored vectors. A change to `vectorStorage` or `approximateScoring` is a mismatch too, so the file's configuration is verified rather than assumed.
 
-NOTE: The on-disk graph file format is at version 4. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors -- no data loss, but expect a cold-start cost on the first restart after upgrade. That rebuild is in-memory: the stale files are replaced by the next persist that actually runs. An index that is written to after the upgrade therefore migrates on its next persist and pays the cost once, while a purely read-only one rebuilds again on every restart until `persistToDisk()` is called. The same applies to an index picking up PQ compression for the first time.
+NOTE: That check is not what stops a graph being reused after `removeIndex()`. `removeIndex()` does leave the files behind, but the index a later `add()` creates is a new instance whose structural modification counter starts at zero, while any written `.meta` carries at least one -- so the load is already refused on that witness, whatever the configuration says. What the format codes do catch is a file written under a configuration this build did not produce: most concretely a downgrade, where an index persisted by a newer version carries a storage or scoring code the older one does not know. Its content witnesses match, since it is the same index in the same store, so the format codes are the only thing standing between it and being misread.
+
+A change to `pqSubspaces` or `nvqSubvectors` triggers it too, for a sharper reason: a quantizer is adopted from the loaded graph rather than retrained, so without the check the old one would stay in place and every later persist would keep writing the old shape -- the new setting silently ignored rather than merely deferred. Both counts are compared in effective form, with the automatic sentinel resolved to the value it stands for and a count the format does not encode with is treated as absent, so two configurations describing the same graph do not force a rebuild that changes nothing.
+
+NOTE: The on-disk graph file format is at version 5. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors -- no data loss, but expect a cold-start cost on the first restart after upgrade. That rebuild is in-memory: the stale files are replaced by the next persist that actually runs. An index that is written to after the upgrade therefore migrates on its next persist and pays the cost once, while a purely read-only one rebuilds again on every restart until `persistToDisk()` is called. The same applies to an index picking up PQ compression for the first time.
 
 ==== Memory-Mapped Access
 
@@ -134,21 +142,198 @@ When PQ compression is enabled for an on-disk index, the implementation uses **F
 
 During graph traversal (search), the HNSW algorithm must evaluate the distance from the query to each candidate neighbor. With FusedPQ, these approximate distances can be computed directly from the fused PQ codes embedded in the graph structure, without a separate random-access lookup into a vector store. This reduces I/O and cache misses during search.
 
-The on-disk graph file thus contains three types of data per node:
+The on-disk graph file thus contains, per node:
 
 * **Graph edges** -- The connections to neighboring nodes (the HNSW structure).
-* **Inline vectors** -- The full-precision float vectors, used for exact reranking.
-* **FusedPQ codes** -- The PQ-compressed representations of the node's neighbors, used for fast approximate scoring during traversal.
+* **One vector-storage block** -- either full-precision **inline vectors** or **NVQ** quantized vectors, which are about a third of the size. Whether a search reads it at all depends on both settings; the table under <<_two_phase_search>> gives the four cases. See <<_nvq_quantized_vectors_in_the_graph>>.
+* **FusedPQ codes**, when `approximateScoring` is `FUSED_PQ` -- The PQ-compressed representations of the node's neighbors, used for fast approximate scoring during traversal.
 
 FusedPQ places no constraint on `maxDegree`. The degree is recorded in the graph header, so the reader sizes each fused block from the file itself. Because a node's fused block holds `maxDegree` codes, however, `maxDegree` is what multiplies the storage and per-hop read cost of PQ.
 
+[[_nvq_quantized_vectors_in_the_graph]]
+=== NVQ: Quantized Vectors in the Graph
+
+`vectorStorage` and `approximateScoring` are two independent dimensions of the on-disk format, and they pull in opposite directions on size. `FUSED_PQ` adds the neighbour codes and makes the file larger; `NVQ` replaces the full-precision vectors with 8-bit quantized ones and makes it smaller. Any combination of the two is valid.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .maxDegree(32)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/vectors"))
+    // Quantized vectors instead of full precision: about 3.4x smaller
+    .vectorStorage(VectorStorage.NVQ)
+    // The encode cost is almost entirely absorbed by the parallel writer
+    .parallelOnDiskWrite(true)
+    .build();
+----
+
+Or use the `forCompactLargeDataset(dimension, indexDirectory)` preset, which sets `NVQ` together with `NONE` and turns on `parallelOnDiskWrite` for the reason given below. That pairing is the smallest on-disk footprint available, because it drops the fused codes as well as shrinking the vectors.
+
+==== What NVQ Costs and Buys
+
+Each vector is recentred on a global mean and then scaled per subvector through a learned nonlinearity, which is what lets one byte per dimension carry as much as it does. Per node the block is `4 + dimension + 28 * nvqSubvectors` bytes against `dimension * 4` for full precision.
+
+Measured at dimension 768, `maxDegree` 32, 20,000 vectors:
+
+[options="header",cols="1,1,1"]
+|===
+|`vectorStorage` |Graph file |Bytes per node
+
+|`INLINE`
+|64.2 MB
+|3,208
+
+|`NVQ`
+|18.8 MB
+|936
+|===
+
+That is a **3.4x reduction**, and it is the only setting on either dimension that shrinks the file. The ratio depends on the dimension, because the fixed per-node costs weigh less as it grows, and on `nvqSubvectors`: eight subvectors add 28 bytes each and bring it down to about 2.8x, which is why the default is one.
+
+**It never costs score accuracy**, whatever `approximateScoring` is set to: reranking compares against the full-precision vectors held in the GigaMap, so the scores and the ordering a search returns are exact. What it costs beyond that depends on the scoring mode, because that decides whether the quantized vectors are read during traversal at all.
+
+With `NONE` they are, so quantization changes which candidates traversal finds -- and a candidate it never reaches is one reranking cannot recover. What recovers those is a wider search beam, the same lever that answers a low `pqSubspaces`.
+
+With `FUSED_PQ` the fused codes drive traversal and the quantized block is not consulted, so candidate selection is exactly what it would be with `INLINE` storage. What changes there is the footprint, and that the rerank now reads the GigaMap rather than the graph's own mapping -- one lookup per reranked candidate where there was none.
+
+The suite's five-seed recall check, at dimension 64, puts all four storage/scoring combinations within noise of each other. For a sense of what the traversal-only loss can look like where it does bite, a raw jvector probe that reranked from the quantized vectors -- which this integration does not do -- measured recall@10 of 0.921 against an exact baseline of 0.923 at dimension 256. Both figures come from synthetic data, so measure it on yours if the last fraction of a percent matters.
+
+==== Persist Cost, and Why to Pair NVQ with Parallel Writes
+
+Quantizing is not free: each vector's nonlinearity is fitted by a grid search at write time, which is real work per node. It is worth knowing how it lands, because it falls on the persist path.
+
+[options="header",cols="1,1,1"]
+|===
+|`parallelOnDiskWrite` |`INLINE` |`NVQ`
+
+|`false`
+|3.6 s
+|11.1 s
+
+|`true`
+|4.0 s
+|4.8 s
+|===
+
+Sequentially NVQ costs about 3x the persist time. Under the parallel writer that falls to about 1.2x, because the encode runs per node on the writer's worker threads rather than in one pass up front. **Set `parallelOnDiskWrite(true)` when using NVQ**, unless you have a specific reason not to.
+
+=== PQ_IN_MEMORY: The Same Codes, Kept Out of the Graph
+
+`FUSED_PQ` and `PQ_IN_MEMORY` buy the same approximate traversal and differ only in where the codes live. Fusing writes each node's code into every neighbour that references it, so the cost is `pqSubspaces * maxDegree` bytes per node *on disk*. Keeping them out of the graph costs `pqSubspaces` bytes per ordinal *once*, in heap.
+
+NOTE: This section describes `PQ_IN_MEMORY` on an **on-disk** index, where the codes are persisted in a `{indexName}.pqv` sidecar and read back into heap on load. An in-memory index has no persist and therefore no sidecar at all; it builds the codes at optimization instead. See <<_compressed_scoring_for_an_in_memory_index>>.
+
+At `dimension=768`, `maxDegree=32` and the automatic `pqSubspaces` of 192, that is 6,144 bytes per node of graph file against 192 bytes per ordinal of heap. Per ordinal rather than per vector because the codes are indexed by entity id, so a deletion hole still costs its bytes -- the IMPORTANT note below puts numbers on that.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .maxDegree(32)
+    .onDisk(true)
+    .indexDirectory(Path.of("/data/vectors"))
+    .vectorStorage(VectorStorage.NVQ)                        // smallest graph
+    .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)     // codes out of the graph entirely
+    .parallelOnDiskWrite(true)
+    .build();
+----
+
+IMPORTANT: The heap cost is linear and has no ceiling. It is `pqSubspaces` bytes for every ordinal up to the highest in use -- deletion holes included, because the codes are indexed by entity id -- and it stays resident for as long as the index is open. Roughly 192 MB per million vectors at the settings above, and roughly 19 GB at a hundred million. Size it before choosing this over `FUSED_PQ`, which pays in disk and page cache instead.
+
+==== The Third File
+
+On an on-disk index, `PQ_IN_MEMORY` adds `{indexName}.pqv` beside the graph and the metadata. It is written first and the metadata last, so the metadata only becomes visible once everything it describes is in place; a crash at any earlier point leaves a stale metadata file, which is rejected on load and self-heals from the store.
+
+A missing or unreadable sidecar is treated the same way. The index is *not* served without it: the metadata says this index traverses on PQ codes, and quietly scoring it exactly instead would make the configuration untrue. Rejecting rebuilds from the store, which restores the graph and the sidecar together.
+
+The codebook lives in the sidecar too. A fused graph carries it in the graph header, but this mode writes no fused feature, so the sidecar is the only copy.
+
+[[_compressed_scoring_for_an_in_memory_index]]
+==== Compressed Scoring for an In-Memory Index
+
+`PQ_IN_MEMORY` is the one *PQ-based* scoring mode an in-memory index can use - `NONE`, the default, stays available and is what an index uses until it switches. Everything above about the `.pqv` sidecar applies to on-disk indices only: there is no persist here, so there is no file, and the codes live in heap for as long as the index is open. It is worth having there: profiling an in-memory index shows about 2,000 vector lookups per insertion during construction, and well over a thousand distinct lookups per query during search. The per-query cache dedupes repeat visits to the same node, but not the distinct ones, and both counts grow with the data set. Scoring from in-heap codes removes them.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+    // Required here: the switch to compressed scoring happens at optimization
+    .optimizationIntervalMs(600_000)
+    // And the optimization has to actually run: the background manager skips one until this many
+    // changes have accumulated, and the default of 1000 would strand an index of a few hundred
+    // vectors on exact scoring for good.
+    .minChangesBetweenOptimizations(100)
+    .build();
+----
+
+An index cannot start compressed. The graph builder takes its scoring strategy at construction and a codebook needs at least 256 vectors, so the switch is necessarily a rebuild: train, encode every live ordinal, construct a fresh builder against the codes, and replay the nodes into it. That is O(n), so it happens at optimization -- which already pays an O(n) cost -- and nowhere else. Triggering it from a mutation would put a full retrain and rebuild inside whichever `add` happened to cross the threshold.
+
+That is why `optimizationIntervalMs` must be set for this mode. Without a scheduled optimization there is no point at which the switch could happen, so the configuration would be accepted and then silently never take effect; it is rejected at build time instead. `isPqCompressionActive()` reports which side of the switch the index is on.
+
+IMPORTANT: **The switch holds the GigaMap's lock for its entire duration, and that is a rebuild, not an instant.** Everything the map does waits for the whole of it -- writes and reads alike, on *any* index on that map, and searches against this one too. A search entering during the switch blocks before it reaches the index at all, because the entry point takes that same lock to settle a deferred graph rebuild before it starts. Measured at 20,000 vectors: a switch of 8.6 s, during which a search that would take 5 ms waits 7.9 s, as do `get`, `iterate` and `add`. Measured at `dimension=64`, the cost is close to linear in the number of vectors:
++
+[options="header",cols="1,1"]
+|===
+|Vectors |Switch duration
+|5,000 |~2 s
+|10,000 |~4 s
+|20,000 |~6-9 s
+|25,000 |~10 s
+|50,000 |~14-19 s
+|1,000,000 |several minutes
+|===
++
+It happens at most once per index generation, and it is the same kind of exclusion a `removeAll()` takes -- but those are usually deliberate, and this one is triggered by the *background* optimization, so it can arrive at a time nobody chose. Treat it as a full stop on that GigaMap for the duration, not as a write pause. On a large index, plan for it: call `optimize()` explicitly at a quiet moment so the pause happens when you decide rather than on the scheduler's tick, and size `optimizationIntervalMs` and `minChangesBetweenOptimizations` with the table above in mind.
+
+An index restored from storage is a special case: its entities are already in the store, so nothing bumps the change count and a scheduled optimization would be skipped forever. Its first one is therefore armed automatically, regardless of `minChangesBetweenOptimizations`. A newly created index is not armed -- its entities arrive afterwards and each one counts -- so the threshold applies there in full.
+
+WARNING: Construction under compressed scoring does no reranking, so graph quality can drop relative to an exactly built graph. Measured recall stays above 0.90 on clustered data at the default beam width, but raise `beamWidth` for this mode if your own measurements come in lower.
+
+[[_two_phase_search]]
 === Two-Phase Search with Reranking
 
 When PQ compression is active, searches use a **two-phase approach** to balance speed and accuracy:
 
 **Phase 1 -- Approximate candidate retrieval:** The HNSW graph is traversed using the FusedPQ-compressed codes for fast approximate distance computation. This phase fetches `max(k, minSearchBeamWidth)` candidates -- never less than the configured search beam width (see xref:indexing/jvector/configuration.adoc#_basic_hnsw_parameters[`minSearchBeamWidth`]) so the top-k stays stable across different `k` values. The per-query `search(query, k, searchBeamWidth)` overload raises this floor for a single call when higher recall is needed.
 
-**Phase 2 -- Exact reranking:** The approximate candidates are then re-scored using the full-precision inline vectors stored in the graph file. The exact scores are sorted and the best _k_ results are returned.
+**Phase 2 -- Exact reranking:** The approximate candidates are then re-scored against full-precision vectors, and the exact scores are sorted so the best _k_ results are returned.
+
+The two phases above describe `FUSED_PQ`, which is the mode they exist for. The other combinations are shorter: `NVQ + NONE` traverses on the graph's quantized vectors and then reranks, and `INLINE + NONE` scores exactly during traversal and has no second phase to run.
+
+Reranking is exact under every combination of the two settings, but it does not always read the same vectors:
+
+[options="header",cols="1,1,2,2"]
+|===
+|`vectorStorage` |`approximateScoring` |Traversal scores from |Reranking reads
+
+|`INLINE`
+|`NONE`
+|the GigaMap
+|the GigaMap -- traversal is already exact, so nothing is re-scored
+
+|`INLINE`
+|`FUSED_PQ`
+|the fused neighbour codes
+|the graph's inline vectors, at no lookup per candidate
+
+|`NVQ`
+|`NONE`
+|the quantized vectors in the graph
+|the GigaMap
+
+|`NVQ`
+|`FUSED_PQ`
+|the fused neighbour codes
+|the GigaMap
+|===
+
+The GigaMap is the source wherever the graph holds no full-precision copy to read, and for the default `INLINE` + `NONE`, where the on-disk vectors are deliberately left unused so that the default configuration keeps the behaviour it has always had. See <<_nvq_quantized_vectors_in_the_graph>>.
 
 This two-phase approach achieves nearly the same recall as an uncompressed search while making each traversal hop much cheaper.
 
@@ -223,7 +408,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .similarityFunction(VectorSimilarityFunction.COSINE)
     .onDisk(true)
     .indexDirectory(Path.of("/data/vectors"))
-    .enablePqCompression(true)
+    .approximateScoring(ApproximateScoring.FUSED_PQ)
     .pqSubspaces(48)
     .parallelOnDiskWrite(true) // Multi-threaded disk writes
     .build();

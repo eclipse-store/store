@@ -18,6 +18,11 @@ import io.github.jbellis.jvector.disk.ReaderSupplier;
 import io.github.jbellis.jvector.disk.ReaderSupplierFactory;
 import io.github.jbellis.jvector.graph.disk.OnDiskGraphIndex;
 import io.github.jbellis.jvector.graph.disk.feature.FeatureId;
+import io.github.jbellis.jvector.quantization.NVQuantization;
+import io.github.jbellis.jvector.vector.VectorizationProvider;
+import io.github.jbellis.jvector.vector.VectorUtil;
+import io.github.jbellis.jvector.vector.types.VectorFloat;
+import io.github.jbellis.jvector.vector.types.VectorTypeSupport;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
@@ -28,19 +33,23 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -811,6 +820,25 @@ class VectorIndexDiskTest
      */
     private void assertRecallForSeed(final int seed, final Path indexDir)
     {
+        this.assertRecallForSeed(seed, indexDir, VectorStorage.INLINE, ApproximateScoring.FUSED_PQ);
+    }
+
+    /**
+     * As above, for a given on-disk format. The floor is the same for every format: NVQ storage is
+     * only worth having if it stays inside it.
+     *
+     * @param seed     the data and query seed
+     * @param indexDir the directory to build the index in
+     * @param storage  how the graph stores its vectors
+     * @param scoring  how traversal scores candidates
+     */
+    private void assertRecallForSeed(
+        final int                seed    ,
+        final Path               indexDir,
+        final VectorStorage      storage ,
+        final ApproximateScoring scoring
+    )
+    {
         final int vectorCount = 2000;
         final int dimension   = 64;
         final int k           = 10;
@@ -839,7 +867,8 @@ class VectorIndexDiskTest
             .beamWidth(100)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .enablePqCompression(true)
+            .vectorStorage(storage)
+            .approximateScoring(scoring)
             .pqSubspaces(dimension / 4)
             .build();
 
@@ -857,7 +886,12 @@ class VectorIndexDiskTest
             }
             index.persistToDisk();
 
-            assertTrue(index.isPqCompressionActive(), "the PQ path must be the one under test");
+            // Both PQ-based scoring modes train a codebook; they differ only in where the encoded
+            // codes are kept, so this reports true for either.
+            assertEquals(scoring != ApproximateScoring.NONE, index.isPqCompressionActive(),
+                "the configured scoring path must be the one under test");
+            assertEquals(storage == VectorStorage.NVQ, index.isNvqCompressionActive(),
+                "the configured storage path must be the one under test");
 
             final Random queryRandom = new Random(seed * 31 + 5);
             for(int q = 0; q < queryCount; q++)
@@ -879,7 +913,8 @@ class VectorIndexDiskTest
 
         final double recall = totalRecall / queryCount;
         assertTrue(recall >= minRecall,
-            "PQ recall@" + k + " for seed " + seed + " was " + recall + ", below the " + minRecall + " floor");
+            storage + "/" + scoring + " recall@" + k + " for seed " + seed + " was " + recall
+                + ", below the " + minRecall + " floor");
     }
 
     /**
@@ -1016,17 +1051,144 @@ class VectorIndexDiskTest
         final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
             written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
 
+        final GraphFormat asWritten = new GraphFormat(
+            VectorStorage.INLINE, ApproximateScoring.NONE, 0, 0);
+        final GraphFormat pqTurnedOn = new GraphFormat(
+            VectorStorage.INLINE, ApproximateScoring.FUSED_PQ, 0, 0);
+        final GraphFormat storageChanged = new GraphFormat(
+            VectorStorage.NVQ, ApproximateScoring.NONE, 0, 0);
+
         try(final DiskIndexManager matching = new DiskIndexManager.Default(
-            written, "embeddings", indexDir, dimension, false, false))
+            written, "embeddings", indexDir, dimension, asWritten, false))
         {
-            assertTrue(matching.tryLoad(state), "the same PQ setting must load");
+            assertTrue(matching.tryLoad(state), "the same format must load");
         }
 
         try(final DiskIndexManager mismatched = new DiskIndexManager.Default(
-            written, "embeddings", indexDir, dimension, true, false))
+            written, "embeddings", indexDir, dimension, pqTurnedOn, false))
         {
             assertFalse(mismatched.tryLoad(state),
                 "a graph written with PQ off must not load into an index configured with PQ on");
+        }
+
+        try(final DiskIndexManager mismatched = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, storageChanged, false))
+        {
+            assertFalse(mismatched.tryLoad(state),
+                "a full-precision graph must not load into an index configured for NVQ storage");
+        }
+    }
+
+    /**
+     * The subspace and subvector counts shape the encoded blocks within a mode, and a changed count
+     * has to invalidate the graph for a reason the mode codes do not share: a quantizer is adopted
+     * from the loaded graph rather than retrained, so a count that is not checked here is not
+     * merely tolerated - it is silently ignored, and every later persist keeps writing the shape
+     * the old quantizer carries.
+     * <p>
+     * The counts are compared in effective form, so the two negative cases below are paired with
+     * two cases that must still load: the automatic sentinel is the same setting as the value it
+     * resolves to, and a count carries no meaning in a mode that does not encode with it. Rebuilding
+     * on either would cost a cold start for no change in the file.
+     */
+    @Test
+    void testMetadataRejectsAChangedSubvectorOrSubspaceCount(@TempDir final Path tempDir) throws IOException
+    {
+        final int  vectorCount = 300;
+        final int  dimension   = 64;
+        final Path indexDir    = tempDir.resolve("index");
+
+        // An NVQ graph with fused codes exercises both counts from one file.
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .vectorStorage(VectorStorage.NVQ)
+                .approximateScoring(ApproximateScoring.FUSED_PQ)
+                .pqSubspaces(16)
+                .nvqSubvectors(2)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, new Random(8), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+        }
+
+        final VectorIndex.Default<Document> written =
+            (VectorIndex.Default<Document>)gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+        final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
+            written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
+
+        assertTrue(this.loadsWith(written, indexDir, dimension,
+            new GraphFormat(VectorStorage.NVQ, ApproximateScoring.FUSED_PQ, 16, 2), state),
+            "the format it was written with must load");
+
+        assertFalse(this.loadsWith(written, indexDir, dimension,
+            new GraphFormat(VectorStorage.NVQ, ApproximateScoring.FUSED_PQ, 16, 4), state),
+            "a graph encoded with two NVQ subvectors must not load into an index configured for four");
+
+        assertFalse(this.loadsWith(written, indexDir, dimension,
+            new GraphFormat(VectorStorage.NVQ, ApproximateScoring.FUSED_PQ, 32, 2), state),
+            "a graph encoded with 16 PQ subspaces must not load into an index configured for 32");
+
+        // dimension / 4 is what the sentinel resolves to, so these describe the same graph.
+        final Path autoDir = tempDir.resolve("auto");
+        final GigaMap<Document> autoMap = GigaMap.New();
+        try(final VectorIndex<Document> index = autoMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(autoDir)
+                .approximateScoring(ApproximateScoring.FUSED_PQ)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(autoMap, new Random(9), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+        }
+
+        final VectorIndex.Default<Document> autoWritten =
+            (VectorIndex.Default<Document>)autoMap.index().get(VectorIndices.Category()).get("embeddings");
+        final DiskIndexManager.MetaState autoState = new DiskIndexManager.MetaState(
+            autoWritten.getExpectedVectorCount(), autoWritten.getHighestEntityId(),
+            autoWritten.getStructuralModCount());
+
+        assertTrue(this.loadsWith(autoWritten, autoDir, dimension,
+            new GraphFormat(VectorStorage.INLINE, ApproximateScoring.FUSED_PQ, dimension / 4, 0), autoState),
+            "spelling out the value the automatic setting resolves to must not force a rebuild");
+
+        assertTrue(this.loadsWith(autoWritten, autoDir, dimension,
+            new GraphFormat(VectorStorage.INLINE, ApproximateScoring.FUSED_PQ, 0, 8), autoState),
+            "an NVQ subvector count must not invalidate a graph that stores full-precision vectors");
+    }
+
+    /**
+     * Opens a disk manager over an already written index directory and reports whether it accepts
+     * the files under the given format.
+     *
+     * @param provider  the index whose state the manager reads
+     * @param indexDir  the directory holding the written files
+     * @param dimension the configured vector dimension
+     * @param format    the format to open the files under
+     * @param state     the witnesses to verify against
+     * @return whether the files loaded
+     * @throws IOException if closing the manager fails
+     */
+    private boolean loadsWith(
+        final VectorIndex.Default<Document> provider ,
+        final Path                          indexDir ,
+        final int                           dimension,
+        final GraphFormat                   format   ,
+        final DiskIndexManager.MetaState    state
+    )
+        throws IOException
+    {
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            provider, "embeddings", indexDir, dimension, format, false))
+        {
+            return manager.tryLoad(state);
         }
     }
 
@@ -1253,6 +1415,99 @@ class VectorIndexDiskTest
         }
 
         return Files.size(indexDir.resolve("embeddings.graph"));
+    }
+
+    /**
+     * Builds an on-disk index in the given format, persists it and returns the size of the resulting
+     * graph file. The storage-aware counterpart of
+     * {@link #persistAndMeasureGraph(Path, int, int, int, int)}.
+     *
+     * @param indexDir    the directory to write into
+     * @param vectorCount how many documents to index
+     * @param dimension   the vector dimension
+     * @param maxDegree   the graph out-degree
+     * @param storage     how the graph should store its vectors
+     * @param scoring     how traversal should score candidates
+     * @return the size of the written {@code .graph} file in bytes
+     */
+    private long persistAndMeasureGraph(
+        final Path               indexDir   ,
+        final int                vectorCount,
+        final int                dimension  ,
+        final int                maxDegree  ,
+        final VectorStorage      storage    ,
+        final ApproximateScoring scoring
+    ) throws IOException
+    {
+        return this.persistAndMeasureGraph(indexDir, vectorCount, dimension, maxDegree, storage, scoring, 0);
+    }
+
+    /**
+     * As above, with an explicit NVQ subvector count so a test can measure what the count costs.
+     *
+     * @param indexDir      the directory to build the index in
+     * @param vectorCount   how many vectors to index
+     * @param dimension     the vector dimension
+     * @param maxDegree     the graph's maximum degree
+     * @param storage       how the graph stores its vectors
+     * @param scoring       how traversal scores candidates
+     * @param nvqSubvectors the NVQ subvector count, or 0 for the automatic value
+     * @return the size of the written graph file in bytes
+     * @throws IOException if the file cannot be measured
+     */
+    private long persistAndMeasureGraph(
+        final Path               indexDir     ,
+        final int                vectorCount  ,
+        final int                dimension    ,
+        final int                maxDegree    ,
+        final VectorStorage      storage      ,
+        final ApproximateScoring scoring      ,
+        final int                nvqSubvectors
+    ) throws IOException
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(maxDegree)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .vectorStorage(storage)
+            .approximateScoring(scoring)
+            .nvqSubvectors(nvqSubvectors)
+            .build();
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", config, new ComputedDocumentVectorizer()))
+        {
+            // Same seed across formats so every graph holds identical vectors.
+            addRandomDocuments(gigaMap, new Random(99), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+            assertEquals(storage == VectorStorage.NVQ, index.isNvqCompressionActive(),
+                "the index must report the storage mode it actually achieved");
+        }
+
+        return Files.size(indexDir.resolve("embeddings.graph"));
+    }
+
+    /**
+     * The per-node size of an on-disk graph, from JVector's node record layout: the node id, the
+     * inline feature block, and the neighbour list of {@code maxDegree + 1} ints.
+     * <p>
+     * Used to check the measured file sizes against the format rather than against a previously
+     * recorded number, so the assertions stay meaningful if the test parameters change.
+     */
+    private static int expectedBytesPerNode(
+        final int           dimension    ,
+        final int           maxDegree    ,
+        final VectorStorage storage      ,
+        final int           nvqSubvectors
+    )
+    {
+        final int featureBlock = storage == VectorStorage.NVQ
+            ? 4 + dimension + 28 * nvqSubvectors  // subvector count, one byte per dimension, parameters
+            : dimension * Float.BYTES;
+        return Integer.BYTES + featureBlock + Integer.BYTES * (maxDegree + 1);
     }
 
     /**
@@ -3919,6 +4174,1598 @@ class VectorIndexDiskTest
                 .filter(n -> n.endsWith(".tmp"))
                 .toList();
             assertTrue(tempFiles.isEmpty(), "No temp files should remain after persist, found: " + tempFiles);
+        }
+    }
+
+    // ==================== NVQ Vector Storage Tests ====================
+
+    /**
+     * The headline claim, and the mirror of {@link #testPqCompressionMakesTheGraphLarger}: quantized
+     * storage is the one setting on either format dimension that makes the graph file <i>smaller</i>.
+     * <p>
+     * Both sizes are checked against the closed-form node layout rather than against a previously
+     * recorded number, so this keeps testing the format rather than a snapshot of it.
+     */
+    @Test
+    void testNvqStorageShrinksTheGraph(@TempDir final Path tempDir) throws IOException
+    {
+        final int vectorCount = 400;
+        final int dimension   = 256;
+        final int maxDegree   = 16;
+
+        final long inline = this.persistAndMeasureGraph(
+            tempDir.resolve("inline"), vectorCount, dimension, maxDegree,
+            VectorStorage.INLINE, ApproximateScoring.NONE);
+        final long nvq = this.persistAndMeasureGraph(
+            tempDir.resolve("nvq"), vectorCount, dimension, maxDegree,
+            VectorStorage.NVQ, ApproximateScoring.NONE);
+
+        assertTrue(nvq < inline / 2,
+            "NVQ storage must more than halve the graph, but was " + nvq + " against " + inline);
+
+        final long expectedInline = (long)expectedBytesPerNode(dimension, maxDegree, VectorStorage.INLINE, 1)
+            * vectorCount;
+        final long expectedNvq = (long)expectedBytesPerNode(dimension, maxDegree, VectorStorage.NVQ, 1)
+            * vectorCount;
+
+        assertWithinFivePercent(expectedInline, inline, "inline graph size");
+        assertWithinFivePercent(expectedNvq, nvq, "NVQ graph size");
+    }
+
+    private static void assertWithinFivePercent(final long expected, final long actual, final String what)
+    {
+        final double ratio = (double)actual / expected;
+        assertTrue(ratio > 0.95 && ratio < 1.05,
+            what + " was " + actual + ", expected about " + expected + " from the node layout (ratio " + ratio + ")");
+    }
+
+    /**
+     * The graph must carry quantized vectors <i>instead of</i> full-precision ones, not in addition
+     * to them - storing both would cost more than either and save nothing.
+     */
+    @Test
+    void testNvqGraphCarriesNvqInsteadOfInlineVectors(@TempDir final Path tempDir) throws IOException
+    {
+        final int dimension = 64;
+        final Path indexDir = tempDir.resolve("vectors");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .vectorStorage(VectorStorage.NVQ)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, new Random(17), dimension, 300, "doc_");
+            index.persistToDisk();
+            assertTrue(index.isNvqCompressionActive(), "the quantizer must have been trained");
+        }
+
+        final Set<FeatureId> features = graphFeatures(indexDir.resolve("embeddings.graph"));
+        assertTrue(features.contains(FeatureId.NVQ_VECTORS), "expected NVQ_VECTORS, got " + features);
+        assertFalse(features.contains(FeatureId.INLINE_VECTORS),
+            "NVQ storage must replace the full-precision vectors, not accompany them: " + features);
+    }
+
+    /**
+     * NVQ and fused PQ are independent dimensions, so the graph must be able to carry both.
+     */
+    @Test
+    void testNvqCombinesWithFusedPq(@TempDir final Path tempDir) throws IOException
+    {
+        final int dimension = 64;
+        final Path indexDir = tempDir.resolve("vectors");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .vectorStorage(VectorStorage.NVQ)
+                .approximateScoring(ApproximateScoring.FUSED_PQ)
+                .pqSubspaces(16)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, new Random(23), dimension, 400, "doc_");
+            index.persistToDisk();
+
+            assertTrue(index.isNvqCompressionActive());
+            assertTrue(index.isPqCompressionActive());
+
+            // Both quantizers trained from one collection, and search still works through them.
+            assertFalse(index.search(randomVector(new Random(1), dimension), 5).isEmpty());
+        }
+
+        final Set<FeatureId> features = graphFeatures(indexDir.resolve("embeddings.graph"));
+        assertTrue(features.contains(FeatureId.NVQ_VECTORS), features.toString());
+        assertTrue(features.contains(FeatureId.FUSED_PQ), features.toString());
+        assertFalse(features.contains(FeatureId.INLINE_VECTORS), features.toString());
+    }
+
+    /**
+     * NVQ quantizes what the <i>graph</i> holds, not what a search returns. Every path that a live
+     * index actually takes reranks against the vectors held in the GigaMap, so the scores and the
+     * final ordering are exact; what quantization can change is which candidates traversal finds,
+     * and only in the modes that traverse on the stored block at all.
+     * <p>
+     * That is worth a test rather than an argument, because it is the property the compact preset
+     * is recommended on. It is asserted on the score values rather than on recall: recall cannot
+     * distinguish an exact reranker from a dequantizing one at this scale, whereas a dequantized
+     * score deviates immediately.
+     * <p>
+     * Both scoring modes are covered, and the reason they behave alike is worth stating. The
+     * dispatch does have a branch that reranks from the graph's own quantized copy - fused codes
+     * for traversal, {@code view.rerankerFor} for the rerank - but it sits behind
+     * {@code incremental == false}, and an on-disk index does not currently reach that state:
+     * loading enters incremental mode, and each persist re-enters it. The branch is kept because it
+     * is the correct behaviour if that ever changes, not because it runs today.
+     */
+    @Test
+    void testNvqReturnsExactScoresInBothScoringModes(@TempDir final Path tempDir)
+    {
+        final int dimension   = 64;
+        final int vectorCount = 400;
+        final int k           = 10;
+
+        final Random  random = new Random(4711);
+        final float[] query  = randomVector(random, dimension);
+
+        for(final ApproximateScoring scoring : new ApproximateScoring[]{
+            ApproximateScoring.NONE, ApproximateScoring.FUSED_PQ})
+        {
+            final double deviation = this.maxScoreDeviation(
+                tempDir.resolve("nvq_" + scoring), dimension, vectorCount, k, query, 31, scoring);
+
+            // Float arithmetic in a different order than the brute-force loop, nothing more. A
+            // reranker reading the graph's 8-bit vectors instead lands orders of magnitude above.
+            assertTrue(deviation < 1e-5,
+                "NVQ storage with " + scoring + " must still rerank from the GigaMap, but the top-"
+                    + k + " scores deviated from the exact similarities by up to " + deviation);
+        }
+    }
+
+    /**
+     * Builds an NVQ index in the given scoring mode, reopens it so the search runs against the
+     * loaded graph, and returns how far its scores stray from cosine similarities computed by hand
+     * over the source vectors.
+     *
+     * @param baseDir     the directory to build the storage and the index in
+     * @param dimension   the vector dimension
+     * @param vectorCount how many vectors to index
+     * @param k           how many results to score
+     * @param query       the query vector
+     * @param seed        the data seed
+     * @param scoring     the scoring mode under test
+     * @return the largest absolute difference between a returned score and the exact similarity
+     */
+    private double maxScoreDeviation(
+        final Path               baseDir    ,
+        final int                dimension  ,
+        final int                vectorCount,
+        final int                k          ,
+        final float[]            query      ,
+        final int                seed       ,
+        final ApproximateScoring scoring
+    )
+    {
+        final Path storageDir = baseDir.resolve("storage");
+        final Path indexDir   = baseDir.resolve("vectors");
+
+        final Random        random  = new Random(seed);
+        final List<float[]> vectors = new ArrayList<>();
+        for(int i = 0; i < vectorCount; i++)
+        {
+            vectors.add(randomVector(random, dimension));
+        }
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .vectorStorage(VectorStorage.NVQ)
+            .approximateScoring(scoring)
+            .pqSubspaces(dimension / 4)
+            .build();
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            storage.setRoot(gigaMap);
+
+            final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+                .add("embeddings", config, new ComputedDocumentVectorizer());
+
+            for(final float[] vector : vectors)
+            {
+                gigaMap.add(new Document("doc", vector));
+            }
+            index.persistToDisk();
+
+            assertTrue(index.isNvqCompressionActive(), "the NVQ path must be the one under test");
+            assertEquals(scoring != ApproximateScoring.NONE, index.isPqCompressionActive(),
+                "the configured scoring path must be the one under test");
+
+            storage.storeRoot();
+        }
+
+        double maxDeviation = 0;
+
+        // Reopened rather than searched in place, so the query runs against a graph loaded from the
+        // file this test is about rather than one still held by the builder that wrote it.
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = storage.root();
+            final VectorIndex<Document> index =
+                gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+
+            assertTrue(index.isNvqCompressionActive(),
+                "the reloaded graph must still be the quantized one");
+
+            for(final ScoredSearchResult.Entry<Document> entry : index.search(query, k))
+            {
+                final float exact = cosineSimilarity(query, entry.entity().embedding());
+                maxDeviation = Math.max(maxDeviation, Math.abs(exact - entry.score()));
+            }
+        }
+
+        return maxDeviation;
+    }
+
+    /**
+     * Cosine similarity in jvector's normalized form, where 1 means identical - the same scale the
+     * index reports its scores on.
+     *
+     * @param a the first vector
+     * @param b the second vector
+     * @return the similarity of the two vectors
+     */
+    private static float cosineSimilarity(final float[] a, final float[] b)
+    {
+        double dot   = 0;
+        double normA = 0;
+        double normB = 0;
+        for(int i = 0; i < a.length; i++)
+        {
+            dot   += (double)a[i] * b[i];
+            normA += (double)a[i] * a[i];
+            normB += (double)b[i] * b[i];
+        }
+        return (float)((1 + dot / (Math.sqrt(normA) * Math.sqrt(normB))) / 2);
+    }
+
+    /**
+     * Quantized storage costs recall, so the point of the exercise is that it costs little. Same
+     * floor, same seeds and same data generator as the PQ recall test, so the two are comparable.
+     */
+    @Test
+    void testNvqRecallStaysHigh(@TempDir final Path tempDir)
+    {
+        for(final int seed : new int[]{7, 11, 23, 42, 99})
+        {
+            this.assertRecallForSeed(seed, tempDir.resolve("nvq_" + seed),
+                VectorStorage.NVQ, ApproximateScoring.NONE);
+        }
+    }
+
+    @Test
+    void testNvqWithFusedPqRecallStaysHigh(@TempDir final Path tempDir)
+    {
+        for(final int seed : new int[]{7, 11, 23, 42, 99})
+        {
+            this.assertRecallForSeed(seed, tempDir.resolve("nvqpq_" + seed),
+                VectorStorage.NVQ, ApproximateScoring.FUSED_PQ);
+        }
+    }
+
+    /**
+     * The uncompressed baseline the other three formats are compared against.
+     * <p>
+     * Without it the suite measures three of the four storage/scoring combinations and the fourth is
+     * assumed, which is the one that decides whether the others are near it or merely near each
+     * other.
+     */
+    @Test
+    void testPlainInlineRecallStaysHigh(@TempDir final Path tempDir)
+    {
+        for(final int seed : new int[]{7, 11, 23, 42, 99})
+        {
+            this.assertRecallForSeed(seed, tempDir.resolve("inline_" + seed),
+                VectorStorage.INLINE, ApproximateScoring.NONE);
+        }
+    }
+
+    /**
+     * The quantizer must come back off the graph header on reload rather than being retrained, which
+     * is what lets the index report itself compressed before it has persisted again.
+     */
+    @Test
+    void testNvqQuantizerIsRecoveredFromTheGraphOnReload(@TempDir final Path tempDir) throws IOException
+    {
+        final int    dimension   = 64;
+        final int    vectorCount = 300;
+        final Path   storageDir  = tempDir.resolve("storage");
+        final Path   indexDir    = tempDir.resolve("vectors");
+        final float[] queryVector = randomVector(new Random(999), dimension);
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .vectorStorage(VectorStorage.NVQ)
+            .build();
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            storage.setRoot(gigaMap);
+
+            final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+                .add("embeddings", config, new ComputedDocumentVectorizer());
+
+            addRandomDocuments(gigaMap, new Random(31), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+            assertTrue(index.isNvqCompressionActive(), "the persist must have trained a quantizer");
+
+            storage.storeRoot();
+        }
+
+        // The index comes back through storage with its vectors already in place, so the metadata
+        // witnesses agree and the graph is loaded rather than rebuilt.
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = storage.root();
+            assertEquals(vectorCount, gigaMap.size());
+
+            final VectorIndex<Document> reloaded =
+                gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+
+            assertTrue(reloaded.isNvqCompressionActive(),
+                "the quantizer must be recovered from the loaded graph, not left untrained until the next persist");
+            assertEquals(5, reloaded.search(queryVector, 5).size());
+        }
+    }
+
+    // ==================== In-Memory PQ (sidecar) Tests ====================
+
+    /**
+     * The defining property of {@link ApproximateScoring#PQ_IN_MEMORY}: it buys the same approximate
+     * traversal as {@link ApproximateScoring#FUSED_PQ} without touching the graph file at all.
+     * <p>
+     * The graph must therefore come out the same size as {@link ApproximateScoring#NONE} produces
+     * and carry no PQ feature, with the codes living entirely in the sidecar. That is the whole
+     * trade - fused codes cost {@code pqSubspaces * maxDegree} bytes per node on disk, these cost
+     * {@code pqSubspaces} bytes per vector, once, in a file and then in heap.
+     * <p>
+     * Size and feature set rather than byte equality, deliberately: graph construction is not
+     * deterministic, so two builds of the same vectors can differ in their neighbour lists without
+     * either being wrong. Size is what the claim is actually about - nothing was added to the
+     * file - and the absence of {@code FUSED_PQ} is what says where the codes went instead.
+     */
+    @Test
+    void testPqInMemoryLeavesTheGraphUntouched(@TempDir final Path tempDir) throws IOException
+    {
+        final int vectorCount = 400;
+        final int dimension   = 64;
+        final int maxDegree   = 32;
+
+        final Path noneDir     = tempDir.resolve("none");
+        final Path inMemoryDir = tempDir.resolve("inmemory");
+        final Path fusedDir    = tempDir.resolve("fused");
+
+        final long none = this.persistAndMeasureGraph(
+            noneDir, vectorCount, dimension, maxDegree, VectorStorage.INLINE, ApproximateScoring.NONE);
+        final long inMemory = this.persistAndMeasureGraph(
+            inMemoryDir, vectorCount, dimension, maxDegree, VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY);
+        final long fused = this.persistAndMeasureGraph(
+            fusedDir, vectorCount, dimension, maxDegree, VectorStorage.INLINE, ApproximateScoring.FUSED_PQ);
+
+        assertEquals(none, inMemory,
+            "PQ_IN_MEMORY must add nothing to the graph file - the codes belong in the sidecar");
+        assertTrue(fused > none, "FUSED_PQ must still enlarge the graph, for contrast");
+
+        // The graph carries no fused feature, and the sidecar exists only for this mode.
+        assertFalse(graphFeatures(inMemoryDir.resolve("embeddings.graph")).contains(FeatureId.FUSED_PQ));
+        assertTrue(Files.exists(inMemoryDir.resolve("embeddings.pqv")), "the sidecar must be written");
+        assertFalse(Files.exists(noneDir.resolve("embeddings.pqv")), "no sidecar without PQ_IN_MEMORY");
+        assertFalse(Files.exists(fusedDir.resolve("embeddings.pqv")), "no sidecar for the fused mode");
+
+        // What the graph saved, the sidecar spends - but once per vector rather than per edge.
+        final long sidecar = Files.size(inMemoryDir.resolve("embeddings.pqv"));
+        assertTrue(sidecar < fused - none,
+            "the sidecar (" + sidecar + ") must cost less than the fused codes it replaces ("
+                + (fused - none) + ")");
+    }
+
+    /**
+     * The sidecar is loaded back into heap on reload, and the codebook comes with it.
+     * <p>
+     * A fused graph carries its codebook in the graph header; this mode has no fused feature, so the
+     * codebook can only come from the sidecar. If that recovery were missed the index would report
+     * itself uncompressed and silently fall back to exact scoring.
+     */
+    @Test
+    void testPqInMemorySidecarIsReloaded(@TempDir final Path tempDir) throws IOException
+    {
+        final int     dimension   = 64;
+        final int     vectorCount = 400;
+        final Path    storageDir  = tempDir.resolve("storage");
+        final Path    indexDir    = tempDir.resolve("vectors");
+        final float[] query       = randomVector(new Random(999), dimension);
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+            .pqSubspaces(16)
+            .build();
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            storage.setRoot(gigaMap);
+
+            final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+                .add("embeddings", config, new ComputedDocumentVectorizer());
+
+            addRandomDocuments(gigaMap, new Random(55), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+            assertTrue(index.isPqCompressionActive(), "the persist must have trained a codebook");
+
+            storage.storeRoot();
+        }
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = storage.root();
+            final VectorIndex<Document> reloaded =
+                gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+
+            assertTrue(reloaded.isPqCompressionActive(),
+                "the codebook must be recovered from the sidecar, which is the only place it exists");
+            assertEquals(5, reloaded.search(query, 5).size());
+        }
+    }
+
+    /**
+     * An index configured for {@code PQ_IN_MEMORY} but too small to have trained a codebook must
+     * still load.
+     * <p>
+     * PQ training needs {@code MIN_VECTORS_FOR_PQ_TRAINING} embeddings. Below that the persist
+     * writes no codebook and therefore no sidecar, while the metadata records the <i>configured</i>
+     * scoring mode - as it must, since recording what the write achieved would have the loader
+     * reject its own output and rebuild forever. If a missing sidecar were taken as loss, that same
+     * forever-rebuild would arrive by the other route: an index under the threshold would pay a cold
+     * start on every restart for as long as it stayed small.
+     * <p>
+     * Asserted through {@code tryLoad} rather than end to end, for the reason
+     * {@link #testMetadataRejectsAMismatchedPqSetting} gives: a rejected load is invisible from the
+     * outside, because the graph is rebuilt from the store and the index answers queries either way.
+     * Only at this level does the difference show.
+     * <p>
+     * Loss above the threshold stays a rejection - {@link #testMissingPqSidecarForcesRebuild} covers
+     * that side.
+     */
+    @Test
+    void testPqInMemoryBelowTrainingThresholdStillLoads(@TempDir final Path tempDir) throws IOException
+    {
+        final int  dimension   = 64;
+        final int  vectorCount = 100;   // deliberately under MIN_VECTORS_FOR_PQ_TRAINING
+        final Path indexDir    = tempDir.resolve("vectors");
+
+        final GraphFormat format = new GraphFormat(
+            VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY, 16, 0);
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+                .pqSubspaces(16)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, new Random(66), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+
+            assertFalse(index.isPqCompressionActive(),
+                "the fixture depends on training declining at this size");
+        }
+
+        // No sidecar was written, because there was no codebook to write.
+        assertFalse(Files.exists(indexDir.resolve("embeddings.pqv")),
+            "a declined training must not leave a sidecar behind");
+        assertTrue(Files.exists(indexDir.resolve("embeddings.graph")), "the graph must still be written");
+
+        final VectorIndex.Default<Document> written =
+            (VectorIndex.Default<Document>)gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+        final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
+            written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
+
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, format, false))
+        {
+            assertTrue(manager.tryLoad(state),
+                "a PQ_IN_MEMORY index below the training threshold has no codes to be missing, so "
+                    + "its graph must load rather than being rebuilt on every restart");
+            assertNull(manager.loadedPqVectors(),
+                "there is no codebook at this size, so nothing should have been loaded into heap");
+        }
+    }
+
+    /**
+     * A sidecar that does not describe this graph must be rejected rather than scored from.
+     * <p>
+     * The metadata witnesses cover what a torn write can produce, since the metadata is committed
+     * last and a changed {@code pqSubspaces} is itself a witness. They do not cover a file that
+     * arrived from somewhere else - copied in, restored from another backup generation, or
+     * truncated outside this code - and the failure that would follow is worse than a rebuild: a
+     * code array shorter than the graph's ordinal space fails on a lookup during a search rather
+     * than at load, when there is still something sensible to do about it.
+     * <p>
+     * Both checkable mismatches are covered here: the wrong code length, and too few ordinals.
+     * Content is not checkable - see {@link #testPqInMemoryCodesActuallyDriveTraversal}, which
+     * relies on a correctly shaped sidecar full of the wrong codes being accepted.
+     */
+    @Test
+    void testSidecarNotDescribingTheGraphIsRejected(@TempDir final Path tempDir) throws IOException
+    {
+        final int  dimension   = 64;
+        final int  vectorCount = 400;
+        final int  pqSubspaces = 16;
+        final Path indexDir    = tempDir.resolve("vectors");
+        final Path foreignDir  = tempDir.resolve("foreign");
+
+        // The index under test, and its sidecar.
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+                .pqSubspaces(pqSubspaces)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, new Random(66), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+        }
+
+        final VectorIndex.Default<Document> written =
+            (VectorIndex.Default<Document>)gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+        final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
+            written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
+        final GraphFormat format = new GraphFormat(
+            VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY, pqSubspaces, 0);
+
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, format, false))
+        {
+            assertTrue(manager.tryLoad(state), "its own sidecar must load");
+        }
+
+        // A sidecar from a smaller index of the same shape: right code length, too few ordinals to
+        // cover this graph. Still above the training threshold, or it would write no sidecar at all
+        // and the test would be exercising absence rather than mismatch.
+        final int foreignCount = 300;
+        final GigaMap<Document> smaller = GigaMap.New();
+        try(final VectorIndex<Document> index = smaller.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(foreignDir)
+                .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+                .pqSubspaces(pqSubspaces)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(smaller, new Random(77), dimension, foreignCount, "doc_");
+            index.persistToDisk();
+        }
+
+        Files.copy(foreignDir.resolve("embeddings.pqv"), indexDir.resolve("embeddings.pqv"),
+            StandardCopyOption.REPLACE_EXISTING);
+
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, format, false))
+        {
+            assertFalse(manager.tryLoad(state),
+                "a sidecar covering fewer ordinals than the graph must be rejected, not left to fail"
+                    + " on a lookup mid-search");
+        }
+
+        // The other checkable mismatch: enough ordinals, wrong code length. A different pqSubspaces
+        // is its own metadata witness, so this can only be reached by the sidecar arriving from
+        // elsewhere - which is the case the check exists for.
+        final Path wrongShapeDir = tempDir.resolve("wrongshape");
+        final GigaMap<Document> wrongShape = GigaMap.New();
+        try(final VectorIndex<Document> index = wrongShape.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(wrongShapeDir)
+                .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+                .pqSubspaces(pqSubspaces / 2)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(wrongShape, new Random(88), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+        }
+
+        Files.copy(wrongShapeDir.resolve("embeddings.pqv"), indexDir.resolve("embeddings.pqv"),
+            StandardCopyOption.REPLACE_EXISTING);
+
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, format, false))
+        {
+            assertFalse(manager.tryLoad(state),
+                "a sidecar encoding " + (pqSubspaces / 2) + " bytes per vector must be rejected by an"
+                    + " index configured for " + pqSubspaces);
+        }
+    }
+
+    /**
+     * A sidecar must never outlive the graph it was written for.
+     * <p>
+     * The sequence review reproduced: an index persists with a codebook, so a {@code .pqv} exists;
+     * a later persist writes none, because training declined for that generation; the graph and the
+     * metadata are replaced but the old sidecar stays on disk. The next load finds a file that is
+     * present, correctly shaped and large enough, so every check it had passed - and the index came
+     * up reporting compressed scoring, traversing on codes describing vectors it no longer holds.
+     * Silent, and worst exactly when the vectors changed in between, which is the case that put the
+     * index in this state.
+     * <p>
+     * Two things stop it, and both are needed. The persist removes a sidecar it is not replacing,
+     * so the pair on disk stays consistent at every point a crash can stop at. And the sidecar
+     * carries the {@code structuralModCount} of the persist that wrote it, so one that survives by
+     * any other route - a crash between the two renames, a file copied in - is recognised rather
+     * than merely looking plausible. Without the removal the witness alone would reject the stale
+     * file forever, rebuilding on every restart, since the rebuild would decline again and leave it
+     * in place again.
+     */
+    @Test
+    void testSidecarFromAnEarlierGenerationIsNotUsed(@TempDir final Path tempDir) throws IOException
+    {
+        final int  dimension   = 64;
+        final int  pqSubspaces = 16;
+        final Path storageDir  = tempDir.resolve("storage");
+        final Path indexDir    = tempDir.resolve("vectors");
+        final Path pqvPath     = indexDir.resolve("embeddings.pqv");
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+            .pqSubspaces(pqSubspaces)
+            .build();
+
+        // Generation one: enough vectors to train, so a sidecar is written.
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            storage.setRoot(gigaMap);
+
+            final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+                .add("embeddings", config, new ComputedDocumentVectorizer());
+
+            addRandomDocuments(gigaMap, new Random(11), dimension, 400, "doc_");
+            index.persistToDisk();
+
+            assertTrue(index.isPqCompressionActive(), "generation one must have trained");
+            storage.storeRoot();
+        }
+
+        assertTrue(Files.exists(pqvPath), "generation one must have left a sidecar");
+        final byte[] firstGeneration = Files.readAllBytes(pqvPath);
+
+        // Generation two: the same directory, a graph small enough that training declines. Built
+        // through a fresh index rather than by mutating the first, which is what a rejected load
+        // followed by a rebuild amounts to.
+        final Path storageDir2 = tempDir.resolve("storage2");
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir2))
+        {
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            storage.setRoot(gigaMap);
+
+            final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+                .add("embeddings", config, new ComputedDocumentVectorizer());
+
+            addRandomDocuments(gigaMap, new Random(22), dimension, 100, "doc_");
+            index.persistToDisk();
+
+            assertFalse(index.isPqCompressionActive(),
+                "generation two must decline training, or this test is not in the state it targets");
+            storage.storeRoot();
+        }
+
+        assertFalse(Files.exists(pqvPath),
+            "a persist that writes no sidecar must not leave the previous one behind");
+
+        // And if one survives anyway - a crash between the renames, or a file restored by hand -
+        // the witness it carries is what gives it away.
+        Files.write(pqvPath, firstGeneration);
+
+        final VectorIndex.Default<Document> written;
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir2))
+        {
+            final GigaMap<Document> gigaMap = storage.root();
+            written = (VectorIndex.Default<Document>)
+                gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+
+            final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
+                written.getExpectedVectorCount(), written.getHighestEntityId(),
+                written.getStructuralModCount());
+            final GraphFormat format = new GraphFormat(
+                VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY, pqSubspaces, 0);
+
+            try(final DiskIndexManager manager = new DiskIndexManager.Default(
+                written, "embeddings", indexDir, dimension, format, false))
+            {
+                assertFalse(manager.tryLoad(state),
+                    "a sidecar from an earlier generation must be refused, not scored from");
+            }
+        }
+    }
+
+    /**
+     * A missing sidecar must be a rejection, not a silent degrade.
+     * <p>
+     * The metadata says this index traverses on PQ codes. Serving it exactly instead would work, and
+     * would be wrong: the configuration would no longer describe what the index does. Rejecting
+     * rebuilds from the store, which restores both the graph and its sidecar.
+     */
+    @Test
+    void testMissingPqSidecarForcesRebuild(@TempDir final Path tempDir) throws IOException
+    {
+        final int  dimension = 64;
+        final Path indexDir  = tempDir.resolve("vectors");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+                .pqSubspaces(16)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, new Random(66), dimension, 400, "doc_");
+            index.persistToDisk();
+        }
+
+        final VectorIndex.Default<Document> written =
+            (VectorIndex.Default<Document>)gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+        final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
+            written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
+        final GraphFormat format = new GraphFormat(
+            VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY, 16, 0);
+
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, format, false))
+        {
+            assertTrue(manager.tryLoad(state), "the complete index must load");
+            assertNotNull(manager.loadedPqVectors(), "and bring its codes into heap");
+        }
+
+        Files.delete(indexDir.resolve("embeddings.pqv"));
+
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, format, false))
+        {
+            assertFalse(manager.tryLoad(state),
+                "a missing sidecar must reject the index rather than serving it without its codes");
+        }
+    }
+
+    /**
+     * The codes are indexed by graph ordinal, which is the source entity id, so the array spans
+     * every ordinal up to the highest in use rather than only the vectors that exist. That is what
+     * makes the heap cost proportional to the ordinal space - deletion holes included - and it is
+     * the number the documentation quotes.
+     */
+    @Test
+    void testPqInMemoryHeapCostMatchesTheOrdinalSpace(@TempDir final Path tempDir) throws IOException
+    {
+        final int  dimension   = 64;
+        final int  pqSubspaces = 16;
+        final int  vectorCount = 400;
+        final Path indexDir    = tempDir.resolve("vectors");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+                .pqSubspaces(pqSubspaces)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, new Random(77), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+        }
+
+        final VectorIndex.Default<Document> written =
+            (VectorIndex.Default<Document>)gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+        final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
+            written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
+
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension,
+            new GraphFormat(VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY, pqSubspaces, 0), false))
+        {
+            assertTrue(manager.tryLoad(state));
+
+            final var codes = manager.loadedPqVectors();
+            assertEquals(written.getHighestEntityId() + 1, codes.count(),
+                "one code per ordinal up to the highest in use, not one per vector");
+
+            // The documented formula, allowing for the codebook itself and object overhead.
+            final long dataBytes = (long)codes.count() * pqSubspaces;
+            assertTrue(codes.ramBytesUsed() >= dataBytes,
+                "resident bytes " + codes.ramBytesUsed() + " must cover the codes themselves (" + dataBytes + ")");
+            assertTrue(codes.ramBytesUsed() < dataBytes * 2 + 100_000,
+                "resident bytes " + codes.ramBytesUsed() + " should be close to " + dataBytes);
+        }
+    }
+
+    /**
+     * Proves the sidecar codes actually drive traversal, rather than merely being written, loaded
+     * and then ignored.
+     * <p>
+     * Every other test here passes whether or not the search path consults them: the codes only
+     * choose which candidates traversal visits, and reranking is exact either way, so with enough
+     * beam width the same top-k comes back regardless. The one thing that cannot survive the codes
+     * being ignored is the codes being <i>wrong</i>.
+     * <p>
+     * So this swaps in a sidecar encoded from entirely different vectors. The metadata witnesses
+     * describe the store, not the sidecar, so the index loads happily and traverses on codes that
+     * describe nothing about its own data. Results must degrade. If they do not, the codes are not
+     * being used.
+     */
+    @Test
+    void testPqInMemoryCodesActuallyDriveTraversal(@TempDir final Path tempDir) throws IOException
+    {
+        final int dimension   = 64;
+        final int vectorCount = 2000;
+        final int k           = 10;
+        final int queryCount  = 30;
+
+        final Path realDir  = tempDir.resolve("real");
+        final Path aliasDir = tempDir.resolve("alias");
+
+        final Random random = new Random(4711);
+
+        // Clustered, so traversal quality is what decides the top-k.
+        final List<float[]> centroids = new ArrayList<>();
+        for(int c = 0; c < 20; c++)
+        {
+            centroids.add(randomVector(random, dimension));
+        }
+        final List<float[]> vectors = new ArrayList<>();
+        for(int i = 0; i < vectorCount; i++)
+        {
+            vectors.add(nearVector(random, centroids.get(i % centroids.size())));
+        }
+
+        // A decoy index of the same shape, whose codes describe unrelated vectors.
+        final GigaMap<Document> decoy = GigaMap.New();
+        try(final VectorIndex<Document> index = decoy.index().register(VectorIndices.Category())
+            .add("embeddings", this.pqInMemoryConfig(dimension, aliasDir), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(decoy, new Random(999), dimension, vectorCount, "decoy_");
+            index.persistToDisk();
+        }
+
+        // Build and persist through real storage, so that reopening restores the GigaMap with its
+        // vectors already in place. Registering an index against an empty map instead would make
+        // tryLoad reject on the count witness, rebuild in memory, and never touch the sidecar at all.
+        final Path storageDir = tempDir.resolve("storage");
+        final List<Long> ids = new ArrayList<>();
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            storage.setRoot(gigaMap);
+
+            final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+                .add("embeddings", this.pqInMemoryConfig(dimension, realDir), new ComputedDocumentVectorizer());
+
+            for(int i = 0; i < vectorCount; i++)
+            {
+                ids.add(gigaMap.add(new Document("doc_" + i, vectors.get(i))));
+            }
+            index.persistToDisk();
+            assertTrue(index.isPqCompressionActive());
+
+            storage.storeRoot();
+        }
+
+        final double honestRecall = this.reopenAndMeasureRecall(
+            storageDir, vectors, ids, k, queryCount, 4711);
+
+        // Swap the decoy's codes in. Nothing in the metadata describes the sidecar, so the index
+        // still loads - it simply traverses on codes that mean nothing for its data.
+        Files.copy(aliasDir.resolve("embeddings.pqv"), realDir.resolve("embeddings.pqv"),
+            StandardCopyOption.REPLACE_EXISTING);
+
+        final double aliasRecall = this.reopenAndMeasureRecall(
+            storageDir, vectors, ids, k, queryCount, 4711);
+
+        assertTrue(honestRecall >= 0.90,
+            "the honest index should retrieve well, measured " + honestRecall);
+        assertTrue(aliasRecall < honestRecall - 0.10,
+            "traversing on codes that describe other vectors must measurably degrade retrieval -"
+                + " honest " + honestRecall + " against aliased " + aliasRecall
+                + ". If these match, the sidecar codes are not being used for scoring at all.");
+    }
+
+    /**
+     * Reopens a persisted store and measures recall against the disk index it loads.
+     */
+    private double reopenAndMeasureRecall(
+        final Path          storageDir ,
+        final List<float[]> vectors    ,
+        final List<Long>    ids        ,
+        final int           k          ,
+        final int           queryCount ,
+        final int           seed
+    )
+    {
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Document> gigaMap = storage.root();
+            final VectorIndex<Document> index =
+                gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+
+            assertTrue(index.isPqCompressionActive(),
+                "the reopened index must have loaded its codes, or this measures nothing");
+
+            return this.measureRecall(index, vectors, ids, k, queryCount, seed);
+        }
+    }
+
+    private VectorIndexConfiguration pqInMemoryConfig(final int dimension, final Path indexDir)
+    {
+        return VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(16)
+            .beamWidth(100)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+            .pqSubspaces(dimension / 4)
+            .build();
+    }
+
+    private double measureRecall(
+        final VectorIndex<Document> index      ,
+        final List<float[]>         vectors    ,
+        final List<Long>            ids        ,
+        final int                   k          ,
+        final int                   queryCount ,
+        final int                   seed
+    )
+    {
+        final Random queryRandom = new Random(seed * 31 + 5);
+        double       total       = 0;
+
+        for(int q = 0; q < queryCount; q++)
+        {
+            final float[] query = nearVector(queryRandom, vectors.get(queryRandom.nextInt(vectors.size())));
+
+            final Set<Long> expected = new HashSet<>(bruteForceTopK(query, vectors, ids, k));
+            final Set<Long> actual   = new HashSet<>();
+            for(final ScoredSearchResult.Entry<Document> entry : index.search(query, k))
+            {
+                actual.add(entry.entityId());
+            }
+            actual.retainAll(expected);
+            total += (double)actual.size() / k;
+        }
+        return total / queryCount;
+    }
+
+    @Test
+    void testPqInMemoryRecallMatchesFusedPq(@TempDir final Path tempDir)
+    {
+        for(final int seed : new int[]{7, 11, 23, 42, 99})
+        {
+            this.assertRecallForSeed(seed, tempDir.resolve("mem_" + seed),
+                VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY);
+        }
+    }
+
+    /**
+     * The target configuration of the whole exercise: quantized vectors in the graph and the PQ
+     * codes out of it entirely.
+     */
+    @Test
+    void testNvqWithPqInMemoryIsTheSmallestConfiguration(@TempDir final Path tempDir) throws IOException
+    {
+        final int vectorCount = 400;
+        final int dimension   = 256;
+        final int maxDegree   = 32;
+
+        final long baseline = this.persistAndMeasureGraph(
+            tempDir.resolve("baseline"), vectorCount, dimension, maxDegree,
+            VectorStorage.INLINE, ApproximateScoring.NONE);
+        final long fused = this.persistAndMeasureGraph(
+            tempDir.resolve("fused"), vectorCount, dimension, maxDegree,
+            VectorStorage.INLINE, ApproximateScoring.FUSED_PQ);
+        final long target = this.persistAndMeasureGraph(
+            tempDir.resolve("target"), vectorCount, dimension, maxDegree,
+            VectorStorage.NVQ, ApproximateScoring.PQ_IN_MEMORY);
+
+        assertTrue(target < baseline / 2,
+            "the target configuration must more than halve the uncompressed baseline: "
+                + target + " against " + baseline);
+        assertTrue(target < fused / 4,
+            "and be far smaller than today's compressed one: " + target + " against " + fused);
+    }
+
+    /**
+     * The size claim at the dimension it is actually made about.
+     * <p>
+     * {@link #testNvqStorageShrinksTheGraph} runs at dimension 256 to stay cheap, but the ratio is a
+     * function of the dimension - the fixed per-node costs (node id, neighbour list, subvector
+     * parameters) weigh less as it grows. The documented figure of about 3.4x is for dimension 768
+     * at {@code maxDegree=32}, so that combination is measured rather than extrapolated. Also pins
+     * the lower end: eight subvectors cost 28 bytes each and drop the ratio to about 2.8x, which is
+     * why {@code nvqSubvectors} defaults to one.
+     */
+    @Test
+    void testNvqSizeRatioAtProductionDimensions(@TempDir final Path tempDir) throws IOException
+    {
+        final int vectorCount = 400;
+        final int dimension   = 768;
+        final int maxDegree   = 32;
+
+        final long inline = this.persistAndMeasureGraph(
+            tempDir.resolve("inline"), vectorCount, dimension, maxDegree,
+            VectorStorage.INLINE, ApproximateScoring.NONE);
+        final long nvq = this.persistAndMeasureGraph(
+            tempDir.resolve("nvq"), vectorCount, dimension, maxDegree,
+            VectorStorage.NVQ, ApproximateScoring.NONE);
+
+        final double ratio = (double)inline / nvq;
+        assertTrue(ratio > 3.0 && ratio < 3.8,
+            "expected about 3.4x at dimension " + dimension + " and maxDegree " + maxDegree
+                + ", measured " + ratio + " (" + inline + " vs " + nvq + " bytes)");
+
+        // The closed form the documented figures come from: 3208 vs 936 bytes per node here.
+        assertWithinFivePercent(
+            (long)expectedBytesPerNode(dimension, maxDegree, VectorStorage.INLINE, 1) * vectorCount,
+            inline, "inline graph size at dimension " + dimension);
+        assertWithinFivePercent(
+            (long)expectedBytesPerNode(dimension, maxDegree, VectorStorage.NVQ, 1) * vectorCount,
+            nvq, "NVQ graph size at dimension " + dimension);
+
+        // The lower end of the documented range, which is a claim about nvqSubvectors rather than
+        // about the dimension, so it needs its own measurement rather than the default count.
+        final long nvqEightSubvectors = this.persistAndMeasureGraph(
+            tempDir.resolve("nvq8"), vectorCount, dimension, maxDegree,
+            VectorStorage.NVQ, ApproximateScoring.NONE, 8);
+
+        final double eightRatio = (double)inline / nvqEightSubvectors;
+        assertTrue(eightRatio > 2.6 && eightRatio < 3.0,
+            "expected about 2.8x with eight subvectors, measured " + eightRatio
+                + " (" + inline + " vs " + nvqEightSubvectors + " bytes)");
+        assertTrue(nvqEightSubvectors > nvq,
+            "eight subvectors must cost more than one: 28 bytes of parameters each");
+        assertWithinFivePercent(
+            (long)expectedBytesPerNode(dimension, maxDegree, VectorStorage.NVQ, 8) * vectorCount,
+            nvqEightSubvectors, "NVQ graph size with eight subvectors");
+    }
+
+
+
+    /**
+     * The per-node NVQ encode must produce the same result on a writer worker thread as it does on
+     * one thread.
+     * <p>
+     * This is the property {@code parallelOnDiskWrite(true)} depends on, and it is specific to how
+     * the NVQ feature is written here. The fused PQ path encodes every vector up front, because a
+     * node's block needs its neighbours' codes; NVQ instead encodes per node, from a supplier the
+     * writer calls on its own worker threads, to avoid materialising the whole encoded corpus on the
+     * heap. That makes {@code NVQuantization.encode} - and the {@code encodeTo} it delegates to -
+     * concurrently invoked against one shared quantizer, and NVQ has no users in JVector's own
+     * published sources, so nothing upstream exercises it that way.
+     * <p>
+     * <b>It is asserted against the quantizer directly rather than through a persist.</b> Two routes
+     * through the index were tried first and neither can carry the claim. A search cannot overlap
+     * the encode, because {@code doPersistToDisk} holds {@code builderLock.writeLock()} across the
+     * whole of phase 2 including {@code writeIndex}, while {@code search} needs the read lock - so a
+     * test firing queries during a persist measures only the windows before and after the lock.
+     * Comparing a parallel-written graph against a sequential one byte for byte does not work
+     * either: graph construction is not deterministic, and two <i>sequential</i> writes of the same
+     * vectors already differ, so the comparison cannot tell an unsafe encoder from an ordinary
+     * run-to-run difference.
+     */
+    @Test
+    void testNvqEncodeIsThreadSafe() throws Exception
+    {
+        final int dimension   = 64;
+        final int vectorCount = 200;
+        final int threads     = 8;
+        final int repeats     = 4;
+
+        final VectorTypeSupport vts    = VectorizationProvider.getInstance().getVectorTypeSupport();
+        final Random            random = new Random(4711);
+
+        final List<VectorFloat<?>> vectors = new ArrayList<>();
+        for(int i = 0; i < vectorCount; i++)
+        {
+            vectors.add(vts.createFloatVector(randomVector(random, dimension)));
+        }
+
+        // The same shape the compression manager builds: a mean over the sample, one subvector.
+        final VectorFloat<?> mean = vts.createFloatVector(dimension);
+        for(final VectorFloat<?> vector : vectors)
+        {
+            VectorUtil.addInPlace(mean, vector);
+        }
+        VectorUtil.scale(mean, 1f / vectors.size());
+
+        final NVQuantization quantizer = NVQuantization.create(mean, 1);
+
+        final List<NVQuantization.QuantizedVector> sequential = new ArrayList<>();
+        for(final VectorFloat<?> vector : vectors)
+        {
+            sequential.add(quantizer.encode(vector));
+        }
+
+        final ExecutorService executor = Executors.newFixedThreadPool(threads);
+        final AtomicInteger   mismatch = new AtomicInteger();
+        final AtomicInteger   compared = new AtomicInteger();
+
+        // Without this the pool is free to run one task to completion before starting the next, and
+        // a stateful encoder would never be caught: the calls have to actually overlap.
+        final CountDownLatch ready = new CountDownLatch(threads);
+        final CountDownLatch start = new CountDownLatch(1);
+
+        try
+        {
+            final List<Future<?>> tasks = new ArrayList<>();
+            for(int t = 0; t < threads; t++)
+            {
+                tasks.add(executor.submit(() ->
+                {
+                    ready.countDown();
+                    start.await();
+
+                    // Every thread encodes every vector, repeatedly, against the one shared
+                    // quantizer - the access pattern the parallel writer produces, concentrated.
+                    for(int repeat = 0; repeat < repeats; repeat++)
+                    {
+                        for(int i = 0; i < vectors.size(); i++)
+                        {
+                            if(!quantizer.encode(vectors.get(i)).equals(sequential.get(i)))
+                            {
+                                mismatch.incrementAndGet();
+                            }
+                            compared.incrementAndGet();
+                        }
+                    }
+                    return null;
+                }));
+            }
+
+            assertTrue(ready.await(30, TimeUnit.SECONDS), "the encode threads did not start");
+            start.countDown();
+
+            for(final Future<?> task : tasks)
+            {
+                task.get(60, TimeUnit.SECONDS);
+            }
+        }
+        finally
+        {
+            executor.shutdownNow();
+        }
+
+        assertEquals(threads * repeats * vectorCount, compared.get(),
+            "every concurrent encode must have been compared");
+        assertEquals(0, mismatch.get(),
+            mismatch.get() + " of " + compared.get() + " concurrent encodes differed from the "
+                + "single-threaded result, so the per-node encode is not safe on the writer's threads");
+    }
+
+    /**
+     * The parallel writer produces a well-formed, searchable quantized graph.
+     * <p>
+     * The narrower claim that survives the note on {@link #testNvqEncodeIsThreadSafe}: this cannot
+     * show that the encode is concurrency-safe, only that the write completes and its output loads
+     * and answers queries. Both are worth having, and neither substitutes for the other.
+     */
+    @Test
+    void testNvqWithParallelOnDiskWriteProducesAWellFormedGraph(@TempDir final Path tempDir) throws IOException
+    {
+        final int  vectorCount = 800;
+        final int  dimension   = 64;
+        final Path indexDir    = tempDir.resolve("index");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .vectorStorage(VectorStorage.NVQ)
+                .approximateScoring(ApproximateScoring.FUSED_PQ)
+                .pqSubspaces(16)
+                .parallelOnDiskWrite(true)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, new Random(42), dimension, vectorCount, "doc_");
+            index.persistToDisk();
+
+            assertTrue(index.isNvqCompressionActive(), "the parallel write must have produced a quantized graph");
+            assertTrue(index.isPqCompressionActive());
+            assertEquals(10, index.search(randomVector(new Random(1), dimension), 10).size(),
+                "the parallel-written graph must answer queries");
+        }
+
+        final Set<FeatureId> features = graphFeatures(indexDir.resolve("embeddings.graph"));
+        assertTrue(features.contains(FeatureId.NVQ_VECTORS), features.toString());
+        assertTrue(features.contains(FeatureId.FUSED_PQ), features.toString());
+    }
+
+    /**
+     * In incremental mode a query searches the disk graph and the in-memory builder separately and
+     * merges the two result sets <b>by raw score</b>. The in-memory half is always scored exactly,
+     * so the disk half must be too.
+     * <p>
+     * This is the one rule NVQ storage introduces that is not visible in a plain top-k: the view's
+     * reranker dequantizes against an NVQ graph, which is fine on its own - it costs about 0.002
+     * recall@10 - but puts the two halves on systematically different scales when their scores are
+     * compared against each other. The symptom is not a crash or an empty result; it is a quietly
+     * biased merge, where entities on one side of the split are preferred over better matches on the
+     * other. So the assertion is on the scores themselves: every entity a search returns must carry
+     * its exact similarity, which a dequantized disk half would violate immediately even where the
+     * ordering happens to survive. Recall against brute-force ground truth is checked as well, but
+     * as a floor rather than as the thing that catches a scale mismatch - it is too blunt for that,
+     * which is why this test was rewritten once already.
+     */
+    @Test
+    void testNvqIncrementalMergeStaysOnOneScoreScale(@TempDir final Path tempDir)
+    {
+        final int persisted  = 1500;
+        final int addedAfter = 500;
+        final int dimension  = 64;
+        final int k          = 10;
+        final int queryCount = 50;
+
+        final Random random = new Random(77);
+
+        final List<float[]> centroids = new ArrayList<>();
+        for(int c = 0; c < 20; c++)
+        {
+            centroids.add(randomVector(random, dimension));
+        }
+        final List<float[]> vectors = new ArrayList<>();
+        for(int i = 0; i < persisted + addedAfter; i++)
+        {
+            vectors.add(nearVector(random, centroids.get(i % centroids.size())));
+        }
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(32)
+            .beamWidth(100)
+            .onDisk(true)
+            .indexDirectory(tempDir.resolve("vectors"))
+            .vectorStorage(VectorStorage.NVQ)
+            // Fused codes as well, deliberately: this is the combination in which the reranker is
+            // a free choice. With NVQ alone the quantized vectors are the traversal function and
+            // the reranker is exact by construction, so that configuration cannot exercise the rule.
+            .approximateScoring(ApproximateScoring.FUSED_PQ)
+            .pqSubspaces(dimension / 4)
+            .build();
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        final List<Long>        ids     = new ArrayList<>();
+
+        double totalRecall = 0;
+
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", config, new ComputedDocumentVectorizer()))
+        {
+            for(int i = 0; i < persisted; i++)
+            {
+                ids.add(gigaMap.add(new Document("doc_" + i, vectors.get(i))));
+            }
+
+            // Everything so far moves into the disk graph, and the in-memory builder is reset empty.
+            index.persistToDisk();
+            assertTrue(index.isNvqCompressionActive(), "the NVQ path must be the one under test");
+
+            // These stay in the in-memory builder: no persist follows, so the index is now in
+            // incremental mode and every query merges a disk half with a memory half.
+            for(int i = persisted; i < vectors.size(); i++)
+            {
+                ids.add(gigaMap.add(new Document("doc_" + i, vectors.get(i))));
+            }
+
+            final Random queryRandom = new Random(77 * 31 + 5);
+            double worstDeviation    = 0;
+            int    diskHalfChecked   = 0;
+            int    memoryHalfChecked = 0;
+            int    mixedResultSets   = 0;
+
+            for(int q = 0; q < queryCount; q++)
+            {
+                // Query near a vector from the in-memory half, so the true top-k mixes entities from
+                // both halves and the two score scales actually meet in one result set.
+                final int    anchor = persisted + queryRandom.nextInt(addedAfter);
+                final float[] query = nearVector(queryRandom, vectors.get(anchor));
+
+                final Set<Long> expected = new HashSet<>(bruteForceTopK(query, vectors, ids, k));
+                final Set<Long> actual   = new HashSet<>();
+
+                boolean diskInThisResult   = false;
+                boolean memoryInThisResult = false;
+
+                for(final ScoredSearchResult.Entry<Document> entry : index.search(query, k))
+                {
+                    actual.add(entry.entityId());
+
+                    // The score reported for an entity must be its exact similarity. Recall alone is
+                    // too blunt to catch a scale mismatch here - quantization error at this dimension
+                    // rarely reorders the top-k - but a dequantized score deviates from the exact one
+                    // immediately and measurably.
+                    final int index0 = ids.indexOf(entry.entityId());
+                    final float exact = exactSimilarity(query, vectors.get(index0));
+                    worstDeviation = Math.max(worstDeviation, Math.abs(entry.score() - exact));
+
+                    if(index0 < persisted)
+                    {
+                        diskHalfChecked++;
+                        diskInThisResult = true;
+                    }
+                    else
+                    {
+                        memoryHalfChecked++;
+                        memoryInThisResult = true;
+                    }
+                }
+
+                if(diskInThisResult && memoryInThisResult)
+                {
+                    mixedResultSets++;
+                }
+
+                actual.retainAll(expected);
+                totalRecall += (double)actual.size() / k;
+            }
+
+            // Both halves have to meet inside ONE result set. Counting them across the whole query
+            // set is not enough: one query could contribute every disk hit and another every memory
+            // hit, and no single merge would ever have compared the two scales against each other.
+            assertTrue(diskHalfChecked > 0,
+                "the queries never returned a disk-resident entity, so this proves nothing about the merge");
+            assertTrue(memoryHalfChecked > 0,
+                "the queries never returned an entity from the in-memory half, so the merge was never "
+                    + "exercised and only the disk reranker was measured");
+            assertTrue(mixedResultSets > 0,
+                "no single query returned entities from both halves, so the two score scales were "
+                    + "never compared against each other within one merge");
+
+            // The threshold sits between the two regimes rather than at an arbitrary round number:
+            // with the exact reranker the deviation is float-arithmetic noise, well under 1e-4,
+            // because the reranker recomputes the very similarity this test does. Score the disk
+            // half through the NVQ reranker instead and it measures 7.9e-4 - small in absolute
+            // terms, which is precisely why recall alone does not catch it.
+            assertTrue(worstDeviation < 1e-4,
+                "a returned score deviated from the exact similarity by " + worstDeviation
+                    + ", so the disk half is being scored on a different scale from the in-memory half");
+        }
+
+        final double recall = totalRecall / queryCount;
+        assertTrue(recall >= 0.95,
+            "merged incremental recall@" + k + " was " + recall + ", below the 0.95 floor");
+    }
+
+    /**
+     * The similarity JVector itself would compute, so that a score reported by the index can be
+     * compared against it directly rather than against a reimplementation with its own conventions.
+     */
+    private static float exactSimilarity(final float[] query, final float[] vector)
+    {
+        final VectorTypeSupport vts = VectorizationProvider.getInstance().getVectorTypeSupport();
+        return io.github.jbellis.jvector.vector.VectorSimilarityFunction.COSINE.compare(
+            vts.createFloatVector(query), vts.createFloatVector(vector));
+    }
+
+    /**
+     * A metadata file carrying a format code this build does not know is what a graph written by a
+     * future version looks like. It must be <b>rejected</b>, so the graph is rebuilt - never
+     * misread as whichever constant happens to share an ordinal.
+     * <p>
+     * This is the property that lets a future storage or scoring mode be added without another
+     * format version bump, so it is worth pinning directly rather than inferring from the enum
+     * round-trip test.
+     */
+    @Test
+    void testUnknownFormatCodeInMetadataIsRejected(@TempDir final Path tempDir) throws IOException
+    {
+        final int  dimension = 64;
+        final Path indexDir  = tempDir.resolve("vectors");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, new Random(3), dimension, 200, "doc_");
+            index.persistToDisk();
+        }
+
+        final VectorIndex.Default<Document> written =
+            (VectorIndex.Default<Document>)gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+        final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
+            written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
+        final GraphFormat format = new GraphFormat(
+            VectorStorage.INLINE, ApproximateScoring.NONE, 0, 0);
+
+        final Path metaPath = indexDir.resolve("embeddings.meta");
+
+        // Sanity check: unmodified, it loads.
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, format, false))
+        {
+            assertTrue(manager.tryLoad(state), "the unmodified metadata must load");
+        }
+
+        // A scoring code from the future (3 is reserved, 99 is not even that).
+        rewriteMetaFormatCodes(metaPath, VectorStorage.INLINE.code(), 99);
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, format, false))
+        {
+            assertFalse(manager.tryLoad(state),
+                "an unknown scoring code must be rejected, not mapped onto a known constant");
+        }
+
+        // And an unknown storage code.
+        rewriteMetaFormatCodes(metaPath, 99, ApproximateScoring.NONE.code());
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension, format, false))
+        {
+            assertFalse(manager.tryLoad(state), "an unknown storage code must be rejected");
+        }
+    }
+
+    /**
+     * A metadata file from the previous format version must be rejected rather than read with the
+     * current layout - the trailing bytes mean something different now.
+     */
+    @Test
+    void testPreviousMetadataVersionIsRejected(@TempDir final Path tempDir) throws IOException
+    {
+        final int  dimension = 64;
+        final Path indexDir  = tempDir.resolve("vectors");
+
+        final GigaMap<Document> gigaMap = GigaMap.New();
+        try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+            .add("embeddings", VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .build(), new ComputedDocumentVectorizer()))
+        {
+            addRandomDocuments(gigaMap, new Random(4), dimension, 200, "doc_");
+            index.persistToDisk();
+        }
+
+        final VectorIndex.Default<Document> written =
+            (VectorIndex.Default<Document>)gigaMap.index().get(VectorIndices.Category()).get("embeddings");
+        final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
+            written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
+
+        // Rewrite the leading version int as the previous version, leaving everything else intact.
+        final Path metaPath = indexDir.resolve("embeddings.meta");
+        final byte[] bytes = Files.readAllBytes(metaPath);
+        final ByteBuffer buffer = ByteBuffer.wrap(bytes);
+        buffer.putInt(0, DiskIndexManager.GRAPH_FILE_VERSION - 1);
+        Files.write(metaPath, bytes);
+
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            written, "embeddings", indexDir, dimension,
+            new GraphFormat(VectorStorage.INLINE, ApproximateScoring.NONE, 0, 0), false))
+        {
+            assertFalse(manager.tryLoad(state), "a metadata file from an older format version must be rejected");
+        }
+    }
+
+    /**
+     * Overwrites the two trailing format codes of a {@code .meta} file, leaving the content
+     * witnesses untouched, so that only the format check can be what rejects it.
+     */
+    private static void rewriteMetaFormatCodes(
+        final Path metaPath   ,
+        final int  storageCode,
+        final int  scoringCode
+    ) throws IOException
+    {
+        final byte[] bytes = Files.readAllBytes(metaPath);
+
+        // Anchored from the start of the record, and the length is asserted, because the fields are
+        // no longer last: pqSubspaces and nvqSubvectors follow them. Addressing from the end here
+        // used to write into those two counts instead, and the test still passed - the load was
+        // rejected on a count mismatch before the unknown code was ever parsed. A layout change
+        // must break this loudly rather than quietly retarget it.
+        assertEquals(META_SIZE, bytes.length,
+            "the .meta layout changed; the offsets below need revisiting");
+
+        final ByteBuffer buffer = ByteBuffer.wrap(bytes);
+        buffer.putInt(META_STORAGE_CODE_OFFSET, storageCode);
+        buffer.putInt(META_SCORING_CODE_OFFSET, scoringCode);
+        Files.write(metaPath, bytes);
+    }
+
+    /**
+     * The {@code .meta} layout: {@code int} version, {@code int} dimension, three {@code long}
+     * witnesses, then the storage and scoring codes and the two quantization counts.
+     */
+    private static final int META_SIZE                 = 6 * Integer.BYTES + 3 * Long.BYTES;
+    private static final int META_STORAGE_CODE_OFFSET  = 2 * Integer.BYTES + 3 * Long.BYTES;
+    private static final int META_SCORING_CODE_OFFSET  = META_STORAGE_CODE_OFFSET + Integer.BYTES;
+
+    /**
+     * NVQ traversal must work for every similarity function {@code NVQScorer} supports. Each case
+     * persists before searching, so the quantized path is the one exercised rather than the
+     * in-memory builder.
+     */
+    @Test
+    void testNvqWithEachSimilarityFunction(@TempDir final Path tempDir)
+    {
+        for(final VectorSimilarityFunction function : VectorSimilarityFunction.values())
+        {
+            final int  dimension = 64;
+            final Path indexDir  = tempDir.resolve("sim_" + function);
+
+            final GigaMap<Document> gigaMap = GigaMap.New();
+            try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
+                .add("embeddings", VectorIndexConfiguration.builder()
+                    .dimension(dimension)
+                    .similarityFunction(function)
+                    .onDisk(true)
+                    .indexDirectory(indexDir)
+                    .vectorStorage(VectorStorage.NVQ)
+                    .build(), new ComputedDocumentVectorizer()))
+            {
+                addRandomDocuments(gigaMap, new Random(5), dimension, 300, "doc_");
+                index.persistToDisk();
+
+                assertTrue(index.isNvqCompressionActive(), "storage mode for " + function);
+                assertFalse(index.search(randomVector(new Random(7), dimension), 5).isEmpty(),
+                    "search returned nothing for " + function);
+            }
         }
     }
 

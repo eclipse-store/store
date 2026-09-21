@@ -56,7 +56,7 @@ import static org.eclipse.serializer.util.X.notNull;
  *     .similarityFunction(VectorSimilarityFunction.COSINE)
  *     .onDisk(true)
  *     .indexDirectory(Path.of("/data/vectors"))
- *     .enablePqCompression(true)                         // Optional: Product Quantization compression
+ *     .approximateScoring(ApproximateScoring.FUSED_PQ)   // Optional: faster traversal, larger file
  *     .pqSubspaces(48)                                   // Must divide dimension evenly
  *     .build();
  * }</pre>
@@ -294,14 +294,26 @@ public interface VectorIndexConfiguration
      * <p>
      * Required when {@link #onDisk()} is true. The directory will contain:
      * <ul>
-     *   <li>{@code {name}.graph} - The graph structure: HNSW edges, the full-precision inline
-     *       vectors used for exact reranking, and, when {@link #enablePqCompression()} is active,
-     *       the PQ codebook and fused compressed codes. There is no separate codebook file.</li>
+     *   <li>{@code {name}.graph} - The graph structure: HNSW edges, one vector block per node, and,
+     *       when {@link #approximateScoring()} is {@link ApproximateScoring#FUSED_PQ}, the PQ
+     *       codebook and fused compressed codes. There is no separate codebook file. Which vector
+     *       block is written depends on {@link #vectorStorage()}: full-precision inline vectors, or
+     *       the smaller quantized ones.</li>
      *   <li>{@code {name}.meta} - Metadata file (format version, dimension, vector count, highest
-     *       entity id, structural modification count)</li>
+     *       entity id, structural modification count, the two format settings, and the two
+     *       quantization counts they encode with - the latter in effective form, so that an
+     *       automatic count and the value it resolves to are recorded identically)</li>
+     *   <li>{@code {name}.pqv} - <b>Only</b> when {@link #approximateScoring()} is
+     *       {@link ApproximateScoring#PQ_IN_MEMORY}: the PQ codes, one per ordinal, and the
+     *       codebook they were encoded with. This mode writes no fused feature, so the graph header
+     *       carries no codebook and this file is the only copy. It is required rather than
+     *       optional - an index whose metadata says it traverses on PQ codes is rejected and
+     *       rebuilt from the store if the sidecar is missing - so <b>include it in any backup or
+     *       copy of the directory, and do not delete it separately from the graph.</b></li>
      * </ul>
-     * Both are written to {@code .tmp} siblings and renamed into place, so an interrupted persist
-     * leaves at most a stale temporary file.
+     * All of them are written to {@code .tmp} siblings and renamed into place, sidecar first and
+     * metadata last, so an interrupted persist leaves at most a stale temporary file and never a
+     * metadata file describing artifacts that are not there.
      *
      * @return the index directory path, or null if not using on-disk mode
      * @see #onDisk()
@@ -309,30 +321,145 @@ public interface VectorIndexConfiguration
     public Path indexDirectory();
 
     /**
+     * Returns how the on-disk graph stores its own copy of each vector.
+     * <p>
+     * This is one of two independent dimensions of the on-disk format; the other is
+     * {@link #approximateScoring()}. Storage decides how many bytes each node costs and where the
+     * reranking pass reads its full-precision vectors from, scoring decides how traversal finds its
+     * candidates, and any combination of the two is legal. Neither affects how exact the reranking
+     * is: it is exact under all four.
+     * <p>
+     * {@link VectorStorage#NVQ} is the only setting on either dimension that makes the
+     * {@code .graph} file <i>smaller</i>: roughly 3x. It never costs score accuracy - reranking
+     * compares against the vectors held in the GigaMap, so a search returns exact similarities
+     * either way - and whether it costs anything else depends on {@link #approximateScoring()}. See
+     * the constant's own documentation.
+     * <p>
+     * Requires {@link #onDisk()} to be true, since it describes the on-disk format only.
+     * <p>
+     * A {@code default} so that an implementation written against an earlier version of this
+     * interface still compiles and links. Such an implementation predates the storage dimension, so
+     * {@link VectorStorage#INLINE} is what it described.
+     *
+     * @return the vector storage mode (default: {@link VectorStorage#INLINE})
+     * @see VectorStorage
+     * @see #approximateScoring()
+     * @see #nvqSubvectors()
+     */
+    public default VectorStorage vectorStorage()
+    {
+        return VectorStorage.INLINE;
+    }
+
+    /**
+     * Returns how graph traversal scores the candidates it visits.
+     * <p>
+     * For an on-disk index this is one of two independent dimensions of the format; the other is
+     * {@link #vectorStorage()}, which has no in-memory counterpart. This setting, though, is not
+     * confined to the format: {@link ApproximateScoring#PQ_IN_MEMORY} governs traversal for an
+     * in-memory index too, where nothing is written at all. Whatever is chosen here, the best
+     * candidates are always reranked before they are returned, so this governs which candidates
+     * traversal finds rather than how the final top-k is ordered.
+     * <p>
+     * {@link ApproximateScoring#FUSED_PQ} requires {@link #onDisk()}, since its codes are written
+     * into the graph file. {@link ApproximateScoring#PQ_IN_MEMORY} does not - it keeps its codes in
+     * heap, which an in-memory index can do too, though there it needs a scheduled optimization to
+     * switch over; see that constant.
+     *
+     * <p>
+     * A {@code default} for the same reason as {@link #vectorStorage()}, and it derives from the
+     * deprecated flag rather than returning a constant: an implementation predating this method
+     * expresses the same setting through {@link #enablePqCompression()}, so deriving keeps it
+     * answering correctly instead of silently reporting no approximate scoring.
+     *
+     * @return the approximate scoring mode (default: {@link ApproximateScoring#NONE})
+     * @see ApproximateScoring
+     * @see #vectorStorage()
+     * @see #pqSubspaces()
+     */
+    public default ApproximateScoring approximateScoring()
+    {
+        return this.enablePqCompression()
+            ? ApproximateScoring.FUSED_PQ
+            : ApproximateScoring.NONE;
+    }
+
+    /**
+     * Returns the number of NVQ subvectors.
+     * <p>
+     * NVQ splits each vector into this many subvectors and fits the quantization nonlinearity to
+     * each one separately, which helps when different ranges of the dimension have markedly
+     * different scale.
+     * <p>
+     * <b>Prefer the default of one.</b> Every subvector adds a fixed 28 bytes of parameters per
+     * node, on top of the one byte per dimension that carries the actual data, so the count is
+     * close to pure overhead unless the data really is heterogeneous. At {@code dimension=768} one
+     * subvector costs 800 bytes per node and eight cost 996 - the difference between a 3.4x and a
+     * 2.8x saving against {@link VectorStorage#INLINE}. This is emphatically <b>not</b> the same
+     * parameter as {@link #pqSubspaces()}, whose automatic value of {@code dimension/4} would make
+     * an NVQ block twice the size of the vector it replaces.
+     * <p>
+     * Only meaningful when {@link #vectorStorage()} is {@link VectorStorage#NVQ}.
+     *
+     * <p>
+     * A {@code default} for the same reason as {@link #vectorStorage()}. One is both the
+     * recommended value and what an implementation predating this method implies.
+     *
+     * @return the effective number of NVQ subvectors, never zero: a configured 0 means "auto" and
+     *         resolves to 1 here, so callers always receive a usable count. Note this differs from
+     *         {@link #pqSubspaces()}, which returns its raw sentinel and leaves resolution to the
+     *         caller.
+     * @see VectorStorage#NVQ
+     * @see #vectorStorage()
+     */
+    public default int nvqSubvectors()
+    {
+        return 1;
+    }
+
+    /**
      * Returns whether Product Quantization (PQ) compression is enabled.
+     * <p>
+     * <b>Deprecated</b> in favour of {@link #approximateScoring()}, which expresses the same
+     * setting as one of several scoring modes rather than a single boolean. This method reports
+     * {@code true} exactly when the scoring mode is {@link ApproximateScoring#FUSED_PQ}.
      * <p>
      * When enabled, the on-disk graph additionally carries {@code FusedPQ}: each node stores the
      * PQ-compressed codes of all its neighbours alongside its edges, so one sequential read scores
-     * every candidate during traversal instead of one random full-vector read per candidate. The
-     * full-precision inline vectors are still written, and the best candidates are reranked against
-     * them exactly.
+     * every candidate during traversal instead of one random full-vector read per candidate.
+     * <p>
+     * <b>What the graph stores beside those codes is now a separate setting.</b> With the default
+     * {@link VectorStorage#INLINE} the full-precision vectors are still written and the best
+     * candidates are reranked against them, read straight from the memory-mapped graph, as before.
+     * With {@link VectorStorage#NVQ} the graph holds quantized vectors instead, so the rerank reads
+     * the full-precision vectors held in the GigaMap: still exact, but one lookup per reranked
+     * candidate rather than none. See {@link #vectorStorage()}.
      * <p>
      * <b>This is a speed optimisation, not a space one.</b> Fusing the neighbour codes into every
      * node duplicates them {@code maxDegree} times, so enabling PQ makes the {@code .graph} file
      * <i>larger</i> by roughly {@code pqSubspaces * maxDegree} bytes per node - it does not shrink
-     * the index. What it buys is far less I/O and far better cache locality while traversing, and a
-     * smaller working set of full vectors touched per query. Choose it when search latency on a
-     * large on-disk index matters, not when disk footprint does.
+     * the index. {@link VectorStorage#NVQ} is the setting that shrinks it, and the two compose:
+     * the fused codes cost the same either way, while the vector beside them gets smaller. What it
+     * buys is far less I/O and far better cache locality while traversing, and a smaller working set
+     * of vectors touched per query. Choose it when search latency on a large on-disk index matters,
+     * not when disk footprint does.
      * <p>
-     * <b>Memory.</b> The resident working set during search goes <i>down</i>: a hop reads one
-     * contiguous fused block instead of {@link #maxDegree()} scattered full vectors, and
-     * reranking reads the inline vectors out of the mapping into a reused buffer. The costs are
-     * transient heap at persist time - encoding allocates {@code nodes * pqSubspaces} bytes for the
-     * whole ordinal space, and the persist walks every vector twice, once to encode and once to
-     * write the inline vectors - plus the larger mapping itself. Note that
-     * if the whole index already fits in RAM there are no page faults left to avoid, so PQ buys
-     * only cheaper arithmetic and cache locality while still costing the extra resident bytes:
-     * it is a way to scale past available memory rather than a general latency tweak.
+     * <b>Memory, with {@link VectorStorage#INLINE} storage.</b> The resident working set during
+     * search goes <i>down</i>: a hop reads one contiguous fused block instead of
+     * {@link #maxDegree()} scattered full vectors, and reranking reads the inline vectors out of the
+     * mapping into a reused buffer. The costs are transient heap at persist time - encoding
+     * allocates {@code nodes * pqSubspaces} bytes for the whole ordinal space, and the persist walks
+     * every vector twice, once to encode and once to write the inline vectors - plus the larger
+     * mapping itself. Note that if the whole index already fits in RAM there are no page faults left
+     * to avoid, so PQ buys only cheaper arithmetic and cache locality while still costing the extra
+     * resident bytes: it is a way to scale past available memory rather than a general latency tweak.
+     * <p>
+     * <b>With {@link VectorStorage#NVQ} storage</b> the arithmetic above does not carry over. There
+     * are no full-precision inline vectors: the graph holds quantized ones, so the bytes the persist
+     * writes are roughly a quarter of the figures quoted above. Reranking is unaffected in accuracy
+     * but changes source - with no full-precision copy in the graph it reads the vectors held in the
+     * GigaMap, so it costs a lookup per reranked candidate instead of a read from the mapping. The
+     * fused block is unchanged, and remains the dominant per-node cost.
      * <p>
      * The codebook is trained once, on the first persist at which at least 256 <i>embeddings</i>
      * exist - entities without one are skipped, so an index of 256 entities of which some have no
@@ -348,7 +475,10 @@ public interface VectorIndexConfiguration
      * @return true if PQ compression is enabled (default: false)
      * @see #pqSubspaces()
      * @see #onDisk()
+     * @deprecated use {@link #approximateScoring()} instead; this returns
+     *             {@code approximateScoring() == ApproximateScoring.FUSED_PQ}
      */
+    @Deprecated
     public boolean enablePqCompression();
 
     /**
@@ -723,7 +853,7 @@ public interface VectorIndexConfiguration
      * {@link #enablePqCompression()}. Use {@link #forLargeDataset(int, Path, boolean)} with
      * {@code false} to opt out.
      * <p>
-     * <b>Configuration:</b> maxDegree=32, beamWidth=300, onDisk=true, enablePqCompression=true,
+     * <b>Configuration:</b> maxDegree=32, beamWidth=300, onDisk=true, approximateScoring=FUSED_PQ,
      * persistenceIntervalMs=30000, optimizationIntervalMs=60000
      *
      * @param dimension the vector dimension (must be positive)
@@ -791,10 +921,78 @@ public interface VectorIndexConfiguration
     }
 
     /**
+     * Creates an on-disk configuration for large datasets (&gt;1M vectors) that minimizes the size of
+     * the index on disk.
+     * <p>
+     * Same tuning as {@link #forLargeDataset(int, Path)}, but the graph stores quantized vectors and
+     * carries no fused PQ codes. Both parts matter, and the second is the larger one: fused codes are
+     * duplicated {@code maxDegree} times per node, so at {@code dimension=768} and the pre-configured
+     * {@code maxDegree=32} they alone cost 6144 bytes against the 800 the quantized vector occupies.
+     *
+     * <table border="1">
+     *   <tr><th>Configuration</th><th>Bytes per node</th></tr>
+     *   <tr><td>{@link #forLargeDataset(int, Path)} - INLINE + FUSED_PQ</td><td>~9,352</td></tr>
+     *   <tr><td>INLINE + NONE, for reference</td><td>~3,208</td></tr>
+     *   <tr><td>this preset - NVQ + NONE</td><td>~936</td></tr>
+     * </table>
+     * <p>
+     * <b>What it gives up is traversal speed, not accuracy.</b> Without the fused codes each hop
+     * reads its candidates' own stored vectors rather than one contiguous block - though those
+     * vectors are now 800 bytes rather than 3072, so a hop is far cheaper than it would be on an
+     * uncompressed graph. Reranking stays exact, as it does under every setting a live index
+     * reaches: the search path reranks against the vectors held in the GigaMap. Use
+     * {@link #forLargeDataset(int, Path)} when query latency matters more than footprint.
+     * <p>
+     * <b>Configuration:</b> maxDegree=32, beamWidth=300, onDisk=true, vectorStorage=NVQ,
+     * approximateScoring=NONE, parallelOnDiskWrite=true, persistenceIntervalMs=30000,
+     * optimizationIntervalMs=60000
+     *
+     * @param dimension the vector dimension (must be positive)
+     * @param indexDirectory the directory where index files will be stored
+     * @return a ready-to-use configuration for large datasets with a compact on-disk index
+     * @see #builderForCompactLargeDataset(int, Path)
+     * @see #forLargeDataset(int, Path)
+     */
+    public static VectorIndexConfiguration forCompactLargeDataset(final int dimension, final Path indexDirectory)
+    {
+        return builderForCompactLargeDataset(dimension, indexDirectory).build();
+    }
+
+    /**
+     * Creates a builder pre-configured for large datasets (&gt;1M vectors) with a compact on-disk
+     * index.
+     * <p>
+     * Use this when you need to customize additional parameters beyond the defaults. See
+     * {@link #forCompactLargeDataset(int, Path)} for the size and recall trade-off this preset
+     * makes.
+     * <p>
+     * <b>Pre-configured values:</b> maxDegree=32, beamWidth=300, onDisk=true, vectorStorage=NVQ,
+     * approximateScoring=NONE, parallelOnDiskWrite=true, persistenceIntervalMs=30000,
+     * optimizationIntervalMs=60000
+     *
+     * @param dimension the vector dimension (must be positive)
+     * @param indexDirectory the directory where index files will be stored
+     * @return a builder pre-configured for large datasets with a compact on-disk index
+     * @see #forCompactLargeDataset(int, Path)
+     * @see #builderForLargeDataset(int, Path)
+     */
+    public static Builder builderForCompactLargeDataset(final int dimension, final Path indexDirectory)
+    {
+        return builderForLargeDataset(dimension, indexDirectory)
+            .vectorStorage(VectorStorage.NVQ)
+            .approximateScoring(ApproximateScoring.NONE)
+            // Quantizing fits a nonlinearity per vector at write time, which costs about 3x the
+            // persist wall time sequentially and about 1.2x under the parallel writer, because the
+            // per-node encode then runs on the writer's worker threads. A preset that chose the
+            // quantized format and left this off would hand out the cost without the mitigation.
+            .parallelOnDiskWrite(true);
+    }
+
+    /**
      * Creates an in-memory configuration optimized for high precision requirements.
      * <p>
      * Uses maximum parameter values to achieve the highest possible recall,
-     * with PQ compression disabled to avoid any precision loss.
+     * with approximate scoring disabled to avoid any precision loss.
      * <p>
      * <b>Configuration:</b> maxDegree=56, beamWidth=450, onDisk=false
      *
@@ -812,10 +1010,10 @@ public interface VectorIndexConfiguration
      * Creates an on-disk configuration optimized for high precision requirements.
      * <p>
      * Uses maximum parameter values to achieve the highest possible recall,
-     * with PQ compression disabled to avoid any precision loss.
+     * with approximate scoring disabled to avoid any precision loss.
      * <p>
      * <b>Configuration:</b> maxDegree=56, beamWidth=450, onDisk=true,
-     * enablePqCompression=false, persistenceIntervalMs=30000
+     * approximateScoring=NONE, persistenceIntervalMs=30000
      *
      * @param dimension the vector dimension (must be positive)
      * @param indexDirectory the directory where index files will be stored
@@ -836,10 +1034,10 @@ public interface VectorIndexConfiguration
      * Creates a builder pre-configured for high precision requirements.
      * <p>
      * Use this when you need to customize additional parameters beyond the defaults
-     * for high precision use cases. PQ compression is explicitly disabled as it
+     * for high precision use cases. Approximate scoring is explicitly disabled as it
      * reduces precision.
      * <p>
-     * <b>Pre-configured values:</b> maxDegree=56, beamWidth=450, enablePqCompression=false
+     * <b>Pre-configured values:</b> maxDegree=56, beamWidth=450, vectorStorage=INLINE, approximateScoring=NONE
      *
      * @param dimension the vector dimension (must be positive)
      * @return a builder pre-configured for high precision
@@ -852,7 +1050,8 @@ public interface VectorIndexConfiguration
             .dimension(dimension)
             .maxDegree(56)
             .beamWidth(450)
-            .enablePqCompression(false);
+            .vectorStorage(VectorStorage.INLINE)
+            .approximateScoring(ApproximateScoring.NONE);
     }
 
 
@@ -971,14 +1170,89 @@ public interface VectorIndexConfiguration
         public Builder indexDirectory(Path indexDirectory);
 
         /**
+         * Sets how the on-disk graph stores its own copy of each vector.
+         * <p>
+         * Requires {@link #onDisk(boolean)} to be true for any value other than
+         * {@link VectorStorage#INLINE}.
+         *
+         * <p>
+         * A {@code default} so that a builder implementation written against an earlier version of
+         * this interface still compiles and links. It throws rather than ignoring the call, because
+         * a builder that cannot carry the setting must not report success and then hand back a
+         * configuration that silently says something else.
+         *
+         * @param vectorStorage the storage mode, never null
+         * @return this builder for method chaining
+         * @throws UnsupportedOperationException from the default implementation
+         * @see VectorIndexConfiguration#vectorStorage()
+         */
+        public default Builder vectorStorage(final VectorStorage vectorStorage)
+        {
+            throw new UnsupportedOperationException("vectorStorage is not supported by " + this.getClass().getName());
+        }
+
+        /**
+         * Sets how graph traversal scores the candidates it visits.
+         * <p>
+         * {@link ApproximateScoring#FUSED_PQ} requires {@link #onDisk(boolean)}, since its codes are
+         * written into the graph file. {@link ApproximateScoring#PQ_IN_MEMORY} does not - it keeps
+         * its codes in heap - but on an in-memory index it needs a scheduled optimization, which is
+         * where the switch to compressed scoring happens.
+         *
+         * <p>
+         * A {@code default} so that a builder implementation written against an earlier version of
+         * this interface still compiles and links. It throws rather than ignoring the call, because
+         * a builder that cannot carry the setting must not report success and then hand back a
+         * configuration that silently says something else.
+         *
+         * @param approximateScoring the scoring mode, never null
+         * @return this builder for method chaining
+         * @throws UnsupportedOperationException from the default implementation
+         * @see VectorIndexConfiguration#approximateScoring()
+         */
+        public default Builder approximateScoring(final ApproximateScoring approximateScoring)
+        {
+            throw new UnsupportedOperationException("approximateScoring is not supported by " + this.getClass().getName());
+        }
+
+        /**
+         * Sets the number of NVQ subvectors.
+         * <p>
+         * Must not exceed the dimension. Use 0 for auto-calculation (1), which is the
+         * recommended setting - see {@link VectorIndexConfiguration#nvqSubvectors()} for why a
+         * higher count is usually pure overhead.
+         *
+         * <p>
+         * A {@code default} so that a builder implementation written against an earlier version of
+         * this interface still compiles and links. It throws rather than ignoring the call, because
+         * a builder that cannot carry the setting must not report success and then hand back a
+         * configuration that silently says something else.
+         *
+         * @param nvqSubvectors the number of subvectors, or 0 for auto
+         * @return this builder for method chaining
+         * @throws UnsupportedOperationException from the default implementation
+         * @see VectorIndexConfiguration#nvqSubvectors()
+         */
+        public default Builder nvqSubvectors(final int nvqSubvectors)
+        {
+            throw new UnsupportedOperationException("nvqSubvectors is not supported by " + this.getClass().getName());
+        }
+
+        /**
          * Enables or disables Product Quantization compression.
+         * <p>
+         * <b>Deprecated</b> in favour of {@link #approximateScoring(ApproximateScoring)}. This is a
+         * literal delegate for {@code approximateScoring(b ? FUSED_PQ : NONE)} writing the very same
+         * field, so mixing the two on one builder is harmless: the last call wins, whichever it was.
          * <p>
          * Requires {@link #onDisk(boolean)} to be true.
          *
          * @param enablePqCompression true to enable PQ compression
          * @return this builder for method chaining
          * @see VectorIndexConfiguration#enablePqCompression()
+         * @deprecated use {@link #approximateScoring(ApproximateScoring)} instead
          */
+        @Deprecated
         public Builder enablePqCompression(boolean enablePqCompression);
 
         /**
@@ -1089,8 +1363,11 @@ public interface VectorIndexConfiguration
          *
          * @return a new immutable {@link VectorIndexConfiguration}
          * @throws IllegalStateException if onDisk is true but indexDirectory is null
-         * @throws IllegalStateException if enableCompression is true but onDisk is false
+         * @throws IllegalStateException if approximateScoring is FUSED_PQ but onDisk is false, or
+         *         if it is PQ_IN_MEMORY without onDisk and no optimization is scheduled
+         * @throws IllegalStateException if vectorStorage is not INLINE but onDisk is false
          * @throws IllegalArgumentException if pqSubspaces > 0 and dimension is not divisible by pqSubspaces
+         * @throws IllegalArgumentException if nvqSubvectors exceeds the dimension
          */
         public VectorIndexConfiguration build();
 
@@ -1116,7 +1393,9 @@ public interface VectorIndexConfiguration
             private float                    alpha                        ;
             private boolean                  onDisk                       ;
             private Path                     indexDirectory               ;
-            private boolean                  enablePqCompression          ;
+            private VectorStorage            vectorStorage                ;
+            private ApproximateScoring       approximateScoring           ;
+            private int                      nvqSubvectors                ;
             private int                      pqSubspaces                  ;
             private long                     persistenceIntervalMs        ;
             private boolean                  persistOnShutdown            ;
@@ -1139,7 +1418,9 @@ public interface VectorIndexConfiguration
                 this.alpha                         = 1.2f;
                 this.onDisk                        = false;
                 this.indexDirectory                = null;
-                this.enablePqCompression           = false;
+                this.vectorStorage                 = VectorStorage.INLINE;
+                this.approximateScoring            = ApproximateScoring.NONE;
+                this.nvqSubvectors                 = 0;
                 this.pqSubspaces                   = 0;
                 this.persistenceIntervalMs         = 0;  // 0 = disabled
                 this.persistOnShutdown             = true;
@@ -1216,10 +1497,40 @@ public interface VectorIndexConfiguration
             }
 
             @Override
+            public Builder vectorStorage(final VectorStorage vectorStorage)
+            {
+                this.vectorStorage = notNull(vectorStorage);
+                return this;
+            }
+
+            @Override
+            public Builder approximateScoring(final ApproximateScoring approximateScoring)
+            {
+                this.approximateScoring = notNull(approximateScoring);
+                return this;
+            }
+
+            @Override
+            public Builder nvqSubvectors(final int nvqSubvectors)
+            {
+                if(nvqSubvectors < 0)
+                {
+                    throw new IllegalArgumentException("nvqSubvectors must be non-negative, got: " + nvqSubvectors);
+                }
+                this.nvqSubvectors = nvqSubvectors;
+                return this;
+            }
+
+            @Deprecated
+            @Override
             public Builder enablePqCompression(final boolean enablePqCompression)
             {
-                this.enablePqCompression = enablePqCompression;
-                return this;
+                // A literal delegate, writing the same field the enum setter writes. Keeping one
+                // field rather than two is what makes "which one wins" a non-question: the last
+                // call wins, whichever spelling it used.
+                return this.approximateScoring(
+                    enablePqCompression ? ApproximateScoring.FUSED_PQ : ApproximateScoring.NONE
+                );
             }
 
             @Override
@@ -1320,9 +1631,52 @@ public interface VectorIndexConfiguration
                 {
                     throw new IllegalStateException("indexDirectory is required when onDisk is true");
                 }
-                if(this.enablePqCompression && !this.onDisk)
+                // FUSED_PQ writes its codes into the graph file, so it is on-disk only. PQ_IN_MEMORY
+                // keeps them in heap, which an in-memory index can do just as well - there it simply
+                // has no sidecar to write.
+                if(this.approximateScoring == ApproximateScoring.FUSED_PQ && !this.onDisk)
                 {
                     throw new IllegalStateException("Compression requires onDisk mode to be enabled");
+                }
+
+                // An in-memory index has no persist to hang the switch to compressed scoring on, and
+                // doing it on a mutation would mean an O(n) train, encode and rebuild inside the
+                // GigaMap monitor. It happens at optimization instead, so there has to be one
+                // scheduled - otherwise the mode would be configured and silently never take effect.
+                if(this.approximateScoring == ApproximateScoring.PQ_IN_MEMORY
+                    && !this.onDisk
+                    && this.optimizationIntervalMs <= 0)
+                {
+                    throw new IllegalStateException(
+                        "In-memory PQ scoring switches the score provider at optimization, so one has to"
+                            + " be scheduled: set optimizationIntervalMs to a positive value. An explicit"
+                            + " optimize() call performs the switch too, but the configuration cannot"
+                            + " rely on one happening."
+                    );
+                }
+
+                // A scheduled optimization is necessary but not sufficient: the background manager
+                // skips one until minChangesBetweenOptimizations changes have accumulated, and that
+                // defaults to 1000. An index that settles between the 256 vectors PQ training needs
+                // and that threshold would be configured for compressed scoring and never switch,
+                // so the setting has to be reachable rather than merely positive.
+                if(this.approximateScoring == ApproximateScoring.PQ_IN_MEMORY
+                    && !this.onDisk
+                    && this.optimizationIntervalMs > 0
+                    && this.minChangesBetweenOptimizations > PQCompressionManager.MIN_VECTORS_FOR_PQ_TRAINING)
+                {
+                    LOG.warn(
+                        "Index configured for in-memory PQ scoring has minChangesBetweenOptimizations={},"
+                            + " above the {} vectors PQ training needs. An index that stops growing in"
+                            + " between will stay on exact scoring until something calls optimize()"
+                            + " explicitly. Lower the threshold to switch automatically.",
+                        this.minChangesBetweenOptimizations,
+                        PQCompressionManager.MIN_VECTORS_FOR_PQ_TRAINING
+                    );
+                }
+                if(this.vectorStorage != VectorStorage.INLINE && !this.onDisk)
+                {
+                    throw new IllegalStateException("Vector storage requires onDisk mode to be enabled");
                 }
                 if(this.persistenceIntervalMs > 0 && !this.onDisk)
                 {
@@ -1342,6 +1696,55 @@ public interface VectorIndexConfiguration
                 // from JVector 3's FusedADC; it silently doubled the graph's out-degree, which was
                 // the only effect enablePqCompression had before the feature worked.
 
+                // JVector's getSubvectorSizesAndOffsets splits the dimension across the subvectors
+                // and only requires that there be at least one dimension per subvector. Unlike
+                // pqSubspaces there is no divisibility rule: the remainder is distributed.
+                if(this.nvqSubvectors > this.dimension)
+                {
+                    throw new IllegalArgumentException(
+                        "nvqSubvectors (" + this.nvqSubvectors + ") must not exceed dimension (" + this.dimension + ")"
+                    );
+                }
+
+                // PQ_IN_MEMORY trades the fused codes' disk cost for a heap cost that is linear in
+                // the ordinal space and resident for as long as the index is open. That is easy to
+                // choose without pricing, and the failure mode is an OutOfMemoryError at scale
+                // rather than anything the configuration can catch, so state the rate up front.
+                if(this.approximateScoring == ApproximateScoring.PQ_IN_MEMORY)
+                {
+                    final int codeBytes = this.pqSubspaces > 0
+                        ? this.pqSubspaces
+                        : Math.max(1, this.dimension / 4);
+                    LOG.info(
+                        "PQ_IN_MEMORY holds {} bytes per ordinal in heap for as long as the index is open"
+                            + " (about {} MB per million vectors, and deletion holes count). FUSED_PQ pays"
+                            + " in graph size and page cache instead.",
+                        codeBytes, codeBytes
+                    );
+                }
+
+                // NVQ costs 1 byte per dimension plus a fixed 28 bytes of nonlinearity parameters
+                // per subvector, against 4 bytes per dimension for full precision. At a high enough
+                // subvector count that stops being a saving, which is a configuration mistake rather
+                // than an illegal state: the index still works, it is just paying quantization
+                // recall for nothing. Warn instead of throwing.
+                if(this.vectorStorage == VectorStorage.NVQ)
+                {
+                    // The effective count, not the raw field: 0 means "auto" and resolves to one, so
+                    // logging the raw value would report "0 subvectors" for a size computed from one.
+                    final int effectiveSubvectors = this.nvqSubvectors > 0 ? this.nvqSubvectors : 1;
+                    final int nvqBytes            = 4 + this.dimension + 28 * effectiveSubvectors;
+                    if(nvqBytes >= this.dimension * Float.BYTES)
+                    {
+                        LOG.warn(
+                            "NVQ storage would cost {} bytes per node against {} for full precision at dimension {}"
+                                + " and {} subvectors, so it saves nothing. Lower nvqSubvectors or use"
+                                + " VectorStorage.INLINE.",
+                            nvqBytes, this.dimension * Float.BYTES, this.dimension, effectiveSubvectors
+                        );
+                    }
+                }
+
                 return new VectorIndexConfiguration.Default(
                     this.dimension,
                     this.similarityFunction,
@@ -1352,7 +1755,9 @@ public interface VectorIndexConfiguration
                     this.alpha,
                     this.onDisk,
                     this.indexDirectory,
-                    this.enablePqCompression,
+                    this.vectorStorage,
+                    this.approximateScoring,
+                    this.nvqSubvectors,
                     this.pqSubspaces,
                     this.persistenceIntervalMs,
                     this.persistOnShutdown,
@@ -1385,6 +1790,19 @@ public interface VectorIndexConfiguration
         private final float                    alpha                         ;
         private final boolean                  onDisk                        ;
         private final String                   indexDirectory                ; // Stored as String for serialization
+        private final VectorStorage            vectorStorage                 ;
+        private final ApproximateScoring       approximateScoring            ;
+        private final int                      nvqSubvectors                 ;
+        // Retained although approximateScoring now carries the same information, because this is
+        // the field a configuration written before the enums existed carries its setting in: when
+        // those enum fields come back null, approximateScoring() derives the value from here. It is
+        // derived in the constructor and never set independently.
+        //
+        // It is NOT a downgrade path, and must not be read as one. Once this build has persisted a
+        // configuration, VectorStorage and ApproximateScoring are in the type dictionary, and a
+        // build predating them cannot open the storage at all - it fails with a missing runtime
+        // type for the required type handler rather than falling back to this field. Verified by
+        // restarting a storage across the two module versions.
         private final boolean                  enablePqCompression           ;
         private final int                      pqSubspaces                   ;
         private final long                     persistenceIntervalMs         ;
@@ -1407,7 +1825,9 @@ public interface VectorIndexConfiguration
             final float                    alpha                          ,
             final boolean                  onDisk                         ,
             final Path                     indexDirectory                 ,
-            final boolean                  enablePqCompression            ,
+            final VectorStorage            vectorStorage                  ,
+            final ApproximateScoring       approximateScoring             ,
+            final int                      nvqSubvectors                  ,
             final int                      pqSubspaces                    ,
             final long                     persistenceIntervalMs          ,
             final boolean                  persistOnShutdown              ,
@@ -1429,7 +1849,10 @@ public interface VectorIndexConfiguration
             this.alpha                          = alpha                                                    ;
             this.onDisk                         = onDisk                                                   ;
             this.indexDirectory                 = indexDirectory != null ? indexDirectory.toString() : null;
-            this.enablePqCompression            = enablePqCompression                                      ;
+            this.vectorStorage                  = vectorStorage                                            ;
+            this.approximateScoring             = approximateScoring                                       ;
+            this.nvqSubvectors                  = nvqSubvectors                                            ;
+            this.enablePqCompression            = approximateScoring == ApproximateScoring.FUSED_PQ        ;
             this.pqSubspaces                    = pqSubspaces                                              ;
             this.persistenceIntervalMs          = persistenceIntervalMs                                    ;
             this.persistOnShutdown              = persistOnShutdown                                        ;
@@ -1497,9 +1920,47 @@ public interface VectorIndexConfiguration
         }
 
         @Override
+        public VectorStorage vectorStorage()
+        {
+            // Null for a configuration persisted before this field existed: Eclipse Store fills a
+            // field added by schema evolution with the zero value, which for a reference is null.
+            // INLINE is what such a configuration described, so it is the right answer rather than
+            // merely a safe default.
+            return this.vectorStorage != null
+                ? this.vectorStorage
+                : VectorStorage.INLINE;
+        }
+
+        @Override
+        public ApproximateScoring approximateScoring()
+        {
+            // As above, null means the field postdates this stored configuration. The legacy
+            // boolean is the same setting under its old name, so derive from it rather than
+            // defaulting to NONE, which would silently switch PQ off for every existing index.
+            return this.approximateScoring != null
+                ? this.approximateScoring
+                : this.enablePqCompression
+                    ? ApproximateScoring.FUSED_PQ
+                    : ApproximateScoring.NONE;
+        }
+
+        @Override
+        public int nvqSubvectors()
+        {
+            // Zero means either "auto" or a field added by schema evolution; both resolve to one
+            // subvector, which is the recommended setting anyway.
+            return this.nvqSubvectors > 0
+                ? this.nvqSubvectors
+                : 1;
+        }
+
+        @Deprecated
+        @Override
         public boolean enablePqCompression()
         {
-            return this.enablePqCompression;
+            // Read through approximateScoring() rather than the field, so a configuration stored by
+            // a newer build that set the enum without the legacy boolean still answers correctly.
+            return this.approximateScoring() == ApproximateScoring.FUSED_PQ;
         }
 
         @Override

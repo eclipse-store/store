@@ -91,7 +91,7 @@ NOTE: The `jdk.incubator.vector` module is an incubator feature in Java 17-21. S
 
 |`maxDegree`
 |16
-|Maximum connections per node in HNSW graph. Higher values improve recall but increase memory usage. With `enablePqCompression`, this also multiplies the per-node fused block (`pqSubspaces * maxDegree` bytes), so it drives both the graph size and the bytes read per traversal hop.
+|Maximum connections per node in HNSW graph. Higher values improve recall but increase memory usage. With `approximateScoring=FUSED_PQ`, this also multiplies the per-node fused block (`pqSubspaces * maxDegree` bytes), so it drives both the graph size and the bytes read per traversal hop.
 
 |`beamWidth`
 |100
@@ -138,13 +138,25 @@ For datasets that exceed available memory, enable on-disk storage to use memory-
 |`null`
 |Directory for index files. Required if `onDisk=true`.
 
+|`vectorStorage`
+|`INLINE`
+|How the graph stores its own copy of each vector. `INLINE` keeps full precision (`dimension * 4` bytes per node). `NVQ` stores 8-bit quantized vectors (`4 + dimension + 28 * nvqSubvectors` bytes per node), which is about 3x smaller, and is the only setting that makes the graph file *smaller*. Reranking is exact under both, but reads from different places: an inline graph carrying fused codes reranks from its own mapping, while an NVQ graph has no full-precision copy and reads the GigaMap. With `approximateScoring=NONE` traversal reads the quantized vectors and so finds slightly different candidates; with `FUSED_PQ` the codes drive traversal and candidate selection is unchanged.
+
+|`approximateScoring`
+|`NONE`
+|How traversal scores candidates. `NONE` scores from whatever the storage mode holds. `FUSED_PQ` writes Product Quantization codes into every node, which speeds up traversal of a large on-disk index at the cost of a *larger* graph file. `PQ_IN_MEMORY` buys the same approximate traversal without touching the graph, keeping the codes in heap - `pqSubspaces` bytes per ordinal, resident, against `pqSubspaces * maxDegree` bytes per node on disk. An on-disk index persists them in a `.pqv` sidecar read back on load; an *in-memory* index has no persist and therefore no sidecar, building them during optimization instead. It is also the only *PQ-based* mode available to an *in-memory* index - `NONE` remains the default there - and it requires `optimizationIntervalMs > 0`: the switch from exact to compressed scoring is a rebuild, and optimization is where it happens. A scheduled optimization is necessary but not sufficient: the background manager skips one until `minChangesBetweenOptimizations` changes have accumulated, and that defaults to 1000. An index that settles between the 256 vectors PQ training needs and that threshold stays on exact scoring until something calls `optimize()` explicitly, and `build()` warns when the two are configured that way.
+
+|`nvqSubvectors`
+|`0`
+|Number of NVQ subvectors (0 = auto: 1). Each subvector adds a fixed 28 bytes per node on top of the one byte per dimension, so the default is almost always right. Not the same parameter as `pqSubspaces`, whose auto value would make an NVQ block larger than the vector it replaces. Only applies when `vectorStorage=NVQ`.
+
 |`enablePqCompression`
 |`false`
-|Enable Product Quantization. Speeds up traversal of a large on-disk index, at the cost of a larger graph file.
+|*Deprecated*, use `approximateScoring` instead. A literal delegate: `true` means `FUSED_PQ`, `false` means `NONE`.
 
 |`pqSubspaces`
 |`0`
-|Number of PQ subspaces (0 = auto: dimension/4). Costs `pqSubspaces * maxDegree` bytes per node, so prefer a smaller value than classic PQ guidance suggests.
+|Number of PQ subspaces (0 = auto: dimension/4). Under `FUSED_PQ` this costs `pqSubspaces * maxDegree` bytes per node on disk, so prefer a smaller value than classic PQ guidance suggests; under `PQ_IN_MEMORY` it is `pqSubspaces` bytes per ordinal in heap. Only applies when `approximateScoring` is one of those two.
 
 |`parallelOnDiskWrite`
 |`false`
@@ -160,7 +172,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .similarityFunction(VectorSimilarityFunction.COSINE)
     .onDisk(true)
     .indexDirectory(Path.of("/data/vectors"))
-    .enablePqCompression(true)
+    .approximateScoring(ApproximateScoring.FUSED_PQ)
     .pqSubspaces(48)  // Must divide dimension evenly
     .build();
 ----

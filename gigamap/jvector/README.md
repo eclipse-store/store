@@ -8,6 +8,7 @@ A Java library that integrates [JVector](https://github.com/datastax/jvector) (h
 - **Persistent Storage**: Vectors are stored in GigaMap for durability and lazy loading
 - **On-Disk Index**: Memory-mapped graph storage for datasets larger than RAM
 - **PQ Compression**: Product Quantization for faster graph traversal (trades disk space for search speed)
+- **NVQ Storage**: quantized vectors in the on-disk graph, about 3x smaller than full precision (scores stay exact; costs a little candidate recall only when `approximateScoring` is `NONE`)
 - **Background Persistence**: Automatic asynchronous persistence at configurable intervals
 - **Background Optimization**: Periodic graph cleanup for improved query performance
 - **Eventual Indexing**: Deferred graph mutations via background thread for reduced write latency
@@ -164,11 +165,14 @@ List<Document> topDocs = result.stream()
 |-----------|---------|-------------|
 | `onDisk` | `false` | Store the graph in a memory-mapped file rather than on the Java heap. This is what lets an index exceed RAM; in-memory mode is faster per query but keeps the graph on the heap |
 | `indexDirectory` | `null` | Directory for index files (required if `onDisk=true`) |
-| `enablePqCompression` | `false` | Enable Product Quantization. Speeds up traversal of a large on-disk index; **makes the graph file larger** and adds transient heap at persist time. See the memory notes in the docs |
+| `vectorStorage` | `INLINE` | How the graph stores each vector. `NVQ` stores 8-bit quantized vectors instead of full precision - about **3x smaller**, the only setting that shrinks the file. Reranking still reads the GigaMap, so scores stay exact; with `approximateScoring(NONE)` it also changes which candidates traversal finds |
+| `approximateScoring` | `NONE` | How traversal scores candidates. `FUSED_PQ` writes Product Quantization codes into every node: faster traversal of a large on-disk index, but **makes the graph file larger** and adds transient heap at persist time. `PQ_IN_MEMORY` buys the same traversal with the codes in heap instead: nothing added to the graph, `pqSubspaces` bytes per ordinal resident. An on-disk index persists them in a `.pqv` sidecar; an in-memory one has no persist, so it builds them during optimization and has no sidecar at all. Also the only PQ-based mode an in-memory index can use - `NONE` stays the default there - where it needs `optimizationIntervalMs > 0` and a `minChangesBetweenOptimizations` the index will actually reach |
+| `nvqSubvectors` | `0` | Number of NVQ subvectors (0 = auto: 1). Each one adds a fixed 28 bytes per node, so the default is almost always right. **Not** the same parameter as `pqSubspaces` |
+| `enablePqCompression` | `false` | *Deprecated*, use `approximateScoring`. A literal delegate: `true` means `FUSED_PQ` |
 | `pqSubspaces` | `0` | Number of PQ subspaces (0 = auto: dimension/4). Costs `pqSubspaces * maxDegree` bytes per node, so a smaller value than classic PQ guidance suggests is usually right - paired with a wider `minSearchBeamWidth` |
 | `parallelOnDiskWrite` | `false` | Use parallel direct buffers and multiple worker threads for on-disk index writing. Speeds up persistence for large indices but uses more resources. Only applies when `onDisk=true` |
 
-> **On-disk format version:** the graph file format is at version 4. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors — no data loss, but expect a cold-start cost on the first restart after upgrade. That rebuild happens in memory and does not replace the old files; a mutated index migrates on its next persist, while a read-only one rebuilds again on every restart until `persistToDisk()` is called.
+> **On-disk format version:** the graph file format is at version 5. Indices written by earlier versions are detected on load and rebuilt automatically from the GigaMap-stored source vectors — no data loss, but expect a cold-start cost on the first restart after upgrade. That rebuild happens in memory and does not replace the old files; a mutated index migrates on its next persist, while a read-only one rebuilds again on every restart until `persistToDisk()` is called.
 
 ### Eventual Indexing
 
@@ -209,7 +213,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .onDisk(true)
     .indexDirectory(Path.of("/data/vectors"))
     // PQ compression (speeds up graph traversal; makes the graph file larger)
-    .enablePqCompression(true)
+    .approximateScoring(ApproximateScoring.FUSED_PQ)
     .pqSubspaces(48)  // Must divide dimension evenly
     .build();
 ```
@@ -338,9 +342,12 @@ To benchmark with real SIFT data:
 
 ## Limitations
 
-- **Null vectors are not accepted**: The `Vectorizer.vectorize()` method must never return `null`. If it does, an `IllegalStateException` is thrown. Ensure that every entity added to the GigaMap can produce a valid vector.
+- **Null vectors are rejected unless opted into**: `Vectorizer.vectorize()` returning `null` throws an `IllegalStateException` by default. Override `Vectorizer.allowsNullVectors()` to return `true` for a corpus where some entities legitimately have no embedding; they are then skipped rather than indexed, leaving holes in the ordinal space that the index handles.
 - **~2.1 billion vectors per index**: JVector uses `int` for graph node ordinals. For larger datasets, implement sharding across multiple indices.
-- **PQ compression enlarges the index**: FusedPQ stores each node's neighbour codes inline, on top of the full-precision vectors. It buys search speed, not disk space.
+- **`FUSED_PQ` scoring enlarges the index**: it stores each node's neighbour codes inline, on top of whatever the storage mode holds. It buys search speed, not disk space. To make the index *smaller*, set `vectorStorage` to `NVQ`, which is the other dimension of the format entirely.
+- **The in-memory switch to `PQ_IN_MEMORY` stops the whole GigaMap while it runs**: reads, writes and searches all wait for it, on every index on that map. It is a full rebuild under the map's lock, close to linear in the vector count - about 4 s at 10,000 vectors, 6-9 s at 20,000, 14-19 s at 50,000, several minutes at a million (dimension 64). It happens at most once per index generation, but it is triggered by the *background* optimization, so on a large index call `optimize()` at a quiet moment rather than letting the scheduler pick one.
+- **`PQ_IN_MEMORY` moves that cost to heap, and it is linear**: `pqSubspaces` bytes for every ordinal up to the highest in use, deletion holes included, resident for as long as the index is open. About 192 MB per million vectors at the default subspace count for dimension 768; about 19 GB at a hundred million. Size it before choosing it.
+- **NVQ storage never costs score accuracy**: the graph keeps no full-precision copy, but reranking compares against the vectors held in the GigaMap, so the scores and the ordering a search returns are exact. With `approximateScoring(NONE)` traversal reads the quantized vectors, so quantization changes which candidates it finds, and a candidate it never reaches is one reranking cannot recover. With `FUSED_PQ` the fused codes drive traversal, so candidate selection is unchanged and the cost is footprint plus a GigaMap lookup per reranked candidate.
 
 ## Building
 

@@ -69,14 +69,41 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
      * by {@link #add(String, VectorIndexConfiguration, Vectorizer)}, which re-indexes every entity in
      * the parent map.
      * <p>
-     * <b>For an on-disk index, delete the index directory's {@code .graph} and {@code .meta} files
-     * between the two calls.</b> {@link #removeIndex(String)} only closes the index and drops the
-     * registry entry; it deliberately leaves those files in place. The metadata does validate the
-     * dimension alongside the format version and the content witnesses, so a changed dimension is
-     * caught - but it records none of the tuning settings, {@code enablePqCompression} among them.
-     * Re-adding under the same name and directory can therefore load the old graph instead of
-     * rebuilding it, which would for instance keep serving an uncompressed graph after PQ was
-     * switched on.
+     * <b>That holds for an on-disk index too, whatever the configuration changed to, and without
+     * deleting anything by hand.</b> {@link #removeIndex(String)} leaves the index directory's
+     * {@code .graph} and {@code .meta} files in place - it only closes the index and drops the
+     * registry entry - but the index that
+     * {@link #add(String, VectorIndexConfiguration, Vectorizer)} creates never adopts them. It is a
+     * new instance, so its structural modification counter starts at zero, while any {@code .meta}
+     * that was ever written carries at least one. The load is refused on that witness before the
+     * recorded settings are even reached, and the graph is rebuilt from the vectors in the parent
+     * map.
+     * <p>
+     * The recorded settings decide the other path, where an index comes back through storage with
+     * its counter intact so the content witnesses agree. What is recorded is the format version, the
+     * dimension, three content witnesses, and the settings that decide what the graph contains - the
+     * vector storage mode, the approximate scoring mode, and the quantization counts those two
+     * encode with. A divergence in any of them rejects the graph and rebuilds it rather than serving
+     * it under a configuration it was not written for.
+     * <p>
+     * The two counts are compared in <i>effective</i> form, which makes them narrower than the modes
+     * they belong to. An automatic count and the value it resolves to describe the same graph and so
+     * compare equal, and a count that the recorded format does not encode with is not compared at
+     * all - changing {@code pqSubspaces} while the scoring mode is
+     * {@link ApproximateScoring#NONE}, or {@code nvqSubvectors} while storage is
+     * {@link VectorStorage#INLINE}, changes nothing in the file and triggers no rebuild.
+     * <p>
+     * What is <b>not</b> recorded is everything that shapes the graph without changing what a reader
+     * must know to interpret it: {@code maxDegree}, {@code beamWidth}, {@code alpha},
+     * {@code neighborOverflow} and
+     * {@link VectorIndexConfiguration#similarityFunction() similarityFunction}. Nothing in the file
+     * would contradict a new value for any of those, so a graph built under a previous one would be
+     * served under it if the two were ever brought together. The counter witness is what keeps that
+     * from arising: presenting a graph with a different configuration means building a new index,
+     * and a new index does not adopt an existing graph. The similarity function is the one where
+     * that would matter rather than merely costing graph quality, since edges are built by searching
+     * with it and reusing them under another metric would leave traversal following neighbours
+     * chosen for the wrong distance.
      *
      * @param name          the name of the index
      * @param configuration the index configuration, ignored if an index of that name already exists

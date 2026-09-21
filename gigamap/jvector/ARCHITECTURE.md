@@ -10,7 +10,7 @@ This document describes the **internals** of the `gigamap-jvector` module. Audie
 
 ### Module boundaries
 
-- **Depends on**: `org.eclipse.store.gigamap` (transitively, the EclipseStore serializer + persistence stack), and `io.github.jbellis:jvector` (`4.0.0-rc.8`, see [`pom.xml`](pom.xml)).
+- **Depends on**: `org.eclipse.store.gigamap` (transitively, the EclipseStore serializer + persistence stack), and `io.github.jbellis:jvector` (`4.0.0-rc.9`, see [`pom.xml`](pom.xml)).
 - **Depended on by**: nothing in the EclipseStore tree. Consumers use it directly.
 - **Java module name**: `org.eclipes.store.gigamap.jvector` (sic — typo preserved for compatibility; see [`module-info.java`](src/main/java/module-info.java)).
 - **Public package**: `org.eclipse.store.gigamap.jvector`. The module exports this package and opens it to `org.eclipse.serializer.persistence` so the persistence layer can discover binary handlers via reflection.
@@ -720,15 +720,24 @@ If `trainIfNeeded()` throws (training data degenerate, dimension mismatch, etc.)
 
 ### File layout
 
-Two files per index, named after `VectorIndex.Default.name`:
+Two files per index, named after `VectorIndex.Default.name`, plus a third for one scoring mode:
 
-- `{name}.graph` — JVector's `OnDiskGraphIndex` payload. Contains the HNSW edges plus optional features (`InlineVectors`, `FusedPQ`). Sized in megabytes for millions of vectors.
-- `{name}.meta` — 32-byte sidecar:
-  - `int` format version (currently `4`, see [`DiskIndexManager.java`](src/main/java/org/eclipse/store/gigamap/jvector/DiskIndexManager.java))
+- `{name}.graph` — JVector's `OnDiskGraphIndex` payload. Contains the HNSW edges plus exactly one vector-storage feature (`InlineVectors` **or** `NVQ`) and optionally `FusedPQ`. Sized in megabytes for millions of vectors.
+- `{name}.pqv` — **only** for `approximateScoring = PQ_IN_MEMORY`. The PQ codes and their codebook, written through `PQVectors.write` and read back by `PQVectors.load`, followed by a 12-byte trailer holding a magic and the `structuralModCount` of the persist that wrote it. Indexed by graph ordinal, so it spans the whole ordinal space including deletion holes, and it is heap-resident for as long as the index is open. Note that `PQVectors.writeSidecarHeader` is *not* the writer for this despite the name: it emits the codebook and counts only, for a caller that streams the chunks itself.
+- `{name}.meta` — 48-byte sidecar:
+  - `int` format version (currently `5`, see [`DiskIndexManager.java`](src/main/java/org/eclipse/store/gigamap/jvector/DiskIndexManager.java))
   - `int` dimension
   - `long` `expectedVectorCount`
   - `long` `highestEntityId` (added in v2)
   - `long` `structuralModCount` (added in v3)
+  - `int` `vectorStorage` code (v5, replacing the v4 boolean)
+  - `int` `approximateScoring` code (v5, replacing the v4 boolean)
+  - `int` effective `pqSubspaces` (v5, `0` when the graph carries no fused codes)
+  - `int` effective `nvqSubvectors` (v5, `0` when the graph stores full precision)
+
+The first five are **content witnesses** — they describe the data the graph was built from, and a mismatch means the store has moved on. The last four are **configuration**: nothing else in the file reveals which features the graph carries or what shape they were encoded in, so without them the loader would have to assume its own configuration describes the file. The case that actually reaches them is a downgrade — an index persisted by a newer build carries content witnesses that match, since it is the same index in the same store, so an unknown storage or scoring code is the only thing that distinguishes it from a file this build wrote. A configuration changed via `removeIndex()` and `add()` never gets that far: the new index's `structuralModCount` starts at 0 against a persisted `>= 1`, so the load is refused on that witness first. The two counts matter for a reason the mode codes do not share: a quantizer is adopted from the loaded graph rather than retrained, so a changed count would otherwise be silently ignored and every later persist would keep writing the old shape. They are recorded in effective form — the automatic sentinel resolved, and a count the format does not encode with written as zero — so two configurations that produce the same graph do not force a pointless rebuild.
+
+The configured values are recorded, not the ones the write achieved. If training declines, the graph is written without the feature while the meta still names it; the query path copes because it gates on the loaded graph's own feature set. Recording what was achieved instead would loop: config says NVQ, file says INLINE, verify rejects, rebuild, training declines again, forever.
 
 ### Format version history
 
@@ -737,28 +746,43 @@ Two files per index, named after `VectorIndex.Default.name`:
 | 1 | version, dim, count | Vulnerable to balanced add/remove corruption (see below). |
 | 2 | + `highestEntityId` | Commit `3b7b01bc`. GigaMap allocates entity ids monotonically, so this catches add/remove pairs that leave the count unchanged. |
 | 3 | + `structuralModCount` | Catches a vec<->null transition that left count and highestId unchanged. |
-| 4 | (no new fields) | `enablePqCompression` finally writes a FusedPQ graph. Graphs written earlier with the flag set are uncompressed despite it, and an index that loads clean and is never mutated never persists again -- so the bump forces one rebuild rather than letting them sit uncompressed forever. |
+| 4 | + `boolean` PQ enabled | `enablePqCompression` finally writes a FusedPQ graph. Graphs written earlier with the flag set are uncompressed despite it, and an index that loads clean and is never mutated never persists again -- so the bump forces one rebuild rather than letting them sit uncompressed forever. |
+| 5 | boolean → two `int` codes | The format grew a second dimension. A boolean could say whether fused codes were written but not whether the vectors beside them were full-precision or quantized, so it is replaced by `vectorStorage` and `approximateScoring` codes. |
+
+`PQ_IN_MEMORY` was added after v5 shipped on this branch and needed **no** bump: it is a new scoring code, and an older build rejects an unknown code rather than misreading it. That is the property the explicit codes exist for, and the same applies to any future mode.
+
+The commit order is sidecar, then graph, then meta — meta last, because it is the validity stamp. A persist that writes **no** sidecar deletes any existing one in the same step, before the graph becomes visible: a codebook is not always produced (training needs 256 embeddings), and a sidecar left from an earlier generation would otherwise be picked up beside a graph it does not describe.
+
+A missing sidecar is a rejection rather than a degrade **unless the graph holds too few vectors to have trained** — read from `diskIndex.size(0)`, not from `expectedVectorCount`, which counts entities and so over-counts in embedded mode. Below that threshold there are no codes to be missing and traversal scores exactly, the same fallback a FusedPQ graph whose training declined already gets; above it, absence is loss and the graph is rebuilt.
+
+A sidecar that is present is checked three ways: its code length against the configured subspace count, its ordinal span against the highest entity id in use, and its trailer against the `structuralModCount` the metadata carries. The last is what catches a file that outlived its graph by a route the delete above does not cover — a crash between the sidecar and graph renames, or a file restored by hand. Content is not checkable: a correctly shaped sidecar holding codes for other vectors passes, which is what `testPqInMemoryCodesActuallyDriveTraversal` relies on to prove the codes are consulted at all.
+
+The codes are `VectorStorage.code()` and `ApproximateScoring.code()`, deliberately **not** ordinals. An existing constant's code never changes and a new one is appended, so inserting a constant cannot silently reinterpret a file already on disk; a code this build does not know resolves to `null` and is treated as a mismatch. A newer version's file is therefore rejected and rebuilt rather than misread — which is also why adding a future storage or scoring mode needs no further version bump.
 
 Bumping the version invalidates existing files; they are silently rebuilt from `vectorStore` (or the parent map for embedded mode) on first load — no data loss. The rebuild is in memory and does not rewrite the stale files, so the cold start is paid once only if a persist follows: an index that is mutated after the upgrade migrates on its next persist, while a read-only one rebuilds again on every restart until `persistToDisk()` runs.
 
 ### Write path
 
-`DiskIndexManager.writeIndex(index, ravv, pqManager, metaState)`:
+`DiskIndexManager.writeIndex(index, ravv, pqManager, nvqManager, metaState)`:
 
 1. `Files.createDirectories(indexDirectory)`.
-2. If `pqManager != null && pqManager.isTrained() && pqManager.getPQ() != null` → `writeIndexWithFusedPQ` (parallel or sequential depending on `parallelOnDiskWrite`). The codebook is trained in persist Phase 1, so this branch is reachable from production — previously nothing trained it and the `else` was always taken.
-3. Otherwise → `OnDiskGraphIndex.write(index, ravv, identityOrdinalMap(index), graphPath)` (simple, no compression; identity map keeps on-disk node ids equal to graph ordinals).
-4. `writeMetadata(metaPath, metaState)` — stamps the `expectedVectorCount`, `highestEntityId`, and `structuralModCount` **captured in persist Phase 1** (the `DiskIndexManager.MetaState` sampled under the `parentMap` monitor next to `capturedIndex`), NOT re-read live from the `IndexStateProvider` — Phase 2 runs with the monitor released, so a live read could let a concurrent vec↔null mutation advance the witnesses past the written graph and reopen the crash-restart hole. The `.meta` layout is: `int version`, `int dimension`, `long expectedVectorCount`, `long highestEntityId`, `long structuralModCount` - the last field added in v3, with the current format at v4. On load, `verifyMetadata` (which still reads the `IndexStateProvider` live — it compares the persisted witness against the freshly-loaded store state) rejects the disk graph — forcing a rebuild from source — if any of these diverges; `structuralModCount` is what catches a vec↔null transition that left count/highestId unchanged.
+2. Resolve what this write can actually produce. A manager is non-null only when its dimension is configured on, and reports trained only once it holds a quantizer, so `pq` and `nvq` are exactly the available features. A configured-but-untrained manager writes the graph without its feature; the meta still records the *configured* mode, and the query path gates on the loaded graph's own feature set rather than on the meta.
+3. Split the PQ codebook by scoring mode — `fusedPq` when the format fuses, `sidecarPq` when it keeps codes in heap. Only one is ever non-null, since the two modes are alternatives.
+4. If `sidecarPq != null` → `writePqSidecar(ravv, sidecarPq, pqvTempPath, structuralModCount)`. The codebook travels in the sidecar, because this mode writes no fused feature and the graph header therefore carries none. The trailer stamps the generation witness.
+5. If `fusedPq == null && nvq == null` → `OnDiskGraphIndex.write(index, ravv, identityOrdinalMap(index), graphTempPath)`. The feature-less fast path, kept separate so the overwhelmingly common configuration keeps producing byte-identical files to those written before the format became configurable. The identity map (not the default sequential renumbering) keeps on-disk node ids equal to graph ordinals, which are source entity ids.
+6. Otherwise → `writeIndexWithFeatures(index, ravv, fusedPq, nvq, graphTempPath)`, which writes whichever of the two features is present, and both when both are (parallel or sequential depending on `parallelOnDiskWrite`).
+7. `writeMetadata(metaTempPath, metaState)` — stamps the `expectedVectorCount`, `highestEntityId`, and `structuralModCount` **captured in persist Phase 1** (the `DiskIndexManager.MetaState` sampled under the `parentMap` monitor next to `capturedIndex`), NOT re-read live from the `IndexStateProvider` — Phase 2 runs with the monitor released, so a live read could let a concurrent vec↔null mutation advance the witnesses past the written graph and reopen the crash-restart hole. The `.meta` layout is: `int version`, `int dimension`, `long expectedVectorCount`, `long highestEntityId`, `long structuralModCount`, then the four configuration fields added in v5 - see the full layout in section 10, which is authoritative for it. On load, `verifyMetadata` (which still reads the `IndexStateProvider` live — it compares the persisted witness against the freshly-loaded store state) rejects the disk graph — forcing a rebuild from source — if any of these diverges; `structuralModCount` is what catches a vec↔null transition that left count/highestId unchanged.
 
 ### Load path
 
 `DiskIndexManager.tryLoad()`:
 
 1. Return `false` if `indexDirectory == null` or files missing.
-2. `verifyMetadata(metaPath)`: read all four fields and compare to current state. Any mismatch → return `false` (caller then rebuilds from source).
+2. `verifyMetadata(metaPath)`: read every field and compare to current state — the content witnesses against the freshly loaded store, and the four configuration fields against this build's own format. Any mismatch, or a storage or scoring code this build does not know, → return `false` (caller then rebuilds from source).
 3. `readerSupplier = ReaderSupplierFactory.open(graphPath)` — memory-mapped.
 4. `diskIndex = OnDiskGraphIndex.load(readerSupplier)`.
-5. `loaded = true`; log `"Loaded disk index '{name}' with {n} nodes"`.
+5. If the format keeps its PQ codes in heap, load the `.pqv` beside the graph and check it fits — code length against the configured subspace count, ordinal span against the highest entity id in use, trailer against the metadata's `structuralModCount`. A sidecar that is missing or does not fit is a rejection rather than a degrade, except below the training threshold where there are no codes to be missing (see the sidecar rules above).
+6. `loaded = true`; log `"Loaded disk index '{name}' with {n} nodes"`.
 
 Any thrown exception is caught, `close()` is called to release resources, and `tryLoad` returns `false`.
 
@@ -832,6 +856,21 @@ builderLock.writeLock {           // still exclusive against searches/applies
     writeIndex()                  // disk writer free to call parentMap.get()
 }
 ```
+
+### The in-memory PQ switch: monitor only
+
+`performPqSwitch()` (optimize, `PQ_IN_MEMORY` without `onDisk`) is the one O(n) step that runs entirely inside the monitor block and takes **no** `builderLock` at all — the same posture as `ensureGraphRebuilt()`, and safe for the same reason: a thread holding only the monitor waits for no lock a write-lock holder needs, so it cannot sit in a monitor/`builderLock` cycle. Its replacement builder scores from PQ codes rather than the GigaMap, so its workers never call `parentMap.get()` either.
+
+Two consequences follow, and both are deliberate:
+
+- **The replaced builder and graph are not closed.** Searches hold `builderLock.readLock()` and never the monitor, so one can be traversing the old graph at the instant it is replaced. They are heap objects; the garbage collector takes them.
+- **The background indexing worker is not excluded, but each callback must stay within one generation.** Its callbacks take the read lock only, so one can run throughout. What makes that safe is that every callback was enqueued by a mutation that had already applied to the GigaMap *under the monitor*, so the snapshot the switch takes already reflects it: a callback still holding the old builder writes a change the replacement already has, into a graph that is not closed, and one that finds the replacement re-adds an ordinal it already carries, which the idempotent path tolerates.
+
+  That argument only holds per generation, so **every callback reads `builder` exactly once and derives its graph from that reference** (`graphOf(currentBuilder)`), never from the `index` field. A callback that read the two separately could straddle the publication - `applyGraphUpdate` would mark the node deleted in the graph being abandoned and then add the same ordinal to the replacement, which throws `Node already exists`.
+
+A teardown is the one thing the monitor does not exclude: `close()` and `internalRemoveAll` take the write lock, and `close()` does not take the monitor at all. The switch therefore captures the builder it was planned against and checks it is still the index's own immediately before publishing, so a replacement built for an index that has since been torn down is dropped rather than resurrecting it over closed searcher pools.
+
+Publication order is **codes, then graph, then builder** — all `volatile`. The codes lead because the replacement builder cannot be used without them: it scores every incoming node against the code store, and `trackPqCode` is a no-op while there are none, so a callback that reached the new builder first would insert a node with no code of its own and link it by a code that is not there. Nothing else has that dependency — codes are keyed by ordinal and both graphs carry the same ordinals, so codes visible before the graph are already correct for the graph still in place. The cost is that `isPqCompressionActive()` and the search path, which read the codes with no lock, can see them a few instructions early; that reports nothing untrue, because at that moment a search really would score from them, and correctly.
 
 ### `cleanupInProgress` / `deferredBuilderOps` protocol
 
@@ -1007,7 +1046,7 @@ opens               org.eclipse.store.gigamap.jvector to org.eclipse.serializer.
 
 [`pom.xml`](pom.xml) properties:
 
-- `jvector.version = 4.0.0-rc.8`
+- `jvector.version = 4.0.0-rc.9`
 
 Surefire `argLine` (required for tests and recommended for production deployment):
 
