@@ -4481,8 +4481,37 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 return;
             }
-            graphOf(currentBuilder).removeNode(ordinal);
+            final OnHeapGraphIndex currentIndex = graphOf(currentBuilder);
+
+            // The code first, whichever branch follows: it is what the node is scored by once
+            // compressed scoring is on, and the insert below reads it while choosing neighbours.
             this.trackPqCode(ordinal, vf);
+
+            if(currentIndex.containsNode(ordinal))
+            {
+                // Already a node of this graph, so there is nothing structural left to do - and
+                // reaching the same state by removing and re-adding is not merely wasteful, it
+                // corrupts the graph. removeNode strips the node's own entry but not the backlinks
+                // its neighbours hold, so the next insert that picks one of those stale references
+                // fails with an NPE inside ConcurrentNeighborMap. The callers that drain these ops
+                // swallow the exception, which leaves the node removed and never re-added.
+                //
+                // That is not a rare interleaving. After the in-memory PQ switch every queued add
+                // names an ordinal the replay has already inserted, so an unconditional remove
+                // would churn the entire graph and lose nodes out of it.
+                //
+                // Clearing a deleted bit is kept, because an add for an ordinal that is present
+                // but marked deleted does mean "this entity is back" - the same thing the resurrect
+                // path does, and for the same reason.
+                currentIndex.getDeletedNodes().clear(ordinal);
+                return;
+            }
+
+            // containsNode only inspects layer 0, so "absent" can still mean "present in an upper
+            // layer" after an earlier interleaved add/remove. Purge all layers before adding, or
+            // the add throws. Safe here in a way it is not above: there is no live layer-0 node
+            // whose neighbours could be left holding a reference to it.
+            currentIndex.removeNode(ordinal);
             currentBuilder.addGraphNode(ordinal, vf);
         }
 

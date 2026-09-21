@@ -14,6 +14,7 @@ package org.eclipse.store.gigamap.jvector;
  * #L%
  */
 
+import io.github.jbellis.jvector.graph.OnHeapGraphIndex;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -681,15 +683,21 @@ class VectorIndexInMemoryPqTest
 
             internal.backgroundTaskManager.drainQueue();
 
-            // Every entity, not a sample: a lost ordinal is the failure this is looking for, and it
-            // would be one entity among a thousand.
+            // Graph membership, not search results. "Lost" is a question about the graph, and a
+            // top-k search cannot answer it: a node that is present but ranked out of the window
+            // looks identical to one that is gone, so the assertion would report a loss for a
+            // recall wobble and depend on approximate traversal to prove an exact property.
+            // Recall has a test of its own, with a floor, in recallStaysHighAfterTheSwitch.
+            //
+            // Every ordinal, not a sample: one lost entity among a thousand is the failure here.
+            final OnHeapGraphIndex graph = publishedGraph(internal);
             for(int i = 0; i < ids.size(); i++)
             {
-                assertTrue(topK(index, vectors.get(i), 10).contains(ids.get(i)),
-                    "entity " + i + " is not in the graph the switch published, so a graph update"
-                        + " queued across the switch was lost");
+                final int ordinal = Math.toIntExact(ids.get(i));
+                assertTrue(graph.containsNode(ordinal) && !graph.getDeletedNodes().get(ordinal),
+                    "entity " + i + " (ordinal " + ordinal + ") is not a live node of the graph the"
+                        + " switch published, so a graph update queued across the switch was lost");
             }
-
         }
     }
 
@@ -1051,6 +1059,30 @@ class VectorIndexInMemoryPqTest
         for(int q = 0; q < count; q++)
         {
             index.search(nearVector(random, vectors.get(random.nextInt(vectors.size()))), 10);
+        }
+    }
+
+    /**
+     * The graph the index is currently serving, read directly rather than inferred from searches.
+     * <p>
+     * Reflection because the field is private, and private is right for it - this is the one test
+     * that needs to assert graph membership exactly, and that does not justify widening the
+     * production surface. Nothing else here reaches past the public API.
+     *
+     * @param index the index to read
+     * @return its current in-memory graph
+     */
+    private static OnHeapGraphIndex publishedGraph(final VectorIndex.Default<Doc> index)
+    {
+        try
+        {
+            final Field field = VectorIndex.Default.class.getDeclaredField("index");
+            field.setAccessible(true);
+            return (OnHeapGraphIndex)field.get(index);
+        }
+        catch(final ReflectiveOperationException e)
+        {
+            throw new AssertionError("cannot read the index's graph", e);
         }
     }
 
