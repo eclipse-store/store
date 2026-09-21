@@ -1010,6 +1010,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * read outside that lock sees something current rather than stale.
          */
         private transient volatile boolean                closed           ;
+
+        /**
+         * Whether a codebook was trained outside a persist and has not been written yet.
+         * <p>
+         * {@code trainCompressionIfNeeded()} exists so a caller can pay the training cost at a
+         * moment of their choosing. That leaves the state a persist would normally produce for
+         * itself already made, and both of the questions the clean-incremental shortcut asks then
+         * answer the wrong way: this persist trained nothing, and nothing is pending either,
+         * because the manager is trained. The shortcut would skip the write that has to put the
+         * codebook on disk, and the index would report compression as active while the graph did
+         * not carry it.
+         * <p>
+         * Cleared once a persist has actually written, not merely once one has started: a persist
+         * that fails leaves the codebook exactly as stranded as before, so the next one has to try
+         * again.
+         */
+        private transient volatile boolean                compressionTrainedOutsidePersist;
         private transient ConcurrentLinkedQueue<Runnable> deferredBuilderOps;
 
         // Test-only seam: run once at the start of persist Phase 2 (parentMap monitor released,
@@ -3438,6 +3455,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         skipPersist = this.incrementalMode
                             && this.isIncrementalClean()
                             && !trainedForThisPersist
+                            && !this.compressionTrainedOutsidePersist
                             && (onShutdown || !(this.isPqTrainingPending() || this.isNvqTrainingPending()))
                         ;
                     }
@@ -3581,6 +3599,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     capturedBuilder.cleanup();
                     capturedDiskMgr.writeIndex(
                         capturedIndex, capturedRavv, capturedPqMgr, capturedNvqMgr, capturedMeta);
+
+                    // Whatever was trained ahead of this persist is on disk now. Cleared here
+                    // rather than at the skip check, so that a persist which fails on the way
+                    // leaves the flag standing and the next one still knows there is a codebook
+                    // waiting to be written.
+                    this.compressionTrainedOutsidePersist = false;
 
                     // After writing, re-enter incremental mode for fast subsequent operation
                     this.reenterIncrementalMode(capturedMeta);
@@ -3954,6 +3978,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 this.ensureIndexInitialized();
                 this.pqManager.trainIfNeeded();
+
+                // Remembered, because a persist cannot infer it. Training here satisfies the
+                // pending check that the clean-incremental shortcut consults, so without this the
+                // next persist would skip the write and leave the codebook in heap - see the field.
+                if(this.pqManager.isTrained())
+                {
+                    this.compressionTrainedOutsidePersist = true;
+                }
             }
         }
 

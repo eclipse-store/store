@@ -161,6 +161,73 @@ class VectorIndexPersistTrainingTest
     }
 
     /**
+     * A codebook trained through the deprecated API must reach the disk as well.
+     * <p>
+     * {@code trainCompressionIfNeeded()} exists so a caller can pay the training cost at a moment
+     * of their choosing rather than inside a persist. Doing so leaves the state a persist would
+     * otherwise produce already made, and both questions the clean-incremental shortcut asks then
+     * answer the wrong way round: this persist trained nothing, and nothing is pending either,
+     * since the manager is trained. The shortcut skipped the write, the codebook stayed in heap,
+     * and every later persist skipped for the same reason - so the index reported compression as
+     * active while the graph on disk did not carry it.
+     * <p>
+     * The same defect as {@link #aPersistThatTrainsAlsoWrites}, reached through the other door.
+     * Measured the same way, on the graph file, because that is the artifact the next process
+     * loads.
+     *
+     * @param dir the temporary storage directory
+     */
+    @Test
+    @Timeout(value = 600, unit = TimeUnit.SECONDS)
+    void aCodebookTrainedThroughTheDeprecatedApiIsAlsoWritten(@TempDir final Path dir) throws Exception
+    {
+        final Path storageDir = dir.resolve("storage");
+        final Path indexDir   = dir.resolve("index");
+        final Path graphFile  = indexDir.resolve("embeddings.graph");
+
+        final Random random = new Random(2024);
+
+        // Session one: fill and close. The shutdown persist writes the graph without training.
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc> map = GigaMap.New();
+            storage.setRoot(map);
+            map.index().register(VectorIndices.Category())
+                .add("embeddings", fusedPqOnDisk(indexDir), new Vz());
+            for(int i = 0; i < COUNT; i++)
+            {
+                map.add(new Doc("d" + i, unit(random)));
+            }
+            storage.storeRoot();
+        }
+
+        final long uncompressedSize = Files.size(graphFile);
+
+        // Session two: train through the deprecated API first, then persist. Nothing has changed
+        // in the data, so the only reason to write is the codebook that call produced.
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc>     map   = storage.root();
+            final VectorIndex<Doc> index = map.index()
+                .get(VectorIndices.Category())
+                .get("embeddings")
+            ;
+
+            ((VectorIndex.Internal<Doc>)index).trainCompressionIfNeeded();
+            assertTrue(index.isPqCompressionActive(),
+                "the deprecated call must have trained a codebook, or this test proves nothing");
+
+            index.persistToDisk();
+        }
+
+        final long afterSize = Files.size(graphFile);
+        assertTrue(afterSize > uncompressedSize,
+            "the graph did not grow (" + uncompressedSize + " -> " + afterSize + " bytes), so the"
+                + " codebook trained through the deprecated API was never written and the index"
+                + " reports compression it does not have on disk");
+    }
+
+    /**
      * A persist that trains a codebook must also write it.
      * <p>
      * The decision to skip a persist is made on the same "is training pending" predicates that
