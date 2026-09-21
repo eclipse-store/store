@@ -3313,7 +3313,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return; // No-op for in-memory indices
             }
 
-            this.trainCompressorsBeforeLocking(onShutdown);
+            final boolean trainedForThisPersist = this.trainCompressorsBeforeLocking(onShutdown);
 
             // Signal sync-mode mutations to defer builder ops during cleanup + disk write.
             this.cleanupInProgress = true;
@@ -3351,6 +3351,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     {
                         skipPersist = this.incrementalMode
                             && this.isIncrementalClean()
+                            && !trainedForThisPersist
                             && (onShutdown || !(this.isPqTrainingPending() || this.isNvqTrainingPending()))
                         ;
                     }
@@ -3543,28 +3544,37 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * the exception is logged and the attempt recorded, and the write proceeds.
          *
          * @param onShutdown whether this persist is the shutdown persist
+         * @return whether this call trained something that is not on disk yet, which the caller
+         *         needs in order not to skip the persist that has to write it
          */
-        private void trainCompressorsBeforeLocking(final boolean onShutdown)
+        private boolean trainCompressorsBeforeLocking(final boolean onShutdown)
         {
             if(onShutdown || (this.pqManager == null && this.nvqManager == null))
             {
-                return;
+                return false;
             }
 
-            final List<VectorFloat<?>> trainingSample;
-            final boolean              needPq        ;
-            final boolean              needNvq       ;
+            final List<VectorFloat<?>>  trainingSample;
+            final boolean               needPq        ;
+            final boolean               needNvq       ;
+            final PQCompressionManager  pq            ;
+            final NVQCompressionManager nvq           ;
             synchronized(this.parentMap())
             {
                 this.ensureIndexInitialized();
 
                 // The managers are re-created by ensureIndexInitialized, so re-read them rather than
-                // trusting the references tested above.
-                needPq  = this.pqManager  != null && this.isPqTrainingPending() ;
-                needNvq = this.nvqManager != null && this.isNvqTrainingPending();
+                // trusting the references tested above - and hold on to what is read, because the
+                // training below runs with the monitor released. internalRemoveAll and close take
+                // the write lock without this monitor and null both fields, so reading them again
+                // down there is a NullPointerException in the middle of a persist.
+                pq      = this.pqManager ;
+                nvq     = this.nvqManager;
+                needPq  = pq  != null && this.isPqTrainingPending() ;
+                needNvq = nvq != null && this.isNvqTrainingPending();
                 if(!needPq && !needNvq)
                 {
-                    return;
+                    return false;
                 }
 
                 // ONE collection feeds both managers. Collecting per manager would walk the whole
@@ -3592,7 +3602,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 try
                 {
-                    this.nvqManager.trainFrom(trainingSample);
+                    nvq.trainFrom(trainingSample);
                 }
                 catch(final RuntimeException e)
                 {
@@ -3604,7 +3614,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 try
                 {
-                    this.pqManager.trainFrom(trainingSample);
+                    pq.trainFrom(trainingSample);
                 }
                 catch(final RuntimeException e)
                 {
@@ -3616,8 +3626,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // Remember the state a failed attempt happened at, so the pending checks stop forcing a
             // full rebuild on every subsequent idle persist and only re-arm once data changes.
-            final boolean pqStillUntrained  = needPq  && !this.pqManager.isTrained() ;
-            final boolean nvqStillUntrained = needNvq && !this.nvqManager.isTrained();
+            final boolean pqStillUntrained  = needPq  && !pq.isTrained() ;
+            final boolean nvqStillUntrained = needNvq && !nvq.isTrained();
             if(pqStillUntrained || nvqStillUntrained)
             {
                 synchronized(this.parentMap())
@@ -3633,6 +3643,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     }
                 }
             }
+
+            // Whatever was trained here exists only in heap. The caller decides whether to skip the
+            // persist, and it decides on the same pending predicates this method has just turned
+            // false - so without this an idle, incremental-clean index would train a codebook and
+            // then skip the write that is the entire reason it trained, leaving the feature
+            // unpersisted for as long as nothing else changes.
+            return (needPq && !pqStillUntrained) || (needNvq && !nvqStillUntrained);
         }
 
         private boolean isPqTrainingPending()
