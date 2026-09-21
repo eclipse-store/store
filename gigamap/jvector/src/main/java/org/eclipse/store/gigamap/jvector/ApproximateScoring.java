@@ -40,11 +40,24 @@ package org.eclipse.store.gigamap.jvector;
 public enum ApproximateScoring
 {
     /**
-     * No approximate scoring: traversal scores candidates directly from whatever
-     * {@link VectorStorage} the graph carries.
+     * No <i>separate</i> structure for approximate scoring: nothing is added to the graph for
+     * traversal to score from, so where the scores come from is decided by {@link VectorStorage}
+     * alone - and the two storage modes differ in both cost and candidate selection.
+     * <ul>
+     *   <li><b>With {@link VectorStorage#INLINE}:</b> traversal scores exactly, reading each
+     *       candidate's full-precision vector from the GigaMap. One lookup per candidate, and no
+     *       candidate is ever missed to quantization. This pairing is the only one that is exact
+     *       all the way through, which is why it is the maximum-recall configuration.</li>
+     *   <li><b>With {@link VectorStorage#NVQ}:</b> traversal scores from the graph's own quantized
+     *       vectors, so it is approximate after all despite the name of this constant. Cheaper per
+     *       hop, since nothing is read from the GigaMap until reranking, but quantization error
+     *       changes which candidates are visited - and one that is never reached is one reranking
+     *       cannot recover.</li>
+     * </ul>
+     * Reranking is exact either way, against the full-precision vectors in the GigaMap, so the
+     * scores and the ordering returned are exact under both.
      * <ul>
      *   <li><b>Cost:</b> nothing is added to the graph</li>
-     *   <li><b>Per hop:</b> one read per candidate, from the node's own stored vector</li>
      * </ul>
      * <b>Best for:</b>
      * <ul>
