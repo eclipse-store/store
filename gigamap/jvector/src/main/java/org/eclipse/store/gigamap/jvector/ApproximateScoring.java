@@ -92,13 +92,19 @@ public enum ApproximateScoring
     FUSED_PQ(2),
 
     /**
-     * Product Quantization codes held in memory, in a sidecar file beside the graph rather than
-     * fused into it.
+     * Product Quantization codes held in heap rather than fused into the graph.
      * <ul>
-     *   <li><b>Cost:</b> nothing is added to the graph; {@code pqSubspaces} bytes per ordinal in a
-     *       sidecar file, and the same again resident in heap while the index is open</li>
+     *   <li><b>Cost:</b> nothing is added to the graph; {@code pqSubspaces} bytes per ordinal
+     *       resident in heap while the index is open, plus the same again on disk for an on-disk
+     *       index, which persists them in a {@code .pqv} sidecar</li>
      *   <li><b>Per hop:</b> candidates are scored from the in-heap codes, with no disk read at all</li>
      * </ul>
+     * <b>Where the codes come from depends on the index.</b> An on-disk index writes them beside the
+     * graph at persist time and reads them back at load. An <i>in-memory</i> index has no persist to
+     * hang that on, so there is no sidecar at all: it builds the codes in heap during optimization,
+     * which is also when it switches from exact to compressed scoring, and rebuilds them the same
+     * way after a restart. That is why this mode requires a scheduled optimization when
+     * {@link VectorIndexConfiguration#onDisk()} is false.
      * The same approximate scoring as {@link #FUSED_PQ}, bought differently. Fusing duplicates each
      * node's code into every neighbour that references it, which costs
      * {@code pqSubspaces * maxDegree} bytes per node <i>on disk</i>; holding the codes in one flat

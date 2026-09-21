@@ -222,7 +222,9 @@ Sequentially NVQ costs about 3x the persist time. Under the parallel writer that
 
 === PQ_IN_MEMORY: The Same Codes, Kept Out of the Graph
 
-`FUSED_PQ` and `PQ_IN_MEMORY` buy the same approximate traversal and differ only in where the codes live. Fusing writes each node's code into every neighbour that references it, so the cost is `pqSubspaces * maxDegree` bytes per node *on disk*. Keeping them in a sidecar costs `pqSubspaces` bytes per ordinal *once*, in a `{indexName}.pqv` file that is read into heap when the index loads.
+`FUSED_PQ` and `PQ_IN_MEMORY` buy the same approximate traversal and differ only in where the codes live. Fusing writes each node's code into every neighbour that references it, so the cost is `pqSubspaces * maxDegree` bytes per node *on disk*. Keeping them out of the graph costs `pqSubspaces` bytes per ordinal *once*, in heap.
+
+NOTE: This section describes `PQ_IN_MEMORY` on an **on-disk** index, where the codes are persisted in a `{indexName}.pqv` sidecar and read back into heap on load. An in-memory index has no persist and therefore no sidecar at all; it builds the codes at optimization instead. See <<_compressed_scoring_for_an_in_memory_index>>.
 
 At `dimension=768`, `maxDegree=32` and the automatic `pqSubspaces` of 192, that is 6,144 bytes per node of graph file against 192 bytes per ordinal of heap. Per ordinal rather than per vector because the codes are indexed by entity id, so a deletion hole still costs its bytes -- the IMPORTANT note below puts numbers on that.
 
@@ -244,11 +246,41 @@ IMPORTANT: The heap cost is linear and has no ceiling. It is `pqSubspaces` bytes
 
 ==== The Third File
 
-`PQ_IN_MEMORY` adds `{indexName}.pqv` beside the graph and the metadata. It is written first and the metadata last, so the metadata only becomes visible once everything it describes is in place; a crash at any earlier point leaves a stale metadata file, which is rejected on load and self-heals from the store.
+On an on-disk index, `PQ_IN_MEMORY` adds `{indexName}.pqv` beside the graph and the metadata. It is written first and the metadata last, so the metadata only becomes visible once everything it describes is in place; a crash at any earlier point leaves a stale metadata file, which is rejected on load and self-heals from the store.
 
 A missing or unreadable sidecar is treated the same way. The index is *not* served without it: the metadata says this index traverses on PQ codes, and quietly scoring it exactly instead would make the configuration untrue. Rejecting rebuilds from the store, which restores the graph and the sidecar together.
 
 The codebook lives in the sidecar too. A fused graph carries it in the graph header, but this mode writes no fused feature, so the sidecar is the only copy.
+
+[[_compressed_scoring_for_an_in_memory_index]]
+==== Compressed Scoring for an In-Memory Index
+
+`PQ_IN_MEMORY` is the one *PQ-based* scoring mode an in-memory index can use - `NONE`, the default, stays available and is what an index uses until it switches. Everything above about the `.pqv` sidecar applies to on-disk indices only: there is no persist here, so there is no file, and the codes live in heap for as long as the index is open. It is worth having there: profiling an in-memory index shows about 2,000 vector lookups per insertion during construction, and well over a thousand distinct lookups per query during search. The per-query cache dedupes repeat visits to the same node, but not the distinct ones, and both counts grow with the data set. Scoring from in-heap codes removes them.
+
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+    // Required here: the switch to compressed scoring happens at optimization
+    .optimizationIntervalMs(600_000)
+    // And the optimization has to actually run: the background manager skips one until this many
+    // changes have accumulated, and the default of 1000 would strand an index of a few hundred
+    // vectors on exact scoring for good.
+    .minChangesBetweenOptimizations(100)
+    .build();
+----
+
+An index cannot start compressed. The graph builder takes its scoring strategy at construction and a codebook needs at least 256 vectors, so the switch is necessarily a rebuild: train, encode every live ordinal, construct a fresh builder against the codes, and replay the nodes into it. That is O(n), so it happens at optimization -- which already pays an O(n) cost -- and nowhere else. Triggering it from a mutation would put a full retrain and rebuild inside whichever `add` happened to cross the threshold.
+
+That is why `optimizationIntervalMs` must be set for this mode. Without a scheduled optimization there is no point at which the switch could happen, so the configuration would be accepted and then silently never take effect; it is rejected at build time instead. `isPqCompressionActive()` reports which side of the switch the index is on.
+
+The switch holds the GigaMap's lock for its duration, so writes to the map wait for it while searches continue against the pre-switch graph. It is the same exclusion a `removeAll()` or an on-disk persist takes, and it happens at most once per index generation -- but on a large index it is an O(n) rebuild, so schedule optimization accordingly.
+
+An index restored from storage is a special case: its entities are already in the store, so nothing bumps the change count and a scheduled optimization would be skipped forever. Its first one is therefore armed automatically, regardless of `minChangesBetweenOptimizations`. A newly created index is not armed -- its entities arrive afterwards and each one counts -- so the threshold applies there in full.
+
+WARNING: Construction under compressed scoring does no reranking, so graph quality can drop relative to an exactly built graph. Measured recall stays above 0.90 on clustered data at the default beam width, but raise `beamWidth` for this mode if your own measurements come in lower.
 
 [[_two_phase_search]]
 === Two-Phase Search with Reranking

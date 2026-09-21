@@ -853,6 +853,21 @@ builderLock.writeLock {           // still exclusive against searches/applies
 }
 ```
 
+### The in-memory PQ switch: monitor only
+
+`performPqSwitch()` (optimize, `PQ_IN_MEMORY` without `onDisk`) is the one O(n) step that runs entirely inside the monitor block and takes **no** `builderLock` at all — the same posture as `ensureGraphRebuilt()`, and safe for the same reason: a thread holding only the monitor waits for no lock a write-lock holder needs, so it cannot sit in a monitor/`builderLock` cycle. Its replacement builder scores from PQ codes rather than the GigaMap, so its workers never call `parentMap.get()` either.
+
+Two consequences follow, and both are deliberate:
+
+- **The replaced builder and graph are not closed.** Searches hold `builderLock.readLock()` and never the monitor, so one can be traversing the old graph at the instant it is replaced. They are heap objects; the garbage collector takes them.
+- **The background indexing worker is not excluded, but each callback must stay within one generation.** Its callbacks take the read lock only, so one can run throughout. What makes that safe is that every callback was enqueued by a mutation that had already applied to the GigaMap *under the monitor*, so the snapshot the switch takes already reflects it: a callback still holding the old builder writes a change the replacement already has, into a graph that is not closed, and one that finds the replacement re-adds an ordinal it already carries, which the idempotent path tolerates.
+
+  That argument only holds per generation, so **every callback reads `builder` exactly once and derives its graph from that reference** (`graphOf(currentBuilder)`), never from the `index` field. A callback that read the two separately could straddle the publication - `applyGraphUpdate` would mark the node deleted in the graph being abandoned and then add the same ordinal to the replacement, which throws `Node already exists`.
+
+A teardown is the one thing the monitor does not exclude: `close()` and `internalRemoveAll` take the write lock, and `close()` does not take the monitor at all. The switch therefore captures the builder it was planned against and checks it is still the index's own immediately before publishing, so a replacement built for an index that has since been torn down is dropped rather than resurrecting it over closed searcher pools.
+
+Publication order is **codes, then graph, then builder** — all `volatile`. The codes lead because the replacement builder cannot be used without them: it scores every incoming node against the code store, and `trackPqCode` is a no-op while there are none, so a callback that reached the new builder first would insert a node with no code of its own and link it by a code that is not there. Nothing else has that dependency — codes are keyed by ordinal and both graphs carry the same ordinals, so codes visible before the graph are already correct for the graph still in place. The cost is that `isPqCompressionActive()` and the search path, which read the codes with no lock, can see them a few instructions early; that reports nothing untrue, because at that moment a search really would score from them, and correctly.
+
 ### `cleanupInProgress` / `deferredBuilderOps` protocol
 
 Synchronous mutations (`internalAdd` etc.) hold the `parentMap` monitor and can't take `builderLock` (lock-ordering rule). Instead:
