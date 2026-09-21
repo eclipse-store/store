@@ -27,6 +27,8 @@ import java.nio.file.Path;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -76,6 +78,22 @@ class VectorIndexPersistTrainingTest
         return v;
     }
 
+    /** As {@link #fusedPqOnDisk(Path)}, but with a background manager there is to resurrect. */
+    private static VectorIndexConfiguration fusedPqOnDiskWithBackgroundWork(final Path indexDir)
+    {
+        return VectorIndexConfiguration.builder()
+            .dimension(DIM)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(16)
+            .beamWidth(100)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .approximateScoring(ApproximateScoring.FUSED_PQ)
+            .pqSubspaces(DIM / 4)
+            .optimizationIntervalMs(3_600_000)
+            .build();
+    }
+
     private static VectorIndexConfiguration fusedPqOnDisk(final Path indexDir)
     {
         return VectorIndexConfiguration.builder()
@@ -88,6 +106,58 @@ class VectorIndexPersistTrainingTest
             .approximateScoring(ApproximateScoring.FUSED_PQ)
             .pqSubspaces(DIM / 4)
             .build();
+    }
+
+    /**
+     * A persist that arrives after {@code close()} must not rebuild the index it finds torn down.
+     * <p>
+     * Training runs before {@code doPersistToDisk} takes any lock, and it can take tens of seconds,
+     * so a {@code close()} that starts later can finish first: it shuts the background task manager
+     * down, tears the transient state down under the write lock, and returns. The persist then
+     * takes the lock and, without a guard, calls {@code ensureIndexInitialized()} - which rebuilds
+     * the builder, the disk manager and a <i>fresh background task manager</i>, whose executor
+     * thread nothing will ever shut down again, because the caller does not re-check the field.
+     * <p>
+     * Driven sequentially rather than as a race. The guarantee is not a matter of timing: close
+     * writes the closed flag under the write lock and the persist reads it under the same lock, so
+     * the two cannot interleave, and either order ends with the index closed. Asserting on the
+     * sequential order tests exactly the guard, and deterministically.
+     *
+     * @param dir the temporary storage directory
+     */
+    @Test
+    @Timeout(value = 300, unit = TimeUnit.SECONDS)
+    void aPersistAfterCloseDoesNotResurrectTheIndex(@TempDir final Path dir) throws Exception
+    {
+        final Path indexDir = dir.resolve("index");
+        final Random random = new Random(1234);
+
+        final GigaMap<Doc> map = GigaMap.New();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("embeddings", fusedPqOnDiskWithBackgroundWork(indexDir), new Vz());
+        for(int i = 0; i < COUNT; i++)
+        {
+            map.add(new Doc("d" + i, unit(random)));
+        }
+
+        index.persistToDisk();
+
+        final VectorIndex.Default<Doc> internal = (VectorIndex.Default<Doc>)index;
+        assertNotNull(internal.backgroundTaskManager,
+            "the configuration must actually run a background manager, or this test cannot tell"
+                + " a resurrected index from a closed one");
+
+        index.close();
+
+        assertNull(internal.backgroundTaskManager,
+            "close must leave no background task manager behind");
+
+        // The call the race amounts to, arriving after the teardown.
+        index.persistToDisk();
+
+        assertNull(internal.backgroundTaskManager,
+            "the persist rebuilt the index after it was closed, so its executor thread now outlives"
+                + " close() with nothing left to shut it down");
     }
 
     /**

@@ -996,6 +996,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // this flag instead. The synchronized(parentMap) barrier in optimize()/persistToDisk()
         // ensures any in-flight mutation completes before cleanup begins.
         private transient volatile boolean                cleanupInProgress;
+
+        /**
+         * Whether {@link #close()} has torn this index down for good.
+         * <p>
+         * Distinct from simply having no transient state: {@code internalRemoveAll} also closes
+         * everything and then rebuilds it, and an index that has never been used has nothing yet
+         * either. Both of those should still initialise on demand. A closed one must not, and
+         * nothing else can tell the three apart.
+         * <p>
+         * Written and read under {@code builderLock.writeLock()}, which is where its guarantee
+         * comes from rather than from being volatile - see {@link #close()}. Volatile as well so a
+         * read outside that lock sees something current rather than stale.
+         */
+        private transient volatile boolean                closed           ;
         private transient ConcurrentLinkedQueue<Runnable> deferredBuilderOps;
 
         // Test-only seam: run once at the start of persist Phase 2 (parentMap monitor released,
@@ -3328,6 +3342,24 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.builderLock.writeLock().lock();
                 try
                 {
+                    // First, because everything below either reads state this index no longer has
+                    // or recreates it. Training above runs before any lock is taken and can take
+                    // tens of seconds, so a close that began after this persist did can have
+                    // completed in the meantime: it shut the background task manager down, tore
+                    // the transient state down under this same lock, and returned. Carrying on
+                    // would call ensureIndexInitialized() and rebuild all of it, leaving a closed
+                    // index with a live builder and a fresh executor thread that nothing will ever
+                    // shut down again - the caller does not re-check the field.
+                    //
+                    // Reading it here rather than before the lock is the whole point: close writes
+                    // it under this lock, so the two cannot interleave.
+                    if(this.closed)
+                    {
+                        LOG.debug("Index '{}' was closed while this persist was preparing, skipping"
+                            + " it rather than resurrecting the index", this.name);
+                        return;
+                    }
+
                     // If incremental mode with no changes, skip persist entirely.
                     //
                     // Exception: an index that wants PQ but has no codebook yet still has work to
@@ -3991,6 +4023,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             try
             {
                 this.closeInternalResources();
+
+                // Set under the write lock, which is what makes it mean anything. doPersistToDisk
+                // trains before taking any lock and only then locks and re-initialises, so a
+                // persist that started before this close can arrive afterwards and rebuild
+                // everything torn down above - background task manager included. Both sides touch
+                // this flag while holding this lock, so either the persist reads it and stops, or
+                // it holds the lock first and this close waits for it to finish.
+                this.closed = true;
             }
             finally
             {
