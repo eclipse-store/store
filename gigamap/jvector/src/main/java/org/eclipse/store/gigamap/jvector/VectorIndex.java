@@ -4044,6 +4044,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // it ever switching again.
             this.inMemoryPqVectors = null;
 
+            // And so does being a restored index. What comes back from internalRemoveAll is a new,
+            // empty generation whose entities arrive afterwards and are counted like any other
+            // index's, so it earns its optimizations the ordinary way. Left set, it would keep
+            // claiming the carve-out for an index that cannot earn one, and a refill past the
+            // training minimum could switch on a scheduled tick without ever reaching
+            // minChangesBetweenOptimizations.
+            this.restoredFromStorage = false;
+
             if(this.builder != null)
             {
                 try

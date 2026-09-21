@@ -461,6 +461,71 @@ class VectorIndexInMemoryPqTest
     }
 
     /**
+     * Emptying a restored index ends the generation that was restored.
+     * <p>
+     * {@code removeAll} tears the index down and re-initialises it, and what comes back is a new,
+     * empty index. Its entities arrive afterwards and are counted like any other index's, so from
+     * that point it earns its optimizations the ordinary way. If it kept claiming to be restored it
+     * would keep claiming the carve-out for an index that cannot earn one, and a refill past the
+     * codebook's training minimum could switch on a scheduled tick while still nowhere near
+     * {@code minChangesBetweenOptimizations}.
+     * <p>
+     * The refill here is 300 entities against a threshold of 50,000, so any scheduled optimization
+     * at all is one that was not earned.
+     *
+     * @param dir the temporary storage directory
+     */
+    @Test
+    @Timeout(value = 300, unit = TimeUnit.SECONDS)
+    void emptyingARestoredIndexEndsItsClaimOnAnUnearnedOptimization(@TempDir final Path dir)
+        throws InterruptedException
+    {
+        final Random        random  = new Random(27182);
+        final List<float[]> vectors = clusteredVectors(random, 300);
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(dir))
+        {
+            final GigaMap<Doc> map = GigaMap.New();
+            storage.setRoot(map);
+            map.index().register(VectorIndices.Category())
+                .add("embeddings", tickingInMemoryPqConfig(), new CountingVectorizer());
+            for(int i = 0; i < vectors.size(); i++)
+            {
+                map.add(new Doc("d" + i, vectors.get(i)));
+            }
+            storage.storeRoot();
+        }
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(dir))
+        {
+            final GigaMap<Doc>     map   = storage.root();
+            final VectorIndex<Doc> index = map.index()
+                .get(VectorIndices.Category())
+                .get("embeddings")
+            ;
+
+            // Ends the restored generation before it can be used, so the carve-out never fires for
+            // it and what follows is only ever about the new one.
+            map.removeAll();
+
+            for(int i = 0; i < vectors.size(); i++)
+            {
+                map.add(new Doc("r" + i, vectors.get(i)));
+            }
+
+            // Several tick intervals.
+            Thread.sleep(6_000L);
+
+            final VectorIndex.Default<Doc> internal = (VectorIndex.Default<Doc>)index;
+            assertEquals(0L, internal.backgroundTaskManager.getOptimizationCount(),
+                "a scheduled optimization ran for an index that was emptied and refilled, so it was"
+                    + " still claiming the restored carve-out for a generation that never was");
+            assertFalse(index.isPqCompressionActive(),
+                "and it must not have switched: 300 changes against a threshold of 50000");
+        }
+    }
+
+    /**
      * The mode is on-disk-free but not optimization-free: without a scheduled optimization there is
      * no point at which the switch could happen, so the configuration would be accepted and then
      * silently never take effect. That is rejected rather than allowed.

@@ -138,7 +138,12 @@ record GraphFormat(
         {
             return 0;
         }
-        return this.pqSubspaces > 0 ? this.pqSubspaces : dimension / 4;
+        // Clamped to one, exactly as PQCompressionManager resolves the same sentinel. A dimension
+        // below four is legal - the builder asks only that it be positive - and plain division
+        // gives zero there, so the manager would encode one byte per vector while the metadata
+        // recorded none. sidecarFitsTheGraph compares the two, so such an index would reject its
+        // own sidecar and rebuild on every single load.
+        return this.pqSubspaces > 0 ? this.pqSubspaces : Math.max(1, dimension / 4);
     }
 
     /**

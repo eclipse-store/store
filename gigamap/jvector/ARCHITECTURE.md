@@ -763,22 +763,26 @@ Bumping the version invalidates existing files; they are silently rebuilt from `
 
 ### Write path
 
-`DiskIndexManager.writeIndex(index, ravv, pqManager, metaState)`:
+`DiskIndexManager.writeIndex(index, ravv, pqManager, nvqManager, metaState)`:
 
 1. `Files.createDirectories(indexDirectory)`.
-2. If `pqManager != null && pqManager.isTrained() && pqManager.getPQ() != null` → `writeIndexWithFusedPQ` (parallel or sequential depending on `parallelOnDiskWrite`). The codebook is trained in persist Phase 1, so this branch is reachable from production — previously nothing trained it and the `else` was always taken.
-3. Otherwise → `OnDiskGraphIndex.write(index, ravv, identityOrdinalMap(index), graphPath)` (simple, no compression; identity map keeps on-disk node ids equal to graph ordinals).
-4. `writeMetadata(metaPath, metaState)` — stamps the `expectedVectorCount`, `highestEntityId`, and `structuralModCount` **captured in persist Phase 1** (the `DiskIndexManager.MetaState` sampled under the `parentMap` monitor next to `capturedIndex`), NOT re-read live from the `IndexStateProvider` — Phase 2 runs with the monitor released, so a live read could let a concurrent vec↔null mutation advance the witnesses past the written graph and reopen the crash-restart hole. The `.meta` layout is: `int version`, `int dimension`, `long expectedVectorCount`, `long highestEntityId`, `long structuralModCount`, then the four configuration fields added in v5 - see the full layout in section 10, which is authoritative for it. On load, `verifyMetadata` (which still reads the `IndexStateProvider` live — it compares the persisted witness against the freshly-loaded store state) rejects the disk graph — forcing a rebuild from source — if any of these diverges; `structuralModCount` is what catches a vec↔null transition that left count/highestId unchanged.
+2. Resolve what this write can actually produce. A manager is non-null only when its dimension is configured on, and reports trained only once it holds a quantizer, so `pq` and `nvq` are exactly the available features. A configured-but-untrained manager writes the graph without its feature; the meta still records the *configured* mode, and the query path gates on the loaded graph's own feature set rather than on the meta.
+3. Split the PQ codebook by scoring mode — `fusedPq` when the format fuses, `sidecarPq` when it keeps codes in heap. Only one is ever non-null, since the two modes are alternatives.
+4. If `sidecarPq != null` → `writePqSidecar(ravv, sidecarPq, pqvTempPath, structuralModCount)`. The codebook travels in the sidecar, because this mode writes no fused feature and the graph header therefore carries none. The trailer stamps the generation witness.
+5. If `fusedPq == null && nvq == null` → `OnDiskGraphIndex.write(index, ravv, identityOrdinalMap(index), graphTempPath)`. The feature-less fast path, kept separate so the overwhelmingly common configuration keeps producing byte-identical files to those written before the format became configurable. The identity map (not the default sequential renumbering) keeps on-disk node ids equal to graph ordinals, which are source entity ids.
+6. Otherwise → `writeIndexWithFeatures(index, ravv, fusedPq, nvq, graphTempPath)`, which writes whichever of the two features is present, and both when both are (parallel or sequential depending on `parallelOnDiskWrite`).
+7. `writeMetadata(metaTempPath, metaState)` — stamps the `expectedVectorCount`, `highestEntityId`, and `structuralModCount` **captured in persist Phase 1** (the `DiskIndexManager.MetaState` sampled under the `parentMap` monitor next to `capturedIndex`), NOT re-read live from the `IndexStateProvider` — Phase 2 runs with the monitor released, so a live read could let a concurrent vec↔null mutation advance the witnesses past the written graph and reopen the crash-restart hole. The `.meta` layout is: `int version`, `int dimension`, `long expectedVectorCount`, `long highestEntityId`, `long structuralModCount`, then the four configuration fields added in v5 - see the full layout in section 10, which is authoritative for it. On load, `verifyMetadata` (which still reads the `IndexStateProvider` live — it compares the persisted witness against the freshly-loaded store state) rejects the disk graph — forcing a rebuild from source — if any of these diverges; `structuralModCount` is what catches a vec↔null transition that left count/highestId unchanged.
 
 ### Load path
 
 `DiskIndexManager.tryLoad()`:
 
 1. Return `false` if `indexDirectory == null` or files missing.
-2. `verifyMetadata(metaPath)`: read all four fields and compare to current state. Any mismatch → return `false` (caller then rebuilds from source).
+2. `verifyMetadata(metaPath)`: read every field and compare to current state — the content witnesses against the freshly loaded store, and the four configuration fields against this build's own format. Any mismatch, or a storage or scoring code this build does not know, → return `false` (caller then rebuilds from source).
 3. `readerSupplier = ReaderSupplierFactory.open(graphPath)` — memory-mapped.
 4. `diskIndex = OnDiskGraphIndex.load(readerSupplier)`.
-5. `loaded = true`; log `"Loaded disk index '{name}' with {n} nodes"`.
+5. If the format keeps its PQ codes in heap, load the `.pqv` beside the graph and check it fits — code length against the configured subspace count, ordinal span against the highest entity id in use, trailer against the metadata's `structuralModCount`. A sidecar that is missing or does not fit is a rejection rather than a degrade, except below the training threshold where there are no codes to be missing (see the sidecar rules above).
+6. `loaded = true`; log `"Loaded disk index '{name}' with {n} nodes"`.
 
 Any thrown exception is caught, `close()` is called to release resources, and `tryLoad` returns `false`.
 
