@@ -611,7 +611,47 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * @see VectorIndexConfiguration#indexDirectory()
      * @see VectorIndexConfiguration#backgroundPersistence()
      */
-    public void persistToDisk();
+     public void persistToDisk();
+
+    /**
+     * Invalidates the transient in-memory search graph so the next access rebuilds it
+     * from the current stored state.
+     * <p>
+     * This is the supported seam for integrations that update the underlying entity /
+     * vector data behind this index's back — most notably replication or live
+     * binary-import layers (e.g. Eclipse Serializer based graph merging) that apply
+     * remote state to a running graph without going through
+     * {@code add}/{@code update}/{@code set}. In such a scenario the in-memory HNSW
+     * graph would otherwise keep answering queries from the pre-update state: the
+     * persisted data was replaced in place, while the transient graph, which is
+     * deliberately not part of the serialized state, was not.
+     * <p>
+     * This method releases the current in-memory builder and graph, discards any
+     * deferred mutation operations (they were computed against the retired builder
+     * and the pre-update state; the rebuild recomputes them), and clears the
+     * rebuild-once guard. The next {@link #search(float[], int)},
+     * {@code optimize()}, or mutation lazily rebuilds the graph from the stored
+     * vectors, exactly as after a fresh store load (internal #87). Callers must not
+     * rely on query-serving until such an access has run.
+     *
+     * <h4>Locking</h4>
+     * The teardown runs under the builder write lock, mirroring
+     * {@code internalRemoveAll}: concurrent searches, persistence, and background
+     * mutations are excluded. Callers synchronizing on the parent {@code GigaMap}
+     * (the typical replication/merge protocol) can call this directly; the method
+     * never acquires the parent monitor itself, so no monitor/lock ordering cycle
+     * is introduced.
+     *
+     * <h4>On-disk (incremental) mode</h4>
+     * For indices in incremental on-disk mode this operation is currently not
+     * supported: the loaded disk graph would keep serving stale search results, and
+     * retiring it safely requires the full incremental re-entry machinery. Calling
+     * this on such an index fails with an {@link IllegalStateException} rather than
+     * silently half-invalidating.
+     *
+     * @throws IllegalStateException if the index runs in incremental on-disk mode
+     */
+    public void invalidateGraph();
 
     /**
      * Returns whether the index is configured for on-disk storage.
@@ -2669,6 +2709,68 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
+            }
+            finally
+            {
+                this.builderLock.writeLock().unlock();
+            }
+        }
+
+        @Override
+        public void invalidateGraph()
+        {
+            // Acquire write lock to exclude concurrent searches, persist, and
+            // background-worker mutations, mirroring internalRemoveAll().
+            // No synchronized(parentMap) — the caller side of a merge or
+            // replication protocol holds the parent monitor already; this method
+            // must not acquire it itself or it would introduce a
+            // monitor→writeLock vs. persist's writeLock→monitor cycle.
+            this.builderLock.writeLock().lock();
+            try
+            {
+                if(this.incrementalMode)
+                {
+                    throw new IllegalStateException(
+                        "invalidateGraph() is not supported in incremental on-disk mode; "
+                            + "the loaded disk graph would keep serving stale results"
+                    );
+                }
+
+                // Discard deferred ops first: they were computed against the retired
+                // builder and the pre-update store state; the rebuild recomputes
+                // everything from the store. (Same rationale as internalRemoveAll:
+                // replaying them into the rebuilt graph would resurrect entities.)
+                if(this.deferredBuilderOps != null)
+                {
+                    this.deferredBuilderOps.clear();
+                }
+
+                // Same release order as closeInternalResources(), but deliberately
+                // narrower: disk state, PQ codebook, and background managers survive;
+                // only the transient in-memory graph is retired.
+                if(this.builder != null)
+                {
+                    try
+                    {
+                        this.builder.close();
+                    }
+                    catch(final IOException e)
+                    {
+                        throw new RuntimeException("Failed to close index builder", e);
+                    }
+                    this.builder = null;
+                }
+
+                if(this.index != null)
+                {
+                    this.index.close();
+                    this.index = null;
+                }
+
+                // Clear the rebuild guard LAST: the next search/optimize/mutation
+                // sees graphRebuilt == false and re-derives the graph from the
+                // current stored vectors, exactly as after a fresh store load.
+                this.graphRebuilt = false;
             }
             finally
             {
