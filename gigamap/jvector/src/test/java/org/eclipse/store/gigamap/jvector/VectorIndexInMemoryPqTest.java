@@ -15,6 +15,8 @@ package org.eclipse.store.gigamap.jvector;
  */
 
 import io.github.jbellis.jvector.graph.OnHeapGraphIndex;
+import io.github.jbellis.jvector.quantization.MutablePQVectors;
+import io.github.jbellis.jvector.vector.VectorizationProvider;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
@@ -1011,12 +1013,40 @@ class VectorIndexInMemoryPqTest
             // It still pins the code refresh, and more tightly than the bare search did. The
             // rebuild re-links from the codes, so a node whose code was never refreshed would be
             // linked at its old position and stay unreachable from the new one.
+            // Asserted on the codes rather than through a search, because no search can answer
+            // this reliably. An embedded vec->vec update refreshes the node's PQ code and leaves
+            // its edges alone, and optimize() does not put that right: cleanup() prunes and
+            // re-diversifies the neighbourhoods a node already has, it never re-inserts a node at
+            // the position its new vector moved it to. (A persist rebuilds from the store, which
+            // is why the on-disk contract can promise more.)
+            //
+            // That leaves both ways of searching for it useless as evidence. A narrow window
+            // depends on traversal stumbling onto the node through its old neighbours, which is
+            // luck - it failed about once per suite run at k=5, and again at k=25. Widening the
+            // beam until traversal covers the graph fixes the flake and destroys the test: with
+            // every node visited, the exact reranking pass reads the live vector from the GigaMap
+            // and returns the entity correctly whether its code was refreshed or not.
+            //
+            // The code store is where the claim actually lives, so it is what gets asserted. The
+            // updated ordinal must score best of all ordinals for a query at its new vector, which
+            // is true only if its code encodes that vector.
             final long updated = ids.get(3);
             final float[] replacement = randomUnit(new Random(9191));
             map.set(updated, new Doc("d3-updated", replacement));
             index.optimize();
-            assertTrue(topK(index, replacement, 5).contains(updated),
-                "an updated vector must be findable by its new embedding");
+
+            final double updatedScore = approximateScore(index, replacement, Math.toIntExact(updated));
+            for(final long other : ids)
+            {
+                if(other == updated)
+                {
+                    continue;
+                }
+                assertTrue(updatedScore > approximateScore(index, replacement, Math.toIntExact(other)),
+                    "ordinal " + other + " scores at least as well as the updated one for the"
+                        + " updated vector, so the updated node is still encoded by the embedding"
+                        + " it used to have");
+            }
         }
     }
 
@@ -1055,11 +1085,15 @@ class VectorIndexInMemoryPqTest
             assertFalse(topK(index, fresh, 5).contains(freshId), "control: removed not returned");
 
             // Same sequence, same rebuild, so the two remain comparable.
+            // The exact index has no codes to assert on - it scores from the GigaMap, so an update
+            // is in effect the moment map.set returns. A graph-spanning beam width is meaningful
+            // here in a way it is not for the compressed case: it shows the entity comes back at
+            // its new vector once traversal is not the limiting factor.
             final long updated = ids.get(3);
             final float[] replacement = randomUnit(new Random(9191));
             map.set(updated, new Doc("d3-updated", replacement));
             index.optimize();
-            assertTrue(topK(index, replacement, 5).contains(updated),
+            assertTrue(idsOf(index.search(replacement, 5, vectors.size())).contains(updated),
                 "control: an updated vector must be findable by its new embedding on an exact index");
         }
     }
@@ -1149,6 +1183,50 @@ class VectorIndexInMemoryPqTest
         {
             throw new AssertionError("cannot read the index's graph", e);
         }
+    }
+
+    /**
+     * The approximate score the published PQ codes give an ordinal for a query.
+     * <p>
+     * Read from the code store directly, because that is the only place a code refresh is visible.
+     * A search reranks exactly against the GigaMap and so reports the same answer either way.
+     *
+     * @param index   the index whose codes to read
+     * @param query   the query vector
+     * @param ordinal the ordinal to score
+     * @return the approximate similarity the codes give that ordinal
+     */
+    private static double approximateScore(
+        final VectorIndex<Doc> index  ,
+        final float[]          query  ,
+        final int              ordinal
+    )
+    {
+        try
+        {
+            final Field field = VectorIndex.Default.class.getDeclaredField("inMemoryPqVectors");
+            field.setAccessible(true);
+            final MutablePQVectors codes = (MutablePQVectors)field.get(index);
+            assertNotNull(codes, "the index has not switched, so there are no codes to read");
+            return codes.precomputedScoreFunctionFor(
+                VectorizationProvider.getInstance().getVectorTypeSupport().createFloatVector(query),
+                io.github.jbellis.jvector.vector.VectorSimilarityFunction.COSINE
+            ).similarityTo(ordinal);
+        }
+        catch(final ReflectiveOperationException e)
+        {
+            throw new AssertionError("cannot read the PQ codes of the index", e);
+        }
+    }
+
+    private static Set<Long> idsOf(final VectorSearchResult<Doc> result)
+    {
+        final Set<Long> ids = new HashSet<>();
+        for(final ScoredSearchResult.Entry<Doc> entry : result)
+        {
+            ids.add(entry.entityId());
+        }
+        return ids;
     }
 
     private static Set<Long> topK(final VectorIndex<Doc> index, final float[] query, final int k)

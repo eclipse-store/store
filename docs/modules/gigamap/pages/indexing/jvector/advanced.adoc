@@ -276,7 +276,19 @@ An index cannot start compressed. The graph builder takes its scoring strategy a
 
 That is why `optimizationIntervalMs` must be set for this mode. Without a scheduled optimization there is no point at which the switch could happen, so the configuration would be accepted and then silently never take effect; it is rejected at build time instead. `isPqCompressionActive()` reports which side of the switch the index is on.
 
-The switch holds the GigaMap's lock for its duration, so writes to the map wait for it while searches continue against the pre-switch graph. It is the same exclusion a `removeAll()` or an on-disk persist takes, and it happens at most once per index generation -- but on a large index it is an O(n) rebuild, so schedule optimization accordingly.
+IMPORTANT: **The switch holds the GigaMap's lock for its entire duration, and that is a rebuild, not an instant.** Every write to the map -- to *any* index on it, not only this one -- waits for the whole thing. Searches are unaffected and continue against the pre-switch graph. Measured at `dimension=64`, the cost is close to linear in the number of vectors:
++
+[options="header",cols="1,1"]
+|===
+|Vectors |Switch duration
+|5,000 |~2 s
+|10,000 |~4 s
+|25,000 |~10 s
+|50,000 |~14-19 s
+|1,000,000 |several minutes
+|===
++
+It happens at most once per index generation, and it is the same kind of exclusion a `removeAll()` takes -- but those are usually deliberate, and this one is triggered by the *background* optimization, so it can arrive at a time nobody chose. On a large index, plan for it: call `optimize()` explicitly at a quiet moment so the pause happens when you decide rather than on the scheduler's tick, and size `optimizationIntervalMs` and `minChangesBetweenOptimizations` with the table above in mind.
 
 An index restored from storage is a special case: its entities are already in the store, so nothing bumps the change count and a scheduled optimization would be skipped forever. Its first one is therefore armed automatically, regardless of `minChangesBetweenOptimizations`. A newly created index is not armed -- its entities arrive afterwards and each one counts -- so the threshold applies there in full.
 

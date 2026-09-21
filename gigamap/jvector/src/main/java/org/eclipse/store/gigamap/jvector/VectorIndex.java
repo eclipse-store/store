@@ -1983,8 +1983,51 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
 
             this.validateDimension(vector);
+            this.validateFinite(vector, "Vector returned from vectorizer in index \"" + this.name()
+                + "\" (vectorizer: " + this.vectorizer.getClass().getName() + ")");
 
             return vector;
+        }
+
+        /**
+         * Rejects a vector containing {@code NaN} or an infinity.
+         * <p>
+         * Not defensive tidiness - one such component is enough to make a quantized index return
+         * nothing at all, permanently. The quantizers fit their parameters to the data: NVQ derives
+         * a global mean and per-subvector ranges, so a single {@code NaN} propagates into them, and
+         * from there into every vector the graph stores. Traversal then scores {@code NaN} against
+         * everything, no candidate ever compares greater than another, and search comes back empty.
+         * Measured on {@code NVQ} with {@link ApproximateScoring#NONE}: ten hits before the persist
+         * that trains the quantizer, zero after.
+         * <p>
+         * It does not heal. Removing the offending entity leaves the quantizer as it is - it is
+         * adopted from the loaded graph rather than retrained - so the index stays empty until it
+         * is rebuilt from scratch. The exact modes are unaffected, since they never fit anything to
+         * the data, which is exactly why this has to be rejected at the door instead of being left
+         * to the mode in use.
+         * <p>
+         * {@code NaN} is not an exotic input: normalising a zero vector produces it, and so does a
+         * division by a zero norm in a perfectly ordinary embedding function.
+         *
+         * @param vector  the vector to check
+         * @param context what to name in the message, since this serves entity embeddings and query
+         *                vectors alike
+         * @throws IllegalStateException if any component is not finite
+         */
+        private void validateFinite(final float[] vector, final String context)
+        {
+            for(int i = 0; i < vector.length; i++)
+            {
+                if(!Float.isFinite(vector[i]))
+                {
+                    throw new IllegalStateException(
+                        context + " contains a non-finite value at index " + i + ": " + vector[i]
+                            + ". NaN and infinity are rejected because a quantizer fitted to them"
+                            + " returns no results at all, and does not recover when the entity is"
+                            + " removed."
+                    );
+                }
+            }
         }
 
         private void validateDimension(final float[] vector)
@@ -2675,6 +2718,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 throw new IllegalArgumentException("k must be positive: " + k);
             }
             this.validateDimension(queryVector);
+
+            // A query is not stored, so it cannot poison an index the way an embedding can. It
+            // still cannot answer anything: every comparison against NaN is false, so the search
+            // returns an arbitrary result or none, and silently. Rejected here for the same reason
+            // as the non-positive k above - this is the single funnel every search overload comes
+            // through, and a caller is better served by the message than by the empty result.
+            this.validateFinite(queryVector, "Query vector");
 
             // Ensure the (deferred) graph rebuild has run BEFORE acquiring the read lock: the
             // rebuild gate takes the parent GigaMap monitor, and holding readLock while acquiring
