@@ -912,10 +912,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * {@code structuralModCount} at which an NVQ training attempt last failed, or {@code -1} if
          * none has.
          * <p>
-         * The NVQ counterpart of {@code pqTrainingDeclinedAtModCount}, but guarding against far
-         * less. NVQ training cannot <i>decline</i> the way PQ does below 256 vectors: it needs a
-         * mean, not 256 clusters per subspace. So this witness exists only for the case of an
-         * outright exception, which is why it is named for failure rather than decline.
+         * The NVQ counterpart of {@code pqTrainingDeclinedAtModCount}, guarding against less but
+         * not against nothing. NVQ declines on a far smaller sample than PQ - 16 vectors against
+         * 256, and as a sanity floor rather than a mathematical requirement, since a mean needs one
+         * vector and not 256 clusters per subspace - but it does decline, and an embedded index
+         * with enough entities and too few embeddings can land under that floor. This witness
+         * covers that as well as an outright exception: it is set whenever an attempt leaves the
+         * manager untrained, whichever of the two happened. The name records the commoner case, not
+         * the only one.
          */
         private transient volatile long nvqTrainingFailedAtModCount = -1L;
                 transient BackgroundTaskManager backgroundTaskManager;
@@ -3677,10 +3681,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         /**
          * Returns whether an NVQ training attempt is worth making on this persist.
          * <p>
-         * Deliberately simpler than {@link #isPqTrainingPending()}. NVQ training cannot decline on
-         * data shape the way PQ does - a mean is defined for any non-empty sample - so the witness
-         * here guards only against an outright exception repeating on every idle persist. The
-         * threshold is a sanity floor, not a mathematical requirement.
+         * Deliberately simpler than {@link #isPqTrainingPending()}, but the same shape and for the
+         * same reason. NVQ declines on far less data than PQ - its threshold is a sanity floor of
+         * 16 rather than a mathematical requirement of 256, because a mean needs one vector where
+         * k-means needs 256 clusters per subspace - yet it does decline, and
+         * {@code NVQCompressionManager.trainFrom} returns without training below that floor. An
+         * embedded index with enough entities and too few embeddings reaches it, since the count
+         * below is {@code parentMap.size()} in that mode.
+         * <p>
+         * So the witness is not only for exceptions: it stops either outcome from being retried on
+         * every idle persist, each of which would otherwise leave incremental mode and rewrite the
+         * whole graph.
          *
          * @return true if a quantizer is wanted and an attempt has not already failed at this state
          */

@@ -303,9 +303,17 @@ public interface VectorIndexConfiguration
      *       entity id, structural modification count, the two format settings, and the two
      *       quantization counts they encode with - the latter in effective form, so that an
      *       automatic count and the value it resolves to are recorded identically)</li>
+     *   <li>{@code {name}.pqv} - <b>Only</b> when {@link #approximateScoring()} is
+     *       {@link ApproximateScoring#PQ_IN_MEMORY}: the PQ codes, one per ordinal, and the
+     *       codebook they were encoded with. This mode writes no fused feature, so the graph header
+     *       carries no codebook and this file is the only copy. It is required rather than
+     *       optional - an index whose metadata says it traverses on PQ codes is rejected and
+     *       rebuilt from the store if the sidecar is missing - so <b>include it in any backup or
+     *       copy of the directory, and do not delete it separately from the graph.</b></li>
      * </ul>
-     * Both are written to {@code .tmp} siblings and renamed into place, so an interrupted persist
-     * leaves at most a stale temporary file.
+     * All of them are written to {@code .tmp} siblings and renamed into place, sidecar first and
+     * metadata last, so an interrupted persist leaves at most a stale temporary file and never a
+     * metadata file describing artifacts that are not there.
      *
      * @return the index directory path, or null if not using on-disk mode
      * @see #onDisk()

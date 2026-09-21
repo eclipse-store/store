@@ -40,11 +40,14 @@ import java.util.List;
  * <h2>Why this is not simply PQCompressionManager with a different quantizer</h2>
  * Three things differ, and each of them removes machinery rather than adding it:
  * <ul>
- *   <li><b>Training cannot decline.</b> PQ needs at least 256 vectors because it runs k-means for
- *       256 centroids per subspace. NVQ needs a mean, which one vector suffices to compute. There is
- *       therefore no equivalent of the "declined at this modification count" witness that stops PQ
- *       from retrying on every idle persist - only a failure witness, for the far rarer case of an
- *       exception.</li>
+ *   <li><b>Training declines on far less.</b> PQ needs at least 256 vectors because it runs k-means
+ *       for 256 centroids per subspace. NVQ needs a mean, which one vector suffices to compute, so
+ *       its {@link #MIN_VECTORS_FOR_NVQ_TRAINING} of 16 is a sanity floor rather than a
+ *       mathematical requirement. It is still a floor: {@code trainFrom} returns without training
+ *       below it, and an embedded index with enough entities but too few embeddings gets there.
+ *       The witness that stops PQ retrying on every idle persist therefore has a counterpart here
+ *       after all - it is simply reached less often, and it covers this decline as well as an
+ *       exception, which is worth knowing before removing either.</li>
  *   <li><b>Training is cheap.</b> PQ's clustering is seconds to tens of seconds, which is why its
  *       collection and its training are split so the GigaMap monitor can be dropped in between. One
  *       pass of vector addition is microseconds, so this manager takes the sample it is given and
