@@ -25,7 +25,7 @@ package org.eclipse.store.gigamap.jvector;
  * <h2>Decision Guide</h2>
  * <table border="1">
  *   <tr><th>Priority</th><th>Recommended</th><th>Reason</th></tr>
- *   <tr><td>Maximum recall</td><td>{@link #INLINE}</td><td>Traversal reads full precision, so no candidate is missed to quantization</td></tr>
+ *   <tr><td>Maximum recall</td><td>{@link #INLINE} with {@link ApproximateScoring#NONE}</td><td>Traversal reads full precision, so no candidate is missed to quantization. This one row needs both dimensions: {@code INLINE} alone leaves traversal to the scoring mode, and a PQ mode drives it from codes whether the vectors beside them are quantized or not</td></tr>
  *   <tr><td>Smallest index on disk</td><td>{@link #NVQ}</td><td>About 3x fewer bytes per node</td></tr>
  *   <tr><td>Index exceeds available memory</td><td>{@link #NVQ}</td><td>More of the graph fits in page cache</td></tr>
  *   <tr><td>Unknown/unsure</td><td>{@link #INLINE}</td><td>The default, and the conservative choice</td></tr>
