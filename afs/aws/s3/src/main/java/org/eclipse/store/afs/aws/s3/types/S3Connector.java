@@ -18,7 +18,6 @@ import static java.util.stream.Collectors.toList;
 import static org.eclipse.serializer.util.X.notNull;
 
 import java.io.BufferedInputStream;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -27,7 +26,6 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.serializer.io.ByteBufferInputStream;
 import org.eclipse.store.afs.blobstore.types.BlobStoreConnector;
 import org.eclipse.store.afs.blobstore.types.BlobStorePath;
@@ -35,6 +33,7 @@ import org.eclipse.store.afs.blobstore.types.BlobStorePath;
 import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.internal.util.Mimetype;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.http.ContentStreamProvider;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.Delete;
@@ -366,6 +365,27 @@ public interface S3Connector extends BlobStoreConnector
 			return response.deleted().size() == blobs.size();
 		}
 
+		/**
+		 * Uploads all remaining bytes of {@code sourceBuffers} as a single blob.
+		 * <p>
+		 * The SDK requests the content stream once per transmission attempt, and every stream it
+		 * gets must start at the beginning of the content. Reading a {@link ByteBufferInputStream}
+		 * advances the buffers it reads, so every attempt reads through its own duplicates and the
+		 * source buffers are never read here at all &mdash; which is what keeps them at their entry
+		 * position for the whole upload. <b>Nothing between this method's entry and
+		 * {@code putObject} may read them</b>, or the duplicates of a later attempt start behind
+		 * the bytes an earlier one consumed. The supplier-based provider closes the stream of the
+		 * preceding attempt, as its contract requires.
+		 * <p>
+		 * The source buffers are advanced to their limit only after a successful upload, which
+		 * preserves the "a write consumes its source buffers" post-state of the other backends.
+		 * <p>
+		 * {@link Iterable} does not promise re-iterability, so {@code sourceBuffers} is walked
+		 * exactly once and everything else works on the collected buffers.
+		 * <p>
+		 * The content provider must not outlive this call: the caller owns the source buffers and
+		 * may free them &mdash; they are typically direct &mdash; as soon as the write returns.
+		 */
 		@Override
 		protected long internalWriteData(
 			final BlobStorePath                  file         ,
@@ -373,29 +393,42 @@ public interface S3Connector extends BlobStoreConnector
 		)
 		{
 			final long nextBlobNumber = this.nextBlobNumber(file);
-			final long totalSize      = this.totalSize(sourceBuffers);
+
+			final List<ByteBuffer> buffers = new ArrayList<>();
+			for(final ByteBuffer sourceBuffer : sourceBuffers)
+			{
+				buffers.add(sourceBuffer);
+			}
+
+			final long totalSize = this.totalSize(buffers);
 
 			final PutObjectRequest request = PutObjectRequest.builder()
 				.bucket(file.container())
 				.key(toBlobKey(file, nextBlobNumber))
 				.build()
 			;
-			
-			try(final BufferedInputStream inputStream = new BufferedInputStream(
-					ByteBufferInputStream.New(sourceBuffers)
-			))
+
+			final RequestBody body = RequestBody.fromContentProvider(
+				ContentStreamProvider.fromInputStreamSupplier(() ->
+				{
+					final List<ByteBuffer> attemptBuffers = new ArrayList<>(buffers.size());
+					for(final ByteBuffer sourceBuffer : buffers)
+					{
+						attemptBuffers.add(sourceBuffer.duplicate());
+					}
+					return new BufferedInputStream(
+						ByteBufferInputStream.New(attemptBuffers)
+					);
+				}),
+				totalSize,
+				Mimetype.MIMETYPE_OCTET_STREAM
+			);
+
+			this.s3.putObject(request, body);
+
+			for(final ByteBuffer sourceBuffer : buffers)
 			{
-				final RequestBody body = RequestBody.fromContentProvider(
-					() -> inputStream,
-					totalSize,
-					Mimetype.MIMETYPE_OCTET_STREAM
-				);
-				
-				this.s3.putObject(request, body);
-			}
-			catch(final IOException e)
-			{
-				throw new IORuntimeException(e);
+				sourceBuffer.position(sourceBuffer.limit());
 			}
 
 			return totalSize;
