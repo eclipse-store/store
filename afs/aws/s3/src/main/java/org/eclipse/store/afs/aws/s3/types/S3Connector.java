@@ -18,6 +18,7 @@ import static java.util.stream.Collectors.toList;
 import static org.eclipse.serializer.util.X.notNull;
 
 import java.io.BufferedInputStream;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -27,6 +28,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import org.eclipse.serializer.io.ByteBufferInputStream;
+import org.eclipse.serializer.io.XIO;
 import org.eclipse.store.afs.blobstore.types.BlobStoreConnector;
 import org.eclipse.store.afs.blobstore.types.BlobStorePath;
 
@@ -374,8 +376,8 @@ public interface S3Connector extends BlobStoreConnector
 		 * source buffers are never read here at all &mdash; which is what keeps them at their entry
 		 * position for the whole upload. <b>Nothing between this method's entry and
 		 * {@code putObject} may read them</b>, or the duplicates of a later attempt start behind
-		 * the bytes an earlier one consumed. The supplier-based provider closes the stream of the
-		 * preceding attempt, as its contract requires.
+		 * the bytes an earlier one consumed. The provider closes the preceding attempt's stream, as
+		 * its contract requires.
 		 * <p>
 		 * The source buffers are advanced to their limit only after a successful upload, which
 		 * preserves the "a write consumes its source buffers" post-state of the other backends.
@@ -408,18 +410,35 @@ public interface S3Connector extends BlobStoreConnector
 				.build()
 			;
 
+			/*
+			 * Not ContentStreamProvider#fromInputStreamSupplier, which would do the same: that
+			 * factory only exists from AWS SDK 2.26 on, and the SDK is a "provided" dependency
+			 * whose version the application picks.
+			 */
 			final RequestBody body = RequestBody.fromContentProvider(
-				ContentStreamProvider.fromInputStreamSupplier(() ->
+				new ContentStreamProvider()
 				{
-					final List<ByteBuffer> attemptBuffers = new ArrayList<>(buffers.size());
-					for(final ByteBuffer sourceBuffer : buffers)
+					private InputStream previous;
+
+					@Override
+					public InputStream newStream()
 					{
-						attemptBuffers.add(sourceBuffer.duplicate());
+						XIO.unchecked.close(this.previous);
+
+						final List<ByteBuffer> attemptBuffers = new ArrayList<>(buffers.size());
+						for(final ByteBuffer sourceBuffer : buffers)
+						{
+							attemptBuffers.add(sourceBuffer.duplicate());
+						}
+
+						final InputStream stream = new BufferedInputStream(
+							ByteBufferInputStream.New(attemptBuffers)
+						);
+						this.previous = stream;
+
+						return stream;
 					}
-					return new BufferedInputStream(
-						ByteBufferInputStream.New(attemptBuffers)
-					);
-				}),
+				},
 				totalSize,
 				Mimetype.MIMETYPE_OCTET_STREAM
 			);
