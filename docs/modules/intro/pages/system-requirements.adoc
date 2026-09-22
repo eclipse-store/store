@@ -50,6 +50,33 @@ If you want to use an earlier version, you have to enable core library desugarin
 
 In theory {product-name} is compatible with all JDK distributions from Version 17 on.
 
+== Preview Features
+
+=== Value Classes (JEP 401)
+
+xref:storage:value-classes.adoc[Value Classes] are a preview feature of the JDK, so an application using them needs additional VM parameters.
+None of them is required for an application that does not use value classes.
+
+[options="header",cols="2,3"]
+|===
+| VM parameter | Why it is needed
+
+| `--enable-preview`
+| Required by the JDK for any preview feature. Without it, value classes do not exist at runtime and nothing about them applies.
+
+| `--add-exports java.base/jdk.internal.misc=ALL-UNNAMED`
+| `sun.misc.Unsafe` refuses the field offsets of fields declared inside a value class, exactly as it already does for records. Alternatively, put the `eclipse-serializer-nativememory` module on the classpath: it registers a JNI-based memory accessor through `ServiceLoader` and needs no flags at all.
+
+| `--enable-final-field-mutation=ALL-UNNAMED`
+| Only on a JDK that blocks final field mutation. Putting a value object into its owner writes the owner's field, which may be `final`.
+|===
+
+[NOTE]
+====
+The last two parameters name the module performing the access, which is {product-name}'s rather than the application's.
+`ALL-UNNAMED` covers it on the class path; a module path deployment names `org.eclipse.serializer.persistence.binary`.
+====
+
 == Supported Operating Systems
 
 * Every desktop or server operating system that the supported JVMs are available for

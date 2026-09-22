@@ -109,6 +109,20 @@ public class ViewerObjectDescriptionCreator
 			{
 				data.add(Long.toString(((ObjectReferenceWrapper) member).getObjectId()));
 			}
+			else if(member != null && member.getClass().isArray())
+			{
+				/* A fixed size member can carry a whole type's values: an inlined field holds them in its
+				 * owner rather than behind an object id. Collected like the variable sized ones, since
+				 * stringifying the array would name it instead of stating what is in it.
+				 */
+				final Object[] array = (Object[])member;
+				data.add(this.traverseValues(array, 0, array.length));
+			}
+			else if(member == null)
+			{
+				// an inlined field whose marker says it is absent
+				data.add(null);
+			}
 			else
 			{
 				data.add(limitsPrimitiveType(member.toString(), this.valueLength));

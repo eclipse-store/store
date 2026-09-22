@@ -22,6 +22,7 @@ import org.eclipse.serializer.meta.NotImplementedYetError;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDefinition;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDefinitionMember;
+import org.eclipse.serializer.persistence.types.PersistenceTypeDefinitionMemberFieldValueStruct;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMemberFieldGeneric;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMemberFieldGenericComplex;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDictionary;
@@ -73,6 +74,12 @@ public interface ValueReader
 		 * Note that non-referential native types (primitive wrappers, String, Date, primitive arrays, etc.) should
 		 * be handled by their TypeHandler directly instead of analyzed generically.
 		 */
+
+		if(member instanceof PersistenceTypeDefinitionMemberFieldValueStruct)
+		{
+			// an inlined field: its content sits in the owner rather than behind an object id
+			return new ValueReaderValueStruct((PersistenceTypeDefinitionMemberFieldValueStruct)member);
+		}
 
 		if(member.isPrimitive())
 		{

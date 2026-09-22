@@ -24,8 +24,10 @@ import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.types.XGettingSequence;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDescription;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMember;
+import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMemberField;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMemberFieldGeneric;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMemberFieldGenericComplex;
+import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMemberFieldValueStruct;
 import org.eclipse.serializer.util.X;
 import org.eclipse.store.storage.restadapter.types.ViewerObjectDescription;
 import org.eclipse.store.storage.restadapter.types.ViewerRootDescription;
@@ -115,6 +117,20 @@ public interface StorageView
 			for(; index < length; index++)
 			{
 				final PersistenceTypeDescriptionMember typeMember = typeMembers.at(index);
+
+				if(typeMember instanceof PersistenceTypeDescriptionMemberFieldValueStruct)
+				{
+					/* An inlined field occupies one slot but carries the values of a whole type, so it is
+					 * shown as a group of its own rather than as a single value.
+					 */
+					members.add(this.createInlinedElement(
+						parent,
+						(PersistenceTypeDescriptionMemberFieldValueStruct)typeMember,
+						data[index]
+					));
+					continue;
+				}
+
 				members.add(this.createElement(
 					parent,
 					typeMember.name(),
@@ -321,6 +337,61 @@ public interface StorageView
 			return ranges;
 		}
 		
+		private StorageViewElement createInlinedElement(
+			final StorageViewElement parent,
+			final PersistenceTypeDescriptionMemberFieldValueStruct member,
+			final Object data
+		)
+		{
+			if(data == null)
+			{
+				// the slot's marker said the field is absent
+				return new StorageViewValue.Default(
+					this,
+					parent,
+					member.name(),
+					"null",
+					member.typeName()
+				);
+			}
+
+			final List<Object>             values   = asList(data);
+			final List<StorageViewElement> children = new ArrayList<>();
+
+			int subIndex = 0;
+			for(final PersistenceTypeDescriptionMemberField nested : member.members())
+			{
+				final Object subDataElem = values.get(subIndex++);
+
+				if(nested instanceof PersistenceTypeDescriptionMemberFieldValueStruct)
+				{
+					// a member that is inlined itself carries a whole layout, so it is shown as a group too
+					children.add(this.createInlinedElement(
+						parent,
+						(PersistenceTypeDescriptionMemberFieldValueStruct)nested,
+						subDataElem
+					));
+					continue;
+				}
+
+				children.add(new StorageViewValue.Default(
+					this,
+					parent,
+					nested.name(),
+					this.value(String.valueOf(subDataElem), null, nested.typeName()),
+					nested.typeName()
+				));
+			}
+
+			return new StorageViewComplexRangeEntry.Default(
+				this,
+				parent,
+				member.name(),
+				member.typeName(),
+				children
+			);
+		}
+
 		private StorageViewElement createElement(
 			final StorageViewElement parent,
 			final String name,

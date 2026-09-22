@@ -15,15 +15,20 @@ package test.eclipse.store.various.time;
  */
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Path;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 
+import org.eclipse.serializer.persistence.exceptions.PersistenceException;
+import org.eclipse.serializer.reflect.XReflect;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+
+import test.eclipse.store.util.RootStorages;
 
 public class ZonedDateTimeTest
 {
@@ -35,7 +40,9 @@ public class ZonedDateTimeTest
     {
         ZonedDateTime zdt = ZonedDateTime.of(2020, 1, 1, 1, 1, 0, 0, ZoneId.of("Europe/Prague"));
 
-        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(zdt, tempDir)) {
+        // installed rather than set: where ZonedDateTime is a value class it cannot be an explicit root
+        try (EmbeddedStorageManager storageManager = RootStorages.startWithRoot(tempDir, zdt)) {
+            storageManager.storeRoot();
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(tempDir)) {
@@ -50,13 +57,21 @@ public class ZonedDateTimeTest
     {
         ZonedDateTime zdt = ZonedDateTime.of(2020, 1, 1, 1, 1, 0, 0, ZoneId.of("Europe/Prague"));
 
-        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(zdt, tempDir)) {
+        // installed rather than set: where ZonedDateTime is a value class it cannot be an explicit root
+        try (EmbeddedStorageManager storageManager = RootStorages.startWithRoot(tempDir, zdt)) {
+            storageManager.storeRoot();
         }
 
         ZonedDateTime zdt2 = ZonedDateTime.now(ZoneId.of("UTC"));
-        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(zdt2, tempDir)) {
+        if (XReflect.isValueClass(ZonedDateTime.class)) {
+            // no identity, so the persisted state cannot be applied to it - the refusal is the contract
+            assertThrows(PersistenceException.class, () -> EmbeddedStorage.start(zdt2, tempDir).shutdown(),
+                "a value instance must be refused as an explicit root");
+        } else {
+            try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(zdt2, tempDir)) {
 
-            assertEquals(zdt, zdt2, "ZonedDateTime should be equal after storing and reloading");
+                assertEquals(zdt, zdt2, "ZonedDateTime should be equal after storing and reloading");
+            }
         }
     }
 

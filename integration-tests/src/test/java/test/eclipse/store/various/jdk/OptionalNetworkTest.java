@@ -28,6 +28,8 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import test.eclipse.store.util.RootStorages;
+
 public class OptionalNetworkTest
 {
     @TempDir
@@ -58,7 +60,9 @@ public class OptionalNetworkTest
     {
         OptionalInt oi = OptionalInt.of(7);
 
-        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(oi, tempDir)) {
+        // installed rather than set: where OptionalInt is a value class it cannot be an explicit root
+        try (EmbeddedStorageManager storageManager = RootStorages.startWithRoot(tempDir, oi)) {
+            storageManager.storeRoot();
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(tempDir)) {

@@ -36,8 +36,10 @@ import org.eclipse.serializer.memory.XMemory;
 import org.eclipse.serializer.persistence.binary.types.Binary;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDefinition;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMember;
+import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMemberField;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMemberFieldGeneric;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMemberFieldGenericComplex;
+import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMemberFieldValueStruct;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDictionary;
 import org.eclipse.serializer.util.X;
 import org.eclipse.serializer.util.xcsv.XCsvConfiguration;
@@ -1159,10 +1161,20 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 				else
 				{
 					final String fieldTypeName = this.configuration.resolveActualTypeName(columnTypeName);
-					if(!fieldTypeName.equals(member.typeName()))
+
+					/* An inlined field is written as a list literal of the inlined type's values, so its column
+					 * carries the complex type rather than one named after the inlined type.
+					 */
+					final String expectedTypeName =
+						member instanceof PersistenceTypeDescriptionMemberFieldValueStruct
+							? PersistenceTypeDictionary.Symbols.typeComplex()
+							: member.typeName()
+					;
+
+					if(!fieldTypeName.equals(expectedTypeName))
 					{
 						throw new StorageException(
-							"CSV non-reference column type mismatch: " + fieldTypeName + " != " + member.typeName()
+							"CSV non-reference column type mismatch: " + fieldTypeName + " != " + expectedTypeName
 						);
 					}
 				}
@@ -1211,6 +1223,22 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 			if(member.isReference())
 			{
 				return this.objectIdValueHandler;
+			}
+
+			if(member instanceof PersistenceTypeDescriptionMemberFieldValueStruct)
+			{
+				final PersistenceTypeDescriptionMemberFieldValueStruct struct =
+					(PersistenceTypeDescriptionMemberFieldValueStruct)member
+				;
+
+				final ValueHandler[] handlers = new ValueHandler[struct.members().intSize()];
+				int h = 0;
+				for(final PersistenceTypeDescriptionMemberField nested : struct.members())
+				{
+					handlers[h++] = this.deriveValueWriter(nested);
+				}
+
+				return new ValueStructHandler(handlers, struct.persistentMinimumLength());
 			}
 
 			if(!(member instanceof PersistenceTypeDescriptionMemberFieldGenericComplex))
@@ -1345,6 +1373,132 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 			return i;
 		}
 
+		/**
+		 * Parses one inlined field, written as a list literal of the inlined type's values, and writes the
+		 * fixed-length slot it occupies: the null marker followed by those values. An empty literal states
+		 * the field is absent, and the slot is zeroed so that its length does not depend on its content.
+		 *
+		 * @return the offset of the literal's terminating character, as the value handler contract requires.
+		 */
+		/**
+		 * Whether the literal at the passed offset is the configured {@code true}, without consuming it or
+		 * writing anything. {@link #parse_boolean} answers the same question but only by writing its
+		 * answer, and an inlined slot has to know it before deciding whether members follow.
+		 */
+		private boolean isTrueLiteral(
+			final char[] data      ,
+			final int    offset    ,
+			final int    bound     ,
+			final char   separator ,
+			final char   terminator
+		)
+		{
+			int i = offset;
+			while(i < bound && data[i] != separator && data[i] != terminator)
+			{
+				i++;
+			}
+
+			int j = i - 1;
+			while(data[j] <= ' ')
+			{
+				j--;
+			}
+
+			return j - offset + 1 == this.literalTrue.length
+				&& XChars.equals(data, offset, this.literalTrue, 0, this.literalTrue.length)
+			;
+		}
+
+		final int parseValueStruct(
+			final char[]         data         ,
+			final int            offset       ,
+			final int            bound        ,
+			final ValueHandler[] valueHandlers,
+			final long           structLength
+		)
+		{
+			validateListStart(data, offset, this.listStarter);
+
+			final char listSeparator  = this.listSeparator ;
+			final char listTerminator = this.listTerminator;
+
+			int i = skipWhitespaces(data, offset + 1, bound);
+
+			/* The null marker is the literal's first element, as it is the slot's first byte. Reading it
+			 * rather than inferring it from whether any members follow is what lets a layout with no
+			 * members be told apart at all: a value class may declare none, and then presence is the only
+			 * thing the slot says.
+			 *
+			 * Parsed as the boolean it is, which also writes it: write_boolean emits one byte, 1 or 0,
+			 * which is exactly NULL_MARKER_PRESENT and NULL_MARKER_ABSENT.
+			 */
+			final boolean present = this.isTrueLiteral(data, i, bound, listSeparator, listTerminator);
+			i = this.parse_boolean(data, i, bound, listSeparator, listTerminator);
+
+			if(present)
+			{
+				for(int h = 0; h < valueHandlers.length; h++)
+				{
+					// the separator preceding this member; the marker guarantees every member has one
+					i = skipWhitespaces(data, i + 1, bound);
+					if(data[i] == listTerminator)
+					{
+						throw new StorageException("Incomplete inlined value at offset " + i);
+					}
+
+					/* A value handler stops at whichever delimiter ended the value: the separator before
+					 * the next member, or this literal's terminator after the last one. Neither is consumed
+					 * here - the next iteration consumes the separator, the check below expects the
+					 * terminator.
+					 */
+					i = valueHandlers[h].handleValue(data, i, bound, listSeparator, listTerminator);
+
+					/* A nested inlined value is the exception: it ends on a terminator of its own, which
+					 * closes that literal rather than this one. Left unconsumed, it would be read as this
+					 * literal's end and everything after it as the next value.
+					 */
+					if(valueHandlers[h] instanceof ValueStructHandler)
+					{
+						i++;
+
+						// whitespace is allowed around every other delimiter here, so it is allowed here
+						i = skipWhitespaces(data, i, bound);
+					}
+				}
+			}
+			else
+			{
+				// zeroed rather than skipped, so the slot's content never depends on what was there before
+				for(long n = PersistenceTypeDescriptionMemberFieldValueStruct.NULL_MARKER_LENGTH; n < structLength; n++)
+				{
+					this.write_byte((byte)0);
+				}
+			}
+
+			i = skipWhitespaces(data, i, bound);
+			if(data[i] != listTerminator)
+			{
+				throw new StorageException("Overlong inlined value at offset " + i);
+			}
+
+			return i;
+		}
+
+		private static int skipWhitespaces(final char[] data, int i, final int bound)
+		{
+			while(i < bound && data[i] <= ' ')
+			{
+				i++;
+			}
+			if(i >= bound)
+			{
+				throw new StorageException("Incomplete inlined value at offset " + bound);
+			}
+
+			return i;
+		}
+
 		final int parseComplexListMulti(
 			final char[]         data         ,
 			final int            offset       ,
@@ -1460,6 +1614,31 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 			);
 
 			return i;
+		}
+
+		final class ValueStructHandler implements ValueHandler
+		{
+			final ValueHandler[] valueHandlers;
+			final long           structLength ;
+
+			ValueStructHandler(final ValueHandler[] valueHandlers, final long structLength)
+			{
+				super();
+				this.valueHandlers = valueHandlers;
+				this.structLength  = structLength ;
+			}
+
+			@Override
+			public int handleValue(
+				final char[] data      ,
+				final int    offset    ,
+				final int    bound     ,
+				final char   separator ,
+				final char   terminator
+			)
+			{
+				return Default.this.parseValueStruct(data, offset, bound, this.valueHandlers, this.structLength);
+			}
 		}
 
 		final class NestedValueHandler implements ValueHandler
@@ -1807,6 +1986,20 @@ public interface StorageDataConverterTypeCsvToBinary<S>
 				else
 				{
 					i = valueHandlers[h].handleValue(input, i, iBound, valueSeparator, lineSeparator);
+
+					/* An inlined slot is written as a list literal, so it ends on that literal's terminator
+					 * rather than on the delimiter between two values. Left unconsumed, the delimiter below
+					 * is read as the next value, and every column after the slot is off by one.
+					 */
+					/* No whitespace is skipped after it, unlike inside the literal: a record's value separator
+					 * is itself whitespace, so skipping any here would consume the delimiter rather than
+					 * reach it. A record tolerates no gap before its separator for any value kind.
+					 */
+					if(valueHandlers[h] instanceof ValueStructHandler)
+					{
+						i++;
+					}
+
 					if(i >= iBound)
 					{
 						// check if valid end

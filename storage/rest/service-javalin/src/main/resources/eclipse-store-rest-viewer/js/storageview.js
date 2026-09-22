@@ -269,6 +269,29 @@ const StorageView = (() => {
                 continue;
             }
 
+            /* Inlined member start: "value <typeName> <name>(" — a field written into its owner
+             * rather than referenced by an object id. It occupies one slot like any other member,
+             * and that slot carries the values of a whole type, so its block is collected the same
+             * way a [list] block is.
+             */
+            const inlinedStart = line.match(/^value\s+(\S+)\s+(.*?)\(\s*$/);
+            if (inlinedStart) {
+                const member = {
+                    name: fieldName(inlinedStart[2].trim()),
+                    typeName: inlinedStart[1],
+                    isReference: false,
+                    isPrimitive: false,
+                    isEnumConstant: false,
+                    isComplex: false,
+                    isInlined: true,
+                    complexMembers: []
+                };
+                type.members.push(member);
+                type.allCount++;
+                complex = member;
+                continue;
+            }
+
             // Ordinary member line
             const member = parseMember(line);
             if (member) {
@@ -393,6 +416,13 @@ const StorageView = (() => {
             let index = 0;
             for (; index < length; index++) {
                 const member = typeMembers[index];
+                if (member.isInlined) {
+                    /* One slot carrying a whole type's values. It holds no object id, so the
+                     * reference cursor is deliberately left alone.
+                     */
+                    members.push(this._createInlinedElement(member, data[index]));
+                    continue;
+                }
                 members.push(this._createElementFromData(member.name, cursor, member, data[index]));
             }
 
@@ -495,6 +525,23 @@ const StorageView = (() => {
         }
 
         // StorageView.createElement(parent, name, references, member, data)
+        /**
+         * An inlined member's slot holds the values of its type, in the order the dictionary block
+         * lists them, or null when the slot's marker says the field is absent.
+         */
+        _createInlinedElement(member, data) {
+            if (data == null) {
+                return valueElement(member.name, "null", member.typeName);
+            }
+
+            const values   = asList(data);
+            const children = member.complexMembers.map((nested, i) =>
+                valueElement(nested.name, renderValue(String(values[i]), nested.typeName), nested.typeName)
+            );
+
+            return complexRangeEntryElement(member.name, simpleTypeName(member.typeName), children);
+        }
+
         _createElementFromData(name, cursor, member, data) {
             let consumed  = false;
             let reference = null;

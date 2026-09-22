@@ -18,7 +18,7 @@
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
         <junit-jupiter.version>6.0.3</junit-jupiter.version>
-        <!-- Extra JVM args for the test fork; JDK-specific values are set by the profiles below. -->
+        <!-- Extra JVM args for the test fork, settable from the command line. -->
         <extra.jvm.args></extra.jvm.args>
     </properties>
 
@@ -76,6 +76,12 @@
         <dependency>
             <groupId>org.eclipse.store</groupId>
             <artifactId>storage-restservice-javalin</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.store</groupId>
+            <artifactId>storage-restclient</artifactId>
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
@@ -186,6 +192,7 @@
                 <configuration>
                     <useModulePath>false</useModulePath>
                     <trimStackTrace>false</trimStackTrace>
+                    <excludedGroups>slow</excludedGroups>
                     <argLine>
                         ${extra.jvm.args}
                         --add-opens java.base/java.lang=ALL-UNNAMED
@@ -215,5 +222,4 @@
             </plugin>
         </plugins>
     </build>
-
 </project>

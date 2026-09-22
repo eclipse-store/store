@@ -68,6 +68,26 @@ public abstract class ViewerBinaryTypeHandlerWrapperAbstract<T> implements Persi
 	}
 
 	@Override
+	public boolean isValueClassType()
+	{
+		// must pass through all default methods to be a correct wrapper
+		return this.nativeHandler.isValueClassType();
+	}
+
+	@Override
+	public boolean isCreationDeferred()
+	{
+		// must pass through all default methods to be a correct wrapper
+		return this.nativeHandler.isCreationDeferred();
+	}
+
+	@Override
+	public void prepareLoadItem(final Binary data)
+	{
+		this.nativeHandler.prepareLoadItem(data);
+	}
+
+	@Override
 	public boolean hasPersistedReferences()
 	{
 		return this.nativeHandler.hasPersistedReferences();

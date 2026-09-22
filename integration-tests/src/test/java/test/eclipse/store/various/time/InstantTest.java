@@ -15,14 +15,19 @@ package test.eclipse.store.various.time;
  */
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Path;
 import java.time.Instant;
 
+import org.eclipse.serializer.persistence.exceptions.PersistenceException;
+import org.eclipse.serializer.reflect.XReflect;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+
+import test.eclipse.store.util.RootStorages;
 
 public class InstantTest
 {
@@ -34,7 +39,9 @@ public class InstantTest
     {
         Instant i = Instant.parse("2020-01-01T01:01:00Z");
 
-        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(i, tempDir)) {
+        // installed rather than set: where Instant is a value class it cannot be an explicit root
+        try (EmbeddedStorageManager storageManager = RootStorages.startWithRoot(tempDir, i)) {
+            storageManager.storeRoot();
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(tempDir)) {
@@ -49,13 +56,21 @@ public class InstantTest
     {
         Instant i = Instant.parse("2020-01-01T01:01:00Z");
 
-        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(i, tempDir)) {
+        // installed rather than set: where Instant is a value class it cannot be an explicit root
+        try (EmbeddedStorageManager storageManager = RootStorages.startWithRoot(tempDir, i)) {
+            storageManager.storeRoot();
         }
 
         Instant i2 = Instant.EPOCH;
-        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(i2, tempDir)) {
+        if (XReflect.isValueClass(Instant.class)) {
+            // no identity, so the persisted state cannot be applied to it - the refusal is the contract
+            assertThrows(PersistenceException.class, () -> EmbeddedStorage.start(i2, tempDir).shutdown(),
+                "a value instance must be refused as an explicit root");
+        } else {
+            try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(i2, tempDir)) {
 
-            assertEquals(i, i2, "Instant should be equal after storing and reloading");
+                assertEquals(i, i2, "Instant should be equal after storing and reloading");
+            }
         }
     }
 

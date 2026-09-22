@@ -99,8 +99,19 @@ public final class BinaryHandlerGigaLevel1 extends AbstractBinaryHandlerStateCha
 		final PersistenceLoadHandler handler
 	)
 	{
-		// validation already happened before array creation
+		// validation already happened before array creation.
 		data.collectElementsIntoArray(BINARY_OFFSET_segments, handler, instance.entities);
+
+		/* The persisted ids are kept alongside the entities they resolved to, so the first store after
+		 * a load can already reference the unchanged ones instead of storing them again. Read only
+		 * once the entities are there, since only they tell whether this segment keeps such a record.
+		 */
+		final long[] objectIds = instance.newLoadRecordObjectIds();
+		if(objectIds != null)
+		{
+			data.collectElementObjectIds(BINARY_OFFSET_segments, objectIds);
+			instance.adoptStoredState(new GigaLevel1.StoredState(instance.entities.clone(), objectIds));
+		}
 	}
 	
 
@@ -112,15 +123,31 @@ public final class BinaryHandlerGigaLevel1 extends AbstractBinaryHandlerStateCha
 		final PersistenceStoreHandler<Binary> handler
 	)
 	{
+		final Object[] entities = instance.entities;
+
+		/* Storing a segment writes every slot's reference, so an unchanged entity would be applied
+		 * again. Referencing the id it was last stored under avoids that, and is safe because the
+		 * currently persisted segment still references those ids, which is what keeps their entities
+		 * reachable. See GigaLevel1#storedState for which entities this pays off for.
+		 */
+		final GigaLevel1.StoredState storeRecord = instance.newStoreRecord();
+
 		data.storeReferences(
 			this.typeId(),
 			objectId,
 			BINARY_OFFSET_segments,
 			handler,
-			instance.entities,
+			entities,
 			0,
-			instance.entities.length
+			entities.length,
+			storeRecord == null ? null : storeRecord.entities ,
+			storeRecord == null ? null : storeRecord.objectIds
 		);
+
+		if(storeRecord != null)
+		{
+			handler.registerCommitListener(() -> instance.adoptStoredState(storeRecord));
+		}
 	}
 	
 	// Provided only for PersistenceTypeHandler contract conformity. The standard store path

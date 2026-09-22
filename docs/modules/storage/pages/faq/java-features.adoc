@@ -13,3 +13,15 @@ Yes, but due to reflection restrictions of records introduced in Java 15 an expo
 ----
 --add-exports java.base/jdk.internal.misc=org.eclipse.serializer.base
 ----
+
+[#value-classes]
+== Can {product-name} handle value classes (JEP 401)?
+
+Yes.
+A value class is persisted like any other type, and can additionally be written into its owner rather than referenced.
+It needs a constructor taking its persistable fields in declaration order, which a `value record` provides by definition.
+
+Because JEP 401 is a preview feature, the application has to be compiled and run with `--enable-preview`, and needs the VM parameters listed under xref:intro:system-requirements.adoc[System Requirements].
+Without `--enable-preview` value classes do not exist at runtime, so nothing about them applies.
+
+See xref:value-classes.adoc[Value Classes] for what is supported, how inlining works, and how a value type evolves.

@@ -62,9 +62,9 @@
 |image::symbol-check.svg[]
 |Technically the same as object arrays as every array is an object itself.
 
-|JDK value types (String, Number types, Date, File, Locale, Optional, ...)
+|JDK value-based types (String, Number types, Date, File, Locale, Optional, ...)
 |image::symbol-check.svg[]
-|Optimized handling via custom TypeHandlers.
+|Optimized handling via custom TypeHandlers. Not to be confused with JEP 401 value classes, see xref:value-classes.adoc[Value Classes].
 
 |Collections
 |image::symbol-check.svg[]
@@ -145,4 +145,21 @@
 |Immutable List
 |image::symbol-check.svg[]
 |Automatically handled until Java 14, for Java 15 and later use the persistence-binary-jdk17 module, see xref:addendum/specialized-type-handlers.adoc#jdk17[persistence-binary-jdk17]
+|===
+
+== Preview Features
+
+[options="header",cols="1,^1a,2a"]
+|===
+|Feature 
+|Supported 
+|Note
+
+|Value classes (JEP 401)
+|image::symbol-check.svg[]
+|Persisted as entities, and optionally written into their owner rather than referenced. Needs a constructor taking the persistable fields in declaration order, and the preview VM parameters, see xref:value-classes.adoc[Value Classes].
+
+|Value classes as a persistence root
+|image::symbol-remove.svg[]
+|A value instance has no identity, so persisted state cannot be applied to an explicitly set root. A root that is only loaded resolves normally.
 |===

@@ -24,6 +24,8 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import test.eclipse.store.util.RootStorages;
+
 public class PeriodTest
 {
     @TempDir
@@ -34,7 +36,9 @@ public class PeriodTest
     {
         Period p = Period.ofYears(2).withMonths(3).withDays(5);
 
-        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(p, tempDir)) {
+        // installed rather than set: where Period is a value class it cannot be an explicit root
+        try (EmbeddedStorageManager storageManager = RootStorages.startWithRoot(tempDir, p)) {
+            storageManager.storeRoot();
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(tempDir)) {

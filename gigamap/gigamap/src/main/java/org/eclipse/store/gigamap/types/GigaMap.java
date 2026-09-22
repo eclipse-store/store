@@ -28,6 +28,7 @@ import org.eclipse.serializer.equality.IdentityEqualator;
 import org.eclipse.serializer.hashing.XHashing;
 import org.eclipse.serializer.persistence.binary.types.BinaryTypeHandler;
 import org.eclipse.serializer.persistence.types.*;
+import org.eclipse.serializer.reflect.XReflect;
 import org.eclipse.serializer.reference.Lazy;
 import org.eclipse.serializer.util.X;
 import org.eclipse.store.gigamap.exceptions.ConstraintViolationException;
@@ -344,6 +345,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * the previous keys before running the caller's logic, and additionally schedule the entity for storing.
 	 * For an entity that was already mutated directly, {@link #reindex()} is the recovery path.
 	 * <p>
+	 * An identity-less entity is exempt: it cannot be mutated in place, so passing one that is equal to the
+	 * entity already mapped to the id is not that idiom but an idempotent write, and is answered by doing
+	 * nothing and returning the entity already there. Equal value instances are substitutable, so every
+	 * {@link Indexer} derives the same keys and the slot already holds what the call asks for.
+	 * <p>
 	 * A replacement that this map's {@link #equalator()} considers <em>equal</em> to the entity being
 	 * replaced is applied like any other: the equalator decides which id an entity instance resolves to, not
 	 * whether a write happens. On a map built with value equality this is the ordinary "store a new version
@@ -362,7 +368,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * @return the entity previously mapped to the id, or {@code null} if its slot was empty
 	 * @throws IllegalArgumentException if entity is <code>null</code>; if the entityId was never handed
 	 *         out by this map, i.e. it is negative or greater than {@link #highestUsedId()}; or if the
-	 *         entity is the very instance already mapped to that id (use
+	 *         entity is the very instance already mapped to that id and has identity (use
 	 *         {@link #update(long, Consumer)} / {@link #apply(long, Function)} instead)
 	 * @see #update(long, Consumer)
 	 * @see #apply(long, Function)
@@ -395,10 +401,10 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * @return the mapped id of the entity
 	 * @throws IllegalStateException if no bitmap index is present
 	 * @throws IllegalArgumentException if current or replacement is <code>null</code>; if they are the
-	 *         same object; or if the replacement turns out to be the very instance mapped to the
-	 *         resolved id (which a value equalator can produce when several equal instances are
-	 *         contained); see {@link #set(long, Object)} for why an in-place mutation cannot be
-	 *         re-indexed
+	 *         same object with identity; or if the replacement turns out to be the very instance with
+	 *         identity mapped to the resolved id (which a value equalator can produce when several equal
+	 *         instances are contained); see {@link #set(long, Object)} for why an in-place mutation
+	 *         cannot be re-indexed, and why identity-less entities are exempt from both
 	 */
 	public long replace(E current, E replacement);
 	
@@ -2174,7 +2180,12 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				query.and(index.like(entity));
 			}
 			
+			/* The peek-only resolver relies on an identity match being possible only for the very
+			 * instance that is already loaded. That does not hold for value instances: an equal one
+			 * in an unloaded segment matches just as well, so those must be loaded to be found.
+			 */
 			final EntityIdResolver resolver = this.equalator.isReferentialEquality()
+				&& !XReflect.isValueInstance(entity)
 				? new EntityIdResolver(entity)
 				: new EntityIdResolverLoading(entity)
 			;
@@ -2275,7 +2286,14 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			this.validateForCRUD(current);
 			this.validateForCRUD(replacement);
-			if(current == replacement)
+
+			/*
+			 * Value instances that compare equal are substitutable, not "the same instance": passing two of
+			 * them is a replacement that happens to change nothing, which #internalSet serves as the
+			 * idempotent no-op it is. Only an entity with identity can be passed as both, and for that the
+			 * rejection stands, see #set(long, Object).
+			 */
+			if(current == replacement && !XReflect.isValueInstance(current))
 			{
 				throw new IllegalArgumentException("'current' and 'replacement' cannot be the same instance");
 			}
@@ -2309,6 +2327,18 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 
 			if(replacedEntity == entity)
 			{
+				/*
+				 * A value instance is not the "load it, mutate it, save it" case below: it cannot be mutated
+				 * in place, so nothing was lost and there is nothing to re-index. Two value instances that
+				 * compare equal are substitutable, so every indexer derives the same keys and the slot
+				 * already holds what the caller is asking for - the write is an idempotent no-op. Rejecting
+				 * it would leave no accepted route at all, since #apply rejects a value instance too.
+				 */
+				if(XReflect.isValueInstance(entity))
+				{
+					return replacedEntity;
+				}
+
 				/*
 				 * Writing back the very instance the id already holds is the "load it, mutate it, save it"
 				 * idiom - and this method cannot serve it. Re-indexing a mutation requires the keys the
@@ -2420,6 +2450,20 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 
 		private <R> R internalApply(final long entityId, final E current, final Function<? super E, R> logic)
 		{
+			/*
+			 * Rejected before anything happens: the logic may not run, no index work may be done and
+			 * no exception may be replaced further down. A value instance has no identity and cannot
+			 * be mutated, so there is nothing an in-place update could change - and it could not be
+			 * retained for re-storing either, since that uses a weak reference.
+			 */
+			if(XReflect.isValueInstance(current))
+			{
+				throw new UnsupportedOperationException(
+					"Cannot update a value instance in place: " + current.getClass().getName()
+					+ " has no identity. Use set(long, E) or replace(E, E) with a new instance instead."
+				);
+			}
+
 			/*
 			 * Phase 1 runs all indexers on the entity's pre-mutation state. A throw here (e.g. from
 			 * a broken indexer) aborts cleanly: the entity has not been touched and the map is

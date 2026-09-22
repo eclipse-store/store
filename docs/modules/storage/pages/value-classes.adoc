@@ -1,0 +1,374 @@
+= Value Classes (JEP 401)
+:description: How {product-name} persists Java value classes, and what changes for an application that uses them
+
+https://openjdk.org/jeps/401[JEP 401] introduces _value classes_: classes whose instances have no identity.
+Two instances with equal state are the same value, `==` compares state rather than references, and no identity operation — locking, weak referencing, identity hashing — is available on them.
+
+{product-name} persists value classes as first-class entities, and can additionally write them _into_ their owner rather than referencing them, which removes an entity per owner.
+
+Whether any of this applies to an application is decided by `--enable-preview`, not by the JDK version.
+Without the flag, value classes do not exist at runtime and nothing on this page is in play — with one exception that holds on every JDK, see <<_a_diverging_explicit_root>>.
+
+[IMPORTANT]
+====
+JEP 401 is a preview feature.
+An application using it must be compiled and run with `--enable-preview`, and its class files are tied to the exact JDK that produced them.
+A storage, however, outlives those recompiles.
+====
+
+== Requirements
+
+See xref:intro:system-requirements.adoc[System Requirements] for the JVM flags: a JEP 401 JDK started with `--enable-preview`, access to the internal memory accessor, and — on a JDK that blocks final field mutation — permission to write final fields.
+
+Beyond the JVM, one requirement applies to the classes themselves:
+
+*A value class needs a constructor taking its persistable fields in declaration order.*
+A `value record` provides that by definition.
+Without such a constructor the type is rejected at startup, naming the constructor that was looked for.
+
+== What Works
+
+[options="header",cols="1,2"]
+|===
+| Feature | Supported
+
+| Value objects in an object graph
+| Yes, as fields, including value types that hold references
+
+| A `final` value-typed field
+| Yes, and a record component too
+
+| Collection elements and GigaMap entities
+| Yes
+
+| `Lazy` referents
+| Yes
+
+| Substitutability
+| A loaded value is `==` to a freshly constructed equal one
+
+| `value record`
+| Yes, and the recommended shape
+
+| JDK value types
+| `Integer` and the other cached wrappers, `Optional`, the `java.time` types
+
+| Refactoring an identity class into a value class
+| The class itself needs no migration, its owners do — and not back again, see <<_schema_evolution>>
+|===
+
+The `java.time` types are handled by dedicated type handlers rather than reflectively, in a form byte-identical to the one earlier {product-name} versions wrote, so existing storages are unaffected and read the same either way.
+
+== The Constructor Must Reproduce the Field Values
+
+An identity object is loaded by allocating it blank and writing its fields directly; its constructor is never called.
+A value instance has no such blank state — it can only be created by its constructor.
+Loading therefore hands the persisted field values to that constructor, which makes the constructor part of the persistence contract: it is the inverse of storing only if it assigns each argument to the corresponding field unmodified.
+
+{product-name} verifies this rather than assuming it.
+When the type handler is created, the constructor is invoked with chosen values and the resulting field values are compared against them.
+A constructor that transforms its arguments is rejected at startup:
+
+[source, text]
+----
+Value class com.example.Celsius cannot be handled generically: constructed with test values,
+it did not reproduce them.
+----
+
+[options="header",cols="1,1"]
+|===
+| The constructor | Verdict
+
+| Assigns each argument to its field
+| Fine
+
+| Validates them, for example `if(hi < lo) throw`
+| Fine — validation changes nothing
+
+| Normalises or derives a field from an argument
+| Rejected — loading would not return what was stored
+
+| Swaps two same-typed arguments
+| Rejected
+|===
+
+Compiling with `-parameters` is not needed for this: the check observes what the constructor does, not what its parameters are called.
+
+=== When There Is No Full Constructor
+
+A value class often has a derived field that no constructor sets directly:
+
+[source, java]
+----
+public value class Circle
+{
+    final double radius;
+    final double area;                        // derived
+
+    public Circle(final double radius)
+    {
+        this.radius = radius;
+        this.area   = Math.PI * radius * radius;
+    }
+}
+----
+
+There are three ways to make such a type persistable, in increasing order of effort.
+
+*Declare the derived field `transient`.*
+It is then not persistable, the remaining fields match the constructor, and the value is recomputed on load.
+This is usually all it takes, and it behaves better here than on an identity class: there, a transient field comes back at its default because no constructor runs.
+
+[source, java]
+----
+public value class Circle
+{
+    final double radius;
+    transient final double area;              // derived, and not persisted
+
+    public Circle(final double radius)
+    {
+        this.radius = radius;
+        this.area   = Math.PI * radius * radius;
+    }
+}
+----
+
+*Exclude it from the outside* with a `PersistenceFieldEvaluator`, when the class cannot be changed.
+See xref:storing-data/transient-fields.adoc[Transient Fields].
+
+*Write a custom type handler* when the persistent form has to be something the field set cannot express.
+See xref:customizing/custom-type-handler.adoc[Custom Type Handler].
+A handler for a value class builds the instance in `create` and leaves `updateState` empty, because a value instance cannot be filled in after the fact.
+
+== Inlining
+
+A value field can be written _into its owner_ rather than referenced by an object id.
+That removes one entity and one object id per owner, and with it the superseded copy left behind on every store: an owner with one value field writes one entity per store instead of two, which is roughly half the bytes.
+
+*Inlining is on by default.*
+A field qualifies when all of the following hold:
+
+* its declared type is a value class the application itself declares — types declared by the JDK are excluded as a group, see <<_jdk_value_types>>;
+* every one of that type's persistable fields is either a primitive or itself inlinable, so the slot contains no object id at any depth;
+* the type does not contain itself, directly or through another value type, because such a layout has no fixed length;
+* the type is concrete, not abstract, since an inlined slot carries no type information;
+* the owner is an ordinary class, a record or a value class — fields of an enum stay referenced.
+
+A field that does not qualify keeps being referenced, which is fully supported, and the reason is logged at `DEBUG`.
+The type dictionary is the authoritative answer: an inlined field appears with a `value` keyword and its own layout.
+
+[source, text]
+----
+value com.example.Money com.example.Order#total(
+    long com.example.Money#amount      ,
+    int  com.example.Money#currencyCode,
+),
+----
+
+[IMPORTANT]
+====
+Inlining a type is a one-way decision for the data already written.
+An inlined slot cannot go back to being a reference, and a type dictionary containing the `value` keyword cannot be read by an older {product-name} version.
+====
+
+To turn inlining off:
+
+[source, java]
+----
+EmbeddedStorage.Foundation(dir)
+    .onConnectionFoundation(cf -> cf.setValueInliningResolver(
+        PersistenceValueInliningResolver.Disabled()))
+    .start(root);
+----
+
+Or to decide per field:
+
+[source, java]
+----
+EmbeddedStorage.Foundation(dir)
+    .onConnectionFoundation(cf -> cf.setValueInliningResolver(
+        PersistenceValueInliningResolver.New(
+            cf.getTypeAnalyzer(),
+            (ownerType, field) -> !"audit".equals(field.getName())
+        )))
+    .start(root);
+----
+
+Turning inlining on over existing data converts nothing: the old entities are read through xref:legacy-type-mapping/index.adoc[Legacy Type Mapping] and left as they are, and are written in the new form only when they are next stored.
+Turning it off again once owners have been stored with inlined slots is rejected at startup.
+
+=== JDK Value Types
+
+The default resolver excludes every value class the JDK declares, by where the type is declared rather than by a judgement per type.
+
+Opting them in shows what that exclusion holds back: the eight primitive wrappers inline, each as its single field, and nothing else does.
+`Optional`, `OptionalInt` and the `java.time` types decline on their own, having no constructor {product-name} can reach.
+
+For the wrappers the exclusion matters twice over.
+Inlining replaces the form their dedicated type handler writes with a flattened one, and for the six that have reserved constant ids — `Boolean`, `Byte`, `Short`, `Character`, `Integer` and `Long` — it also bypasses that sharing, because an inlined slot carries no object id at all.
+The persistent form of a JDK type is not the application's to decide, which is why opting one in is possible but deliberate.
+
+== Schema Evolution
+
+Two different questions: what happens when the _type's form_ changes, and what happens when a _field of the type_ changes.
+
+=== Changing the Type's Form
+
+[options="header",cols="1,2"]
+|===
+| Change | Result
+
+| An identity class becomes a value class
+| The class itself is unaffected — same layout, same type id. Every owner of a field of that type changes, because the field becomes eligible for inlining and the owner is written under a new type id when next stored.
+
+| A value class stops being a value class
+| Rejected at startup, once an owner has been stored with an inlined slot.
+
+| A value class loses its full constructor
+| No longer persistable, and the storage does not open. Restore the constructor, or make the derived field `transient`.
+|===
+
+=== Changing a Field of the Type
+
+[options="header",cols="1,2"]
+|===
+| Change | Result
+
+| A field is added
+| Ordinary legacy type mapping — the added field takes its default. A constructor that validates may refuse that default, which fails loudly at load time.
+
+| A field is removed
+| The persisted value is discarded, and the discarded member is named in a warning.
+
+| A field is renamed
+| Matched by name, so a rename reads as one field removed and another added unless an explicit refactoring mapping is supplied.
+
+| A field changes its type
+| Supported for a referenced value type. Refused for an inlined one, because the persisted bytes would have to be reinterpreted in place.
+
+| A member that was referenced becomes inlined
+| Carried — the referenced value is resolved and handed over.
+
+| A member that was inlined becomes referenced
+| Refused, see <<_not_supported>>.
+|===
+
+== Not Supported
+
+[options="header",cols="1,2"]
+|===
+| Case | What happens
+
+| _Setting_ a value object as the persistence root
+| Rejected at startup: a value instance has no identity, so the persisted state cannot be applied to it on loading. A root that is only _loaded_ resolves normally.
+
+| A value object as a `WeakHashMap` key or `WeakReference` referent
+| `IdentityException` from the JVM
+
+| `synchronized` on a value object
+| `IdentityException` from the JVM
+
+| GigaMap in-place update (`update` / `apply`) of a value element
+| Rejected with an actionable message — use `set(long, E)` or `replace(E, E)` with a new instance, which keeps the entity id
+
+| Inlining a value type that holds references
+| Not done; the field stays referenced. An object id inside a slot would be invisible to the garbage collector
+
+| Inlining a value type that holds itself
+| Not done; such a layout has no fixed length
+
+| Inlining an abstract value type, or a field of an enum
+| Not done; the field stays referenced
+
+| An inlined field becoming a referenced one
+| The persisted slots cannot be read
+
+| Reading the type dictionary with an older {product-name}
+| An inlined field is written with a `value` keyword the older parser does not know, and it fails loudly on it
+|===
+
+== Behaviour Worth Knowing
+
+*Identity operations throw.*
+`new WeakReference(value)` raises `IdentityException`, and so does anything built on one.
+`synchronized` on a value instance is a compile error where the static type is a value class, and an `IdentityException` at runtime where it arrives as an `Object`.
+This is also why a value instance is never entered into the object registry: the registry's entries are weak references.
+
+*A stored value instance cannot be mapped back to its object id.*
+`PersistenceManager#lookupObjectId` answers `Swizzling.notFoundId()` for one.
+The entity exists and has an id, but nothing maps the instance to it, and the id is not stable either — a value instance is assigned a fresh one on every store.
+The cached JDK constants are the exception: their ids are reserved and derived from the value, so both directions answer for them.
+
+*An `IdentityHashMap` keyed by a value type is an equality map.*
+For a value instance `==` is substitutability and `System.identityHashCode` is derived from state, so two equal keys are one key.
+Nothing throws and nothing is lost, but code that chose `IdentityHashMap` _because_ identity mattered sees one entry where it expected two.
+
+*A value entity is durable only while something in the graph references it.*
+It is never held in the object registry, so it has no live-id protection of its own.
+This does not apply to inlined fields, which are part of their owner.
+
+*A GigaMap of value elements costs what an identity one costs; an ordinary collection does not.*
+xref:gigamap:index.adoc[GigaMap] records the object id each element was stored under, so re-storing it references the unchanged elements instead of writing them again.
+Ordinary collections have no such record.
+
+*A GigaMap's default equalator becomes a value equalator on its own.*
+`GigaMap.New()` installs an identity equalator, which for value elements is substitutability.
+Where the map holds two equal elements, resolving an instance to its id finds the first match; address a specific entity by its id when that distinction matters.
+
+*Instance lookups on a value-element map cannot use resident segments only.*
+An equal value instance in an unloaded segment matches as well as one in memory, so the resolver has to load candidate segments to compare.
+Prefer the id-based methods on a large map.
+
+== Applications That Declare No Value Class
+
+On a JEP 401 JDK started with `--enable-preview`, the JDK's own wrappers are value classes: `Integer`, `Long`, `Boolean`, `Byte`, `Short` and `Character`.
+An application that declares no value class of its own therefore still holds value instances in its entity graph.
+
+*Identity operations on a boxed value throw.*
+A `WeakHashMap` keyed by a boxed number, a `WeakReference` to one, or `synchronized` on one all raise `IdentityException`.
+This is the JDK's change rather than {product-name}'s.
+
+*A boxed value outside the JLS cache range costs a fresh entity per store.*
+The cached constants are unaffected: their object ids are reserved and derived from the value, identical with and without the flag, so a storage moves between the two kinds of JVM unchanged.
+Outside that range there is no registry entry to reuse, so every store of the owner writes the wrapper again and supersedes the previous copy.
+This is churn rather than a leak — the superseded copies are ordinary garbage and are reclaimed by xref:housekeeping.adoc[Housekeeping].
+
+== Opening a Storage Written Before Value Classes Existed
+
+Nothing has to be migrated, and nothing is.
+
+* *It opens and reads back unchanged.* Wrappers, `String`, the `java.time` types, `Optional` and collections all come back equal to what was written.
+* *No type changes identity.* The type dictionary is unchanged after opening and after storing again — no type id is added, nothing is re-mapped, no legacy type handler is built.
+* *Cached constants keep their ids.* Their reserved ids are derived from the value arithmetically rather than looked up in the object registry, so they resolve on either kind of JVM. This is what lets a storage move between them in both directions.
+* *Wrappers outside the cache load, but cannot be mapped back to their id.* They were written as ordinary entities and are read as ordinary entities; the consequence is the churn described above.
+* *Application code is what breaks, if anything does.* Weak references, `WeakHashMap` keys and `synchronized` on boxed values start throwing.
+
+If none of that is wanted yet, the answer is not to pass `--enable-preview`: on the same JDK without it, the wrappers are ordinary identity classes and none of this applies.
+
+The offline tools handle a storage containing value types, and need neither a JEP 401 JDK nor the application's classes to do it.
+See xref:addendum/tools.adoc[Tools].
+
+== A Diverging Explicit Root
+
+This one applies on every JDK, value classes or not.
+
+A type handler that builds complete instances — the `java.time` handlers for `LocalDate`, `YearMonth`, `MonthDay`, `Period`, `ZoneOffset` and `ZoneId`, and any custom handler of that shape — cannot write into an instance it did not build.
+As an explicit root such an instance is pre-registered, so the handler is handed exactly that, and {product-name} refuses rather than let the two states diverge silently:
+
+[source, java]
+----
+EmbeddedStorage.start(LocalDate.of(2026, 9, 2), dir);   // persists that date
+EmbeddedStorage.start(LocalDate.of(1999, 1, 1), dir);   // reopen with a different value
+----
+
+The second call throws:
+
+[source, text]
+----
+BinaryPersistenceException: Inconsistent state for instance java.time.LocalDate@...:
+    "1999-01-01" not equal to "2026-09-02"
+----
+
+Passing an instance of equal state is accepted.
+The pattern that does not work is passing a throwaway instance and reading `root()` afterwards; hold the value in a field of an ordinary root object instead.

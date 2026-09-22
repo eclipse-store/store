@@ -343,7 +343,13 @@ public interface ViewerBinaryPersistenceManager extends PersistenceManager<Binar
 		@Override
 		public ObjectDescription getStorageConstant(final long objectId)
 		{
-			final Object object = this.constantRegistry.lookupObject(objectId);
+			Object object = this.constantRegistry.lookupObject(objectId);
+			if(object == null)
+			{
+				// value instances cannot be held by a registry, so their constant ids are resolved arithmetically.
+				object = Persistence.resolveJavaConstantInstance(objectId);
+			}
+
 			final PersistenceTypeDefinition type = this.typeDictionary().lookupTypeByName(
 				object.getClass().getTypeName()
 			);

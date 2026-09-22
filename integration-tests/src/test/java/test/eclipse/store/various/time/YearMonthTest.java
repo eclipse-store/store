@@ -24,6 +24,8 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import test.eclipse.store.util.RootStorages;
+
 public class YearMonthTest
 {
     @TempDir
@@ -34,7 +36,9 @@ public class YearMonthTest
     {
         YearMonth ym = YearMonth.of(2020, 1);
 
-        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(ym, tempDir)) {
+        // installed rather than set: where YearMonth is a value class it cannot be an explicit root
+        try (EmbeddedStorageManager storageManager = RootStorages.startWithRoot(tempDir, ym)) {
+            storageManager.storeRoot();
         }
 
         try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(tempDir)) {

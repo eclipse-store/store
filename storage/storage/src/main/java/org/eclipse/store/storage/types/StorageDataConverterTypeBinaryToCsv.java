@@ -43,6 +43,7 @@ import org.eclipse.serializer.persistence.types.PersistenceTypeDefinition;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMember;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMemberFieldGeneric;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMemberFieldGenericComplex;
+import org.eclipse.serializer.persistence.types.PersistenceTypeDescriptionMemberFieldValueStruct;
 import org.eclipse.serializer.persistence.types.PersistenceTypeDictionary;
 import org.eclipse.serializer.reference.Swizzling;
 import org.eclipse.serializer.typing.XTypes;
@@ -100,10 +101,20 @@ public interface StorageDataConverterTypeBinaryToCsv
 				{
 					return referenceTypeName;
 				}
-				final String mappedTypeName = typeNameToCsvTypeNameMapping.get(columnType.typeName());
+
+				/* An inlined field is written as a list literal of the inlined type's values, so it takes the
+				 * same column type as a complex member rather than one named after the inlined type.
+				 */
+				final String lookupTypeName =
+					columnType instanceof PersistenceTypeDescriptionMemberFieldValueStruct
+						? PersistenceTypeDictionary.Symbols.typeComplex()
+						: columnType.typeName()
+				;
+
+				final String mappedTypeName = typeNameToCsvTypeNameMapping.get(lookupTypeName);
 				if(mappedTypeName == null)
 				{
-					throw new StorageException("Unmapped type: " + columnType.typeName());
+					throw new StorageException("Unmapped type: " + lookupTypeName);
 				}
 				return mappedTypeName;
 			}
@@ -444,12 +455,35 @@ public interface StorageDataConverterTypeBinaryToCsv
 			{
 				return this.deriveComplexValueWriter((PersistenceTypeDescriptionMemberFieldGenericComplex)field);
 			}
+			if(field instanceof PersistenceTypeDescriptionMemberFieldValueStruct)
+			{
+				return this.deriveValueStructWriter((PersistenceTypeDescriptionMemberFieldValueStruct)field);
+			}
 			final ValueWriter valueWriter = this.valueWriterMap.get(field.typeName());
 			if(valueWriter == null)
 			{
 				throw new StorageException("Unrecognized type: " + field.typeName());
 			}
 			return valueWriter;
+		}
+
+		/**
+		 * An inlined field holds the values of a whole type in one fixed-length slot, so it is written as one
+		 * list literal of those values. An absent value writes an empty list, which is what its marker says.
+		 */
+		private ValueWriter deriveValueStructWriter(final PersistenceTypeDescriptionMemberFieldValueStruct field)
+		{
+			final ValueWriter[] valueWriters = this.createValueWriters(field.members());
+			final long          structLength = field.persistentMinimumLength();
+
+			return new ValueWriter()
+			{
+				@Override
+				public long writeValue(final long valueReadAddress) throws IOException
+				{
+					return UTF8.this.writeValueStruct(valueWriters, structLength, valueReadAddress);
+				}
+			};
 		}
 
 		private ValueWriter deriveComplexValueWriter(final PersistenceTypeDescriptionMemberFieldGenericComplex field)
@@ -811,6 +845,48 @@ public interface StorageDataConverterTypeBinaryToCsv
 			this.closeComplexLiteral(elementCount);
 
 			return valueReadAddress + Binary.getEntityLengthRawValue(valueReadAddress);
+		}
+
+		final long writeValueStruct(
+			final ValueWriter[] valueWriters    ,
+			final long          structLength    ,
+			final long          valueReadAddress
+		)
+			throws IOException
+		{
+			final boolean present = XMemory.get_byte(valueReadAddress)
+				!= PersistenceTypeDescriptionMemberFieldValueStruct.NULL_MARKER_ABSENT
+			;
+
+			/* The null marker leads the literal, as it leads the slot. Writing only the members would
+			 * leave the marker to be inferred from how many there are, which fails for a layout that has
+			 * none: a value class may declare no fields, and every instance of one is substitutable with
+			 * every other, so whether the field is there is the only thing such a slot says. Present and
+			 * absent would then both write an empty literal and read back as absent.
+			 */
+			this.write(this.listStarter);
+			this.write_boolean(present);
+			this.write(this.listSeparator);
+
+			long elementCount = 1;
+
+			if(present)
+			{
+				long address = valueReadAddress
+					+ PersistenceTypeDescriptionMemberFieldValueStruct.NULL_MARKER_LENGTH
+				;
+				for(final ValueWriter valueWriter : valueWriters)
+				{
+					address = valueWriter.writeValue(address);
+					this.write(this.listSeparator);
+				}
+				elementCount += valueWriters.length;
+			}
+
+			this.closeComplexLiteral(elementCount);
+
+			// fixed by the described layout, whether or not the value is present
+			return valueReadAddress + structLength;
 		}
 
 		final long writeComplexSingle(final ValueWriter valueWriter, final long valueReadAddress)

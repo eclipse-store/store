@@ -24,6 +24,8 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import test.eclipse.store.util.RootStorages;
+
 public class LocalDateTest
 {
     @TempDir
@@ -34,7 +36,9 @@ public class LocalDateTest
     {
         LocalDate ldt = LocalDate.of(2020, 1, 1);
 
-        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(ldt, tempDir)) {
+        // installed rather than set: where LocalDate is a value class it cannot be an explicit root
+        try (EmbeddedStorageManager storageManager = RootStorages.startWithRoot(tempDir, ldt)) {
+            storageManager.storeRoot();
         }
 
         LocalDate ldt2 = null;

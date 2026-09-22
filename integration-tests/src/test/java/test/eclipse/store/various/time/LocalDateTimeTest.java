@@ -15,14 +15,19 @@ package test.eclipse.store.various.time;
  */
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 
+import org.eclipse.serializer.persistence.exceptions.PersistenceException;
+import org.eclipse.serializer.reflect.XReflect;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+
+import test.eclipse.store.util.RootStorages;
 
 public class LocalDateTimeTest
 {
@@ -34,7 +39,9 @@ public class LocalDateTimeTest
     {
         LocalDateTime ldt = LocalDateTime.of(2020, 1, 1, 1, 1, 0);
 
-        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(ldt, tempDir)) {
+        // installed rather than set: where LocalDateTime is a value class it cannot be an explicit root
+        try (EmbeddedStorageManager storageManager = RootStorages.startWithRoot(tempDir, ldt)) {
+            storageManager.storeRoot();
         }
 
         LocalDateTime ldt2 = null;
@@ -50,13 +57,21 @@ public class LocalDateTimeTest
     {
         LocalDateTime ldt = LocalDateTime.of(2020, 1, 1, 1, 1, 0);
 
-        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(ldt, tempDir)) {
+        // installed rather than set: where LocalDateTime is a value class it cannot be an explicit root
+        try (EmbeddedStorageManager storageManager = RootStorages.startWithRoot(tempDir, ldt)) {
+            storageManager.storeRoot();
         }
 
         LocalDateTime ldt2 = LocalDateTime.MAX;
-        try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(ldt2, tempDir)) {
+        if (XReflect.isValueClass(LocalDateTime.class)) {
+            // no identity, so the persisted state cannot be applied to it - the refusal is the contract
+            assertThrows(PersistenceException.class, () -> EmbeddedStorage.start(ldt2, tempDir).shutdown(),
+                "a value instance must be refused as an explicit root");
+        } else {
+            try (EmbeddedStorageManager storageManager = EmbeddedStorage.start(ldt2, tempDir)) {
 
-            assertEquals(ldt, ldt2, "LocalDateTime should be equal after storing and reloading");
+                assertEquals(ldt, ldt2, "LocalDateTime should be equal after storing and reloading");
+            }
         }
     }
 
