@@ -372,15 +372,17 @@ public interface S3Connector extends BlobStoreConnector
 		 * <p>
 		 * The SDK requests the content stream once per transmission attempt, and every stream it
 		 * gets must start at the beginning of the content. Reading a {@link ByteBufferInputStream}
-		 * advances the buffers it reads, so every attempt reads through its own duplicates and the
-		 * source buffers are never read here at all &mdash; which is what keeps them at their entry
-		 * position for the whole upload. <b>Nothing between this method's entry and
-		 * {@code putObject} may read them</b>, or the duplicates of a later attempt start behind
-		 * the bytes an earlier one consumed. The provider closes the preceding attempt's stream, as
-		 * its contract requires.
+		 * advances the buffers it reads, so each source buffer's readable region is captured once,
+		 * on entry, as a {@link ByteBuffer#duplicate() duplicate}, and every attempt reads through
+		 * fresh duplicates of that snapshot. The source buffers themselves are never read here,
+		 * which is what makes the content of an attempt independent of anything that happens to
+		 * them in between. The provider closes the preceding attempt's stream, as its contract
+		 * requires.
 		 * <p>
-		 * The source buffers are advanced to their limit only after a successful upload, which
-		 * preserves the "a write consumes its source buffers" post-state of the other backends.
+		 * The source buffers are advanced to their limit after a successful upload, matching the
+		 * "a write consumes its source buffers" post-state of the other backends. A failed upload
+		 * leaves them untouched, where the other backends leave them advanced by however much the
+		 * failed attempt happened to read.
 		 * <p>
 		 * {@link Iterable} does not promise re-iterability, so {@code sourceBuffers} is walked
 		 * exactly once and everything else works on the collected buffers.
@@ -396,13 +398,15 @@ public interface S3Connector extends BlobStoreConnector
 		{
 			final long nextBlobNumber = this.nextBlobNumber(file);
 
-			final List<ByteBuffer> buffers = new ArrayList<>();
+			final List<ByteBuffer> sources  = new ArrayList<>();
+			final List<ByteBuffer> snapshot = new ArrayList<>();
 			for(final ByteBuffer sourceBuffer : sourceBuffers)
 			{
-				buffers.add(sourceBuffer);
+				sources.add(sourceBuffer);
+				snapshot.add(sourceBuffer.duplicate());
 			}
 
-			final long totalSize = this.totalSize(buffers);
+			final long totalSize = this.totalSize(snapshot);
 
 			final PutObjectRequest request = PutObjectRequest.builder()
 				.bucket(file.container())
@@ -425,10 +429,10 @@ public interface S3Connector extends BlobStoreConnector
 					{
 						XIO.unchecked.close(this.previous);
 
-						final List<ByteBuffer> attemptBuffers = new ArrayList<>(buffers.size());
-						for(final ByteBuffer sourceBuffer : buffers)
+						final List<ByteBuffer> attemptBuffers = new ArrayList<>(snapshot.size());
+						for(final ByteBuffer snapshotBuffer : snapshot)
 						{
-							attemptBuffers.add(sourceBuffer.duplicate());
+							attemptBuffers.add(snapshotBuffer.duplicate());
 						}
 
 						final InputStream stream = new BufferedInputStream(
@@ -445,7 +449,7 @@ public interface S3Connector extends BlobStoreConnector
 
 			this.s3.putObject(request, body);
 
-			for(final ByteBuffer sourceBuffer : buffers)
+			for(final ByteBuffer sourceBuffer : sources)
 			{
 				sourceBuffer.position(sourceBuffer.limit());
 			}
