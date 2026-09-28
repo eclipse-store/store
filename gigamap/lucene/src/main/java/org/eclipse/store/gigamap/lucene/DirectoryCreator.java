@@ -78,8 +78,10 @@ public abstract class DirectoryCreator
 	 * <p>
 	 * {@link IndexLocation#Absolute(Path)} is the same as {@link #MMap(Path)}.
 	 * {@link IndexLocation#Named(String)} stores only the name; the directory is looked up in
-	 * {@link IndexLocations} when the Lucene index first opens its files in a run, so a moved or copied
-	 * storage can be pointed at its Lucene files by binding the name to their new directory.
+	 * {@link IndexLocations} when the Lucene index is registered or loaded, and kept for the rest of the
+	 * run, so a moved or copied storage can be pointed at its Lucene files by binding the name to their
+	 * new directory. The creator itself holds no resolved state, so one creator can be shared by several
+	 * maps.
 	 *
 	 * @param location the location of the Lucene files; must not be null.
 	 * @return a memory-mapped directory creator for that location
@@ -87,7 +89,7 @@ public abstract class DirectoryCreator
 	public static DirectoryCreator MMap(final IndexLocation location)
 	{
 		notNull(location);
-		return location.name() != null
+		return location.isNamed()
 			? new MMapDirectoryCreator(null, location.name())
 			: new MMapDirectoryCreator(location.directory())
 		;
@@ -119,9 +121,6 @@ public abstract class DirectoryCreator
 		// fails the whole start on an instance of a class it does not have. null is also what creators
 		// stored before this field existed read as, i.e. today's behaviour.
 		private final String locationName;
-
-		// Resolved once per instance, so a rebinding of the name does not move open Lucene files.
-		private transient volatile Path resolvedPath;
 
 		MMapDirectoryCreator(final Path path)
 		{
@@ -156,38 +155,35 @@ public abstract class DirectoryCreator
 		public MMapDirectoryCreator withLocation(final IndexLocation location)
 		{
 			notNull(location);
-			final MMapDirectoryCreator creator = location.name() != null
+			return location.isNamed()
 				? new MMapDirectoryCreator(this.path, location.name())
 				: new MMapDirectoryCreator(location.directory())
 			;
-			// Files opened in this run stay where they are, even if the index closes and reopens them;
-			// the transient field is gone after a restart, so the new location applies from the next load.
-			creator.resolvedPath = this.resolvedPath;
-			return creator;
 		}
 
-		private Path directory()
-		{
-			Path directory = this.resolvedPath;
-			if(directory == null)
-			{
-				// no fallback to the stored path for an unbound name: that is the silent wrong location
-				// the named location exists to prevent
-				directory = this.locationName != null
-					? IndexLocations.resolve(this.locationName)
-					: this.path
-				;
-				this.resolvedPath = directory;
-			}
-			return directory;
-		}
-
+		/**
+		 * Resolves the location now and creates the directory there. A {@link LuceneIndex} does not use
+		 * this: it resolves its location once when it is registered or loaded and then calls
+		 * {@link #createDirectory(Path)}, so that the files stay where they were opened for the whole run.
+		 * For an unbound name this throws; there is no fallback to the stored path.
+		 */
 		@Override
 		public Directory createDirectory()
 		{
+			return this.createDirectory(this.location().resolve());
+		}
+
+		/**
+		 * Creates the directory in an already resolved location.
+		 *
+		 * @param directory the resolved directory
+		 * @return the memory-mapped directory
+		 */
+		public Directory createDirectory(final Path directory)
+		{
 			try
 			{
-				return new MMapDirectory(this.directory());
+				return new MMapDirectory(notNull(directory));
 			}
 			catch(final IOException e)
 			{

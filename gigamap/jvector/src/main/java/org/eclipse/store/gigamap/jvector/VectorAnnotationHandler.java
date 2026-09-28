@@ -137,7 +137,7 @@ public final class VectorAnnotationHandler<E> implements GigaIndexAnnotationHand
 					+ "VectorAnnotationHandler.New(Path) or New(IndexLocation)"
 				);
 			}
-			if(this.indexBase.name() != null)
+			if(this.indexBase.isNamed())
 			{
 				builder.indexLocation(this.indexBase);
 			}

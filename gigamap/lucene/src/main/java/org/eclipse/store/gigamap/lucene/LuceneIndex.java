@@ -40,6 +40,7 @@ import java.io.IOException;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -275,6 +276,10 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	 * next store of the parent {@link GigaMap}; a restart before that keeps the old location. Migration to
 	 * a {@link IndexLocation#Named(String) named location} without re-indexing: change to
 	 * {@code Named("x")}, store, and bind {@code "x"} to the current directory for the next start.
+	 * <p>
+	 * <b>A Lucene index is not rebuilt from the stored entities when it opens.</b> A location without the
+	 * index files (e.g. a new, empty directory) therefore yields an empty full-text index: searches find
+	 * nothing until the files are copied there or {@link GigaMap#reindex()} is called.
 	 *
 	 * @param location the new location
 	 * @throws IllegalStateException if the index keeps no files in a directory, or the parent
@@ -343,6 +348,12 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		 * exclusively read and written inside {@code synchronized(this.gigaMap)}.
 		 */
 		private transient boolean readerStale;
+
+		// Directory of an MMap creator's location, resolved once per instance when it is registered or
+		// loaded (on that thread, so a thread-scoped binding applies). Every later open, including one
+		// after close(), uses it, so neither a rebinding nor changeIndexLocation moves the files in this
+		// run. Kept here rather than on the creator, which several maps may share.
+		private transient volatile Path resolvedDirectory;
 
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
@@ -470,6 +481,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		@Override
 		public void internalOnRegistered()
 		{
+			this.resolveLocation();
 			// the GigaMap may already hold entities at the moment this index is registered; index them
 			// now so a full-text search sees pre-existing entities, not only those added afterwards.
 			this.internalRebuild(false);
@@ -874,6 +886,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 							? "graph directory" : creator.getClass().getName()) + "), so it has no location."
 					);
 				}
+				// the resolved directory of this instance stays: the new location applies from the next load
 				final DirectoryCreator.MMapDirectoryCreator mmap = (DirectoryCreator.MMapDirectoryCreator)creator;
 				if(location.equals(mmap.location()))
 				{
@@ -1012,10 +1025,43 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 
 		private Directory createDirectory()
 		{
-			return this.usesGraphDirectory()
-				? new GraphDirectory()
-				: this.context.directoryCreator().createDirectory()
-			;
+			if(this.usesGraphDirectory())
+			{
+				return new GraphDirectory();
+			}
+			final DirectoryCreator creator = this.context.directoryCreator();
+			if(creator instanceof DirectoryCreator.MMapDirectoryCreator)
+			{
+				this.resolveLocation(); // no-op after registration or load, which resolve it
+				return ((DirectoryCreator.MMapDirectoryCreator)creator).createDirectory(this.resolvedDirectory);
+			}
+			return creator.createDirectory();
+		}
+
+		/**
+		 * Resolves the location of an MMap creator once for this instance. Called when the index is
+		 * registered ({@link #internalOnRegistered()}) and when it is loaded (its type handler's
+		 * {@code complete}), on that thread. For an unbound name this throws, naming the name; there is
+		 * no fallback to the stored path.
+		 */
+		void resolveLocation()
+		{
+			if(this.resolvedDirectory != null)
+			{
+				return;
+			}
+			final DirectoryCreator creator = this.context.directoryCreator();
+			if(creator instanceof DirectoryCreator.MMapDirectoryCreator)
+			{
+				try
+				{
+					this.resolvedDirectory = ((DirectoryCreator.MMapDirectoryCreator)creator).location().resolve();
+				}
+				catch(final IllegalStateException e)
+				{
+					throw new IllegalStateException("Lucene index: " + e.getMessage(), e);
+				}
+			}
 		}
 
         private void optCommit() throws IOException

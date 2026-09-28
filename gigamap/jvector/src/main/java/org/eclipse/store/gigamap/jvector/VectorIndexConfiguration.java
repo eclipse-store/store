@@ -1246,7 +1246,7 @@ public interface VectorIndexConfiguration
          */
         public default Builder indexLocation(final IndexLocation indexLocation)
         {
-            if(notNull(indexLocation).name() != null)
+            if(notNull(indexLocation).isNamed())
             {
                 throw new UnsupportedOperationException(
                     this.getClass().getName() + " does not support named index locations."
@@ -1589,10 +1589,14 @@ public interface VectorIndexConfiguration
             public Builder indexLocation(final IndexLocation indexLocation)
             {
                 notNull(indexLocation);
-                if(indexLocation.name() != null)
+                if(indexLocation.isNamed())
                 {
-                    // the directory is resolved when the index is opened, not stored
+                    // The directory is resolved when the index is opened, not stored. A directory set
+                    // before is cleared, like the name is by indexDirectory(): a new index configured by
+                    // name must not carry a stored path that is never used. Only a switch of an existing
+                    // index keeps its previous path (withIndexLocation), for older library versions.
                     this.indexLocationName = indexLocation.name();
+                    this.indexDirectory    = null;
                 }
                 else
                 {
@@ -2042,7 +2046,7 @@ public interface VectorIndexConfiguration
         public VectorIndexConfiguration withIndexLocation(final IndexLocation indexLocation)
         {
             notNull(indexLocation);
-            final boolean named = indexLocation.name() != null;
+            final boolean named = indexLocation.isNamed();
 
             // Storage and scoring go through their getters: a configuration persisted before those
             // fields existed holds null, and the constructor derives enablePqCompression from the

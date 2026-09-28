@@ -329,13 +329,25 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * Returns the directory this index instance keeps its files in: the configuration's
      * {@link VectorIndexConfiguration#indexLocation() location}, resolved when the index was opened in
      * this run. For a {@link IndexLocation#Named(String) named location} that is the directory the name
-     * was bound to at that moment.
+     * was bound to at that moment. Never the stored {@link VectorIndexConfiguration#indexDirectory()} of a
+     * named location, which is kept only for older library versions.
+     * <p>
+     * This default implementation, and an index not opened yet, report the directory the name is bound
+     * to now.
      *
-     * @return the index directory, or {@code null} for an in-memory index
+     * @return the index directory, or {@code null} for an in-memory index or an unbound name
      */
     public default Path indexDirectory()
     {
-        return this.configuration().indexDirectory();
+        final IndexLocation location = this.configuration().indexLocation();
+        if(location == null)
+        {
+            return null;
+        }
+        return location.isNamed()
+            ? IndexLocations.lookup(location.name())
+            : location.directory()
+        ;
     }
 
     @Override
@@ -1678,6 +1690,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         private void initializeIndex()
         {
+            // First, before anything is built: an unbound location name must fail here and leave nothing
+            // behind, or a present in-memory builder would make the half-initialized index look ready.
+            if(this.configuration.onDisk())
+            {
+                this.indexDirectoryForDisk();
+            }
+
             this.vectorTypeSupport = VectorizationProvider.getInstance().getVectorTypeSupport();
 
             // Set when a persisted on-disk index was found but rejected, so the rebuilt graph has to
@@ -2150,7 +2169,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         public Path indexDirectory()
         {
             final Path resolved = this.resolvedDirectory;
-            return resolved != null ? resolved : this.configuration.indexDirectory();
+            return resolved != null ? resolved : Internal.super.indexDirectory();
         }
 
         /**
@@ -2169,24 +2188,24 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         private Path resolveIndexLocation()
         {
-            final String name = this.configuration.indexLocationName();
-            if(name == null)
+            final IndexLocation location = this.configuration.indexLocation();
+            if(location == null || !location.isNamed())
             {
                 return this.configuration.indexDirectory();
             }
 
-            final Path directory = IndexLocations.lookup(name);
-            if(directory == null)
+            final Path directory;
+            try
+            {
+                directory = location.resolve();
+            }
+            catch(final IllegalStateException e)
             {
                 // No fallback to any stored directory: that is exactly the silent wrong location this
                 // mechanism exists to prevent (e.g. another store's graph on a copied volume).
-                throw new IllegalStateException(
-                    "Vector index \"" + this.name + "\": index location name \"" + name + "\" is not bound;"
-                    + " bind it with IndexLocations.bind(\"" + name + "\", directory) before the index is"
-                    + " created or loaded."
-                );
+                throw new IllegalStateException("Vector index \"" + this.name + "\": " + e.getMessage(), e);
             }
-            LOG.info("Vector index '{}' uses directory {} (index location \"{}\")", this.name, directory, name);
+            LOG.info("Vector index '{}' uses directory {} ({})", this.name, directory, location);
             return directory;
         }
 

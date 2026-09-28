@@ -38,6 +38,11 @@ import java.util.Objects;
 public interface IndexLocation extends Unpersistable
 {
 	/**
+	 * @return whether this is a {@link #Named(String) named} location rather than an absolute one
+	 */
+	public boolean isNamed();
+
+	/**
 	 * @return the directory of an absolute location, or {@code null} for a named one
 	 */
 	public Path directory();
@@ -81,6 +86,12 @@ public interface IndexLocation extends Unpersistable
 		{
 			super();
 			this.directory = directory;
+		}
+
+		@Override
+		public boolean isNamed()
+		{
+			return false;
 		}
 
 		@Override
@@ -128,6 +139,12 @@ public interface IndexLocation extends Unpersistable
 		{
 			super();
 			this.name = name;
+		}
+
+		@Override
+		public boolean isNamed()
+		{
+			return true;
 		}
 
 		@Override
