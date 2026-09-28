@@ -18,7 +18,7 @@ import static java.util.stream.Collectors.toList;
 import static org.eclipse.serializer.util.X.notNull;
 
 import java.io.BufferedInputStream;
-import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -27,14 +27,15 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.serializer.io.ByteBufferInputStream;
+import org.eclipse.serializer.io.XIO;
 import org.eclipse.store.afs.blobstore.types.BlobStoreConnector;
 import org.eclipse.store.afs.blobstore.types.BlobStorePath;
 
 import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.internal.util.Mimetype;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.http.ContentStreamProvider;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.Delete;
@@ -366,6 +367,29 @@ public interface S3Connector extends BlobStoreConnector
 			return response.deleted().size() == blobs.size();
 		}
 
+		/**
+		 * Uploads all remaining bytes of {@code sourceBuffers} as a single blob.
+		 * <p>
+		 * The SDK requests the content stream once per transmission attempt, and every stream it
+		 * gets must start at the beginning of the content. Reading a {@link ByteBufferInputStream}
+		 * advances the buffers it reads, so each source buffer's readable region is captured once,
+		 * on entry, as a {@link ByteBuffer#duplicate() duplicate}, and every attempt reads through
+		 * fresh duplicates of that snapshot. The source buffers themselves are never read here,
+		 * which is what makes the content of an attempt independent of anything that happens to
+		 * them in between. The provider closes the preceding attempt's stream, as its contract
+		 * requires.
+		 * <p>
+		 * The source buffers are advanced to their limit after a successful upload, matching the
+		 * "a write consumes its source buffers" post-state of the other backends. A failed upload
+		 * leaves them untouched, where the other backends leave them advanced by however much the
+		 * failed attempt happened to read.
+		 * <p>
+		 * {@link Iterable} does not promise re-iterability, so {@code sourceBuffers} is walked
+		 * exactly once and everything else works on the collected buffers.
+		 * <p>
+		 * The content provider must not outlive this call: the caller owns the source buffers and
+		 * may free them &mdash; they are typically direct &mdash; as soon as the write returns.
+		 */
 		@Override
 		protected long internalWriteData(
 			final BlobStorePath                  file         ,
@@ -373,29 +397,61 @@ public interface S3Connector extends BlobStoreConnector
 		)
 		{
 			final long nextBlobNumber = this.nextBlobNumber(file);
-			final long totalSize      = this.totalSize(sourceBuffers);
+
+			final List<ByteBuffer> sources  = new ArrayList<>();
+			final List<ByteBuffer> snapshot = new ArrayList<>();
+			for(final ByteBuffer sourceBuffer : sourceBuffers)
+			{
+				sources.add(sourceBuffer);
+				snapshot.add(sourceBuffer.duplicate());
+			}
+
+			final long totalSize = this.totalSize(snapshot);
 
 			final PutObjectRequest request = PutObjectRequest.builder()
 				.bucket(file.container())
 				.key(toBlobKey(file, nextBlobNumber))
 				.build()
 			;
-			
-			try(final BufferedInputStream inputStream = new BufferedInputStream(
-					ByteBufferInputStream.New(sourceBuffers)
-			))
+
+			/*
+			 * Not ContentStreamProvider#fromInputStreamSupplier, which would do the same: that
+			 * factory only exists from AWS SDK 2.26 on, and the SDK is a "provided" dependency
+			 * whose version the application picks.
+			 */
+			final RequestBody body = RequestBody.fromContentProvider(
+				new ContentStreamProvider()
+				{
+					private InputStream previous;
+
+					@Override
+					public InputStream newStream()
+					{
+						XIO.unchecked.close(this.previous);
+
+						final List<ByteBuffer> attemptBuffers = new ArrayList<>(snapshot.size());
+						for(final ByteBuffer snapshotBuffer : snapshot)
+						{
+							attemptBuffers.add(snapshotBuffer.duplicate());
+						}
+
+						final InputStream stream = new BufferedInputStream(
+							ByteBufferInputStream.New(attemptBuffers)
+						);
+						this.previous = stream;
+
+						return stream;
+					}
+				},
+				totalSize,
+				Mimetype.MIMETYPE_OCTET_STREAM
+			);
+
+			this.s3.putObject(request, body);
+
+			for(final ByteBuffer sourceBuffer : sources)
 			{
-				final RequestBody body = RequestBody.fromContentProvider(
-					() -> inputStream,
-					totalSize,
-					Mimetype.MIMETYPE_OCTET_STREAM
-				);
-				
-				this.s3.putObject(request, body);
-			}
-			catch(final IOException e)
-			{
-				throw new IORuntimeException(e);
+				sourceBuffer.position(sourceBuffer.limit());
 			}
 
 			return totalSize;
