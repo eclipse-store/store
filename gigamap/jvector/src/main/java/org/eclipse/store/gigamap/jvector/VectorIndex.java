@@ -339,7 +339,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      */
     public default Path indexDirectory()
     {
-        final IndexLocation location = this.configuration().indexLocation();
+        // an in-memory index has no files, whatever directory its configuration may carry
+        final IndexLocation location = this.configuration().onDisk()
+            ? this.configuration().indexLocation()
+            : null
+        ;
         if(location == null)
         {
             return null;

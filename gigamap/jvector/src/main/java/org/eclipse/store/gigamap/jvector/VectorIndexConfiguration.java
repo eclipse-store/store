@@ -331,7 +331,9 @@ public interface VectorIndexConfiguration
      * loaded. For an index switched from a plain directory to a named location
      * ({@link VectorIndices#changeIndexLocation(String, IndexLocation)}), {@link #indexDirectory()} still
      * holds the previous directory: it is not used while a name is set, but lets a library version
-     * without named locations keep working with the storage.
+     * without named locations keep working with the storage. It rejects the graph there if it is
+     * outdated and rebuilds it. An index created with a named location has no previous directory, so
+     * such a version fails when it uses it.
      *
      * @return the location name, or {@code null}
      */
@@ -1234,6 +1236,9 @@ public interface VectorIndexConfiguration
          * {@link IndexLocation#Named(String)} stores only the name; the directory is looked up in
          * {@link IndexLocations} whenever the index is created or loaded, so a moved or copied storage
          * can be pointed at its index files by binding the name to their new directory.
+         * <p>
+         * A named location stores no directory: a library version without named locations can still
+         * read the storage, but fails when it uses this index.
          * <p>
          * Either this or {@link #indexDirectory(Path)} is required when {@link #onDisk(boolean)} is
          * true.

@@ -9,7 +9,7 @@ package org.eclipse.store.gigamap.types;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -19,26 +19,32 @@ import static org.eclipse.serializer.util.X.notNull;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Supplier;
 
 /**
  * The bindings of {@link IndexLocation#Named(String) named index locations}.
  * <p>
  * Bindings are JVM-wide and meant to be set once at application startup, before the storage is started:
  * indices resolve their location whenever they are created or loaded, which includes maps loaded later
- * on other threads (e.g. behind a {@code Lazy}). Several storages in one JVM use different names.
+ * on other threads (e.g. behind a {@code Lazy}). A binding is therefore not tied to a storage: several
+ * storages in one JVM must use different names.
  * <p>
- * {@link #withBindings(Map, Supplier)} overrides bindings for the current thread only, e.g. for tests or
- * for several storages that use the same stored name side by side.
- * <p>
- * An index resolves its location once, when it is opened; rebinding a name affects only indices opened
- * afterwards. A name that is bound nowhere fails the resolution loudly — there is no fallback.
+ * An index resolves its location once, when it is created or loaded; rebinding a name affects only
+ * indices resolved afterwards. A name that is not bound fails the resolution loudly — there is no
+ * fallback.
  */
 public final class IndexLocations
 {
-	private static final Map<String, Path>              BINDINGS = new ConcurrentHashMap<>();
-	private static final ThreadLocal<Map<String, Path>> SCOPED   = new ThreadLocal<>();
+	///////////////////////////////////////////////////////////////////////////
+	// static fields //
+	//////////////////
 
+	private static final Map<String, Path> BINDINGS = new ConcurrentHashMap<>();
+
+
+
+	///////////////////////////////////////////////////////////////////////////
+	// static methods //
+	///////////////////
 
 	/**
 	 * Binds a name JVM-wide, replacing a previous binding of it.
@@ -46,13 +52,16 @@ public final class IndexLocations
 	 * @param name      the location name
 	 * @param directory the directory the name stands for
 	 */
-	public static void bind(final String name, final Path directory)
+	public static void bind(
+		final String name     ,
+		final Path   directory
+	)
 	{
 		BINDINGS.put(notNull(name), notNull(directory));
 	}
 
 	/**
-	 * Removes the JVM-wide binding of a name.
+	 * Removes the binding of a name.
 	 *
 	 * @param name the location name
 	 * @return whether the name was bound
@@ -63,57 +72,17 @@ public final class IndexLocations
 	}
 
 	/**
-	 * Runs an action with bindings that win over the JVM-wide ones, on the current thread only.
-	 *
-	 * @param <T>      the result type
-	 * @param bindings the thread-scoped bindings
-	 * @param action   the action
-	 * @return the action's result
-	 */
-	public static <T> T withBindings(final Map<String, Path> bindings, final Supplier<T> action)
-	{
-		final Map<String, Path> copy     = Map.copyOf(bindings);
-		final Map<String, Path> previous = SCOPED.get();
-		SCOPED.set(copy);
-		try
-		{
-			return notNull(action).get();
-		}
-		finally
-		{
-			if(previous == null)
-			{
-				SCOPED.remove();
-			}
-			else
-			{
-				SCOPED.set(previous);
-			}
-		}
-	}
-
-	/**
 	 * @param name the location name
-	 * @return the directory the name is bound to for the current thread, or {@code null} if it is unbound
+	 * @return the directory the name is bound to, or {@code null} if it is unbound
 	 */
 	public static Path lookup(final String name)
 	{
-		notNull(name);
-		final Map<String, Path> scoped = SCOPED.get();
-		if(scoped != null)
-		{
-			final Path directory = scoped.get(name);
-			if(directory != null)
-			{
-				return directory;
-			}
-		}
-		return BINDINGS.get(name);
+		return BINDINGS.get(notNull(name));
 	}
 
 	/**
 	 * @param name the location name
-	 * @return the directory the name is bound to for the current thread
+	 * @return the directory the name is bound to
 	 * @throws IllegalStateException if the name is unbound
 	 */
 	public static Path resolve(final String name)
@@ -130,9 +99,15 @@ public final class IndexLocations
 	}
 
 
+
+	///////////////////////////////////////////////////////////////////////////
+	// constructors //
+	/////////////////
+
 	private IndexLocations()
 	{
 		// static only
 		throw new UnsupportedOperationException();
 	}
+
 }

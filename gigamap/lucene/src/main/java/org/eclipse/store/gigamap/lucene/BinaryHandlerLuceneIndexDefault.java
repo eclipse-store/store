@@ -171,10 +171,10 @@ public class BinaryHandlerLuceneIndexDefault extends AbstractBinaryHandlerStateC
         final PersistenceLoadHandler handler
     )
     {
-        // Resolves a named location now, during the load and on its thread, like the vector index does:
-        // a thread-scoped binding applies, and an unbound name fails the load instead of a later search.
-        // The files themselves are still opened lazily on first use.
-        instance.resolveLocation();
+        // Resolves a named location now, during the load, like the vector index does: an unbound name
+        // fails the load instead of a later search. The files themselves are still opened lazily on first
+        // use, which also rebuilds the index if its directory turns out to hold no index files.
+        instance.initializeAfterLoad();
     }
 
     // Provided only for PersistenceTypeHandler contract conformity. The standard store path

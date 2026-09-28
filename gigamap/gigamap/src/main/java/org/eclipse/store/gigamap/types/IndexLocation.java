@@ -33,7 +33,8 @@ import java.util.Objects;
  * </ul>
  * An {@code IndexLocation} is a value for configuration APIs and is never stored itself: index
  * configurations store it as plain fields (a path and a name), so that a library version that does not
- * know this type can still read the storage.
+ * know this type can still read the storage. Such a version cannot use an index that keeps its files at
+ * a named location without a stored directory; it fails when it uses that index.
  */
 public interface IndexLocation extends Unpersistable
 {
@@ -62,6 +63,11 @@ public interface IndexLocation extends Unpersistable
 	public Path resolve();
 
 
+
+	///////////////////////////////////////////////////////////////////////////
+	// static methods //
+	///////////////////
+
 	public static IndexLocation Absolute(final Path directory)
 	{
 		return new Absolute(notNull(directory));
@@ -80,13 +86,29 @@ public interface IndexLocation extends Unpersistable
 
 	public final class Absolute implements IndexLocation
 	{
+		///////////////////////////////////////////////////////////////////////////
+		// instance fields //
+		////////////////////
+
 		private final Path directory;
+
+
+
+		///////////////////////////////////////////////////////////////////////////
+		// constructors //
+		/////////////////
 
 		Absolute(final Path directory)
 		{
 			super();
 			this.directory = directory;
 		}
+
+
+
+		///////////////////////////////////////////////////////////////////////////
+		// override methods //
+		/////////////////////
 
 		@Override
 		public boolean isNamed()
@@ -133,13 +155,29 @@ public interface IndexLocation extends Unpersistable
 
 	public final class Named implements IndexLocation
 	{
+		///////////////////////////////////////////////////////////////////////////
+		// instance fields //
+		////////////////////
+
 		private final String name;
+
+
+
+		///////////////////////////////////////////////////////////////////////////
+		// constructors //
+		/////////////////
 
 		Named(final String name)
 		{
 			super();
 			this.name = name;
 		}
+
+
+
+		///////////////////////////////////////////////////////////////////////////
+		// override methods //
+		/////////////////////
 
 		@Override
 		public boolean isNamed()

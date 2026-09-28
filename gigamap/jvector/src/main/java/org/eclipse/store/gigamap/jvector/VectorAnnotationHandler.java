@@ -79,8 +79,21 @@ public final class VectorAnnotationHandler<E> implements GigaIndexAnnotationHand
 	 * <p>
 	 * {@link IndexLocation#Absolute(Path)} behaves like {@link #New(Path)}: each index in a
 	 * sub-directory named after the index. {@link IndexLocation#Named(String)} gives every index that
-	 * named location; the indices share its directory, which is safe because their files are named
-	 * after the index.
+	 * named location; the indices share its directory, and their files are named after the index.
+	 * <p>
+	 * Index names are unique only within one {@link org.eclipse.store.gigamap.types.GigaMap}. In both
+	 * layouts, handlers of several maps must not share a location if the maps have indices of the same
+	 * name, e.g. two maps whose entities both have a {@code @Vector} field {@code embedding}: their index files would
+	 * overwrite each other. Give each map its own location, or the indices distinct names via
+	 * {@link Vector#name()}.
+	 * <p>
+	 * <b>The two layouts differ:</b> {@code Absolute(base)} keeps an index's files in
+	 * {@code base/<indexName>/}, {@code Named("x")} keeps them directly in the directory {@code "x"} is
+	 * bound to. Switching an application from {@code New(Path)} to {@code New(Named(...))} does not move
+	 * existing indices: they keep their stored absolute location, and an index created after the switch
+	 * uses the named directory. To move an existing index to the named location, use
+	 * {@link VectorIndices#changeIndexLocation(String, IndexLocation)} and copy its files from
+	 * {@code base/<indexName>/} into the bound directory (otherwise its graph is rebuilt there once).
 	 *
 	 * @param <E>       the entity type
 	 * @param indexBase the location for on-disk indices

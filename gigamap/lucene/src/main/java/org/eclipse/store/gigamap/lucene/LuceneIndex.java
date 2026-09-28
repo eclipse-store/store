@@ -33,6 +33,7 @@ import org.eclipse.serializer.math.XMath;
 import org.eclipse.serializer.persistence.binary.types.BinaryTypeHandler;
 import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.serializer.util.X;
+import org.eclipse.serializer.util.logging.Logging;
 import org.eclipse.store.gigamap.types.*;
 
 import java.io.Closeable;
@@ -45,6 +46,8 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.CRC32;
+
+import org.slf4j.Logger;
 
 import static org.eclipse.serializer.util.X.notNull;
 
@@ -277,13 +280,21 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	 * a {@link IndexLocation#Named(String) named location} without re-indexing: change to
 	 * {@code Named("x")}, store, and bind {@code "x"} to the current directory for the next start.
 	 * <p>
-	 * <b>A Lucene index is not rebuilt from the stored entities when it opens.</b> A location without the
-	 * index files (e.g. a new, empty directory) therefore yields an empty full-text index: searches find
-	 * nothing until the files are copied there or {@link GigaMap#reindex()} is called.
+	 * If the new location holds no index files (e.g. a new, empty directory), the index is rebuilt from
+	 * the map's entities when it first opens its files after the next load, and a warning is logged. The
+	 * full-text index is derived data, so nothing is lost, but a rebuild of a large map takes time: copy
+	 * the files along to avoid it. The first open may be a query; the rebuild then runs inside it and holds
+	 * the map's lock, so other operations on the map wait until it is done.
+	 * <p>
+	 * A change to a named location does not keep the old path in the storage: a library version without
+	 * named locations can still read the storage, but fails when it uses this index, instead of searching
+	 * the outdated files at the old path.
 	 *
 	 * @param location the new location
-	 * @throws IllegalStateException if the index keeps no files in a directory, or the parent
-	 *                               {@link GigaMap} is not mutable
+	 * @throws IllegalStateException         if the index keeps no files in a directory, or the parent
+	 *                                       {@link GigaMap} is not mutable
+	 * @throws UnsupportedOperationException if the index uses its own {@link LuceneContext} implementation,
+	 *                                       which cannot be copied
 	 */
 	public void changeIndexLocation(IndexLocation location);
 
@@ -301,6 +312,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			return BinaryHandlerLuceneIndexDefault.New();
 		}
 
+
+		private final static Logger LOG = Logging.getLogger(LuceneIndex.class);
 
 		private final static String ENTITY_ID_FIELD = "_id_";
 		
@@ -350,10 +363,14 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		private transient boolean readerStale;
 
 		// Directory of an MMap creator's location, resolved once per instance when it is registered or
-		// loaded (on that thread, so a thread-scoped binding applies). Every later open, including one
-		// after close(), uses it, so neither a rebinding nor changeIndexLocation moves the files in this
-		// run. Kept here rather than on the creator, which several maps may share.
+		// loaded. Every later open, including one after close(), uses it, so neither a rebinding nor
+		// changeIndexLocation moves the files in this run. Kept here rather than on the creator, which
+		// several maps may share.
 		private transient volatile Path resolvedDirectory;
+
+		// Set for an index loaded from storage until its first open, which rebuilds it from the entities
+		// if its directory holds no index files (see ensureWriter).
+		private transient boolean restoredFromStorage;
 
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
@@ -397,7 +414,11 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
-					this.ensureWriter();
+					if(this.ensureWriter())
+					{
+						// the rebuild from the map already indexed this entity (it is in the map by now)
+						return;
+					}
 
 					this.writer.addDocument(this.toDocument(entityId, entity));
 					this.readerStale = true;
@@ -417,7 +438,11 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
-					this.ensureWriter();
+					if(this.ensureWriter())
+					{
+						// the rebuild from the map already indexed these entities (they are in the map by now)
+						return;
+					}
 
 					final List<Document> documents       = new ArrayList<>();
 					long                 currentEntityId = firstEntityId;
@@ -507,6 +532,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
+					// this rebuilds from the map anyway, so the missing-files rebuild on open is not needed
+					this.restoredFromStorage = false;
 					this.ensureWriter();
 
 					if(clearFirst)
@@ -878,6 +905,15 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 				}
 
 				final LuceneContext<E>  current = this.context;
+				if(!(current instanceof LuceneContext.Default))
+				{
+					// The context is replaced by a copy; a custom implementation cannot be copied without
+					// losing whatever else it holds or does, and would be stored that way.
+					throw new UnsupportedOperationException(
+						"Cannot change the Lucene index location: the context " + current.getClass().getName()
+						+ " cannot be copied."
+					);
+				}
 				final DirectoryCreator  creator = current.directoryCreator();
 				if(!(creator instanceof DirectoryCreator.MMapDirectoryCreator))
 				{
@@ -924,19 +960,34 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
          * exists, so the next call retries instead of operating on a half-initialized index.
          * <p>
          * Must be called while holding the {@code this.gigaMap} monitor.
+         *
+         * @return whether opening rebuilt the index from the map's entities, which happens once, for a
+         *         loaded index whose directory holds no index files; the caller's own entity is then already
+         *         indexed
          */
-        private void ensureWriter() throws IOException
+        private boolean ensureWriter() throws IOException
         {
             if(this.writer != null)
             {
-                return;
+                return false;
             }
 
             final Directory directory = this.createDirectory();
+
             final Analyzer  analyzer  = this.context.analyzerCreator().createAnalyzer();
+            final boolean     filesMissing;
             final IndexWriter indexWriter;
             try
             {
+                // A loaded index whose directory holds no Lucene index (a misbound or new location, deleted
+                // files, or a directory that is never persisted) would otherwise open empty and silently miss
+                // every existing entity: Lucene creates a new index when none exists. Only for a loaded index
+                // outside the storage; a newly registered one back-fills itself, and a graph directory lives
+                // in the storage.
+                filesMissing = this.restoredFromStorage
+                    && !this.usesGraphDirectory()
+                    && !DirectoryReader.indexExists(directory)
+                ;
                 final IndexWriterConfig writerConfig = new IndexWriterConfig(analyzer);
                 if(this.usesGraphDirectory())
                 {
@@ -962,6 +1013,42 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
             this.directory = directory;
             this.analyzer  = analyzer;
             this.writer    = indexWriter;
+
+            // only the first open after a load is checked
+            this.restoredFromStorage = false;
+            if(!filesMissing || this.gigaMap.isEmpty())
+            {
+                return false;
+            }
+
+            LOG.warn(
+                "Lucene index of a GigaMap with {} entities found no index files in {}; rebuilding it from the"
+                + " entities.", this.gigaMap.size(), directory
+            );
+            try
+            {
+                this.gigaMap.iterateIndexed(this::backfillDocument);
+                this.optCommit();
+            }
+            catch(final Throwable t)
+            {
+                // A partial rebuild must not stay in use: discard it and check again on the next open.
+                this.writer   = null;
+                this.analyzer = null;
+                this.directory = null;
+                this.restoredFromStorage = true;
+                try
+                {
+                    indexWriter.rollback();
+                }
+                catch(final Throwable rollbackFailure)
+                {
+                    t.addSuppressed(rollbackFailure);
+                }
+                IOUtils.closeWhileHandlingException(analyzer, directory);
+                throw t;
+            }
+            return true;
         }
 
         /**
@@ -1036,6 +1123,16 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 				return ((DirectoryCreator.MMapDirectoryCreator)creator).createDirectory(this.resolvedDirectory);
 			}
 			return creator.createDirectory();
+		}
+
+		/**
+		 * Called by the type handler's {@code complete} when this index is loaded: resolves its location on
+		 * the loading thread and arms the check for missing index files on the first open.
+		 */
+		void initializeAfterLoad()
+		{
+			this.restoredFromStorage = true;
+			this.resolveLocation();
 		}
 
 		/**

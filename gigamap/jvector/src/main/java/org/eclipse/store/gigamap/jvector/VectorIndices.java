@@ -14,6 +14,8 @@ package org.eclipse.store.gigamap.jvector;
  * #L%
  */
 
+import static org.eclipse.serializer.util.X.notNull;
+
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.EqHashTable;
 import org.eclipse.serializer.collections.types.XGettingTable;
@@ -29,8 +31,6 @@ import java.io.Closeable;
 import java.util.Iterator;
 import java.util.Objects;
 import java.util.function.Consumer;
-
-import static org.eclipse.serializer.util.X.notNull;
 
 /**
  * Mutable vector index registry and manager.

@@ -82,6 +82,9 @@ public abstract class DirectoryCreator
 	 * run, so a moved or copied storage can be pointed at its Lucene files by binding the name to their
 	 * new directory. The creator itself holds no resolved state, so one creator can be shared by several
 	 * maps.
+	 * <p>
+	 * A named creator stores no path. A library version without named locations can still read the
+	 * storage, but fails when it uses the index.
 	 *
 	 * @param location the location of the Lucene files; must not be null.
 	 * @return a memory-mapped directory creator for that location
@@ -146,8 +149,9 @@ public abstract class DirectoryCreator
 		}
 
 		/**
-		 * Returns a creator for another location. For a named location the stored path is kept, so that a
-		 * library version without named locations can still use the files.
+		 * Returns a creator for another location. For a named location the old path is not kept: a library
+		 * version without named locations would open the files there, which miss everything indexed after
+		 * the change, and search them without notice. Without a path it fails on the first use instead.
 		 *
 		 * @param location the new location
 		 * @return the new creator
@@ -156,7 +160,7 @@ public abstract class DirectoryCreator
 		{
 			notNull(location);
 			return location.isNamed()
-				? new MMapDirectoryCreator(this.path, location.name())
+				? new MMapDirectoryCreator(null, location.name())
 				: new MMapDirectoryCreator(location.directory())
 			;
 		}
