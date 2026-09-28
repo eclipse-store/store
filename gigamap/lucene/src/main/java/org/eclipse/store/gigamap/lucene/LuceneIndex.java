@@ -265,8 +265,24 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	 */
 	@Override
 	public void close();
-	
-	
+
+	/**
+	 * Changes where this index keeps its files, <b>effective from the next time it is loaded</b>. Files
+	 * already open in this run stay where they are; no files are moved or deleted.
+	 * <p>
+	 * Only an index using {@link DirectoryCreator#MMap(java.nio.file.Path)} or
+	 * {@link DirectoryCreator#MMap(IndexLocation)} has a location. The change reaches the storage with the
+	 * next store of the parent {@link GigaMap}; a restart before that keeps the old location. Migration to
+	 * a {@link IndexLocation#Named(String) named location} without re-indexing: change to
+	 * {@code Named("x")}, store, and bind {@code "x"} to the current directory for the next start.
+	 *
+	 * @param location the new location
+	 * @throws IllegalStateException if the index keeps no files in a directory, or the parent
+	 *                               {@link GigaMap} is not mutable
+	 */
+	public void changeIndexLocation(IndexLocation location);
+
+
 	public interface Internal<E> extends LuceneIndex<E>, IndexGroup.Internal<E>
 	{
 		// typing interface
@@ -293,7 +309,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		////////////////////
 		
 		final GigaMap<E>          gigaMap;
-		final LuceneContext<E>    context;
+		// Not final: changeIndexLocation replaces it with a copy, effective from the next load.
+		volatile LuceneContext<E> context;
 
 		/**
 		 * Optional registry for storage directory files, if the index data should be persisted directly inside the graph.
@@ -828,6 +845,53 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 				this.reader      = null;
 				this.searcher    = null;
 				this.readerStale = false;
+			}
+		}
+
+		@Override
+		public void changeIndexLocation(final IndexLocation location)
+		{
+			notNull(location);
+			synchronized(this.gigaMap)
+			{
+				final GigaMap.Internal<E> parent = (GigaMap.Internal<E>)this.gigaMap;
+				try
+				{
+					// may release the monitor while waiting for foreign readers, so read the context after it
+					parent.internalEnsureMutability();
+				}
+				catch(final IllegalStateException e)
+				{
+					throw new IllegalStateException("Cannot change the Lucene index location: the GigaMap is not mutable.", e);
+				}
+
+				final LuceneContext<E>  current = this.context;
+				final DirectoryCreator  creator = current.directoryCreator();
+				if(!(creator instanceof DirectoryCreator.MMapDirectoryCreator))
+				{
+					throw new IllegalStateException(
+						"The Lucene index keeps no files in a directory (" + (creator == null
+							? "graph directory" : creator.getClass().getName()) + "), so it has no location."
+					);
+				}
+				final DirectoryCreator.MMapDirectoryCreator mmap = (DirectoryCreator.MMapDirectoryCreator)creator;
+				if(location.equals(mmap.location()))
+				{
+					return;
+				}
+
+				this.context = LuceneContext.New(
+					mmap.withLocation(location)  ,
+					current.analyzerCreator()    ,
+					current.documentPopulator()  ,
+					current.autoCommit()
+				);
+
+				// A location change is no entity mutation, so nothing else flags the path from the map to
+				// this group: it must mark itself and report to the map's index groups, or the next store
+				// skips the new context.
+				this.markStateChangeInstance();
+				parent.internalReportIndexGroupStateChange(this);
 			}
 		}
 

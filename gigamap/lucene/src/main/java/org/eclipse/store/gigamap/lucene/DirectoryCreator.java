@@ -18,6 +18,8 @@ import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.MMapDirectory;
 import org.eclipse.serializer.exceptions.IORuntimeException;
+import org.eclipse.store.gigamap.types.IndexLocation;
+import org.eclipse.store.gigamap.types.IndexLocations;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -70,6 +72,26 @@ public abstract class DirectoryCreator
 			notNull(path)
 		);
 	}
+
+	/**
+	 * Creates a memory-mapped {@link Directory} creator for the given {@link IndexLocation}.
+	 * <p>
+	 * {@link IndexLocation#Absolute(Path)} is the same as {@link #MMap(Path)}.
+	 * {@link IndexLocation#Named(String)} stores only the name; the directory is looked up in
+	 * {@link IndexLocations} when the Lucene index first opens its files in a run, so a moved or copied
+	 * storage can be pointed at its Lucene files by binding the name to their new directory.
+	 *
+	 * @param location the location of the Lucene files; must not be null.
+	 * @return a memory-mapped directory creator for that location
+	 */
+	public static DirectoryCreator MMap(final IndexLocation location)
+	{
+		notNull(location);
+		return location.name() != null
+			? new MMapDirectoryCreator(null, location.name())
+			: new MMapDirectoryCreator(location.directory())
+		;
+	}
 	
 	/**
 	 * Returns an instance of {@link ByteBuffersDirectoryCreator},
@@ -92,25 +114,87 @@ public abstract class DirectoryCreator
 	{
 		private final Path path;
 
+		// Name of an IndexLocation.Named, or null to use path. A plain field rather than a stored
+		// IndexLocation: an older library version drops an unknown field when it loads the storage, but
+		// fails the whole start on an instance of a class it does not have. null is also what creators
+		// stored before this field existed read as, i.e. today's behaviour.
+		private final String locationName;
+
+		// Resolved once per instance, so a rebinding of the name does not move open Lucene files.
+		private transient volatile Path resolvedPath;
+
 		MMapDirectoryCreator(final Path path)
 		{
-			super();
-			this.path = path;
+			this(path, null);
 		}
-	
+
+		MMapDirectoryCreator(final Path path, final String locationName)
+		{
+			super();
+			this.path         = path        ;
+			this.locationName = locationName;
+		}
+
+		/**
+		 * @return where this creator keeps the Lucene files
+		 */
+		public IndexLocation location()
+		{
+			return this.locationName != null
+				? IndexLocation.Named(this.locationName)
+				: IndexLocation.Absolute(this.path)
+			;
+		}
+
+		/**
+		 * Returns a creator for another location. For a named location the stored path is kept, so that a
+		 * library version without named locations can still use the files.
+		 *
+		 * @param location the new location
+		 * @return the new creator
+		 */
+		public MMapDirectoryCreator withLocation(final IndexLocation location)
+		{
+			notNull(location);
+			final MMapDirectoryCreator creator = location.name() != null
+				? new MMapDirectoryCreator(this.path, location.name())
+				: new MMapDirectoryCreator(location.directory())
+			;
+			// Files opened in this run stay where they are, even if the index closes and reopens them;
+			// the transient field is gone after a restart, so the new location applies from the next load.
+			creator.resolvedPath = this.resolvedPath;
+			return creator;
+		}
+
+		private Path directory()
+		{
+			Path directory = this.resolvedPath;
+			if(directory == null)
+			{
+				// no fallback to the stored path for an unbound name: that is the silent wrong location
+				// the named location exists to prevent
+				directory = this.locationName != null
+					? IndexLocations.resolve(this.locationName)
+					: this.path
+				;
+				this.resolvedPath = directory;
+			}
+			return directory;
+		}
+
 		@Override
 		public Directory createDirectory()
 		{
 			try
 			{
-				return new MMapDirectory(this.path);
+				return new MMapDirectory(this.directory());
 			}
 			catch(final IOException e)
 			{
 				throw new IORuntimeException(e);
 			}
 		}
-		
+
 	}
 	
 	

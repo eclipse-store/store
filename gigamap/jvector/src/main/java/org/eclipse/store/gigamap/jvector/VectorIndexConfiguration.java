@@ -14,6 +14,8 @@ package org.eclipse.store.gigamap.jvector;
  * #L%
  */
 
+import org.eclipse.store.gigamap.types.IndexLocation;
+import org.eclipse.store.gigamap.types.IndexLocations;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -317,8 +319,64 @@ public interface VectorIndexConfiguration
      *
      * @return the index directory path, or null if not using on-disk mode
      * @see #onDisk()
+     * @see #indexLocation()
      */
     public Path indexDirectory();
+
+    /**
+     * Returns the name of the {@link IndexLocation#Named(String) named location} the index files are
+     * kept in, or {@code null} if they are kept in {@link #indexDirectory()}.
+     * <p>
+     * A named location is resolved through {@link IndexLocations} whenever the index is created or
+     * loaded. For an index switched from a plain directory to a named location
+     * ({@link VectorIndices#changeIndexLocation(String, IndexLocation)}), {@link #indexDirectory()} still
+     * holds the previous directory: it is not used while a name is set, but lets a library version
+     * without named locations keep working with the storage.
+     *
+     * @return the location name, or {@code null}
+     */
+    public default String indexLocationName()
+    {
+        return null;
+    }
+
+    /**
+     * Returns where the index files are kept: {@link IndexLocation#Named(String)} if
+     * {@link #indexLocationName()} is set, otherwise {@link IndexLocation#Absolute(Path)} of
+     * {@link #indexDirectory()}.
+     *
+     * @return the index location, or {@code null} if neither a name nor a directory is configured
+     */
+    public default IndexLocation indexLocation()
+    {
+        final String name = this.indexLocationName();
+        if(name != null)
+        {
+            return IndexLocation.Named(name);
+        }
+        final Path directory = this.indexDirectory();
+        return directory != null ? IndexLocation.Absolute(directory) : null;
+    }
+
+    /**
+     * Returns a copy of this configuration that differs only in where the index files are kept.
+     * <p>
+     * This instance is left unchanged: a configuration can be shared by several indices. For a
+     * {@link IndexLocation#Named(String) named location} the copy keeps this configuration's
+     * {@link #indexDirectory()}, see {@link #indexLocationName()}.
+     * <p>
+     * The default implementation throws; {@link Default} supports it.
+     *
+     * @param indexLocation the location of the copy
+     * @return the copy
+     * @throws UnsupportedOperationException if this implementation cannot be copied
+     */
+    public default VectorIndexConfiguration withIndexLocation(final IndexLocation indexLocation)
+    {
+        throw new UnsupportedOperationException(
+            this.getClass().getName() + " does not support copying with another index location."
+        );
+    }
 
     /**
      * Returns how the on-disk graph stores its own copy of each vector.
@@ -1170,6 +1228,34 @@ public interface VectorIndexConfiguration
         public Builder indexDirectory(Path indexDirectory);
 
         /**
+         * Sets where index files are stored, as an {@link IndexLocation}.
+         * <p>
+         * {@link IndexLocation#Absolute(Path)} is the same as {@link #indexDirectory(Path)}.
+         * {@link IndexLocation#Named(String)} stores only the name; the directory is looked up in
+         * {@link IndexLocations} whenever the index is created or loaded, so a moved or copied storage
+         * can be pointed at its index files by binding the name to their new directory.
+         * <p>
+         * Either this or {@link #indexDirectory(Path)} is required when {@link #onDisk(boolean)} is
+         * true.
+         *
+         * @param indexLocation the location of the index files
+         * @return this builder for method chaining
+         * @throws UnsupportedOperationException for a named location, if this builder implementation
+         *         predates named locations (the default implementation supports absolute ones only)
+         * @see VectorIndexConfiguration#indexLocation()
+         */
+        public default Builder indexLocation(final IndexLocation indexLocation)
+        {
+            if(notNull(indexLocation).name() != null)
+            {
+                throw new UnsupportedOperationException(
+                    this.getClass().getName() + " does not support named index locations."
+                );
+            }
+            return this.indexDirectory(indexLocation.directory());
+        }
+
+        /**
          * Sets how the on-disk graph stores its own copy of each vector.
          * <p>
          * Requires {@link #onDisk(boolean)} to be true for any value other than
@@ -1393,6 +1479,7 @@ public interface VectorIndexConfiguration
             private float                    alpha                        ;
             private boolean                  onDisk                       ;
             private Path                     indexDirectory               ;
+            private String                   indexLocationName            ;
             private VectorStorage            vectorStorage                ;
             private ApproximateScoring       approximateScoring           ;
             private int                      nvqSubvectors                ;
@@ -1418,6 +1505,7 @@ public interface VectorIndexConfiguration
                 this.alpha                         = 1.2f;
                 this.onDisk                        = false;
                 this.indexDirectory                = null;
+                this.indexLocationName             = null;
                 this.vectorStorage                 = VectorStorage.INLINE;
                 this.approximateScoring            = ApproximateScoring.NONE;
                 this.nvqSubvectors                 = 0;
@@ -1492,7 +1580,24 @@ public interface VectorIndexConfiguration
             @Override
             public Builder indexDirectory(final Path indexDirectory)
             {
-                this.indexDirectory = indexDirectory;
+                this.indexDirectory    = indexDirectory;
+                this.indexLocationName = null;
+                return this;
+            }
+
+            @Override
+            public Builder indexLocation(final IndexLocation indexLocation)
+            {
+                notNull(indexLocation);
+                if(indexLocation.name() != null)
+                {
+                    // the directory is resolved when the index is opened, not stored
+                    this.indexLocationName = indexLocation.name();
+                }
+                else
+                {
+                    this.indexDirectory(indexLocation.directory());
+                }
                 return this;
             }
 
@@ -1627,9 +1732,9 @@ public interface VectorIndexConfiguration
             public VectorIndexConfiguration build()
             {
                 // Validation
-                if(this.onDisk && this.indexDirectory == null)
+                if(this.onDisk && this.indexDirectory == null && this.indexLocationName == null)
                 {
-                    throw new IllegalStateException("indexDirectory is required when onDisk is true");
+                    throw new IllegalStateException("indexDirectory or indexLocation is required when onDisk is true");
                 }
                 // FUSED_PQ writes its codes into the graph file, so it is on-disk only. PQ_IN_MEMORY
                 // keeps them in heap, which an in-memory index can do just as well - there it simply
@@ -1755,6 +1860,7 @@ public interface VectorIndexConfiguration
                     this.alpha,
                     this.onDisk,
                     this.indexDirectory,
+                    this.indexLocationName,
                     this.vectorStorage,
                     this.approximateScoring,
                     this.nvqSubvectors,
@@ -1790,6 +1896,11 @@ public interface VectorIndexConfiguration
         private final float                    alpha                         ;
         private final boolean                  onDisk                        ;
         private final String                   indexDirectory                ; // Stored as String for serialization
+        // Name of an IndexLocation.Named, or null for a plain directory. A plain field rather than a
+        // stored IndexLocation: an older library version drops an unknown field when it loads the
+        // storage, but fails the whole start on an instance of a class it does not have. null is also
+        // what configurations stored before this field existed read as, i.e. today's behaviour.
+        private final String                   indexLocationName             ;
         private final VectorStorage            vectorStorage                 ;
         private final ApproximateScoring       approximateScoring            ;
         private final int                      nvqSubvectors                 ;
@@ -1825,6 +1936,7 @@ public interface VectorIndexConfiguration
             final float                    alpha                          ,
             final boolean                  onDisk                         ,
             final Path                     indexDirectory                 ,
+            final String                   indexLocationName              ,
             final VectorStorage            vectorStorage                  ,
             final ApproximateScoring       approximateScoring             ,
             final int                      nvqSubvectors                  ,
@@ -1840,6 +1952,7 @@ public interface VectorIndexConfiguration
             final boolean                  eventualIndexing
         )
         {
+            this.indexLocationName              = indexLocationName                                        ;
             this.dimension                      = dimension                                                ;
             this.similarityFunction             = similarityFunction                                       ;
             this.maxDegree                      = maxDegree                                                ;
@@ -1917,6 +2030,49 @@ public interface VectorIndexConfiguration
         public Path indexDirectory()
         {
             return this.indexDirectory != null ? Path.of(this.indexDirectory) : null;
+        }
+
+        @Override
+        public String indexLocationName()
+        {
+            return this.indexLocationName;
+        }
+
+        @Override
+        public VectorIndexConfiguration withIndexLocation(final IndexLocation indexLocation)
+        {
+            notNull(indexLocation);
+            final boolean named = indexLocation.name() != null;
+
+            // Storage and scoring go through their getters: a configuration persisted before those
+            // fields existed holds null, and the constructor derives enablePqCompression from the
+            // scoring it is given, so a raw null would silently switch a legacy index's PQ off.
+            // Everything else is copied raw, because the getters normalize it identically on both.
+            return new VectorIndexConfiguration.Default(
+                this.dimension                                                   ,
+                this.similarityFunction                                          ,
+                this.maxDegree                                                   ,
+                this.beamWidth                                                   ,
+                this.minSearchBeamWidth                                          ,
+                this.neighborOverflow                                            ,
+                this.alpha                                                       ,
+                this.onDisk                                                      ,
+                named ? this.indexDirectory() : indexLocation.directory()        ,
+                named ? indexLocation.name()  : null                             ,
+                this.vectorStorage()                                             ,
+                this.approximateScoring()                                        ,
+                this.nvqSubvectors                                               ,
+                this.pqSubspaces                                                 ,
+                this.persistenceIntervalMs                                       ,
+                this.persistOnShutdown                                           ,
+                this.shutdownPersistTimeoutMillis                                ,
+                this.minChangesBetweenPersists                                   ,
+                this.optimizationIntervalMs                                      ,
+                this.minChangesBetweenOptimizations                              ,
+                this.optimizeOnShutdown                                          ,
+                this.parallelOnDiskWrite                                         ,
+                this.eventualIndexing
+            );
         }
 
         @Override
