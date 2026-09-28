@@ -33,8 +33,9 @@ import java.util.Objects;
  * </ul>
  * An {@code IndexLocation} is a value for configuration APIs and is never stored itself: index
  * configurations store it as plain fields (a path and a name), so that a library version that does not
- * know this type can still read the storage. Such a version cannot use an index that keeps its files at
- * a named location without a stored directory; it fails when it uses that index.
+ * know this type can still read the storage. An index at a named location without a stored directory
+ * does not work fully there: a vector index is rebuilt in memory on every start and fails to write its
+ * graph to disk; with a Lucene index, every change to the map and every full-text query fails.
  */
 public interface IndexLocation extends Unpersistable
 {

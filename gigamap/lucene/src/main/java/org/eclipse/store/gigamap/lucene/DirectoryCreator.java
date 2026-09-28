@@ -84,7 +84,8 @@ public abstract class DirectoryCreator
 	 * maps.
 	 * <p>
 	 * A named creator stores no path. A library version without named locations can still read the
-	 * storage, but fails when it uses the index.
+	 * storage, but every change to the map and every full-text query fails there, because each one opens
+	 * this index.
 	 *
 	 * @param location the location of the Lucene files; must not be null.
 	 * @return a memory-mapped directory creator for that location
@@ -103,7 +104,8 @@ public abstract class DirectoryCreator
 	 * a specific implementation of {@link DirectoryCreator} that creates a byte-buffer-based {@link Directory}.
 	 * <p>
 	 * Keep in mind that this is a transient directory. Its state will not be persisted.
-	 * If you want a persistent state, use {@link #MMap(Path)} instead.
+	 * If you want a persistent state, use {@link #MMap(Path)} instead. After a load or a
+	 * {@link LuceneIndex#close()}, the index is rebuilt from the map's entities when it is used next.
 	 *
 	 * @return an instance of {@link ByteBuffersDirectoryCreator},
 	 *         which provides the functionality to create a {@link ByteBuffersDirectory}.

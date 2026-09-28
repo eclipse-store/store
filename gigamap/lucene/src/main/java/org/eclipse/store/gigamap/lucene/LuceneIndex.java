@@ -287,8 +287,9 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	 * the map's lock, so other operations on the map wait until it is done.
 	 * <p>
 	 * A change to a named location does not keep the old path in the storage: a library version without
-	 * named locations can still read the storage, but fails when it uses this index, instead of searching
-	 * the outdated files at the old path.
+	 * named locations can still read the storage, but every change to the map and every full-text query
+	 * fails there, because each one opens this index. That is loud, instead of searching the outdated files
+	 * at the old path.
 	 *
 	 * @param location the new location
 	 * @throws IllegalStateException         if the index keeps no files in a directory, or the parent
@@ -368,9 +369,9 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		// several maps may share.
 		private transient volatile Path resolvedDirectory;
 
-		// Set for an index loaded from storage until its first open, which rebuilds it from the entities
-		// if its directory holds no index files (see ensureWriter).
-		private transient boolean restoredFromStorage;
+		// Set after a load from storage and after close() until the next open, which rebuilds the index
+		// from the entities if its directory holds no index files (see ensureWriter).
+		private transient boolean checkFilesOnOpen;
 
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
@@ -533,7 +534,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 				synchronized(this.gigaMap)
 				{
 					// this rebuilds from the map anyway, so the missing-files rebuild on open is not needed
-					this.restoredFromStorage = false;
+					this.checkFilesOnOpen = false;
 					this.ensureWriter();
 
 					if(clearFirst)
@@ -884,6 +885,10 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 				this.reader      = null;
 				this.searcher    = null;
 				this.readerStale = false;
+
+				// A ByteBuffers directory is gone with the close, so the next open must rebuild it. Files
+				// that survive, like MMap ones the writer committed on close, are reused.
+				this.checkFilesOnOpen = true;
 			}
 		}
 
@@ -974,17 +979,19 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 
             final Directory directory = this.createDirectory();
 
-            final Analyzer  analyzer  = this.context.analyzerCreator().createAnalyzer();
+            Analyzer          analyzer = null;
             final boolean     filesMissing;
             final IndexWriter indexWriter;
             try
             {
-                // A loaded index whose directory holds no Lucene index (a misbound or new location, deleted
-                // files, or a directory that is never persisted) would otherwise open empty and silently miss
-                // every existing entity: Lucene creates a new index when none exists. Only for a loaded index
-                // outside the storage; a newly registered one back-fills itself, and a graph directory lives
-                // in the storage.
-                filesMissing = this.restoredFromStorage
+                analyzer = this.context.analyzerCreator().createAnalyzer();
+
+                // An index whose directory holds no Lucene index after a load or close() (a misbound or new
+                // location, deleted files, or a directory that is never persisted) would otherwise open empty
+                // and silently miss every existing entity: Lucene creates a new index when none exists. Not
+                // for a newly registered index, which back-fills itself, nor for a graph directory, which
+                // lives in the storage.
+                filesMissing = this.checkFilesOnOpen
                     && !this.usesGraphDirectory()
                     && !DirectoryReader.indexExists(directory)
                 ;
@@ -1014,17 +1021,28 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
             this.analyzer  = analyzer;
             this.writer    = indexWriter;
 
-            // only the first open after a load is checked
-            this.restoredFromStorage = false;
+            // only the first open after a load or close() is checked
+            this.checkFilesOnOpen = false;
             if(!filesMissing || this.gigaMap.isEmpty())
             {
                 return false;
             }
 
-            LOG.warn(
-                "Lucene index of a GigaMap with {} entities found no index files in {}; rebuilding it from the"
-                + " entities.", this.gigaMap.size(), directory
-            );
+            if(this.context.directoryCreator() instanceof DirectoryCreator.ByteBuffersDirectoryCreator)
+            {
+                // expected: this directory is never persisted
+                LOG.info(
+                    "Rebuilding the in-memory Lucene index of a GigaMap with {} entities from the entities.",
+                    this.gigaMap.size()
+                );
+            }
+            else
+            {
+                LOG.warn(
+                    "Lucene index of a GigaMap with {} entities found no index files in {}; rebuilding it from"
+                    + " the entities.", this.gigaMap.size(), directory
+                );
+            }
             try
             {
                 this.gigaMap.iterateIndexed(this::backfillDocument);
@@ -1036,7 +1054,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
                 this.writer   = null;
                 this.analyzer = null;
                 this.directory = null;
-                this.restoredFromStorage = true;
+                this.checkFilesOnOpen = true;
                 try
                 {
                     indexWriter.rollback();
@@ -1131,7 +1149,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		 */
 		void initializeAfterLoad()
 		{
-			this.restoredFromStorage = true;
+			this.checkFilesOnOpen = true;
 			this.resolveLocation();
 		}
 
