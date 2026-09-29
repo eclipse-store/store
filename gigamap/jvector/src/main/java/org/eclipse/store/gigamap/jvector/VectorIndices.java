@@ -14,6 +14,8 @@ package org.eclipse.store.gigamap.jvector;
  * #L%
  */
 
+import static org.eclipse.serializer.util.X.notNull;
+
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.collections.EqHashTable;
 import org.eclipse.serializer.collections.types.XGettingTable;
@@ -22,9 +24,12 @@ import org.eclipse.serializer.persistence.binary.types.BinaryTypeHandler;
 import org.eclipse.serializer.persistence.types.Storer;
 import org.eclipse.serializer.typing.KeyValue;
 import org.eclipse.store.gigamap.types.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.util.Iterator;
+import java.util.Objects;
 import java.util.function.Consumer;
 
 /**
@@ -139,6 +144,28 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
     public boolean removeIndex(String name);
 
     /**
+     * Changes where an existing on-disk index keeps its files, <b>effective from the next time the index
+     * is loaded</b>. The running index keeps using the directory it was opened in.
+     * <p>
+     * The index's configuration is replaced by a copy that differs only in its location
+     * ({@link VectorIndexConfiguration#withIndexLocation(IndexLocation)}); nothing else of the index
+     * changes, no vector is touched, and no files are moved or deleted. The change reaches the storage
+     * with the next store of the parent {@link GigaMap}; a restart before that keeps the old location.
+     * <p>
+     * Typical migration to a {@link IndexLocation#Named(String) named location} without a rebuild: change
+     * to {@code Named("x")}, store, and bind {@code "x"} to the index's current directory for the next
+     * start. From then on, the binding decides where the index lives. If the name is bound to a
+     * directory without the index files instead, the graph is rebuilt there from the stored vectors.
+     *
+     * @param name     the name of the index
+     * @param location the new location
+     * @throws IllegalArgumentException if there is no index of that name
+     * @throws IllegalStateException    if the index is in-memory, or the parent {@link GigaMap} is not
+     *                                  mutable
+     */
+    public void changeIndexLocation(String name, IndexLocation location);
+
+    /**
      * Accesses the indices table.
      *
      * @param logic the consumer logic
@@ -195,6 +222,8 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
 
     public final class Default<E> extends AbstractStateChangeFlagged implements Internal<E>, Closeable
     {
+        private static final Logger LOG = LoggerFactory.getLogger(VectorIndices.class);
+
         static BinaryTypeHandler<Default<?>> provideTypeHandler()
         {
             return BinaryHandlerVectorIndicesDefault.New();
@@ -388,6 +417,7 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
                 {
                     // Already present: no structural change, so the mutability guard is deliberately not
                     // reached. This keeps ensure() a no-op on a read-only map.
+                    warnIfLocationDiffers(index, configuration);
                     return index;
                 }
 
@@ -402,6 +432,74 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
                     ? index
                     : this.internalAddIndex(name, configuration, vectorizer)
                 ;
+            }
+        }
+
+        /**
+         * The stored location of an existing index wins, like every other stored setting. A different
+         * location passed to {@code ensure} would otherwise be ignored silently, which is exactly how an
+         * application ends up with its index files somewhere it did not expect.
+         */
+        private static void warnIfLocationDiffers(
+            final VectorIndex<?>           index        ,
+            final VectorIndexConfiguration configuration
+        )
+        {
+            if(configuration == null || !configuration.onDisk() || !index.configuration().onDisk())
+            {
+                return;
+            }
+            final IndexLocation stored = index.configuration().indexLocation();
+            final IndexLocation passed = configuration.indexLocation();
+            if(!Objects.equals(stored, passed))
+            {
+                LOG.warn(
+                    "Vector index '{}' exists with location {}; the passed location {} has no effect."
+                    + " Use VectorIndices.changeIndexLocation to change it.",
+                    index.name(), stored, passed
+                );
+            }
+        }
+
+        @Override
+        public void changeIndexLocation(final String name, final IndexLocation location)
+        {
+            notNull(name);
+            notNull(location);
+            synchronized(this.parentMap())
+            {
+                // May release the monitor while waiting for foreign readers, so look the index up after it.
+                this.ensureMutable("change the location of vector index \"" + name + "\"");
+
+                final VectorIndex.Internal<E> index = this.internalGet(name);
+                if(index == null)
+                {
+                    throw new IllegalArgumentException("No vector index named \"" + name + "\".");
+                }
+                final VectorIndexConfiguration current = index.configuration();
+                if(!current.onDisk())
+                {
+                    throw new IllegalStateException(
+                        "Vector index \"" + name + "\" is an in-memory index and has no index location."
+                    );
+                }
+                if(location.equals(current.indexLocation()))
+                {
+                    return;
+                }
+
+                index.internalReplaceConfiguration(current.withIndexLocation(location));
+
+                // A location change is no entity mutation, so nothing else flags the path from the map to
+                // this index: the index marked itself; its group and the map's index groups must follow,
+                // or the next store skips the new configuration.
+                this.markStateChangeChildren();
+                this.parent.internalReportIndexGroupStateChange(this);
+
+                LOG.info(
+                    "Vector index '{}': location changed from {} to {}, effective from the next load.",
+                    name, current.indexLocation(), location
+                );
             }
         }
 

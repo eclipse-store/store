@@ -20,6 +20,7 @@ import org.eclipse.store.gigamap.annotations.Unique;
 import org.eclipse.store.gigamap.jvector.annotations.Vector;
 import org.eclipse.store.gigamap.types.GigaIndexAnnotationHandler;
 import org.eclipse.store.gigamap.types.GigaIndices;
+import org.eclipse.store.gigamap.types.IndexLocation;
 
 import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Field;
@@ -70,16 +71,46 @@ public final class VectorAnnotationHandler<E> implements GigaIndexAnnotationHand
 	 */
 	public static <E> VectorAnnotationHandler<E> New(final Path indexBaseDir)
 	{
-		return new VectorAnnotationHandler<>(notNull(indexBaseDir));
+		return new VectorAnnotationHandler<>(IndexLocation.Absolute(notNull(indexBaseDir)));
+	}
+
+	/**
+	 * Creates a handler that stores on-disk vector indices at the given location.
+	 * <p>
+	 * {@link IndexLocation#Absolute(Path)} behaves like {@link #New(Path)}: each index in a
+	 * sub-directory named after the index. {@link IndexLocation#Named(String)} gives every index that
+	 * named location; the indices share its directory, and their files are named after the index.
+	 * <p>
+	 * Index names are unique only within one {@link org.eclipse.store.gigamap.types.GigaMap}. In both
+	 * layouts, handlers of several maps must not share a location if the maps have indices of the same
+	 * name, e.g. two maps whose entities both have a {@code @Vector} field {@code embedding}: their index files would
+	 * overwrite each other. Give each map its own location, or the indices distinct names via
+	 * {@link Vector#name()}.
+	 * <p>
+	 * <b>The two layouts differ:</b> {@code Absolute(base)} keeps an index's files in
+	 * {@code base/<indexName>/}, {@code Named("x")} keeps them directly in the directory {@code "x"} is
+	 * bound to. Switching an application from {@code New(Path)} to {@code New(Named(...))} does not move
+	 * existing indices: they keep their stored absolute location, and an index created after the switch
+	 * uses the named directory. To move an existing index to the named location, use
+	 * {@link VectorIndices#changeIndexLocation(String, IndexLocation)} and copy its files from
+	 * {@code base/<indexName>/} into the bound directory (otherwise its graph is rebuilt there once).
+	 *
+	 * @param <E>       the entity type
+	 * @param indexBase the location for on-disk indices
+	 * @return a new handler
+	 */
+	public static <E> VectorAnnotationHandler<E> New(final IndexLocation indexBase)
+	{
+		return new VectorAnnotationHandler<>(notNull(indexBase));
 	}
 
 
-	private final Path indexBaseDir;
+	private final IndexLocation indexBase;
 
-	private VectorAnnotationHandler(final Path indexBaseDir)
+	private VectorAnnotationHandler(final IndexLocation indexBase)
 	{
 		super();
-		this.indexBaseDir = indexBaseDir;
+		this.indexBase = indexBase;
 	}
 
 	@SuppressWarnings("unchecked")
@@ -112,14 +143,21 @@ public final class VectorAnnotationHandler<E> implements GigaIndexAnnotationHand
 		;
 		if(annotation.onDisk())
 		{
-			if(this.indexBaseDir == null)
+			if(this.indexBase == null)
 			{
 				throw new IllegalStateException(
 					"@Vector(onDisk = true) requires an index directory; create the handler via "
-					+ "VectorAnnotationHandler.New(Path)"
+					+ "VectorAnnotationHandler.New(Path) or New(IndexLocation)"
 				);
 			}
-			builder.indexDirectory(this.indexBaseDir.resolve(name));
+			if(this.indexBase.isNamed())
+			{
+				builder.indexLocation(this.indexBase);
+			}
+			else
+			{
+				builder.indexDirectory(this.indexBase.directory().resolve(name));
+			}
 		}
 
 		// register(...) returns null if a VectorIndices group is already present (e.g. another @Vector

@@ -38,12 +38,15 @@ import org.eclipse.store.gigamap.types.AbstractStateChangeFlagged;
 import org.eclipse.store.gigamap.types.BitmapIndex;
 import org.eclipse.store.gigamap.types.GigaIndex;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.IndexLocation;
+import org.eclipse.store.gigamap.types.IndexLocations;
 import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -58,6 +61,7 @@ import java.util.function.Consumer;
 import java.util.stream.IntStream;
 
 import static org.eclipse.serializer.math.XMath.positive;
+import static org.eclipse.serializer.util.X.notNull;
 
 /**
  * A vector index that enables k-nearest-neighbor (k-NN) similarity search on entities.
@@ -320,6 +324,35 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * @return the index configuration
      */
     public VectorIndexConfiguration configuration();
+
+    /**
+     * Returns the directory this index instance keeps its files in: the configuration's
+     * {@link VectorIndexConfiguration#indexLocation() location}, resolved when the index was opened in
+     * this run. For a {@link IndexLocation#Named(String) named location} that is the directory the name
+     * was bound to at that moment. Never the stored {@link VectorIndexConfiguration#indexDirectory()} of a
+     * named location, which is kept only for older library versions.
+     * <p>
+     * This default implementation, and an index not opened yet, report the directory the name is bound
+     * to now.
+     *
+     * @return the index directory, or {@code null} for an in-memory index or an unbound name
+     */
+    public default Path indexDirectory()
+    {
+        // an in-memory index has no files, whatever directory its configuration may carry
+        final IndexLocation location = this.configuration().onDisk()
+            ? this.configuration().indexLocation()
+            : null
+        ;
+        if(location == null)
+        {
+            return null;
+        }
+        return location.isNamed()
+            ? IndexLocations.lookup(location.name())
+            : location.directory()
+        ;
+    }
 
     @Override
     public default boolean isSuitableAsUniqueConstraint()
@@ -768,6 +801,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      */
     public interface Internal<E> extends VectorIndex<E>
     {
+        /**
+         * Replaces the configuration, e.g. by a copy with another index location, and marks this index
+         * for storing. An open index keeps using the directory it was opened in; the new configuration
+         * applies from the next load. Callers must hold the parent-map monitor and flag the change up to
+         * the map (see {@link VectorIndices#changeIndexLocation(String, IndexLocation)}).
+         *
+         * @param configuration the new configuration
+         */
+        public void internalReplaceConfiguration(VectorIndexConfiguration configuration);
+
         public void internalAdd(long entityId, E entity);
 
         public void internalAddAll(long firstEntityId, Iterable<? extends E> entities);
@@ -847,7 +890,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         final VectorIndices<E>           parent       ;
         final String                     name         ;
-        final VectorIndexConfiguration   configuration;
+        // Not final: VectorIndices#changeIndexLocation replaces it with a copy, effective from the next load.
+        volatile VectorIndexConfiguration configuration;
         final Vectorizer<? super E>      vectorizer   ;
 
         // Vector storage - null if vectorizer.isEmbedded()
@@ -980,6 +1024,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * the backfill in {@code VectorIndices.add}, and each of them counts.
          */
         private transient boolean                            restoredFromStorage;
+
+        // The directory of the index files, resolved from the configuration's location once, when the
+        // index is first opened in this run. Every later disk access uses it, so neither a rebinding of a
+        // named location nor a changed configuration moves an open index; both apply from the next load.
+        private transient volatile Path resolvedDirectory;
 
         private transient volatile boolean                   incrementalMode    ;
         private transient Set<Integer>                       diskDeletedOrdinals;
@@ -1645,6 +1694,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         private void initializeIndex()
         {
+            // First, before anything is built: an unbound location name must fail here and leave nothing
+            // behind, or a present in-memory builder would make the half-initialized index look ready.
+            if(this.configuration.onDisk())
+            {
+                this.indexDirectoryForDisk();
+            }
+
             this.vectorTypeSupport = VectorizationProvider.getInstance().getVectorTypeSupport();
 
             // Set when a persisted on-disk index was found but rejected, so the rebuilt graph has to
@@ -1699,7 +1755,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.diskManager = new DiskIndexManager.Default(
                     this,
                     this.name,
-                    this.configuration.indexDirectory(),
+                    this.indexDirectoryForDisk(),
                     this.configuration.dimension(),
                     GraphFormat.of(this.configuration),
                     this.configuration.parallelOnDiskWrite()
@@ -2111,6 +2167,57 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         public VectorIndexConfiguration configuration()
         {
             return this.configuration;
+        }
+
+        @Override
+        public Path indexDirectory()
+        {
+            final Path resolved = this.resolvedDirectory;
+            return resolved != null ? resolved : Internal.super.indexDirectory();
+        }
+
+        /**
+         * The directory for the index files, resolved from the configuration's location on first use.
+         */
+        private Path indexDirectoryForDisk()
+        {
+            Path directory = this.resolvedDirectory;
+            if(directory == null)
+            {
+                directory = this.resolveIndexLocation();
+                this.resolvedDirectory = directory;
+            }
+            return directory;
+        }
+
+        private Path resolveIndexLocation()
+        {
+            final IndexLocation location = this.configuration.indexLocation();
+            if(location == null || !location.isNamed())
+            {
+                return this.configuration.indexDirectory();
+            }
+
+            final Path directory;
+            try
+            {
+                directory = location.resolve();
+            }
+            catch(final IllegalStateException e)
+            {
+                // No fallback to any stored directory: that is exactly the silent wrong location this
+                // mechanism exists to prevent (e.g. another store's graph on a copied volume).
+                throw new IllegalStateException("Vector index \"" + this.name + "\": " + e.getMessage(), e);
+            }
+            LOG.info("Vector index '{}' uses directory {} ({})", this.name, directory, location);
+            return directory;
+        }
+
+        @Override
+        public void internalReplaceConfiguration(final VectorIndexConfiguration configuration)
+        {
+            this.configuration = notNull(configuration);
+            this.markStateChangeInstance();
         }
 
         private io.github.jbellis.jvector.vector.VectorSimilarityFunction jvectorSimilarityFunction()
@@ -3534,7 +3641,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                             this.diskManager = new DiskIndexManager.Default(
                                 this,
                                 this.name,
-                                this.configuration.indexDirectory(),
+                                this.indexDirectoryForDisk(),
                                 this.configuration.dimension(),
                                 GraphFormat.of(this.configuration),
                                 this.configuration.parallelOnDiskWrite()
@@ -3911,7 +4018,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.diskManager = new DiskIndexManager.Default(
                 this,
                 this.name,
-                this.configuration.indexDirectory(),
+                this.indexDirectoryForDisk(),
                 this.configuration.dimension(),
                 GraphFormat.of(this.configuration),
                 this.configuration.parallelOnDiskWrite()

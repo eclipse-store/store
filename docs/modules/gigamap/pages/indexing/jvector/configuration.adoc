@@ -136,7 +136,11 @@ For datasets that exceed available memory, enable on-disk storage to use memory-
 
 |`indexDirectory`
 |`null`
-|Directory for index files. Required if `onDisk=true`.
+|Directory for index files. Required if `onDisk=true`, unless `indexLocation` is set.
+
+|`indexLocation`
+|`null`
+|Where the index files are, as an `IndexLocation`: `Absolute(path)` is the same as `indexDirectory(path)`; `Named(name)` stores only a name, bound to a directory at runtime, so a moved or restored storage can be pointed at its index files. See xref:indexing/index-locations.adoc[Index Locations].
 
 |`vectorStorage`
 |`INLINE`

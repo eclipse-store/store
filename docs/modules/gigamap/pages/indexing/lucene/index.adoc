@@ -319,9 +319,11 @@ LuceneContext<Article> context = LuceneContext.New(
 );
 ----
 
+To let a moved or restored storage find its index files, use a named location instead of a path; see xref:indexing/index-locations.adoc[Index Locations].
+
 === In-Memory Storage
 
-Stores index data in memory. Useful for testing or temporary indexes.
+Stores index data in memory. Useful for testing or temporary indexes. The data is not persisted: after a load, the index is rebuilt from the GigaMap's entities when it is used first.
 
 [source, java]
 ----

@@ -48,7 +48,7 @@ LuceneIndex<Article> index = gigaMap.index().get(LuceneIndex.class);
 List<Article> hits = index.query("title:eclipse");
 ----
 
-By default the Lucene data is stored inside the GigaMap object graph. To store it in a directory instead, create the handler with a directory: `LuceneAnnotationHandler.New(path)` or `LuceneAnnotationHandler.New(directoryCreator)`.
+By default the Lucene data is stored inside the GigaMap object graph. To store it in a directory instead, create the handler with a directory: `LuceneAnnotationHandler.New(path)` or `LuceneAnnotationHandler.New(directoryCreator)`, or with a named location bound at runtime: `LuceneAnnotationHandler.New(IndexLocation.Named("fulltext"))` (see xref:indexing/index-locations.adoc[Index Locations]).
 
 Like a manually registered Lucene index, an annotation-generated one is back-filled: if `generateIndices` runs on a GigaMap that already contains entities, those existing entities are indexed immediately, so generation can happen before or after the data is loaded.
 
