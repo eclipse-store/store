@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.eclipse.serializer.persistence.types.PersistenceTypeDefinition;
+import org.eclipse.serializer.persistence.types.PersistenceTypeDictionary;
 import org.eclipse.serializer.reference.Lazy;
 import org.eclipse.store.gigamap.jvector.annotations.Vector;
 import org.eclipse.store.gigamap.types.GigaMap;
@@ -245,18 +246,21 @@ class VectorIndexLocationTest
 
 		try(final EmbeddedStorageManager manager = EmbeddedStorage.start(storage))
 		{
-			final PersistenceTypeDefinition configuration = manager.persistenceManager().typeDictionary()
-				.lookupTypeByName(VectorIndexConfiguration.Default.class.getName());
+			final PersistenceTypeDictionary dictionary    = manager.persistenceManager().typeDictionary();
+			final PersistenceTypeDefinition configuration = dictionary.lookupTypeByName(VectorIndexConfiguration.Default.class.getName());
 			assertTrue(
 				configuration.allMembers().containsSearched(member ->
 					"indexLocationName".equals(member.name()) && String.class.getName().equals(member.typeName())
 				),
 				configuration::toString
 			);
-			assertNull(manager.persistenceManager().typeDictionary().lookupTypeByName(IndexLocation.class.getName()));
+			assertNull(dictionary.lookupTypeByName(IndexLocation.Absolute.class.getName()));
+			assertNull(dictionary.lookupTypeByName(IndexLocation.Named.class.getName()));
+
+			final PersistenceTypeDefinition index = dictionary.lookupTypeByName(VectorIndex.Default.class.getName());
 			assertFalse(
-				configuration.allMembers().containsSearched(member -> "resolvedDirectory".equals(member.name())),
-				"the resolved directory is transient"
+				index.allMembers().containsSearched(member -> "resolvedDirectory".equals(member.name())),
+				"the resolved directory must not be stored"
 			);
 		}
 	}

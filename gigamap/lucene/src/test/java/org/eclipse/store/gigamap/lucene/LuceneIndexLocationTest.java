@@ -39,6 +39,7 @@ import java.util.TreeMap;
 import java.util.stream.Stream;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.MMapDirectory;
 import org.junit.jupiter.api.AfterEach;
@@ -112,7 +113,8 @@ class LuceneIndexLocationTest
 				),
 				creator::toString
 			);
-			assertNull(manager.persistenceManager().typeDictionary().lookupTypeByName(IndexLocation.class.getName()));
+			assertNull(manager.persistenceManager().typeDictionary().lookupTypeByName(IndexLocation.Absolute.class.getName()));
+			assertNull(manager.persistenceManager().typeDictionary().lookupTypeByName(IndexLocation.Named.class.getName()));
 			assertNull(storedPath(luceneIndex(manager)), "a named creator stores no path");
 		}
 	}
@@ -308,7 +310,8 @@ class LuceneIndexLocationTest
 	void changeIndexLocationRejectsIndicesWithoutAnMMapDirectory()
 	{
 		final IndexLocation named = IndexLocation.Named(LOCATION);
-		for(final DirectoryCreator creator : new DirectoryCreator[]{ null, DirectoryCreator.ByteBuffers() })
+		final DirectoryCreator custom = new CustomDirectoryCreator();
+		for(final DirectoryCreator creator : new DirectoryCreator[]{ null, DirectoryCreator.ByteBuffers(), custom })
 		{
 			final GigaMap<Article> map = GigaMap.New();
 			try(final LuceneIndex<Article> lucene = map.index().register(LuceneIndex.Category(
@@ -414,6 +417,16 @@ class LuceneIndexLocationTest
 		{
 			super();
 			this.text = text;
+		}
+	}
+
+	/** A creator of the application's own, whose location the index cannot know. */
+	static final class CustomDirectoryCreator extends DirectoryCreator
+	{
+		@Override
+		public Directory createDirectory()
+		{
+			return new ByteBuffersDirectory();
 		}
 	}
 
