@@ -295,7 +295,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 	 * @throws IllegalStateException         if the index keeps no files in a directory, or the parent
 	 *                                       {@link GigaMap} is not mutable
 	 * @throws UnsupportedOperationException if the index uses its own {@link LuceneContext} implementation,
-	 *                                       which cannot be copied
+	 *                                       including a subclass of {@link LuceneContext.Default}, which
+	 *                                       cannot be copied
 	 */
 	public void changeIndexLocation(IndexLocation location);
 
@@ -910,10 +911,11 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 				}
 
 				final LuceneContext<E>  current = this.context;
-				if(!(current instanceof LuceneContext.Default))
+				if(current.getClass() != LuceneContext.Default.class)
 				{
-					// The context is replaced by a copy; a custom implementation cannot be copied without
-					// losing whatever else it holds or does, and would be stored that way.
+					// The context is replaced by a copy; a custom implementation, including a subclass of
+					// the default one (e.g. overriding autoCommit()), cannot be copied without losing
+					// whatever else it holds or does, and would be stored that way.
 					throw new UnsupportedOperationException(
 						"Cannot change the Lucene index location: the context " + current.getClass().getName()
 						+ " cannot be copied."
