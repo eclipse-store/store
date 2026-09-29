@@ -318,7 +318,9 @@ class LuceneIndexLocationTest
 				LuceneContext.New(creator, AnalyzerCreator.Standard(), new ArticlePopulator())
 			)))
 			{
-				assertThrows(IllegalStateException.class, () -> lucene.changeIndexLocation(named));
+				final IllegalStateException failure = assertThrows(IllegalStateException.class,
+					() -> lucene.changeIndexLocation(named));
+				assertTrue(failure.getMessage().contains("keeps no files in a directory"), failure::getMessage);
 			}
 		}
 	}
@@ -420,7 +422,7 @@ class LuceneIndexLocationTest
 		}
 	}
 
-	/** A creator of the application's own, whose location the index cannot know. */
+	/** An application's own creator, whose location the index cannot know. */
 	static final class CustomDirectoryCreator extends DirectoryCreator
 	{
 		@Override
