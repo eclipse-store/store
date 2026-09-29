@@ -383,6 +383,8 @@ luceneIndex.close();
 List<Product> results = luceneIndex.query("name:test");
 ----
 
+An MMap or embedded index re-opens its existing data. A `ByteBuffers` index loses its data on `close()` and is rebuilt from the GigaMap's entities on re-open.
+
 === Commit Strategy
 
 [source, java]
