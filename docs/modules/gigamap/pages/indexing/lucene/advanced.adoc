@@ -372,7 +372,9 @@ gigaMap.store();                // persist the rebuilt indices
 
 `reindex()` drops the existing documents and re-populates them via the configured `DocumentPopulator`, committing once at the end (honoring `autoCommit`: with an external directory and `autoCommit=false` the commit is deferred to the next `gigaMap.store()` boundary). It rebuilds only the index structures — it does not store the entities — so ensure the entities themselves are persisted as shown above. On a very large map this iterates all entities, so prefer `update` / `apply` for routine single-entity changes.
 
-If `reindex()` fails, e.g. because the `DocumentPopulator` throws for an entity, it throws, and neither the partly rebuilt index nor the old one stays in use: the index is rebuilt from the entities on its next use. With `autoCommit=false` this happens at the latest on the next `gigaMap.store()`, so that the stored index is complete; if that rebuild fails too, the store fails. An entity the `DocumentPopulator` can never handle therefore blocks every store of the map until the entity or the populator is fixed.
+If `reindex()` fails while rebuilding, e.g. because the `DocumentPopulator` throws for an entity, it throws, and neither the partly rebuilt index nor the old one stays in use: the index is rebuilt from the entities on its next use in this run. With `autoCommit=false` this happens at the latest on the next `gigaMap.store()`, so that the stored index is complete; if that rebuild fails too, the store fails. After a restart without such a store, the last committed index is used again. If `reindex()` cannot open the index at all, e.g. because another writer holds its lock, nothing is changed.
+
+With `autoCommit=false`, an entity the `DocumentPopulator` can never handle therefore blocks every store of the map until the entity or the populator is fixed.
 
 === Closing and Re-opening
 
