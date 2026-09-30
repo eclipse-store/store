@@ -117,7 +117,11 @@ public abstract class DirectoryCreator
 	
 	
 	
-	public static class MMapDirectoryCreator extends DirectoryCreator
+	// Final: a LuceneIndex resolves the location and creates the directory itself (createDirectory(Path)),
+	// and changeIndexLocation replaces the creator by a copy (withLocation), so a subclass's overrides
+	// would be bypassed or silently dropped. Its constructors are package-private, so no code outside
+	// this package could subclass it anyway.
+	public static final class MMapDirectoryCreator extends DirectoryCreator
 	{
 		private final Path path;
 
