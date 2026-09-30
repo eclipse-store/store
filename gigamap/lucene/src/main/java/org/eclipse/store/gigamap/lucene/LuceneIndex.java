@@ -259,8 +259,9 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
      * {@code GigaMap.store()} boundary, so an explicit call is only needed to commit between
      * stores.
      * <p>
-     * After a failed {@link GigaMap#reindex()}, this rebuilds the index from the entities first, and
-     * fails if that rebuild fails.
+     * After a {@link GigaMap#reindex()} that failed while rebuilding, this rebuilds the index from the
+     * entities first, and fails if that rebuild fails. A {@code reindex()} that could not open the
+     * index changed nothing, so there is nothing to rebuild or commit.
      */
     public void commit();
 	
@@ -1159,7 +1160,15 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
                     failure.addSuppressed(rollbackFailure);
                 }
             }
-            IOUtils.closeWhileHandlingException(reader, analyzer, directory);
+            try
+            {
+                // closes all of them even if one fails, and reports the others as suppressed
+                IOUtils.close(reader, analyzer, directory);
+            }
+            catch(final Throwable closeFailure)
+            {
+                failure.addSuppressed(closeFailure);
+            }
         }
 
         /**
