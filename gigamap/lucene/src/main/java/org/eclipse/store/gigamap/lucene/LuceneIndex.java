@@ -374,6 +374,11 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		// from the entities if its directory holds no index files (see ensureWriter).
 		private transient boolean checkFilesOnOpen;
 
+		// Set when a rebuild from the entities failed, until a rebuild succeeds: the next open rebuilds the
+		// index whatever its directory holds. The files then hold the last commit, which is what the rebuild
+		// was meant to replace, and with manual commits may even lack changes that were never committed.
+		private transient boolean rebuildOnOpen;
+
 		///////////////////////////////////////////////////////////////////////////
 		// constructors //
 		/////////////////
@@ -534,22 +539,45 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
-					// this rebuilds from the map anyway, so the missing-files rebuild on open is not needed
+					// this rebuilds from the map anyway, so no rebuild on open is needed, but only once it
+					// has succeeded: a failure below must leave the index checked or rebuilt on the next open
+					final boolean checkFiles = this.checkFilesOnOpen;
+					final boolean rebuild    = this.rebuildOnOpen;
 					this.checkFilesOnOpen = false;
-					this.ensureWriter();
-
-					if(clearFirst)
+					this.rebuildOnOpen    = false;
+					try
 					{
-						this.writer.deleteAll();
-						this.readerStale = true;
+						this.ensureWriter();
+
+						if(clearFirst)
+						{
+							this.writer.deleteAll();
+							this.readerStale = true;
+						}
+
+						this.gigaMap.iterateIndexed(this::backfillDocument);
+
+						// On a rebuild also commit when the map is empty, so the deleteAll itself is flushed.
+						if(clearFirst || !this.gigaMap.isEmpty())
+						{
+							this.optCommit();
+						}
 					}
-
-					this.gigaMap.iterateIndexed(this::backfillDocument);
-
-					// On a rebuild also commit when the map is empty, so the deleteAll itself is flushed.
-					if(clearFirst || !this.gigaMap.isEmpty())
+					catch(final Throwable t)
 					{
-						this.optCommit();
+						this.checkFilesOnOpen = checkFiles;
+						if(this.writer == null)
+						{
+							// the writer did not open: nothing was changed
+							this.rebuildOnOpen = rebuild;
+						}
+						else
+						{
+							// a partial rebuild must not stay in use, and neither may the last commit
+							this.discardWriter(t);
+							this.rebuildOnOpen = true;
+						}
+						throw t;
 					}
 				}
 			}
@@ -968,9 +996,9 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
          * <p>
          * Must be called while holding the {@code this.gigaMap} monitor.
          *
-         * @return whether opening rebuilt the index from the map's entities, which happens once, for a
-         *         loaded index whose directory holds no index files; the caller's own entity is then already
-         *         indexed
+         * @return whether opening rebuilt the index from the map's entities, which happens once, for an
+         *         index whose directory holds no index files after a load or close(), or whose last rebuild
+         *         failed; the caller's own entity is then already indexed
          */
         private boolean ensureWriter() throws IOException
         {
@@ -1025,6 +1053,10 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 
             // only the first open after a load or close() is checked
             this.checkFilesOnOpen = false;
+            if(this.rebuildOnOpen)
+            {
+                return this.rebuildAfterFailure(indexWriter);
+            }
             if(!filesMissing || this.gigaMap.isEmpty())
             {
                 return false;
@@ -1053,22 +1085,73 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
             catch(final Throwable t)
             {
                 // A partial rebuild must not stay in use: discard it and check again on the next open.
-                this.writer   = null;
-                this.analyzer = null;
-                this.directory = null;
+                this.discardWriter(t);
                 this.checkFilesOnOpen = true;
-                try
-                {
-                    indexWriter.rollback();
-                }
-                catch(final Throwable rollbackFailure)
-                {
-                    t.addSuppressed(rollbackFailure);
-                }
-                IOUtils.closeWhileHandlingException(analyzer, directory);
                 throw t;
             }
             return true;
+        }
+
+        /**
+         * Rebuilds the just opened index from the map's entities after a failed rebuild, replacing whatever
+         * its directory holds. Clears {@link Default#rebuildOnOpen} only on success.
+         */
+        private boolean rebuildAfterFailure(final IndexWriter indexWriter) throws IOException
+        {
+            LOG.warn(
+                "Lucene index of a GigaMap with {} entities is rebuilt from the entities, because its last"
+                + " rebuild failed.", this.gigaMap.size()
+            );
+            try
+            {
+                indexWriter.deleteAll();
+                this.gigaMap.iterateIndexed(this::backfillDocument);
+                // also commit for an empty map, so the deleteAll itself is flushed
+                this.optCommit();
+            }
+            catch(final Throwable t)
+            {
+                // still no valid index: discard this attempt too and rebuild again on the next open
+                this.discardWriter(t);
+                throw t;
+            }
+            this.rebuildOnOpen = false;
+            return true;
+        }
+
+        /**
+         * Discards the open writer with all its uncommitted changes, and the reader, analyzer and directory
+         * that belong to it, so that the next operation opens the index anew. Failures while discarding are
+         * added to the given one as suppressed.
+         * <p>
+         * Must be called while holding the {@code this.gigaMap} monitor.
+         */
+        private void discardWriter(final Throwable failure)
+        {
+            final IndexWriter     writer    = this.writer   ;
+            final DirectoryReader reader    = this.reader   ;
+            final Analyzer        analyzer  = this.analyzer ;
+            final Directory       directory = this.directory;
+
+            this.writer      = null;
+            this.reader      = null;
+            this.searcher    = null;
+            this.analyzer    = null;
+            this.directory   = null;
+            this.readerStale = false;
+
+            if(writer != null)
+            {
+                try
+                {
+                    writer.rollback();
+                }
+                catch(final Throwable rollbackFailure)
+                {
+                    failure.addSuppressed(rollbackFailure);
+                }
+            }
+            IOUtils.closeWhileHandlingException(reader, analyzer, directory);
         }
 
         /**
@@ -1202,23 +1285,33 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
          * <p>
          * No-op when {@code autoCommit()} is {@code true} (the eager commits already ran), when
          * the writer has not been initialized yet, or when there are no uncommitted changes.
+         * <p>
+         * An index whose last rebuild failed is rebuilt first: its files miss the changes that were
+         * discarded with the failed rebuild, and the mark to rebuild it does not survive a restart. If
+         * that rebuild fails, the store fails.
          */
         void internalCommitOnStore()
         {
             synchronized(this.gigaMap)
             {
-                if(!this.context.autoCommit()
-                    && this.writer != null
-                    && this.writer.hasUncommittedChanges())
+                if(this.context.autoCommit())
                 {
-                    try
+                    return;
+                }
+                try
+                {
+                    if(this.rebuildOnOpen)
+                    {
+                        this.ensureWriter();
+                    }
+                    if(this.writer != null && this.writer.hasUncommittedChanges())
                     {
                         this.internalCommit();
                     }
-                    catch(final IOException e)
-                    {
-                        throw new IORuntimeException(e);
-                    }
+                }
+                catch(final IOException e)
+                {
+                    throw new IORuntimeException(e);
                 }
             }
         }
