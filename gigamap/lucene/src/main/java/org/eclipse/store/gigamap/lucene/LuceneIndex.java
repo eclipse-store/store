@@ -258,6 +258,9 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
      * {@code false}, pending changes are also committed automatically at each
      * {@code GigaMap.store()} boundary, so an explicit call is only needed to commit between
      * stores.
+     * <p>
+     * After a failed {@link GigaMap#reindex()}, this rebuilds the index from the entities first, and
+     * fails if that rebuild fails.
      */
     public void commit();
 	
@@ -847,16 +850,21 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
         {
             synchronized(this.gigaMap)
             {
-                if(this.writer != null)
+                try
                 {
-                    try
+                    // after a failed rebuild there is nothing valid to commit: rebuild first, or fail
+                    if(this.rebuildOnOpen)
+                    {
+                        this.ensureWriter();
+                    }
+                    if(this.writer != null)
                     {
                         this.internalCommit();
                     }
-                    catch(final IOException e)
-                    {
-                        throw new IORuntimeException(e);
-                    }
+                }
+                catch(final IOException e)
+                {
+                    throw new IORuntimeException(e);
                 }
             }
         }

@@ -401,7 +401,7 @@ products.add(newProduct);
 luceneIndex.commit();
 ----
 
-With manual commits, pending changes are also committed at each `gigaMap.store()`. After a failed `reindex()` that store rebuilds the index first, and fails if the rebuild fails (see <<_reindexing>>).
+With manual commits, pending changes are also committed at each `gigaMap.store()`. After a failed `reindex()`, both that store and an explicit `commit()` rebuild the index first, and fail if the rebuild fails (see <<_reindexing>>).
 
 == Performance Tips
 
