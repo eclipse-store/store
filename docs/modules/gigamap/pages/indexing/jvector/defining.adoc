@@ -54,3 +54,11 @@ var results = index.search(queryVector, 10);
 For on-disk indices (`@Vector(onDisk = true)`), create the handler with a base directory: `VectorAnnotationHandler.New(baseDir)`; each index is stored in a sub-directory named after the index. Or create it with a named location, `VectorAnnotationHandler.New(IndexLocation.Named("vectors"))`, bound to a directory at runtime; the index files are then kept directly in that directory. See xref:indexing/index-locations.adoc[Index Locations].
 
 The handler is a no-op when the entity type carries no `@Vector` member, so it composes safely with bitmap (`@Index`) and other annotations on the same entity. See xref:indexing/annotations.adoc[Annotation-based Indexing] for the overall model.
+
+== Registering on a Populated Map
+
+A vector index can also be added to a GigaMap that already holds entities — through `generateIndices` as above, or directly with `VectorIndices.add` or `ensure`. The new index is then back-filled from those entities.
+
+The back-fill is the only step that runs your vectorizer over existing data, and therefore the only one that can fail — for example when an embedding service times out. Registration is all-or-nothing: the index is built before it becomes part of the map, so a throwing vectorizer registers nothing, leaves the other indices untouched, and persists nothing on the next `store()`. Simply repeat the call; `ensure` then creates the index anew instead of returning a partially filled one.
+
+With xref:indexing/jvector/configuration.adoc#_eventual_indexing[eventual indexing], the vectors of all existing entities are computed before registration, but the graph is built in the background afterwards, as for any later add. A vectorizer failure for an entity's own vector is still reported by the call; failures while building the graph in the background are not — in embedded mode that includes the vectorizer being called there to score neighbours.
