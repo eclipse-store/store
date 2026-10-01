@@ -104,6 +104,7 @@
 *** xref:gigamap:indexing/spatial/index.adoc[Spatial Index]
 **** xref:gigamap:indexing/spatial/use-cases.adoc[Use Cases]
 **** xref:gigamap:indexing/spatial/advanced.adoc[Advanced Usage]
+*** xref:gigamap:indexing/index-locations.adoc[Index Locations]
 ** xref:gigamap:queries/index.adoc[Queries]
 *** xref:gigamap:queries/defining.adoc[Defining Queries]
 *** xref:gigamap:queries/executing.adoc[Executing Queries]

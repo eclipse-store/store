@@ -17,6 +17,7 @@ package org.eclipse.store.gigamap.lucene;
 import org.eclipse.store.gigamap.lucene.annotations.FullText;
 import org.eclipse.store.gigamap.types.GigaIndexAnnotationHandler;
 import org.eclipse.store.gigamap.types.GigaIndices;
+import org.eclipse.store.gigamap.types.IndexLocation;
 
 import java.nio.file.Path;
 
@@ -77,6 +78,19 @@ public final class LuceneAnnotationHandler<E> implements GigaIndexAnnotationHand
 	public static <E> LuceneAnnotationHandler<E> New(final Path directoryPath)
 	{
 		return new LuceneAnnotationHandler<>(DirectoryCreator.MMap(notNull(directoryPath)));
+	}
+
+	/**
+	 * Creates a handler that keeps the Lucene files in a memory-mapped directory at the given location,
+	 * see {@link DirectoryCreator#MMap(IndexLocation)}.
+	 *
+	 * @param <E>      the entity type
+	 * @param location the location of the Lucene files
+	 * @return a new handler
+	 */
+	public static <E> LuceneAnnotationHandler<E> New(final IndexLocation location)
+	{
+		return new LuceneAnnotationHandler<>(DirectoryCreator.MMap(notNull(location)));
 	}
 
 

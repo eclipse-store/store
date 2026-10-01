@@ -18,6 +18,8 @@ import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.MMapDirectory;
 import org.eclipse.serializer.exceptions.IORuntimeException;
+import org.eclipse.store.gigamap.types.IndexLocation;
+import org.eclipse.store.gigamap.types.IndexLocations;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -70,13 +72,40 @@ public abstract class DirectoryCreator
 			notNull(path)
 		);
 	}
+
+	/**
+	 * Creates a memory-mapped {@link Directory} creator for the given {@link IndexLocation}.
+	 * <p>
+	 * {@link IndexLocation#Absolute(Path)} is the same as {@link #MMap(Path)}.
+	 * {@link IndexLocation#Named(String)} stores only the name; the directory is looked up in
+	 * {@link IndexLocations} when the Lucene index is registered or loaded, and kept for the rest of the
+	 * run, so a moved or copied storage can be pointed at its Lucene files by binding the name to their
+	 * new directory. The creator itself holds no resolved state, so one creator can be shared by several
+	 * maps.
+	 * <p>
+	 * A named creator stores no path. A library version without named locations can still read the
+	 * storage, but every change to the map and every full-text query fails there, because each one opens
+	 * this index.
+	 *
+	 * @param location the location of the Lucene files; must not be null.
+	 * @return a memory-mapped directory creator for that location
+	 */
+	public static DirectoryCreator MMap(final IndexLocation location)
+	{
+		notNull(location);
+		return location.isNamed()
+			? new MMapDirectoryCreator(null, location.name())
+			: new MMapDirectoryCreator(location.directory())
+		;
+	}
 	
 	/**
 	 * Returns an instance of {@link ByteBuffersDirectoryCreator},
 	 * a specific implementation of {@link DirectoryCreator} that creates a byte-buffer-based {@link Directory}.
 	 * <p>
 	 * Keep in mind that this is a transient directory. Its state will not be persisted.
-	 * If you want a persistent state, use {@link #MMap(Path)} instead.
+	 * If you want a persistent state, use {@link #MMap(Path)} instead. After a load or a
+	 * {@link LuceneIndex#close()}, the index is rebuilt from the map's entities when it is used next.
 	 *
 	 * @return an instance of {@link ByteBuffersDirectoryCreator},
 	 *         which provides the functionality to create a {@link ByteBuffersDirectory}.
@@ -88,29 +117,90 @@ public abstract class DirectoryCreator
 	
 	
 	
-	public static class MMapDirectoryCreator extends DirectoryCreator
+	// Final: a LuceneIndex resolves the location and creates the directory itself (createDirectory(Path)),
+	// and changeIndexLocation replaces the creator by a copy (withLocation), so a subclass's overrides
+	// would be bypassed or silently dropped. Its constructors are package-private, so no code outside
+	// this package could subclass it anyway.
+	public static final class MMapDirectoryCreator extends DirectoryCreator
 	{
 		private final Path path;
 
+		// Name of an IndexLocation.Named, or null to use path. A plain field rather than a stored
+		// IndexLocation: an older library version drops an unknown field when it loads the storage, but
+		// fails the whole start on an instance of a class it does not have. null is also what creators
+		// stored before this field existed read as, i.e. today's behaviour.
+		private final String locationName;
+
 		MMapDirectoryCreator(final Path path)
 		{
-			super();
-			this.path = path;
+			this(path, null);
 		}
-	
+
+		MMapDirectoryCreator(final Path path, final String locationName)
+		{
+			super();
+			this.path         = path        ;
+			this.locationName = locationName;
+		}
+
+		/**
+		 * @return where this creator keeps the Lucene files
+		 */
+		public IndexLocation location()
+		{
+			return this.locationName != null
+				? IndexLocation.Named(this.locationName)
+				: IndexLocation.Absolute(this.path)
+			;
+		}
+
+		/**
+		 * Returns a creator for another location. For a named location the old path is not kept: a library
+		 * version without named locations would open the files there, which miss everything indexed after
+		 * the change, and search them without notice. Without a path it fails on the first use instead.
+		 *
+		 * @param location the new location
+		 * @return the new creator
+		 */
+		public MMapDirectoryCreator withLocation(final IndexLocation location)
+		{
+			notNull(location);
+			return location.isNamed()
+				? new MMapDirectoryCreator(null, location.name())
+				: new MMapDirectoryCreator(location.directory())
+			;
+		}
+
+		/**
+		 * Resolves the location now and creates the directory there. A {@link LuceneIndex} does not use
+		 * this: it resolves its location once when it is registered or loaded and then calls
+		 * {@link #createDirectory(Path)}, so that the files stay where they were opened for the whole run.
+		 * For an unbound name this throws; there is no fallback to the stored path.
+		 */
 		@Override
 		public Directory createDirectory()
 		{
+			return this.createDirectory(this.location().resolve());
+		}
+
+		/**
+		 * Creates the directory in an already resolved location.
+		 *
+		 * @param directory the resolved directory
+		 * @return the memory-mapped directory
+		 */
+		public Directory createDirectory(final Path directory)
+		{
 			try
 			{
-				return new MMapDirectory(this.path);
+				return new MMapDirectory(notNull(directory));
 			}
 			catch(final IOException e)
 			{
 				throw new IORuntimeException(e);
 			}
 		}
-		
+
 	}
 	
 	

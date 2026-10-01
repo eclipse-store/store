@@ -151,6 +151,22 @@ class BackgroundTaskManager
         void markDirtyForBackgroundManagers(int count);
 
         /**
+         * Whether this index needs an optimization it cannot earn through the change count.
+         * <p>
+         * Asked on every scheduled tick, rather than answered once and remembered, because the
+         * answer changes with the index: an index restored below the codebook's training minimum
+         * says no until enough vectors arrive, and then says yes. A remembered request would have
+         * been consumed by the optimization that declined in between, and nothing would ask again.
+         *
+         * @return true if the next scheduled optimization should run regardless of the threshold
+         */
+        default boolean needsUnearnedOptimization()
+        {
+            // The ordinary answer: an index earns its optimizations through the change count.
+            return false;
+        }
+
+        /**
          * Core optimization logic without queue drain.
          * Called from the executor thread (inline drain already done).
          */
@@ -630,15 +646,19 @@ class BackgroundTaskManager
             return;
         }
 
-        if(this.optimizationChangeCount.get() < this.optimizationMinChanges)
-        {
-            return;
-        }
-
         final Callback cb = this.liveCallback();
         if(cb == null)
         {
             return; // index abandoned; liveCallback() has already self-terminated the manager
+        }
+
+        // Either enough has changed, or the index needs an optimization it cannot earn that way.
+        // The second is a question asked fresh each tick rather than a request held somewhere, so
+        // it cannot be consumed by an optimization that did not do what it was needed for.
+        if(this.optimizationChangeCount.get() < this.optimizationMinChanges
+            && !cb.needsUnearnedOptimization())
+        {
+            return;
         }
 
         LOG.debug("Background optimizing index '{}' with {} changes",

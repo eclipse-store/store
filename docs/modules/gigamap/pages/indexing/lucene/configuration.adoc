@@ -38,6 +38,10 @@ The `DirectoryCreator` controls where index data is stored.
 |Memory-mapped file storage
 |Production environments, large indexes
 
+|`DirectoryCreator.MMap(IndexLocation.Named(name))`
+|Memory-mapped file storage in a directory bound to `name` at runtime
+|Storages that are moved, copied or restored
+
 |`DirectoryCreator.ByteBuffers()`
 |In-memory storage
 |Testing, temporary indexes
@@ -70,7 +74,17 @@ LuceneContext<Article> context = LuceneContext.New(
     DirectoryCreator.MMap(Paths.get("/data/lucene-index")),
     new ArticleDocumentPopulator()
 );
+
+// Or at a named location, bound at startup via IndexLocations.bind("fulltext", directory)
+LuceneContext<Article> context = LuceneContext.New(
+    DirectoryCreator.MMap(IndexLocation.Named("fulltext")),
+    new ArticleDocumentPopulator()
+);
 ----
+
+A path is stored with the index, so a moved or restored storage still points at the original directory; a named location stores only the name. See xref:indexing/index-locations.adoc[Index Locations].
+
+If the directory holds no index files when a loaded index is first used, e.g. because they were deleted or not copied along, the index is rebuilt from the GigaMap's entities and a warning is logged.
 
 === ByteBuffers Directory
 
@@ -83,6 +97,8 @@ LuceneContext<Article> context = LuceneContext.New(
     new ArticleDocumentPopulator()
 );
 ----
+
+The index data is not persisted. After the GigaMap is loaded, or after `close()`, the index is rebuilt from the GigaMap's entities when it is used next.
 
 == Analyzer Creators
 

@@ -164,6 +164,19 @@ public class BinaryHandlerLuceneIndexDefault extends AbstractBinaryHandlerStateC
         XMemory.setObject(instance, MEMORY_OFFSET_fileEntries, getFileEntries(data, handler));
     }
 
+    @Override
+    public void complete(
+        final Binary                 data    ,
+        final LuceneIndex.Default<?> instance,
+        final PersistenceLoadHandler handler
+    )
+    {
+        // Resolves a named location now, during the load, like the vector index does: an unbound name
+        // fails the load instead of a later search. The files themselves are still opened lazily on first
+        // use, which also rebuilds the index if its directory turns out to hold no index files.
+        instance.initializeAfterLoad();
+    }
+
     // Provided only for PersistenceTypeHandler contract conformity. The standard store path
     // registers child references through handler.apply(...) callbacks while writing the
     // binary form, so this iterator is exercised only by niche traversals such as

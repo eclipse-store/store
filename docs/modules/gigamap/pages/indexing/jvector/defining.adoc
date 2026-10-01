@@ -51,6 +51,6 @@ VectorIndex<Product>   index   = vectors.get("embedding");
 var results = index.search(queryVector, 10);
 ----
 
-For on-disk indices (`@Vector(onDisk = true)`), create the handler with a base directory: `VectorAnnotationHandler.New(baseDir)`; each index is stored in a sub-directory named after the index.
+For on-disk indices (`@Vector(onDisk = true)`), create the handler with a base directory: `VectorAnnotationHandler.New(baseDir)`; each index is stored in a sub-directory named after the index. Or create it with a named location, `VectorAnnotationHandler.New(IndexLocation.Named("vectors"))`, bound to a directory at runtime; the index files are then kept directly in that directory. See xref:indexing/index-locations.adoc[Index Locations].
 
 The handler is a no-op when the entity type carries no `@Vector` member, so it composes safely with bitmap (`@Index`) and other annotations on the same entity. See xref:indexing/annotations.adoc[Annotation-based Indexing] for the overall model.

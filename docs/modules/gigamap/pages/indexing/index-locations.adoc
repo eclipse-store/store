@@ -1,0 +1,118 @@
+= Index Locations
+
+On-disk JVector indices and Lucene indices with an MMap directory keep their files *outside* the storage. The storage remembers where these files are. An `IndexLocation` decides what it remembers:
+
+[options="header",cols="1,1,2"]
+|===
+|Location |Stored in the storage |Where the files are
+
+|`IndexLocation.Absolute(path)`
+|The path
+|Always that path. The same as `indexDirectory(path)` or `DirectoryCreator.MMap(path)`.
+
+|`IndexLocation.Named(name)`
+|Only the name
+|The directory the application binds the name to at runtime, via `IndexLocations.bind(name, directory)`.
+|===
+
+A plain path points a moved, copied or restored storage at the *original* directory. A named location works like a data-source name instead: the storage says *which* index directory it needs, the application says *where* it is on this machine.
+
+== Binding Names
+
+Bind the names at application startup, before the storage is started:
+
+[source, java]
+----
+IndexLocations.bind("vectors",  Path.of("/data/myapp/vector-index"));
+IndexLocations.bind("fulltext", Path.of("/data/myapp/lucene-index"));
+
+EmbeddedStorageManager storage = EmbeddedStorage.start(Path.of("/data/myapp/storage"));
+----
+
+* An index resolves its location once, when it is created or loaded. This includes maps loaded later, e.g. behind a `Lazy` reference, on any thread. Rebinding a name later does not move an index that is already open.
+* Bindings are JVM-wide, not tied to a storage. Several storages in one JVM must use *different* names.
+* An unbound name fails loudly when the index is created or loaded, naming the index and the name. There is no fallback to a default or a previous directory.
+* A bound path is never stored, so it may be relative.
+
+== Using Named Locations
+
+.JVector index
+[source, java]
+----
+VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+    .dimension(768)
+    .similarityFunction(VectorSimilarityFunction.COSINE)
+    .onDisk(true)
+    .indexLocation(IndexLocation.Named("vectors"))   // instead of .indexDirectory(path)
+    .build();
+----
+
+.Lucene index
+[source, java]
+----
+LuceneContext<Article> context = LuceneContext.New(
+    DirectoryCreator.MMap(IndexLocation.Named("fulltext")),
+    new ArticleDocumentPopulator()
+);
+----
+
+.Annotation-based indices
+[source, java]
+----
+IndexerGenerator.AnnotationBased(Product.class)
+    .register(VectorAnnotationHandler.New(IndexLocation.Named("vectors")))
+    .register(LuceneAnnotationHandler.New(IndexLocation.Named("fulltext")))
+    .generateIndices(gigaMap);
+----
+
+`VectorAnnotationHandler.New(Path base)` puts each index into its own sub-directory `base/<indexName>/`. `VectorAnnotationHandler.New(IndexLocation.Named("x"))` puts the files of all its indices directly into the directory `"x"` is bound to; the files are named after the index.
+
+IMPORTANT: Index names are unique only within one GigaMap. Several maps that share a location must not have indices with the same name, e.g. two maps whose entities both have a `@Vector` field `embedding`: their files would overwrite each other. Give each map its own location, or use `@Vector(name = ...)`.
+
+== Moving, Copying or Restoring a Storage
+
+. Stop the application. Copy the storage directory *and* the index directories together.
+. At startup, bind the names to the copied index directories.
+. Start the storage.
+
+Nothing in the storage changes, and the original files are never touched. A copied vector graph that matches the storage is loaded; one that does not, e.g. from another point in time than the storage backup, is rebuilt. Copied Lucene files are used as they are, so always restore them together with the storage.
+
+If the index files are not copied along, or a name is bound to an empty directory, nothing is lost:
+
+* A JVector index rebuilds its graph from the stored vectors and writes it on the next persist.
+* A Lucene index rebuilds itself from the GigaMap's entities the first time it is used, and logs a warning. On a large map this takes time and runs inside that first operation, which may be a query; other operations on the map wait until it is done.
+
+== Changing the Location of an Existing Index
+
+An existing index keeps the location it was created with; passing another location to `VectorIndices.ensure(...)` has no effect and logs a warning. Change it explicitly:
+
+[source, java]
+----
+gigaMap.index().get(VectorIndices.class).changeIndexLocation("embeddings", IndexLocation.Named("vectors"));
+gigaMap.index().get(LuceneIndex.class).changeIndexLocation(IndexLocation.Named("fulltext"));
+gigaMap.store();   // the change reaches the storage with the next store
+----
+
+The change takes effect from the next start; the running index keeps using the directory it opened. No files are moved, copied or deleted. It is refused for in-memory vector indices, Lucene indices without an MMap directory, Lucene indices with their own `LuceneContext` implementation (including subclasses of `LuceneContext.Default`), and read-only maps.
+
+To migrate an existing storage to named locations *without a rebuild*:
+
+. Call `changeIndexLocation(..., IndexLocation.Named("x"))` and store the map, once.
+. From the next start on, bind `"x"` to the directory the index uses today.
+. Change the application's own index setup to the same location, e.g. `.indexLocation(IndexLocation.Named("x"))`; otherwise `ensure(...)` warns on every start.
+
+One name stands for one directory. Indices that live in different directories today need one name each, or their files moved into one directory. This applies to indices created with `VectorAnnotationHandler.New(Path base)`, which each live in `base/<indexName>/`.
+
+== Compatibility with Older Versions
+
+Versions without named locations can still read the storage; they ignore the stored name.
+
+* A JVector index switched with `changeIndexLocation` keeps its previous directory, and an older version uses it. An outdated graph there is rejected and rebuilt.
+* A JVector index *created* with a named location stores no directory. An older version rebuilds its graph in memory on every start, and fails to write it to disk.
+* A Lucene index at a named location stores no path. In an older version every change to the map and every full-text query fails, instead of silently searching outdated files.
+
+== Limits
+
+* Lucene files are not checked for ownership. A Lucene index only checks that index files exist, not that they belong to this storage and are current. Bind each name to the directory that belongs to the storage.
+* The JVector check detects most mismatches, not all. Its check values (see xref:indexing/jvector/advanced.adoc#_loading_from_disk[Loading from Disk]) do not identify the storage: two copies of one storage with the same number of changes accept each other's graph. Never bind the names of two storages to the same directory.
+* There is no location relative to the storage directory. Bind a name to a directory next to the storage instead.
