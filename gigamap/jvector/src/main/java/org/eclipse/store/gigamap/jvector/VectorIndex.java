@@ -1065,6 +1065,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private transient boolean                            restoredFromStorage;
 
+        // Set by the constructor of a new index, cleared by internalActivate(): the index is built before it
+        // is registered, and until then no background manager may run, so that a failed build can be
+        // discarded without threads to stop and without anything being persisted.
+        private transient boolean                            activationPending  ;
+
+        // What the back-fill did while no background manager existed, handed to the manager on activation:
+        // the graph changes its thresholds must count, and whether rejected disk files await their rewrite.
+        private transient int                                backfillChanges    ;
+        private transient boolean                            persistOnActivation;
+
         // The directory of the index files, resolved from the configuration's location once, when the
         // index is first opened in this run. Every later disk access uses it, so neither a rebinding of a
         // named location nor a changed configuration moves an open index; both apply from the next load.
@@ -1144,8 +1154,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         /**
          * Standard constructor for creating a new index. Sets up the transient state but leaves the graph
-         * empty: populating it with the entities the parent map already holds is the caller's job, done
-         * exactly once by {@code VectorIndices.Default#internalAddVectorIndex}.
+         * empty and starts no background manager: populating it with the entities the parent map already
+         * holds is the caller's job, done exactly once by {@link #internalBackfill()} before the index is
+         * registered, and the managers start with {@link #internalActivate()} (see
+         * {@code VectorIndices.Default#internalAddIndex}).
          */
         Default(
             final VectorIndices<E>         parent       ,
@@ -1174,16 +1186,19 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.deferredBuilderOps  = new ConcurrentLinkedQueue<>();
 
             // Publish the one-shot rebuild guard right away, so the deferred rebuild never runs for an
-            // index created here: this one is populated by the back-fill in
-            // VectorIndices.Default#internalAddVectorIndex, immediately after construction, and that is
-            // its single population path - embedded and computed alike. A rebuild would not find an empty
-            // source and stay a no-op: in embedded mode rebuildGraphFromStore() reads the *parent map*, so
-            // it would create a node per existing entity and the back-fill would then add each one a second
-            // time - jvector rejects the duplicate with "Node 0 already exists" (internal #123). Rebuilding
+            // index created here: this one is populated by the back-fill in internalBackfill(), immediately
+            // after construction, and that is its single population path - embedded and computed alike. A
+            // rebuild would not find an empty source and stay a no-op: in embedded mode
+            // rebuildGraphFromStore() reads the *parent map*, so it would create a node per existing entity
+            // and the back-fill would then add each one a second time - jvector rejects the duplicate with
+            // "Node 0 already exists" (internal #123). Rebuilding
             // from the store is meaningful only for an index that has a store to rebuild, i.e. after a load.
             // Set before initializeIndex() so a background task started there cannot observe a false flag
             // and rebuild behind the back-fill.
             this.graphRebuilt = true;
+
+            // Before initializeIndex(), which would otherwise start the background managers.
+            this.activationPending = true;
 
             // Transient setup only - deliberately NOT ensureIndexInitialized(), see above.
             this.initializeIndex();
@@ -1857,13 +1872,24 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 this.backgroundTaskManager.markPersistRequired();
             }
+            else if(diskRebuildPending && this.activationPending)
+            {
+                // the manager of a new index starts only on activation, which schedules this persist then
+                this.persistOnActivation = true;
+            }
         }
 
         /**
-         * Starts the unified background task manager if any background feature is enabled.
+         * Starts the unified background task manager if any background feature is enabled. Does nothing
+         * for a new index that is not activated yet (see {@link #internalActivate()}).
          */
         private void startBackgroundManagersIfEnabled()
         {
+            if(this.activationPending)
+            {
+                return;
+            }
+
             final boolean eventualIndexing       = this.configuration.eventualIndexing();
             final boolean backgroundOptimization = this.configuration.backgroundOptimization();
             final boolean backgroundPersistence  = this.configuration.onDisk() && this.configuration.backgroundPersistence();
@@ -2281,11 +2307,124 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             };
         }
 
+        /**
+         * Back-fills this new index, not yet registered and not yet activated, from the entities the
+         * parent map already holds - its single population path (see the constructor).
+         * <p>
+         * Without eventual indexing the graph is built here, synchronously. With eventual indexing only the
+         * vectors are computed and validated here, and the graph is built in the background once the index
+         * is registered ({@link #internalAddBackfilled(List)}), so registration does not wait for it. Either
+         * way every entity's own vector is computed here, so a throwing vectorizer leaves nothing behind but
+         * this unregistered instance, which the caller discards ({@link #internalDiscard(Throwable)}).
+         * <p>
+         * Must be called with the parent-map monitor held.
+         *
+         * @return with eventual indexing the entries to add after registration, otherwise {@code null}
+         */
+        List<VectorEntry> internalBackfill()
+        {
+            if(this.configuration.eventualIndexing())
+            {
+                final List<VectorEntry> entries = new ArrayList<>();
+                this.parentMap().iterateIndexed((entityId, entity) ->
+                {
+                    // validates the id range on this thread, as internalAdd does
+                    toOrdinal(entityId);
+                    entries.add(new VectorEntry(entityId, this.vectorize(entity)));
+                });
+                return entries;
+            }
+
+            // No manager exists yet, so the adds below build the graph synchronously and their changes are
+            // not counted; activation hands the count to the manager.
+            final long changesBefore = this.structuralModCount;
+            this.parentMap().iterateIndexed(this::internalAdd);
+            this.backfillChanges = Math.toIntExact(this.structuralModCount - changesBefore);
+            return null;
+        }
+
+        /**
+         * Starts the background managers that the constructor of a new index deferred, and hands them the
+         * back-fill's work: its graph changes count toward the change thresholds, and disk files rejected at
+         * construction get their rewrite scheduled.
+         * <p>
+         * Must be called with the parent-map monitor held, after {@link #internalBackfill()} succeeded.
+         */
+        void internalActivate()
+        {
+            this.activationPending = false;
+            this.startBackgroundManagersIfEnabled();
+
+            if(this.backgroundTaskManager != null)
+            {
+                if(this.backfillChanges > 0)
+                {
+                    this.backgroundTaskManager.markDirty(this.backfillChanges);
+                }
+                if(this.persistOnActivation)
+                {
+                    this.backgroundTaskManager.markPersistRequired();
+                }
+            }
+            this.backfillChanges     = 0;
+            this.persistOnActivation = false;
+        }
+
+        /**
+         * Adds the entries collected by {@link #internalBackfill()} with eventual indexing, once the index is
+         * registered and activated, one queued operation per entity - exactly as {@link #internalAdd} does.
+         * Not batched: the worker catches failures per operation, so a failed insertion costs only its own
+         * entity, and each operation holds the builder's read lock for a single insertion. Calls no
+         * vectorizer on this thread: the vectors are already computed, and the graph is built by the worker.
+         * <p>
+         * Must be called with the parent-map monitor held.
+         *
+         * @param entries the entries returned by {@link #internalBackfill()}
+         */
+        void internalAddBackfilled(final List<VectorEntry> entries)
+        {
+            for(final VectorEntry entry : entries)
+            {
+                // opted-in null vectors: no embedding, neither stored nor a graph node
+                if(entry.vector != null)
+                {
+                    this.addVectorEntry(entry);
+                }
+            }
+        }
+
+        /**
+         * Discards a new index whose back-fill failed, before it was registered or activated. No background
+         * manager exists yet and nothing else can reach the instance, so this only releases its transient
+         * state; nothing is persisted. A failure while releasing is attached to {@code cause}.
+         *
+         * @param cause the failure of the back-fill
+         */
+        void internalDiscard(final Throwable cause)
+        {
+            this.builderLock.writeLock().lock();
+            try
+            {
+                this.deferredBuilderOps.clear();
+                this.closeInternalResources();
+            }
+            catch(final Throwable t)
+            {
+                cause.addSuppressed(t);
+            }
+            finally
+            {
+                this.closed = true;
+                this.builderLock.writeLock().unlock();
+            }
+        }
+
         @Override
         public void internalAdd(final long entityId, final E entity)
         {
             // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
-            final int ordinal = toOrdinal(entityId);
+            // Validates the id range before anything else happens.
+            toOrdinal(entityId);
 
             this.ensureIndexInitialized();
 
@@ -2298,7 +2437,19 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return;
             }
 
-            final VectorEntry vectorEntry = new VectorEntry(entityId, vector);
+            this.addVectorEntry(new VectorEntry(entityId, vector));
+        }
+
+        /**
+         * Adds an entity whose non-null vector is already computed and validated: stores it (computed mode)
+         * and adds its graph node, deferred to the background worker with eventual indexing. Does not
+         * vectorize the entity itself; the synchronous graph insertion may still call the vectorizer for
+         * neighbours in embedded mode.
+         */
+        private void addVectorEntry(final VectorEntry vectorEntry)
+        {
+            final long entityId = vectorEntry.sourceEntityId;
+            final int  ordinal  = toOrdinal(entityId);
 
             // Store based on vectorizer type
             if(!this.isEmbedded())
@@ -2324,7 +2475,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                 // Add to HNSW graph using entity ID as ordinal. Idempotent: a deferred op may be
                 // drained into a builder that already carries the ordinal (internal #142).
-                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vectorEntry.vector);
                 this.executeOrDeferBuilderOp(() -> this.internalAddGraphNodeIdempotent(ordinal, vf));
 
                 // Mark dirty for background managers

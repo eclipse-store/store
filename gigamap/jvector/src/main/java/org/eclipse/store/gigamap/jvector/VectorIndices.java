@@ -29,6 +29,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
 
@@ -46,7 +47,21 @@ XIterable<VectorIndex<E>>,
 Iterable<KeyValue<String, ? extends VectorIndex<E>>>
 {
     /**
-     * Adds a vector index to this group.
+     * Adds a vector index to this group and back-fills it from the entities the parent map already holds.
+     * <p>
+     * <b>Behavior on failure:</b> the index is built before it is registered, so if {@code vectorizer}
+     * throws for one of the already-present entities, nothing is registered and this group is left exactly
+     * as it was: no index is available under the given name, no sibling index is affected, and nothing of the
+     * attempt is persisted by a subsequent {@code store()}. The vectorizer's exception is the one propagated -
+     * should discarding the half-built index fail in turn, that secondary failure is attached to it as a
+     * suppressed exception. The name stays free, so the call can simply be repeated, for example after a
+     * transient failure of an embedding service.
+     * <p>
+     * With {@link VectorIndexConfiguration#eventualIndexing() eventual indexing}, the vectors of all
+     * present entities are computed and validated before registration, but the graph is built in the
+     * background afterwards, as for any later add. A vectorizer failure for an entity's own vector is
+     * therefore still reported here; failures during the background graph construction are not - in
+     * embedded mode that includes the vectorizer being called there to score neighbours.
      *
      * @param name          the name of the index
      * @param configuration the index configuration (dimension, similarity function, etc.)
@@ -109,6 +124,10 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
      * that would matter rather than merely costing graph quality, since edges are built by searching
      * with it and reusing them under another metric would leave traversal following neighbours
      * chosen for the wrong distance.
+     * <p>
+     * <b>Behavior on failure:</b> as for {@link #add(String, VectorIndexConfiguration, Vectorizer)} - if
+     * the index has to be created and its back-fill throws, nothing is registered, so a later
+     * {@code ensure} with the same name creates the index anew instead of returning a partially filled one.
      *
      * @param name          the name of the index
      * @param configuration the index configuration, ignored if an index of that name already exists
@@ -380,8 +399,14 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
         }
 
         /**
-         * Registers a single vector index without checking mutability. Callers must have passed
-         * {@link #ensureMutable(String)} and must still hold the parent-map monitor.
+         * Creates, back-fills and registers a single vector index without checking mutability. Callers must
+         * have passed {@link #ensureMutable(String)} and must still hold the parent-map monitor.
+         * <p>
+         * The index is built completely before it is registered: it is back-filled from the entities the
+         * parent map already holds while it is still absent from this group, and a back-fill that throws
+         * discards it, leaving the group as it was. Registration itself runs no user code. With eventual
+         * indexing only the vectors are computed before registration; the graph is built in the background
+         * afterwards, as it is for any later add.
          */
         private VectorIndex<E> internalAddIndex(
             final String name,
@@ -391,14 +416,33 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
         {
             this.validateIndexToAdd(name);
 
-            final VectorIndex.Internal<E> index = new VectorIndex.Default<>(
+            final VectorIndex.Default<E> index = new VectorIndex.Default<>(
                 this,
                 name,
                 true,
                 configuration,
                 vectorizer
             );
+
+            final List<VectorEntry> backfilled;
+            try
+            {
+                backfilled = index.internalBackfill();
+            }
+            catch(final Throwable t)
+            {
+                index.internalDiscard(t);
+                throw t;
+            }
+
+            // Before registration, so that a failure to start the background managers registers nothing.
+            index.internalActivate();
             this.internalAddVectorIndex(index);
+
+            if(backfilled != null)
+            {
+                index.internalAddBackfilled(backfilled);
+            }
 
             return index;
         }
@@ -571,10 +615,12 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
             return this.vectorIndices.get(indexName);
         }
 
+        /**
+         * Registers an index that is already fully built (see {@link #internalAddIndex}). Runs no user code
+         * and changes nothing before the parent check has passed.
+         */
         private void internalAddVectorIndex(final VectorIndex.Internal<E> index)
         {
-            this.vectorIndices.add(index.name(), index);
-
             if(index.parent() != this)
             {
                 throw new IllegalStateException(
@@ -582,13 +628,8 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
                 );
             }
 
+            this.vectorIndices.add(index.name(), index);
             this.markStateChangeInstance();
-
-            // Index the entities the map already contains. This is the single population path for a newly
-            // created index: VectorIndex.Default's constructor deliberately does not rebuild its graph, so
-            // adding a second population here (or reinstating the constructor's rebuild) would double-index
-            // every existing entity - which jvector rejects as a duplicate node (internal #123).
-            this.parent.iterateIndexed(index::internalAdd);
             this.parent.internalReportIndexGroupStateChange(this);
         }
 
