@@ -21,6 +21,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -187,6 +191,59 @@ class VectorIndexInvalidateGraphTest
 
             assertThrows(IllegalStateException.class, index::invalidateGraph,
                 "incremental on-disk mode must reject graph invalidation");
+        }
+    }
+
+    /**
+     * Concurrent first searches after an invalidation must all see the complete graph. The first access
+     * after invalidateGraph() creates the in-memory builder; unsynchronized, two racing searches each
+     * created one and the later replaced the rebuilt graph with an empty one that stayed marked as rebuilt.
+     */
+    @Test
+    void concurrentFirstSearchesAfterInvalidationAllSeeTheFullGraph() throws Exception
+    {
+        final int entities = 200;
+        final int searchers = 16;
+        for(int round = 0; round < 400; round++)
+        {
+            final GigaMap<Entity> map = GigaMap.New();
+            final VectorIndex<Entity> index = newIndex(map);
+            for(int i = 0; i < entities; i++)
+            {
+                map.add(new Entity(new float[]{1 + i, 1, 0, 0}));
+            }
+            index.invalidateGraph();
+
+            final CountDownLatch start = new CountDownLatch(1);
+            final AtomicInteger incomplete = new AtomicInteger();
+            final List<Thread> threads = new ArrayList<>();
+            for(int t = 0; t < searchers; t++)
+            {
+                final Thread thread = new Thread(() ->
+                {
+                    try
+                    {
+                        start.await();
+                        if(index.search(new float[]{100, 1, 0, 0}, 10).stream().count() != 10)
+                        {
+                            incomplete.incrementAndGet();
+                        }
+                    }
+                    catch(final InterruptedException interrupted)
+                    {
+                        Thread.currentThread().interrupt();
+                    }
+                });
+                thread.start();
+                threads.add(thread);
+            }
+            start.countDown();
+            for(final Thread thread : threads)
+            {
+                thread.join();
+            }
+            assertEquals(0, incomplete.get(), "round " + round + ": a search saw an empty or partial graph");
+            assertEquals(10, index.search(new float[]{100, 1, 0, 0}, 10).stream().count());
         }
     }
 }

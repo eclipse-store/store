@@ -1234,7 +1234,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             if(!this.isIndexPresent())
             {
-                this.initializeIndex();
+                // Under the parent monitor, double-checked, like ensureGraphRebuilt(): after
+                // invalidateGraph() every concurrent first search sees no builder. Unsynchronized,
+                // each would create one, and the second would replace the graph the first had just
+                // rebuilt while graphRebuilt stayed true - an empty or partial graph served for good.
+                synchronized(this.parentMap())
+                {
+                    if(!this.isIndexPresent())
+                    {
+                        this.initializeIndex();
+                    }
+                }
             }
 
             this.ensureGraphRebuilt();
