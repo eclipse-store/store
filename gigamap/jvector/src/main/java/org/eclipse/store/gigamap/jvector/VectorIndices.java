@@ -31,7 +31,6 @@ import java.io.Closeable;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
 
 /**
@@ -385,11 +384,46 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
         }
 
         @Override
-        public void internalCollectExclusiveLocks(final Consumer<? super Lock> collector)
+        public boolean internalTryLockExclusive()
         {
+            int locked = 0;
+            try
+            {
+                for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+                {
+                    if(!index.internalTryLockExclusive())
+                    {
+                        break;
+                    }
+                    locked++;
+                }
+            }
+            finally
+            {
+                if(locked < this.vectorIndices.size())
+                {
+                    this.unlockFirst(locked);
+                }
+            }
+            return locked == this.vectorIndices.size();
+        }
+
+        @Override
+        public void internalUnlockExclusive()
+        {
+            this.unlockFirst(Math.toIntExact(this.vectorIndices.size()));
+        }
+
+        private void unlockFirst(final int count)
+        {
+            int i = 0;
             for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
             {
-                collector.accept(index.internalExclusiveLock());
+                if(i++ == count)
+                {
+                    break;
+                }
+                index.internalUnlockExclusive();
             }
         }
 

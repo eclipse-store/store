@@ -15,8 +15,6 @@ package org.eclipse.store.gigamap.types;
  */
 
 import java.util.Arrays;
-import java.util.concurrent.locks.Lock;
-import java.util.function.Consumer;
 
 /**
  * General typing interface for specialized index category types.
@@ -106,16 +104,24 @@ public interface IndexGroup<E> extends GigaMap.Component<E>
 		public void internalRemoveAll();
 
 		/**
-		 * Reports the locks, other than the parent-map monitor, that {@link #internalRemoveAll()} and
-		 * {@link #internalReindex(GigaMap)} of this group acquire. The map acquires them <b>before</b> it enters
-		 * its monitor for these operations: a thread holding such a lock may need the monitor to release it
-		 * (e.g. a vector index's persist or search), so waiting for it inside the monitor could deadlock.
+		 * Tries to acquire, <b>without waiting</b>, the locks other than the parent-map monitor that
+		 * {@link #internalRemoveAll()} and {@link #internalReindex(GigaMap)} of this group need. Holders of such
+		 * a lock may need the monitor to release it (e.g. a vector index's persist or search), so the caller,
+		 * which holds the monitor, must never wait for one. On failure nothing is held.
 		 * <p>
-		 * Called while holding the parent-map monitor. The default reports none.
+		 * Called while holding the parent-map monitor. The default needs no locks.
 		 *
-		 * @param collector receives each lock
+		 * @return whether all locks are now held by the current thread
 		 */
-		public default void internalCollectExclusiveLocks(final Consumer<? super Lock> collector)
+		public default boolean internalTryLockExclusive()
+		{
+			return true;
+		}
+
+		/**
+		 * Releases what a successful {@link #internalTryLockExclusive()} acquired.
+		 */
+		public default void internalUnlockExclusive()
 		{
 			// none
 		}

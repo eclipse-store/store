@@ -20,8 +20,6 @@ import org.eclipse.serializer.persistence.types.Storer;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.util.concurrent.locks.Lock;
-import java.util.function.Consumer;
 
 import static org.eclipse.serializer.util.X.notNull;
 
@@ -306,15 +304,42 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 		}
 		
 		/**
-		 * Reports the locks every group's {@code internalRemoveAll} / {@code internalReindex} acquire, see
-		 * {@link IndexGroup.Internal#internalCollectExclusiveLocks(Consumer)}. Must be called while holding
-		 * the parent-map monitor.
+		 * {@link IndexGroup.Internal#internalTryLockExclusive()} for all groups, all or nothing. Must be called
+		 * while holding the parent-map monitor.
 		 */
-		void internalCollectExclusiveLocks(final Consumer<? super Lock> collector)
+		boolean internalTryLockExclusive()
 		{
-			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			int locked = 0;
+			try
 			{
-				indexGroup.internalCollectExclusiveLocks(collector);
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					if(!indexGroup.internalTryLockExclusive())
+					{
+						break;
+					}
+					locked++;
+				}
+			}
+			finally
+			{
+				if(locked < this.indexGroups.size())
+				{
+					// a failed or throwing try: release the groups that succeeded, in reverse order
+					for(int i = locked; i-- > 0;)
+					{
+						this.indexGroups.at(i).internalUnlockExclusive();
+					}
+				}
+			}
+			return locked == this.indexGroups.size();
+		}
+
+		void internalUnlockExclusive()
+		{
+			for(int i = (int)this.indexGroups.size(); i-- > 0;)
+			{
+				this.indexGroups.at(i).internalUnlockExclusive();
 			}
 		}
 

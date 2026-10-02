@@ -47,7 +47,6 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.Spliterator;
-import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -275,6 +274,16 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	
 	/**
 	 * Removes all entities, effectively clearing all data from this collection.
+	 * <p>
+	 * <b>Concurrency:</b> index groups may need locks of their own besides this map's monitor (a vector index's
+	 * builder lock). This method never waits for one while holding the monitor: while one is held elsewhere, it
+	 * waits on the monitor, which releases it, as it does while readers are open. A caller's
+	 * {@code synchronized(map)} block is therefore interrupted at this point, before anything is changed. Vector
+	 * searches that keep overlapping each other can delay this method for as long as they do, so do not search the
+	 * map's vector indices concurrently when it must complete promptly.
+	 *
+	 * @throws IllegalStateException if called from within a search of one of the map's vector indices (e.g. by a
+	 *         vectorizer), or while the map is read-only or being iterated
 	 */
 	public void removeAll();
 	
@@ -667,10 +676,17 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * colliding data, so it is reported as described above. Index groups other than the bitmap indices
 	 * (Lucene, vector) still drop their data before rebuilding, so a failure there can leave that group
 	 * partial until the next successful rebuild.
+	 * <p>
+	 * <b>Concurrency:</b> as for {@link #removeAll()}, this method never waits for an index group's own locks
+	 * while holding the monitor, but waits on the monitor instead, which interrupts a caller's
+	 * {@code synchronized(map)} block before anything is changed; and vector searches that keep overlapping each
+	 * other can delay it for as long as they do.
 	 *
 	 * @throws UniqueConstraintViolationException if the rebuilt indices show two or more entities sharing a key
 	 *         of a unique constraint. The exception names the violated index and the first entity found under
 	 *         an already taken key; the rebuild itself is complete at that point.
+	 * @throws IllegalStateException if called from within a search of one of the map's vector indices (e.g. by a
+	 *         vectorizer), or while the map is read-only or being iterated
 	 * @see #update(long, Consumer)
 	 * @see #apply(long, Function)
 	 */
@@ -1569,16 +1585,6 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	public class Default<E>
 	implements   Internal<E>, EntityResolver<E>, Unpersistable, PersistenceCommitListener, PersistenceShutdownReleasable
 	{
-		///////////////////////////////////////////////////////////////////////////
-		// constants //
-		//////////////
-
-		/**
-		 * How long {@link #runWithExclusiveLocksUnderHeldMonitor(Runnable)} tries before it gives up.
-		 */
-		private static final long EXCLUSIVE_LOCK_NESTED_TIMEOUT_MILLIS = 10_000;
-
-
 		static BinaryTypeHandler<GigaMap.Default<?>> provideTypeHandler()
 		{
 			return BinaryHandlerGigaMapDefault.New();
@@ -2091,13 +2097,13 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		}
 
 		@Override
-		public final void removeAll()
+		public final synchronized void removeAll()
 		{
-			this.runWithExclusiveLocks(this::internalRemoveAllEntities);
+			this.runExclusive(this::internalRemoveAllEntities);
 		}
 
 		/**
-		 * The body of {@link #removeAll()}. Must be called via {@link #runWithExclusiveLocks(Runnable)}.
+		 * The body of {@link #removeAll()}. Must be called via {@link #runExclusive(Runnable)}.
 		 */
 		private void internalRemoveAllEntities()
 		{
@@ -2431,9 +2437,9 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		}
 
 		@Override
-		public final void reindex()
+		public final synchronized void reindex()
 		{
-			this.runWithExclusiveLocks(() ->
+			this.runExclusive(() ->
 			{
 				this.ensureMutability();
 				this.indices.internalReindex();
@@ -2441,173 +2447,49 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		}
 
 		/**
-		 * Runs an operation that reaches the index groups' {@code internalRemoveAll} / {@code internalReindex},
-		 * holding this map's monitor and every lock those acquire
-		 * ({@link IndexGroup.Internal#internalCollectExclusiveLocks(Consumer)}).
+		 * Runs an operation that reaches the index groups' {@code internalRemoveAll} / {@code internalReindex}
+		 * with the locks those need besides this map's monitor ({@link IndexGroup.Internal#internalTryLockExclusive()}).
 		 * <p>
-		 * The locks are acquired <b>before</b> the monitor. Their holders may need the monitor to release them
-		 * (a vector index's persist takes the monitor while holding its builder lock, and an embedded-mode
-		 * search reads entities via {@link #get(long)} while holding it), so waiting for them inside the monitor
-		 * deadlocks. Inside the monitor the operation finds the locks already held and never waits for them.
+		 * Must be called while holding the monitor. It never waits for such a lock while holding it: their
+		 * holders may need the monitor (a vector index's persist takes it while holding its builder lock, and an
+		 * embedded-mode search reads entities via {@link #get(long)} while holding it). It tries them without
+		 * waiting and, while one is held elsewhere, waits on the monitor, which lets the holders finish, as
+		 * {@link #ensureMutability()} does for open readers. The caller's critical section is therefore
+		 * interrupted at this point, before the operation has read or changed anything.
+		 * <p>
+		 * Not fair: searches that keep overlapping each other can delay the operation for as long as they do. The
+		 * application is expected not to search concurrently with {@link #removeAll()} / {@link #reindex()}.
 		 */
-		private void runWithExclusiveLocks(final Runnable operation)
+		private void runExclusive(final Runnable operation)
 		{
-			if(Thread.holdsLock(this))
+			try
 			{
-				this.runWithExclusiveLocksUnderHeldMonitor(operation);
-				return;
-			}
-
-			while(true)
-			{
-				final List<Lock> locks;
-				synchronized(this)
-				{
-					locks = this.collectExclusiveLocks();
-				}
-				lockAll(locks);
-				try
-				{
-					synchronized(this)
-					{
-						// Neither may happen while the locks are held: an index added meanwhile would bring a lock
-						// that is not held, and waiting for open readers would block a reader thread that needs one
-						// of the locks (e.g. one searching a vector index while iterating).
-						if(!this.checkingIsReadOnly() && sameLocks(locks, this.collectExclusiveLocks()))
-						{
-							operation.run();
-							return;
-						}
-					}
-				}
-				finally
-				{
-					unlockAll(locks);
-				}
-
-				// wait for open readers holding none of the locks, then start over
-				synchronized(this)
+				while(true)
 				{
 					this.ensureMutability();
-				}
-			}
-		}
-
-		/**
-		 * The variant for a caller that already holds this map's monitor, which cannot wait for the locks
-		 * outside of it. It tries them without waiting and, while one is held elsewhere, lets its holder have the
-		 * monitor by waiting on it, as {@link #ensureMutability()} does for open readers. The caller's critical
-		 * section is therefore interrupted at this point, before the operation has read or changed anything.
-		 * <p>
-		 * Waiting for a lock here, even briefly, would deadlock for that long with a holder that needs the
-		 * monitor. And it is not fair: the writer is never queued, so new readers keep getting the lock, and
-		 * under constant search load the locks may never become free. After
-		 * {@link #EXCLUSIVE_LOCK_NESTED_TIMEOUT_MILLIS} it therefore gives up with an exception, again before the
-		 * operation has started. Calling the operation without holding the monitor never needs this.
-		 */
-		private void runWithExclusiveLocksUnderHeldMonitor(final Runnable operation)
-		{
-			final long deadline = System.currentTimeMillis() + EXCLUSIVE_LOCK_NESTED_TIMEOUT_MILLIS;
-			while(true)
-			{
-				this.ensureMutability();
-				final List<Lock> locks = this.collectExclusiveLocks();
-				if(tryLockAll(locks))
-				{
-					try
+					if(this.indices.internalTryLockExclusive())
 					{
-						operation.run();
+						break;
 					}
-					finally
-					{
-						unlockAll(locks);
-					}
-					return;
-				}
-				if(System.currentTimeMillis() > deadline)
-				{
-					throw new IllegalStateException(
-						"The index locks of " + XChars.systemString(this) + " could not be acquired within "
-						+ EXCLUSIVE_LOCK_NESTED_TIMEOUT_MILLIS + " ms while the calling thread holds the map's"
-						+ " monitor (e.g. inside synchronized(map)). Nothing was changed. Call removeAll() /"
-						+ " reindex() without holding the monitor; it then waits for the locks fairly."
-					);
-				}
-				try
-				{
 					this.wait(1);
 				}
-				catch(final InterruptedException e)
-				{
-					Thread.currentThread().interrupt();
-					throw new IllegalStateException(
-						"Interrupted while waiting for the index locks of " + XChars.systemString(this),
-						e
-					);
-				}
 			}
-		}
-
-		private List<Lock> collectExclusiveLocks()
-		{
-			final List<Lock> locks = new ArrayList<>();
-			this.indices.internalCollectExclusiveLocks(locks::add);
-			return locks;
-		}
-
-		private static boolean sameLocks(final List<Lock> held, final List<Lock> current)
-		{
-			if(held.size() != current.size())
+			catch(final InterruptedException e)
 			{
-				return false;
+				Thread.currentThread().interrupt();
+				throw new IllegalStateException(
+					"Interrupted while waiting for the index locks of " + XChars.systemString(this),
+					e
+				);
 			}
-			for(int i = 0; i < held.size(); i++)
-			{
-				if(held.get(i) != current.get(i))
-				{
-					return false;
-				}
-			}
-			return true;
-		}
 
-		private static void lockAll(final List<Lock> locks)
-		{
-			for(int i = 0; i < locks.size(); i++)
+			try
 			{
-				try
-				{
-					locks.get(i).lock();
-				}
-				catch(final Throwable t)
-				{
-					unlockAll(locks.subList(0, i));
-					throw t;
-				}
+				operation.run();
 			}
-		}
-
-		/**
-		 * Never waits: this is called with the monitor held, and a lock holder may need the monitor.
-		 */
-		private static boolean tryLockAll(final List<Lock> locks)
-		{
-			for(int i = 0; i < locks.size(); i++)
+			finally
 			{
-				if(!locks.get(i).tryLock())
-				{
-					unlockAll(locks.subList(0, i));
-					return false;
-				}
-			}
-			return true;
-		}
-
-		private static void unlockAll(final List<Lock> locks)
-		{
-			for(int i = locks.size(); i-- > 0;)
-			{
-				locks.get(i).unlock();
+				this.indices.internalUnlockExclusive();
 			}
 		}
 

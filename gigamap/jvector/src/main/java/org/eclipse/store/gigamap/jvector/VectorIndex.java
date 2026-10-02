@@ -56,7 +56,6 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
@@ -573,7 +572,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      *   <li>When query latency increases noticeably</li>
      *   <li>Periodically (e.g., hourly or daily) for continuously updated indices</li>
      * </ul>
+     * <p>
+     * Must not be called while holding the parent {@link GigaMap}'s monitor (inside {@code synchronized(map)} or
+     * {@code GigaMap.apply} / {@code update} logic): the graph cleanup runs on worker threads that, for an embedded
+     * vectorizer, read entities through that monitor, so the call would wait for itself.
      *
+     * @throws IllegalStateException if the calling thread holds the parent GigaMap's monitor
      * @see VectorIndexConfiguration#backgroundOptimization()
      * @see VectorIndexConfiguration#optimizationIntervalMs()
      */
@@ -640,7 +644,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * On restart, the persisted graph is automatically loaded if the files exist and are
      * valid. If the files are corrupted or the vector count doesn't match, the graph is
      * rebuilt from the stored vectors.
+     * <p>
+     * Must not be called while holding the parent {@link GigaMap}'s monitor (inside {@code synchronized(map)} or
+     * {@code GigaMap.apply} / {@code update} logic): the graph cleanup and disk write run on worker threads that,
+     * for an embedded vectorizer, read entities through that monitor, so the call would wait for itself.
      *
+     * @throws IllegalStateException if the calling thread holds the parent GigaMap's monitor
      * @see #isOnDisk()
      * @see VectorIndexConfiguration#indexDirectory()
      * @see VectorIndexConfiguration#backgroundPersistence()
@@ -828,15 +837,19 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         public void internalRemoveAll();
 
         /**
-         * The lock {@link #internalRemoveAll()} takes besides the parent-map monitor. The parent map acquires it
-         * before its monitor, see
-         * {@code IndexGroup.Internal#internalCollectExclusiveLocks}.
+         * Tries, without waiting, to acquire the lock {@link #internalRemoveAll()} takes besides the parent-map
+         * monitor (see {@code IndexGroup.Internal#internalTryLockExclusive}). Called with the monitor held.
          *
-         * @return the lock
+         * @return whether the lock is now held by the current thread
          * @throws IllegalStateException if the current thread is inside a search of this index, which holds a
-         *         lock the returned one can never be acquired with
+         *         lock that one can never be acquired with
          */
-        public Lock internalExclusiveLock();
+        public boolean internalTryLockExclusive();
+
+        /**
+         * Releases the lock acquired by {@link #internalTryLockExclusive()}.
+         */
+        public void internalUnlockExclusive();
 
         public void clearStateChangeMarkers();
 
@@ -2306,9 +2319,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         @Override
-        public Lock internalExclusiveLock()
+        public boolean internalTryLockExclusive()
         {
-            // A read-lock holder cannot acquire the write lock, so the parent map would wait forever, e.g. for a
+            // A read-lock holder cannot acquire the write lock, so the parent map would retry forever, e.g. for a
             // vectorizer that calls removeAll() or reindex() while it is scoring during a search.
             if(this.builderLock.getReadHoldCount() > 0)
             {
@@ -2316,7 +2329,30 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     "Vector index \"" + this.name + "\" cannot be rebuilt or cleared from within its own search."
                 );
             }
-            return this.builderLock.writeLock();
+            return this.builderLock.writeLock().tryLock();
+        }
+
+        @Override
+        public void internalUnlockExclusive()
+        {
+            this.builderLock.writeLock().unlock();
+        }
+
+        /**
+         * Rejects {@link #persistToDisk()} and {@link #optimize()} on a thread holding the parent-map monitor
+         * (inside {@code synchronized(map)} or {@code GigaMap.apply} logic). Their graph cleanup and disk write run
+         * on worker threads that, in embedded mode, read entities through that monitor, so the call would wait
+         * for itself; and they wait for the write lock, whose holders may need the monitor.
+         */
+        private void ensureNotHoldingParentMonitor(final String operation)
+        {
+            if(Thread.holdsLock(this.parentMap()))
+            {
+                throw new IllegalStateException(
+                    "Vector index \"" + this.name + "\": " + operation + " must not be called while holding the"
+                    + " GigaMap's monitor (e.g. inside synchronized(map) or GigaMap.apply logic)."
+                );
+            }
         }
 
         /**
@@ -2915,10 +2951,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // The write lock ensures no concurrent persistToDisk() Phase 2, search, or background worker
             // mutation is running: closeInternalResources() destroys the graph and disk manager, which would
             // corrupt any in-flight operation.
-            // Called with the parentMap monitor held, by GigaMap.removeAll() / reindex(), which acquire this
-            // lock before the monitor (internalExclusiveLock): this is a reentrant acquisition that never
-            // waits. Waiting for it here would deadlock with a persist or an embedded search, which hold it
-            // and need the monitor.
+            // Called with the parentMap monitor held, by GigaMap.removeAll() / reindex(), which have already
+            // acquired this lock without waiting (internalTryLockExclusive): this is a reentrant acquisition that
+            // never waits. Waiting for it here would deadlock with a persist or an embedded search, which hold
+            // it and need the monitor, so a caller that has not acquired it is rejected instead.
+            if(!this.builderLock.isWriteLockedByCurrentThread())
+            {
+                throw new IllegalStateException(
+                    "Vector index \"" + this.name + "\": internalRemoveAll() must be called via GigaMap.removeAll()"
+                    + " or GigaMap.reindex(), which acquire its write lock first."
+                );
+            }
             this.builderLock.writeLock().lock();
             try
             {
@@ -3562,6 +3605,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void optimize()
         {
+            this.ensureNotHoldingParentMonitor("optimize()");
+
             // Drain pending indexing operations to ensure graph is complete
             if(this.isEventualIndexing())
             {
@@ -3653,6 +3698,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 return; // No-op for in-memory indices
             }
+            this.ensureNotHoldingParentMonitor("persistToDisk()");
 
             // Drain pending indexing operations to ensure graph is complete
             if(this.isEventualIndexing())
@@ -3739,7 +3785,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // pre-mutation count, take the shortcut, and defer a training that was due.
                     // Taking the monitor while holding builderLock.writeLock() is safe only because no
                     // thread ever waits for builderLock while holding the monitor: GigaMap.removeAll() and
-                    // reindex() acquire it before their monitor (see internalExclusiveLock).
+                    // reindex() only try it and wait on the monitor instead (see internalTryLockExclusive).
                     final boolean skipPersist;
                     synchronized(this.parentMap())
                     {

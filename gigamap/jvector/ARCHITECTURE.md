@@ -840,13 +840,13 @@ Subtlety: `persistToDisk()` short-circuits via `isIncrementalClean()` when there
 
 ### Lock-ordering rule
 
-> **Acquire `builderLock` before `parentMap`. A thread holding the `parentMap` monitor never waits for `builderLock`.**
+> **A thread holding the `parentMap` monitor never waits for `builderLock`. A thread holding the write lock may take the monitor.**
 
 `builderLock` holders need the monitor: persist takes it in Phase 1 while holding the write lock, an embedded-mode search scores through `parentMap.get()` while holding the read lock, and the ForkJoinPool/disk-writer workers of `cleanup()` and `writeIndex()` call `parentMap.get()` while their caller holds the write lock. A monitor holder waiting for `builderLock` therefore deadlocks against any of them (internal#155).
 
-The operations that need the write lock *and* the monitor are `GigaMap.removeAll()` and `GigaMap.reindex()` (via `VectorIndex#internalRemoveAll`). They acquire the write lock first: `GigaMap#runWithExclusiveLocks` collects the locks of all index groups (`IndexGroup.Internal#internalCollectExclusiveLocks`, the vector group reports each index's write lock), locks them, and only then enters the monitor, where `internalRemoveAll` re-acquires the write lock reentrantly. If a reader is open or the set of indices changed in between, it releases the locks and retries. A caller that already holds the monitor gets a fallback that tries the locks and releases the monitor via `wait` while they are held elsewhere, as `ensureMutability` does for open readers. `internalRemoveAll` also shuts the background task manager down without waiting for its thread, which may be blocked on one of these locks.
+The operations that need the write lock *and* the monitor are `GigaMap.removeAll()` and `GigaMap.reindex()` (via `VectorIndex#internalRemoveAll`). They hold the monitor (they are `synchronized`) and only *try* the write locks: `GigaMap#runExclusive` calls `IndexGroup.Internal#internalTryLockExclusive()` and, while a lock is held elsewhere, `wait(1)`s on the monitor so that the holders can finish, as `ensureMutability` does for open readers. The writer never holds a write lock while waiting for the monitor, so a monitor holder that searches (e.g. inside `GigaMap.apply` logic) is not blocked by it. The tries are not fair: application searches that keep overlapping each other can delay the operation for as long as they do, so the application is expected not to search concurrently with `removeAll()`/`reindex()`. Violating that delays them, it cannot deadlock them. The library's own background tasks (persist, optimize, eventual indexing) hold the lock only intermittently. Inside, `internalRemoveAll` re-acquires the write lock reentrantly. It also shuts the background task manager down without waiting for its thread, which may be blocked on one of these locks.
 
-The only `builderLock` acquisition under the monitor left is `internalDiscard` of a new index whose back-fill failed: nothing else can reach that index, so the lock is uncontended. User code that calls `search`, `optimize` or `persistToDisk` while holding the monitor (e.g. inside `GigaMap.apply`) breaks the rule and can deadlock.
+The only blocking `builderLock` acquisition under the monitor left in the library is `internalDiscard` of a new index whose back-fill failed: nothing else can reach that index, so the lock is uncontended. `persistToDisk()` and `optimize()` reject a caller holding the monitor with an `IllegalStateException`: in embedded mode their workers read entities through it, so the call would wait for itself. A `search` on a thread holding the monitor still waits for the read lock; it can deadlock against a concurrent persist or embedded-mode optimize (whose write-lock holder or workers need the monitor), so user code should not search while holding the monitor.
 
 The persist/optimize protocol keeps the monitor short:
 
@@ -917,9 +917,9 @@ flowchart TB
 
     subgraph RemoveAll["Safe sequence — GigaMap.removeAll() / reindex()"]
         direction TB
-        R1["collect index-group locks<br/>(brief monitor)"] --> R2["builderLock.writeLock()<br/>monitor NOT held"]
-        R2 --> R3["synchronized(parentMap)"]
-        R3 --> R4["internalRemoveAll: reentrant writeLock"]
+        R1["synchronized(parentMap)"] --> R2{"writeLock().tryLock()"}
+        R2 -->|"held elsewhere"| R3["parentMap.wait(1)<br/>holders finish"] --> R2
+        R2 -->|"acquired"| R4["internalRemoveAll: reentrant writeLock"]
     end
 
     subgraph Phase1["Safe sequence — persist Phase 1"]
