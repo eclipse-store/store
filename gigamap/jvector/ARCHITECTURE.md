@@ -840,11 +840,15 @@ Subtlety: `persistToDisk()` short-circuits via `isIncrementalClean()` when there
 
 ### Lock-ordering rule
 
-> **Acquire `parentMap` before `builderLock`. Never the reverse.**
+> **Acquire `builderLock` before `parentMap`. A thread holding the `parentMap` monitor never waits for `builderLock`.**
 
-Reverse acquisition would deadlock: `cleanup()` and `writeIndex()` run on ForkJoinPool/disk-writer threads, and those workers call `parentMap.get()` (for embedded vectorizers, and for vectorStore lookups in computed mode). If a thread held `builderLock.writeLock()` and tried to enter `synchronized(parentMap)`, it would wait for any in-flight mutation; but that mutation, holding `parentMap`, may need a worker thread to complete its own builder work — which is impossible if all workers are blocked behind the write lock.
+`builderLock` holders need the monitor: persist takes it in Phase 1 while holding the write lock, an embedded-mode search scores through `parentMap.get()` while holding the read lock, and the ForkJoinPool/disk-writer workers of `cleanup()` and `writeIndex()` call `parentMap.get()` while their caller holds the write lock. A monitor holder waiting for `builderLock` therefore deadlocks against any of them (internal#155).
 
-The persist/optimize protocol explicitly works around this:
+The operations that need the write lock *and* the monitor are `GigaMap.removeAll()` and `GigaMap.reindex()` (via `VectorIndex#internalRemoveAll`). They acquire the write lock first: `GigaMap#runWithExclusiveLocks` collects the locks of all index groups (`IndexGroup.Internal#internalCollectExclusiveLocks`, the vector group reports each index's write lock), locks them, and only then enters the monitor, where `internalRemoveAll` re-acquires the write lock reentrantly. If a reader is open or the set of indices changed in between, it releases the locks and retries. A caller that already holds the monitor gets a fallback that tries the locks and releases the monitor via `wait` while they are held elsewhere, as `ensureMutability` does for open readers. `internalRemoveAll` also shuts the background task manager down without waiting for its thread, which may be blocked on one of these locks.
+
+The only `builderLock` acquisition under the monitor left is `internalDiscard` of a new index whose back-fill failed: nothing else can reach that index, so the lock is uncontended. User code that calls `search`, `optimize` or `persistToDisk` while holding the monitor (e.g. inside `GigaMap.apply`) breaks the rule and can deadlock.
+
+The persist/optimize protocol keeps the monitor short:
 
 ```
 parentMap.synchronized {
@@ -874,7 +878,7 @@ Publication order is **codes, then graph, then builder** — all `volatile`. The
 
 ### `cleanupInProgress` / `deferredBuilderOps` protocol
 
-Synchronous mutations (`internalAdd` etc.) hold the `parentMap` monitor and can't take `builderLock` (lock-ordering rule). Instead:
+Synchronous mutations (`internalAdd` etc.) hold the `parentMap` monitor and must not wait for `builderLock` (lock-ordering rule). Instead:
 
 ```java
 if (cleanupInProgress) {
@@ -901,13 +905,21 @@ flowchart TB
         direction LR
         A["Holds parentMap<br/>monitor"]
         B["Holds builderLock"]
-        A -->|"legal: take builderLock next"| B
-        B -.->|"FORBIDDEN — deadlocks via<br/>ForkJoinPool / disk-writer<br/>workers calling parentMap.get"| A
+        B -->|"legal: take the monitor next"| A
+        A -.->|"FORBIDDEN — wait for builderLock;<br/>its holders need the monitor"| B
     end
 
     subgraph SearchPath["Safe sequence — search"]
         direction TB
         S1["search(query, k)"] --> S2["builderLock.readLock()"]
+        S2 --> S3["embedded: parentMap.get() per scored node"]
+    end
+
+    subgraph RemoveAll["Safe sequence — GigaMap.removeAll() / reindex()"]
+        direction TB
+        R1["collect index-group locks<br/>(brief monitor)"] --> R2["builderLock.writeLock()<br/>monitor NOT held"]
+        R2 --> R3["synchronized(parentMap)"]
+        R3 --> R4["internalRemoveAll: reentrant writeLock"]
     end
 
     subgraph Phase1["Safe sequence — persist Phase 1"]
@@ -934,7 +946,8 @@ flowchart TB
     end
 
     Rule ~~~ SearchPath
-    SearchPath ~~~ Phase1
+    SearchPath ~~~ RemoveAll
+    RemoveAll ~~~ Phase1
     Phase1 ~~~ Phase2
     Phase2 ~~~ SyncMut
 ```

@@ -15,6 +15,8 @@ package org.eclipse.store.gigamap.types;
  */
 
 import java.util.Arrays;
+import java.util.concurrent.locks.Lock;
+import java.util.function.Consumer;
 
 /**
  * General typing interface for specialized index category types.
@@ -102,6 +104,21 @@ public interface IndexGroup<E> extends GigaMap.Component<E>
 		 * Removes all entities from this index.
 		 */
 		public void internalRemoveAll();
+
+		/**
+		 * Reports the locks, other than the parent-map monitor, that {@link #internalRemoveAll()} and
+		 * {@link #internalReindex(GigaMap)} of this group acquire. The map acquires them <b>before</b> it enters
+		 * its monitor for these operations: a thread holding such a lock may need the monitor to release it
+		 * (e.g. a vector index's persist or search), so waiting for it inside the monitor could deadlock.
+		 * <p>
+		 * Called while holding the parent-map monitor. The default reports none.
+		 *
+		 * @param collector receives each lock
+		 */
+		public default void internalCollectExclusiveLocks(final Consumer<? super Lock> collector)
+		{
+			// none
+		}
 
 		/**
 		 * Lifecycle hook invoked by {@link GigaIndices.Default#register(IndexCategory)} immediately

@@ -56,6 +56,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
@@ -825,6 +826,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         public void internalRemove(long entityId, E entity);
 
         public void internalRemoveAll();
+
+        /**
+         * The lock {@link #internalRemoveAll()} takes besides the parent-map monitor. The parent map acquires it
+         * before its monitor, see
+         * {@code IndexGroup.Internal#internalCollectExclusiveLocks}.
+         *
+         * @return the lock
+         * @throws IllegalStateException if the current thread is inside a search of this index, which holds a
+         *         lock the returned one can never be acquired with
+         */
+        public Lock internalExclusiveLock();
 
         public void clearStateChangeMarkers();
 
@@ -2293,6 +2305,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             return null;
         }
 
+        @Override
+        public Lock internalExclusiveLock()
+        {
+            // A read-lock holder cannot acquire the write lock, so the parent map would wait forever, e.g. for a
+            // vectorizer that calls removeAll() or reindex() while it is scoring during a search.
+            if(this.builderLock.getReadHoldCount() > 0)
+            {
+                throw new IllegalStateException(
+                    "Vector index \"" + this.name + "\" cannot be rebuilt or cleared from within its own search."
+                );
+            }
+            return this.builderLock.writeLock();
+        }
+
         /**
          * Starts the background managers that the constructor of a new index deferred, and hands them the
          * back-fill's work: its graph changes count toward the change thresholds, and disk files rejected at
@@ -2886,11 +2912,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void internalRemoveAll()
         {
-            // Acquire write lock to ensure no concurrent persistToDisk() Phase 2,
-            // search, or background worker mutation is running.
-            // closeInternalResources() destroys the graph and disk manager, which would
+            // The write lock ensures no concurrent persistToDisk() Phase 2, search, or background worker
+            // mutation is running: closeInternalResources() destroys the graph and disk manager, which would
             // corrupt any in-flight operation.
-            // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
+            // Called with the parentMap monitor held, by GigaMap.removeAll() / reindex(), which acquire this
+            // lock before the monitor (internalExclusiveLock): this is a reentrant acquisition that never
+            // waits. Waiting for it here would deadlock with a persist or an embedded search, which hold it
+            // and need the monitor.
             this.builderLock.writeLock().lock();
             try
             {
@@ -2909,8 +2937,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.diskDeletedOrdinals = null;
                 }
 
-                // Shutdown background task manager (discard pending ops — they're stale)
-                this.shutdownBackgroundTaskManager(false, false, false);
+                // Shut the background task manager down and discard its pending ops, they are stale. Without
+                // waiting for its thread: a task of it may be waiting for the write lock or the monitor held here.
+                if(this.backgroundTaskManager != null)
+                {
+                    this.backgroundTaskManager.shutdownWithoutWaiting();
+                    this.backgroundTaskManager = null;
+                }
 
                 // Same for deferred sync-mode ops: the graph they describe is about to be destroyed,
                 // so replaying them into the fresh builder would resurrect removed entities.
@@ -3009,8 +3042,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // Acquire read lock — blocks during cleanup/persistence/removeAll/close,
             // allows concurrent searches and GigaMap mutations.
-            // No synchronized(parentMap) — avoids lock-ordering deadlock with
-            // internalRemoveAll (which holds the GigaMap monitor and needs the write lock).
+            // Not under synchronized(parentMap): the order is builderLock, then the monitor (embedded
+            // scoring reads entities via parentMap().get()), and no monitor holder waits for builderLock.
             this.builderLock.readLock().lock();
             try
             {
@@ -3704,9 +3737,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // embedded mode, the entity count), so it needs the parentMap monitor to see a
                     // consistent snapshot - otherwise a persist racing a mutation could observe the
                     // pre-mutation count, take the shortcut, and defer a training that was due.
-                    // Taking the monitor while already holding builderLock.writeLock() is the
-                    // established order here (Phase 1 below does exactly that); the deadlock hazard
-                    // is the reverse, which internalRemoveAll takes and this never does.
+                    // Taking the monitor while holding builderLock.writeLock() is safe only because no
+                    // thread ever waits for builderLock while holding the monitor: GigaMap.removeAll() and
+                    // reindex() acquire it before their monitor (see internalExclusiveLock).
                     final boolean skipPersist;
                     synchronized(this.parentMap())
                     {

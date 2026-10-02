@@ -20,6 +20,8 @@ import org.eclipse.serializer.persistence.types.Storer;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.concurrent.locks.Lock;
+import java.util.function.Consumer;
 
 import static org.eclipse.serializer.util.X.notNull;
 
@@ -303,6 +305,19 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 			}
 		}
 		
+		/**
+		 * Reports the locks every group's {@code internalRemoveAll} / {@code internalReindex} acquire, see
+		 * {@link IndexGroup.Internal#internalCollectExclusiveLocks(Consumer)}. Must be called while holding
+		 * the parent-map monitor.
+		 */
+		void internalCollectExclusiveLocks(final Consumer<? super Lock> collector)
+		{
+			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			{
+				indexGroup.internalCollectExclusiveLocks(collector);
+			}
+		}
+
 		protected void internalRemoveAll()
 		{
 			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)

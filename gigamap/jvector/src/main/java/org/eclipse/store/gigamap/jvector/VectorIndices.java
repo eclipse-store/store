@@ -31,6 +31,7 @@ import java.io.Closeable;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
 
 /**
@@ -381,6 +382,15 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
                 index.internalRemoveAll();
             }
             this.markStateChangeChildren();
+        }
+
+        @Override
+        public void internalCollectExclusiveLocks(final Consumer<? super Lock> collector)
+        {
+            for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+            {
+                collector.accept(index.internalExclusiveLock());
+            }
         }
 
         @Override
