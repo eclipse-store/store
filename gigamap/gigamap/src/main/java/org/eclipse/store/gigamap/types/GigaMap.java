@@ -279,8 +279,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * builder lock). This method never waits for one while holding the monitor: while one is held elsewhere, it
 	 * waits on the monitor, which releases it, as it does while readers are open. A caller's
 	 * {@code synchronized(map)} block is therefore interrupted at this point, before anything is changed. While it
-	 * waits for a vector index's lock, new searches of that index wait briefly (at most 100 ms each) before they
-	 * start, so that concurrent searches cannot keep it waiting.
+	 * waits for a vector index's lock, new searches of all the map's vector indices wait briefly (at most 100 ms
+	 * each) before they start, so that concurrent searches cannot keep it waiting.
 	 *
 	 * @throws IllegalStateException if called from within a search of one of the map's vector indices (e.g. by a
 	 *         vectorizer), or while the map is read-only or being iterated

@@ -2358,7 +2358,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void awaitNoPendingExclusive()
         {
+            // the pending check first: it is a single volatile read, and almost always false
             if(!(this.parent instanceof final VectorIndices.Internal<E> group)
+                || !group.internalIsExclusivePending()
                 || this.builderLock.getReadHoldCount() > 0
                 || Thread.holdsLock(this.parentMap()))
             {
