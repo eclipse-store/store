@@ -56,6 +56,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
@@ -902,6 +903,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * yields the same codebook. The value itself is arbitrary.
          */
         private static final long RESERVOIR_SEED = 0x5EEDL;
+
+        /**
+         * The longest a new search waits while GigaMap.removeAll() / reindex() wait for the write lock (see
+         * awaitNoPendingExclusive).
+         */
+        private static final long EXCLUSIVE_GATE_MAX_NANOS = 100_000_000L;
 
         static BinaryTypeHandler<Default<?>> provideTypeHandler()
         {
@@ -2339,6 +2346,34 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
+         * Keeps a new search out while GigaMap.removeAll() / reindex() wait for the write lock of this index's
+         * group. They only try the lock and wait on the parent-map monitor in between, so without this, searches
+         * overlapping each other would hold the read lock forever and the attempt would never succeed.
+         * <p>
+         * Does not wait on a thread that holds the parent-map monitor (the waiting writer cannot proceed before
+         * that monitor is released, and holds no lock such a search needs), or that already holds the read lock
+         * (a nested search: the writer cannot get the write lock before it is released). Waits at most
+         * {@link #EXCLUSIVE_GATE_MAX_NANOS}, so a search the writer itself waits for in some other way is only
+         * delayed, never kept out for good; the bound is far above what searches need to drain.
+         */
+        private void awaitNoPendingExclusive()
+        {
+            if(!(this.parent instanceof final VectorIndices.Internal<E> group)
+                || this.builderLock.getReadHoldCount() > 0
+                || Thread.holdsLock(this.parentMap()))
+            {
+                return;
+            }
+            final long deadline = System.nanoTime() + EXCLUSIVE_GATE_MAX_NANOS;
+            while(group.internalIsExclusivePending()
+                && System.nanoTime() - deadline < 0
+                && !Thread.currentThread().isInterrupted())
+            {
+                LockSupport.parkNanos(100_000L);
+            }
+        }
+
+        /**
          * Rejects {@link #persistToDisk()} and {@link #optimize()} on a thread holding the parent-map monitor
          * (inside {@code synchronized(map)} or {@code GigaMap.apply} logic). Their graph cleanup and disk write run
          * on worker threads that, in embedded mode, read entities through that monitor, so the call would wait
@@ -3087,6 +3122,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // allows concurrent searches and GigaMap mutations.
             // Not under synchronized(parentMap): the order is builderLock, then the monitor (embedded
             // scoring reads entities via parentMap().get()), and no monitor holder waits for builderLock.
+            this.awaitNoPendingExclusive();
             this.builderLock.readLock().lock();
             try
             {

@@ -278,9 +278,9 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * <b>Concurrency:</b> index groups may need locks of their own besides this map's monitor (a vector index's
 	 * builder lock). This method never waits for one while holding the monitor: while one is held elsewhere, it
 	 * waits on the monitor, which releases it, as it does while readers are open. A caller's
-	 * {@code synchronized(map)} block is therefore interrupted at this point, before anything is changed. Vector
-	 * searches that keep overlapping each other can delay this method for as long as they do, so do not search the
-	 * map's vector indices concurrently when it must complete promptly.
+	 * {@code synchronized(map)} block is therefore interrupted at this point, before anything is changed. While it
+	 * waits for a vector index's lock, new searches of that index wait briefly (at most 100 ms each) before they
+	 * start, so that concurrent searches cannot keep it waiting.
 	 *
 	 * @throws IllegalStateException if called from within a search of one of the map's vector indices (e.g. by a
 	 *         vectorizer), or while the map is read-only or being iterated
@@ -679,8 +679,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * <p>
 	 * <b>Concurrency:</b> as for {@link #removeAll()}, this method never waits for an index group's own locks
 	 * while holding the monitor, but waits on the monitor instead, which interrupts a caller's
-	 * {@code synchronized(map)} block before anything is changed; and vector searches that keep overlapping each
-	 * other can delay it for as long as they do.
+	 * {@code synchronized(map)} block before anything is changed; and new vector searches wait briefly while it
+	 * waits for an index's lock.
 	 *
 	 * @throws UniqueConstraintViolationException if the rebuilt indices show two or more entities sharing a key
 	 *         of a unique constraint. The exception names the violated index and the first entity found under
@@ -2457,18 +2457,27 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		 * {@link #ensureMutability()} does for open readers. The caller's critical section is therefore
 		 * interrupted at this point, before the operation has read or changed anything.
 		 * <p>
-		 * Not fair: searches that keep overlapping each other can delay the operation for as long as they do. The
-		 * application is expected not to search concurrently with {@link #removeAll()} / {@link #reindex()}.
+		 * A group whose lock is held elsewhere keeps new acquirers out meanwhile (vector searches wait briefly before
+		 * taking their read lock), so the current holders drain and searches that keep overlapping each other cannot
+		 * starve the operation. That is lifted while the operation waits for open readers: their threads may search.
 		 */
 		private void runExclusive(final Runnable operation)
 		{
+			boolean locked = false;
 			try
 			{
 				while(true)
 				{
-					this.ensureMutability();
+					if(this.checkingIsReadOnly())
+					{
+						// Waiting for open readers, whose threads may search: groups must let new acquirers in
+						// meanwhile, or such a reader would never be closed.
+						this.indices.internalCancelExclusive();
+						this.ensureMutability();
+					}
 					if(this.indices.internalTryLockExclusive())
 					{
+						locked = true;
 						break;
 					}
 					this.wait(1);
@@ -2481,6 +2490,13 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 					"Interrupted while waiting for the index locks of " + XChars.systemString(this),
 					e
 				);
+			}
+			finally
+			{
+				if(!locked)
+				{
+					this.indices.internalCancelExclusive();
+				}
 			}
 
 			try

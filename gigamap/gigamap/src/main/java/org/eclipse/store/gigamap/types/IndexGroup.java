@@ -107,7 +107,9 @@ public interface IndexGroup<E> extends GigaMap.Component<E>
 		 * Tries to acquire, <b>without waiting</b>, the locks other than the parent-map monitor that
 		 * {@link #internalRemoveAll()} and {@link #internalReindex(GigaMap)} of this group need. Holders of such
 		 * a lock may need the monitor to release it (e.g. a vector index's persist or search), so the caller,
-		 * which holds the monitor, must never wait for one. On failure nothing is held.
+		 * which holds the monitor, must never wait for one. On failure nothing is held, and the group keeps new
+		 * acquirers of these locks out until {@link #internalUnlockExclusive()} or
+		 * {@link #internalCancelExclusive()}, so that a later try succeeds once the current holders are done.
 		 * <p>
 		 * Called while holding the parent-map monitor. The default needs no locks.
 		 *
@@ -119,9 +121,18 @@ public interface IndexGroup<E> extends GigaMap.Component<E>
 		}
 
 		/**
-		 * Releases what a successful {@link #internalTryLockExclusive()} acquired.
+		 * Releases what a successful {@link #internalTryLockExclusive()} acquired and lets new acquirers in again.
 		 */
 		public default void internalUnlockExclusive()
+		{
+			// none
+		}
+
+		/**
+		 * Lets new acquirers in again after unsuccessful {@link #internalTryLockExclusive()} attempts: when the
+		 * caller gives up, or waits for something else in between.
+		 */
+		public default void internalCancelExclusive()
 		{
 			// none
 		}

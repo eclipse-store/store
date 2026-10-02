@@ -343,6 +343,14 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 			}
 		}
 
+		void internalCancelExclusive()
+		{
+			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			{
+				indexGroup.internalCancelExclusive();
+			}
+		}
+
 		protected void internalRemoveAll()
 		{
 			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
