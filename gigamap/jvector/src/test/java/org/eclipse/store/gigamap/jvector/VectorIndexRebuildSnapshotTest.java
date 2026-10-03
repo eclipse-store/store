@@ -45,6 +45,11 @@ class VectorIndexRebuildSnapshotTest
         }
     }
 
+    /**
+     * Reopens a persisted computed-vector index with sparse IDs four times. Each rebuild must
+     * release its scoring snapshot so later vector changes are visible, and a deleted entity
+     * must remain absent after another restart.
+     */
     @Test
     void aRebuildSnapshotDoesNotKeepStaleVectorsAfterLaterMutations(@TempDir final Path directory)
     {
