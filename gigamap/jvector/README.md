@@ -17,6 +17,11 @@ A Java library that integrates [JVector](https://github.com/datastax/jvector) (h
 - **Stream API**: Java Stream support for search results
 - **GigaMap Integration**: Seamlessly integrates with GigaMap's index system
 
+Graph rebuilds in computed mode score from the vectors already collected for that rebuild.
+The temporary view contains only live ordinals (including sparse IDs), shares the loaded
+vector arrays, and is released on success or failure. Later mutations and searches resolve
+current Store data, so the optimization cannot retain stale scoring vectors.
+
 ## Requirements
 
 - Java 17+ (minimum)

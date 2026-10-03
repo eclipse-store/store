@@ -52,6 +52,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -991,6 +992,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // against each other by the parent GigaMap monitor the mutation already holds.
         private transient volatile Map<Long, Long> computedIdIndex;
 
+        // Rebuild-only scoring view. Entries have already been loaded by collectStoredVectors;
+        // resolving every graph comparison through the persistent GigaMap repeats that work.
+        // Published during serialized graph construction and cleared even when it fails.
+        private transient volatile Map<Integer, float[]> rebuildVectors;
+
         // One-shot guard for the deferred graph rebuild. The HNSW graph is transient and must be
         // rebuilt from the store after deserialization, but that rebuild iterates the parent GigaMap
         // / vector store (a nested object-graph load) and therefore may NOT run inside the enclosing
@@ -1562,7 +1568,25 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return;
             }
 
-            this.addGraphNodesSequential(entries);
+            if(this.isEmbedded())
+            {
+                this.addGraphNodesSequential(entries);
+                return;
+            }
+            final Map<Integer, float[]> vectors = new HashMap<>(entries.size());
+            for(final VectorEntry entry : entries)
+            {
+                vectors.put(toOrdinal(entry.sourceEntityId), entry.vector);
+            }
+            this.rebuildVectors = vectors;
+            try
+            {
+                this.addGraphNodesSequential(entries);
+            }
+            finally
+            {
+                this.rebuildVectors = null;
+            }
         }
 
         /**
@@ -1662,6 +1686,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private float[] lookupComputedVector(final int ordinal)
         {
+            final Map<Integer, float[]> rebuilding = this.rebuildVectors;
+            if(rebuilding != null)
+            {
+                return rebuilding.get(ordinal);
+            }
             final Map<Long, Long> index = this.computedIdIndex();
             final Long storeId = index == null ? null : index.get((long)ordinal);
             if(storeId == null)
