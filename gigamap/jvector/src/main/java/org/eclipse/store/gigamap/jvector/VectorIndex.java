@@ -59,6 +59,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
+import java.util.function.IntFunction;
 import java.util.stream.IntStream;
 
 import static org.eclipse.serializer.math.XMath.positive;
@@ -992,9 +993,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // against each other by the parent GigaMap monitor the mutation already holds.
         private transient volatile Map<Long, Long> computedIdIndex;
 
-        // Rebuild-only scoring view. Entries have already been loaded by collectStoredVectors;
-        // resolving every graph comparison through the persistent GigaMap repeats that work.
-        // Published during serialized graph construction and cleared even when it fails.
+        // Rebuild-only scoring view, consulted solely through lookupBuildVector (the builder's
+        // adapter): entries have already been loaded by collectStoredVectors, and resolving every
+        // graph comparison through the persistent GigaMap repeats that work. Published during
+        // serialized graph construction and cleared even when it fails. Search and persistence
+        // adapters resolve through lookupComputedVector (the current Store), never through this
+        // field, so a search concurrent with a rebuild is unaffected. If two rebuilds overlapped,
+        // a clobbered or prematurely cleared view would only mean falling back to Store lookups
+        // mid-build: correct, unoptimized, and unreachable in the current monitor/lock discipline.
         private transient volatile Map<Integer, float[]> rebuildVectors;
 
         // One-shot guard for the deferred graph rebuild. The HNSW graph is transient and must be
@@ -1573,7 +1579,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.addGraphNodesSequential(entries);
                 return;
             }
-            final Map<Integer, float[]> vectors = new HashMap<>(entries.size());
+            final Map<Integer, float[]> vectors = new HashMap<>((int)(entries.size() / 0.75f) + 1);
             for(final VectorEntry entry : entries)
             {
                 vectors.put(toOrdinal(entry.sourceEntityId), entry.vector);
@@ -1686,11 +1692,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private float[] lookupComputedVector(final int ordinal)
         {
-            final Map<Integer, float[]> rebuilding = this.rebuildVectors;
-            if(rebuilding != null)
-            {
-                return rebuilding.get(ordinal);
-            }
             final Map<Long, Long> index = this.computedIdIndex();
             final Long storeId = index == null ? null : index.get((long)ordinal);
             if(storeId == null)
@@ -1699,6 +1700,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             final VectorEntry entry = this.vectorStore.get(storeId);
             return entry == null ? null : entry.vector;
+        }
+
+        /**
+         * The graph builder's vector lookup: during a Store rebuild the snapshot of the vectors
+         * collected for that build answers every comparison directly, otherwise the lookup goes
+         * to the current Store. Only the builder's adapter calls this, so searches and persistence
+         * never resolve through the transient snapshot (see the {@code rebuildVectors} field).
+         */
+        private float[] lookupBuildVector(final int ordinal)
+        {
+            final Map<Integer, float[]> rebuilding = this.rebuildVectors;
+            if(rebuilding != null)
+            {
+                return rebuilding.get(ordinal);
+            }
+            return this.lookupComputedVector(ordinal);
         }
 
         private List<VectorEntry> collectStoredVectors()
@@ -1910,7 +1927,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private void initializeInMemoryBuilder()
         {
             final RandomAccessVectorValues vectorValues = new NullSafeVectorValues(
-                this.createVectorValues(), this.configuration.dimension(), this.vectorTypeSupport
+                this.createBuilderVectorValues(), this.configuration.dimension(), this.vectorTypeSupport
             );
 
             // Construction dominates the vector-lookup cost of an in-memory index: it performs
@@ -4529,9 +4546,25 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Creates appropriate vector values based on storage mode.
+         * Creates vector values for everything but the graph builder (search-adjacent snippets and
+         * the persist capture): they always resolve against the current Store.
          */
         private RandomAccessVectorValues createVectorValues()
+        {
+            return this.createVectorValues(this::lookupComputedVector);
+        }
+
+        /**
+         * Creates vector values for the graph builder. In computed mode the builder's adapter
+         * resolves through {@link #lookupBuildVector}, so a Store rebuild scores from the vectors
+         * it already collected instead of reading the vector store once per graph comparison.
+         */
+        private RandomAccessVectorValues createBuilderVectorValues()
+        {
+            return this.createVectorValues(this::lookupBuildVector);
+        }
+
+        private RandomAccessVectorValues createVectorValues(final IntFunction<float[]> computedLookup)
         {
             return this.isEmbedded()
                 ? new EntityBackedVectorValues<>(
@@ -4541,7 +4574,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.vectorTypeSupport
                 )
                 : new GigaMapBackedVectorValues(
-                    this::lookupComputedVector,
+                    computedLookup,
                     // RAVV size() is the dense ordinal upper bound (getVector must be valid for
                     // [0, size())), NOT the vector count. Graph ordinals are source entity ids, so with
                     // null embeddings / deletion holes the highest ordinal exceeds vectorStore.size().

@@ -19,8 +19,9 @@ A Java library that integrates [JVector](https://github.com/datastax/jvector) (h
 
 Graph rebuilds in computed mode score from the vectors already collected for that rebuild.
 The temporary view contains only live ordinals (including sparse IDs), shares the loaded
-vector arrays, and is released on success or failure. Later mutations and searches resolve
-current Store data, so the optimization cannot retain stale scoring vectors.
+vector arrays, and is released on success or failure. Only the graph builder consults it:
+searches, mutations and persistence always resolve the current Store data, so the
+optimization cannot retain stale scoring vectors or bleed into a concurrent search.
 
 ## Requirements
 
