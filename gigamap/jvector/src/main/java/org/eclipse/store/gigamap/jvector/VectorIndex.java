@@ -1001,7 +1001,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // field, so a search concurrent with a rebuild is unaffected. If two rebuilds overlapped,
         // a clobbered or prematurely cleared view would only mean falling back to Store lookups
         // mid-build: correct, unoptimized, and unreachable in the current monitor/lock discipline.
-        private transient volatile Map<Integer, float[]> rebuildVectors;
+        // Package-private, like the other test hooks, for the rebuild-scoping regression test.
+        transient volatile Map<Integer, float[]> rebuildVectors;
 
         // One-shot guard for the deferred graph rebuild. The HNSW graph is transient and must be
         // rebuilt from the store after deserialization, but that rebuild iterates the parent GigaMap
@@ -1118,6 +1119,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // thread) to assert that the drain is serialized. Null (and a no-op) in production.
         // See VectorIndexPersistWindowConcurrencyTest.
         transient volatile Runnable drainEntryTestHook;
+
+        // Test-only seam: run once inside a Store rebuild with the scoring snapshot live, on the
+        // rebuilding thread and before any graph node is added. Lets a test observe the build-vs-search
+        // lookup split while the snapshot exists, or fail the build to prove the snapshot is cleared.
+        // Null (and a no-op) in production. See VectorIndexInvalidateGraphTest.
+        transient volatile Consumer<Map<Integer, float[]>> rebuildScoringTestHook;
 
 
         ///////////////////////////////////////////////////////////////////////////
@@ -1587,6 +1594,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.rebuildVectors = vectors;
             try
             {
+                final Consumer<Map<Integer, float[]>> hook = this.rebuildScoringTestHook;
+                if(hook != null)
+                {
+                    hook.accept(vectors);
+                }
                 this.addGraphNodesSequential(entries);
             }
             finally
@@ -1690,7 +1702,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * {@link #computedIdIndex} and a direct, lazy {@code vectorStore.get(internalId)} — no index
          * query on the hot scoring path. Returns {@code null} if the entity has no stored vector.
          */
-        private float[] lookupComputedVector(final int ordinal)
+        float[] lookupComputedVector(final int ordinal) // package-visible for the rebuild-scoping regression test
         {
             final Map<Long, Long> index = this.computedIdIndex();
             final Long storeId = index == null ? null : index.get((long)ordinal);
@@ -1701,14 +1713,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final VectorEntry entry = this.vectorStore.get(storeId);
             return entry == null ? null : entry.vector;
         }
-
         /**
          * The graph builder's vector lookup: during a Store rebuild the snapshot of the vectors
          * collected for that build answers every comparison directly, otherwise the lookup goes
          * to the current Store. Only the builder's adapter calls this, so searches and persistence
          * never resolve through the transient snapshot (see the {@code rebuildVectors} field).
          */
-        private float[] lookupBuildVector(final int ordinal)
+        float[] lookupBuildVector(final int ordinal) // package-visible for the rebuild-scoping regression test
         {
             final Map<Integer, float[]> rebuilding = this.rebuildVectors;
             if(rebuilding != null)
