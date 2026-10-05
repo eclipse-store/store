@@ -4903,9 +4903,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void recordDiskOrdinalSuperseded(final int ordinal)
         {
+            // Flag first, mask second: incremental mode publishes the mask before setting the volatile
+            // flag, so only a mask read after seeing the flag is guaranteed to be the current one.
+            if(!this.incrementalMode)
+            {
+                return;
+            }
             // Read the field once: a concurrent mode exit may null it between a check and the add.
             final DiskSupersededOrdinals deleted = this.diskDeletedOrdinals;
-            if(this.incrementalMode && deleted != null)
+            if(deleted != null)
             {
                 deleted.add(ordinal);
             }
