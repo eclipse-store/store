@@ -840,11 +840,15 @@ Subtlety: `persistToDisk()` short-circuits via `isIncrementalClean()` when there
 
 ### Lock-ordering rule
 
-> **Acquire `parentMap` before `builderLock`. Never the reverse.**
+> **A thread holding the `parentMap` monitor never waits for `builderLock`. A thread holding the write lock may take the monitor.**
 
-Reverse acquisition would deadlock: `cleanup()` and `writeIndex()` run on ForkJoinPool/disk-writer threads, and those workers call `parentMap.get()` (for embedded vectorizers, and for vectorStore lookups in computed mode). If a thread held `builderLock.writeLock()` and tried to enter `synchronized(parentMap)`, it would wait for any in-flight mutation; but that mutation, holding `parentMap`, may need a worker thread to complete its own builder work — which is impossible if all workers are blocked behind the write lock.
+`builderLock` holders need the monitor: persist takes it in Phase 1 while holding the write lock, an embedded-mode search scores through `parentMap.get()` while holding the read lock, and the ForkJoinPool/disk-writer workers of `cleanup()` and `writeIndex()` call `parentMap.get()` while their caller holds the write lock. A monitor holder waiting for `builderLock` therefore deadlocks against any of them (internal#155).
 
-The persist/optimize protocol explicitly works around this:
+The operations that need the write lock *and* the monitor are `GigaMap.removeAll()` and `GigaMap.reindex()` (via `VectorIndex#internalRemoveAll`). They hold the monitor (they are `synchronized`) and only *try* the write locks: `GigaMap#runExclusive` calls `IndexGroup.Internal#internalTryLockExclusive()` and, while a lock is held elsewhere, `wait(1)`s on the monitor so that the holders can finish, as `ensureMutability` does for open readers. The writer never holds a write lock while waiting for the monitor, so a monitor holder that searches (e.g. inside `GigaMap.apply` logic) is not blocked by it. Against starvation, the vector group marks itself pending after a failed try, and new searches wait at most 100 ms before taking the read lock (`VectorIndex#awaitNoPendingExclusive`), so the current readers drain. A search on a thread that holds the monitor or already holds the read lock never waits there, and the pending mark is cleared while the writer waits for open GigaMap readers, whose threads may search. Inside, `internalRemoveAll` re-acquires the write lock reentrantly. It also shuts the background task manager down without waiting for its thread, which may be blocked on one of these locks.
+
+The only blocking `builderLock` acquisition under the monitor left in the library is `internalDiscard` of a new index whose back-fill failed: nothing else can reach that index, so the lock is uncontended. `persistToDisk()` and `optimize()` reject a caller holding the monitor with an `IllegalStateException`: in embedded mode their workers read entities through it, so the call would wait for itself. A `search` on a thread holding the monitor still waits for the read lock; it can deadlock against a concurrent persist or embedded-mode optimize (whose write-lock holder or workers need the monitor), so user code should not search while holding the monitor.
+
+The persist/optimize protocol keeps the monitor short:
 
 ```
 parentMap.synchronized {
@@ -874,7 +878,7 @@ Publication order is **codes, then graph, then builder** — all `volatile`. The
 
 ### `cleanupInProgress` / `deferredBuilderOps` protocol
 
-Synchronous mutations (`internalAdd` etc.) hold the `parentMap` monitor and can't take `builderLock` (lock-ordering rule). Instead:
+Synchronous mutations (`internalAdd` etc.) hold the `parentMap` monitor and must not wait for `builderLock` (lock-ordering rule). Instead:
 
 ```java
 if (cleanupInProgress) {
@@ -901,13 +905,21 @@ flowchart TB
         direction LR
         A["Holds parentMap<br/>monitor"]
         B["Holds builderLock"]
-        A -->|"legal: take builderLock next"| B
-        B -.->|"FORBIDDEN — deadlocks via<br/>ForkJoinPool / disk-writer<br/>workers calling parentMap.get"| A
+        B -->|"legal: take the monitor next"| A
+        A -.->|"FORBIDDEN — wait for builderLock;<br/>its holders need the monitor"| B
     end
 
     subgraph SearchPath["Safe sequence — search"]
         direction TB
         S1["search(query, k)"] --> S2["builderLock.readLock()"]
+        S2 --> S3["embedded: parentMap.get() per scored node"]
+    end
+
+    subgraph RemoveAll["Safe sequence — GigaMap.removeAll() / reindex()"]
+        direction TB
+        R1["synchronized(parentMap)"] --> R2{"writeLock().tryLock()"}
+        R2 -->|"held elsewhere: mark pending"| R3["parentMap.wait(1)<br/>holders finish, new searches wait"] --> R2
+        R2 -->|"acquired"| R4["internalRemoveAll: reentrant writeLock"]
     end
 
     subgraph Phase1["Safe sequence — persist Phase 1"]
@@ -934,7 +946,8 @@ flowchart TB
     end
 
     Rule ~~~ SearchPath
-    SearchPath ~~~ Phase1
+    SearchPath ~~~ RemoveAll
+    RemoveAll ~~~ Phase1
     Phase1 ~~~ Phase2
     Phase2 ~~~ SyncMut
 ```

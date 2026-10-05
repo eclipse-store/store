@@ -274,6 +274,16 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	
 	/**
 	 * Removes all entities, effectively clearing all data from this collection.
+	 * <p>
+	 * <b>Concurrency:</b> index groups may need locks of their own besides this map's monitor (a vector index's
+	 * builder lock). This method never waits for one while holding the monitor: while one is held elsewhere, it
+	 * waits on the monitor, which releases it, as it does while readers are open. A caller's
+	 * {@code synchronized(map)} block is therefore interrupted at this point, before anything is changed. While it
+	 * waits for a vector index's lock, new searches of all the map's vector indices wait briefly (at most 100 ms
+	 * each) before they start, so that concurrent searches cannot keep it waiting.
+	 *
+	 * @throws IllegalStateException if called from within a search of one of the map's vector indices (e.g. by a
+	 *         vectorizer), or while the map is read-only or being iterated
 	 */
 	public void removeAll();
 	
@@ -666,10 +676,17 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * colliding data, so it is reported as described above. Index groups other than the bitmap indices
 	 * (Lucene, vector) still drop their data before rebuilding, so a failure there can leave that group
 	 * partial until the next successful rebuild.
+	 * <p>
+	 * <b>Concurrency:</b> as for {@link #removeAll()}, this method never waits for an index group's own locks
+	 * while holding the monitor, but waits on the monitor instead, which interrupts a caller's
+	 * {@code synchronized(map)} block before anything is changed; and new vector searches wait briefly while it
+	 * waits for an index's lock.
 	 *
 	 * @throws UniqueConstraintViolationException if the rebuilt indices show two or more entities sharing a key
 	 *         of a unique constraint. The exception names the violated index and the first entity found under
 	 *         an already taken key; the rebuild itself is complete at that point.
+	 * @throws IllegalStateException if called from within a search of one of the map's vector indices (e.g. by a
+	 *         vectorizer), or while the map is read-only or being iterated
 	 * @see #update(long, Consumer)
 	 * @see #apply(long, Function)
 	 */
@@ -2082,6 +2099,14 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		@Override
 		public final synchronized void removeAll()
 		{
+			this.runExclusive(this::internalRemoveAllEntities);
+		}
+
+		/**
+		 * The body of {@link #removeAll()}. Must be called via {@link #runExclusive(Runnable)}.
+		 */
+		private void internalRemoveAllEntities()
+		{
 			this.ensureMutability();
 			this.ensureClearedAddingState();
 			
@@ -2414,8 +2439,74 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		@Override
 		public final synchronized void reindex()
 		{
-			this.ensureMutability();
-			this.indices.internalReindex();
+			this.runExclusive(() ->
+			{
+				this.ensureMutability();
+				this.indices.internalReindex();
+			});
+		}
+
+		/**
+		 * Runs an operation that reaches the index groups' {@code internalRemoveAll} / {@code internalReindex}
+		 * with the locks those need besides this map's monitor ({@link IndexGroup.Internal#internalTryLockExclusive()}).
+		 * <p>
+		 * Must be called while holding the monitor. It never waits for such a lock while holding it: their
+		 * holders may need the monitor (a vector index's persist takes it while holding its builder lock, and an
+		 * embedded-mode search reads entities via {@link #get(long)} while holding it). It tries them without
+		 * waiting and, while one is held elsewhere, waits on the monitor, which lets the holders finish, as
+		 * {@link #ensureMutability()} does for open readers. The caller's critical section is therefore
+		 * interrupted at this point, before the operation has read or changed anything.
+		 * <p>
+		 * A group whose lock is held elsewhere keeps new acquirers out meanwhile (vector searches wait briefly before
+		 * taking their read lock), so the current holders drain and searches that keep overlapping each other cannot
+		 * starve the operation. That is lifted while the operation waits for open readers: their threads may search.
+		 */
+		private void runExclusive(final Runnable operation)
+		{
+			boolean locked = false;
+			try
+			{
+				while(true)
+				{
+					if(this.checkingIsReadOnly())
+					{
+						// Waiting for open readers, whose threads may search: groups must let new acquirers in
+						// meanwhile, or such a reader would never be closed.
+						this.indices.internalCancelExclusive();
+						this.ensureMutability();
+					}
+					if(this.indices.internalTryLockExclusive())
+					{
+						locked = true;
+						break;
+					}
+					this.wait(1);
+				}
+			}
+			catch(final InterruptedException e)
+			{
+				Thread.currentThread().interrupt();
+				throw new IllegalStateException(
+					"Interrupted while waiting for the index locks of " + XChars.systemString(this),
+					e
+				);
+			}
+			finally
+			{
+				if(!locked)
+				{
+					this.indices.internalCancelExclusive();
+				}
+			}
+
+			try
+			{
+				operation.run();
+			}
+			finally
+			{
+				this.indices.internalUnlockExclusive();
+			}
 		}
 
 		private <R> R internalApply(final long entityId, final E current, final Function<? super E, R> logic)

@@ -552,6 +552,22 @@ class BackgroundTaskManager
     }
 
     /**
+     * Shuts the manager down without waiting for its executor thread: drops pending work, cancels the
+     * recurring tasks and stops the executor. For a caller holding locks that a running task may be waiting
+     * for (internalRemoveAll holds the builder write lock and the parent-map monitor): waiting for that task
+     * would only stall until the termination grace period expires. A running task finishes once those locks
+     * are released.
+     */
+    void shutdownWithoutWaiting()
+    {
+        this.shutdown = true;
+        this.cancelScheduledTasks();
+        this.discardQueue();
+        this.executor.shutdown(); // no awaitTermination, see above
+        LOG.info("Background task manager shut down without waiting for '{}'", this.name);
+    }
+
+    /**
      * Tears the manager down from within the executor thread after the index was abandoned.
      * <p>
      * Unlike {@link #shutdown}, this must not call {@code awaitTermination} — it runs on the very
