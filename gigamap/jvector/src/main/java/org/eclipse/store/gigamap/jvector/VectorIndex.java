@@ -3172,7 +3172,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final SearchScoreProvider exactProvider = DefaultSearchScoreProvider.exact(
                 query,
                 this.jvectorSimilarityFunction(),
-                this.createCachingVectorValues()
+                this.createCachingVectorValues(rerankK)
             );
 
             // The per-query cache behind that provider dedupes repeat visits to the same node, but
@@ -3217,7 +3217,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final SearchScoreProvider exactProvider = DefaultSearchScoreProvider.exact(
                 query,
                 vsf,
-                this.createCachingVectorValues()
+                this.createCachingVectorValues(rerankK)
             );
 
             // In non-incremental disk mode initializeSearcherPool() puts the DISK searcher into
@@ -3389,7 +3389,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final SearchScoreProvider scoreProvider = DefaultSearchScoreProvider.exact(
                 query,
                 vsf,
-                this.createCachingVectorValues()
+                this.createCachingVectorValues(rerankK)
             );
 
             // 1. Search disk graph (excluding deleted/updated ordinals)
@@ -3563,15 +3563,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * Wrapped with {@link NullSafeVectorValues} so that deleted nodes
          * (whose vectors are {@code null}) return a safe placeholder instead
          * of causing NPE/NaN during JVector graph traversal.
+         * <p>
+         * The result belongs to one query on one thread (see {@link OrdinalVectorCache}).
+         *
+         * @param expectedSize the number of distinct ordinals the cache is sized for up front;
+         *                     the search beam width, since that many candidates are scored exactly
+         *                     even when traversal is approximate. The cache grows beyond it.
          */
-        private RandomAccessVectorValues createCachingVectorValues()
+        private RandomAccessVectorValues createCachingVectorValues(final int expectedSize)
         {
             final RandomAccessVectorValues vectorValues = this.isEmbedded()
                 ? new EntityBackedVectorValues.Caching<>(
                     this.parentMap(),
                     this.vectorizer,
                     this.configuration.dimension(),
-                    this.vectorTypeSupport
+                    this.vectorTypeSupport,
+                    expectedSize
                 )
                 : new GigaMapBackedVectorValues.Caching(
                     this::lookupComputedVector,
@@ -3583,7 +3590,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // (IndexOutOfBoundsException). Match the graph's ordinal space (see getHighestEntityId()).
                     () -> Math.toIntExact(this.parentMap().highestUsedId() + 1),
                     this.configuration.dimension(),
-                    this.vectorTypeSupport
+                    this.vectorTypeSupport,
+                    expectedSize
                 );
             return new NullSafeVectorValues(vectorValues, this.configuration.dimension(), this.vectorTypeSupport);
         }
