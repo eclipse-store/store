@@ -3566,9 +3566,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * <p>
          * The result belongs to one query on one thread (see {@link OrdinalVectorCache}).
          *
-         * @param expectedSize the number of distinct ordinals the cache is sized for up front;
-         *                     the search beam width, since that many candidates are scored exactly
-         *                     even when traversal is approximate. The cache grows beyond it.
+         * @param expectedSize the number of distinct ordinals the cache is sized for up front (capped,
+         *                     see {@link OrdinalVectorCache}); the search beam width, since that many
+         *                     candidates are scored exactly even when traversal is approximate. The
+         *                     cache grows beyond it.
          */
         private RandomAccessVectorValues createCachingVectorValues(final int expectedSize)
         {

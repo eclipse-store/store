@@ -110,6 +110,26 @@ class OrdinalVectorCacheTest
     }
 
     @Test
+    void constructor_hugeExpectedSize_capsInitialCapacityAndGrowsOnDemand()
+    {
+        final CountingLoader loader = new CountingLoader(ordinal -> true);
+
+        // The expected size is the caller's search beam width, which may be any positive int.
+        final OrdinalVectorCache cache = new OrdinalVectorCache(Integer.MAX_VALUE);
+        final int initialCapacity = cache.capacity();
+        // One entry past the 0.5 load factor triggers exactly one growth step.
+        final int count = initialCapacity / 2 + 1;
+        for(int i = 0; i < count; i++)
+        {
+            cache.computeIfAbsent(i, loader);
+        }
+
+        assertEquals(1 << 14, initialCapacity);
+        assertEquals(2 * initialCapacity, cache.capacity());
+        assertEquals(count, cache.size());
+    }
+
+    @Test
     void constructor_nonPositiveExpectedSize_yieldsUsableCache()
     {
         final CountingLoader loader = new CountingLoader(ordinal -> true);

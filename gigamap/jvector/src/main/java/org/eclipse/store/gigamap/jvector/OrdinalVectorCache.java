@@ -40,8 +40,13 @@ final class OrdinalVectorCache
     // constants //
     //////////////
 
-    private static final int MINIMUM_CAPACITY_BITS = 6;
-    private static final int MAXIMUM_CAPACITY_BITS = 30;
+    private static final int MINIMUM_CAPACITY_BITS         = 6;
+    private static final int MAXIMUM_CAPACITY_BITS         = 30;
+    // The expected size comes from the caller's k / search beam width, which is any positive int.
+    // Allocating for it up front would let one query with a huge beam claim gigabytes before the
+    // search has visited a single node, so the initial table is capped and grows on demand.
+    // 2^14 slots are about 128 KiB, far above what the default beam widths need.
+    private static final int MAXIMUM_INITIAL_CAPACITY_BITS = 14;
 
     // 2^32 / golden ratio. Graph ordinals are entity ids, so they arrive in dense runs; multiplying
     // spreads such a run over the whole table, where masking the low bits would pack it into one
@@ -70,7 +75,8 @@ final class OrdinalVectorCache
     /////////////////
 
     /**
-     * Creates a cache sized to hold {@code expectedSize} ordinals without growing.
+     * Creates a cache sized to hold {@code expectedSize} ordinals without growing, up to a capped
+     * initial capacity; a larger cache is reached by growing as ordinals are actually added.
      *
      * @param expectedSize the expected number of distinct ordinals; non-positive values yield the
      *                     minimum capacity
@@ -135,6 +141,14 @@ final class OrdinalVectorCache
         return this.size;
     }
 
+    /**
+     * Returns the number of slots currently allocated.
+     */
+    int capacity()
+    {
+        return this.keys.length;
+    }
+
     private int indexOf(final int ordinal)
     {
         return ordinal * FIBONACCI_MULTIPLIER >>> this.shift;
@@ -190,7 +204,7 @@ final class OrdinalVectorCache
         // Twice the expected size, so the expected entries fit below the 0.5 load factor.
         final long wanted = Math.max(1L, 2L * expectedSize);
         final int  bits   = Long.SIZE - Long.numberOfLeadingZeros(wanted - 1L);
-        return Math.min(MAXIMUM_CAPACITY_BITS, Math.max(MINIMUM_CAPACITY_BITS, bits));
+        return Math.min(MAXIMUM_INITIAL_CAPACITY_BITS, Math.max(MINIMUM_CAPACITY_BITS, bits));
     }
 
 }
