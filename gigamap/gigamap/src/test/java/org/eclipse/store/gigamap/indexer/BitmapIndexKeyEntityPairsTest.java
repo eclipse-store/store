@@ -343,6 +343,61 @@ class BitmapIndexKeyEntityPairsTest
         @Override public Long binaryToKey(final long stored) { return stored - 1L; }
     }
 
+    /**
+     * A subclass of a built-in indexer that customizes the encoding and its inverse through the boxed
+     * {@code binaryToKey} only, as written before {@code binaryToLongKey} existed. The built-in
+     * {@code binaryToLongKey} must not bypass that override.
+     */
+    static final class CustomEncodedBoxedIndexer extends BinaryIndexerLong.Abstract<LongEntity>
+    {
+        @Override public String name() { return "value"; }
+        @Override protected Long getLong(final LongEntity entity) { return entity.value; }
+        @Override protected long toLong(final Long number) { return number + 1_000L; }
+        @Override public Long binaryToKey(final long stored) { return stored - 1_000L; }
+    }
+
+    /**
+     * The same custom encoding, with the inverse supplied through the primitive method only.
+     */
+    static final class CustomEncodedPrimitiveIndexer extends BinaryIndexerLong.Abstract<LongEntity>
+    {
+        @Override public String name() { return "value"; }
+        @Override protected Long getLong(final LongEntity entity) { return entity.value; }
+        @Override protected long toLong(final Long number) { return number + 1_000L; }
+        @Override public long binaryToLongKey(final long stored) { return stored - 1_000L; }
+    }
+
+    private static GigaMap<LongEntity> customEncodedMap(final BinaryIndexerLong<LongEntity> indexer)
+    {
+        final GigaMap<LongEntity> map = GigaMap.<LongEntity>Builder()
+            .withBitmapIdentityIndex(indexer)
+            .build();
+        map.add(new LongEntity(0L));
+        map.add(new LongEntity(7L));
+        map.add(new LongEntity(123_456L));
+        return map;
+    }
+
+    @Test
+    void iterateKeyEntityPairs_builtInSubclassOverridingOnlyBinaryToKey_usesTheOverride()
+    {
+        final GigaMap<LongEntity> map = customEncodedMap(new CustomEncodedBoxedIndexer());
+        final Map<Long, Long> expected = pairsViaIterateIndexed(map);
+
+        assertEquals(expected, pairsViaIterateLongKeyEntityPairs(valueIndex(map)));
+        assertEquals(expected, pairsViaIterateKeyEntityPairs(map));
+    }
+
+    @Test
+    void iterateKeyEntityPairs_builtInSubclassOverridingOnlyBinaryToLongKey_usesTheOverride()
+    {
+        final GigaMap<LongEntity> map = customEncodedMap(new CustomEncodedPrimitiveIndexer());
+        final Map<Long, Long> expected = pairsViaIterateIndexed(map);
+
+        assertEquals(expected, pairsViaIterateLongKeyEntityPairs(valueIndex(map)));
+        assertEquals(expected, pairsViaIterateKeyEntityPairs(map));
+    }
+
     @Test
     void iterateLongKeyEntityPairs_indexerOverridingOnlyBinaryToKey_stillReconstructs()
     {

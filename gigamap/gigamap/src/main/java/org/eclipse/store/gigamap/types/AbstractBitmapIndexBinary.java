@@ -18,6 +18,8 @@ import org.eclipse.serializer.branching.ThrowBreak;
 import org.eclipse.serializer.collections.XSort;
 import org.eclipse.serializer.persistence.types.Storer;
 
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.function.Consumer;
 import java.util.function.ObjLongConsumer;
 import java.util.function.Predicate;
@@ -250,7 +252,7 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 			// A binary index keeps no whole key: bit position i's bitmap holds the ids whose stored
 			// long has bit i set, so the key is reconstructed by OR-ing 1L<<i over the positions that
 			// contain each id. No entity is loaded - only the index's own bitmaps are read.
-			final StoredValueAccumulator storedByEntityId = new StoredValueAccumulator(idBound);
+			final StoredValueAccumulator storedByEntityId = new StoredValueAccumulator();
 
 			final BitmapEntry<E, I, Long>[] entries = this.entries;
 			for(int i = 0; i < entries.length; i++)
@@ -279,7 +281,40 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 				collector.execute();
 			}
 
-			storedByEntityId.forEach(indexer, consumer);
+			storedByEntityId.forEach(indexer, prefersBoxedInverse(indexer), consumer);
+		}
+	}
+
+	/**
+	 * Whether keys must be reconstructed through {@link BinaryIndexer#binaryToKey(long)} rather than
+	 * {@link BinaryIndexer#binaryToLongKey(long)}: {@code true} when {@code binaryToKey} is overridden
+	 * in a more specific class than {@code binaryToLongKey}.
+	 * <p>
+	 * That is the case for a subclass of a built-in indexer that customizes the encoding and its
+	 * inverse through the boxed method only, written before the primitive one existed. The built-in
+	 * indexers implement {@code binaryToLongKey} and let {@code binaryToKey} delegate to it, so calling
+	 * the primitive method would silently bypass such an override. Checked once per enumeration.
+	 */
+	private static boolean prefersBoxedInverse(final BinaryIndexer<?> indexer)
+	{
+		final Class<?> boxed     = declaringClass(indexer, "binaryToKey");
+		final Class<?> primitive = declaringClass(indexer, "binaryToLongKey");
+		return boxed != primitive && primitive.isAssignableFrom(boxed);
+	}
+
+	private static Class<?> declaringClass(
+		final BinaryIndexer<?> indexer   ,
+		final String           methodName
+	)
+	{
+		try
+		{
+			return indexer.getClass().getMethod(methodName, long.class).getDeclaringClass();
+		}
+		catch(final NoSuchMethodException e)
+		{
+			// both methods are public members of BinaryIndexer, so every indexer has them.
+			throw new IllegalStateException("BinaryIndexer#" + methodName + "(long) not found", e);
 		}
 	}
 
@@ -287,11 +322,15 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 	 * The stored {@code long} of every entity id below a fixed bound, filled by OR-ing one bit plane
 	 * after the other, for {@link #iterateLongKeyEntityPairs(LongKeyEntityConsumer)}.
 	 * <p>
-	 * Ids are {@code long}s, so the slots are paged rather than one array, and a page is only
-	 * allocated once an id in its range is set: an id range that holds no indexed entity, e.g. after
-	 * mass removal, costs a {@code null} directory slot. A slot left at {@code 0} means "not indexed":
-	 * an entity whose stored value is {@code 0} has no bit in any plane, so it cannot be told apart from
-	 * an absent one and is not reported (indexers map the key {@code 0} to a non-zero sentinel).
+	 * The slots are paged, and only pages holding at least one indexed entity exist. They are kept in
+	 * a map sorted by page number, so cost follows the populated pages rather than the id range: ids
+	 * are {@code long}s and, after mass removal, may sit far apart or far above the live entity count.
+	 * Each bit plane is walked in ascending id order, so consecutive ids land on the same page and the
+	 * last page is cached; the map is consulted once per page switch, not per id.
+	 * <p>
+	 * A slot left at {@code 0} means "not indexed": an entity whose stored value is {@code 0} has no
+	 * bit in any plane, so it cannot be told apart from an absent one and is not reported (indexers map
+	 * the key {@code 0} to a non-zero sentinel).
 	 */
 	private static final class StoredValueAccumulator
 	{
@@ -299,47 +338,45 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 		private static final int PAGE_SIZE  = 1 << PAGE_SHIFT;
 		private static final int PAGE_MASK  = PAGE_SIZE - 1;
 
-		private final long[][] pages;
-
-		StoredValueAccumulator(final long idBound)
-		{
-			this.pages = new long[Math.toIntExact((idBound + PAGE_MASK) >>> PAGE_SHIFT)][];
-		}
+		private final TreeMap<Long, long[]> pages           = new TreeMap<>();
+		private       long                  cachedPageIndex = -1L;
+		private       long[]                cachedPage     ;
 
 		void or(final long entityId, final long bits)
 		{
-			final int pageIndex = (int)(entityId >>> PAGE_SHIFT);
-			long[] page = this.pages[pageIndex];
-			if(page == null)
+			final long pageIndex = entityId >>> PAGE_SHIFT;
+			if(pageIndex != this.cachedPageIndex)
 			{
-				page = this.pages[pageIndex] = new long[PAGE_SIZE];
+				this.cachedPage      = this.pages.computeIfAbsent(pageIndex, p -> new long[PAGE_SIZE]);
+				this.cachedPageIndex = pageIndex;
 			}
-			page[(int)entityId & PAGE_MASK] |= bits;
+			this.cachedPage[(int)entityId & PAGE_MASK] |= bits;
 		}
 
 		/**
 		 * Reports every indexed entity, in ascending id order, with its key reconstructed by
-		 * {@code indexer}.
+		 * {@code indexer} (see {@link AbstractBitmapIndexBinary#prefersBoxedInverse(BinaryIndexer)}).
 		 */
 		void forEach(
-			final BinaryIndexer<?>      indexer ,
+			final BinaryIndexer<?>      indexer     ,
+			final boolean               boxedInverse,
 			final LongKeyEntityConsumer consumer
 		)
 		{
-			for(int p = 0; p < this.pages.length; p++)
+			for(final Map.Entry<Long, long[]> entry : this.pages.entrySet())
 			{
-				final long[] page = this.pages[p];
-				if(page == null)
-				{
-					continue;
-				}
-				final long base = (long)p << PAGE_SHIFT;
+				final long[] page = entry.getValue();
+				final long   base = entry.getKey() << PAGE_SHIFT;
 				for(int s = 0; s < PAGE_SIZE; s++)
 				{
 					final long stored = page[s];
 					if(stored != 0L)
 					{
-						consumer.accept(indexer.binaryToLongKey(stored), base + s);
+						final long key = boxedInverse
+							? indexer.binaryToKey(stored)
+							: indexer.binaryToLongKey(stored)
+						;
+						consumer.accept(key, base + s);
 					}
 				}
 			}

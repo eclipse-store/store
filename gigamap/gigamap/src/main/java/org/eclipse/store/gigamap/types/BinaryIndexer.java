@@ -85,7 +85,9 @@ public interface BinaryIndexer<E> extends Indexer<E, Long>
 	 * keeps working, and one that supports neither still fails with
 	 * {@link UnsupportedOperationException}. Indexers that can invert their encoding should override
 	 * this method and let {@link #binaryToKey(long)} delegate to it, as the built-in integral
-	 * indexers do.
+	 * indexers do. A subclass of such an indexer that overrides only {@link #binaryToKey(long)} keeps
+	 * working: pair enumeration detects that the boxed override is the more specific one and
+	 * reconstructs keys through it.
 	 *
 	 * @param stored the raw stored {@code long} bit pattern
 	 * @return the reconstructed key
