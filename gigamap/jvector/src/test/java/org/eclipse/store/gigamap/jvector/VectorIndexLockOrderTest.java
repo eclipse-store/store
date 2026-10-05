@@ -176,6 +176,8 @@ class VectorIndexLockOrderTest
     /**
      * Waits until the thread is blocked or waiting in two samples 50 ms apart. A single sample could catch a
      * short, unrelated block (e.g. class loading) before the thread reaches the lock or monitor the test means.
+     * A thread that has already finished never waited: the interleaving the test builds is then not in place,
+     * so that fails instead of letting the test go on without it.
      */
     private static void awaitWaiting(final Thread thread) throws InterruptedException
     {
@@ -190,6 +192,12 @@ class VectorIndexLockOrderTest
                     return;
                 }
             }
+            if(thread.getState() == Thread.State.TERMINATED)
+            {
+                final Throwable failure = thread instanceof final Worker worker ? worker.failure.get() : null;
+                fail(thread.getName() + " finished before it started to wait"
+                    + (failure != null ? ", failed with " + failure : ""), failure);
+            }
             if(System.currentTimeMillis() > deadline)
             {
                 fail(thread.getName() + " never started to wait");
@@ -201,7 +209,9 @@ class VectorIndexLockOrderTest
     private static boolean isWaiting(final Thread thread)
     {
         final Thread.State state = thread.getState();
-        return state != Thread.State.RUNNABLE && state != Thread.State.NEW;
+        return state == Thread.State.BLOCKED
+            || state == Thread.State.WAITING
+            || state == Thread.State.TIMED_WAITING;
     }
 
     private static void await(final CountDownLatch latch)

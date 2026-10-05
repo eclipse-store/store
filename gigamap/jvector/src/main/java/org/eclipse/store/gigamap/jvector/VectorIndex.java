@@ -646,11 +646,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * valid. If the files are corrupted or the vector count doesn't match, the graph is
      * rebuilt from the stored vectors.
      * <p>
-     * Must not be called while holding the parent {@link GigaMap}'s monitor (inside {@code synchronized(map)} or
-     * {@code GigaMap.apply} / {@code update} logic): the graph cleanup and disk write run on worker threads that,
-     * for an embedded vectorizer, read entities through that monitor, so the call would wait for itself.
+     * For an on-disk index, must not be called while holding the parent {@link GigaMap}'s monitor (inside
+     * {@code synchronized(map)} or {@code GigaMap.apply} / {@code update} logic): the graph cleanup and disk write run
+     * on worker threads that, for an embedded vectorizer, read entities through that monitor, so the call would wait
+     * for itself. For an in-memory index this method does nothing.
      *
-     * @throws IllegalStateException if the calling thread holds the parent GigaMap's monitor
+     * @throws IllegalStateException if the index is on disk and the calling thread holds the parent GigaMap's
+     *         monitor
      * @see #isOnDisk()
      * @see VectorIndexConfiguration#indexDirectory()
      * @see VectorIndexConfiguration#backgroundPersistence()
