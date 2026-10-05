@@ -514,5 +514,102 @@ class VectorValuesTest
 
             assertTrue(values instanceof GigaMapBackedVectorValues);
         }
+
+        @Test
+        void testGetVectorCachesMissingOrdinal()
+        {
+            final int[] lookups = new int[1];
+            final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
+                ordinal ->
+                {
+                    lookups[0]++;
+                    return ordinal == 0 ? new float[]{1.0f, 2.0f, 3.0f} : null;
+                },
+                () -> 2,
+                3,
+                vectorTypeSupport,
+                GigaMapBackedVectorValues.Caching.DEFAULT_EXPECTED_SIZE
+            );
+
+            // A deleted or vector-less node is visited repeatedly during a traversal; it must
+            // be resolved once per query like any other node, not on every visit.
+            assertNull(values.getVector(1));
+            assertNull(values.getVector(1));
+            assertNotNull(values.getVector(0));
+            assertNotNull(values.getVector(0));
+
+            assertEquals(2, lookups[0]);
+        }
+    }
+
+    // ==================== EntityBackedVectorValues.Caching Tests ====================
+
+    @Nested
+    class EntityBackedVectorValuesCachingTests
+    {
+        @Test
+        void testGetVectorCachesResultAndMisses()
+        {
+            final GigaMap<float[]> entityMap = GigaMap.New();
+            entityMap.add(new float[]{1.0f, 2.0f, 3.0f});
+            entityMap.add(new float[0]); // id 1: the vectorizer yields no vector for it
+            final int[] vectorizations = new int[1];
+            final Vectorizer<float[]> vectorizer = new Vectorizer<>()
+            {
+                @Override
+                public float[] vectorize(final float[] entity)
+                {
+                    vectorizations[0]++;
+                    return entity.length == 0 ? null : entity;
+                }
+            };
+
+            final EntityBackedVectorValues.Caching<float[]> values = new EntityBackedVectorValues.Caching<>(
+                entityMap,
+                vectorizer,
+                3,
+                vectorTypeSupport,
+                16
+            );
+
+            final VectorFloat<?> first = values.getVector(0);
+            assertSame(first, values.getVector(0));
+            assertNull(values.getVector(1));
+            assertNull(values.getVector(1));
+            // Id 2 does not exist: no entity, so no vectorization, but still cached as missing.
+            assertNull(values.getVector(2));
+            assertNull(values.getVector(2));
+
+            assertEquals(2, vectorizations[0]);
+        }
+
+        @Test
+        void testCopyHasIndependentCache()
+        {
+            final GigaMap<float[]> entityMap = GigaMap.New();
+            entityMap.add(new float[]{1.0f, 2.0f, 3.0f});
+            final Vectorizer<float[]> vectorizer = new Vectorizer<>()
+            {
+                @Override
+                public float[] vectorize(final float[] entity)
+                {
+                    return entity;
+                }
+            };
+            final EntityBackedVectorValues.Caching<float[]> values = new EntityBackedVectorValues.Caching<>(
+                entityMap,
+                vectorizer,
+                3,
+                vectorTypeSupport,
+                16
+            );
+            final VectorFloat<?> original = values.getVector(0);
+
+            final RandomAccessVectorValues copy = values.copy();
+
+            assertTrue(copy instanceof EntityBackedVectorValues.Caching);
+            assertNotSame(original, copy.getVector(0));
+            assertSame(copy.getVector(0), copy.getVector(0));
+        }
     }
 }

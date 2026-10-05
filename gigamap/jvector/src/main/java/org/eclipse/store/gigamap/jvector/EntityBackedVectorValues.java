@@ -19,8 +19,7 @@ import io.github.jbellis.jvector.vector.types.VectorFloat;
 import io.github.jbellis.jvector.vector.types.VectorTypeSupport;
 import org.eclipse.store.gigamap.types.GigaMap;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.IntFunction;
 
 /**
  * RandomAccessVectorValues backed by entities via a GigaMap and Vectorizer.
@@ -103,25 +102,34 @@ class EntityBackedVectorValues<E> implements RandomAccessVectorValues
     /**
      * Caching version of EntityBackedVectorValues.
      * Caches vectors during search to avoid repeated entity lookups and vectorization.
+     * <p>
+     * Meant for a single query: an ordinal that resolves to no vector is cached as such for the
+     * lifetime of the instance, and the instance is not thread-safe (see {@link OrdinalVectorCache}).
+     * {@link #copy()} returns an instance with its own, empty cache.
      */
     static class Caching<E> extends EntityBackedVectorValues<E>
     {
-        private final Map<Integer, VectorFloat<?>> cache = new ConcurrentHashMap<>();
+        private final int                         expectedSize;
+        private final OrdinalVectorCache          cache       ;
+        private final IntFunction<VectorFloat<?>> loader      = super::getVector;
 
         Caching(
             final GigaMap<E>            entityMap        ,
             final Vectorizer<? super E> vectorizer       ,
             final int                   dimension        ,
-            final VectorTypeSupport     vectorTypeSupport
+            final VectorTypeSupport     vectorTypeSupport,
+            final int                   expectedSize
         )
         {
             super(entityMap, vectorizer, dimension, vectorTypeSupport);
+            this.expectedSize = expectedSize;
+            this.cache        = new OrdinalVectorCache(expectedSize);
         }
 
         @Override
         public VectorFloat<?> getVector(final int ordinal)
         {
-            return this.cache.computeIfAbsent(ordinal, super::getVector);
+            return this.cache.computeIfAbsent(ordinal, this.loader);
         }
 
         @Override
@@ -131,7 +139,8 @@ class EntityBackedVectorValues<E> implements RandomAccessVectorValues
                 this.entityMap,
                 this.vectorizer,
                 this.dimension,
-                this.vectorTypeSupport
+                this.vectorTypeSupport,
+                this.expectedSize
             );
         }
 
