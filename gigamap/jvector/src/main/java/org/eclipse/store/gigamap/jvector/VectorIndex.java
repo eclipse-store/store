@@ -53,7 +53,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -1077,7 +1076,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private transient volatile Path resolvedDirectory;
 
         private transient volatile boolean                   incrementalMode    ;
-        private transient Set<Integer>                       diskDeletedOrdinals;
+        private transient DiskSupersededOrdinals             diskDeletedOrdinals;
         private transient ExplicitThreadLocal<GraphSearcher> diskSearcherPool    ;
 
         // Read/write lock for builder operations.
@@ -1823,7 +1822,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // Enter incremental on-disk mode: disk index serves search,
                     // in-memory builder only handles new mutations.
                     // Set state fields first, then flip incrementalMode last for safe publication.
-                    this.diskDeletedOrdinals = ConcurrentHashMap.newKeySet();
+                    this.diskDeletedOrdinals = this.newDiskDeletedOrdinals();
                     this.incrementalMode     = true;
                     LOG.info("Entering incremental on-disk mode for '{}' — skipping full graph rebuild", this.name);
                 }
@@ -2632,12 +2631,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // In incremental mode, mark the ordinal as deleted from disk graph so disk search excludes
             // the stale version immediately, regardless of whether indexing is synchronous or eventual.
-            // Gated on contentChanged: a null→null no-op has no stale disk version to exclude, and
-            // adding it would only bloat diskDeletedOrdinals and enlarge the boolean[maxOrdinal+1] mask
-            // rebuilt in createDiskAcceptBits() on every search.
-            if(contentChanged && this.incrementalMode && this.diskDeletedOrdinals != null)
+            // Gated on contentChanged: a null→null no-op has no stale disk version to exclude.
+            if(contentChanged)
             {
-                this.diskDeletedOrdinals.add(ordinal);
+                this.recordDiskOrdinalSuperseded(ordinal);
             }
 
             if(this.isEventualIndexing())
@@ -2952,10 +2949,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // In incremental mode, mark the ordinal as deleted from disk graph
             // so disk search excludes it immediately, even before background
             // processing has updated the on-disk graph.
-            if(this.incrementalMode && this.diskDeletedOrdinals != null)
-            {
-                this.diskDeletedOrdinals.add(ordinal);
-            }
+            this.recordDiskOrdinalSuperseded(ordinal);
 
             if(this.isEventualIndexing())
             {
@@ -3015,11 +3009,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                 // Reset incremental state before closing resources
                 this.incrementalMode = false;
-                if(this.diskDeletedOrdinals != null)
-                {
-                    this.diskDeletedOrdinals.clear();
-                    this.diskDeletedOrdinals = null;
-                }
+                this.diskDeletedOrdinals = null;
 
                 // Shut the background task manager down and discard its pending ops, they are stale. Without
                 // waiting for its thread: a task of it may be waiting for the write lock or the monitor held here.
@@ -3447,52 +3437,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Creates accept bits for disk graph search that excludes deleted/updated ordinals.
+         * Returns accept bits for disk graph search that exclude deleted/updated ordinals.
+         * Allocates nothing: the mask is maintained as deletions arrive.
          */
         private Bits createDiskAcceptBits()
         {
-            if(this.diskDeletedOrdinals == null || this.diskDeletedOrdinals.isEmpty())
-            {
-                return Bits.ALL;
-            }
-
-            // Snapshot into a primitive int[] and find max in a single pass
-            // to avoid Integer[] boxing overhead on every search query.
-            final Set<Integer> deleted = this.diskDeletedOrdinals;
-            final int size = deleted.size();
-            final int[] snapshot = new int[size];
-            int count = 0;
-            int maxOrdinal = -1;
-            for(final Integer ord : deleted)
-            {
-                final int o = ord;
-                if(count < size)
-                {
-                    snapshot[count++] = o;
-                }
-                if(o > maxOrdinal)
-                {
-                    maxOrdinal = o;
-                }
-            }
-
-            if(maxOrdinal < 0)
-            {
-                return Bits.ALL;
-            }
-
-            // Build a primitive boolean[] mask to avoid boxing in the hot search path.
-            final boolean[] deletedMask = new boolean[maxOrdinal + 1];
-            for(int i = 0; i < count; i++)
-            {
-                final int ord = snapshot[i];
-                if(ord >= 0 && ord <= maxOrdinal)
-                {
-                    deletedMask[ord] = true;
-                }
-            }
-
-            return i -> i < 0 || i >= deletedMask.length || !deletedMask[i];
+            final DiskSupersededOrdinals deleted = this.diskDeletedOrdinals;
+            return deleted == null
+                ? Bits.ALL
+                : deleted.acceptBits()
+            ;
         }
 
         /**
@@ -4198,7 +4152,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private boolean isIncrementalClean()
         {
-            final boolean noDeletions = this.diskDeletedOrdinals == null || this.diskDeletedOrdinals.isEmpty();
+            final DiskSupersededOrdinals deleted = this.diskDeletedOrdinals;
+            final boolean noDeletions = deleted == null || deleted.isEmpty();
             final boolean noNewNodes  = this.index == null || this.index.size(0) == 0;
             return noDeletions && noNewNodes;
         }
@@ -4221,11 +4176,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // Reset incremental state
             this.incrementalMode = false;
-            if(this.diskDeletedOrdinals != null)
-            {
-                this.diskDeletedOrdinals.clear();
-                this.diskDeletedOrdinals = null;
-            }
+            this.diskDeletedOrdinals = null;
 
             // Close existing in-memory builder and index
             if(this.builder != null)
@@ -4320,7 +4271,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.initializeInMemoryBuilder();
 
                 // Set incremental state: set state fields first, then flip incrementalMode last for safe publication.
-                this.diskDeletedOrdinals = ConcurrentHashMap.newKeySet();
+                this.diskDeletedOrdinals = this.newDiskDeletedOrdinals();
                 this.incrementalMode     = true;
 
                 // Reinitialize searcher pools (disk + in-memory)
@@ -4561,11 +4512,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // Reset incremental mode state
             this.incrementalMode = false;
-            if(this.diskDeletedOrdinals != null)
-            {
-                this.diskDeletedOrdinals.clear();
-                this.diskDeletedOrdinals = null;
-            }
+            this.diskDeletedOrdinals = null;
 
             // The in-memory codes go with the graph they describe. internalRemoveAll tears down and
             // then re-initialises, so leaving them would hand the new, empty index the old codebook
@@ -4951,16 +4898,27 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * is drained, and the stale disk node would keep answering searches next to the fresh
          * in-memory one (internal #142).
          * <p>
-         * Not called for a plain add: a newly allocated entity id was never written to disk, so
-         * recording it would only enlarge the {@code boolean[maxOrdinal+1]} mask that
-         * {@code createDiskAcceptBits()} rebuilds on every search.
+         * Not called for a plain add: a newly allocated entity id was never written to disk, so there
+         * is no disk version to exclude.
          */
         private void recordDiskOrdinalSuperseded(final int ordinal)
         {
-            if(this.incrementalMode && this.diskDeletedOrdinals != null)
+            // Read the field once: a concurrent mode exit may null it between a check and the add.
+            final DiskSupersededOrdinals deleted = this.diskDeletedOrdinals;
+            if(this.incrementalMode && deleted != null)
             {
-                this.diskDeletedOrdinals.add(ordinal);
+                deleted.add(ordinal);
             }
+        }
+
+        /**
+         * Creates an empty {@link #diskDeletedOrdinals} sized to the disk graph just loaded. The graph
+         * is written with an identity ordinal map, so every ordinal it holds is below its id upper
+         * bound. Must be called after a successful {@code tryLoad}.
+         */
+        private DiskSupersededOrdinals newDiskDeletedOrdinals()
+        {
+            return DiskSupersededOrdinals.New(this.diskManager.getDiskIndex().getIdUpperBound());
         }
 
         /**

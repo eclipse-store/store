@@ -948,9 +948,10 @@ class VectorIndexConcurrentStressTest
      * <p>
      * Seeds entities, persists to disk (entering incremental mode), then hammers
      * the index with concurrent searches and updates/removes. This exercises the
-     * {@code createDiskAcceptBits()} path that previously threw
-     * {@code ArrayIndexOutOfBoundsException} when {@code diskDeletedOrdinals}
-     * was modified between the max-scan and mask-fill passes.
+     * {@code createDiskAcceptBits()} path while mutations record into
+     * {@code diskDeletedOrdinals}. An earlier snapshot-based mask threw
+     * {@code ArrayIndexOutOfBoundsException} when the set was modified between
+     * its max-scan and mask-fill passes.
      */
     @Test
     @Timeout(value = 60, unit = TimeUnit.SECONDS)
