@@ -14,14 +14,19 @@ package org.eclipse.store.gigamap.indexer;
  * #L%
  */
 
+import org.eclipse.store.gigamap.types.BinaryIndexer;
+import org.eclipse.store.gigamap.types.BinaryIndexerByte;
 import org.eclipse.store.gigamap.types.BinaryIndexerFloat;
 import org.eclipse.store.gigamap.types.BinaryIndexerInteger;
 import org.eclipse.store.gigamap.types.BinaryIndexerLong;
+import org.eclipse.store.gigamap.types.BinaryIndexerShort;
 import org.eclipse.store.gigamap.types.BitmapIndex;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -177,5 +182,234 @@ class BitmapIndexKeyEntityPairsTest
         // Float's sortable-bit encoding has no binaryToKey inverse → fail fast, not emit encoded bits.
         assertThrows(UnsupportedOperationException.class,
             () -> index.iterateKeyEntityPairs((key, entityId) -> { }));
+        assertThrows(UnsupportedOperationException.class,
+            () -> index.iterateLongKeyEntityPairs((key, entityId) -> { }));
+    }
+
+    // ---- primitive variant: same pairs, ascending ids, no boxing ----
+
+    /**
+     * Collects {@code entityId -> key} through the primitive variant, asserting that ids arrive
+     * strictly ascending (which also rules out duplicates).
+     */
+    private static <E> Map<Long, Long> pairsViaIterateLongKeyEntityPairs(final BitmapIndex<E, Long> index)
+    {
+        final Map<Long, Long> actual = new HashMap<>();
+        final long[] previousId = {-1L};
+        index.iterateLongKeyEntityPairs((key, entityId) ->
+        {
+            assertTrue(entityId > previousId[0], "ids not ascending: " + entityId + " after " + previousId[0]);
+            previousId[0] = entityId;
+            actual.put(entityId, key);
+        });
+        return actual;
+    }
+
+    @Test
+    void iterateLongKeyEntityPairs_longKeysWithSentinelNegativesDuplicatesAndHoles_matchesBoxedVariant()
+    {
+        final GigaMap<LongEntity> map = GigaMap.<LongEntity>Builder()
+            .withBitmapIdentityIndex(new ValueIndexer())
+            .build();
+        map.add(new LongEntity(0L));
+        map.add(new LongEntity(2L));
+        map.add(new LongEntity(2L));
+        map.add(new LongEntity(-5L));
+        map.add(new LongEntity(Long.MIN_VALUE));
+        final long holeId = map.add(new LongEntity(42L));
+        map.add(new LongEntity(Long.MAX_VALUE - 1L));
+        map.removeById(holeId);
+
+        final Map<Long, Long> actual = pairsViaIterateLongKeyEntityPairs(valueIndex(map));
+
+        assertEquals(pairsViaIterateIndexed(map), actual);
+        assertEquals(pairsViaIterateKeyEntityPairs(map), actual);
+    }
+
+    @Test
+    void iterateLongKeyEntityPairs_acrossPagesWithAnEmptiedPage_reportsEveryIndexedEntity()
+    {
+        // The reconstruction pages its slots by 4096 ids. Spans four pages, and empties the second
+        // completely, so page boundaries and a skipped page are both exercised.
+        final int pageSize = 4096;
+        final GigaMap<LongEntity> map = GigaMap.<LongEntity>Builder()
+            .withBitmapIdentityIndex(new ValueIndexer())
+            .build();
+        final List<LongEntity> entities = new ArrayList<>();
+        for(int i = 0; i < 3 * pageSize + 17; i++)
+        {
+            entities.add(new LongEntity(i % 7 == 0 ? -i : i * 31L));
+        }
+        map.addAll(entities);
+        for(long id = pageSize; id < 2L * pageSize; id++)
+        {
+            map.removeById(id);
+        }
+
+        final Map<Long, Long> actual = pairsViaIterateLongKeyEntityPairs(valueIndex(map));
+
+        assertEquals(pairsViaIterateIndexed(map), actual);
+        assertEquals(2 * pageSize + 17, actual.size());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void iterateLongKeyEntityPairs_integerKeys_reconstructsOriginalValues()
+    {
+        final GigaMap<IntEntity> map = GigaMap.<IntEntity>Builder()
+            .withBitmapIdentityIndex(new IntValueIndexer())
+            .build();
+        map.addAll(List.of(
+            new IntEntity(0), new IntEntity(1), new IntEntity(-1),
+            new IntEntity(Integer.MIN_VALUE), new IntEntity(Integer.MAX_VALUE)));
+        final Map<Long, Long> expected = new HashMap<>();
+        map.iterateIndexed((id, entity) -> expected.put(id, (long)entity.value));
+
+        final BitmapIndex<IntEntity, Long> index = map.index().bitmap().get(Long.class, "value");
+
+        assertEquals(expected, pairsViaIterateLongKeyEntityPairs(index));
+    }
+
+    static final class ShortEntity
+    {
+        final short value;
+        ShortEntity(final short value) { this.value = value; }
+    }
+
+    static final class ShortValueIndexer extends BinaryIndexerShort.Abstract<ShortEntity>
+    {
+        @Override public String name() { return "value"; }
+        @Override protected Short getShort(final ShortEntity entity) { return entity.value; }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void iterateLongKeyEntityPairs_shortKeys_reconstructsOriginalValues()
+    {
+        final GigaMap<ShortEntity> map = GigaMap.<ShortEntity>Builder()
+            .withBitmapIdentityIndex(new ShortValueIndexer())
+            .build();
+        for(final short value : new short[]{0, 1, -1, Short.MIN_VALUE, Short.MAX_VALUE})
+        {
+            map.add(new ShortEntity(value));
+        }
+        final Map<Long, Long> expected = new HashMap<>();
+        map.iterateIndexed((id, entity) -> expected.put(id, (long)entity.value));
+
+        final BitmapIndex<ShortEntity, Long> index = map.index().bitmap().get(Long.class, "value");
+
+        assertEquals(expected, pairsViaIterateLongKeyEntityPairs(index));
+    }
+
+    static final class ByteEntity
+    {
+        final byte value;
+        ByteEntity(final byte value) { this.value = value; }
+    }
+
+    static final class ByteValueIndexer extends BinaryIndexerByte.Abstract<ByteEntity>
+    {
+        @Override public String name() { return "value"; }
+        @Override protected Byte getByte(final ByteEntity entity) { return entity.value; }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void iterateLongKeyEntityPairs_byteKeys_reconstructsOriginalValues()
+    {
+        final GigaMap<ByteEntity> map = GigaMap.<ByteEntity>Builder()
+            .withBitmapIdentityIndex(new ByteValueIndexer())
+            .build();
+        for(final byte value : new byte[]{0, 1, -1, Byte.MIN_VALUE, Byte.MAX_VALUE})
+        {
+            map.add(new ByteEntity(value));
+        }
+        final Map<Long, Long> expected = new HashMap<>();
+        map.iterateIndexed((id, entity) -> expected.put(id, (long)entity.value));
+
+        final BitmapIndex<ByteEntity, Long> index = map.index().bitmap().get(Long.class, "value");
+
+        assertEquals(expected, pairsViaIterateLongKeyEntityPairs(index));
+    }
+
+    /**
+     * A third-party indexer written against the boxed API only: it overrides {@code binaryToKey}
+     * but not {@code binaryToLongKey}.
+     */
+    static final class OffsetIndexer extends BinaryIndexer.Abstract<LongEntity>
+    {
+        @Override public String name() { return "value"; }
+        @Override public long indexBinary(final LongEntity entity) { return entity.value + 1L; }
+        @Override public Long binaryToKey(final long stored) { return stored - 1L; }
+    }
+
+    /**
+     * A subclass of a built-in indexer that customizes the encoding and its inverse through the boxed
+     * {@code binaryToKey} only, as written before {@code binaryToLongKey} existed. The built-in
+     * {@code binaryToLongKey} must not bypass that override.
+     */
+    static final class CustomEncodedBoxedIndexer extends BinaryIndexerLong.Abstract<LongEntity>
+    {
+        @Override public String name() { return "value"; }
+        @Override protected Long getLong(final LongEntity entity) { return entity.value; }
+        @Override protected long toLong(final Long number) { return number + 1_000L; }
+        @Override public Long binaryToKey(final long stored) { return stored - 1_000L; }
+    }
+
+    /**
+     * The same custom encoding, with the inverse supplied through the primitive method only.
+     */
+    static final class CustomEncodedPrimitiveIndexer extends BinaryIndexerLong.Abstract<LongEntity>
+    {
+        @Override public String name() { return "value"; }
+        @Override protected Long getLong(final LongEntity entity) { return entity.value; }
+        @Override protected long toLong(final Long number) { return number + 1_000L; }
+        @Override public long binaryToLongKey(final long stored) { return stored - 1_000L; }
+    }
+
+    private static GigaMap<LongEntity> customEncodedMap(final BinaryIndexerLong<LongEntity> indexer)
+    {
+        final GigaMap<LongEntity> map = GigaMap.<LongEntity>Builder()
+            .withBitmapIdentityIndex(indexer)
+            .build();
+        map.add(new LongEntity(0L));
+        map.add(new LongEntity(7L));
+        map.add(new LongEntity(123_456L));
+        return map;
+    }
+
+    @Test
+    void iterateKeyEntityPairs_builtInSubclassOverridingOnlyBinaryToKey_usesTheOverride()
+    {
+        final GigaMap<LongEntity> map = customEncodedMap(new CustomEncodedBoxedIndexer());
+        final Map<Long, Long> expected = pairsViaIterateIndexed(map);
+
+        assertEquals(expected, pairsViaIterateLongKeyEntityPairs(valueIndex(map)));
+        assertEquals(expected, pairsViaIterateKeyEntityPairs(map));
+    }
+
+    @Test
+    void iterateKeyEntityPairs_builtInSubclassOverridingOnlyBinaryToLongKey_usesTheOverride()
+    {
+        final GigaMap<LongEntity> map = customEncodedMap(new CustomEncodedPrimitiveIndexer());
+        final Map<Long, Long> expected = pairsViaIterateIndexed(map);
+
+        assertEquals(expected, pairsViaIterateLongKeyEntityPairs(valueIndex(map)));
+        assertEquals(expected, pairsViaIterateKeyEntityPairs(map));
+    }
+
+    @Test
+    void iterateLongKeyEntityPairs_indexerOverridingOnlyBinaryToKey_stillReconstructs()
+    {
+        final GigaMap<LongEntity> map = GigaMap.<LongEntity>Builder()
+            .withBitmapIdentityIndex(new OffsetIndexer())
+            .build();
+        map.add(new LongEntity(0L));
+        map.add(new LongEntity(9L));
+        map.add(new LongEntity(1_000L));
+
+        final Map<Long, Long> actual = pairsViaIterateLongKeyEntityPairs(valueIndex(map));
+
+        assertEquals(pairsViaIterateIndexed(map), actual);
     }
 }

@@ -103,9 +103,15 @@ public interface BinaryIndexerLong<E> extends BinaryIndexerNumber<E, Long>
 		 * stored values are their own key.
 		 */
 		@Override
-		public Long binaryToKey(final long stored)
+		public long binaryToLongKey(final long stored)
 		{
 			return stored == Long.MAX_VALUE ? 0L : stored;
+		}
+
+		@Override
+		public Long binaryToKey(final long stored)
+		{
+			return this.binaryToLongKey(stored);
 		}
 
 		protected abstract Long getLong(final E entity);
