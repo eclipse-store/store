@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -207,10 +208,11 @@ class VectorIndexIdDriftTest
         map.set(ids[0], new Doc("v0-nulled", null));
 
         final VectorIndex.Default<Doc> def       = (VectorIndex.Default<Doc>)index;
-        final Map<Long, Long>         fromIndex = def.buildComputedIdIndexFromIndex();
-        final Map<Long, Long>         byScan    = def.buildComputedIdIndexByScan();
+        final OrdinalStoreIdTable     fromIndexTable = def.buildComputedIdIndexFromIndex();
+        assertNotNull(fromIndexTable, "the identity index must be queryable on a live map");
+        final Map<Long, Long>         fromIndex = toMap(fromIndexTable);
+        final Map<Long, Long>         byScan    = toMap(def.buildComputedIdIndexByScan());
 
-        assertNotNull(fromIndex, "the identity index must be queryable on a live map");
         assertFalse(fromIndex.isEmpty(), "guard against both paths agreeing on an empty mapping");
         assertEquals(byScan, fromIndex, "identity-index reconstruction must match the positional scan");
 
@@ -220,6 +222,13 @@ class VectorIndexIdDriftTest
         assertTrue(fromIndex.containsKey(withVector));
         assertFalse(fromIndex.containsKey(ids[0]), "entity whose vector became null has no entry");
         assertFalse(fromIndex.containsKey(ids[1]), "entity removed before registration has no entry");
+    }
+
+    private static Map<Long, Long> toMap(final OrdinalStoreIdTable table)
+    {
+        final Map<Long, Long> map = new HashMap<>();
+        table.forEach(map::put);
+        return map;
     }
 
     // ==================== D. Drift survives a persistence round-trip ====================
