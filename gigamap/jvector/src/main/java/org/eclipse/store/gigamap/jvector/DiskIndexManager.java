@@ -339,6 +339,22 @@ interface DiskIndexManager extends Closeable
             this.highestEntityId     = highestEntityId    ;
             this.structuralModCount  = structuralModCount ;
         }
+
+        /**
+         * Returns whether all three witnesses equal those of {@code other}, i.e. whether
+         * {@link DiskIndexManager#tryLoad(MetaState)} would accept a {@code .meta} stamped with
+         * {@code other} when this state is expected.
+         *
+         * @param other the witnesses to compare with
+         * @return {@code true} if all three witnesses are equal
+         */
+        public boolean matches(final MetaState other)
+        {
+            return this.expectedVectorCount == other.expectedVectorCount
+                && this.highestEntityId     == other.highestEntityId
+                && this.structuralModCount  == other.structuralModCount
+            ;
+        }
     }
 
 
