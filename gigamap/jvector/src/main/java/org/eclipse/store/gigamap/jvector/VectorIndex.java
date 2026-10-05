@@ -51,7 +51,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -1018,12 +1017,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // yet wired. Deferring the build off the load path is what keeps incremental on-disk startup
         // O(1) in the vector payload.
         //
-        // Concurrency: a ConcurrentHashMap. The volatile FIELD is published (assigned) once under the
-        // vector store's own monitor by the double-checked lazy build in computedIdIndex() (a leaf
-        // lock — see there); search threads read it lock-free. Per-entry put/remove by mutations are
-        // not synchronized on that monitor — they rely on the map's own thread-safety and are serialized
+        // A dense ordinal-indexed table rather than a map: ordinals are dense ints, so a lookup is two
+        // array reads with no hashing and no boxing (see OrdinalStoreIdTable).
+        //
+        // Concurrency: the volatile FIELD is published (assigned) once under the vector store's own
+        // monitor by the double-checked lazy build in computedIdIndex() (a leaf lock - see there);
+        // search threads read it lock-free. Per-entry put/remove by mutations are not synchronized on
+        // that monitor - the table is single-writer / lock-free-reader, and its writers are serialized
         // against each other by the parent GigaMap monitor the mutation already holds.
-        private transient volatile Map<Long, Long> computedIdIndex;
+        private transient volatile OrdinalStoreIdTable computedIdIndex;
 
         // One-shot guard for the deferred graph rebuild. The HNSW graph is transient and must be
         // rebuilt from the store after deserialization, but that rebuild iterates the parent GigaMap
@@ -1606,22 +1608,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * The build is deferred out of {@code complete()}: at deserialization time the vector store's
          * index registry is not yet queryable, and — more importantly — building eagerly there would
          * reintroduce the O(n) I/O + heap spike that incremental on-disk mode exists to avoid. On first
-         * access the map is reconstructed cheaply from the identity index bitmaps (no {@link VectorEntry},
+         * access the table is reconstructed cheaply from the identity index bitmaps (no {@link VectorEntry},
          * no vectors); see {@link #buildComputedIdIndex()}.
          * <p>
          * Thread-safety: double-checked with {@link #computedIdIndex} volatile. The build holds the
          * vector store's own monitor — a leaf lock independent of the parent GigaMap monitor and
          * {@code builderLock}, so triggering it from a search (under {@code builderLock.readLock}) or a
          * mutation (under the parent monitor) cannot deadlock. Mutations route their store lookups
-         * through this accessor too, so the map is present before any {@code put}/{@code get}.
+         * through this accessor too, so the table is present before any {@code put}/{@code get}.
          */
-        private Map<Long, Long> computedIdIndex()
+        private OrdinalStoreIdTable computedIdIndex()
         {
             if(this.isEmbedded() || this.vectorStore == null)
             {
                 return null;
             }
-            Map<Long, Long> idx = this.computedIdIndex;
+            OrdinalStoreIdTable idx = this.computedIdIndex;
             if(idx == null)
             {
                 synchronized(this.vectorStore)
@@ -1637,15 +1639,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Builds the {@code sourceEntityId -> storeId} map, from the vector store's
+         * Builds the {@code sourceEntityId -> storeId} table, from the vector store's
          * {@code sourceEntityId} identity index where possible
          * ({@link #buildComputedIdIndexFromIndex()}), else by a positional store scan
          * ({@link #buildComputedIdIndexByScan()}) during the {@code complete()} deserialization
-         * window, when the index registry is not yet queryable. Both paths yield the same map.
+         * window, when the index registry is not yet queryable. Both paths yield the same table.
          */
-        private Map<Long, Long> buildComputedIdIndex()
+        private OrdinalStoreIdTable buildComputedIdIndex()
         {
-            final Map<Long, Long> fromIndex = this.buildComputedIdIndexFromIndex();
+            final OrdinalStoreIdTable fromIndex = this.buildComputedIdIndexFromIndex();
             return fromIndex != null
                 ? fromIndex
                 : this.buildComputedIdIndexByScan()
@@ -1653,14 +1655,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * The preferred {@link #buildComputedIdIndex()} path: reconstructs the map from the vector
+         * The preferred {@link #buildComputedIdIndex()} path: reconstructs the table from the vector
          * store's {@code sourceEntityId} identity index bitmaps, loading no {@code VectorEntry} and
          * therefore no stored vectors. Returns {@code null} when that index is not queryable yet, in
          * which case the caller falls back to {@link #buildComputedIdIndexByScan()}.
          * <p>
          * Package-private for {@code VectorIndexIdDriftTest}, which asserts both paths agree.
          */
-        Map<Long, Long> buildComputedIdIndexFromIndex()
+        OrdinalStoreIdTable buildComputedIdIndexFromIndex()
         {
             final BitmapIndex<VectorEntry, Long> idIndex = this.vectorStore.index().bitmap()
                 .get(Long.class, VectorEntry.SOURCE_ENTITY_ID_INDEXER.name());
@@ -1669,9 +1671,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return null;
             }
 
-            final Map<Long, Long> index = new ConcurrentHashMap<>();
+            final OrdinalStoreIdTable index = new OrdinalStoreIdTable();
             // (key = sourceEntityId, entityId = storeId) — no value loaded.
-            idIndex.iterateKeyEntityPairs((sourceEntityId, storeId) -> index.put(sourceEntityId, storeId));
+            idIndex.iterateKeyEntityPairs((sourceEntityId, storeId) -> index.put(toOrdinal(sourceEntityId), storeId));
             return index;
         }
 
@@ -1682,10 +1684,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * <p>
          * Package-private for {@code VectorIndexIdDriftTest}, which asserts both paths agree.
          */
-        Map<Long, Long> buildComputedIdIndexByScan()
+        OrdinalStoreIdTable buildComputedIdIndexByScan()
         {
-            final Map<Long, Long> index = new ConcurrentHashMap<>();
-            this.vectorStore.iterateIndexed((storeId, entry) -> index.put(entry.sourceEntityId, storeId));
+            final OrdinalStoreIdTable index = new OrdinalStoreIdTable();
+            this.vectorStore.iterateIndexed((storeId, entry) -> index.put(toOrdinal(entry.sourceEntityId), storeId));
             return index;
         }
 
@@ -1696,9 +1698,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private float[] lookupComputedVector(final int ordinal)
         {
-            final Map<Long, Long> index = this.computedIdIndex();
-            final Long storeId = index == null ? null : index.get((long)ordinal);
-            if(storeId == null)
+            final OrdinalStoreIdTable index = this.computedIdIndex();
+            final long storeId = index == null ? OrdinalStoreIdTable.ABSENT : index.get(ordinal);
+            if(storeId == OrdinalStoreIdTable.ABSENT)
             {
                 return null;
             }
@@ -1768,7 +1770,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // Reset the computed-mode fast lookup index; it is (re)built lazily on first access
             // (see computedIdIndex()). Clearing here covers reinitialization after internalRemoveAll,
-            // where a stale map would otherwise survive. A non-incremental graph rebuild that follows
+            // where a stale table would otherwise survive. A non-incremental graph rebuild that follows
             // triggers the lazy build itself via lookupComputedVector() during node scoring.
             this.computedIdIndex = null;
 
@@ -2506,7 +2508,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(!this.isEmbedded())
             {
                 final long storeId = this.vectorStore.add(vectorEntry);
-                this.computedIdIndex().put(entityId, storeId);
+                this.computedIdIndex().put(ordinal, storeId);
             }
 
             this.markContentChanged();
@@ -2565,20 +2567,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 // Resolve the store-internal id by source entity id via the fast index, then
                 // mutate via id-based ops (set / removeById / add), keeping the index in sync.
-                final Map<Long, Long> computedIdIndex = this.computedIdIndex();
-                final Long storeId = computedIdIndex.get(entityId);
+                final OrdinalStoreIdTable computedIdIndex = this.computedIdIndex();
+                final long storeId = computedIdIndex.get(ordinal);
                 if(vector == null)
                 {
                     // vec→null: drop the stored entry so the entity is no longer indexed.
                     // null→null: nothing stored, nothing to do.
-                    if(storeId != null)
+                    if(storeId != OrdinalStoreIdTable.ABSENT)
                     {
                         this.vectorStore.removeById(storeId);
-                        computedIdIndex.remove(entityId);
+                        computedIdIndex.remove(ordinal);
                         changed = true;
                     }
                 }
-                else if(storeId != null)
+                else if(storeId != OrdinalStoreIdTable.ABSENT)
                 {
                     // vec→vec (store-internal id unchanged). An update whose vector did not actually
                     // change is a no-op for this index: unlike the embedded case there is no live
@@ -2603,7 +2605,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     // null→vec: the entity gains an embedding.
                     final long newStoreId = this.vectorStore.add(new VectorEntry(entityId, vector));
-                    computedIdIndex.put(entityId, newStoreId);
+                    computedIdIndex.put(ordinal, newStoreId);
                     changed = true;
                 }
             }
@@ -2829,11 +2831,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 // Add individually to capture each store-internal id for the fast index; robust
                 // against hole reuse (a batch addAll only reports the last assigned id).
-                final Map<Long, Long> computedIdIndex = this.computedIdIndex();
+                final OrdinalStoreIdTable computedIdIndex = this.computedIdIndex();
                 for(final VectorEntry entry : entries)
                 {
                     final long storeId = this.vectorStore.add(entry);
-                    computedIdIndex.put(entry.sourceEntityId, storeId);
+                    computedIdIndex.put(toOrdinal(entry.sourceEntityId), storeId);
                 }
             }
 
@@ -2936,12 +2938,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 // Resolve by source entity id via the fast index; a never-indexed entity
                 // (null embedding) simply has no entry and nothing is removed.
-                final Map<Long, Long> computedIdIndex = this.computedIdIndex();
-                final Long storeId = computedIdIndex.get(entityId);
-                if(storeId != null)
+                final OrdinalStoreIdTable computedIdIndex = this.computedIdIndex();
+                final long storeId = computedIdIndex.get(ordinal);
+                if(storeId != OrdinalStoreIdTable.ABSENT)
                 {
                     this.vectorStore.removeById(storeId);
-                    computedIdIndex.remove(entityId);
+                    computedIdIndex.remove(ordinal);
                 }
             }
 
@@ -3064,12 +3066,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // Resolve via the fast source-id index (built lazily on first access); fall back to a
             // direct identity-index query only in the defensive case where it is unavailable.
-            final Map<Long, Long> idIndex = this.computedIdIndex();
+            final OrdinalStoreIdTable idIndex = this.computedIdIndex();
             final VectorEntry entry;
             if(idIndex != null)
             {
-                final Long storeId = idIndex.get(entityId);
-                entry = storeId == null ? null : this.vectorStore.get(storeId);
+                final long storeId = idIndex.get(entityId);
+                entry = storeId == OrdinalStoreIdTable.ABSENT ? null : this.vectorStore.get(storeId);
             }
             else
             {
