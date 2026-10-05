@@ -1675,8 +1675,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
 
             final OrdinalStoreIdTable index = new OrdinalStoreIdTable();
-            // (key = sourceEntityId, entityId = storeId) — no value loaded.
-            idIndex.iterateKeyEntityPairs((sourceEntityId, storeId) -> index.put(toOrdinal(sourceEntityId), storeId));
+            // (key = sourceEntityId, entityId = storeId) - no value loaded, nothing boxed.
+            idIndex.iterateLongKeyEntityPairs((sourceEntityId, storeId) -> index.put(toOrdinal(sourceEntityId), storeId));
             return index;
         }
 

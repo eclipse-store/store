@@ -71,9 +71,15 @@ public interface BinaryIndexerByte<E> extends BinaryIndexerNumber<E, Byte>
 		 * signed key.
 		 */
 		@Override
-		public Long binaryToKey(final long stored)
+		public long binaryToLongKey(final long stored)
 		{
 			return stored == (1L << Byte.SIZE) ? 0L : (long)(byte)stored;
+		}
+
+		@Override
+		public Long binaryToKey(final long stored)
+		{
+			return this.binaryToLongKey(stored);
 		}
 
 		protected abstract Byte getByte(final E entity);

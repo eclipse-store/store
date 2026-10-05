@@ -18,8 +18,6 @@ import org.eclipse.serializer.branching.ThrowBreak;
 import org.eclipse.serializer.collections.XSort;
 import org.eclipse.serializer.persistence.types.Storer;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.ObjLongConsumer;
 import java.util.function.Predicate;
@@ -226,6 +224,13 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 	@Override
 	public void iterateKeyEntityPairs(final ObjLongConsumer<? super Long> consumer)
 	{
+		// The boxed variant only boxes at the edge its signature demands; reconstruction is shared.
+		this.iterateLongKeyEntityPairs(consumer::accept);
+	}
+
+	@Override
+	public void iterateLongKeyEntityPairs(final LongKeyEntityConsumer consumer)
+	{
 		final BinaryIndexer<? super I> indexer = this.indexer;
 		if(indexer == null)
 		{
@@ -244,8 +249,8 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 			// entityId (position in the owning GigaMap) -> stored long, accumulated bit by bit.
 			// A binary index keeps no whole key: bit position i's bitmap holds the ids whose stored
 			// long has bit i set, so the key is reconstructed by OR-ing 1L<<i over the positions that
-			// contain each id. No entity is loaded — only the index's own bitmaps are read.
-			final Map<Long, Long> storedByEntityId = new HashMap<>();
+			// contain each id. No entity is loaded - only the index's own bitmaps are read.
+			final StoredValueAccumulator storedByEntityId = new StoredValueAccumulator(idBound);
 
 			final BitmapEntry<E, I, Long>[] entries = this.entries;
 			for(int i = 0; i < entries.length; i++)
@@ -259,7 +264,7 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 				final BitmapResult[] results = {entry.createResult()};
 
 				// Bare id collector, mirroring GigaMap.Default#materializeEntityIds: no resolver, no
-				// reader-lifecycle registration — it only walks the bitmap segments for entity ids.
+				// reader-lifecycle registration - it only walks the bitmap segments for entity ids.
 				final AbstractBitmapIterating<E> collector = new AbstractBitmapIterating<E>(
 					EntityIdMatcher.NoOp(), 0, idBound, results, -1
 				)
@@ -267,16 +272,76 @@ public abstract class AbstractBitmapIndexBinary<E, I> extends BitmapIndex.Abstra
 					@Override
 					protected boolean handleEntityId(final long entityId)
 					{
-						storedByEntityId.merge(entityId, bit, (a, b) -> a | b);
+						storedByEntityId.or(entityId, bit);
 						return false; // keep iterating
 					}
 				};
 				collector.execute();
 			}
 
-			for(final Map.Entry<Long, Long> e : storedByEntityId.entrySet())
+			storedByEntityId.forEach(indexer, consumer);
+		}
+	}
+
+	/**
+	 * The stored {@code long} of every entity id below a fixed bound, filled by OR-ing one bit plane
+	 * after the other, for {@link #iterateLongKeyEntityPairs(LongKeyEntityConsumer)}.
+	 * <p>
+	 * Ids are {@code long}s, so the slots are paged rather than one array, and a page is only
+	 * allocated once an id in its range is set: an id range that holds no indexed entity, e.g. after
+	 * mass removal, costs a {@code null} directory slot. A slot left at {@code 0} means "not indexed":
+	 * an entity whose stored value is {@code 0} has no bit in any plane, so it cannot be told apart from
+	 * an absent one and is not reported (indexers map the key {@code 0} to a non-zero sentinel).
+	 */
+	private static final class StoredValueAccumulator
+	{
+		private static final int PAGE_SHIFT = 12;
+		private static final int PAGE_SIZE  = 1 << PAGE_SHIFT;
+		private static final int PAGE_MASK  = PAGE_SIZE - 1;
+
+		private final long[][] pages;
+
+		StoredValueAccumulator(final long idBound)
+		{
+			this.pages = new long[Math.toIntExact((idBound + PAGE_MASK) >>> PAGE_SHIFT)][];
+		}
+
+		void or(final long entityId, final long bits)
+		{
+			final int pageIndex = (int)(entityId >>> PAGE_SHIFT);
+			long[] page = this.pages[pageIndex];
+			if(page == null)
 			{
-				consumer.accept(indexer.binaryToKey(e.getValue()), e.getKey());
+				page = this.pages[pageIndex] = new long[PAGE_SIZE];
+			}
+			page[(int)entityId & PAGE_MASK] |= bits;
+		}
+
+		/**
+		 * Reports every indexed entity, in ascending id order, with its key reconstructed by
+		 * {@code indexer}.
+		 */
+		void forEach(
+			final BinaryIndexer<?>      indexer ,
+			final LongKeyEntityConsumer consumer
+		)
+		{
+			for(int p = 0; p < this.pages.length; p++)
+			{
+				final long[] page = this.pages[p];
+				if(page == null)
+				{
+					continue;
+				}
+				final long base = (long)p << PAGE_SHIFT;
+				for(int s = 0; s < PAGE_SIZE; s++)
+				{
+					final long stored = page[s];
+					if(stored != 0L)
+					{
+						consumer.accept(indexer.binaryToLongKey(stored), base + s);
+					}
+				}
 			}
 		}
 	}

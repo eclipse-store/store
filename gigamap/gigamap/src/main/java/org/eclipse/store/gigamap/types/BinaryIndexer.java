@@ -75,6 +75,26 @@ public interface BinaryIndexer<E> extends Indexer<E, Long>
 			this.getClass().getSimpleName() + " does not support key reconstruction (binaryToKey)"
 		);
 	}
+
+	/**
+	 * Primitive counterpart of {@link #binaryToKey(long)}, used by
+	 * {@link BitmapIndex#iterateLongKeyEntityPairs(LongKeyEntityConsumer)} so that reconstructing a
+	 * key per entity does not box it.
+	 * <p>
+	 * The default unboxes {@link #binaryToKey(long)}, so an indexer that only overrides that method
+	 * keeps working, and one that supports neither still fails with
+	 * {@link UnsupportedOperationException}. Indexers that can invert their encoding should override
+	 * this method and let {@link #binaryToKey(long)} delegate to it, as the built-in integral
+	 * indexers do.
+	 *
+	 * @param stored the raw stored {@code long} bit pattern
+	 * @return the reconstructed key
+	 * @throws UnsupportedOperationException if this indexer's encoding cannot be inverted
+	 */
+	public default long binaryToLongKey(final long stored)
+	{
+		return this.binaryToKey(stored);
+	}
 	
 	/**
 	 * Creates an equality condition for the given key. This condition checks whether

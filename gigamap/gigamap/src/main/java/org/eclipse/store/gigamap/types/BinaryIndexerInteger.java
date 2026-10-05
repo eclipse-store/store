@@ -71,9 +71,15 @@ public interface BinaryIndexerInteger<E> extends BinaryIndexerNumber<E, Integer>
 		 * re-narrowing its low 32 bits with {@code (int)} recovers the signed key.
 		 */
 		@Override
-		public Long binaryToKey(final long stored)
+		public long binaryToLongKey(final long stored)
 		{
 			return stored == (1L << Integer.SIZE) ? 0L : (long)(int)stored;
+		}
+
+		@Override
+		public Long binaryToKey(final long stored)
+		{
+			return this.binaryToLongKey(stored);
 		}
 
 		protected abstract Integer getInteger(final E entity);

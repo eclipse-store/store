@@ -149,6 +149,30 @@ public interface BitmapIndex<E, K> extends IndexIdentifier<E, K>, GigaIndex<E>
 		);
 	}
 
+	/**
+	 * Primitive variant of {@link #iterateKeyEntityPairs(ObjLongConsumer)} for indices whose keys are
+	 * {@code long} values: iterates the {@code (key, entityId)} pairs held by this index (one call per
+	 * indexed entity) <b>without loading the indexed entities</b> and without boxing either value.
+	 * Prefer it over the boxed variant whenever many entities are enumerated, e.g. to rebuild a lookup
+	 * table from the index.
+	 * <p>
+	 * Pairs are delivered in ascending entity id order, while the owning {@code GigaMap} is locked.
+	 * <p>
+	 * Not every index family supports this; the default throws {@link UnsupportedOperationException}.
+	 * It is currently implemented by the binary (bit-sliced) indices, whose
+	 * {@link BinaryIndexer#binaryToLongKey(long)} reconstructs each key.
+	 *
+	 * @param consumer receives {@code (key, entityId)} for each indexed entity; must not be null
+	 * @throws UnsupportedOperationException if this index family, or its indexer, does not support
+	 *         pair enumeration
+	 */
+	public default void iterateLongKeyEntityPairs(final LongKeyEntityConsumer consumer)
+	{
+		throw new UnsupportedOperationException(
+			this.getClass().getSimpleName() + " does not support iterateLongKeyEntityPairs"
+		);
+	}
+
 
 	@Override
 	public default boolean test(final E entity, final K key)
@@ -379,6 +403,17 @@ public interface BitmapIndex<E, K> extends IndexIdentifier<E, K>, GigaIndex<E>
 		{
 			throw new UnsupportedOperationException(
 				this.getClass().getSimpleName() + " does not support iterateKeyEntityPairs"
+			);
+		}
+
+		/**
+		 * See {@link BitmapIndex#iterateLongKeyEntityPairs(LongKeyEntityConsumer)}. Concrete for the
+		 * same reason as {@link #iterateKeyEntityPairs(ObjLongConsumer)}.
+		 */
+		public void iterateLongKeyEntityPairs(final LongKeyEntityConsumer consumer)
+		{
+			throw new UnsupportedOperationException(
+				this.getClass().getSimpleName() + " does not support iterateLongKeyEntityPairs"
 			);
 		}
 
