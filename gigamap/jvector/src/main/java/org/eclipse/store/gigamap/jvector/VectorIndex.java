@@ -1077,6 +1077,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         private transient volatile boolean                   incrementalMode    ;
         private transient DiskSupersededOrdinals             diskDeletedOrdinals;
+        // The .meta witnesses the loaded disk graph was accepted against. A persist is due whenever the
+        // live witnesses moved away from them, even if no change reached the graph or the deletion mask
+        // (e.g. removing an entity that never had a vector): a restart would reject the graph otherwise.
+        private transient DiskIndexManager.MetaState         diskGraphMeta      ;
         private transient ExplicitThreadLocal<GraphSearcher> diskSearcherPool    ;
 
         // Read/write lock for builder operations.
@@ -1810,7 +1814,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     GraphFormat.of(this.configuration),
                     this.configuration.parallelOnDiskWrite()
                 );
-                if(this.diskManager.tryLoad())
+                final DiskIndexManager.MetaState liveMeta = this.currentMetaState();
+                if(this.diskManager.tryLoad(liveMeta))
                 {
                     // Recover the codebook the loaded graph was actually written with, rather than
                     // assuming one is present. A graph written before compression was enabled - or
@@ -1823,6 +1828,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // in-memory builder only handles new mutations.
                     // Set state fields first, then flip incrementalMode last for safe publication.
                     this.diskDeletedOrdinals = this.newDiskDeletedOrdinals();
+                    this.diskGraphMeta       = liveMeta;
                     this.incrementalMode     = true;
                     LOG.info("Entering incremental on-disk mode for '{}' — skipping full graph rebuild", this.name);
                 }
@@ -3010,6 +3016,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // Reset incremental state before closing resources
                 this.incrementalMode = false;
                 this.diskDeletedOrdinals = null;
+                this.diskGraphMeta       = null;
 
                 // Shut the background task manager down and discard its pending ops, they are stale. Without
                 // waiting for its thread: a task of it may be waiting for the write lock or the monitor held here.
@@ -3908,11 +3915,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         // Sample the .meta witnesses at the same instant the graph is captured, under
                         // the monitor, so a Phase-2 vec↔null mutation cannot advance them past the
                         // written graph (see DiskIndexManager.MetaState).
-                        capturedMeta    = new DiskIndexManager.MetaState(
-                            this.getExpectedVectorCount(),
-                            this.getHighestEntityId(),
-                            this.getStructuralModCount()
-                        );
+                        capturedMeta    = this.currentMetaState();
                     }
 
                     // Phase 2: Cleanup and disk write outside synchronized(parentMap).
@@ -4147,15 +4150,33 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Returns true if incremental mode has no pending changes:
-         * no deletions from disk and the in-memory builder graph is empty.
+         * Returns true if incremental mode has no pending changes: no deletions from disk, the
+         * in-memory builder graph is empty, and the live {@code .meta} witnesses still equal those the
+         * loaded disk graph was accepted against. The last check catches changes that reach neither
+         * the graph nor the deletion mask, such as removing an entity that never had a vector, whose
+         * skipped persist would leave a stale {@code .meta} and force a full rebuild on restart.
+         * Must be called under the parentMap monitor, so the witnesses form a consistent snapshot.
          */
         private boolean isIncrementalClean()
         {
-            final DiskSupersededOrdinals deleted = this.diskDeletedOrdinals;
-            final boolean noDeletions = deleted == null || deleted.isEmpty();
-            final boolean noNewNodes  = this.index == null || this.index.size(0) == 0;
-            return noDeletions && noNewNodes;
+            final DiskSupersededOrdinals     deleted     = this.diskDeletedOrdinals;
+            final DiskIndexManager.MetaState diskMeta    = this.diskGraphMeta;
+            final boolean                    noDeletions = deleted == null || deleted.isEmpty();
+            final boolean                    noNewNodes  = this.index == null || this.index.size(0) == 0;
+            final boolean                    metaCurrent = diskMeta != null && diskMeta.matches(this.currentMetaState());
+            return noDeletions && noNewNodes && metaCurrent;
+        }
+
+        /**
+         * Samples the three {@code .meta} witnesses from the live store state.
+         */
+        private DiskIndexManager.MetaState currentMetaState()
+        {
+            return new DiskIndexManager.MetaState(
+                this.getExpectedVectorCount(),
+                this.getHighestEntityId(),
+                this.getStructuralModCount()
+            );
         }
 
         /**
@@ -4177,6 +4198,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // Reset incremental state
             this.incrementalMode = false;
             this.diskDeletedOrdinals = null;
+            this.diskGraphMeta       = null;
 
             // Close existing in-memory builder and index
             if(this.builder != null)
@@ -4272,6 +4294,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                 // Set incremental state: set state fields first, then flip incrementalMode last for safe publication.
                 this.diskDeletedOrdinals = this.newDiskDeletedOrdinals();
+                this.diskGraphMeta       = writtenMeta;
                 this.incrementalMode     = true;
 
                 // Reinitialize searcher pools (disk + in-memory)
@@ -4513,6 +4536,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // Reset incremental mode state
             this.incrementalMode = false;
             this.diskDeletedOrdinals = null;
+            this.diskGraphMeta       = null;
 
             // The in-memory codes go with the graph they describe. internalRemoveAll tears down and
             // then re-initialises, so leaving them would hand the new, empty index the old codebook

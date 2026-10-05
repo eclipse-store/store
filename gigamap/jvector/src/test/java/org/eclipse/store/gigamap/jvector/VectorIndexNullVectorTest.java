@@ -1126,6 +1126,104 @@ class VectorIndexNullVectorTest
     }
 
     /**
+     * Removing a null-embedding entity in incremental mode changes the {@code .meta} witnesses
+     * (the structural mod count) without reaching the graph or the disk deletion mask: the entity
+     * has no graph node, and its id lies at or above the disk graph's id upper bound, which the mask
+     * ignores. The next persist must still write, or the stale {@code .meta} makes the restart reject
+     * the graph and rebuild it in full.
+     * <p>
+     * Asserted through {@code tryLoad} against the live witnesses, which is exactly the restart check.
+     */
+    @Test
+    void incrementalRemoveOfNullEntityAboveDiskBound_persistKeepsDiskGraphLoadable(@TempDir final Path dir)
+        throws IOException
+    {
+        final GigaMap<Doc>     map   = GigaMap.New();
+        final VectorIndex<Doc> index = this.registerOnDiskNullableIndex(map, dir);
+        final Random           random = new Random(7);
+        for(int i = 0; i < 50; i++)
+        {
+            map.add(new Doc("v" + i, randomUnit(random, 8)));
+        }
+        final long nullId = map.add(new Doc("null", null));
+        index.persistToDisk(); // ordinals 0..49 on disk, so the null entity's id is the disk bound
+
+        map.removeById(nullId);
+        index.persistToDisk();
+        index.close();
+
+        assertTrue(this.diskGraphLoadsForLiveState(map, dir),
+            "the persist after the removal must stamp the current witnesses into the .meta");
+    }
+
+    /**
+     * Adding a null-embedding entity in incremental mode moves the highest entity id, a {@code .meta}
+     * witness, without any graph change or deletion. The next persist must still write, for the same
+     * reason as {@link #incrementalRemoveOfNullEntityAboveDiskBound_persistKeepsDiskGraphLoadable}.
+     */
+    @Test
+    void incrementalAddOfNullEntity_persistKeepsDiskGraphLoadable(@TempDir final Path dir)
+        throws IOException
+    {
+        final GigaMap<Doc>     map   = GigaMap.New();
+        final VectorIndex<Doc> index = this.registerOnDiskNullableIndex(map, dir);
+        final Random           random = new Random(7);
+        for(int i = 0; i < 50; i++)
+        {
+            map.add(new Doc("v" + i, randomUnit(random, 8)));
+        }
+        index.persistToDisk();
+
+        map.add(new Doc("null", null));
+        index.persistToDisk();
+        index.close();
+
+        assertTrue(this.diskGraphLoadsForLiveState(map, dir),
+            "the persist after the add must stamp the current witnesses into the .meta");
+    }
+
+    private VectorIndex<Doc> registerOnDiskNullableIndex(
+        final GigaMap<Doc> map,
+        final Path         dir
+    )
+    {
+        return map.index().register(VectorIndices.Category()).add(
+            "embeddings",
+            this.onDiskConfiguration(dir),
+            new NullableComputedVectorizer()
+        );
+    }
+
+    private VectorIndexConfiguration onDiskConfiguration(final Path dir)
+    {
+        return VectorIndexConfiguration.builder()
+            .dimension(8)
+            .similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
+            .onDisk(true)
+            .indexDirectory(dir.resolve("vectors"))
+            .build();
+    }
+
+    private boolean diskGraphLoadsForLiveState(
+        final GigaMap<Doc> map,
+        final Path         dir
+    )
+        throws IOException
+    {
+        final VectorIndex.Default<Doc> index =
+            (VectorIndex.Default<Doc>)map.index().get(VectorIndices.Category()).get("embeddings");
+        final DiskIndexManager.MetaState live = new DiskIndexManager.MetaState(
+            index.getExpectedVectorCount(), index.getHighestEntityId(), index.getStructuralModCount());
+        final VectorIndexConfiguration configuration = this.onDiskConfiguration(dir);
+
+        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            index, "embeddings", dir.resolve("vectors"), 8, GraphFormat.of(configuration), false))
+        {
+            return manager.tryLoad(live);
+        }
+    }
+
+    /**
      * NVQ storage over sparse ordinals: the graph ordinal is the source entity id, so null
      * embeddings leave holes and the highest ordinal exceeds the vector count. Quantizing and
      * writing every ordinal up to that bound must work, and no null-embedding entity may surface in
