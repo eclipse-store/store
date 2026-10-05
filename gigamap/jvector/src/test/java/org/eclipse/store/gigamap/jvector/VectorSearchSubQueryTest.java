@@ -21,8 +21,10 @@ import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Random;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -236,6 +238,45 @@ class VectorSearchSubQueryTest
 		final ScoredSearchResult<Doc> narrowed = hits.and(map.query(categoryIndexer).is("Z"));
 		assertTrue(narrowed.isEmpty());
 		assertEquals(0, narrowed.size());
+	}
+
+	@Test
+	void andWithManyHitsAndScatteredIds_keepsExactlyTheMatchingEntriesInScoreOrder()
+	{
+		final GigaMap<Doc>     map             = GigaMap.New();
+		final CategoryIndexer  categoryIndexer = new CategoryIndexer();
+		final VectorIndex<Doc> vectorIndex     = setupIndex(map, categoryIndexer);
+
+		// Ids well beyond the boxed-Long cache, with removal holes, and categories interleaved so the
+		// matcher both confirms ids and skips ahead to a later candidate.
+		final Random random = new Random(42L);
+		for(int i = 0; i < 2_000; i++)
+		{
+			final String category = i % 3 == 0 || i % 7 == 0 ? "A" : "B";
+			map.add(new Doc(category, new float[]{random.nextFloat(), random.nextFloat(), random.nextFloat()}));
+		}
+		for(long id = 0; id < 2_000; id += 5)
+		{
+			map.removeById(id);
+		}
+
+		final VectorSearchResult<Doc> hits = vectorIndex.search(new float[]{1, 0.5f, 0.25f}, 600);
+		final List<Long> expected = new ArrayList<>();
+		for(final ScoredSearchResult.Entry<Doc> entry : hits)
+		{
+			if("A".equals(map.get(entry.entityId()).category))
+			{
+				expected.add(entry.entityId());
+			}
+		}
+
+		final ScoredSearchResult<Doc> narrowed = hits.and(map.query(categoryIndexer).is("A"));
+
+		final List<Long> actual = new ArrayList<>();
+		narrowed.forEach(entry -> actual.add(entry.entityId()));
+		assertTrue(expected.size() > 128, "precondition: more than 128 survivors, got " + expected.size());
+		assertTrue(hits.size() > expected.size(), "precondition: some hits must be filtered out");
+		assertEquals(expected, actual);
 	}
 
 }
