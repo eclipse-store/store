@@ -4310,18 +4310,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // searchers hold the old graph object, not the field.
             final GraphIndexBuilder oldBuilder = this.builder;
             final OnHeapGraphIndex  oldIndex   = this.index  ;
-            this.initializeInMemoryBuilder();
             try
             {
+                this.initializeInMemoryBuilder();
                 this.addGraphNodesSequential(entries);
             }
             catch(final Throwable t)
             {
+                // fields first, so that a second failure below still leaves the old graph published
                 final GraphIndexBuilder newBuilder = this.builder;
                 final OnHeapGraphIndex  newIndex   = this.index  ;
                 this.builder = oldBuilder;
                 this.index   = oldIndex  ;
-                this.closeBuilderQuietly(newBuilder, newIndex, t);
+                if(newBuilder != oldBuilder)
+                {
+                    // the builder's constructor itself may have failed, leaving the fields as they were
+                    this.closeBuilderQuietly(newBuilder, newIndex, t);
+                }
                 this.graphIncomplete = wasIncomplete;
                 throw t;
             }
