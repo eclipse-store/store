@@ -5200,6 +5200,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         /**
          * The body of {@link #drainDeferredBuilderOps()}. Must be called while holding the parent-map monitor.
+         * Persist Phase 1 also calls it with the write lock held, so the INVARIANT stated there applies to both.
          */
         private void runDeferredBuilderOps()
         {
