@@ -838,6 +838,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         public void internalRemoveAll();
 
         /**
+         * Rebuilds this index from the current state of the parent map's entities. Every vector is computed
+         * before anything is dropped, so a throwing vectorizer leaves the index as it was.
+         * Must be called like {@link #internalRemoveAll()}: with the parent-map monitor and the lock of
+         * {@link #internalTryLockExclusive()} held.
+         */
+        public void internalReindex();
+
+        /**
          * Tries, without waiting, to acquire the lock {@link #internalRemoveAll()} takes besides the parent-map
          * monitor (see {@code IndexGroup.Internal#internalTryLockExclusive}). Called with the monitor held.
          *
@@ -2316,14 +2324,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             if(this.configuration.eventualIndexing())
             {
-                final List<VectorEntry> entries = new ArrayList<>();
-                this.parentMap().iterateIndexed((entityId, entity) ->
-                {
-                    // validates the id range on this thread, as internalAdd does
-                    toOrdinal(entityId);
-                    entries.add(new VectorEntry(entityId, this.vectorize(entity)));
-                });
-                return entries;
+                return this.collectParentVectors();
             }
 
             // No manager exists yet, so the adds below build the graph synchronously and their changes are
@@ -2332,6 +2333,33 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.parentMap().iterateIndexed(this::internalAdd);
             this.backfillChanges = Math.toIntExact(this.structuralModCount - changesBefore);
             return null;
+        }
+
+        /**
+         * Computes and validates the vector of every entity of the parent map, changing nothing.
+         * Must be called with the parent-map monitor held.
+         */
+        private List<VectorEntry> collectParentVectors()
+        {
+            final List<VectorEntry> entries = new ArrayList<>();
+            this.parentMap().iterateIndexed((entityId, entity) ->
+            {
+                // validates the id range on this thread, as internalAdd does
+                toOrdinal(entityId);
+                entries.add(new VectorEntry(entityId, this.vectorize(entity)));
+            });
+            return entries;
+        }
+
+        @Override
+        public void internalReindex()
+        {
+            // Before anything is dropped: a vectorizer that throws for one entity must leave the index as it
+            // was. The re-add then uses these vectors and calls no vectorizer of its own for them.
+            final List<VectorEntry> entries = this.collectParentVectors();
+
+            this.internalRemoveAll();
+            this.internalAddBackfilled(entries);
         }
 
         @Override
@@ -3035,9 +3063,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                 this.closeInternalResources();
 
+                // Before initializeIndex(): the bumped counter makes tryLoad() reject the files of the
+                // generation just torn down, instead of adopting them as the new one.
+                this.markContentChanged();
+
                 // Reinitialize the index (this will also restart background managers if configured)
                 this.initializeIndex();
-                this.markContentChanged();
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
@@ -3870,6 +3901,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                             }
                             this.exitIncrementalMode();
                         }
+
+                        // Ops deferred since cleanupInProgress was set (before the write lock was free) are
+                        // already counted in structuralModCount, which is captured below as the .meta witness.
+                        // Leaving them out of the captured graph would write files that claim to be current but
+                        // miss those nodes, and a restart would accept them. Safe to apply here: cleanup has not
+                        // started, and this thread holds the write lock and the monitor.
+                        this.runDeferredBuilderOps();
 
                         // If we have an in-memory builder, prepare for disk write
                         if(this.builder == null || this.index == null)
@@ -5156,18 +5194,26 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             synchronized(this.parentMap())
             {
-                Runnable op;
-                while((op = this.deferredBuilderOps.poll()) != null)
+                this.runDeferredBuilderOps();
+            }
+        }
+
+        /**
+         * The body of {@link #drainDeferredBuilderOps()}. Must be called while holding the parent-map monitor.
+         */
+        private void runDeferredBuilderOps()
+        {
+            Runnable op;
+            while((op = this.deferredBuilderOps.poll()) != null)
+            {
+                try
                 {
-                    try
-                    {
-                        op.run();
-                    }
-                    catch(final RuntimeException e)
-                    {
-                        LOG.error("Deferred builder operation failed for index '{}', skipping it: {}",
-                            this.name, e.getMessage(), e);
-                    }
+                    op.run();
+                }
+                catch(final RuntimeException e)
+                {
+                    LOG.error("Deferred builder operation failed for index '{}', skipping it: {}",
+                        this.name, e.getMessage(), e);
                 }
             }
         }

@@ -393,6 +393,46 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
             this.markStateChangeChildren();
         }
 
+        /**
+         * Rebuilds each index on its own, unlike the group default, whose fan-out per entity lets one throwing
+         * vectorizer truncate every index of the group. A failing index stays as it was and does not keep the
+         * others from being rebuilt; the first failure is rethrown at the end, later ones are suppressed.
+         */
+        @Override
+        public void internalReindex(final GigaMap<E> parentMap)
+        {
+            RuntimeException first = null;
+            try
+            {
+                for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+                {
+                    try
+                    {
+                        index.internalReindex();
+                    }
+                    catch(final RuntimeException e)
+                    {
+                        if(first == null)
+                        {
+                            first = e;
+                        }
+                        else
+                        {
+                            first.addSuppressed(e);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                this.markStateChangeChildren();
+            }
+            if(first != null)
+            {
+                throw first;
+            }
+        }
+
         @Override
         public boolean internalTryLockExclusive()
         {

@@ -673,9 +673,18 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * attempted; the first failure is rethrown afterwards with any further ones attached as suppressed
 	 * exceptions. Fix the cause and call this method again to repair the indices that were left behind. A
 	 * unique-constraint violation is <em>not</em> such a failure - the rebuild completed and merely produced
-	 * colliding data, so it is reported as described above. Index groups other than the bitmap indices
-	 * (Lucene, vector) still drop their data before rebuilding, so a failure there can leave that group
-	 * partial until the next successful rebuild.
+	 * colliding data, so it is reported as described above.
+	 * <p>
+	 * A vector index computes every entity's vector before it drops anything, so a {@code Vectorizer} throwing
+	 * for one entity leaves that index as it was, and the other vector indices are still rebuilt. Only a failure
+	 * during the graph build that follows can leave it partial: in embedded mode the build calls the vectorizer
+	 * again for neighbouring entities, so a vectorizer that fails only then, an {@link OutOfMemoryError} or a
+	 * failure inside the graph library does. Such an index stays partial until the next successful call of this
+	 * method; a {@link #store()} or, for an on-disk index, a persist in between makes the partial state durable.
+	 * A Lucene index discards a failed rebuild and rebuilds itself on its next use in this session; until that
+	 * succeeds, its queries fail, and with {@code LuceneContext.autoCommit} {@code false} so does storing the
+	 * map. That mark does not survive a restart: afterwards the index serves its last commit, without the
+	 * changes the failed rebuild was to apply, until this method succeeds.
 	 * <p>
 	 * <b>Concurrency:</b> as for {@link #removeAll()}, this method never waits for an index group's own locks
 	 * while holding the monitor, but waits on the monitor instead, which interrupts a caller's
