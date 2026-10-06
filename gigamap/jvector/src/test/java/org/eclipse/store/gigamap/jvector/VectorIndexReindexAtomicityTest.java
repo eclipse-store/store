@@ -25,6 +25,7 @@ import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.lang.reflect.Field;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Queue;
 import java.util.Set;
@@ -39,10 +40,11 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * {@code GigaMap.reindex()} of vector indices: a throwing vectorizer must leave every index complete, an on-disk
  * index must be rebuilt from the current entities rather than reloaded from its persisted graph, and a persist must
- * not write a graph that misses a node its {@code .meta} witnesses count.
+ * not write a graph that misses a node its {@code .meta} witnesses count, also when the deferred op behind that node
+ * failed.
  * <p>
- * The persist test builds its interleaving deterministically (a search held inside scoring keeps the read lock) on
- * daemon threads joined with a timeout, so a regression fails instead of hanging the build. It runs last: a hung
+ * The persist tests build their interleaving deterministically (a search held inside scoring keeps the read lock) on
+ * daemon threads joined with a timeout, so a regression fails instead of hanging the build. They run last: a hung
  * persist leaves graph-cleanup tasks blocked on {@code ForkJoinPool.commonPool}.
  */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
@@ -324,7 +326,8 @@ class VectorIndexReindexAtomicityTest
 
     /**
      * Embedded vectorizer that pauses one designated thread on its first call, so that thread can be held inside a
-     * search's scoring (holding the read lock).
+     * search's scoring (holding the read lock), and that throws on another designated thread while failures are
+     * left.
      */
     static class PausableVectorizer extends EmbeddedVectorizer
     {
@@ -332,11 +335,15 @@ class VectorIndexReindexAtomicityTest
         transient volatile Thread      pauseThread;
         transient final    CountDownLatch paused = new CountDownLatch(1);
         transient final    CountDownLatch resume = new CountDownLatch(1);
+        transient volatile Thread      failThread;
+        transient volatile int         failuresLeft;
+        transient volatile boolean     failWithError;
 
         @Override
         public float[] vectorize(final Doc entity)
         {
-            if(Thread.currentThread() == this.pauseThread)
+            final Thread current = Thread.currentThread();
+            if(current == this.pauseThread)
             {
                 this.pauseThread = null;
                 this.paused.countDown();
@@ -346,11 +353,86 @@ class VectorIndexReindexAtomicityTest
                 }
                 catch(final InterruptedException e)
                 {
-                    Thread.currentThread().interrupt();
+                    current.interrupt();
                 }
+            }
+            if(current == this.failThread && this.failuresLeft > 0)
+            {
+                this.failuresLeft--;
+                if(this.failWithError)
+                {
+                    throw new Error("simulated vectorizer error on " + current.getName());
+                }
+                throw new IllegalStateException("simulated vectorizer failure on " + current.getName());
             }
             return super.vectorize(entity);
         }
+    }
+
+    /**
+     * Runs a persist on its own thread while a synchronous add() is deferred: a search held inside scoring keeps the
+     * read lock, the persist sets {@code cleanupInProgress} and queues on the write lock, the add runs, the search is
+     * released. The vectorizer throws on the persist thread {@code failures} times, starting with the deferred add's
+     * neighbour scoring in the persist's Phase-1 drain.
+     *
+     * @return the id of the added entity
+     */
+    private static long persistWhileAnAddIsDeferred(
+        final GigaMap<Doc>               map           ,
+        final VectorIndex<Doc>           index         ,
+        final PausableVectorizer         vectorizer    ,
+        final Doc                        late          ,
+        final int                        failures      ,
+        final AtomicReference<Throwable> persistFailure
+    )
+        throws InterruptedException
+    {
+        final long lateId;
+        final Thread searcher  = daemon("searcher", () -> index.search(position(10), 5));
+        final Thread persister = daemon("persister", () ->
+        {
+            try
+            {
+                index.persistToDisk();
+            }
+            catch(final Throwable t)
+            {
+                persistFailure.set(t);
+            }
+        });
+        try
+        {
+            // a search holds the read lock, paused inside scoring
+            vectorizer.pauseThread = searcher;
+            searcher.start();
+            assertTrue(vectorizer.paused.await(TIMEOUT_MS, TimeUnit.MILLISECONDS), "search did not reach scoring");
+
+            // the persist sets cleanupInProgress and queues on the write lock
+            vectorizer.failThread   = persister;
+            vectorizer.failuresLeft = failures;
+            persister.start();
+            awaitQueued(internalState(index, "builderLock"), persister);
+
+            // a synchronous add in that window: its graph op is deferred
+            lateId = map.add(late);
+            final Queue<?> deferred = internalState(index, "deferredBuilderOps");
+            assertEquals(1, deferred.size(), "precondition: the add's graph op was deferred");
+        }
+        finally
+        {
+            // also when the test failed: a held search would block the storage shutdown
+            vectorizer.resume.countDown();
+        }
+        searcher.join(TIMEOUT_MS);
+        persister.join(TIMEOUT_MS);
+        assertFalse(persister.isAlive(), "the persist did not finish");
+        vectorizer.failuresLeft = 0;
+        return lateId;
+    }
+
+    private static boolean foundExactly(final VectorIndex<Doc> index, final Doc doc, final long id)
+    {
+        return index.search(doc.vector, 3).toList().stream().anyMatch(e -> e.entityId() == id && e.score() > 0.99f);
     }
 
     /**
@@ -360,8 +442,25 @@ class VectorIndexReindexAtomicityTest
      * is missing.
      */
     @Test
-    @Order(Integer.MAX_VALUE)
+    @Order(Integer.MAX_VALUE - 2)
     void addDeferredWhileAPersistWaitsIsPersisted(@TempDir final Path tempDir) throws Exception
+    {
+        assertDeferredAddPersisted(tempDir, 0);
+    }
+
+    /**
+     * The deferred add's graph op throws in the persist's Phase-1 drain (the vectorizer fails once while it scores
+     * neighbours). The op is lost, but its add is already counted in the witnesses, so the persist must rebuild the
+     * graph from the entities before it captures it instead of writing a graph that misses the entity.
+     */
+    @Test
+    @Order(Integer.MAX_VALUE - 1)
+    void failedDeferredOpIsRebuiltBeforeThePersistCaptures(@TempDir final Path tempDir) throws Exception
+    {
+        assertDeferredAddPersisted(tempDir, 1);
+    }
+
+    private static void assertDeferredAddPersisted(final Path tempDir, final int failures) throws Exception
     {
         final Path storageDir = tempDir.resolve("storage");
         final Doc  late       = new Doc(COUNT + 7);
@@ -377,43 +476,9 @@ class VectorIndexReindexAtomicityTest
             map.store();
 
             final AtomicReference<Throwable> persistFailure = new AtomicReference<>();
-            final Thread searcher  = daemon("searcher", () -> index.search(position(10), 5));
-            final Thread persister = daemon("persister", () ->
-            {
-                try
-                {
-                    index.persistToDisk();
-                }
-                catch(final Throwable t)
-                {
-                    persistFailure.set(t);
-                }
-            });
-            try
-            {
-                // a search holds the read lock, paused inside scoring
-                vectorizer.pauseThread = searcher;
-                searcher.start();
-                assertTrue(vectorizer.paused.await(TIMEOUT_MS, TimeUnit.MILLISECONDS), "search did not reach scoring");
-
-                // the persist sets cleanupInProgress and queues on the write lock
-                persister.start();
-                awaitQueued(internalState(index, "builderLock"), persister);
-
-                // a synchronous add in that window: its graph op is deferred
-                lateId = map.add(late);
-                final Queue<?> deferred = internalState(index, "deferredBuilderOps");
-                assertEquals(1, deferred.size(), "precondition: the add's graph op was deferred");
-            }
-            finally
-            {
-                // also when the test failed: a held search would block the storage shutdown
-                vectorizer.resume.countDown();
-            }
-            searcher.join(TIMEOUT_MS);
-            persister.join(TIMEOUT_MS);
-            assertFalse(persister.isAlive(), "the persist did not finish");
+            lateId = persistWhileAnAddIsDeferred(map, index, vectorizer, late, failures, persistFailure);
             assertNull(persistFailure.get(), "the persist failed");
+            assertTrue(foundExactly(index, late, lateId), "the deferred entity is missing in the session");
             map.store();
         }
 
@@ -423,10 +488,126 @@ class VectorIndexReindexAtomicityTest
             final VectorIndex<Doc> index = map.index().get(VectorIndices.class).get("emb");
             index.search(late.vector, 1); // initializes the index from disk
             assertTrue(isIncrementalMode(index), "precondition: the written files were accepted after the restart");
-            assertTrue(
-                index.search(late.vector, 3).toList().stream().anyMatch(e -> e.entityId() == lateId && e.score() > 0.99f),
+            assertTrue(foundExactly(index, late, lateId),
                 "the entity added while the persist waited for the write lock is missing after a restart");
         }
+    }
+
+    /**
+     * The vectorizer keeps failing on the persist thread, so the rebuild that the failed deferred op calls for fails
+     * too: the persist must fail and write nothing. The next persist, with a working vectorizer, rebuilds and writes
+     * the complete graph.
+     */
+    @Test
+    @Order(Integer.MAX_VALUE)
+    void persistFailsWithoutWritingWhileTheRebuildFails(@TempDir final Path tempDir) throws Exception
+    {
+        assertFailedPersistWritesNothingAndTheNextRepairs(tempDir, Integer.MAX_VALUE, false);
+    }
+
+    /**
+     * An {@link Error} from the deferred add's graph op (thrown once by the vectorizer in the Phase-1 drain) fails the
+     * persist, but the op is lost all the same: it must mark the graph incomplete like any other failure, so the next
+     * persist rebuilds the graph instead of capturing it without the entity.
+     */
+    @Test
+    @Order(Integer.MAX_VALUE)
+    void errorInADeferredOpAlsoForcesTheRebuild(@TempDir final Path tempDir) throws Exception
+    {
+        assertFailedPersistWritesNothingAndTheNextRepairs(tempDir, 1, true);
+    }
+
+    private static void assertFailedPersistWritesNothingAndTheNextRepairs(
+        final Path    tempDir      ,
+        final int     failures     ,
+        final boolean failWithError
+    )
+        throws Exception
+    {
+        final Path storageDir = tempDir.resolve("storage");
+        final Path indexDir   = tempDir.resolve("index");
+        final Doc  late       = new Doc(COUNT + 7);
+        final long lateId;
+        try(EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc> map = populatedMap(COUNT);
+            storage.setRoot(map);
+            storage.storeRoot();
+            final PausableVectorizer vectorizer = new PausableVectorizer();
+            final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+                .add("emb", onDisk(indexDir, ApproximateScoring.NONE), vectorizer);
+            map.store();
+
+            final AtomicReference<Throwable> persistFailure = new AtomicReference<>();
+            vectorizer.failWithError = failWithError;
+            lateId = persistWhileAnAddIsDeferred(map, index, vectorizer, late, failures, persistFailure);
+            final Throwable failure = persistFailure.get();
+            assertNotNull(failure, "the persist succeeded although the deferred op failed");
+            // Where it failed matters: a failure anywhere else (e.g. in the disk write, which also vectorizes on the
+            // persist thread) would let the deferred op be applied afterwards, and the test would pass for nothing.
+            if(failWithError)
+            {
+                assertInstanceOf(Error.class, failure, "the Error from the deferred op did not propagate");
+                assertTrue(thrownFrom(failure, "runDeferredBuilderOps") && !thrownFrom(failure, "drainDeferredBuilderOps"),
+                    "the Error was not thrown by the deferred op in the persist's Phase-1 drain");
+            }
+            else
+            {
+                assertTrue(thrownFrom(failure, "rebuildInMemoryGraph"), "the persist did not fail in the rebuild");
+            }
+            assertFalse(Files.exists(indexDir.resolve("emb.meta")), "the failed persist wrote index files");
+
+            assertNull(persistWithinTimeout(index), "the next persist failed");
+            assertTrue(foundExactly(index, late, lateId), "the next persist did not rebuild the graph");
+            map.store();
+        }
+
+        try(EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc>     map   = storage.root();
+            final VectorIndex<Doc> index = map.index().get(VectorIndices.class).get("emb");
+            index.search(late.vector, 1); // initializes the index from disk
+            assertTrue(isIncrementalMode(index), "precondition: the written files were accepted after the restart");
+            assertTrue(foundExactly(index, late, lateId), "the entity is missing after a restart");
+        }
+    }
+
+    private static boolean thrownFrom(final Throwable failure, final String methodName)
+    {
+        for(final StackTraceElement frame : failure.getStackTrace())
+        {
+            if(frame.getMethodName().equals(methodName))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Persists on a daemon thread joined with a timeout: a persist that failed before may have left a lock held,
+     * which must fail the test rather than hang the build.
+     *
+     * @return what the persist threw, or {@code null}
+     */
+    private static Throwable persistWithinTimeout(final VectorIndex<Doc> index) throws InterruptedException
+    {
+        final AtomicReference<Throwable> failure = new AtomicReference<>();
+        final Thread persister = daemon("persister", () ->
+        {
+            try
+            {
+                index.persistToDisk();
+            }
+            catch(final Throwable t)
+            {
+                failure.set(t);
+            }
+        });
+        persister.start();
+        persister.join(TIMEOUT_MS);
+        assertFalse(persister.isAlive(), "the persist did not finish");
+        return failure.get();
     }
 
     private static Thread daemon(final String name, final Runnable action)

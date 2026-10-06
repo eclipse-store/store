@@ -1135,6 +1135,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private transient volatile boolean                compressionTrainedOutsidePersist;
         private transient ConcurrentLinkedQueue<Runnable> deferredBuilderOps;
 
+        /**
+         * Whether a deferred builder op failed since the graph was last built from the source of truth. Its
+         * mutation is already counted in {@code structuralModCount}, but the graph lacks the change (or holds a
+         * half-inserted node), so a persist must not capture this graph: it rebuilds it first
+         * ({@link #rebuildInMemoryGraph()}), or on shutdown writes nothing. Cleared only by a successful rebuild or a
+         * new generation.
+         */
+        private transient volatile boolean                graphIncomplete;
+
         // Test-only seam: run once at the start of persist Phase 2 (parentMap monitor released,
         // builder about to be swapped by reenterIncrementalMode). Lets a test deterministically inject
         // a mutation into the exact window where a deferred builder op is drained after the swap.
@@ -3060,6 +3069,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     this.deferredBuilderOps.clear();
                 }
+                // and a failed op of the old generation leaves nothing to repair in the new one
+                this.graphIncomplete = false;
 
                 this.closeInternalResources();
 
@@ -3834,6 +3845,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     {
                         skipPersist = this.incrementalMode
                             && this.isIncrementalClean()
+                            && !this.graphIncomplete
                             && !trainedForThisPersist
                             && !this.compressionTrainedOutsidePersist
                             && (onShutdown || !(this.isPqTrainingPending() || this.isNvqTrainingPending()))
@@ -3908,6 +3920,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         // miss those nodes, and a restart would accept them. Safe to apply here: cleanup has not
                         // started, and this thread holds the write lock and the monitor.
                         this.runDeferredBuilderOps();
+
+                        // A failed deferred op (here or in an earlier drain) left a counted change out of the
+                        // graph, so capturing it would write files that claim more than they contain. Rebuild
+                        // from the source of truth first; if that fails too, the persist fails and writes nothing.
+                        if(this.graphIncomplete)
+                        {
+                            if(onShutdown)
+                            {
+                                // Not worth an O(n) rebuild that would block shutdown: writing nothing is just as
+                                // safe. The files on disk predate the lost change, so the restart rejects them and
+                                // rebuilds from the store.
+                                LOG.warn("Graph of '{}' is incomplete after a failed deferred operation; skipping"
+                                    + " the persist on shutdown, the index is rebuilt on next load", this.name);
+                                return;
+                            }
+                            this.rebuildInMemoryGraph();
+                        }
 
                         // If we have an in-memory builder, prepare for disk write
                         if(this.builder == null || this.index == null)
@@ -4247,6 +4276,25 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.diskDeletedOrdinals = null;
             this.diskGraphMeta       = null;
 
+            this.rebuildInMemoryGraph();
+        }
+
+        /**
+         * Replaces the in-memory builder and graph with a new one built from the stored vectors (computed mode) or
+         * the entities (embedded mode), the source of truth. Must be called under builderLock.writeLock() and the
+         * parentMap monitor.
+         * <p>
+         * The vectors are collected before anything is torn down, so a vectorizer that throws for an entity leaves
+         * the current graph in place. Any failure leaves {@link #graphIncomplete} set, so the next persist rebuilds
+         * again instead of writing the graph: after a failed build it is partial, and when called from
+         * {@link #exitIncrementalMode()} even an intact builder holds only the changes made since the disk graph.
+         */
+        private void rebuildInMemoryGraph()
+        {
+            this.graphIncomplete = true;
+
+            final List<VectorEntry> entries = this.collectStoredVectors();
+
             // Close existing in-memory builder and index
             if(this.builder != null)
             {
@@ -4256,7 +4304,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
                 catch(final IOException e)
                 {
-                    LOG.warn("Error closing builder during exitIncrementalMode: {}", e.getMessage());
+                    LOG.warn("Error closing builder while rebuilding '{}': {}", this.name, e.getMessage());
                 }
                 this.builder = null;
             }
@@ -4269,10 +4317,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // Close searcher pool (will be re-created)
             this.closeSearcherPools();
 
-            // Reinitialize builder and rebuild full graph from stored vectors
-            this.initializeInMemoryBuilder();
-            this.rebuildGraphFromStore();
-            this.initializeSearcherPool();
+            try
+            {
+                this.initializeInMemoryBuilder();
+                this.addGraphNodesSequential(entries);
+            }
+            finally
+            {
+                // also after a failed build: searches must find a pool for whatever graph exists
+                this.initializeSearcherPool();
+            }
+            this.graphIncomplete = false;
 
             // The full in-memory graph now exists: mark the (deferred) rebuild done so a later
             // first-access ensureGraphRebuilt() does not rebuild a second time on top of this one.
@@ -5182,7 +5237,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * <p>
          * A failing op is logged and skipped rather than allowed to abort the drain: the op is
          * already polled and lost either way, but stranding the rest of the queue would leave the
-         * index unable to ever persist again.
+         * index unable to ever persist again. The failure sets {@link #graphIncomplete}, so the next
+         * persist rebuilds the graph from the source of truth before it captures it. An {@link Error}
+         * sets it as well and is rethrown; the ops not run yet stay queued.
          */
         private void drainDeferredBuilderOps()
         {
@@ -5213,8 +5270,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
                 catch(final RuntimeException e)
                 {
-                    LOG.error("Deferred builder operation failed for index '{}', skipping it: {}",
+                    this.graphIncomplete = true;
+                    LOG.error("Deferred builder operation failed for index '{}', skipping it; its change is missing"
+                        + " from the graph until the graph is rebuilt (next persist of an on-disk index, or restart): {}",
                         this.name, e.getMessage(), e);
+                }
+                catch(final Error e)
+                {
+                    // The op is lost all the same (already polled), so the graph needs the rebuild too. The ops not
+                    // run yet stay queued for the next drain.
+                    this.graphIncomplete = true;
+                    throw e;
                 }
             }
         }
