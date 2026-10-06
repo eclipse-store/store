@@ -58,6 +58,12 @@ class BackgroundTaskManagerShutdownTest
         public void markDirtyForBackgroundManagers(final int count) { /* no-op */ }
 
         @Override
+        public void markGraphIncomplete(final Throwable cause) { /* no-op */ }
+
+        @Override
+        public void repairGraph() { /* no-op */ }
+
+        @Override
         public void doOptimize() { /* no-op */ }
 
         @Override

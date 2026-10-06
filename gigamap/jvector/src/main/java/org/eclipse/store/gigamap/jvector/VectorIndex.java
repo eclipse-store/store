@@ -406,6 +406,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      *         and lazy entity access; never null but may contain fewer than k results if the
      *         index has fewer entities
      * @throws IllegalArgumentException if queryVector is null, has wrong dimension, or k &lt;= 0
+     * @throws IllegalStateException if a graph operation failed after its entity was counted and the graph could
+     *         not be rebuilt from the entities or the stored vectors, so the index is known to be incomplete; the
+     *         cause is attached. With eventual indexing the rebuild runs on the background thread as soon as a
+     *         failure is recorded, so this is only thrown when that rebuild failed too (or when the index has no
+     *         background thread). {@link GigaMap#reindex()} or, for an on-disk index, {@link #persistToDisk()}
+     *         rebuilds the graph and clears the condition
      * @see #search(Object, int)
      * @see VectorSearchResult
      */
@@ -1143,6 +1149,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * new generation.
          */
         private transient volatile boolean                graphIncomplete;
+
+        /**
+         * The failure that left {@link #graphIncomplete} set with no repair in sight: a repair that failed, or a
+         * failed operation on an index without a background task manager to run one. While set, {@link #search}
+         * throws instead of answering from a graph that is known to be incomplete. Cleared with
+         * {@link #graphIncomplete}: by a successful rebuild (a repair, a persist, {@code persistToDisk()}) or a new
+         * generation ({@code removeAll()}, {@code reindex()}). A failed repair is not retried on its own: with a
+         * persistently failing vectorizer that would cost one O(n) rebuild per failed operation.
+         */
+        private transient volatile Throwable              graphRepairFailure;
 
         // Test-only seam: run once at the start of persist Phase 2 (parentMap monitor released,
         // builder about to be swapped by reenterIncrementalMode). Lets a test deterministically inject
@@ -3086,7 +3102,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.deferredBuilderOps.clear();
                 }
                 // and a failed op of the old generation leaves nothing to repair in the new one
-                this.graphIncomplete = false;
+                this.graphIncomplete    = false;
+                this.graphRepairFailure = null ;
 
                 this.closeInternalResources();
 
@@ -3178,6 +3195,19 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // that monitor would risk the exact lock-ordering deadlock the read-lock note below
             // warns about. Once rebuilt this is a lock-free volatile check.
             this.ensureIndexInitialized();
+
+            // Loud rather than wrong: a graph that is known to miss counted entities, with no repair coming,
+            // must not answer as if it were complete.
+            final Throwable repairFailure = this.graphRepairFailure;
+            if(repairFailure != null)
+            {
+                throw new IllegalStateException(
+                    "Vector index \"" + this.name + "\" is incomplete: a graph operation failed and the graph could"
+                    + " not be rebuilt from the source of truth. Fix the cause (see the attached failure) and call"
+                    + " GigaMap.reindex(), or persistToDisk() for an on-disk index.",
+                    repairFailure
+                );
+            }
 
             // Acquire read lock — blocks during cleanup/persistence/removeAll/close,
             // allows concurrent searches and GigaMap mutations.
@@ -3928,7 +3958,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                                     + "on-disk index self-heals from store on next load", this.name);
                                 return;
                             }
-                            this.exitIncrementalMode();
+                            this.rebuildFromSourceOfTruth();
                             rebuilt = true;
                         }
 
@@ -3966,7 +3996,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                                     + " the persist on shutdown, the index is rebuilt on next load", this.name);
                                 return;
                             }
-                            this.rebuildInMemoryGraph();
+                            this.rebuildFromSourceOfTruth();
                         }
 
                         // If we have an in-memory builder, prepare for disk write
@@ -4317,6 +4347,37 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
+         * Rebuilds the graph from the source of truth, leaving incremental mode if the index is in it. The one entry
+         * point for a rebuild that repairs a graph known to be incomplete ({@link #graphIncomplete}): if that rebuild
+         * fails, for whatever reason and at whatever stage, the failure is latched in {@link #graphRepairFailure} so
+         * that searches throw instead of answering from the incomplete graph. Must be called under
+         * builderLock.writeLock() and the parentMap monitor.
+         */
+        private void rebuildFromSourceOfTruth()
+        {
+            final boolean repairing = this.graphIncomplete;
+            try
+            {
+                if(this.incrementalMode)
+                {
+                    this.exitIncrementalMode();
+                }
+                else
+                {
+                    this.rebuildInMemoryGraph();
+                }
+            }
+            catch(final Throwable t)
+            {
+                if(repairing)
+                {
+                    this.graphRepairFailure = t;
+                }
+                throw t;
+            }
+        }
+
+        /**
          * Replaces the in-memory builder and graph with a new one built from the stored vectors (computed mode) or
          * the entities (embedded mode), the source of truth. Must be called under builderLock.writeLock() and the
          * parentMap monitor.
@@ -4366,7 +4427,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.closeBuilderQuietly(oldBuilder, oldIndex, null);
             // existing searchers hold the old graph: re-create the pools before the lock is released
             this.initializeSearcherPool();
-            this.graphIncomplete = false;
+            this.graphIncomplete    = false;
+            this.graphRepairFailure = null ;
 
             // The full in-memory graph now exists: mark the (deferred) rebuild done so a later
             // first-access ensureGraphRebuilt() does not rebuild a second time on top of this one.
@@ -5059,6 +5121,77 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
         }
 
+        /**
+         * Records a failed graph operation whose mutation is already counted (see {@link #graphIncomplete}) and
+         * arranges the repair: a rebuild on the background task manager if there is one, otherwise the failure is
+         * latched at once, because nothing but the next persist or {@code reindex()} can rebuild the graph and
+         * searches must not answer from an incomplete graph until then. Called from the worker's per-operation
+         * catch and from the deferred-op drains, with any locks held: this only sets fields and submits a task.
+         * <p>
+         * After a failed repair no further repair is requested; see {@link #graphRepairFailure}.
+         */
+        @Override
+        public void markGraphIncomplete(final Throwable cause)
+        {
+            this.graphIncomplete = true;
+            if(this.graphRepairFailure != null)
+            {
+                return;
+            }
+            final BackgroundTaskManager manager = this.backgroundTaskManager;
+            if(manager != null)
+            {
+                manager.requestGraphRepair();
+            }
+            else
+            {
+                this.graphRepairFailure = cause;
+            }
+        }
+
+        /**
+         * Rebuilds the graph from the source of truth if {@link #graphIncomplete} is set. Runs on the background
+         * task manager's thread with the same locks and in the same order as persist Phase 1: the builder write
+         * lock, then the parent-map monitor. The rebuild replaces the graph only once it is complete
+         * ({@link #rebuildInMemoryGraph()}); in incremental mode it leaves that mode, because a full in-memory
+         * graph next to the disk graph would answer every entity twice, and asks for a persist so the disk graph is
+         * replaced as well.
+         */
+        @Override
+        public void repairGraph()
+        {
+            if(!this.graphIncomplete)
+            {
+                return;
+            }
+            this.builderLock.writeLock().lock();
+            try
+            {
+                if(this.closed)
+                {
+                    return;
+                }
+                synchronized(this.parentMap())
+                {
+                    if(!this.graphIncomplete || !this.isIndexPresent())
+                    {
+                        return;
+                    }
+                    LOG.warn("Rebuilding the graph of '{}' from the source of truth after a failed graph operation",
+                        this.name);
+                    this.rebuildFromSourceOfTruth();
+                    if(this.configuration.onDisk() && this.backgroundTaskManager != null)
+                    {
+                        this.backgroundTaskManager.markPersistRequired();
+                    }
+                }
+            }
+            finally
+            {
+                this.builderLock.writeLock().unlock();
+            }
+        }
+
 
         // ================================================================
         // Builder operation deferral helpers
@@ -5343,16 +5476,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
                 catch(final RuntimeException e)
                 {
-                    this.graphIncomplete = true;
+                    this.markGraphIncomplete(e);
                     LOG.error("Deferred builder operation failed for index '{}', skipping it; its change is missing"
-                        + " from the graph until the graph is rebuilt (next persist of an on-disk index, or restart): {}",
-                        this.name, e.getMessage(), e);
+                        + " from the graph until the graph is rebuilt: {}", this.name, e.getMessage(), e);
                 }
                 catch(final Error e)
                 {
                     // The op is lost all the same (already polled), so the graph needs the rebuild too. The ops not
                     // run yet stay queued for the next drain.
-                    this.graphIncomplete = true;
+                    this.markGraphIncomplete(e);
                     throw e;
                 }
             }

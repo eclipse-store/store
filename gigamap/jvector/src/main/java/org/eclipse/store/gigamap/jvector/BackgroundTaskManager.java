@@ -151,6 +151,22 @@ class BackgroundTaskManager
         void markDirtyForBackgroundManagers(int count);
 
         /**
+         * Records that a graph operation failed after its mutation was counted: the graph is behind its
+         * witnesses until it is rebuilt from the source of truth. Called on the executor thread, from the
+         * per-operation catch of the indexing drain, before the next operation runs.
+         *
+         * @param cause the failure
+         */
+        void markGraphIncomplete(Throwable cause);
+
+        /**
+         * Rebuilds the graph from the source of truth if a graph operation failed since it was last built,
+         * otherwise does nothing. Called on the executor thread after {@link #requestGraphRepair()}, with no
+         * lock held; the implementation takes the locks it needs.
+         */
+        void repairGraph();
+
+        /**
          * Whether this index needs an optimization it cannot earn through the change count.
          * <p>
          * Asked on every scheduled tick, rather than answered once and remembered, because the
@@ -203,6 +219,9 @@ class BackgroundTaskManager
     private final ConcurrentLinkedQueue<IndexingOperation> indexingQueue         ;
     private final AtomicBoolean                            indexingTaskScheduled ;
 
+    // One repair task at a time: every failed operation of a batch requests one, one rebuild serves them all.
+    private final AtomicBoolean                            repairScheduled       ;
+
     // Optimization state
     private final AtomicInteger optimizationChangeCount;
     private final AtomicLong    optimizationCount      ;
@@ -253,6 +272,7 @@ class BackgroundTaskManager
         // Indexing
         this.indexingQueue         = new ConcurrentLinkedQueue<>();
         this.indexingTaskScheduled = new AtomicBoolean(false);
+        this.repairScheduled       = new AtomicBoolean(false);
 
         // Optimization
         this.optimizationChangeCount = new AtomicInteger(0);
@@ -389,6 +409,49 @@ class BackgroundTaskManager
     int getPendingIndexingCount()
     {
         return this.indexingQueue.size();
+    }
+
+    /**
+     * Schedules one {@link Callback#repairGraph()} on the executor, unless one is already scheduled or the manager
+     * is shut down. Called from any thread, with any locks held: this only submits a task. The task runs after the
+     * batch that is applying operations now, so one rebuild serves every failure of that batch.
+     */
+    void requestGraphRepair()
+    {
+        if(this.shutdown)
+        {
+            return;
+        }
+        if(this.repairScheduled.compareAndSet(false, true))
+        {
+            this.executor.submit(this::runGraphRepair);
+        }
+    }
+
+    private void runGraphRepair()
+    {
+        // Reset first: a failure requested while the repair runs must be able to schedule the next one.
+        this.repairScheduled.set(false);
+        if(this.shutdown)
+        {
+            // A repair is not worth blocking a shutdown; a shutdown persist writes nothing while the graph is
+            // incomplete, and the next load rebuilds from the store.
+            return;
+        }
+        final Callback cb = this.liveCallback();
+        if(cb == null)
+        {
+            return;
+        }
+        try
+        {
+            cb.repairGraph();
+        }
+        catch(final Throwable t)
+        {
+            // The index has recorded the failed repair and reports it from search(); nothing else to do here.
+            LOG.error("Graph repair failed for '{}': {}", this.name, t.getMessage(), t);
+        }
     }
 
     // ========================================================================
@@ -644,9 +707,20 @@ class BackgroundTaskManager
             {
                 op.execute(cb);
             }
-            catch(final Exception e)
+            catch(final Throwable t)
             {
-                LOG.error("Error applying indexing operation for '{}': {}", this.name, e.getMessage(), e);
+                // The operation is polled and lost either way, and its mutation was counted on the caller's
+                // thread when it was enqueued: the graph is now behind its witnesses, and a half-inserted node
+                // may be left behind. Recorded before anything else runs, so that a persist rebuilds the graph
+                // instead of capturing it and the index can schedule a repair. An Error is recorded the same way
+                // and then rethrown; the operations not run yet stay queued.
+                cb.markGraphIncomplete(t);
+                LOG.error("Error applying indexing operation for '{}', the graph is rebuilt from the source of"
+                    + " truth: {}", this.name, t.getMessage(), t);
+                if(t instanceof Error)
+                {
+                    throw (Error)t;
+                }
             }
         }
     }
@@ -692,9 +766,12 @@ class BackgroundTaskManager
 
             LOG.debug("Background optimization completed for '{}'", this.name);
         }
-        catch(final Exception e)
+        catch(final Throwable t)
         {
-            LOG.error("Background optimization failed for '{}': {}", this.name, e.getMessage(), e);
+            // Throwable, not Exception: a throwable escaping a scheduled task cancels the task for good, and
+            // an Error out of the inline drain above would silently end background optimization. The drain
+            // has already recorded the failure for the repair.
+            LOG.error("Background optimization failed for '{}': {}", this.name, t.getMessage(), t);
         }
     }
 
@@ -734,9 +811,10 @@ class BackgroundTaskManager
 
             LOG.debug("Background persistence completed for '{}'", this.name);
         }
-        catch(final Exception e)
+        catch(final Throwable t)
         {
-            LOG.error("Background persistence failed for '{}': {}", this.name, e.getMessage(), e);
+            // Throwable for the reason given on runOptimizationIfDirty: the periodic task must survive.
+            LOG.error("Background persistence failed for '{}': {}", this.name, t.getMessage(), t);
         }
     }
 
