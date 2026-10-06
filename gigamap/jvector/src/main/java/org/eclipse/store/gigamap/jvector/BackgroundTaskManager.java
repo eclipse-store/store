@@ -470,7 +470,16 @@ class BackgroundTaskManager
         }
         if(this.repairScheduled.compareAndSet(false, true))
         {
-            this.executor.submit(this::runGraphRepair);
+            try
+            {
+                this.executor.submit(this::runGraphRepair);
+            }
+            catch(final RejectedExecutionException e)
+            {
+                // The manager was shut down between the flag check above and the submit (close(), removeAll()).
+                // Nothing to repair in a generation that is going away; the next load or generation rebuilds.
+                this.repairScheduled.set(false);
+            }
         }
     }
 
@@ -757,12 +766,13 @@ class BackgroundTaskManager
             {
                 // The operation is polled and lost either way, and its mutation was counted on the caller's
                 // thread when it was enqueued: the graph is now behind its witnesses, and a half-inserted node
-                // may be left behind. Recorded before anything else runs, so that a persist rebuilds the graph
-                // instead of capturing it and the index can schedule a repair. An Error is recorded the same way
-                // and then rethrown; the operations not run yet stay queued.
-                cb.markGraphIncomplete(t);
+                // may be left behind. Logged first, so the failure is on record whatever the callback does; then
+                // recorded before the next operation runs, so that a persist rebuilds the graph instead of
+                // capturing it and the index can schedule a repair. An Error is recorded the same way and then
+                // rethrown; the operations not run yet stay queued.
                 LOG.error("Error applying indexing operation for '{}', the graph is rebuilt from the source of"
                     + " truth: {}", this.name, t.getMessage(), t);
+                cb.markGraphIncomplete(t);
                 if(t instanceof Error)
                 {
                     throw (Error)t;

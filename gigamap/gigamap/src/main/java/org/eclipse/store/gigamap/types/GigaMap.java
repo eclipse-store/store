@@ -141,6 +141,9 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * again during cleanup), those are attached as suppressed exceptions and the affected id is
 	 * "burned", i.e. skipped for future additions, so that possibly remaining stale index entries
 	 * can never refer to another entity. Such remainders are cleaned up by {@link #reindex()}.
+	 * A vector index uses this on purpose: when the graph insertion of the new element fails partway, its
+	 * removal during the rollback throws (attached as a suppressed exception) so that the id is skipped and
+	 * no later element can inherit the partially inserted graph node.
 	 *
 	 * @param element the element to add, not <code>null</code>
 	 * @return the assigned id

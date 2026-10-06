@@ -437,6 +437,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * @return the search result
      * @throws IllegalArgumentException if queryVector is null, has wrong dimension, or
      *                                  {@code k} / {@code searchBeamWidth} are not positive
+     * @throws IllegalStateException if the index is known to be incomplete and could not be rebuilt, see
+     *                               {@link #search(float[], int)}
      * @see #search(float[], int)
      * @see VectorIndexConfiguration#minSearchBeamWidth()
      */
@@ -474,6 +476,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * @throws IllegalArgumentException if queryEntity is null, k &lt;= 0, or the vectorizer
      *                                  returns null for the entity (an entity without an
      *                                  embedding cannot be used as a similarity query)
+     * @throws IllegalStateException if the index is known to be incomplete and could not be rebuilt, see
+     *                               {@link #search(float[], int)}
      * @see #search(float[], int)
      * @see Vectorizer#vectorize(Object)
      */
@@ -495,6 +499,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      *                                  are not positive, or the vectorizer returns null for the
      *                                  entity (an entity without an embedding cannot be used as
      *                                  a similarity query)
+     * @throws IllegalStateException if the index is known to be incomplete and could not be rebuilt, see
+     *                               {@link #search(float[], int)}
      * @see #search(float[], int, int)
      */
     public default VectorSearchResult<E> search(final E queryEntity, final int k, final int searchBeamWidth)
@@ -654,6 +660,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * {@code synchronized(map)} or {@code GigaMap.apply} / {@code update} logic): the graph cleanup and disk write run
      * on worker threads that, for an embedded vectorizer, read entities through that monitor, so the call would wait
      * for itself. For an in-memory index this method does nothing.
+     * <p>
+     * A graph that is known to be incomplete (a graph operation failed after its entity was counted) is rebuilt from
+     * the entities or the stored vectors before it is written, which also clears the condition that makes
+     * {@link #search(float[], int)} throw. When a background repair had to rebuild an index that was serving from
+     * disk, that index keeps the full graph in memory until this method (or a background persist) writes it and
+     * returns to serving from disk; without background persistence that is this call.
      *
      * @throws IllegalStateException if the index is on disk and the calling thread holds the parent GigaMap's
      *         monitor
