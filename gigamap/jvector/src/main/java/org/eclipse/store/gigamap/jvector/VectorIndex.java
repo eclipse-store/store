@@ -682,9 +682,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * The teardown runs under the builder write lock, mirroring
      * {@code internalRemoveAll}: concurrent searches, persistence, and background
      * mutations are excluded. Callers synchronizing on the parent {@code GigaMap}
-     * (the typical replication/merge protocol) can call this directly; the method
-     * never acquires the parent monitor itself, so no monitor/lock ordering cycle
-     * is introduced.
+     * (the typical replication/merge protocol) can call this directly: a thread
+     * holding the monitor never waits for the write lock, whose holders (a persist,
+     * an embedded-mode search) may need that monitor. It only tries the lock and,
+     * while it is held elsewhere, waits on the monitor, which releases it so the
+     * holders can finish, exactly as {@code GigaMap.removeAll()} and
+     * {@code reindex()} do. The critical section of such a caller is therefore
+     * interrupted at this point, before anything has been changed. Meanwhile new
+     * searches of the index group are held back briefly so that overlapping searches
+     * cannot starve the invalidation. Without the monitor the call simply waits for
+     * the lock. The method never acquires the parent monitor itself.
+     * <p>
+     * Calling it from within a search of the same index (the thread holds the read
+     * lock) throws an {@link IllegalStateException}: the write lock could never be
+     * granted.
      *
      * <h4>On-disk (incremental) mode</h4>
      * For indices in incremental on-disk mode this operation is currently not
@@ -693,7 +704,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * this on such an index fails with an {@link IllegalStateException} rather than
      * silently half-invalidating.
      *
-     * @throws IllegalStateException if the index runs in incremental on-disk mode
+     * @throws IllegalStateException if the index runs in incremental on-disk mode, or if called
+     *         from within a search of this index
      */
     public void invalidateGraph();
 
@@ -3101,13 +3113,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void invalidateGraph()
         {
-            // Acquire write lock to exclude concurrent searches, persist, and
-            // background-worker mutations, mirroring internalRemoveAll().
-            // No synchronized(parentMap) — the caller side of a merge or
-            // replication protocol holds the parent monitor already; this method
-            // must not acquire it itself or it would introduce a
-            // monitor→writeLock vs. persist's writeLock→monitor cycle.
-            this.builderLock.writeLock().lock();
+            // Write lock to exclude concurrent searches, persist, and background-worker
+            // mutations, mirroring internalRemoveAll(). The caller side of a merge or
+            // replication protocol may hold the parent monitor, so the lock is acquired
+            // without ever waiting for it while holding the monitor (see
+            // lockForInvalidation). This method never acquires the monitor itself.
+            final VectorIndices.Internal<E> lockedGroup = this.lockForInvalidation();
             try
             {
                 if(this.incrementalMode)
@@ -3156,7 +3167,78 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             finally
             {
-                this.builderLock.writeLock().unlock();
+                this.unlockForInvalidation(lockedGroup);
+            }
+        }
+
+        /**
+         * Acquires the write lock for {@link #invalidateGraph()} without a thread that holds the parent-map monitor
+         * ever waiting for it: the lock's holders may need that monitor (a persist takes it in Phase 1 while holding
+         * the lock, and an embedded-mode search reads entities via {@code GigaMap.get} while holding the read lock).
+         * <p>
+         * A monitor holder only tries the locks of the whole index group (the same all-or-nothing attempt
+         * {@code GigaMap.removeAll()} makes, which also keeps new searches out meanwhile) and, while one is held
+         * elsewhere, waits on the monitor so that the holders can finish. Any other thread may simply wait.
+         *
+         * @return the index group whose locks were taken, to be passed to {@link #unlockForInvalidation}; {@code null}
+         *         when only this index's lock was taken
+         * @throws IllegalStateException if the calling thread is inside a search of this index, whose read lock
+         *         would prevent the write lock from ever being granted
+         */
+        private VectorIndices.Internal<E> lockForInvalidation()
+        {
+            if(this.builderLock.getReadHoldCount() > 0)
+            {
+                throw new IllegalStateException(
+                    "Vector index \"" + this.name + "\" cannot be invalidated from within its own search."
+                );
+            }
+            final GigaMap<E> map = this.parentMap();
+            if(!Thread.holdsLock(map))
+            {
+                this.builderLock.writeLock().lock();
+                return null;
+            }
+
+            final VectorIndices.Internal<E> group = (VectorIndices.Internal<E>)this.parent;
+            boolean locked = false;
+            try
+            {
+                while(!(locked = group.internalTryLockExclusive()))
+                {
+                    map.wait(1);
+                }
+            }
+            catch(final InterruptedException e)
+            {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(
+                    "Interrupted while waiting to invalidate vector index \"" + this.name + "\"", e
+                );
+            }
+            finally
+            {
+                if(!locked)
+                {
+                    group.internalCancelExclusive();
+                }
+            }
+            // The group's write locks include this index's; the body re-acquires it reentrantly.
+            this.builderLock.writeLock().lock();
+            return group;
+        }
+
+        /**
+         * Releases what {@link #lockForInvalidation()} acquired, in either of its modes.
+         *
+         * @param lockedGroup the group {@link #lockForInvalidation()} returned, or {@code null}
+         */
+        private void unlockForInvalidation(final VectorIndices.Internal<E> lockedGroup)
+        {
+            this.builderLock.writeLock().unlock();
+            if(lockedGroup != null)
+            {
+                lockedGroup.internalUnlockExclusive();
             }
         }
 
