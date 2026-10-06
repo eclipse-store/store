@@ -4330,11 +4330,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void rebuildInMemoryGraph()
         {
+            // Changes nothing, so a failure here leaves everything as it was, the flag included.
+            final List<VectorEntry> entries = this.collectStoredVectors();
+
             final boolean wasIncomplete = this.graphIncomplete;
             // Set for the duration: a thread dying in here must not leave a graph a persist would capture.
             this.graphIncomplete = true;
-
-            final List<VectorEntry> entries = this.collectStoredVectors();
 
             // The new builder is published in the fields while it is filled. Nothing can observe it: the write
             // lock keeps searches and worker ops out, the monitor keeps mutations and drains out, and existing

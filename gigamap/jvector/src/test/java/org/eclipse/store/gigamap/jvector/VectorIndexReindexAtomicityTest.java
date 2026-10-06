@@ -793,8 +793,10 @@ class VectorIndexReindexAtomicityTest
             assertNotNull(failure, "the persist succeeded although the vectorizer failed");
             assertTrue(thrownFrom(failure, failingMethod), "the persist did not fail in " + failingMethod + ": " + failure);
 
-            // the index is as it was: incremental, and every entity is found
+            // the index is as it was: incremental, not marked incomplete, and every entity is found
             assertTrue(isIncrementalMode(index), "the failed persist left incremental mode");
+            assertFalse((boolean)internalState(index, "graphIncomplete"),
+                "the failed persist left the graph marked incomplete although it was not changed");
             assertEquals(COUNT + ADDED, ids(index, COUNT + ADDED).size(),
                 "searches after the failed persist do not see every entity");
             assertTrue(foundExactly(index, added[0], firstAddedId), "an entity added since the last persist is missing");
