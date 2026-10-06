@@ -71,9 +71,15 @@ public interface BinaryIndexerShort<E> extends BinaryIndexerNumber<E, Short>
 		 * signed key.
 		 */
 		@Override
-		public Long binaryToKey(final long stored)
+		public long binaryToLongKey(final long stored)
 		{
 			return stored == (1L << Short.SIZE) ? 0L : (long)(short)stored;
+		}
+
+		@Override
+		public Long binaryToKey(final long stored)
+		{
+			return this.binaryToLongKey(stored);
 		}
 
 		protected abstract Short getShort(final E entity);

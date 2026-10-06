@@ -3659,6 +3659,59 @@ class VectorIndexDiskTest
     }
 
     /**
+     * The disk deletion mask is sized to the disk graph's id upper bound, not to its node count.
+     * Removals before the persist leave holes in the written ordinal space, so the highest ordinal
+     * lies far above the node count; deleting that entity in incremental mode must still exclude
+     * its disk node from search.
+     */
+    @Test
+    void testIncrementalDeleteOfHighestOrdinalAfterHoles(@TempDir final Path tempDir)
+    {
+        final int    dimension = 32;
+        final Random random    = new Random(42);
+
+        final float[] needleVector = new float[dimension];
+        needleVector[0] = 1.0f;
+
+        final GigaMap<Document>       gigaMap       = GigaMap.New();
+        final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+        final VectorIndex<Document>   index         = vectorIndices.add(
+            "embeddings",
+            VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(tempDir.resolve("index"))
+                .build(),
+            new ComputedDocumentVectorizer()
+        );
+
+        addRandomDocuments(gigaMap, random, dimension, 100, "doc_");
+        final long needleEntityId = gigaMap.add(new Document("needle", needleVector));
+        // Holes below the needle: 101 ids, 41 graph nodes after the persist.
+        for(long id = 0; id < 60; id++)
+        {
+            gigaMap.removeById(id);
+        }
+
+        index.persistToDisk();
+        assertEquals("needle", index.search(needleVector, 1).iterator().next().entity().content(),
+            "needle must be served from the disk graph before its removal");
+
+        gigaMap.removeById(needleEntityId);
+
+        final VectorSearchResult<Document> result = index.search(needleVector, 40);
+        assertEquals(40, result.size());
+        for(final ScoredSearchResult.Entry<Document> entry : result)
+        {
+            assertNotEquals(needleEntityId, entry.entityId(),
+                "Deleted highest-ordinal entity must not be returned from the disk graph");
+        }
+
+        index.close();
+    }
+
+    /**
      * Test updating vectors after disk reload (incremental mode).
      * Verifies search returns updated vector data.
      */

@@ -303,6 +303,54 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 			}
 		}
 		
+		/**
+		 * {@link IndexGroup.Internal#internalTryLockExclusive()} for all groups, all or nothing. Must be called
+		 * while holding the parent-map monitor.
+		 */
+		boolean internalTryLockExclusive()
+		{
+			int locked = 0;
+			try
+			{
+				for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+				{
+					if(!indexGroup.internalTryLockExclusive())
+					{
+						break;
+					}
+					locked++;
+				}
+			}
+			finally
+			{
+				if(locked < this.indexGroups.size())
+				{
+					// a failed or throwing try: release the groups that succeeded, in reverse order
+					for(int i = locked; i-- > 0;)
+					{
+						this.indexGroups.at(i).internalUnlockExclusive();
+					}
+				}
+			}
+			return locked == this.indexGroups.size();
+		}
+
+		void internalUnlockExclusive()
+		{
+			for(int i = (int)this.indexGroups.size(); i-- > 0;)
+			{
+				this.indexGroups.at(i).internalUnlockExclusive();
+			}
+		}
+
+		void internalCancelExclusive()
+		{
+			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			{
+				indexGroup.internalCancelExclusive();
+			}
+		}
+
 		protected void internalRemoveAll()
 		{
 			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)

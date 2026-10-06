@@ -19,8 +19,6 @@ import io.github.jbellis.jvector.vector.types.VectorFloat;
 import io.github.jbellis.jvector.vector.types.VectorTypeSupport;
 import org.eclipse.store.gigamap.types.GigaMap;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.IntFunction;
 import java.util.function.IntSupplier;
 
@@ -118,19 +116,33 @@ class GigaMapBackedVectorValues implements RandomAccessVectorValues
     /**
      * Caching version of GigaMapBackedVectorValues.
      * Caches vectors during search to avoid repeated GigaMap lookups.
+     * <p>
+     * Meant for a single query: an ordinal that resolves to no vector is cached as such for the
+     * lifetime of the instance, and the instance is not thread-safe (see {@link OrdinalVectorCache}).
+     * {@link #copy()} returns an instance with its own, empty cache.
      */
     static class Caching extends GigaMapBackedVectorValues
     {
-        private final Map<Integer, VectorFloat<?>> cache = new ConcurrentHashMap<>();
+        /**
+         * Initial cache sizing for callers that do not know how many ordinals a query will touch.
+         */
+        static final int DEFAULT_EXPECTED_SIZE = 256;
+
+        private final int                         expectedSize;
+        private final OrdinalVectorCache          cache       ;
+        private final IntFunction<VectorFloat<?>> loader      = super::getVector;
 
         Caching(
             final IntFunction<float[]> vectorLookup     ,
             final IntSupplier          sizeSupplier     ,
             final int                  dimension        ,
-            final VectorTypeSupport    vectorTypeSupport
+            final VectorTypeSupport    vectorTypeSupport,
+            final int                  expectedSize
         )
         {
             super(vectorLookup, sizeSupplier, dimension, vectorTypeSupport);
+            this.expectedSize = expectedSize;
+            this.cache        = new OrdinalVectorCache(expectedSize);
         }
 
         Caching(
@@ -140,12 +152,14 @@ class GigaMapBackedVectorValues implements RandomAccessVectorValues
         )
         {
             super(vectorStore, dimension, vectorTypeSupport);
+            this.expectedSize = DEFAULT_EXPECTED_SIZE;
+            this.cache        = new OrdinalVectorCache(DEFAULT_EXPECTED_SIZE);
         }
 
         @Override
         public VectorFloat<?> getVector(final int ordinal)
         {
-            return this.cache.computeIfAbsent(ordinal, super::getVector);
+            return this.cache.computeIfAbsent(ordinal, this.loader);
         }
 
         @Override
@@ -155,7 +169,8 @@ class GigaMapBackedVectorValues implements RandomAccessVectorValues
                 this.vectorLookup,
                 this.sizeSupplier,
                 this.dimension,
-                this.vectorTypeSupport
+                this.vectorTypeSupport,
+                this.expectedSize
             );
         }
 

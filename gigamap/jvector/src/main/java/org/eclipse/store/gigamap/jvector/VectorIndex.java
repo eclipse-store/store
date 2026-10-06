@@ -51,11 +51,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
@@ -572,7 +571,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      *   <li>When query latency increases noticeably</li>
      *   <li>Periodically (e.g., hourly or daily) for continuously updated indices</li>
      * </ul>
+     * <p>
+     * Must not be called while holding the parent {@link GigaMap}'s monitor (inside {@code synchronized(map)} or
+     * {@code GigaMap.apply} / {@code update} logic): the graph cleanup runs on worker threads that, for an embedded
+     * vectorizer, read entities through that monitor, so the call would wait for itself.
      *
+     * @throws IllegalStateException if the calling thread holds the parent GigaMap's monitor
      * @see VectorIndexConfiguration#backgroundOptimization()
      * @see VectorIndexConfiguration#optimizationIntervalMs()
      */
@@ -639,7 +643,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * On restart, the persisted graph is automatically loaded if the files exist and are
      * valid. If the files are corrupted or the vector count doesn't match, the graph is
      * rebuilt from the stored vectors.
+     * <p>
+     * For an on-disk index, must not be called while holding the parent {@link GigaMap}'s monitor (inside
+     * {@code synchronized(map)} or {@code GigaMap.apply} / {@code update} logic): the graph cleanup and disk write run
+     * on worker threads that, for an embedded vectorizer, read entities through that monitor, so the call would wait
+     * for itself. For an in-memory index this method does nothing.
      *
+     * @throws IllegalStateException if the index is on disk and the calling thread holds the parent GigaMap's
+     *         monitor
      * @see #isOnDisk()
      * @see VectorIndexConfiguration#indexDirectory()
      * @see VectorIndexConfiguration#backgroundPersistence()
@@ -866,6 +877,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         public void internalRemoveAll();
 
+        /**
+         * Tries, without waiting, to acquire the lock {@link #internalRemoveAll()} takes besides the parent-map
+         * monitor (see {@code IndexGroup.Internal#internalTryLockExclusive}). Called with the monitor held.
+         *
+         * @return whether the lock is now held by the current thread
+         * @throws IllegalStateException if the current thread is inside a search of this index, which holds a
+         *         lock that one can never be acquired with
+         */
+        public boolean internalTryLockExclusive();
+
+        /**
+         * Releases the lock acquired by {@link #internalTryLockExclusive()}.
+         */
+        public void internalUnlockExclusive();
+
         public void clearStateChangeMarkers();
 
         /**
@@ -917,6 +943,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * yields the same codebook. The value itself is arbitrary.
          */
         private static final long RESERVOIR_SEED = 0x5EEDL;
+
+        /**
+         * The longest a new search waits while GigaMap.removeAll() / reindex() wait for the write lock (see
+         * awaitNoPendingExclusive).
+         */
+        private static final long EXCLUSIVE_GATE_MAX_NANOS = 100_000_000L;
 
         static BinaryTypeHandler<Default<?>> provideTypeHandler()
         {
@@ -1024,12 +1056,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // yet wired. Deferring the build off the load path is what keeps incremental on-disk startup
         // O(1) in the vector payload.
         //
-        // Concurrency: a ConcurrentHashMap. The volatile FIELD is published (assigned) once under the
-        // vector store's own monitor by the double-checked lazy build in computedIdIndex() (a leaf
-        // lock — see there); search threads read it lock-free. Per-entry put/remove by mutations are
-        // not synchronized on that monitor — they rely on the map's own thread-safety and are serialized
+        // A dense ordinal-indexed table rather than a map: ordinals are dense ints, so a lookup is two
+        // array reads with no hashing and no boxing (see OrdinalStoreIdTable).
+        //
+        // Concurrency: the volatile FIELD is published (assigned) once under the vector store's own
+        // monitor by the double-checked lazy build in computedIdIndex() (a leaf lock - see there);
+        // search threads read it lock-free. Per-entry put/remove by mutations are not synchronized on
+        // that monitor - the table is single-writer / lock-free-reader, and its writers are serialized
         // against each other by the parent GigaMap monitor the mutation already holds.
-        private transient volatile Map<Long, Long> computedIdIndex;
+        private transient volatile OrdinalStoreIdTable computedIdIndex;
 
         // One-shot guard for the deferred graph rebuild. The HNSW graph is transient and must be
         // rebuilt from the store after deserialization, but that rebuild iterates the parent GigaMap
@@ -1081,7 +1116,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private transient volatile Path resolvedDirectory;
 
         private transient volatile boolean                   incrementalMode    ;
-        private transient Set<Integer>                       diskDeletedOrdinals;
+        private transient DiskSupersededOrdinals             diskDeletedOrdinals;
+        // The .meta witnesses the loaded disk graph was accepted against. A persist is due whenever the
+        // live witnesses moved away from them, even if no change reached the graph or the deletion mask
+        // (e.g. removing an entity that never had a vector): a restart would reject the graph otherwise.
+        private transient DiskIndexManager.MetaState         diskGraphMeta      ;
         private transient ExplicitThreadLocal<GraphSearcher> diskSearcherPool    ;
 
         // Read/write lock for builder operations.
@@ -1622,22 +1661,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * The build is deferred out of {@code complete()}: at deserialization time the vector store's
          * index registry is not yet queryable, and — more importantly — building eagerly there would
          * reintroduce the O(n) I/O + heap spike that incremental on-disk mode exists to avoid. On first
-         * access the map is reconstructed cheaply from the identity index bitmaps (no {@link VectorEntry},
+         * access the table is reconstructed cheaply from the identity index bitmaps (no {@link VectorEntry},
          * no vectors); see {@link #buildComputedIdIndex()}.
          * <p>
          * Thread-safety: double-checked with {@link #computedIdIndex} volatile. The build holds the
          * vector store's own monitor — a leaf lock independent of the parent GigaMap monitor and
          * {@code builderLock}, so triggering it from a search (under {@code builderLock.readLock}) or a
          * mutation (under the parent monitor) cannot deadlock. Mutations route their store lookups
-         * through this accessor too, so the map is present before any {@code put}/{@code get}.
+         * through this accessor too, so the table is present before any {@code put}/{@code get}.
          */
-        private Map<Long, Long> computedIdIndex()
+        private OrdinalStoreIdTable computedIdIndex()
         {
             if(this.isEmbedded() || this.vectorStore == null)
             {
                 return null;
             }
-            Map<Long, Long> idx = this.computedIdIndex;
+            OrdinalStoreIdTable idx = this.computedIdIndex;
             if(idx == null)
             {
                 synchronized(this.vectorStore)
@@ -1653,15 +1692,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Builds the {@code sourceEntityId -> storeId} map, from the vector store's
+         * Builds the {@code sourceEntityId -> storeId} table, from the vector store's
          * {@code sourceEntityId} identity index where possible
          * ({@link #buildComputedIdIndexFromIndex()}), else by a positional store scan
          * ({@link #buildComputedIdIndexByScan()}) during the {@code complete()} deserialization
-         * window, when the index registry is not yet queryable. Both paths yield the same map.
+         * window, when the index registry is not yet queryable. Both paths yield the same table.
          */
-        private Map<Long, Long> buildComputedIdIndex()
+        private OrdinalStoreIdTable buildComputedIdIndex()
         {
-            final Map<Long, Long> fromIndex = this.buildComputedIdIndexFromIndex();
+            final OrdinalStoreIdTable fromIndex = this.buildComputedIdIndexFromIndex();
             return fromIndex != null
                 ? fromIndex
                 : this.buildComputedIdIndexByScan()
@@ -1669,14 +1708,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * The preferred {@link #buildComputedIdIndex()} path: reconstructs the map from the vector
+         * The preferred {@link #buildComputedIdIndex()} path: reconstructs the table from the vector
          * store's {@code sourceEntityId} identity index bitmaps, loading no {@code VectorEntry} and
          * therefore no stored vectors. Returns {@code null} when that index is not queryable yet, in
          * which case the caller falls back to {@link #buildComputedIdIndexByScan()}.
          * <p>
          * Package-private for {@code VectorIndexIdDriftTest}, which asserts both paths agree.
          */
-        Map<Long, Long> buildComputedIdIndexFromIndex()
+        OrdinalStoreIdTable buildComputedIdIndexFromIndex()
         {
             final BitmapIndex<VectorEntry, Long> idIndex = this.vectorStore.index().bitmap()
                 .get(Long.class, VectorEntry.SOURCE_ENTITY_ID_INDEXER.name());
@@ -1685,9 +1724,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return null;
             }
 
-            final Map<Long, Long> index = new ConcurrentHashMap<>();
-            // (key = sourceEntityId, entityId = storeId) — no value loaded.
-            idIndex.iterateKeyEntityPairs((sourceEntityId, storeId) -> index.put(sourceEntityId, storeId));
+            final OrdinalStoreIdTable index = new OrdinalStoreIdTable();
+            // (key = sourceEntityId, entityId = storeId) - no value loaded, nothing boxed.
+            idIndex.iterateLongKeyEntityPairs((sourceEntityId, storeId) -> index.put(toOrdinal(sourceEntityId), storeId));
             return index;
         }
 
@@ -1698,10 +1737,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * <p>
          * Package-private for {@code VectorIndexIdDriftTest}, which asserts both paths agree.
          */
-        Map<Long, Long> buildComputedIdIndexByScan()
+        OrdinalStoreIdTable buildComputedIdIndexByScan()
         {
-            final Map<Long, Long> index = new ConcurrentHashMap<>();
-            this.vectorStore.iterateIndexed((storeId, entry) -> index.put(entry.sourceEntityId, storeId));
+            final OrdinalStoreIdTable index = new OrdinalStoreIdTable();
+            this.vectorStore.iterateIndexed((storeId, entry) -> index.put(toOrdinal(entry.sourceEntityId), storeId));
             return index;
         }
 
@@ -1712,9 +1751,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private float[] lookupComputedVector(final int ordinal)
         {
-            final Map<Long, Long> index = this.computedIdIndex();
-            final Long storeId = index == null ? null : index.get((long)ordinal);
-            if(storeId == null)
+            final OrdinalStoreIdTable index = this.computedIdIndex();
+            final long storeId = index == null ? OrdinalStoreIdTable.ABSENT : index.get(ordinal);
+            if(storeId == OrdinalStoreIdTable.ABSENT)
             {
                 return null;
             }
@@ -1784,7 +1823,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // Reset the computed-mode fast lookup index; it is (re)built lazily on first access
             // (see computedIdIndex()). Clearing here covers reinitialization after internalRemoveAll,
-            // where a stale map would otherwise survive. A non-incremental graph rebuild that follows
+            // where a stale table would otherwise survive. A non-incremental graph rebuild that follows
             // triggers the lazy build itself via lookupComputedVector() during node scoring.
             this.computedIdIndex = null;
 
@@ -1825,7 +1864,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     GraphFormat.of(this.configuration),
                     this.configuration.parallelOnDiskWrite()
                 );
-                if(this.diskManager.tryLoad())
+                final DiskIndexManager.MetaState liveMeta = this.currentMetaState();
+                if(this.diskManager.tryLoad(liveMeta))
                 {
                     // Recover the codebook the loaded graph was actually written with, rather than
                     // assuming one is present. A graph written before compression was enabled - or
@@ -1837,7 +1877,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // Enter incremental on-disk mode: disk index serves search,
                     // in-memory builder only handles new mutations.
                     // Set state fields first, then flip incrementalMode last for safe publication.
-                    this.diskDeletedOrdinals = ConcurrentHashMap.newKeySet();
+                    this.diskDeletedOrdinals = this.newDiskDeletedOrdinals();
+                    this.diskGraphMeta       = liveMeta;
                     this.incrementalMode     = true;
                     LOG.info("Entering incremental on-disk mode for '{}' — skipping full graph rebuild", this.name);
                 }
@@ -2343,6 +2384,73 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             return null;
         }
 
+        @Override
+        public boolean internalTryLockExclusive()
+        {
+            // A read-lock holder cannot acquire the write lock, so the parent map would retry forever, e.g. for a
+            // vectorizer that calls removeAll() or reindex() while it is scoring during a search.
+            if(this.builderLock.getReadHoldCount() > 0)
+            {
+                throw new IllegalStateException(
+                    "Vector index \"" + this.name + "\" cannot be rebuilt or cleared from within its own search."
+                );
+            }
+            return this.builderLock.writeLock().tryLock();
+        }
+
+        @Override
+        public void internalUnlockExclusive()
+        {
+            this.builderLock.writeLock().unlock();
+        }
+
+        /**
+         * Keeps a new search out while GigaMap.removeAll() / reindex() wait for the write lock of this index's
+         * group. They only try the lock and wait on the parent-map monitor in between, so without this, searches
+         * overlapping each other would hold the read lock forever and the attempt would never succeed.
+         * <p>
+         * Does not wait on a thread that holds the parent-map monitor (the waiting writer cannot proceed before
+         * that monitor is released, and holds no lock such a search needs), or that already holds the read lock
+         * (a nested search: the writer cannot get the write lock before it is released). Waits at most
+         * {@link #EXCLUSIVE_GATE_MAX_NANOS}, so a search the writer itself waits for in some other way is only
+         * delayed, never kept out for good; the bound is far above what searches need to drain.
+         */
+        private void awaitNoPendingExclusive()
+        {
+            // the pending check first: it is a single volatile read, and almost always false
+            if(!(this.parent instanceof final VectorIndices.Internal<E> group)
+                || !group.internalIsExclusivePending()
+                || this.builderLock.getReadHoldCount() > 0
+                || Thread.holdsLock(this.parentMap()))
+            {
+                return;
+            }
+            final long deadline = System.nanoTime() + EXCLUSIVE_GATE_MAX_NANOS;
+            while(group.internalIsExclusivePending()
+                && System.nanoTime() - deadline < 0
+                && !Thread.currentThread().isInterrupted())
+            {
+                LockSupport.parkNanos(100_000L);
+            }
+        }
+
+        /**
+         * Rejects {@link #persistToDisk()} and {@link #optimize()} on a thread holding the parent-map monitor
+         * (inside {@code synchronized(map)} or {@code GigaMap.apply} logic). Their graph cleanup and disk write run
+         * on worker threads that, in embedded mode, read entities through that monitor, so the call would wait
+         * for itself; and they wait for the write lock, whose holders may need the monitor.
+         */
+        private void ensureNotHoldingParentMonitor(final String operation)
+        {
+            if(Thread.holdsLock(this.parentMap()))
+            {
+                throw new IllegalStateException(
+                    "Vector index \"" + this.name + "\": " + operation + " must not be called while holding the"
+                    + " GigaMap's monitor (e.g. inside synchronized(map) or GigaMap.apply logic)."
+                );
+            }
+        }
+
         /**
          * Starts the background managers that the constructor of a new index deferred, and hands them the
          * back-fill's work: its graph changes count toward the change thresholds, and disk files rejected at
@@ -2455,7 +2563,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(!this.isEmbedded())
             {
                 final long storeId = this.vectorStore.add(vectorEntry);
-                this.computedIdIndex().put(entityId, storeId);
+                this.computedIdIndex().put(ordinal, storeId);
             }
 
             this.markContentChanged();
@@ -2514,20 +2622,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 // Resolve the store-internal id by source entity id via the fast index, then
                 // mutate via id-based ops (set / removeById / add), keeping the index in sync.
-                final Map<Long, Long> computedIdIndex = this.computedIdIndex();
-                final Long storeId = computedIdIndex.get(entityId);
+                final OrdinalStoreIdTable computedIdIndex = this.computedIdIndex();
+                final long storeId = computedIdIndex.get(ordinal);
                 if(vector == null)
                 {
                     // vec→null: drop the stored entry so the entity is no longer indexed.
                     // null→null: nothing stored, nothing to do.
-                    if(storeId != null)
+                    if(storeId != OrdinalStoreIdTable.ABSENT)
                     {
                         this.vectorStore.removeById(storeId);
-                        computedIdIndex.remove(entityId);
+                        computedIdIndex.remove(ordinal);
                         changed = true;
                     }
                 }
-                else if(storeId != null)
+                else if(storeId != OrdinalStoreIdTable.ABSENT)
                 {
                     // vec→vec (store-internal id unchanged). An update whose vector did not actually
                     // change is a no-op for this index: unlike the embedded case there is no live
@@ -2552,7 +2660,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     // null→vec: the entity gains an embedding.
                     final long newStoreId = this.vectorStore.add(new VectorEntry(entityId, vector));
-                    computedIdIndex.put(entityId, newStoreId);
+                    computedIdIndex.put(ordinal, newStoreId);
                     changed = true;
                 }
             }
@@ -2579,12 +2687,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // In incremental mode, mark the ordinal as deleted from disk graph so disk search excludes
             // the stale version immediately, regardless of whether indexing is synchronous or eventual.
-            // Gated on contentChanged: a null→null no-op has no stale disk version to exclude, and
-            // adding it would only bloat diskDeletedOrdinals and enlarge the boolean[maxOrdinal+1] mask
-            // rebuilt in createDiskAcceptBits() on every search.
-            if(contentChanged && this.incrementalMode && this.diskDeletedOrdinals != null)
+            // Gated on contentChanged: a null→null no-op has no stale disk version to exclude.
+            if(contentChanged)
             {
-                this.diskDeletedOrdinals.add(ordinal);
+                this.recordDiskOrdinalSuperseded(ordinal);
             }
 
             if(this.isEventualIndexing())
@@ -2778,11 +2884,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 // Add individually to capture each store-internal id for the fast index; robust
                 // against hole reuse (a batch addAll only reports the last assigned id).
-                final Map<Long, Long> computedIdIndex = this.computedIdIndex();
+                final OrdinalStoreIdTable computedIdIndex = this.computedIdIndex();
                 for(final VectorEntry entry : entries)
                 {
                     final long storeId = this.vectorStore.add(entry);
-                    computedIdIndex.put(entry.sourceEntityId, storeId);
+                    computedIdIndex.put(toOrdinal(entry.sourceEntityId), storeId);
                 }
             }
 
@@ -2885,12 +2991,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 // Resolve by source entity id via the fast index; a never-indexed entity
                 // (null embedding) simply has no entry and nothing is removed.
-                final Map<Long, Long> computedIdIndex = this.computedIdIndex();
-                final Long storeId = computedIdIndex.get(entityId);
-                if(storeId != null)
+                final OrdinalStoreIdTable computedIdIndex = this.computedIdIndex();
+                final long storeId = computedIdIndex.get(ordinal);
+                if(storeId != OrdinalStoreIdTable.ABSENT)
                 {
                     this.vectorStore.removeById(storeId);
-                    computedIdIndex.remove(entityId);
+                    computedIdIndex.remove(ordinal);
                 }
             }
 
@@ -2899,10 +3005,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // In incremental mode, mark the ordinal as deleted from disk graph
             // so disk search excludes it immediately, even before background
             // processing has updated the on-disk graph.
-            if(this.incrementalMode && this.diskDeletedOrdinals != null)
-            {
-                this.diskDeletedOrdinals.add(ordinal);
-            }
+            this.recordDiskOrdinalSuperseded(ordinal);
 
             if(this.isEventualIndexing())
             {
@@ -2936,11 +3039,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void internalRemoveAll()
         {
-            // Acquire write lock to ensure no concurrent persistToDisk() Phase 2,
-            // search, or background worker mutation is running.
-            // closeInternalResources() destroys the graph and disk manager, which would
+            // The write lock ensures no concurrent persistToDisk() Phase 2, search, or background worker
+            // mutation is running: closeInternalResources() destroys the graph and disk manager, which would
             // corrupt any in-flight operation.
-            // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
+            // Called with the parentMap monitor held, by GigaMap.removeAll() / reindex(), which have already
+            // acquired this lock without waiting (internalTryLockExclusive): this is a reentrant acquisition that
+            // never waits. Waiting for it here would deadlock with a persist or an embedded search, which hold
+            // it and need the monitor, so a caller that has not acquired it is rejected instead.
+            if(!this.builderLock.isWriteLockedByCurrentThread())
+            {
+                throw new IllegalStateException(
+                    "Vector index \"" + this.name + "\": internalRemoveAll() must be called via GigaMap.removeAll()"
+                    + " or GigaMap.reindex(), which acquire its write lock first."
+                );
+            }
             this.builderLock.writeLock().lock();
             try
             {
@@ -2953,14 +3065,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                 // Reset incremental state before closing resources
                 this.incrementalMode = false;
-                if(this.diskDeletedOrdinals != null)
-                {
-                    this.diskDeletedOrdinals.clear();
-                    this.diskDeletedOrdinals = null;
-                }
+                this.diskDeletedOrdinals = null;
+                this.diskGraphMeta       = null;
 
-                // Shutdown background task manager (discard pending ops — they're stale)
-                this.shutdownBackgroundTaskManager(false, false, false);
+                // Shut the background task manager down and discard its pending ops, they are stale. Without
+                // waiting for its thread: a task of it may be waiting for the write lock or the monitor held here.
+                if(this.backgroundTaskManager != null)
+                {
+                    this.backgroundTaskManager.shutdownWithoutWaiting();
+                    this.backgroundTaskManager = null;
+                }
 
                 // Same for deferred sync-mode ops: the graph they describe is about to be destroyed,
                 // so replaying them into the fresh builder would resurrect removed entities.
@@ -3061,12 +3175,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // Resolve via the fast source-id index (built lazily on first access); fall back to a
             // direct identity-index query only in the defensive case where it is unavailable.
-            final Map<Long, Long> idIndex = this.computedIdIndex();
+            final OrdinalStoreIdTable idIndex = this.computedIdIndex();
             final VectorEntry entry;
             if(idIndex != null)
             {
-                final Long storeId = idIndex.get(entityId);
-                entry = storeId == null ? null : this.vectorStore.get(storeId);
+                final long storeId = idIndex.get(entityId);
+                entry = storeId == OrdinalStoreIdTable.ABSENT ? null : this.vectorStore.get(storeId);
             }
             else
             {
@@ -3121,8 +3235,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // Acquire read lock — blocks during cleanup/persistence/removeAll/close,
             // allows concurrent searches and GigaMap mutations.
-            // No synchronized(parentMap) — avoids lock-ordering deadlock with
-            // internalRemoveAll (which holds the GigaMap monitor and needs the write lock).
+            // Not under synchronized(parentMap): the order is builderLock, then the monitor (embedded
+            // scoring reads entities via parentMap().get()), and no monitor holder waits for builderLock.
+            this.awaitNoPendingExclusive();
             this.builderLock.readLock().lock();
             try
             {
@@ -3169,7 +3284,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final SearchScoreProvider exactProvider = DefaultSearchScoreProvider.exact(
                 query,
                 this.jvectorSimilarityFunction(),
-                this.createCachingVectorValues()
+                this.createCachingVectorValues(rerankK)
             );
 
             // The per-query cache behind that provider dedupes repeat visits to the same node, but
@@ -3214,7 +3329,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final SearchScoreProvider exactProvider = DefaultSearchScoreProvider.exact(
                 query,
                 vsf,
-                this.createCachingVectorValues()
+                this.createCachingVectorValues(rerankK)
             );
 
             // In non-incremental disk mode initializeSearcherPool() puts the DISK searcher into
@@ -3386,7 +3501,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final SearchScoreProvider scoreProvider = DefaultSearchScoreProvider.exact(
                 query,
                 vsf,
-                this.createCachingVectorValues()
+                this.createCachingVectorValues(rerankK)
             );
 
             // 1. Search disk graph (excluding deleted/updated ordinals)
@@ -3441,52 +3556,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Creates accept bits for disk graph search that excludes deleted/updated ordinals.
+         * Returns accept bits for disk graph search that exclude deleted/updated ordinals.
+         * Allocates nothing: the mask is maintained as deletions arrive.
          */
         private Bits createDiskAcceptBits()
         {
-            if(this.diskDeletedOrdinals == null || this.diskDeletedOrdinals.isEmpty())
-            {
-                return Bits.ALL;
-            }
-
-            // Snapshot into a primitive int[] and find max in a single pass
-            // to avoid Integer[] boxing overhead on every search query.
-            final Set<Integer> deleted = this.diskDeletedOrdinals;
-            final int size = deleted.size();
-            final int[] snapshot = new int[size];
-            int count = 0;
-            int maxOrdinal = -1;
-            for(final Integer ord : deleted)
-            {
-                final int o = ord;
-                if(count < size)
-                {
-                    snapshot[count++] = o;
-                }
-                if(o > maxOrdinal)
-                {
-                    maxOrdinal = o;
-                }
-            }
-
-            if(maxOrdinal < 0)
-            {
-                return Bits.ALL;
-            }
-
-            // Build a primitive boolean[] mask to avoid boxing in the hot search path.
-            final boolean[] deletedMask = new boolean[maxOrdinal + 1];
-            for(int i = 0; i < count; i++)
-            {
-                final int ord = snapshot[i];
-                if(ord >= 0 && ord <= maxOrdinal)
-                {
-                    deletedMask[ord] = true;
-                }
-            }
-
-            return i -> i < 0 || i >= deletedMask.length || !deletedMask[i];
+            final DiskSupersededOrdinals deleted = this.diskDeletedOrdinals;
+            return deleted == null
+                ? Bits.ALL
+                : deleted.acceptBits()
+            ;
         }
 
         /**
@@ -3596,15 +3675,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * Wrapped with {@link NullSafeVectorValues} so that deleted nodes
          * (whose vectors are {@code null}) return a safe placeholder instead
          * of causing NPE/NaN during JVector graph traversal.
+         * <p>
+         * The result belongs to one query on one thread (see {@link OrdinalVectorCache}).
+         *
+         * @param expectedSize the number of distinct ordinals the cache is sized for up front (capped,
+         *                     see {@link OrdinalVectorCache}); the search beam width, since that many
+         *                     candidates are scored exactly even when traversal is approximate. The
+         *                     cache grows beyond it.
          */
-        private RandomAccessVectorValues createCachingVectorValues()
+        private RandomAccessVectorValues createCachingVectorValues(final int expectedSize)
         {
             final RandomAccessVectorValues vectorValues = this.isEmbedded()
                 ? new EntityBackedVectorValues.Caching<>(
                     this.parentMap(),
                     this.vectorizer,
                     this.configuration.dimension(),
-                    this.vectorTypeSupport
+                    this.vectorTypeSupport,
+                    expectedSize
                 )
                 : new GigaMapBackedVectorValues.Caching(
                     this::lookupComputedVector,
@@ -3616,7 +3703,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // (IndexOutOfBoundsException). Match the graph's ordinal space (see getHighestEntityId()).
                     () -> Math.toIntExact(this.parentMap().highestUsedId() + 1),
                     this.configuration.dimension(),
-                    this.vectorTypeSupport
+                    this.vectorTypeSupport,
+                    expectedSize
                 );
             return new NullSafeVectorValues(vectorValues, this.configuration.dimension(), this.vectorTypeSupport);
         }
@@ -3641,6 +3729,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void optimize()
         {
+            this.ensureNotHoldingParentMonitor("optimize()");
+
             // Drain pending indexing operations to ensure graph is complete
             if(this.isEventualIndexing())
             {
@@ -3732,6 +3822,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 return; // No-op for in-memory indices
             }
+            this.ensureNotHoldingParentMonitor("persistToDisk()");
 
             // Drain pending indexing operations to ensure graph is complete
             if(this.isEventualIndexing())
@@ -3816,9 +3907,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // embedded mode, the entity count), so it needs the parentMap monitor to see a
                     // consistent snapshot - otherwise a persist racing a mutation could observe the
                     // pre-mutation count, take the shortcut, and defer a training that was due.
-                    // Taking the monitor while already holding builderLock.writeLock() is the
-                    // established order here (Phase 1 below does exactly that); the deadlock hazard
-                    // is the reverse, which internalRemoveAll takes and this never does.
+                    // Taking the monitor while holding builderLock.writeLock() is safe only because no
+                    // thread ever waits for builderLock while holding the monitor: GigaMap.removeAll() and
+                    // reindex() only try it and wait on the monitor instead (see internalTryLockExclusive).
                     final boolean skipPersist;
                     synchronized(this.parentMap())
                     {
@@ -3945,11 +4036,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         // Sample the .meta witnesses at the same instant the graph is captured, under
                         // the monitor, so a Phase-2 vec↔null mutation cannot advance them past the
                         // written graph (see DiskIndexManager.MetaState).
-                        capturedMeta    = new DiskIndexManager.MetaState(
-                            this.getExpectedVectorCount(),
-                            this.getHighestEntityId(),
-                            this.getStructuralModCount()
-                        );
+                        capturedMeta    = this.currentMetaState();
                     }
 
                     // Phase 2: Cleanup and disk write outside synchronized(parentMap).
@@ -4184,14 +4271,33 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Returns true if incremental mode has no pending changes:
-         * no deletions from disk and the in-memory builder graph is empty.
+         * Returns true if incremental mode has no pending changes: no deletions from disk, the
+         * in-memory builder graph is empty, and the live {@code .meta} witnesses still equal those the
+         * loaded disk graph was accepted against. The last check catches changes that reach neither
+         * the graph nor the deletion mask, such as removing an entity that never had a vector, whose
+         * skipped persist would leave a stale {@code .meta} and force a full rebuild on restart.
+         * Must be called under the parentMap monitor, so the witnesses form a consistent snapshot.
          */
         private boolean isIncrementalClean()
         {
-            final boolean noDeletions = this.diskDeletedOrdinals == null || this.diskDeletedOrdinals.isEmpty();
-            final boolean noNewNodes  = this.index == null || this.index.size(0) == 0;
-            return noDeletions && noNewNodes;
+            final DiskSupersededOrdinals     deleted     = this.diskDeletedOrdinals;
+            final DiskIndexManager.MetaState diskMeta    = this.diskGraphMeta;
+            final boolean                    noDeletions = deleted == null || deleted.isEmpty();
+            final boolean                    noNewNodes  = this.index == null || this.index.size(0) == 0;
+            final boolean                    metaCurrent = diskMeta != null && diskMeta.matches(this.currentMetaState());
+            return noDeletions && noNewNodes && metaCurrent;
+        }
+
+        /**
+         * Samples the three {@code .meta} witnesses from the live store state.
+         */
+        private DiskIndexManager.MetaState currentMetaState()
+        {
+            return new DiskIndexManager.MetaState(
+                this.getExpectedVectorCount(),
+                this.getHighestEntityId(),
+                this.getStructuralModCount()
+            );
         }
 
         /**
@@ -4212,11 +4318,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // Reset incremental state
             this.incrementalMode = false;
-            if(this.diskDeletedOrdinals != null)
-            {
-                this.diskDeletedOrdinals.clear();
-                this.diskDeletedOrdinals = null;
-            }
+            this.diskDeletedOrdinals = null;
+            this.diskGraphMeta       = null;
 
             // Close existing in-memory builder and index
             if(this.builder != null)
@@ -4311,7 +4414,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.initializeInMemoryBuilder();
 
                 // Set incremental state: set state fields first, then flip incrementalMode last for safe publication.
-                this.diskDeletedOrdinals = ConcurrentHashMap.newKeySet();
+                this.diskDeletedOrdinals = this.newDiskDeletedOrdinals();
+                this.diskGraphMeta       = writtenMeta;
                 this.incrementalMode     = true;
 
                 // Reinitialize searcher pools (disk + in-memory)
@@ -4552,11 +4656,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // Reset incremental mode state
             this.incrementalMode = false;
-            if(this.diskDeletedOrdinals != null)
-            {
-                this.diskDeletedOrdinals.clear();
-                this.diskDeletedOrdinals = null;
-            }
+            this.diskDeletedOrdinals = null;
+            this.diskGraphMeta       = null;
 
             // The in-memory codes go with the graph they describe. internalRemoveAll tears down and
             // then re-initialises, so leaving them would hand the new, empty index the old codebook
@@ -4942,16 +5043,33 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * is drained, and the stale disk node would keep answering searches next to the fresh
          * in-memory one (internal #142).
          * <p>
-         * Not called for a plain add: a newly allocated entity id was never written to disk, so
-         * recording it would only enlarge the {@code boolean[maxOrdinal+1]} mask that
-         * {@code createDiskAcceptBits()} rebuilds on every search.
+         * Not called for a plain add: a newly allocated entity id was never written to disk, so there
+         * is no disk version to exclude.
          */
         private void recordDiskOrdinalSuperseded(final int ordinal)
         {
-            if(this.incrementalMode && this.diskDeletedOrdinals != null)
+            // Flag first, mask second: incremental mode publishes the mask before setting the volatile
+            // flag, so only a mask read after seeing the flag is guaranteed to be the current one.
+            if(!this.incrementalMode)
             {
-                this.diskDeletedOrdinals.add(ordinal);
+                return;
             }
+            // Read the field once: a concurrent mode exit may null it between a check and the add.
+            final DiskSupersededOrdinals deleted = this.diskDeletedOrdinals;
+            if(deleted != null)
+            {
+                deleted.add(ordinal);
+            }
+        }
+
+        /**
+         * Creates an empty {@link #diskDeletedOrdinals} sized to the disk graph just loaded. The graph
+         * is written with an identity ordinal map, so every ordinal it holds is below its id upper
+         * bound. Must be called after a successful {@code tryLoad}.
+         */
+        private DiskSupersededOrdinals newDiskDeletedOrdinals()
+        {
+            return DiskSupersededOrdinals.New(this.diskManager.getDiskIndex().getIdUpperBound());
         }
 
         /**

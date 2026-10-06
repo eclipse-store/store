@@ -19,10 +19,8 @@ import org.eclipse.serializer.collections.types.XGettingList;
 import org.eclipse.serializer.collections.types.XIterable;
 
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Set;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.function.Consumer;
@@ -300,8 +298,10 @@ public interface ScoredSearchResult<E> extends Iterable<ScoredSearchResult.Entry
 			//      as a match and the matcher is positioned at V. We must NOT re-query
 			//      matchEntityId(V) — doing so would advance the cursor past V on some
 			//      implementations (e.g. BitmapEntityIdMatcher) and lose the match.
-			final Set<Long> kept = new HashSet<>();
-			long nextValid = -1L;
+			//    Survivors are appended in probe order, so keptIds[0, keptCount) stays sorted ascending.
+			final long[] keptIds   = new long[sortedIds.length];
+			int          keptCount = 0;
+			long         nextValid = -1L;
 			for(final long id : sortedIds)
 			{
 				if(id < nextValid)
@@ -312,14 +312,14 @@ public interface ScoredSearchResult<E> extends Iterable<ScoredSearchResult.Entry
 				if(id == nextValid)
 				{
 					// The matcher already confirmed this id in a previous case-#3 return.
-					kept.add(id);
+					keptIds[keptCount++] = id;
 					nextValid = -1L;
 					continue;
 				}
 				final long result = matcher.matchEntityId(id);
 				if(result == id)
 				{
-					kept.add(id);
+					keptIds[keptCount++] = id;
 				}
 				else if(result > id)
 				{
@@ -329,10 +329,10 @@ public interface ScoredSearchResult<E> extends Iterable<ScoredSearchResult.Entry
 			}
 
 			// 3. Rebuild the entry list, preserving original score-descending order.
-			final BulkList<Entry<E>> filtered = BulkList.New(kept.size());
+			final BulkList<Entry<E>> filtered = BulkList.New(keptCount);
 			for(final Entry<E> entry : this.entries)
 			{
-				if(kept.contains(entry.entityId()))
+				if(Arrays.binarySearch(keptIds, 0, keptCount, entry.entityId()) >= 0)
 				{
 					filtered.add(entry);
 				}

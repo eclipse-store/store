@@ -196,6 +196,12 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
     public interface Internal<E> extends VectorIndices<E>
     {
         public VectorIndex.Internal<E> internalGet(String indexName);
+
+        /**
+         * @return whether GigaMap.removeAll() / reindex() are waiting for the write locks of this group's indices,
+         *         during which new searches wait (see {@code IndexGroup.Internal#internalTryLockExclusive})
+         */
+        public boolean internalIsExclusivePending();
     }
 
 
@@ -256,6 +262,10 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
         final GigaMap.Internal<E> parent;
 
         final EqHashTable<String, VectorIndex.Internal<E>> vectorIndices;
+
+        // Set while GigaMap.removeAll() / reindex() wait for the indices' write locks, read by searches. Written
+        // under the parent-map monitor.
+        private transient volatile boolean exclusivePending;
 
 
         ///////////////////////////////////////////////////////////////////////////
@@ -381,6 +391,65 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
                 index.internalRemoveAll();
             }
             this.markStateChangeChildren();
+        }
+
+        @Override
+        public boolean internalTryLockExclusive()
+        {
+            int locked = 0;
+            try
+            {
+                for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+                {
+                    if(!index.internalTryLockExclusive())
+                    {
+                        // keep new searches out until the next try (see VectorIndex awaitNoPendingExclusive)
+                        this.exclusivePending = true;
+                        break;
+                    }
+                    locked++;
+                }
+            }
+            finally
+            {
+                if(locked < this.vectorIndices.size())
+                {
+                    this.unlockFirst(locked);
+                }
+            }
+            return locked == this.vectorIndices.size();
+        }
+
+        @Override
+        public void internalUnlockExclusive()
+        {
+            this.unlockFirst(Math.toIntExact(this.vectorIndices.size()));
+            this.exclusivePending = false;
+        }
+
+        @Override
+        public void internalCancelExclusive()
+        {
+            this.exclusivePending = false;
+        }
+
+        @Override
+        public boolean internalIsExclusivePending()
+        {
+            return this.exclusivePending;
+        }
+
+        private void unlockFirst(final int count)
+        {
+            int i = 0;
+            for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+            {
+                if(i++ == count)
+                {
+                    break;
+                }
+                index.internalUnlockExclusive();
+            }
         }
 
         @Override

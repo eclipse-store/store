@@ -40,7 +40,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.EnumMap;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.IntFunction;
@@ -338,6 +337,22 @@ interface DiskIndexManager extends Closeable
             this.expectedVectorCount = expectedVectorCount;
             this.highestEntityId     = highestEntityId    ;
             this.structuralModCount  = structuralModCount ;
+        }
+
+        /**
+         * Returns whether all three witnesses equal those of {@code other}, i.e. whether
+         * {@link DiskIndexManager#tryLoad(MetaState)} would accept a {@code .meta} stamped with
+         * {@code other} when this state is expected.
+         *
+         * @param other the witnesses to compare with
+         * @return {@code true} if all three witnesses are equal
+         */
+        public boolean matches(final MetaState other)
+        {
+            return this.expectedVectorCount == other.expectedVectorCount
+                && this.highestEntityId     == other.highestEntityId
+                && this.structuralModCount  == other.structuralModCount
+            ;
         }
     }
 
@@ -693,10 +708,8 @@ interface DiskIndexManager extends Closeable
                 {
                     // Fast path for the plain, feature-less graph. Kept separate so the overwhelmingly
                     // common configuration keeps producing byte-identical files to the ones written
-                    // before the format became configurable. Pass an identity ordinal map (not the
-                    // default sequentialRenumbering) so on-disk node ids stay equal to the graph
-                    // ordinals (= source entity ids) — see identityOrdinalMap.
-                    OnDiskGraphIndex.write(index, ravv, identityOrdinalMap(index), graphTempPath);
+                    // before the format became configurable.
+                    writePlainIndex(index, ravv, graphTempPath);
                 }
                 else
                 {
@@ -951,6 +964,39 @@ interface DiskIndexManager extends Closeable
         }
 
         /**
+         * Writes the plain, feature-less graph: full-precision inline vectors only.
+         * <p>
+         * This is the sequence of jvector's {@code OnDiskGraphIndex.write(graph, vectors, map, path)},
+         * which produces the same bytes, taken apart only because that convenience method accepts
+         * just a {@code Map} of ordinals. Passing an {@link IdentityOrdinalMapper} instead keeps
+         * on-disk node ids equal to the graph ordinals (= source entity ids) without materializing
+         * a boxed map entry per node on every persist. Package-private for the test that holds the
+         * two byte-identical.
+         *
+         * @param index     the in-memory graph to write
+         * @param ravv      the ordinal-spaced vectors, aligned with the graph's node ids
+         * @param graphPath the (temporary) path to write to
+         * @throws IOException if writing fails
+         */
+        static void writePlainIndex(
+            final OnHeapGraphIndex         index    ,
+            final RandomAccessVectorValues ravv     ,
+            final Path                     graphPath
+        ) throws IOException
+        {
+            try(final OnDiskGraphIndexWriter writer = new OnDiskGraphIndexWriter.Builder(index, graphPath)
+                .withMapper(new IdentityOrdinalMapper(index))
+                .with(new InlineVectors(ravv.dimension()))
+                .build())
+            {
+                writer.write(Feature.singleStateFactory(
+                    FeatureId.INLINE_VECTORS,
+                    nodeId -> new InlineVectors.State(ravv.getVector(nodeId))
+                ));
+            }
+        }
+
+        /**
          * Writes the index through {@code OnDiskGraphIndexWriter}, carrying whichever features the
          * trained quantizers call for.
          * <p>
@@ -1020,16 +1066,16 @@ interface DiskIndexManager extends Closeable
                     );
                 }
 
-                // Preserve graph ordinals on disk (identity map, not the default sequentialRenumbering)
+                // Preserve graph ordinals on disk (identity, not the default sequentialRenumbering)
                 // so on-disk node ids stay equal to the source entity ids the integration keys on.
-                final Map<Integer, Integer> ordinalMap = identityOrdinalMap(index);
+                final IdentityOrdinalMapper ordinalMapper = new IdentityOrdinalMapper(index);
 
                 if(this.parallelOnDiskWrite)
                 {
                     final OnDiskParallelGraphIndexWriter.Builder builder =
                         new OnDiskParallelGraphIndexWriter.Builder(index, graphPath);
                     builder.withParallelDirectBuffers(true);
-                    builder.withMap(ordinalMap);
+                    builder.withMapper(ordinalMapper);
                     features.forEach(builder::with);
 
                     try(final OnDiskParallelGraphIndexWriter writer = builder.build())
@@ -1041,7 +1087,7 @@ interface DiskIndexManager extends Closeable
                 {
                     final OnDiskGraphIndexWriter.Builder builder =
                         new OnDiskGraphIndexWriter.Builder(index, graphPath);
-                    builder.withMap(ordinalMap);
+                    builder.withMapper(ordinalMapper);
                     features.forEach(builder::with);
 
                     try(final OnDiskGraphIndexWriter writer = builder.build())
@@ -1058,34 +1104,6 @@ interface DiskIndexManager extends Closeable
                 index.size(0),
                 this.parallelOnDiskWrite
             );
-        }
-
-        /**
-         * Builds an identity old→new ordinal map over the graph's present nodes, so the on-disk write
-         * PRESERVES graph ordinals (leaving {@code OMITTED} holes) instead of compacting them via the
-         * default {@code sequentialRenumbering}.
-         * <p>
-         * The whole {@link VectorIndex} integration keys on the invariant "graph ordinal == source
-         * entity id": search results are converted straight back to entity ids
-         * ({@code convertSearchResult}), computed-mode scoring resolves vectors by source entity id
-         * ({@code lookupComputedVector} / {@code computedIdIndex}), and incremental deletes track
-         * ordinals ({@code diskDeletedOrdinals}). Compacting to a dense 0..n-1 range would renumber
-         * disk nodes and scramble that mapping whenever the ordinal space has holes — i.e. after any
-         * null embedding or deletion. Preserving ordinals costs a placeholder slot per hole on disk,
-         * which is acceptable given entity ids are allocated densely.
-         */
-        private static Map<Integer, Integer> identityOrdinalMap(final OnHeapGraphIndex index)
-        {
-            final Map<Integer, Integer> map = new HashMap<>();
-            final int idUpperBound = index.getIdUpperBound();
-            for(int ordinal = 0; ordinal < idUpperBound; ordinal++)
-            {
-                if(index.containsNode(ordinal))
-                {
-                    map.put(ordinal, ordinal);
-                }
-            }
-            return map;
         }
 
         /**
