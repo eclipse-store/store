@@ -165,8 +165,8 @@ public interface IndexGroup<E> extends GigaMap.Component<E>
 		 * current state is correct.
 		 * <p>
 		 * The default implementation drops all data via {@link #internalRemoveAll()} and re-adds every
-		 * entity via {@link #internalAdd(long, Object)}, which is correct for in-memory groups (e.g.
-		 * vector). Groups with an external commit cost (e.g. Lucene) should override this to batch the
+		 * entity via {@link #internalAdd(long, Object)}, which is correct for in-memory groups. Groups with
+		 * an external commit cost (e.g. Lucene) should override this to batch the
 		 * re-add and commit once.
 		 * <p>
 		 * The default performs <b>no</b> constraint validation: it is a plain re-add of data that is already
