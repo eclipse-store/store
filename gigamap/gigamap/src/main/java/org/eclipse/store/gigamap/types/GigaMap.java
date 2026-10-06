@@ -647,7 +647,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * {@link #store()} afterwards to persist the rebuilt bitmap and embedded (graph) Lucene/vector indices. An
 	 * external-directory Lucene index is committed during the rebuild when its {@code LuceneContext.autoCommit}
 	 * is {@code true} (the default), otherwise at the next {@link #store()} boundary. On a very large map this
-	 * can be an expensive operation, as it iterates all entities once per index group.
+	 * can be an expensive operation, as it iterates all entities once per index group; a vector index iterates
+	 * them twice, see below, and a computed one holds the vectors of the first pass until the second has stored them.
 	 * <p>
 	 * <b>Class evolution:</b> the indices are a derived cache whose keys are restored verbatim from storage on
 	 * load and are <em>not</em> revalidated against the entities. Evolving an <em>indexed</em> field (renaming
@@ -675,11 +676,13 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * unique-constraint violation is <em>not</em> such a failure - the rebuild completed and merely produced
 	 * colliding data, so it is reported as described above.
 	 * <p>
-	 * A vector index computes every entity's vector before it drops anything, so a {@code Vectorizer} throwing
-	 * for one entity leaves that index as it was, and the other vector indices are still rebuilt. Only a failure
-	 * during the graph build that follows can leave it partial: in embedded mode the build calls the vectorizer
-	 * again for neighbouring entities, so a vectorizer that fails only then, an {@link OutOfMemoryError} or a
-	 * failure inside the graph library does. Such an index stays partial until the next successful call of this
+	 * A vector index computes and validates every entity's vector before it drops anything, so a {@code Vectorizer}
+	 * throwing for one entity leaves that index as it was, and the other vector indices are still rebuilt. A computed
+	 * index keeps the vectors of that pass and stores them while rebuilding; an embedded one reads them from the
+	 * entities again, so it holds no copy. Only a failure
+	 * during the rebuild that follows can leave it partial: in embedded mode the rebuild calls the vectorizer again,
+	 * for each entity and for its neighbours while scoring, so a vectorizer that fails only then, an
+	 * {@link OutOfMemoryError} or a failure inside the graph library does. Such an index stays partial until the next successful call of this
 	 * method, and a following {@link #store()} can make that survive a restart: the stored vectors of a computed
 	 * index, and an on-disk graph written by a persist in between, are loaded again. An embedded in-memory graph
 	 * is rebuilt from the entities on load.

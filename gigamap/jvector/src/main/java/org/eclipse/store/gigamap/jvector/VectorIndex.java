@@ -838,8 +838,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         public void internalRemoveAll();
 
         /**
-         * Rebuilds this index from the current state of the parent map's entities. Every vector is computed
-         * before anything is dropped, so a throwing vectorizer leaves the index as it was.
+         * Rebuilds this index from the current state of the parent map's entities. Every vector is computed and
+         * validated before anything is dropped, so a throwing vectorizer leaves the index as it was.
          * Must be called like {@link #internalRemoveAll()}: with the parent-map monitor and the lock of
          * {@link #internalTryLockExclusive()} held.
          */
@@ -2363,8 +2363,24 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void internalReindex()
         {
-            // Before anything is dropped: a vectorizer that throws for one entity must leave the index as it
-            // was. The re-add then uses these vectors and calls no vectorizer of its own for them.
+            // Before anything is dropped: a vectorizer that throws for one entity must leave the index as it was.
+            if(this.isEmbedded())
+            {
+                // Validation only. The vectors live in the entities and are read from them again while re-adding,
+                // so keeping this pass's results would hold every vector a second time for a vectorizer that
+                // derives them on the fly, for the whole rebuild.
+                this.parentMap().iterateIndexed((entityId, entity) ->
+                {
+                    toOrdinal(entityId);
+                    this.vectorize(entity);
+                });
+                this.internalRemoveAll();
+                this.parentMap().iterateIndexed(this::internalAdd);
+                return;
+            }
+
+            // Computed: one vectorizer call per entity. The entries are kept and stored as they are, so this holds
+            // no more than the rebuilt vector store does anyway.
             final List<VectorEntry> entries = this.collectParentVectors();
 
             this.internalRemoveAll();
@@ -3892,6 +3908,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         // If in incremental mode, exit it first by rebuilding the full graph.
                         // Must happen inside synchronized(parentMap) so that
                         // rebuildGraphFromStore() does not race with in-flight mutations.
+                        boolean rebuilt = false;
                         if(this.incrementalMode)
                         {
                             if(onShutdown)
@@ -3912,6 +3929,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                                 return;
                             }
                             this.exitIncrementalMode();
+                            rebuilt = true;
                         }
 
                         // Ops deferred since cleanupInProgress was set (before the write lock was free) are
@@ -3919,11 +3937,24 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         // Leaving them out of the captured graph would write files that claim to be current but
                         // miss those nodes, and a restart would accept them. Safe to apply here: cleanup has not
                         // started, and this thread holds the write lock and the monitor.
-                        this.runDeferredBuilderOps();
+                        if(rebuilt)
+                        {
+                            // A rebuild reads the source of truth, which every deferred op's mutation changed
+                            // before the op was deferred, so the ops are in the rebuilt graph already. Replaying
+                            // them would be idempotent but not free: a computed-mode update repairs the whole
+                            // graph, under the monitor and the write lock.
+                            this.deferredBuilderOps.clear();
+                        }
+                        else
+                        {
+                            this.runDeferredBuilderOps();
+                        }
 
                         // A failed deferred op (here or in an earlier drain) left a counted change out of the
                         // graph, so capturing it would write files that claim more than they contain. Rebuild
                         // from the source of truth first; if that fails too, the persist fails and writes nothing.
+                        // The drain above has consumed the queue, and nothing can be deferred while the monitor
+                        // is held, so the rebuilt graph lacks nothing.
                         if(this.graphIncomplete)
                         {
                             if(onShutdown)

@@ -106,6 +106,22 @@ class VectorIndexReindexAtomicityTest
     }
 
     /**
+     * Embedded, throws for entity {@link #POISON} while {@link #failPoison} is set.
+     */
+    static class FlakyEmbeddedVectorizer extends EmbeddedVectorizer
+    {
+        @Override
+        public float[] vectorize(final Doc entity)
+        {
+            if(failPoison && entity.no == POISON)
+            {
+                throw new IllegalStateException("simulated vectorizer failure for entity " + entity.no);
+            }
+            return super.vectorize(entity);
+        }
+    }
+
+    /**
      * Throws for entity {@link #POISON} while {@link #failPoison} is set.
      */
     static class FlakyVectorizer extends ComputedVectorizer
@@ -230,6 +246,33 @@ class VectorIndexReindexAtomicityTest
         assertEquals(MOVED, topHit(flaky, position(MOVED)), "the failing index was changed");
         assertEquals(COUNT, ids(healthy, COUNT).size(), "the sibling index lost entities");
         assertEquals(MOVED, topHit(healthy, NEW_POS), "the sibling index was not rebuilt from the current state");
+    }
+
+    /**
+     * The same with an embedded failing index, whose reindex validates the vectors first and reads them from the
+     * entities again while re-adding, instead of keeping a copy of every vector.
+     */
+    @Test
+    void failingEmbeddedVectorizerLeavesItsIndexAndRebuildsTheSibling()
+    {
+        final GigaMap<Doc> map = populatedMap(COUNT);
+        final VectorIndices<Doc> indices = map.index().register(VectorIndices.Category());
+        final VectorIndex<Doc> flaky   = indices.add("flaky", inMemory(), new FlakyEmbeddedVectorizer());
+        final VectorIndex<Doc> healthy = indices.add("healthy", inMemory(), new ComputedVectorizer());
+
+        map.get(MOVED).vector = NEW_POS.clone();
+        failPoison = true;
+        assertThrows(IllegalStateException.class, map::reindex);
+        failPoison = false;
+
+        assertEquals(COUNT, ids(flaky, COUNT).size(), "the failing index lost entities");
+        assertEquals(COUNT, ids(healthy, COUNT).size(), "the sibling index lost entities");
+        assertEquals(MOVED, topHit(healthy, NEW_POS), "the sibling index was not rebuilt from the current state");
+
+        // and a reindex that succeeds afterwards rebuilds the embedded index from the entities
+        map.reindex();
+        assertEquals(COUNT, ids(flaky, COUNT).size());
+        assertEquals(MOVED, topHit(flaky, NEW_POS));
     }
 
     /**
@@ -575,6 +618,97 @@ class VectorIndexReindexAtomicityTest
             index.search(late.vector, 1); // initializes the index from disk
             assertTrue(isIncrementalMode(index), "precondition: the written files were accepted after the restart");
             assertTrue(foundExactly(index, late, lateId), "the entity is missing after a restart");
+        }
+    }
+
+    /**
+     * A computed-mode update deferred while a persist waits for the write lock, with the index in incremental
+     * mode: the persist rebuilds the graph from the vector store, which already holds the update, and drops the
+     * deferred op instead of replaying it onto the rebuilt graph. After a restart the entity is found at its new
+     * position only. Guards the correctness of dropping the queue after a rebuild; replaying it was idempotent.
+     */
+    @Test
+    @Order(Integer.MAX_VALUE)
+    void updateDeferredWhileAnIncrementalPersistWaitsIsPersisted(@TempDir final Path tempDir) throws Exception
+    {
+        final Path storageDir = tempDir.resolve("storage");
+        try(EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc> map = populatedMap(COUNT);
+            storage.setRoot(map);
+            storage.storeRoot();
+            final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+                .add("emb", onDisk(tempDir.resolve("index"), ApproximateScoring.NONE), new ComputedVectorizer());
+            map.store();
+            index.persistToDisk();
+            assertTrue(isIncrementalMode(index), "precondition: the first persist entered incremental mode");
+            map.add(new Doc(COUNT)); // so the next persist has to leave incremental mode
+
+            // a reader holds the read lock (computed-mode searches call no vectorizer that could be paused)
+            final ReentrantReadWriteLock lock     = internalState(index, "builderLock");
+            final CountDownLatch         release  = new CountDownLatch(1);
+            final CountDownLatch         held     = new CountDownLatch(1);
+            final Thread reader = daemon("reader", () ->
+            {
+                lock.readLock().lock();
+                try
+                {
+                    held.countDown();
+                    release.await(TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                }
+                catch(final InterruptedException e)
+                {
+                    Thread.currentThread().interrupt();
+                }
+                finally
+                {
+                    lock.readLock().unlock();
+                }
+            });
+            final AtomicReference<Throwable> persistFailure = new AtomicReference<>();
+            final Thread persister = daemon("persister", () ->
+            {
+                try
+                {
+                    index.persistToDisk();
+                }
+                catch(final Throwable t)
+                {
+                    persistFailure.set(t);
+                }
+            });
+            try
+            {
+                reader.start();
+                assertTrue(held.await(TIMEOUT_MS, TimeUnit.MILLISECONDS));
+                persister.start();
+                awaitQueued(lock, persister);
+
+                // the update changes the stored vector at once and defers its graph op
+                map.update(MOVED, doc -> doc.vector = NEW_POS.clone());
+                final Queue<?> deferred = internalState(index, "deferredBuilderOps");
+                assertEquals(1, deferred.size(), "precondition: the update's graph op was deferred");
+            }
+            finally
+            {
+                release.countDown();
+            }
+            reader.join(TIMEOUT_MS);
+            persister.join(TIMEOUT_MS);
+            assertFalse(persister.isAlive(), "the persist did not finish");
+            assertNull(persistFailure.get(), "the persist failed");
+            map.store();
+        }
+
+        try(EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc>     map   = storage.root();
+            final VectorIndex<Doc> index = map.index().get(VectorIndices.class).get("emb");
+            index.search(NEW_POS, 1); // initializes the index from disk
+            assertTrue(isIncrementalMode(index), "precondition: the written files were accepted after the restart");
+            assertEquals(MOVED, topHit(index, NEW_POS), "the updated entity is not found at its new position");
+            assertTrue(scoreOfMovedAtOldPosition(index) < 0.5f, "the updated entity is still found at its old position");
+            assertEquals(COUNT + 1, ids(index, COUNT + 1).size());
         }
     }
 
