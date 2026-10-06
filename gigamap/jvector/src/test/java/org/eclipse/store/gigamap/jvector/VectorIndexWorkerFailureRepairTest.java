@@ -266,7 +266,7 @@ class VectorIndexWorkerFailureRepairTest
         volatile boolean     failNextPersist;
 
         @Override
-        public void applyGraphAdd(final VectorEntry entry)
+        public void applyGraphAdd(final VectorEntry entry, final long epoch)
         {
             if(this.failNextApply)
             {
@@ -277,19 +277,19 @@ class VectorIndexWorkerFailureRepairTest
         }
 
         @Override
-        public void applyGraphBatchAdd(final List<VectorEntry> entries)
+        public void applyGraphBatchAdd(final List<VectorEntry> entries, final long epoch)
         {
             // not used
         }
 
         @Override
-        public void applyGraphUpdate(final VectorEntry entry)
+        public void applyGraphUpdate(final VectorEntry entry, final long epoch)
         {
             // not used
         }
 
         @Override
-        public void applyGraphRemove(final int ordinal)
+        public void applyGraphRemove(final int ordinal, final long epoch)
         {
             // not used
         }
@@ -350,8 +350,8 @@ class VectorIndexWorkerFailureRepairTest
         try
         {
             callback.failNextApply = true;
-            manager.enqueueAdd(new VectorEntry(0, position(0)));
-            manager.enqueueAdd(new VectorEntry(1, position(1)));
+            manager.enqueueAdd(new VectorEntry(0, position(0)), 0);
+            manager.enqueueAdd(new VectorEntry(1, position(1)), 0);
             assertTrue(callback.applied.await(TIMEOUT_MS, TimeUnit.MILLISECONDS),
                 "the operation behind the failed one was not applied");
             assertEquals(1, callback.incompleteMarks.get(), "the failed operation was not recorded");

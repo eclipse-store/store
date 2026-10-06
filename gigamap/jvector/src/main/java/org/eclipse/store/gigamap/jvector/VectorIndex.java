@@ -1160,6 +1160,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private transient volatile Throwable              graphRepairFailure;
 
+        /**
+         * Moves whenever the graph is rebuilt from the source of truth ({@link #rebuildInMemoryGraph()}) or replaced
+         * by a new generation ({@link #internalRemoveAll()}). Every eventual-indexing operation is enqueued with the
+         * epoch of that moment, under the parent-map monitor, after its mutation; the {@code applyGraph*} callbacks
+         * drop an operation whose epoch has moved, because the rebuilt graph already holds its mutation, or the
+         * ordinal now means another entity. Not moved by a persist's {@code reenterIncrementalMode}: the disk graph
+         * was captured earlier, so operations enqueued during the write are still owed to the incremental builder.
+         */
+        private transient volatile long                   graphEpoch;
+
         // Test-only seam: run once at the start of persist Phase 2 (parentMap monitor released,
         // builder about to be swapped by reenterIncrementalMode). Lets a test deterministically inject
         // a mutation into the exact window where a deferred builder op is drained after the swap.
@@ -2590,7 +2600,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(this.isEventualIndexing())
             {
                 // Defer graph update to background thread
-                this.backgroundTaskManager.enqueueAdd(vectorEntry);
+                this.backgroundTaskManager.enqueueAdd(vectorEntry, this.graphEpoch);
             }
             else
             {
@@ -2721,7 +2731,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // (add / delete / delete+re-add) from the enqueued entry's vector nullness.
                 if(contentChanged)
                 {
-                    this.backgroundTaskManager.enqueueUpdate(new VectorEntry(entityId, vector));
+                    this.backgroundTaskManager.enqueueUpdate(new VectorEntry(entityId, vector), this.graphEpoch);
                 }
             }
             else
@@ -2916,7 +2926,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(this.isEventualIndexing())
             {
                 // Defer graph updates to background thread as a single batch operation
-                this.backgroundTaskManager.enqueueBatchAdd(entries);
+                this.backgroundTaskManager.enqueueBatchAdd(entries, this.graphEpoch);
             }
             else
             {
@@ -3029,7 +3039,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(this.isEventualIndexing())
             {
                 // Defer graph update to background thread
-                this.backgroundTaskManager.enqueueRemove(ordinal);
+                this.backgroundTaskManager.enqueueRemove(ordinal, this.graphEpoch);
             }
             else
             {
@@ -3104,6 +3114,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // and a failed op of the old generation leaves nothing to repair in the new one
                 this.graphIncomplete    = false;
                 this.graphRepairFailure = null ;
+                // An op of the old generation that the worker has polled and is blocked on runs once this lock is
+                // released, against the new builder: the moved epoch makes the callbacks drop it.
+                this.graphEpoch++;
 
                 this.closeInternalResources();
 
@@ -3980,6 +3993,29 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                             this.runDeferredBuilderOps();
                         }
 
+                        // Eventual indexing: an op enqueued after the caller's drain (or, for a background persist,
+                        // while this thread waited for the write lock) is counted in the witnesses but not in the
+                        // graph. The ones still queued are applied here, on this thread, under both locks. One the
+                        // worker has polled and is blocked on cannot be: it waits for the read lock this thread holds.
+                        // For that one the graph is rebuilt from the source of truth, which holds its mutation; the
+                        // rebuild moves the epoch, so the op is dropped when it finally runs instead of being applied
+                        // a second time to the incremental builder next to the disk graph that already has it.
+                        // Skipped after an incremental exit: that rebuild moved the epoch already.
+                        if(!rebuilt && this.isEventualIndexing() && this.backgroundTaskManager.pendingGraphOps() > 0)
+                        {
+                            this.backgroundTaskManager.applyQueuedOpsInline();
+                            if(this.backgroundTaskManager.pendingGraphOps() > 0)
+                            {
+                                if(onShutdown)
+                                {
+                                    LOG.warn("Graph of '{}' is behind an indexing operation in flight; skipping the"
+                                        + " persist on shutdown, the index is rebuilt on next load", this.name);
+                                    return;
+                                }
+                                this.rebuildFromSourceOfTruth();
+                            }
+                        }
+
                         // A failed deferred op (here or in an earlier drain) left a counted change out of the
                         // graph, so capturing it would write files that claim more than they contain. Rebuild
                         // from the source of truth first; if that fails too, the persist fails and writes nothing.
@@ -4429,6 +4465,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.initializeSearcherPool();
             this.graphIncomplete    = false;
             this.graphRepairFailure = null ;
+            // The new graph holds every mutation made before now: ops enqueued before are redundant, see graphEpoch.
+            this.graphEpoch++;
 
             // The full in-memory graph now exists: mark the (deferred) rebuild done so a later
             // first-access ensureGraphRebuilt() does not rebuild a second time on top of this one.
@@ -4985,7 +5023,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // ================================================================
 
         @Override
-        public void applyGraphAdd(final VectorEntry entry)
+        public void applyGraphAdd(final VectorEntry entry, final long epoch)
         {
             // Called from the background indexing worker thread (not from GigaMap's
             // synchronized methods), so we use builderLock.readLock() to coordinate
@@ -4999,6 +5037,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.readLock().lock();
             try
             {
+                if(this.graphEpochMoved(epoch))
+                {
+                    return;
+                }
                 final int ordinal = toOrdinal(entry.sourceEntityId);
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
 
@@ -5017,12 +5059,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         @Override
-        public void applyGraphBatchAdd(final List<VectorEntry> entries)
+        public void applyGraphBatchAdd(final List<VectorEntry> entries, final long epoch)
         {
             // Acquires the lock once for the entire batch, avoiding per-entry lock overhead.
             this.builderLock.readLock().lock();
             try
             {
+                if(this.graphEpochMoved(epoch))
+                {
+                    return;
+                }
                 for(final var entry : entries)
                 {
                     if(entry.vector == null)
@@ -5044,11 +5090,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         @Override
-        public void applyGraphUpdate(final VectorEntry entry)
+        public void applyGraphUpdate(final VectorEntry entry, final long epoch)
         {
             this.builderLock.readLock().lock();
             try
             {
+                if(this.graphEpochMoved(epoch))
+                {
+                    return;
+                }
                 // One generation, captured once. This callback holds only the read lock, and the
                 // in-memory PQ switch publishes a replacement while holding neither - so reading
                 // this.builder or this.index again further down could land on the other side of
@@ -5098,11 +5148,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         @Override
-        public void applyGraphRemove(final int ordinal)
+        public void applyGraphRemove(final int ordinal, final long epoch)
         {
             this.builderLock.readLock().lock();
             try
             {
+                if(this.graphEpochMoved(epoch))
+                {
+                    return;
+                }
                 // One generation, for the reason given on applyGraphUpdate: the containment test
                 // and the delete must be about the same graph.
                 final GraphIndexBuilder currentBuilder = this.builder;
@@ -5119,6 +5173,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 this.builderLock.readLock().unlock();
             }
+        }
+
+        /**
+         * Whether an eventual-indexing operation enqueued at {@code epoch} must be dropped, see {@link #graphEpoch}.
+         * Must be called with the builder read lock held, because the epoch moves under the write lock together with
+         * the graph it describes. A dropped operation is logged at debug level: it is not a loss, the graph it was
+         * meant for no longer exists and its successor already accounts for the mutation.
+         */
+        private boolean graphEpochMoved(final long epoch)
+        {
+            if(epoch == this.graphEpoch)
+            {
+                return false;
+            }
+            LOG.debug("Dropping a graph operation of '{}' from epoch {}: the graph is at epoch {}",
+                this.name, epoch, this.graphEpoch);
+            return true;
         }
 
         /**

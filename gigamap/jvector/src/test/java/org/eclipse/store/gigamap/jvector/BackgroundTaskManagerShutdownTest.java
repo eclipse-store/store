@@ -43,16 +43,16 @@ class BackgroundTaskManagerShutdownTest
         final AtomicBoolean  persistInterrupted = new AtomicBoolean(false);
 
         @Override
-        public void applyGraphAdd(final VectorEntry entry) { /* no-op */ }
+        public void applyGraphAdd(final VectorEntry entry, final long epoch) { /* no-op */ }
 
         @Override
-        public void applyGraphBatchAdd(final List<VectorEntry> entries) { /* no-op */ }
+        public void applyGraphBatchAdd(final List<VectorEntry> entries, final long epoch) { /* no-op */ }
 
         @Override
-        public void applyGraphUpdate(final VectorEntry entry) { /* no-op */ }
+        public void applyGraphUpdate(final VectorEntry entry, final long epoch) { /* no-op */ }
 
         @Override
-        public void applyGraphRemove(final int ordinal) { /* no-op */ }
+        public void applyGraphRemove(final int ordinal, final long epoch) { /* no-op */ }
 
         @Override
         public void markDirtyForBackgroundManagers(final int count) { /* no-op */ }
