@@ -373,14 +373,45 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
             // Nothing to clean up
         }
 
+        /**
+         * Best-effort over every index, like {@code GigaIndices#internalRemove} over the groups: an index that throws
+         * must not keep its siblings from being cleaned up. That matters for GigaMap's rollback of a failed add,
+         * where an index throws on purpose to retire the id (see {@code VectorIndex.Default#halfInsertedOrdinal}).
+         * The first failure is rethrown at the end, later ones are suppressed.
+         */
         @Override
         public final void internalRemove(final long entityId, final E entity)
         {
-            for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+            RuntimeException first = null;
+            try
             {
-                index.internalRemove(entityId, entity);
+                for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+                {
+                    try
+                    {
+                        index.internalRemove(entityId, entity);
+                    }
+                    catch(final RuntimeException e)
+                    {
+                        if(first == null)
+                        {
+                            first = e;
+                        }
+                        else
+                        {
+                            first.addSuppressed(e);
+                        }
+                    }
+                }
             }
-            this.markStateChangeChildren();
+            finally
+            {
+                this.markStateChangeChildren();
+            }
+            if(first != null)
+            {
+                throw first;
+            }
         }
 
         @Override

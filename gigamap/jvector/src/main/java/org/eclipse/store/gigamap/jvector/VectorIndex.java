@@ -1170,6 +1170,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private transient volatile long                   graphEpoch;
 
+        /**
+         * The ordinal whose graph node a failed synchronous insertion left half-inserted, until GigaMap's rollback
+         * of that add removes the entity again. The removal marks the node deleted and then throws for this ordinal,
+         * which makes GigaMap retire the id instead of handing it to the next entity: the idempotent add would find
+         * the node present, only clear its deleted bit, and the new entity would inherit a node without neighbours,
+         * never to be found. Two fields rather than a sentinel: a transient field comes back as zero after a load,
+         * and zero is a valid ordinal.
+         */
+        private transient volatile boolean                halfInsertedNodePending;
+        private transient volatile int                    halfInsertedOrdinal;
+
         // Test-only seam: run once at the start of persist Phase 2 (parentMap monitor released,
         // builder about to be swapped by reenterIncrementalMode). Lets a test deterministically inject
         // a mutation into the exact window where a deferred builder op is drained after the swap.
@@ -1644,7 +1655,35 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return;
             }
 
-            this.addGraphNodesSequential(entries);
+            try
+            {
+                this.addGraphNodesSequential(entries);
+            }
+            catch(final RuntimeException | Error e)
+            {
+                // The failed insertion leaves a half-inserted node in the builder. The retry, on the next access,
+                // would insert into this same builder, and the idempotent add would skip that ordinal as present:
+                // the entity would be silently unreachable. Start the retry from an empty builder instead. Safe
+                // without the write lock: nothing else can hold this builder before graphRebuilt is set, since
+                // every search and mutation passes ensureGraphRebuilt first, under the monitor held here.
+                this.discardPartialBuilder(e);
+                throw e;
+            }
+        }
+
+        /**
+         * Replaces the builder a failed {@link #rebuildGraphFromStore()} left partially filled by an empty one.
+         * A failure to close the partial builder is attached to {@code cause}.
+         */
+        private void discardPartialBuilder(final Throwable cause)
+        {
+            final GraphIndexBuilder partialBuilder = this.builder;
+            final OnHeapGraphIndex  partialIndex   = this.index  ;
+            this.builder = null;
+            this.index   = null;
+            this.closeBuilderQuietly(partialBuilder, partialIndex, cause);
+            this.initializeInMemoryBuilder();
+            this.initializeSearcherPool();
         }
 
         /**
@@ -2401,7 +2440,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.vectorize(entity);
                 });
                 this.internalRemoveAll();
-                this.parentMap().iterateIndexed(this::internalAdd);
+                try
+                {
+                    this.parentMap().iterateIndexed(this::internalAdd);
+                }
+                finally
+                {
+                    this.forgetHalfInsertedNode();
+                }
                 return;
             }
 
@@ -2410,7 +2456,25 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final List<VectorEntry> entries = this.collectParentVectors();
 
             this.internalRemoveAll();
-            this.internalAddBackfilled(entries);
+            try
+            {
+                this.internalAddBackfilled(entries);
+            }
+            finally
+            {
+                this.forgetHalfInsertedNode();
+            }
+        }
+
+        /**
+         * The re-add of a reindex goes through the same insertions as an add, which record a failed inline insertion
+         * for GigaMap's rollback of that add (see {@link #halfInsertedOrdinal}). A reindex is not rolled back: the
+         * entity stays, so the record must not retire its id on a later, legitimate removal. The graph is still
+         * flagged incomplete by that record, so the half-inserted node is repaired or rebuilt before it is persisted.
+         */
+        private void forgetHalfInsertedNode()
+        {
+            this.halfInsertedNodePending = false;
         }
 
         @Override
@@ -2613,7 +2677,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // Add to HNSW graph using entity ID as ordinal. Idempotent: a deferred op may be
                 // drained into a builder that already carries the ordinal (internal #142).
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vectorEntry.vector);
-                this.executeOrDeferBuilderOp(() -> this.internalAddGraphNodeIdempotent(ordinal, vf));
+                try
+                {
+                    this.executeOrDeferBuilderOp(() -> this.internalAddGraphNodeIdempotent(ordinal, vf));
+                }
+                catch(final RuntimeException | Error e)
+                {
+                    // Only an inline insertion throws here; a deferred one fails later, in a drain, after this add
+                    // has returned. GigaMap rolls the add back and asks this index to remove the entity again.
+                    this.noteHalfInsertedNode(ordinal);
+                    throw e;
+                }
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
@@ -2940,7 +3014,29 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.drainDeferredBuilderOps();
                 }
 
-                this.executeOrDeferBuilderOp(() -> this.addGraphNodesSequential(entries));
+                if(this.cleanupInProgress)
+                {
+                    this.deferredBuilderOps.add(() -> this.addGraphNodesSequential(entries));
+                }
+                else
+                {
+                    // Inline one by one, so that a failure names the ordinal left half-inserted: GigaMap rolls the
+                    // whole addAll back, and the removal of that ordinal retires the ids (see noteHalfInsertedNode).
+                    for(final VectorEntry entry : entries)
+                    {
+                        final int            ordinal = toOrdinal(entry.sourceEntityId);
+                        final VectorFloat<?> vf      = this.vectorTypeSupport.createFloatVector(entry.vector);
+                        try
+                        {
+                            this.internalAddGraphNodeIdempotent(ordinal, vf);
+                        }
+                        catch(final RuntimeException | Error e)
+                        {
+                            this.noteHalfInsertedNode(ordinal);
+                            throw e;
+                        }
+                    }
+                }
 
                 // Mark dirty for background managers (with count for debouncing)
                 this.markDirtyForBackgroundManagers(entries.size());
@@ -3063,6 +3159,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
             }
+
+            if(this.halfInsertedNodePending && ordinal == this.halfInsertedOrdinal)
+            {
+                // This is GigaMap's rollback of the add whose insertion failed. The node is marked deleted above;
+                // throwing now makes GigaMap retire the id (its rollback reclaims ids only while every removal
+                // succeeds), so no later entity can inherit the half-inserted node. GigaMap attaches this to the
+                // insertion failure as a suppressed exception.
+                this.halfInsertedNodePending = false;
+                throw new IllegalStateException(
+                    "Vector index \"" + this.name + "\": the graph node of entity id " + entityId + " was left"
+                    + " half-inserted by its failed insertion and is marked deleted; the id is retired so that no"
+                    + " later entity inherits that node."
+                );
+            }
         }
 
         @Override
@@ -3112,8 +3222,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.deferredBuilderOps.clear();
                 }
                 // and a failed op of the old generation leaves nothing to repair in the new one
-                this.graphIncomplete    = false;
-                this.graphRepairFailure = null ;
+                this.graphIncomplete         = false;
+                this.graphRepairFailure      = null ;
+                this.halfInsertedNodePending = false;
                 // An op of the old generation that the worker has polled and is blocked on runs once this lock is
                 // released, against the new builder: the moved epoch makes the callbacks drop it.
                 this.graphEpoch++;
@@ -5190,6 +5301,25 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             LOG.debug("Dropping a graph operation of '{}' from epoch {}: the graph is at epoch {}",
                 this.name, epoch, this.graphEpoch);
             return true;
+        }
+
+        /**
+         * Records that a synchronous insertion left the node of {@code ordinal} half-inserted, see
+         * {@link #halfInsertedOrdinal}. The graph also counts as incomplete for the persist: the node must not be
+         * written, so the next persist rebuilds before it captures, and a background task manager, if there is one,
+         * repairs it sooner. Not latched for {@code search()}: the rollback marks the node deleted and the entity does
+         * not exist, so searches stay correct.
+         */
+        private void noteHalfInsertedNode(final int ordinal)
+        {
+            this.halfInsertedOrdinal     = ordinal;
+            this.halfInsertedNodePending = true;
+            this.graphIncomplete         = true;
+            final BackgroundTaskManager manager = this.backgroundTaskManager;
+            if(manager != null)
+            {
+                manager.requestGraphRepair();
+            }
         }
 
         /**
