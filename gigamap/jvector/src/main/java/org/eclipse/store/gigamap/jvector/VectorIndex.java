@@ -4256,15 +4256,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Exits incremental mode by closing disk resources, rebuilding the full graph
-         * from stored vectors, and resetting incremental state.
-         * Must be called under builderLock.writeLock().
+         * Exits incremental mode by rebuilding the full graph from the source of truth, then closing the disk
+         * resources and resetting the incremental state. Must be called under builderLock.writeLock() and the
+         * parentMap monitor.
+         * <p>
+         * The rebuild comes first, while the disk graph still serves searches: if it fails, the index stays in
+         * incremental mode exactly as it was, and the persist that called this fails without writing.
          */
         private void exitIncrementalMode()
         {
             LOG.info("Exiting incremental on-disk mode for '{}' — rebuilding full graph for persist", this.name);
 
-            // Close disk manager (disk searcher pool is closed by closeSearcherPool below)
+            this.rebuildInMemoryGraph();
+
+            // Close disk manager (its searcher pool is closed by initializeSearcherPool below)
             if(this.diskManager != null)
             {
                 this.diskManager.close();
@@ -4276,7 +4281,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.diskDeletedOrdinals = null;
             this.diskGraphMeta       = null;
 
-            this.rebuildInMemoryGraph();
+            // Again, now for the in-memory-only layout: the rebuild created the pools for the incremental one.
+            this.initializeSearcherPool();
         }
 
         /**
@@ -4284,54 +4290,84 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * the entities (embedded mode), the source of truth. Must be called under builderLock.writeLock() and the
          * parentMap monitor.
          * <p>
-         * The vectors are collected before anything is torn down, so a vectorizer that throws for an entity leaves
-         * the current graph in place. Any failure leaves {@link #graphIncomplete} set, so the next persist rebuilds
-         * again instead of writing the graph: after a failed build it is partial, and when called from
-         * {@link #exitIncrementalMode()} even an intact builder holds only the changes made since the disk graph.
+         * Never leaves the index worse than before the call: the vectors are collected and the new graph is built
+         * beside the current one, which is replaced only once the new one is complete. On any failure the current
+         * builder and graph stay in place, {@link #graphIncomplete} keeps its previous value, and the failure
+         * propagates. Both graphs exist for the duration of the build; after a failed deferred op that is twice the
+         * graph's memory, from {@link #exitIncrementalMode()} the current builder holds only the changes since the
+         * disk graph.
          */
         private void rebuildInMemoryGraph()
         {
+            final boolean wasIncomplete = this.graphIncomplete;
+            // Set for the duration: a thread dying in here must not leave a graph a persist would capture.
             this.graphIncomplete = true;
 
             final List<VectorEntry> entries = this.collectStoredVectors();
 
-            // Close existing in-memory builder and index
-            if(this.builder != null)
-            {
-                try
-                {
-                    this.builder.close();
-                }
-                catch(final IOException e)
-                {
-                    LOG.warn("Error closing builder while rebuilding '{}': {}", this.name, e.getMessage());
-                }
-                this.builder = null;
-            }
-            if(this.index != null)
-            {
-                this.index.close();
-                this.index = null;
-            }
-
-            // Close searcher pool (will be re-created)
-            this.closeSearcherPools();
-
+            // The new builder is published in the fields while it is filled. Nothing can observe it: the write
+            // lock keeps searches and worker ops out, the monitor keeps mutations and drains out, and existing
+            // searchers hold the old graph object, not the field.
+            final GraphIndexBuilder oldBuilder = this.builder;
+            final OnHeapGraphIndex  oldIndex   = this.index  ;
+            this.initializeInMemoryBuilder();
             try
             {
-                this.initializeInMemoryBuilder();
                 this.addGraphNodesSequential(entries);
             }
-            finally
+            catch(final Throwable t)
             {
-                // also after a failed build: searches must find a pool for whatever graph exists
-                this.initializeSearcherPool();
+                final GraphIndexBuilder newBuilder = this.builder;
+                final OnHeapGraphIndex  newIndex   = this.index  ;
+                this.builder = oldBuilder;
+                this.index   = oldIndex  ;
+                this.closeBuilderQuietly(newBuilder, newIndex, t);
+                this.graphIncomplete = wasIncomplete;
+                throw t;
             }
+
+            this.closeBuilderQuietly(oldBuilder, oldIndex, null);
+            // existing searchers hold the old graph: re-create the pools before the lock is released
+            this.initializeSearcherPool();
             this.graphIncomplete = false;
 
             // The full in-memory graph now exists: mark the (deferred) rebuild done so a later
             // first-access ensureGraphRebuilt() does not rebuild a second time on top of this one.
             this.graphRebuilt = true;
+        }
+
+        /**
+         * Closes a builder and its graph, which are no longer referenced by the fields. A failure to close is
+         * attached to {@code cause} if there is one, otherwise logged: nothing depends on it any more.
+         */
+        private void closeBuilderQuietly(
+            final GraphIndexBuilder builder,
+            final OnHeapGraphIndex  index  ,
+            final Throwable         cause
+        )
+        {
+            try
+            {
+                if(builder != null)
+                {
+                    builder.close();
+                }
+                if(index != null)
+                {
+                    index.close();
+                }
+            }
+            catch(final Exception e)
+            {
+                if(cause != null)
+                {
+                    cause.addSuppressed(e);
+                }
+                else
+                {
+                    LOG.warn("Error closing the replaced builder of '{}': {}", this.name, e.getMessage());
+                }
+            }
         }
 
         /**

@@ -338,6 +338,7 @@ class VectorIndexReindexAtomicityTest
         transient volatile Thread      failThread;
         transient volatile int         failuresLeft;
         transient volatile boolean     failWithError;
+        transient volatile int         skipCallsBeforeFailing; // calls of failThread that pass before the failures
 
         @Override
         public float[] vectorize(final Doc entity)
@@ -358,6 +359,11 @@ class VectorIndexReindexAtomicityTest
             }
             if(current == this.failThread && this.failuresLeft > 0)
             {
+                if(this.skipCallsBeforeFailing > 0)
+                {
+                    this.skipCallsBeforeFailing--;
+                    return super.vectorize(entity);
+                }
                 this.failuresLeft--;
                 if(this.failWithError)
                 {
@@ -569,6 +575,111 @@ class VectorIndexReindexAtomicityTest
             index.search(late.vector, 1); // initializes the index from disk
             assertTrue(isIncrementalMode(index), "precondition: the written files were accepted after the restart");
             assertTrue(foundExactly(index, late, lateId), "the entity is missing after a restart");
+        }
+    }
+
+    /**
+     * A persist that has to leave incremental mode (the index was persisted before, entities were added since)
+     * fails while it collects the vectors for the full graph: the vectorizer throws once on the persist thread,
+     * on the first of its calls, i.e. in the collection pass. The index must stay in incremental mode, serving
+     * complete results from the disk graph plus the incremental builder, and the next persist must succeed.
+     * Before, the disk manager was closed and incremental mode left before the rebuild, so searches silently
+     * ran on the incremental builder alone, i.e. returned only the entities added since the last persist.
+     */
+    @Test
+    @Order(Integer.MAX_VALUE)
+    void failedIncrementalExitKeepsServingCompleteResults(@TempDir final Path tempDir) throws Exception
+    {
+        assertFailedIncrementalExitRestoresTheIndex(tempDir, 0, "collectStoredVectors");
+    }
+
+    /**
+     * The same, failing after the collection pass, while the new graph is built (the vectorizer throws once
+     * during neighbour scoring). The new, partial graph must be discarded and the old state restored.
+     */
+    @Test
+    @Order(Integer.MAX_VALUE)
+    void failedRebuildDuringTheBuildRestoresTheOldGraph(@TempDir final Path tempDir) throws Exception
+    {
+        // the collection pass vectorizes every entity once; the next call scores a neighbour in the build
+        assertFailedIncrementalExitRestoresTheIndex(tempDir, COUNT + ADDED, "addGraphNodesSequential");
+    }
+
+    private static final int ADDED = 5;
+
+    private static void assertFailedIncrementalExitRestoresTheIndex(
+        final Path   tempDir       ,
+        final int    skipCalls     ,
+        final String failingMethod
+    )
+        throws Exception
+    {
+        final Path  storageDir = tempDir.resolve("storage");
+        final Doc[] added      = new Doc[ADDED];
+        final long  firstAddedId;
+        try(EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc> map = populatedMap(COUNT);
+            storage.setRoot(map);
+            storage.storeRoot();
+            final PausableVectorizer vectorizer = new PausableVectorizer();
+            final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+                .add("emb", onDisk(tempDir.resolve("index"), ApproximateScoring.NONE), vectorizer);
+            map.store();
+            index.persistToDisk();
+            assertTrue(isIncrementalMode(index), "precondition: the first persist entered incremental mode");
+
+            firstAddedId = map.add(added[0] = new Doc(COUNT));
+            for(int i = 1; i < ADDED; i++)
+            {
+                map.add(added[i] = new Doc(COUNT + i));
+            }
+            map.store();
+
+            // the persist has to leave incremental mode, and fails doing so
+            final AtomicReference<Throwable> persistFailure = new AtomicReference<>();
+            final Thread persister = daemon("persister", () ->
+            {
+                try
+                {
+                    index.persistToDisk();
+                }
+                catch(final Throwable t)
+                {
+                    persistFailure.set(t);
+                }
+            });
+            vectorizer.failThread             = persister;
+            vectorizer.skipCallsBeforeFailing = skipCalls;
+            vectorizer.failuresLeft           = 1;
+            persister.start();
+            persister.join(TIMEOUT_MS);
+            assertFalse(persister.isAlive(), "the persist did not finish");
+            final Throwable failure = persistFailure.get();
+            assertNotNull(failure, "the persist succeeded although the vectorizer failed");
+            assertTrue(thrownFrom(failure, failingMethod), "the persist did not fail in " + failingMethod + ": " + failure);
+
+            // the index is as it was: incremental, and every entity is found
+            assertTrue(isIncrementalMode(index), "the failed persist left incremental mode");
+            assertEquals(COUNT + ADDED, ids(index, COUNT + ADDED).size(),
+                "searches after the failed persist do not see every entity");
+            assertTrue(foundExactly(index, added[0], firstAddedId), "an entity added since the last persist is missing");
+            assertTrue(foundExactly(index, map.get(MOVED), MOVED), "an entity of the disk graph is missing");
+
+            // the next persist, with a working vectorizer, rebuilds and writes the complete graph
+            assertNull(persistWithinTimeout(index), "the next persist failed");
+            assertEquals(COUNT + ADDED, ids(index, COUNT + ADDED).size(), "the next persist lost entities");
+            map.store();
+        }
+
+        try(EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc>     map   = storage.root();
+            final VectorIndex<Doc> index = map.index().get(VectorIndices.class).get("emb");
+            index.search(added[0].vector, 1); // initializes the index from disk
+            assertTrue(isIncrementalMode(index), "precondition: the written files were accepted after the restart");
+            assertEquals(COUNT + ADDED, ids(index, COUNT + ADDED).size(), "entities are missing after a restart");
+            assertTrue(foundExactly(index, added[0], firstAddedId));
         }
     }
 
