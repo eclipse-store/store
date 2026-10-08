@@ -238,6 +238,9 @@ class BackgroundTaskManager
      */
     private final AtomicInteger                            pendingGraphOps       ;
 
+    // True while the worker executes a polled operation; see hasOpInFlight().
+    private volatile boolean                               opInFlight            ;
+
     // Optimization state
     private final AtomicInteger optimizationChangeCount;
     private final AtomicLong    optimizationCount      ;
@@ -381,16 +384,24 @@ class BackgroundTaskManager
     }
 
     /**
-     * Returns the number of operations enqueued and not yet applied, including the one the worker may have polled
-     * and be blocked on. For a caller holding the index's write lock and parent-map monitor nothing can be enqueued
-     * (the monitor) or applied (the lock) while it holds them, so the count is exact up to one over-count: the
-     * decrement for an op runs after its callback released the read lock, and a writer that takes the lock in that
-     * instant still sees the op counted. The consequence is one redundant rebuild (or a skipped shutdown write),
+     * Returns the number of operations enqueued and not yet applied, the one the worker has polled included.
+     * <p>
+     * Under the index's write lock and monitor nothing is enqueued or applied, so the count is exact up to one:
+     * the decrement runs after the callback released the read lock. An over-count costs one redundant rebuild,
      * never a missed op.
      */
     int pendingGraphOps()
     {
         return this.pendingGraphOps.get();
+    }
+
+    /**
+     * Whether the worker has polled an operation and not finished it. Under the index's write lock such an
+     * operation is blocked on the read lock; it cannot be applied inline and is covered by a rebuild instead.
+     */
+    boolean hasOpInFlight()
+    {
+        return this.opInFlight;
     }
 
     /**
@@ -763,6 +774,7 @@ class BackgroundTaskManager
         IndexingOperation op;
         while((op = this.indexingQueue.poll()) != null)
         {
+            this.opInFlight = true;
             try
             {
                 op.execute(cb);
@@ -783,6 +795,7 @@ class BackgroundTaskManager
             finally
             {
                 // After the op ran, not when it was polled: a polled op blocked on the read lock is still pending.
+                this.opInFlight = false;
                 this.pendingGraphOps.decrementAndGet();
             }
         }

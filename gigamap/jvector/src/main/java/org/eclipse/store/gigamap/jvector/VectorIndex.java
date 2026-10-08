@@ -57,6 +57,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
+import java.util.function.IntConsumer;
 import java.util.stream.IntStream;
 
 import static org.eclipse.serializer.math.XMath.positive;
@@ -663,9 +664,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * <p>
      * A graph that is known to be incomplete (a graph operation failed after its entity was counted) is rebuilt from
      * the entities or the stored vectors before it is written, which also clears the condition that makes
-     * {@link #search(float[], int)} throw. When a background repair had to rebuild an index that was serving from
-     * disk, that index keeps the full graph in memory until this method (or a background persist) writes it and
-     * returns to serving from disk; without background persistence that is this call.
+     * {@link #search(float[], int)} throw. A background repair of an on-disk index runs this persist itself, so the
+     * index returns to serving from disk without a call from the application.
      *
      * @throws IllegalStateException if the index is on disk and the calling thread holds the parent GigaMap's
      *         monitor
@@ -1198,6 +1198,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // a mutation into the exact window where a deferred builder op is drained after the swap.
         // Null (and a no-op) in production. See VectorIndex(persist-window deletion) regression test.
         transient volatile Runnable persistPhase2TestHook;
+
+        // Test-only seam: run with the ordinal right before a graph insertion in internalAddGraphNodeIdempotent, so
+        // a test can fail one insertion where no user code runs (computed mode scores from stored vectors). Null
+        // (and a no-op) in production.
+        transient volatile IntConsumer graphInsertTestHook;
 
         // Test-only seam: run once the PQ replacement is complete and before it is published, with
         // the parentMap monitor held. A codebook exists at that point but no codes are visible,
@@ -2461,7 +2466,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final List<VectorEntry> entries = this.collectParentVectors();
 
             this.internalRemoveAll();
-            this.readdForReindex(() -> this.internalAddBackfilled(entries));
+            // Through addVectorEntries, which stores every vector before any graph work: the store is the source of
+            // truth a repair rebuilds from, so a graph insertion that fails partway must find it complete. Entry by
+            // entry (internalAddBackfilled) would leave the entries behind the failing one unstored, and the repair
+            // would rebuild a truncated index and call it complete.
+            this.readdForReindex(() -> this.addVectorEntries(entries));
         }
 
         /**
@@ -2696,7 +2705,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     // Only an inline insertion throws here; a deferred one fails later, in a drain, after this add
                     // has returned. GigaMap rolls the add back and asks this index to remove the entity again.
-                    this.noteHalfInsertedNode(ordinal, e);
+                    this.noteHalfInsertedNode(ordinal);
                     throw e;
                 }
                 catch(final Error e)
@@ -2811,6 +2820,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(contentChanged)
             {
                 this.recordDiskOrdinalSuperseded(ordinal);
+                // Before the graph work, like internalAdd and internalRemove: the store or the entity already carries
+                // the new vector, so a failed insertion must still move the witness, or a restart after a crash would
+                // accept the old disk graph. null→null is the only case that skips this.
+                this.markContentChanged();
             }
 
             if(this.isEventualIndexing())
@@ -2940,15 +2953,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.markDirtyForBackgroundManagers(1);
                 }
             }
-
-            // Bump the persisted structural-change counter + mark the index dirty whenever the
-            // logical mapping changed — independent of whether an in-memory graph op ran, so an
-            // incremental-mode disk-node deletion (embedded vec→null) is still recorded and forces
-            // a crash-restart rebuild. null→null is the only case that skips this.
-            if(contentChanged)
-            {
-                this.markContentChanged();
-            }
         }
 
         /**
@@ -3049,7 +3053,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         }
                         catch(final RuntimeException e)
                         {
-                            this.noteHalfInsertedNode(ordinal, e);
+                            this.noteHalfInsertedNode(ordinal);
                             throw e;
                         }
                         catch(final Error e)
@@ -4021,14 +4025,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // monitor. Under the monitor they would deadlock: applyGraphUpdate may enter a ForkJoinPool whose
                     // workers need it (see drainDeferredBuilderOps). Not when an op is in flight or the index is
                     // incremental: Phase 1 rebuilds then anyway, replacing whatever is applied here.
-                    if(this.isEventualIndexing() && !this.incrementalMode)
+                    // Read once: close() nulls the field before it takes this lock.
+                    final BackgroundTaskManager preMonitorManager = this.backgroundTaskManager;
+                    if(preMonitorManager != null && this.configuration.eventualIndexing() && !this.incrementalMode
+                        && preMonitorManager.pendingGraphOps() > 0 && !preMonitorManager.hasOpInFlight())
                     {
-                        final BackgroundTaskManager manager = this.backgroundTaskManager;
-                        final int                   pending = manager.pendingGraphOps();
-                        if(pending > 0 && pending == manager.getPendingIndexingCount())
-                        {
-                            manager.applyQueuedOpsInline();
-                        }
+                        preMonitorManager.applyQueuedOpsInline();
                     }
 
                     // If incremental mode with no changes, skip persist entirely.
@@ -4151,7 +4153,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         // inline apply) is counted in the witnesses but not in the graph. The rebuild holds its
                         // mutation and moves the epoch, so the op is dropped when it runs instead of being applied a
                         // second time. Not after an incremental exit: that rebuild moved the epoch already.
-                        if(!rebuilt && this.isEventualIndexing() && this.backgroundTaskManager.pendingGraphOps() > 0)
+                        final BackgroundTaskManager phase1Manager = this.backgroundTaskManager; // read once, see above
+                        if(!rebuilt && phase1Manager != null && this.configuration.eventualIndexing()
+                            && phase1Manager.pendingGraphOps() > 0)
                         {
                             if(onShutdown)
                             {
@@ -5345,37 +5349,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * repairs it sooner. Not latched for {@code search()}: the rollback marks the node deleted and the entity does
          * not exist, so searches stay correct.
          */
-        private void noteHalfInsertedNode(final int ordinal, final Throwable cause)
+        private void noteHalfInsertedNode(final int ordinal)
         {
             this.halfInsertedOrdinal     = ordinal;
             this.halfInsertedNodePending = true;
-            // No latch without a manager: the rollback removes the entity and marks the node deleted, so searches
-            // stay correct; only the persist must not capture the node.
-            this.recordGraphIncomplete(cause, false);
-        }
-
-        /**
-         * The one place that records an incomplete graph: sets {@link #graphIncomplete}, and arranges the repair
-         * (a background task manager rebuilds) or, if there is none and {@code latchWithoutManager} is set, latches
-         * the cause in {@link #graphRepairFailure} so that {@code search()} throws until the next persist or
-         * {@code reindex()}. After a failed repair nothing further is requested, see {@link #graphRepairFailure}.
-         */
-        private void recordGraphIncomplete(final Throwable cause, final boolean latchWithoutManager)
-        {
+            // Only the persist cares: the rollback removes the entity and marks the node deleted, so searches stay
+            // correct, and the next persist rebuilds before it writes. No repair (an O(n) rebuild for nothing) and
+            // no latch.
             this.graphIncomplete = true;
-            if(this.graphRepairFailure != null)
-            {
-                return;
-            }
-            final BackgroundTaskManager manager = this.backgroundTaskManager;
-            if(manager != null)
-            {
-                manager.requestGraphRepair();
-            }
-            else if(latchWithoutManager)
-            {
-                this.graphRepairFailure = cause;
-            }
         }
 
         /**
@@ -5411,7 +5392,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void markGraphIncomplete(final Throwable cause)
         {
-            this.recordGraphIncomplete(cause, true);
+            this.graphIncomplete = true;
+            if(this.graphRepairFailure != null)
+            {
+                return;
+            }
+            final BackgroundTaskManager manager = this.backgroundTaskManager;
+            if(manager != null)
+            {
+                manager.requestGraphRepair();
+            }
+            else
+            {
+                this.graphRepairFailure = cause;
+            }
         }
 
         /**
@@ -5615,6 +5609,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // the add throws. Safe here in a way it is not above: there is no live layer-0 node
             // whose neighbours could be left holding a reference to it.
             currentIndex.removeNode(ordinal);
+            final IntConsumer insertHook = this.graphInsertTestHook;
+            if(insertHook != null)
+            {
+                insertHook.accept(ordinal);
+            }
             currentBuilder.addGraphNode(ordinal, vf);
         }
 

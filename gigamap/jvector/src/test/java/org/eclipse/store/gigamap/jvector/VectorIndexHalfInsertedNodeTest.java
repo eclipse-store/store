@@ -287,11 +287,14 @@ class VectorIndexHalfInsertedNodeTest
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", inMemory(), new NeighbourFlakyVectorizer());
 
+        final long modCountBefore = internalState(index, "structuralModCount");
         failPoison = true; // the entity's own vector is fine; scoring POISON as a neighbour fails
         assertThrows(RuntimeException.class, () -> map.set(noVectorId, new Doc(COUNT)),
             "precondition: the insertion of the new embedding failed");
         failPoison = false;
         assertTrue((boolean)internalState(index, "graphIncomplete"), "the failed insertion was not recorded");
+        assertTrue((long)internalState(index, "structuralModCount") > modCountBefore,
+            "a failed update did not move the crash-restart witness although the entity carries the new vector");
 
         final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index),
             "a search answered from a graph known to be incomplete");
@@ -353,5 +356,74 @@ class VectorIndexHalfInsertedNodeTest
         assertDoesNotThrow(() -> map.removeById(COUNT), "removing the entity threw the retirement meant for a rollback");
         map.reindex();
         assertEquals(COUNT, foundIds(index).size(), "entities missing after reindex(): " + foundIds(index));
+    }
+
+    /**
+     * Computed mode: the index stores a copy of each vector, and that store is what a repair rebuilds from. A
+     * {@code reindex()} whose graph insertion fails partway must already have stored every vector, or the repair
+     * rebuilds a truncated index and calls it complete.
+     */
+    static class ComputedVectorizer extends Vectorizer<Doc>
+    {
+        @Override
+        public float[] vectorize(final Doc d)
+        {
+            return d.vector == null ? null : d.vector.clone();
+        }
+
+        @Override
+        public boolean allowsNullVectors()
+        {
+            return true;
+        }
+    }
+
+    private static void failOneInsertion(final VectorIndex<?> index, final int ordinal)
+    {
+        final java.util.concurrent.atomic.AtomicBoolean armed = new java.util.concurrent.atomic.AtomicBoolean(true);
+        final java.util.function.IntConsumer hook = o ->
+        {
+            if(o == ordinal && armed.getAndSet(false))
+            {
+                throw new IllegalStateException("simulated engine failure inserting ordinal " + o);
+            }
+        };
+        try
+        {
+            final Field field = VectorIndex.Default.class.getDeclaredField("graphInsertTestHook");
+            field.setAccessible(true);
+            field.set(index, hook);
+        }
+        catch(final ReflectiveOperationException e)
+        {
+            throw new AssertionError(e);
+        }
+    }
+
+    private static void awaitWorker(final VectorIndex<?> index)
+    {
+        final BackgroundTaskManager manager = internalState(index, "backgroundTaskManager");
+        assertNotNull(manager, "precondition: a background task manager exists");
+        manager.drainQueue();
+        manager.drainQueue();
+    }
+
+    @Test
+    void failedComputedReindexKeepsEveryVectorForTheRepair()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        // a background optimization interval creates the manager that runs the repair
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", VectorIndexConfiguration.builder().dimension(4).similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
+                .optimizationIntervalMs(60_000).build(), new ComputedVectorizer());
+        assertEquals(COUNT, foundIds(index).size(), "precondition: complete before the reindex");
+
+        failOneInsertion(index, COUNT / 2); // the re-add fails at this ordinal, once
+        assertThrows(RuntimeException.class, map::reindex, "precondition: the reindex failed during an insertion");
+        awaitWorker(index); // the repair rebuilds from the vector store
+
+        assertEquals(COUNT, map.size(), "precondition: a failed reindex keeps the entities");
+        assertEquals(COUNT, foundIds(index).size(),
+            "the repair rebuilt a truncated index: the failed reindex had not stored every vector first; found " + foundIds(index));
     }
 }
