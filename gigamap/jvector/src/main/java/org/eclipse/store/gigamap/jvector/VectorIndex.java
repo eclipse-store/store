@@ -3250,6 +3250,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // Reinitialize the index (this will also restart background managers if configured)
                 this.initializeIndex();
 
+                // The new generation is populated by what follows, the re-add of reindex() (nothing, after
+                // removeAll()), exactly as a new index is populated by its back-fill: the deferred rebuild from the
+                // store must not run for it, see the constructor. The flag is transient and false after a load, and an
+                // index loaded in incremental mode never sets it; without this line the next access after a reindex()
+                // rebuilds from the vector store while the worker inserts the same ordinals (eventual indexing): two
+                // writers on one builder, and jvector throws "Node N already exists".
+                this.graphRebuilt = true;
+
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
             }
