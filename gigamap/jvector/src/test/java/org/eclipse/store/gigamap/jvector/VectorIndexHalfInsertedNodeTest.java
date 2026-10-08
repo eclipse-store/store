@@ -383,23 +383,13 @@ class VectorIndexHalfInsertedNodeTest
     private static void failOneInsertion(final VectorIndex<?> index, final int ordinal)
     {
         final java.util.concurrent.atomic.AtomicBoolean armed = new java.util.concurrent.atomic.AtomicBoolean(true);
-        final java.util.function.IntConsumer hook = o ->
+        ((VectorIndex.Default<?>)index).graphInsertTestHook = o ->
         {
             if(o == ordinal && armed.getAndSet(false))
             {
                 throw new IllegalStateException("simulated engine failure inserting ordinal " + o);
             }
         };
-        try
-        {
-            final Field field = VectorIndex.Default.class.getDeclaredField("graphInsertTestHook");
-            field.setAccessible(true);
-            field.set(index, hook);
-        }
-        catch(final ReflectiveOperationException e)
-        {
-            throw new AssertionError(e);
-        }
     }
 
     private static void awaitWorker(final VectorIndex<?> index)

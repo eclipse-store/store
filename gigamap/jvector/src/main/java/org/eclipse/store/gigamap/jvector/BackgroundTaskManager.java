@@ -157,8 +157,9 @@ class BackgroundTaskManager
 
         /**
          * Records that a graph operation failed after its mutation was counted: the graph is behind its
-         * witnesses until it is rebuilt from the source of truth. Called on the executor thread, from the
-         * per-operation catch of the indexing drain, before the next operation runs.
+         * witnesses until it is rebuilt from the source of truth. Called from the per-operation catch of the
+         * indexing drain (on the worker, or on a persist thread applying the queue inline) and from the index's
+         * own synchronous paths, with any locks held: the implementation only sets fields and submits a task.
          *
          * @param cause the failure
          */
@@ -235,7 +236,7 @@ class BackgroundTaskManager
     private final AtomicInteger                            pendingGraphOps       ;
 
     // Operations currently executing, on the worker or inline on a persist thread; see hasOpInFlight().
-    private final AtomicInteger                            opsInFlight           = new AtomicInteger();
+    private final AtomicInteger                            opsInFlight           ;
 
     // Optimization state
     private final AtomicInteger optimizationChangeCount;
@@ -289,6 +290,7 @@ class BackgroundTaskManager
         this.indexingTaskScheduled = new AtomicBoolean(false);
         this.repairScheduled       = new AtomicBoolean(false);
         this.pendingGraphOps       = new AtomicInteger(0);
+        this.opsInFlight           = new AtomicInteger(0);
 
         // Optimization
         this.optimizationChangeCount = new AtomicInteger(0);
@@ -470,15 +472,17 @@ class BackgroundTaskManager
     }
 
     /**
-     * Schedules one {@link Callback#repairGraph()} on the executor, unless one is already scheduled or the manager
-     * is shut down. Called from any thread, with any locks held: this only submits a task. The task runs after the
-     * batch that is applying operations now, so one rebuild serves every failure of that batch.
+     * Schedules one {@link Callback#repairGraph()} on the executor, unless one is already scheduled. Called from any
+     * thread, with any locks held: this only submits a task. The task runs after the batch that is applying
+     * operations now, so one rebuild serves every failure of that batch.
+     *
+     * @return {@code false} if the manager is shut down, so no repair will run on it
      */
-    void requestGraphRepair()
+    boolean requestGraphRepair()
     {
         if(this.shutdown)
         {
-            return;
+            return false;
         }
         if(this.repairScheduled.compareAndSet(false, true))
         {
@@ -488,11 +492,12 @@ class BackgroundTaskManager
             }
             catch(final RejectedExecutionException e)
             {
-                // The manager was shut down between the flag check above and the submit (close(), removeAll()).
-                // Nothing to repair in a generation that is going away; the next load or generation rebuilds.
+                // shut down between the flag check above and the submit (close(), removeAll())
                 this.repairScheduled.set(false);
+                return false;
             }
         }
+        return true;
     }
 
     private void runGraphRepair()

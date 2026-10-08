@@ -1163,12 +1163,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private transient volatile boolean                graphIncomplete;
 
         /**
-         * The failure that left {@link #graphIncomplete} set with no repair in sight: a repair that failed, or a
-         * failed operation on an index without a background task manager to run one. While set, {@link #search}
-         * throws instead of answering from a graph that is known to be incomplete. Cleared with
-         * {@link #graphIncomplete}: by a successful rebuild (a repair, a persist, {@code persistToDisk()}) or a new
-         * generation ({@code removeAll()}, {@code reindex()}). A failed repair is not retried on its own: with a
-         * persistently failing vectorizer that would cost one O(n) rebuild per failed operation.
+         * The failure that left {@link #graphIncomplete} set with no repair in sight (a failed repair, or no thread
+         * to run one). While set, {@link #search} throws instead of answering from an incomplete graph. Cleared with
+         * {@link #graphIncomplete}. Not retried on its own: a persistently failing vectorizer would cost one O(n)
+         * rebuild per failed operation.
          */
         private transient volatile Throwable              graphRepairFailure;
 
@@ -2461,19 +2459,40 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final List<VectorEntry> entries = this.collectParentVectors();
 
             this.internalRemoveAll();
-            // Through addVectorEntries, which stores every vector before any graph work: the store is the source of
-            // truth a repair rebuilds from, so a graph insertion that fails partway must find it complete. Entry by
-            // entry (internalAddBackfilled) would leave the entries behind the failing one unstored, and the repair
-            // would rebuild a truncated index and call it complete.
-            this.readdForReindex(() -> this.addVectorEntries(entries));
+            this.readdForReindex(() -> this.readdComputedEntries(entries));
         }
 
         /**
-         * Runs the re-add of a reindex. It goes through the same insertions as an add, but GigaMap does not roll a
-         * reindex back: a failure leaves the entities in place and the graph truncated at the failing one. So the
-         * failure is recorded as an incomplete graph (repaired by a background task manager, otherwise latched for
-         * {@code search()} until the next successful reindex or persist), and the retirement record a failed
-         * insertion left for the add's rollback is dropped, or a later legitimate removal would retire the id.
+         * The computed re-add of a reindex: every vector into the store first, then the graph work entity by entity.
+         * The store is the source of truth a repair rebuilds from, so an insertion that fails partway must find it
+         * complete; storing per entity would leave the entries behind the failing one unstored, and the repair would
+         * rebuild a truncated index and call it complete. Per entity rather than one batch op, so that with eventual
+         * indexing one failure costs one entity and the read lock is not held for the whole re-insertion.
+         */
+        private void readdComputedEntries(final List<VectorEntry> entries)
+        {
+            final OrdinalStoreIdTable computedIdIndex = this.computedIdIndex();
+            for(final VectorEntry entry : entries)
+            {
+                if(entry.vector != null)
+                {
+                    computedIdIndex.put(toOrdinal(entry.sourceEntityId), this.vectorStore.add(entry));
+                }
+            }
+            this.markContentChanged();
+            for(final VectorEntry entry : entries)
+            {
+                if(entry.vector != null)
+                {
+                    this.addGraphNodeForAdd(entry);
+                }
+            }
+        }
+
+        /**
+         * Runs the re-add of a reindex, which GigaMap does not roll back: a failure is recorded as an incomplete
+         * graph, and the retirement record meant for an add's rollback is dropped, or a later removal would retire
+         * the id.
          */
         private void readdForReindex(final Runnable readd)
         {
@@ -2664,17 +2683,25 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void addVectorEntry(final VectorEntry vectorEntry)
         {
-            final long entityId = vectorEntry.sourceEntityId;
-            final int  ordinal  = toOrdinal(entityId);
-
             // Store based on vectorizer type
             if(!this.isEmbedded())
             {
                 final long storeId = this.vectorStore.add(vectorEntry);
-                this.computedIdIndex().put(ordinal, storeId);
+                this.computedIdIndex().put(toOrdinal(vectorEntry.sourceEntityId), storeId);
             }
 
             this.markContentChanged();
+            this.addGraphNodeForAdd(vectorEntry);
+        }
+
+        /**
+         * The graph part of an add whose vector is stored (or embedded) and counted: deferred to the worker with
+         * eventual indexing, otherwise inserted inline. An inline failure records the half-inserted node for GigaMap's
+         * rollback (an exception) or the incomplete graph (an {@link Error}, which GigaMap does not roll back).
+         */
+        private void addGraphNodeForAdd(final VectorEntry vectorEntry)
+        {
+            final int ordinal = toOrdinal(vectorEntry.sourceEntityId);
 
             if(this.isEventualIndexing())
             {
@@ -4556,7 +4583,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             catch(final Throwable t)
             {
-                if(repairing)
+                // Still incomplete: a failure after the rebuild succeeded (closing the disk manager, the pools) left a
+                // complete graph behind and is not a reason to refuse searches.
+                if(repairing && this.graphIncomplete)
                 {
                     this.graphRepairFailure = t;
                 }
@@ -5348,11 +5377,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Records that a synchronous insertion left the node of {@code ordinal} half-inserted, see
-         * {@link #halfInsertedOrdinal}. The graph also counts as incomplete for the persist: the node must not be
-         * written, so the next persist rebuilds before it captures, and a background task manager, if there is one,
-         * repairs it sooner. Not latched for {@code search()}: the rollback marks the node deleted and the entity does
-         * not exist, so searches stay correct.
+         * Records that a synchronous insertion left the node of {@code ordinal} half-inserted, for GigaMap's rollback
+         * of that add, see {@link #halfInsertedOrdinal}.
          */
         private void noteHalfInsertedNode(final int ordinal)
         {
@@ -5400,12 +5426,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 return;
             }
+            // No thread to repair (none, or one already shut down): loud until the next persist or reindex.
             final BackgroundTaskManager manager = this.backgroundTaskManager;
-            if(manager != null)
-            {
-                manager.requestGraphRepair();
-            }
-            else
+            if(manager == null || !manager.requestGraphRepair())
             {
                 this.graphRepairFailure = cause;
             }
