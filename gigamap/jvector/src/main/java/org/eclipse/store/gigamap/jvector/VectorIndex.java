@@ -2876,7 +2876,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         // it) — add it now. addGraphNode alone is monitor-safe (no removeDeletedNodes),
                         // the same call internalAdd makes.
                         final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                        this.executeOrDeferBuilderOp(() -> this.internalReaddGraphNode(ordinal, vf));
+                        this.executeOrDeferUpdateInsertion(() -> this.internalReaddGraphNode(ordinal, vf));
                     }
                     else if(currentGraph.getDeletedNodes().get(ordinal))
                     {
@@ -2889,7 +2889,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         // "leave as-is" contract below; the next optimize/persist rebuilds connections.
                         // Without this, the entity would stay excluded from liveNodes() forever.
                         final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                        this.executeOrDeferBuilderOp(() -> this.internalResurrectGraphNode(ordinal, vf));
+                        this.executeOrDeferUpdateInsertion(() -> this.internalResurrectGraphNode(ordinal, vf));
                     }
                     else
                     {
@@ -2926,7 +2926,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // stored separately, so removeDeletedNodes() won't call parentMap.get().
                     // Safe to inline.
                     final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                    this.executeOrDeferBuilderOp(() -> this.internalReplaceGraphNode(ordinal, vf));
+                    this.executeOrDeferUpdateInsertion(() -> this.internalReplaceGraphNode(ordinal, vf));
                     changed = true;
                 }
 
@@ -4008,6 +4008,26 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         return;
                     }
 
+                    // Eventual indexing: ops enqueued after the caller's drain (or, for a background persist, while
+                    // this thread waited for the write lock) are counted in the witnesses but not in the graph. The
+                    // ones still queued are applied here, on this thread, under the write lock and deliberately
+                    // WITHOUT the parent-map monitor, which is the worker's own posture: applyGraphUpdate may call
+                    // removeDeletedNodes(), whose ForkJoinPool workers read entities through that monitor for an
+                    // embedded vectorizer, so applying under the monitor would deadlock (the INVARIANT on
+                    // drainDeferredBuilderOps). Only when nothing is in flight: an op the worker has polled is
+                    // blocked on the read lock this thread holds, Phase 1 rebuilds from the source of truth for it,
+                    // and that rebuild would replace whatever is applied here. Ops enqueued between this point and
+                    // Phase 1's monitor are caught by the same check there.
+                    if(this.isEventualIndexing())
+                    {
+                        final BackgroundTaskManager manager = this.backgroundTaskManager;
+                        final int                   pending = manager.pendingGraphOps();
+                        if(pending > 0 && pending == manager.getPendingIndexingCount())
+                        {
+                            manager.applyQueuedOpsInline();
+                        }
+                    }
+
                     // If incremental mode with no changes, skip persist entirely.
                     //
                     // Exception: an index that wants PQ but has no codebook yet still has work to
@@ -4124,27 +4144,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                             this.runDeferredBuilderOps();
                         }
 
-                        // Eventual indexing: an op enqueued after the caller's drain (or, for a background persist,
-                        // while this thread waited for the write lock) is counted in the witnesses but not in the
-                        // graph. The ones still queued are applied here, on this thread, under both locks. One the
-                        // worker has polled and is blocked on cannot be: it waits for the read lock this thread holds.
-                        // For that one the graph is rebuilt from the source of truth, which holds its mutation; the
-                        // rebuild moves the epoch, so the op is dropped when it finally runs instead of being applied
-                        // a second time to the incremental builder next to the disk graph that already has it.
-                        // Skipped after an incremental exit: that rebuild moved the epoch already.
+                        // Eventual indexing: an op that is still pending here (one the worker has polled and is
+                        // blocked on - it waits for the read lock this thread holds - or one enqueued since the
+                        // inline apply above) is counted in the witnesses but not in the graph. The graph is rebuilt
+                        // from the source of truth, which holds its mutation; the rebuild moves the epoch, so the op
+                        // is dropped when it finally runs instead of being applied a second time to the incremental
+                        // builder next to the disk graph that already has it. Skipped after an incremental exit: that
+                        // rebuild moved the epoch already.
                         if(!rebuilt && this.isEventualIndexing() && this.backgroundTaskManager.pendingGraphOps() > 0)
                         {
-                            this.backgroundTaskManager.applyQueuedOpsInline();
-                            if(this.backgroundTaskManager.pendingGraphOps() > 0)
+                            if(onShutdown)
                             {
-                                if(onShutdown)
-                                {
-                                    LOG.warn("Graph of '{}' is behind an indexing operation in flight; skipping the"
-                                        + " persist on shutdown, the index is rebuilt on next load", this.name);
-                                    return;
-                                }
-                                this.rebuildFromSourceOfTruth();
+                                LOG.warn("Graph of '{}' is behind an indexing operation in flight; skipping the"
+                                    + " persist on shutdown, the index is rebuilt on next load", this.name);
+                                return;
                             }
+                            this.rebuildFromSourceOfTruth();
                         }
 
                         // A failed deferred op (here or in an earlier drain) left a counted change out of the
@@ -5335,10 +5350,37 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.halfInsertedOrdinal     = ordinal;
             this.halfInsertedNodePending = true;
             this.graphIncomplete         = true;
+            // Same rule as markGraphIncomplete: once a repair has failed, no further repair is requested on its own,
+            // or a persistently failing vectorizer would cost one O(n) rebuild per failed add.
+            if(this.graphRepairFailure != null)
+            {
+                return;
+            }
             final BackgroundTaskManager manager = this.backgroundTaskManager;
             if(manager != null)
             {
                 manager.requestGraphRepair();
+            }
+        }
+
+        /**
+         * {@link #executeOrDeferBuilderOp} for the graph insertions of a synchronous update ({@code null→vec},
+         * resurrect, computed {@code vec→vec}). A failure partway leaves a half-inserted node for an entity that stays
+         * in the map; GigaMap does not roll an update back, so there is no removal to retire the id through. The graph
+         * is recorded as incomplete instead ({@link #markGraphIncomplete}): repaired by the background task manager
+         * if there is one, otherwise latched for {@code search()} until the next persist or {@code reindex()}.
+         */
+        private void executeOrDeferUpdateInsertion(final Runnable op)
+        {
+            try
+            {
+                this.executeOrDeferBuilderOp(op);
+            }
+            catch(final RuntimeException | Error e)
+            {
+                // only an inline insertion throws here; a deferred one is recorded by the drain that runs it
+                this.markGraphIncomplete(e);
+                throw e;
             }
         }
 

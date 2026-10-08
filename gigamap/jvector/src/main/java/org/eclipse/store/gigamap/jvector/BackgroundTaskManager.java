@@ -382,8 +382,11 @@ class BackgroundTaskManager
 
     /**
      * Returns the number of operations enqueued and not yet applied, including the one the worker may have polled
-     * and be blocked on. Exact for a caller holding the index's write lock and parent-map monitor: nothing can be
-     * enqueued (the monitor) or applied (the lock) while it holds them.
+     * and be blocked on. For a caller holding the index's write lock and parent-map monitor nothing can be enqueued
+     * (the monitor) or applied (the lock) while it holds them, so the count is exact up to one over-count: the
+     * decrement for an op runs after its callback released the read lock, and a writer that takes the lock in that
+     * instant still sees the op counted. The consequence is one redundant rebuild (or a skipped shutdown write),
+     * never a missed op.
      */
     int pendingGraphOps()
     {
@@ -391,9 +394,11 @@ class BackgroundTaskManager
     }
 
     /**
-     * Applies the operations still in the queue on the calling thread. For persist Phase 1, which holds the builder
-     * write lock and the parent-map monitor: the callbacks take the read lock, which a write-lock holder may take
-     * again, and the worker cannot apply anything in the meantime. Does not cover an operation the worker has already
+     * Applies the operations still in the queue on the calling thread. For a persist that holds the builder write
+     * lock but not yet the parent-map monitor: the callbacks take the read lock, which a write-lock holder may take
+     * again, and the worker cannot apply anything in the meantime. Must not be called with the monitor held, because
+     * the callbacks are the worker's and may enter a ForkJoinPool whose workers need it (see
+     * {@code VectorIndex.Default#drainDeferredBuilderOps}). Does not cover an operation the worker has already
      * polled; {@link #pendingGraphOps()} still counts that one afterwards.
      */
     void applyQueuedOpsInline()
@@ -697,7 +702,7 @@ class BackgroundTaskManager
     {
         this.shutdown = true;
         this.cancelScheduledTasks();
-        this.indexingQueue.clear();
+        this.discardQueue();
         this.executor.shutdown(); // no awaitTermination: we are on the executor thread
         LOG.info("Background task manager self-terminated for abandoned index '{}'", this.name);
     }

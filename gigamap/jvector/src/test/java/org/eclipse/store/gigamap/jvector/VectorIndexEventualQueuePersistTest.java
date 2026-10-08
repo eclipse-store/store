@@ -51,7 +51,7 @@ class VectorIndexEventualQueuePersistTest
     static class Doc
     {
         final int     no;
-        final float[] vector;
+        float[] vector; // mutable: the deadlock test updates embeddings in place
 
         Doc(final int no)
         {
@@ -398,7 +398,7 @@ class VectorIndexEventualQueuePersistTest
      * on the write lock; the two adds run; the search is released.
      */
     @Test
-    @Order(Integer.MAX_VALUE)
+    @Order(Integer.MAX_VALUE - 1)
     void addsEnqueuedWhileAPersistWaitsArePersisted(@TempDir final Path tempDir) throws Exception
     {
         final Path storageDir = tempDir.resolve("storage");
@@ -477,5 +477,85 @@ class VectorIndexEventualQueuePersistTest
             assertTrue(foundExactly(index, queued, queuedId),
                 "the entity whose op was queued when the persist captured is missing after a restart");
         }
+    }
+
+    /**
+     * Embedded vectorizer, background persistence. Every embedded update enqueues an op whose application calls
+     * jvector's {@code removeDeletedNodes()}, which scores on a ForkJoinPool whose workers read entities through the
+     * parent-map monitor. The persist applies still-queued ops inline; doing so while holding that monitor
+     * deadlocks the persist, and with it every search and mutation. The ops must be applied before the monitor is
+     * taken.
+     * <p>
+     * Interleaving: a search is held inside scoring (read lock held); the background persist drains its empty queue
+     * and queues on the write lock; three updates are enqueued (the persist thread is the worker, so they stay
+     * queued); the search is released. Last in the class: a hung persist poisons the common pool. The index is closed
+     * only if the persist finished: {@code close()} waits for the write lock a hung persist never releases.
+     */
+    @Test
+    @Order(Integer.MAX_VALUE)
+    void embeddedUpdatesQueuedBehindABackgroundPersistDoNotDeadlock(@TempDir final Path tempDir) throws Exception
+    {
+        final GigaMap<Doc>      map        = populatedMap();
+        final PausingVectorizer vectorizer = new PausingVectorizer();
+        final VectorIndex<Doc>  index      = map.index().register(VectorIndices.Category()).add("emb",
+            eventual().onDisk(true).indexDirectory(tempDir.resolve("index"))
+                .persistenceIntervalMs(1_500).minChangesBetweenPersists(1).build(),
+            vectorizer);
+        awaitWorker(index); // the back-fill; the first background persist is still 1.5 s away
+        assertFalse((boolean)internalState(index, "incrementalMode"), "precondition: nothing persisted yet");
+
+        final ReentrantReadWriteLock lock     = internalState(index, "builderLock");
+        final BackgroundTaskManager  manager  = manager(index);
+        final Thread                 searcher = daemon("searcher", () -> index.search(position(10), 5));
+        try
+        {
+            vectorizer.pauseThread = searcher;
+            searcher.start();
+            await(vectorizer.paused, "the search did not reach scoring");
+
+            // the background persist (interval 1.5 s, one change is enough) queues on the write lock
+            final long until = System.currentTimeMillis() + TIMEOUT_MS;
+            while(!lock.hasQueuedThreads() && System.currentTimeMillis() < until)
+            {
+                Thread.sleep(10);
+            }
+            assertTrue(lock.hasQueuedThreads(), "the background persist did not queue on the write lock");
+
+            for(int i = 0; i < 3; i++)
+            {
+                final int no = i;
+                map.update((long)no, d -> d.vector = position(COUNT + 20 + no)); // embedded vec→vec: an Update op
+            }
+            assertEquals(3, manager.pendingGraphOps(), "precondition: the updates are pending");
+            assertEquals(3, manager.getPendingIndexingCount(), "precondition: nothing is in flight, the worker is the persist");
+        }
+        finally
+        {
+            vectorizer.release.countDown();
+        }
+        searcher.join(TIMEOUT_MS);
+
+        // the persist must finish: write lock released, nothing queued, the ops applied
+        final long until = System.currentTimeMillis() + TIMEOUT_MS;
+        while((lock.isWriteLocked() || lock.hasQueuedThreads() || manager.pendingGraphOps() > 0)
+            && System.currentTimeMillis() < until)
+        {
+            Thread.sleep(10);
+        }
+        final boolean hung = lock.isWriteLocked();
+        if(!hung)
+        {
+            try
+            {
+                assertEquals(0, manager.pendingGraphOps(), "the queued updates were not applied");
+                assertTrue((boolean)internalState(index, "incrementalMode"), "the persist did not complete");
+                assertNotNull(index.search(position(0), 1), "the index is not usable after the persist");
+            }
+            finally
+            {
+                index.close();
+            }
+        }
+        assertFalse(hung, "the persist dead-locked while applying the queued updates (write lock still held)");
     }
 }

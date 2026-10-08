@@ -52,7 +52,13 @@ class VectorIndexHalfInsertedNodeTest
     static class Doc
     {
         final int     no;
-        final float[] vector;
+        float[] vector;
+
+        Doc(final int no, final float[] vector)
+        {
+            this.no     = no;
+            this.vector = vector;
+        }
 
         Doc(final int no)
         {
@@ -76,6 +82,12 @@ class VectorIndexHalfInsertedNodeTest
                 throw new IllegalStateException("simulated flaky embedding lookup for entity " + entity.no);
             }
             return entity.vector;
+        }
+
+        @Override
+        public boolean allowsNullVectors()
+        {
+            return true;
         }
 
         @Override
@@ -252,5 +264,34 @@ class VectorIndexHalfInsertedNodeTest
 
             assertEquals(COUNT, foundIds(index).size(), "the retried rebuild lost an entity: " + foundIds(index));
         }
+    }
+
+    /**
+     * A synchronous update whose graph insertion fails partway (here: an entity gains an embedding, and scoring a
+     * neighbour throws) leaves a half-inserted node for an entity that stays in the map; GigaMap does not roll an
+     * update back, so nothing retires the id. The index must record the graph as incomplete: without a background
+     * thread, searches throw until {@code reindex()} rebuilds the graph, which then finds the entity.
+     */
+    @Test
+    void failedSynchronousUpdateFlagsTheGraphIncomplete()
+    {
+        final GigaMap<Doc> map = populatedMap();
+        final long noVectorId = map.add(new Doc(COUNT, null)); // no embedding yet
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", inMemory(), new NeighbourFlakyVectorizer());
+
+        failPoison = true; // the entity's own vector is fine; scoring POISON as a neighbour fails
+        assertThrows(RuntimeException.class, () -> map.set(noVectorId, new Doc(COUNT)),
+            "precondition: the insertion of the new embedding failed");
+        failPoison = false;
+        assertTrue((boolean)internalState(index, "graphIncomplete"), "the failed insertion was not recorded");
+
+        final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index),
+            "a search answered from a graph known to be incomplete");
+        assertTrue(e.getMessage().contains("incomplete"), e.getMessage());
+
+        map.reindex();
+        final long withVectors = map.size() - (map.get(noVectorId).vector == null ? 1 : 0);
+        assertEquals(withVectors, foundIds(index).size(), "entities missing after reindex(): " + foundIds(index));
     }
 }
