@@ -55,6 +55,8 @@ class VectorIndexWorkerFailureRepairTest
      */
     private static final AtomicInteger failuresLeft   = new AtomicInteger();
     private static final AtomicInteger workerFailures = new AtomicInteger();
+    /** the entity whose lookup fails on the worker; {@link #POISON} unless a test moves it */
+    private static volatile int        poison         = POISON;
 
     static class Doc
     {
@@ -81,7 +83,7 @@ class VectorIndexWorkerFailureRepairTest
         @Override
         public float[] vectorize(final Doc entity)
         {
-            if(entity.no == POISON
+            if(entity.no == poison
                 && Thread.currentThread().getName().startsWith(WORKER_PREFIX)
                 && failuresLeft.getAndUpdate(left -> left > 0 ? left - 1 : 0) > 0)
             {
@@ -103,6 +105,7 @@ class VectorIndexWorkerFailureRepairTest
     {
         failuresLeft.set(0);
         workerFailures.set(0);
+        poison = POISON;
     }
 
     private static VectorIndexConfiguration.Builder eventual()
@@ -385,11 +388,11 @@ class VectorIndexWorkerFailureRepairTest
     }
 
     /**
-     * The repair of an on-disk index is a persist: after it the index serves from disk again (incremental mode)
-     * instead of keeping the whole rebuilt graph in heap until some later persist.
+     * An on-disk index that has never been persisted serves from memory; its repair is a rebuild in memory, not an
+     * unrequested first write to disk with the mode switch and PQ training that come with it.
      */
     @Test
-    void repairOfAnOnDiskIndexReturnsToIncrementalMode(@TempDir final Path tempDir)
+    void repairOfANeverPersistedOnDiskIndexStaysInMemory(@TempDir final Path tempDir)
     {
         final GigaMap<Doc>       map = GigaMap.New();
         final VectorIndices<Doc> vi  = map.index().register(VectorIndices.Category());
@@ -401,9 +404,47 @@ class VectorIndexWorkerFailureRepairTest
             awaitWorker(index);
 
             assertEquals(1, workerFailures.get(), "precondition: one insertion failed on the worker");
-            assertTrue((boolean)internalState(index, "incrementalMode"),
-                "the repair of an on-disk index left the full graph in heap instead of persisting it");
+            assertFalse((boolean)internalState(index, "incrementalMode"),
+                "the repair of a never-persisted index wrote it to disk and switched it to serving from disk");
             assertEquals(allIds(), foundIds(index), "entities are missing after the repair");
+        }
+    }
+
+    /**
+     * An index serving from disk is repaired by a persist, so it returns to serving from disk instead of keeping
+     * the whole rebuilt graph in heap until some later persist. The failing lookup is one of the entities added
+     * after the persist: in incremental mode the worker scores only the new nodes.
+     */
+    @Test
+    void repairOfAnIndexServingFromDiskReturnsToIncrementalMode(@TempDir final Path tempDir)
+    {
+        final GigaMap<Doc>       map = GigaMap.New();
+        final VectorIndices<Doc> vi  = map.index().register(VectorIndices.Category());
+        try(final VectorIndex<Doc> index = vi.add("emb",
+            eventual().onDisk(true).indexDirectory(tempDir.resolve("index")).build(), new WorkerFlakyVectorizer()))
+        {
+            addAll(map);
+            awaitWorker(index);
+            index.persistToDisk();
+            assertTrue((boolean)internalState(index, "incrementalMode"), "precondition: serving from disk");
+
+            poison = COUNT; // the first entity added after the persist; later insertions score it on the worker
+            failuresLeft.set(1);
+            for(int i = 0; i < 10; i++)
+            {
+                map.add(new Doc(COUNT + i));
+            }
+            awaitWorker(index);
+
+            assertEquals(1, workerFailures.get(), "precondition: one insertion failed on the worker");
+            assertTrue((boolean)internalState(index, "incrementalMode"),
+                "the repair of an index serving from disk left the full graph in heap instead of persisting it");
+            final java.util.Set<Long> expected = allIds();
+            for(long id = COUNT; id < COUNT + 10; id++)
+            {
+                expected.add(id);
+            }
+            assertEquals(expected, foundIds(index), "entities are missing after the repair");
         }
     }
 }

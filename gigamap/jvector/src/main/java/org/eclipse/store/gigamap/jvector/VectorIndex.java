@@ -664,8 +664,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * <p>
      * A graph that is known to be incomplete (a graph operation failed after its entity was counted) is rebuilt from
      * the entities or the stored vectors before it is written, which also clears the condition that makes
-     * {@link #search(float[], int)} throw. A background repair of an on-disk index runs this persist itself, so the
-     * index returns to serving from disk without a call from the application.
+     * {@link #search(float[], int)} throw. A background repair of an index that serves from disk runs this persist
+     * itself, so the index returns to serving from disk without a call from the application.
      *
      * @throws IllegalStateException if the index is on disk and the calling thread holds the parent GigaMap's
      *         monitor
@@ -1173,22 +1173,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private transient volatile Throwable              graphRepairFailure;
 
         /**
-         * Moves whenever the graph is rebuilt from the source of truth ({@link #rebuildInMemoryGraph()}) or replaced
-         * by a new generation ({@link #internalRemoveAll()}). Every eventual-indexing operation is enqueued with the
-         * epoch of that moment, under the parent-map monitor, after its mutation; the {@code applyGraph*} callbacks
-         * drop an operation whose epoch has moved, because the rebuilt graph already holds its mutation, or the
-         * ordinal now means another entity. Not moved by a persist's {@code reenterIncrementalMode}: the disk graph
-         * was captured earlier, so operations enqueued during the write are still owed to the incremental builder.
+         * Moves on every rebuild from the source of truth and on every new generation ({@link #internalRemoveAll()}).
+         * Each eventual-indexing op carries the epoch it was enqueued with; the callbacks drop an op whose epoch moved,
+         * because the graph that replaced the old one already accounts for its mutation. Not moved by a persist's
+         * {@code reenterIncrementalMode}: ops enqueued during the write are still owed to the incremental builder.
          */
         private transient volatile long                   graphEpoch;
 
         /**
-         * The ordinal whose graph node a failed synchronous insertion left half-inserted, until GigaMap's rollback
-         * of that add removes the entity again. The removal marks the node deleted and then throws for this ordinal,
-         * which makes GigaMap retire the id instead of handing it to the next entity: the idempotent add would find
-         * the node present, only clear its deleted bit, and the new entity would inherit a node without neighbours,
-         * never to be found. Two fields rather than a sentinel: a transient field comes back as zero after a load,
-         * and zero is a valid ordinal.
+         * The ordinal a failed synchronous insertion left half-inserted, until GigaMap's rollback removes the entity:
+         * that removal throws for this ordinal, so GigaMap retires the id instead of handing the node to the next
+         * entity. Two fields, because a transient field is zero after a load and zero is a valid ordinal.
          */
         private transient volatile boolean                halfInsertedNodePending;
         private transient volatile int                    halfInsertedOrdinal;
@@ -3045,15 +3040,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // whole addAll back, and the removal of that ordinal retires the ids (see noteHalfInsertedNode).
                     for(final VectorEntry entry : entries)
                     {
-                        final int            ordinal = toOrdinal(entry.sourceEntityId);
-                        final VectorFloat<?> vf      = this.vectorTypeSupport.createFloatVector(entry.vector);
                         try
                         {
-                            this.internalAddGraphNodeIdempotent(ordinal, vf);
+                            this.insertGraphNode(entry);
                         }
                         catch(final RuntimeException e)
                         {
-                            this.noteHalfInsertedNode(ordinal);
+                            this.noteHalfInsertedNode(toOrdinal(entry.sourceEntityId));
                             throw e;
                         }
                         catch(final Error e)
@@ -3126,10 +3119,18 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // Entities without an embedding are excluded from the graph.
                     return;
                 }
-                final int ordinal = toOrdinal(entry.sourceEntityId);
-                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
-                this.internalAddGraphNodeIdempotent(ordinal, vf);
+                this.insertGraphNode(entry);
             });
+        }
+
+        /**
+         * The one insertion of a non-null entry: its entity id is the ordinal, idempotent against a present node.
+         */
+        private void insertGraphNode(final VectorEntry entry)
+        {
+            final int            ordinal = toOrdinal(entry.sourceEntityId);
+            final VectorFloat<?> vf      = this.vectorTypeSupport.createFloatVector(entry.vector);
+            this.internalAddGraphNodeIdempotent(ordinal, vf);
         }
 
         @Override
@@ -5191,6 +5192,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     return;
                 }
+                this.markDirtyForBackgroundManagers(1); // after the epoch check: a dropped op is not a change
                 final int ordinal = toOrdinal(entry.sourceEntityId);
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
 
@@ -5219,6 +5221,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     return;
                 }
+                this.markDirtyForBackgroundManagers(entries.size());
                 for(final var entry : entries)
                 {
                     if(entry.vector == null)
@@ -5249,6 +5252,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     return;
                 }
+                this.markDirtyForBackgroundManagers(1);
                 // One generation, captured once. This callback holds only the read lock, and the
                 // in-memory PQ switch publishes a replacement while holding neither - so reading
                 // this.builder or this.index again further down could land on the other side of
@@ -5307,6 +5311,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     return;
                 }
+                this.markDirtyForBackgroundManagers(1);
                 // One generation, for the reason given on applyGraphUpdate: the containment test
                 // and the delete must be about the same graph.
                 final GraphIndexBuilder currentBuilder = this.builder;
@@ -5351,12 +5356,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void noteHalfInsertedNode(final int ordinal)
         {
+            // Nothing else to record: the rollback removes the entity and marks the node deleted, so searches stay
+            // correct, and the persist runs cleanup() before it writes, which purges deleted nodes.
             this.halfInsertedOrdinal     = ordinal;
             this.halfInsertedNodePending = true;
-            // Only the persist cares: the rollback removes the entity and marks the node deleted, so searches stay
-            // correct, and the next persist rebuilds before it writes. No repair (an O(n) rebuild for nothing) and
-            // no latch.
-            this.graphIncomplete = true;
         }
 
         /**
@@ -5423,12 +5426,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 return;
             }
-            if(this.configuration.onDisk())
+            if(this.incrementalMode)
             {
-                // For an on-disk index the repair is a persist: its Phase 1 rebuilds from the source of truth because
-                // the flag is set, Phase 2 writes the graph, and the index returns to serving from disk. A bare rebuild
-                // would leave the full graph in heap until some later persist, which without background persistence
-                // is only an explicit one. Takes its own locks; this thread holds none.
+                // An index serving from disk is repaired by a persist: Phase 1 rebuilds from the source of truth
+                // because the flag is set, Phase 2 writes, and the index returns to serving from disk instead of
+                // keeping the full graph in heap. An index serving from memory is rebuilt in memory below; the first
+                // write to disk stays the application's (or the shutdown's) call. Takes its own locks; none held here.
                 this.doPersistToDisk(false);
                 return;
             }

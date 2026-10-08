@@ -291,6 +291,7 @@ class VectorIndexEventualQueuePersistTest
             manager.enqueueAdd(new VectorEntry(0, position(0)), 0);
             await(callback.entered, "the worker did not start the operation");
             assertEquals(1, manager.pendingGraphOps(), "a polled operation is not pending");
+            assertTrue(manager.hasOpInFlight(), "a polled operation is not in flight");
             assertEquals(0, manager.getPendingIndexingCount(), "precondition: the operation left the queue");
 
             manager.enqueueAdd(new VectorEntry(1, position(1)), 0);
@@ -298,6 +299,7 @@ class VectorIndexEventualQueuePersistTest
 
             callback.release.countDown();
             awaitNoPendingOps(manager);
+            assertFalse(manager.hasOpInFlight(), "an applied operation is still in flight");
         }
         finally
         {
@@ -459,6 +461,7 @@ class VectorIndexEventualQueuePersistTest
             assertFalse(persister.isAlive(), "the persist did not finish");
             assertNull(persistFailure.get(), "the persist failed: " + persistFailure.get());
             awaitNoPendingOps(manager);
+            assertFalse(manager.hasOpInFlight(), "an applied operation is still in flight");
 
             assertTrue(foundExactly(index, inFlight, inFlightId), "the in-flight entity is missing in the session");
             assertTrue(foundExactly(index, queued, queuedId), "the queued entity is missing in the session");

@@ -88,7 +88,6 @@ class BackgroundTaskManager
             public void execute(final Callback callback)
             {
                 callback.applyGraphAdd(this.entry, this.epoch);
-                callback.markDirtyForBackgroundManagers(1);
             }
         }
 
@@ -101,7 +100,6 @@ class BackgroundTaskManager
             public void execute(final Callback callback)
             {
                 callback.applyGraphUpdate(this.entry, this.epoch);
-                callback.markDirtyForBackgroundManagers(1);
             }
         }
 
@@ -114,7 +112,6 @@ class BackgroundTaskManager
             public void execute(final Callback callback)
             {
                 callback.applyGraphRemove(this.ordinal, this.epoch);
-                callback.markDirtyForBackgroundManagers(1);
             }
         }
 
@@ -130,7 +127,6 @@ class BackgroundTaskManager
             public void execute(final Callback callback)
             {
                 callback.applyGraphBatchAdd(this.entries, this.epoch);
-                callback.markDirtyForBackgroundManagers(this.entries.size());
             }
         }
     }
@@ -238,8 +234,8 @@ class BackgroundTaskManager
      */
     private final AtomicInteger                            pendingGraphOps       ;
 
-    // True while the worker executes a polled operation; see hasOpInFlight().
-    private volatile boolean                               opInFlight            ;
+    // Operations currently executing, on the worker or inline on a persist thread; see hasOpInFlight().
+    private final AtomicInteger                            opsInFlight           = new AtomicInteger();
 
     // Optimization state
     private final AtomicInteger optimizationChangeCount;
@@ -401,7 +397,7 @@ class BackgroundTaskManager
      */
     boolean hasOpInFlight()
     {
-        return this.opInFlight;
+        return this.opsInFlight.get() > 0;
     }
 
     /**
@@ -774,7 +770,7 @@ class BackgroundTaskManager
         IndexingOperation op;
         while((op = this.indexingQueue.poll()) != null)
         {
-            this.opInFlight = true;
+            this.opsInFlight.incrementAndGet();
             try
             {
                 op.execute(cb);
@@ -795,7 +791,7 @@ class BackgroundTaskManager
             finally
             {
                 // After the op ran, not when it was polled: a polled op blocked on the read lock is still pending.
-                this.opInFlight = false;
+                this.opsInFlight.decrementAndGet();
                 this.pendingGraphOps.decrementAndGet();
             }
         }

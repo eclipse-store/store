@@ -180,6 +180,8 @@ class VectorIndexHalfInsertedNodeTest
         assertEquals(COUNT, map.size(), "precondition: the failed add was rolled back");
         assertTrue(retiredTheId(failure), "the rollback did not retire the id: " + Arrays.toString(failure.getSuppressed()));
         assertFalse((boolean)internalState(index, "halfInsertedNodePending"), "the retirement was not consumed");
+        assertFalse((boolean)internalState(index, "graphIncomplete"),
+            "a rolled-back add flagged the graph incomplete although its deleted node is purged by the persist's cleanup");
 
         final Doc  next   = new Doc(COUNT + 1);
         final long nextId = map.add(next);
