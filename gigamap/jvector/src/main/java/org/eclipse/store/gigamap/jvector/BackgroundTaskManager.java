@@ -769,12 +769,9 @@ class BackgroundTaskManager
             }
             catch(final Throwable t)
             {
-                // The operation is polled and lost either way, and its mutation was counted on the caller's
-                // thread when it was enqueued: the graph is now behind its witnesses, and a half-inserted node
-                // may be left behind. Logged first, so the failure is on record whatever the callback does; then
-                // recorded before the next operation runs, so that a persist rebuilds the graph instead of
-                // capturing it and the index can schedule a repair. An Error is recorded the same way and then
-                // rethrown; the operations not run yet stay queued.
+                // The op is polled and lost either way, but its mutation was counted when it was enqueued: the
+                // graph is behind its witnesses. Logged first, then recorded so a persist rebuilds instead of
+                // capturing, and a repair can be scheduled. An Error is recorded too and rethrown.
                 LOG.error("Error applying indexing operation for '{}', the graph is rebuilt from the source of"
                     + " truth: {}", this.name, t.getMessage(), t);
                 cb.markGraphIncomplete(t);
@@ -832,6 +829,13 @@ class BackgroundTaskManager
 
             LOG.debug("Background optimization completed for '{}'", this.name);
         }
+        catch(final VirtualMachineError e)
+        {
+            // The JVM is in trouble; retrying every tick would only repeat the damage. The escaping error ends
+            // this periodic task, which is logged here because the executor would do it silently.
+            LOG.error("Background optimization of '{}' stops after a fatal error: {}", this.name, e.getMessage(), e);
+            throw e;
+        }
         catch(final Throwable t)
         {
             // Throwable, not Exception: a throwable escaping a scheduled task cancels the task for good, and
@@ -876,6 +880,12 @@ class BackgroundTaskManager
             this.persistenceChangeCount.set(0);
 
             LOG.debug("Background persistence completed for '{}'", this.name);
+        }
+        catch(final VirtualMachineError e)
+        {
+            // as on runOptimizationIfDirty: a fatal error ends the task, loudly
+            LOG.error("Background persistence of '{}' stops after a fatal error: {}", this.name, e.getMessage(), e);
+            throw e;
         }
         catch(final Throwable t)
         {

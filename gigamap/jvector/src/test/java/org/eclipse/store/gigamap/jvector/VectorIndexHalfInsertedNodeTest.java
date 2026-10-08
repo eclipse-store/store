@@ -48,6 +48,8 @@ class VectorIndexHalfInsertedNodeTest
     private static volatile boolean      failPoison;
     private static final    AtomicInteger poisonCalls = new AtomicInteger();
     private static volatile int          skipCalls;
+    /** when set, the poison failure is an {@link Error} instead of an exception (GigaMap rolls back on Exception only) */
+    private static volatile boolean      failWithError;
 
     static class Doc
     {
@@ -79,6 +81,10 @@ class VectorIndexHalfInsertedNodeTest
         {
             if(failPoison && entity.no == POISON && poisonCalls.getAndIncrement() >= skipCalls)
             {
+                if(failWithError)
+                {
+                    throw new AssertionError("simulated engine failure while scoring entity " + entity.no);
+                }
                 throw new IllegalStateException("simulated flaky embedding lookup for entity " + entity.no);
             }
             return entity.vector;
@@ -102,6 +108,7 @@ class VectorIndexHalfInsertedNodeTest
     {
         failPoison = false;
         skipCalls  = 0;
+        failWithError = false;
         poisonCalls.set(0);
     }
 
@@ -293,5 +300,58 @@ class VectorIndexHalfInsertedNodeTest
         map.reindex();
         final long withVectors = map.size() - (map.get(noVectorId).vector == null ? 1 : 0);
         assertEquals(withVectors, foundIds(index).size(), "entities missing after reindex(): " + foundIds(index));
+    }
+
+    /**
+     * A reindex is not rolled back: a failed re-add leaves the entities in place and the graph truncated at the
+     * failing one. Without a background thread nothing can repair that, so the index must say so from
+     * {@code search()} until the next successful reindex.
+     */
+    @Test
+    void failedReindexWithoutABackgroundThreadMakesSearchesThrow()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", inMemory(), new NeighbourFlakyVectorizer());
+
+        skipCalls  = 2; // validation pass and POISON's own insertion succeed, the first neighbour scoring fails
+        failPoison = true;
+        assertThrows(RuntimeException.class, map::reindex, "precondition: the reindex failed during an insertion");
+        failPoison = false;
+        assertNotNull(internalState(index, "graphRepairFailure"), "the failed reindex was not latched");
+
+        final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index),
+            "a search answered from the truncated graph of a failed reindex");
+        assertTrue(e.getMessage().contains("incomplete"), e.getMessage());
+
+        map.reindex();
+        assertEquals(COUNT, foundIds(index).size(), "entities missing after the second reindex(): " + foundIds(index));
+    }
+
+    /**
+     * GigaMap rolls an add back on {@code Exception} only. An {@link Error} out of the graph insertion leaves the
+     * entity in the map with a half-inserted node: no retirement may stay armed (a later legitimate removal would
+     * throw), and the graph must be recorded as incomplete instead.
+     */
+    @Test
+    void errorDuringAnAddIsRecordedWithoutRetiringTheId()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", inMemory(), new NeighbourFlakyVectorizer());
+
+        failPoison    = true;
+        failWithError = true;
+        assertThrows(AssertionError.class, () -> map.add(new Doc(COUNT)));
+        failPoison    = false;
+        failWithError = false;
+        assertEquals(COUNT + 1, map.size(), "precondition: GigaMap does not roll an Error back");
+        assertFalse((boolean)internalState(index, "halfInsertedNodePending"), "a retirement stayed armed for an entity that stays");
+        assertNotNull(internalState(index, "graphRepairFailure"), "the half-inserted node of a live entity was not recorded");
+        assertThrows(IllegalStateException.class, () -> foundIds(index), "a search answered from the incomplete graph");
+
+        assertDoesNotThrow(() -> map.removeById(COUNT), "removing the entity threw the retirement meant for a rollback");
+        map.reindex();
+        assertEquals(COUNT, foundIds(index).size(), "entities missing after reindex(): " + foundIds(index));
     }
 }

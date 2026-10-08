@@ -383,4 +383,27 @@ class VectorIndexWorkerFailureRepairTest
             manager.shutdown(false, false, false);
         }
     }
+
+    /**
+     * The repair of an on-disk index is a persist: after it the index serves from disk again (incremental mode)
+     * instead of keeping the whole rebuilt graph in heap until some later persist.
+     */
+    @Test
+    void repairOfAnOnDiskIndexReturnsToIncrementalMode(@TempDir final Path tempDir)
+    {
+        final GigaMap<Doc>       map = GigaMap.New();
+        final VectorIndices<Doc> vi  = map.index().register(VectorIndices.Category());
+        try(final VectorIndex<Doc> index = vi.add("emb",
+            eventual().onDisk(true).indexDirectory(tempDir.resolve("index")).build(), new WorkerFlakyVectorizer()))
+        {
+            failuresLeft.set(1);
+            addAll(map);
+            awaitWorker(index);
+
+            assertEquals(1, workerFailures.get(), "precondition: one insertion failed on the worker");
+            assertTrue((boolean)internalState(index, "incrementalMode"),
+                "the repair of an on-disk index left the full graph in heap instead of persisting it");
+            assertEquals(allIds(), foundIds(index), "entities are missing after the repair");
+        }
+    }
 }

@@ -685,10 +685,11 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * entities again, so it holds no copy. Only a failure
 	 * during the rebuild that follows can leave it partial: in embedded mode the rebuild calls the vectorizer again,
 	 * for each entity and for its neighbours while scoring, so a vectorizer that fails only then, an
-	 * {@link OutOfMemoryError} or a failure inside the graph library does. Such an index stays partial until the next successful call of this
-	 * method, and a following {@link #store()} can make that survive a restart: the stored vectors of a computed
-	 * index, and an on-disk graph written by a persist in between, are loaded again. An embedded in-memory graph
-	 * is rebuilt from the entities on load.
+	 * {@link OutOfMemoryError} or a failure inside the graph library does. Such an index records its graph as
+	 * incomplete: with a background task manager it is rebuilt from the entities or the stored vectors on that
+	 * thread, otherwise its searches throw an {@link IllegalStateException} naming the failure until the next
+	 * successful call of this method or, for an on-disk index, {@code persistToDisk()}. The persisted state is never
+	 * taken from an incomplete graph.
 	 * A Lucene index discards a failed rebuild and rebuilds itself on its next use in this session; until that
 	 * succeeds, its queries fail, and with {@code LuceneContext.autoCommit} {@code false} so does storing the
 	 * map. That mark does not survive a restart: afterwards the index serves its last commit, without the
