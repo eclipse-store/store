@@ -688,8 +688,9 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * {@link OutOfMemoryError} or a failure inside the graph library does. Such an index records its graph as
 	 * incomplete: with a background task manager it is rebuilt from the entities or the stored vectors on that
 	 * thread, otherwise its searches throw an {@link IllegalStateException} naming the failure until the next
-	 * successful call of this method or, for an on-disk index, {@code persistToDisk()}. The persisted state is never
-	 * taken from an incomplete graph.
+	 * successful call of this method or, for an on-disk index, {@code persistToDisk()}. A computed index whose
+	 * failure struck while it was storing the vectors is recovered by this method only: no rebuild from the stored
+	 * vectors can supply what they lack. The persisted state is never taken from an incomplete graph.
 	 * A Lucene index discards a failed rebuild and rebuilds itself on its next use in this session; until that
 	 * succeeds, its queries fail, and with {@code LuceneContext.autoCommit} {@code false} so does storing the
 	 * map. That mark does not survive a restart: afterwards the index serves its last commit, without the

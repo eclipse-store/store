@@ -490,7 +490,11 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
             {
                 return next;
             }
-            first.addSuppressed(next);
+            if(next != first)
+            {
+                // the same instance thrown twice (a shared Error) must not suppress itself, which throws
+                first.addSuppressed(next);
+            }
             return first;
         }
 
