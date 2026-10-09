@@ -532,6 +532,13 @@ class BackgroundTaskManager
         {
             cb.repairGraph();
         }
+        catch(final VirtualMachineError e)
+        {
+            // The JVM is in trouble: the index has latched the failure, and the error escapes like it does from
+            // the periodic tasks instead of being swallowed as one more failed repair.
+            LOG.error("Graph repair of '{}' failed with a fatal error: {}", this.name, e.getMessage(), e);
+            throw e;
+        }
         catch(final Throwable t)
         {
             // The index has recorded the failed repair and reports it from search(); nothing else to do here.

@@ -1205,6 +1205,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // a test can fail one insertion where no user code runs (computed mode scores from stored vectors). Null
         // (and a no-op) in production.
         transient volatile IntConsumer graphInsertTestHook;
+        /** test seam like {@link #graphInsertTestHook}, called with the ordinal before a node is marked deleted */
+        transient volatile IntConsumer graphDeleteTestHook;
 
         // Test-only seam: run once the PQ replacement is complete and before it is published, with
         // the parentMap monitor held. A codebook exists at that point but no codes are visible,
@@ -2481,12 +2483,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private void readdComputedEntries(final List<VectorEntry> entries)
         {
             final OrdinalStoreIdTable computedIdIndex = this.computedIdIndex();
-            for(final VectorEntry entry : entries)
+            try
             {
-                if(entry.vector != null)
+                for(final VectorEntry entry : entries)
                 {
-                    computedIdIndex.put(toOrdinal(entry.sourceEntityId), this.vectorStore.add(entry));
+                    if(entry.vector != null)
+                    {
+                        computedIdIndex.put(toOrdinal(entry.sourceEntityId), this.vectorStore.add(entry));
+                    }
                 }
+            }
+            catch(final RuntimeException | Error e)
+            {
+                // A truncated store is not a source of truth: the repair the caller requests would rebuild the graph
+                // from it and call the index complete. Latched until the next reindex() stores every vector.
+                this.vectorStoreFailure = e;
+                throw e;
             }
             this.markContentChanged();
             for(final VectorEntry entry : entries)
@@ -2806,8 +2818,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // cleanly onto add / replace / remove.
             boolean changed         = false;
             boolean vectorUnchanged = false;
-            // The store's state before a write, to restore it if the inline graph insertion below throws: GigaMap
-            // then rejects the replacement and keeps the old entity, whose vector the store must hold again.
+            // The store's state before a write, to restore it if the inline graph op below throws: GigaMap then
+            // rejects the replacement and keeps the old entity, whose vector the store must hold again.
+            boolean     priorMapped    = false;
             VectorEntry priorEntry     = null;
             long        writtenStoreId = OrdinalStoreIdTable.ABSENT;
             if(!embedded)
@@ -2816,14 +2829,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // mutate via id-based ops (set / removeById / add), keeping the index in sync.
                 final OrdinalStoreIdTable computedIdIndex = this.computedIdIndex();
                 final long storeId = computedIdIndex.get(ordinal);
+                priorMapped = storeId != OrdinalStoreIdTable.ABSENT;
                 try
                 {
                     if(vector == null)
                     {
                         // vec→null: drop the stored entry so the entity is no longer indexed.
                         // null→null: nothing stored, nothing to do.
-                        if(storeId != OrdinalStoreIdTable.ABSENT)
+                        if(priorMapped)
                         {
+                            priorEntry = this.vectorStore.get(storeId);
                             this.vectorStore.removeById(storeId);
                             computedIdIndex.remove(ordinal);
                             changed = true;
@@ -2947,7 +2962,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // classify (a null replacedEntity) still clears the node it can see.
                     if(contentChanged || inGraph)
                     {
-                        this.executeOrDeferBuilderOp(() -> this.internalMarkOrdinalDeleted(ordinal));
+                        try
+                        {
+                            this.executeOrDeferBuilderOp(() -> this.internalMarkOrdinalDeleted(ordinal));
+                        }
+                        catch(final RuntimeException | Error e)
+                        {
+                            // Only an inline op throws here. The entity stays (rejected replacement or retained
+                            // mutation) with its node in an unknown state: recorded for the repair. A rejected
+                            // replacement keeps its vector, so the computed store must hold it again.
+                            this.markGraphIncomplete(e);
+                            if(!embedded && replacedEntity != entity)
+                            {
+                                this.restoreComputedEntry(ordinal, priorMapped, priorEntry, writtenStoreId, e);
+                            }
+                            throw e;
+                        }
                         changed = true;
                     }
                 }
@@ -3031,7 +3061,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         // the new vector, and so must the store.
                         if(replacedEntity != entity)
                         {
-                            this.restoreComputedEntry(ordinal, writtenStoreId, priorEntry, e);
+                            this.restoreComputedEntry(ordinal, priorMapped, priorEntry, writtenStoreId, e);
                         }
                         throw e;
                     }
@@ -5496,29 +5526,50 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Undoes the store write of a synchronous computed replacement whose inline graph insertion threw: GigaMap
-         * rejects the replacement and keeps the old entity, so the store must hold the old vector again (or none), or
-         * the repair would rebuild the graph from a vector the entity never had. Not for an in-place update, which
+         * Undoes the store write of a synchronous computed replacement whose inline graph op threw: GigaMap rejects
+         * the replacement and keeps the old entity, so the store must hold the old vector again (or none), or the
+         * repair would rebuild the graph from a vector the entity never had. Not for an in-place update, which
          * GigaMap retains as mutated. The failure is recorded already; the repair cannot start before the monitor is
          * released, so it reads the restored store.
+         *
+         * @param priorMapped    whether the ordinal was mapped to a store id before the write
+         * @param prior          the entry stored before the write; {@code null} if none was (an unmapped ordinal, or
+         *                       the defensive case of a mapping to an empty slot)
+         * @param writtenStoreId the store id the write went to; {@code ABSENT} for a removal
          */
         private void restoreComputedEntry(
-            final int         ordinal,
-            final long        storeId,
-            final VectorEntry prior  ,
+            final int         ordinal       ,
+            final boolean     priorMapped   ,
+            final VectorEntry prior         ,
+            final long        writtenStoreId,
             final Throwable   failure
         )
         {
             try
             {
-                if(prior != null)
+                if(!priorMapped)
                 {
-                    this.vectorStore.set(storeId, prior);
+                    // null→vec: drop the entry and the mapping the write added
+                    this.vectorStore.removeById(writtenStoreId);
+                    this.computedIdIndex().remove(ordinal);
+                }
+                else if(writtenStoreId == OrdinalStoreIdTable.ABSENT)
+                {
+                    // vec→null: the entry and its mapping were removed; a new store id is fine, nothing refers to it
+                    if(prior != null)
+                    {
+                        this.computedIdIndex().put(ordinal, this.vectorStore.add(prior));
+                    }
+                }
+                else if(prior != null)
+                {
+                    // vec→vec: the same slot, the old entry
+                    this.vectorStore.set(writtenStoreId, prior);
                 }
                 else
                 {
-                    this.vectorStore.removeById(storeId);
-                    this.computedIdIndex().remove(ordinal);
+                    // vec→vec onto an empty slot: empty it again, the mapping stays as it was
+                    this.vectorStore.removeById(writtenStoreId);
                 }
             }
             catch(final RuntimeException | Error e)
@@ -5526,6 +5577,24 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // the store is wrong now, and no rebuild from it can be right
                 failure.addSuppressed(e);
                 this.vectorStoreFailure = e;
+            }
+        }
+
+        private void fireInsertTestHook(final int ordinal)
+        {
+            final IntConsumer hook = this.graphInsertTestHook;
+            if(hook != null)
+            {
+                hook.accept(ordinal);
+            }
+        }
+
+        private void fireDeleteTestHook(final int ordinal)
+        {
+            final IntConsumer hook = this.graphDeleteTestHook;
+            if(hook != null)
+            {
+                hook.accept(ordinal);
             }
         }
 
@@ -5590,10 +5659,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.writeLock().lock();
             try
             {
-                if(epoch != this.graphEpoch)
+                if(this.graphEpochMoved(epoch))
                 {
-                    LOG.debug("Ignoring a failed graph operation of '{}' from epoch {}: the graph is at epoch {}",
-                        this.name, epoch, this.graphEpoch);
                     return;
                 }
                 this.markGraphIncomplete(cause);
@@ -5698,6 +5765,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final GraphIndexBuilder currentBuilder = this.builder;
             if(currentBuilder != null && graphOf(currentBuilder).containsNode(ordinal))
             {
+                this.fireDeleteTestHook(ordinal);
                 currentBuilder.markNodeDeleted(ordinal);
                 this.untrackPqCode(ordinal);
             }
@@ -5778,11 +5846,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             currentIndex.removeNode(ordinal);
             this.trackPqCode(ordinal, vf);
-            final IntConsumer insertHook = this.graphInsertTestHook;
-            if(insertHook != null)
-            {
-                insertHook.accept(ordinal);
-            }
+            this.fireInsertTestHook(ordinal);
             currentBuilder.addGraphNode(ordinal, vf);
         }
 
@@ -5834,11 +5898,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // the add throws. Safe here in a way it is not above: there is no live layer-0 node
             // whose neighbours could be left holding a reference to it.
             currentIndex.removeNode(ordinal);
-            final IntConsumer insertHook = this.graphInsertTestHook;
-            if(insertHook != null)
-            {
-                insertHook.accept(ordinal);
-            }
+            this.fireInsertTestHook(ordinal);
             currentBuilder.addGraphNode(ordinal, vf);
         }
 

@@ -15,6 +15,7 @@ package org.eclipse.store.gigamap.jvector;
  */
 
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.AfterEach;
@@ -404,6 +405,18 @@ class VectorIndexHalfInsertedNodeTest
         };
     }
 
+    private static void failOneDeletion(final VectorIndex<?> index, final int ordinal)
+    {
+        final java.util.concurrent.atomic.AtomicBoolean armed = new java.util.concurrent.atomic.AtomicBoolean(true);
+        ((VectorIndex.Default<?>)index).graphDeleteTestHook = o ->
+        {
+            if(o == ordinal && armed.getAndSet(false))
+            {
+                throw new IllegalStateException("simulated engine failure deleting ordinal " + o);
+            }
+        };
+    }
+
     private static void awaitWorker(final VectorIndex<?> index)
     {
         final BackgroundTaskManager manager = internalState(index, "backgroundTaskManager");
@@ -493,6 +506,97 @@ class VectorIndexHalfInsertedNodeTest
 
         assertArrayEquals(newVector, index.getVector(id), "the store lost the vector of the retained mutation");
         assertTrue(foundExactly(index, mutated, id), "the mutated entity is not found by its new vector");
+    }
+
+    /**
+     * A computed set() to no embedding removes the stored vector before the graph op. When that op throws, GigaMap
+     * rejects the replacement and keeps the old entity, so the store must hold its vector again, like the other two
+     * transitions restore theirs.
+     */
+    @Test
+    void failedComputedSetToNullKeepsTheStoredVector()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", withManager(), new ComputedVectorizer());
+        final long id  = COUNT / 2;
+        final Doc  old = map.get(id);
+
+        failOneDeletion(index, (int)id);
+        assertThrows(RuntimeException.class, () -> map.set(id, new Doc((int)id, null)), "precondition: the set failed during the deletion");
+        assertSame(old, map.get(id), "precondition: GigaMap keeps the old entity");
+        awaitWorker(index); // the repair rebuilds from the vector store
+
+        assertArrayEquals(old.vector, index.getVector(id), "the store lost the vector of the retained entity");
+        assertTrue(foundExactly(index, old, id), "the retained entity is not found by its vector");
+    }
+
+    /**
+     * The in-place counterpart: the mutation to no embedding is retained, so the store deletion stands; the restore
+     * must not run here. (A node without a store entry cannot score, so the search assertion holds with or without the
+     * graph record; what this guards is the store.)
+     */
+    @Test
+    void failedComputedApplyToNullDropsTheStoredVector()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", withManager(), new ComputedVectorizer());
+        final long id       = COUNT / 2;
+        final Doc  previous = new Doc((int)id, map.get(id).vector.clone()); // a probe with the vector before the mutation
+
+        failOneDeletion(index, (int)id);
+        assertThrows(RuntimeException.class, () -> map.apply(id, doc ->
+        {
+            doc.vector = null;
+            return null;
+        }), "precondition: the apply failed during the deletion");
+        assertNull(map.get(id).vector, "precondition: GigaMap retains the mutated entity");
+        awaitWorker(index);
+
+        assertNull(index.getVector(id), "the store kept a vector the entity no longer has");
+        assertFalse(foundExactly(index, previous, id), "an entity without an embedding is found by its previous vector");
+    }
+
+    /**
+     * The computed re-add of a reindex stores every vector before any graph work. A store write that throws halfway
+     * leaves a truncated store; the repair the failure requests rebuilds the graph from it, so the index must stay
+     * loud until a reindex() has stored every vector.
+     */
+    @Test
+    void failedReindexStoreWriteIsLoudUntilTheNextReindex()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", withManager(), new ComputedVectorizer());
+        // The store is a GigaMap that outlives the generations, so an index on it fails the write of one entry.
+        final GigaMap<VectorEntry>                      store = internalState(index, "vectorStore");
+        final java.util.concurrent.atomic.AtomicBoolean armed = new java.util.concurrent.atomic.AtomicBoolean();
+        store.index().bitmap().add(new IndexerString.Abstract<VectorEntry>()
+        {
+            @Override
+            protected String getString(final VectorEntry entry)
+            {
+                if(armed.get() && entry.sourceEntityId == COUNT / 2)
+                {
+                    throw new IllegalStateException("simulated store failure for entity " + entry.sourceEntityId);
+                }
+                return String.valueOf(entry.sourceEntityId);
+            }
+        });
+
+        armed.set(true);
+        assertThrows(RuntimeException.class, map::reindex, "precondition: the reindex failed during a store write");
+        awaitWorker(index); // the repair rebuilds from the truncated store
+        assertEquals(COUNT, map.size(), "precondition: a failed reindex keeps the entities");
+
+        final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index),
+            "a search answered from a graph rebuilt from a truncated store");
+        assertTrue(e.getMessage().contains("reindex"), e.getMessage());
+
+        armed.set(false);
+        map.reindex();
+        assertEquals(COUNT, foundIds(index).size(), "entities missing after reindex()");
     }
 
     /**
