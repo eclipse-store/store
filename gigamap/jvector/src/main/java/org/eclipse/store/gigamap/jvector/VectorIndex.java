@@ -3381,19 +3381,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // warns about. Once rebuilt this is a lock-free volatile check.
             this.ensureIndexInitialized();
 
-            // Loud rather than wrong: a graph that is known to miss counted entities, with no repair coming,
-            // must not answer as if it were complete.
-            final Throwable repairFailure = this.graphRepairFailure;
-            if(repairFailure != null)
-            {
-                throw new IllegalStateException(
-                    "Vector index \"" + this.name + "\" is incomplete: a graph operation failed and the graph could"
-                    + " not be rebuilt from the source of truth. Fix the cause (see the attached failure) and call"
-                    + " GigaMap.reindex(), or persistToDisk() for an on-disk index.",
-                    repairFailure
-                );
-            }
-
             // Acquire read lock — blocks during cleanup/persistence/removeAll/close,
             // allows concurrent searches and GigaMap mutations.
             // Not under synchronized(parentMap): the order is builderLock, then the monitor (embedded
@@ -3402,6 +3389,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.readLock().lock();
             try
             {
+                // Loud rather than wrong: a graph that is known to miss counted entities, with no repair coming,
+                // must not answer as if it were complete. Under the read lock: a repair holding the write lock while
+                // this search waited may have failed and latched, and the search behind it must see that instead of
+                // answering from the graph the repair just gave up on.
+                final Throwable repairFailure = this.graphRepairFailure;
+                if(repairFailure != null)
+                {
+                    throw new IllegalStateException(
+                        "Vector index \"" + this.name + "\" is incomplete: a graph operation failed and the graph"
+                        + " could not be rebuilt from the source of truth. Fix the cause (see the attached failure)"
+                        + " and call GigaMap.reindex(), or persistToDisk() for an on-disk index.",
+                        repairFailure
+                    );
+                }
+
                 final VectorFloat<?> query = this.vectorTypeSupport.createFloatVector(queryVector);
 
                 // Choose search strategy based on index mode

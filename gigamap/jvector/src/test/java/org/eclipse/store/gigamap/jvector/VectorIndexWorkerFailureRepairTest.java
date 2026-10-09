@@ -29,6 +29,8 @@ import java.util.TreeSet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -552,6 +554,72 @@ class VectorIndexWorkerFailureRepairTest
             assertNull(internalState(index, "graphRepairFailure"), "a stale failure report latched a complete graph");
             assertFalse((boolean)internalState(index, "graphIncomplete"), "a stale failure report flagged a complete graph");
             assertEquals(COUNT, foundIds(index).size(), "entities are missing");
+        }
+    }
+
+    /**
+     * A search that waits for the builder read lock behind a repair must see the repair's failure: the latch is
+     * checked under the lock, not before the wait. Otherwise the search queued behind the failing repair answers
+     * from the very graph the repair just gave up on.
+     */
+    @Test
+    void searchWaitingBehindAFailingRepairDoesNotAnswerFromTheIncompleteGraph() throws InterruptedException
+    {
+        final GigaMap<Doc>       map = GigaMap.New();
+        final VectorIndices<Doc> vi  = map.index().register(VectorIndices.Category());
+        try(final VectorIndex<Doc> index = vi.add("emb", eventual().build(), new WorkerFlakyVectorizer()))
+        {
+            final ReentrantReadWriteLock lock          = internalState(index, "builderLock");
+            final CountDownLatch         repairStarted = new CountDownLatch(1);
+            final CountDownLatch         searchQueued  = new CountDownLatch(1);
+            // Acts once, inside the repair's rebuild (the only insertion under the write lock here): holds the lock
+            // until a search is queued behind it, then fails the rebuild.
+            ((VectorIndex.Default<Doc>)index).graphInsertTestHook = ordinal ->
+            {
+                if(lock.isWriteLockedByCurrentThread() && repairStarted.getCount() > 0)
+                {
+                    repairStarted.countDown();
+                    try
+                    {
+                        searchQueued.await(TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                        Thread.sleep(300); // the searcher reaches the read lock and blocks on it
+                    }
+                    catch(final InterruptedException e)
+                    {
+                        Thread.currentThread().interrupt();
+                    }
+                    throw new IllegalStateException("simulated failure inside the repair");
+                }
+            };
+
+            failuresLeft.set(1);
+            addAll(map); // one insertion fails on the worker: the repair follows on the worker thread
+            assertTrue(repairStarted.await(TIMEOUT_MS, TimeUnit.MILLISECONDS), "precondition: the repair did not run");
+
+            final AtomicReference<Object> outcome  = new AtomicReference<>();
+            final Thread                  searcher = new Thread(() ->
+            {
+                searchQueued.countDown();
+                try
+                {
+                    outcome.set(foundIds(index));
+                }
+                catch(final RuntimeException e)
+                {
+                    outcome.set(e);
+                }
+            }, "searcher");
+            searcher.start();
+            searcher.join(TIMEOUT_MS);
+            assertFalse(searcher.isAlive(), "the search did not return");
+            assertTrue(outcome.get() instanceof IllegalStateException,
+                "the search queued behind the failing repair answered: " + outcome.get());
+            assertTrue(((Throwable)outcome.get()).getMessage().contains("incomplete"), outcome.get().toString());
+
+            ((VectorIndex.Default<Doc>)index).graphInsertTestHook = null;
+            map.reindex();
+            awaitWorker(index);
+            assertEquals(allIds(), foundIds(index), "entities are missing after reindex()");
         }
     }
 }
