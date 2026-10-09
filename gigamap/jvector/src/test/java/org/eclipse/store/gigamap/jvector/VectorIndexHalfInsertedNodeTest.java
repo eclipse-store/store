@@ -911,4 +911,27 @@ class VectorIndexHalfInsertedNodeTest
         awaitWorker(index);
         assertTrue(foundExactly(index, map.get(id), id), "the entity is not found by its new vector after reindex()");
     }
+
+    /**
+     * The store latch names the one entity the store does not cover. Removing that entity, by GigaMap's rollback of
+     * an add whose sibling index threw an exception or by the application, makes the store cover every remaining
+     * entity again, so the removal clears the latch instead of leaving searches refused until reindex().
+     */
+    @Test
+    void removingTheEntityBehindTheStoreLatchClearsIt()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", inMemory(), new ComputedVectorizer());
+
+        failPoison    = true;
+        failWithError = true;
+        assertThrows(AssertionError.class, () -> map.add(new Doc(POISON)), "precondition: the add threw the Error");
+        failPoison = false;
+        assertThrows(IllegalStateException.class, () -> foundIds(index, COUNT), "precondition: the store is latched");
+
+        map.removeById(COUNT); // the entity the store never received
+        assertEquals(COUNT, map.size(), "precondition: the entity is removed");
+        assertEquals(COUNT, foundIds(index, COUNT).size(), "the store latch survived the removal of its entity");
+    }
 }

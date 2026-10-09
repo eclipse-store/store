@@ -931,6 +931,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     {
         private static final Logger LOG = LoggerFactory.getLogger(Default.class);
 
+        /** {@link #vectorStoreFailureOrdinal} when the store latch is about several or unknown entities */
+        private static final int UNKNOWN_ORDINAL = -1;
+
         /**
          * Fixed seed for the PQ training-set reservoir sample, so that training the same data twice
          * yields the same codebook. The value itself is arbitrary.
@@ -1186,6 +1189,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * embedded index has no such state: its rebuild reads the entities.
          */
         private transient volatile Throwable              vectorStoreFailure;
+
+        /**
+         * The one ordinal {@link #vectorStoreFailure} is about, or {@link #UNKNOWN_ORDINAL} when it is about several
+         * or unknown ones. Removing that entity makes the store cover every remaining entity again, so the removal
+         * clears the latch: GigaMap's rollback of an add whose sibling index threw an exception removes it, and so
+         * does an application that removes the entity it could not index.
+         */
+        private transient volatile int                    vectorStoreFailureOrdinal = UNKNOWN_ORDINAL;
 
         /**
          * Moves on every rebuild from the source of truth, on every new generation ({@link #internalRemoveAll()}) and
@@ -2534,7 +2545,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 // A truncated store is not a source of truth: the repair the caller requests would rebuild the graph
                 // from it and call the index complete. Latched until the next reindex() stores every vector.
-                this.vectorStoreFailure = e;
+                this.recordVectorMissing(e);
                 throw e;
             }
             this.markContentChanged();
@@ -2729,7 +2740,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             catch(final Error e)
             {
                 // GigaMap has placed the entity and rolls back on Exception only: it stays, without a vector
-                this.recordVectorMissing(e);
+                this.recordVectorMissing(toOrdinal(entityId), e);
                 throw e;
             }
 
@@ -2761,7 +2772,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
                 catch(final Error e)
                 {
-                    this.recordVectorMissing(e);
+                    this.recordVectorMissing(toOrdinal(vectorEntry.sourceEntityId), e);
                     throw e;
                 }
             }
@@ -3305,6 +3316,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.vectorStore.removeById(storeId);
                     computedIdIndex.remove(ordinal);
                 }
+                if(this.vectorStoreFailure != null && ordinal == this.vectorStoreFailureOrdinal)
+                {
+                    // the one entity the store did not cover is gone: the store covers every remaining one again
+                    this.vectorStoreFailure        = null;
+                    this.vectorStoreFailureOrdinal = UNKNOWN_ORDINAL;
+                }
             }
 
             this.markContentChanged();
@@ -3446,16 +3463,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     }
                     else
                     {
-                        this.vectorStoreFailure = e;
+                        this.recordVectorMissing(e);
                     }
                     throw e;
                 }
 
                 // Only now, with the new generation in place: a failed op of the old generation leaves nothing to
                 // repair in the new one, and a store latch of the old generation is answered by the empty new store.
-                this.graphIncomplete    = false;
-                this.graphRepairFailure = null ;
-                this.vectorStoreFailure = null ;
+                this.graphIncomplete           = false;
+                this.graphRepairFailure        = null ;
+                this.vectorStoreFailure        = null ;
+                this.vectorStoreFailureOrdinal = UNKNOWN_ORDINAL;
 
                 // The new generation is populated by the re-add of reindex() (or stays empty), like a new index by
                 // its back-fill: the deferred rebuild from the store must not run for it, see the constructor. An
@@ -4108,7 +4126,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         }
                         else
                         {
-                            capturedBuilder.cleanup();
+                            try
+                            {
+                                capturedBuilder.cleanup();
+                            }
+                            catch(final RuntimeException | Error e)
+                            {
+                                // cleanup mutates the live graph (it removes deleted nodes and relinks their
+                                // neighbours): a throw partway leaves it in an unknown state, like a failed insertion
+                                this.markGraphIncomplete(e);
+                                throw e;
+                            }
                         }
                     }
                     finally
@@ -5587,7 +5615,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             this.recordDiskOrdinalSuperseded(ordinal);
             this.markContentChanged();
-            this.recordVectorMissing(e);
+            this.recordVectorMissing(ordinal, e);
         }
 
         /**
@@ -5599,14 +5627,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void recordVectorMissing(final Throwable e)
         {
+            this.recordVectorMissing(UNKNOWN_ORDINAL, e);
+        }
+
+        /**
+         * {@link #recordVectorMissing(Throwable)} for one known entity: removing it later clears the store latch, see
+         * {@link #vectorStoreFailureOrdinal}.
+         */
+        private void recordVectorMissing(final int ordinal, final Throwable e)
+        {
             if(this.isEmbedded())
             {
                 this.markGraphIncomplete(e);
+                return;
             }
-            else
-            {
-                this.vectorStoreFailure = e;
-            }
+            // a second entity while the first is still latched: no single removal can clear this any more
+            this.vectorStoreFailureOrdinal = this.vectorStoreFailure == null ? ordinal : UNKNOWN_ORDINAL;
+            this.vectorStoreFailure        = e;
         }
 
         /**
@@ -5639,7 +5676,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         // the removal threw: the mapping must not dangle, and the store no longer covers an entity
                         // GigaMap may keep (a rejected replacement) - latched, nothing restores it but reindex().
                         computedIdIndex.remove(ordinal);
-                        this.recordVectorMissing(e);
+                        this.recordVectorMissing(ordinal, e);
                         throw e;
                     }
                     computedIdIndex.remove(ordinal);
@@ -5671,7 +5708,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             catch(final Error e)
             {
                 // a store left half-written is not a source of truth any more
-                this.recordVectorMissing(e);
+                this.recordVectorMissing(ordinal, e);
                 throw e;
             }
         }
@@ -5746,7 +5783,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     // the store is wrong now, and no rebuild from it can be right
                     failure.addSuppressed(e);
-                    Default.this.vectorStoreFailure = e;
+                    Default.this.recordVectorMissing(this.ordinal, e);
                 }
             }
         }
