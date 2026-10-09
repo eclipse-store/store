@@ -3025,8 +3025,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     }
                     catch(final RuntimeException | Error e)
                     {
-                        // only an inline insertion throws here, and then GigaMap keeps the old entity
-                        this.restoreComputedEntry(ordinal, writtenStoreId, priorEntry, e);
+                        // Only an inline insertion throws here. GigaMap rejects a replacement (set/replace pass a
+                        // different instance) and keeps the old entity, whose vector the store must hold again. An
+                        // in-place update (update/apply pass the same instance) it retains as mutated: the entity has
+                        // the new vector, and so must the store.
+                        if(replacedEntity != entity)
+                        {
+                            this.restoreComputedEntry(ordinal, writtenStoreId, priorEntry, e);
+                        }
                         throw e;
                     }
                     changed = true;
@@ -5490,10 +5496,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Undoes the store write of a synchronous computed update whose inline graph insertion threw: GigaMap rejects
-         * the replacement and keeps the old entity, so the store must hold the old vector again (or none), or the
-         * repair would rebuild the graph from a vector the entity never had. The failure is recorded already; the
-         * repair cannot start before the monitor is released, so it reads the restored store.
+         * Undoes the store write of a synchronous computed replacement whose inline graph insertion threw: GigaMap
+         * rejects the replacement and keeps the old entity, so the store must hold the old vector again (or none), or
+         * the repair would rebuild the graph from a vector the entity never had. Not for an in-place update, which
+         * GigaMap retains as mutated. The failure is recorded already; the repair cannot start before the monitor is
+         * released, so it reads the restored store.
          */
         private void restoreComputedEntry(
             final int         ordinal,

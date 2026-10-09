@@ -468,6 +468,34 @@ class VectorIndexHalfInsertedNodeTest
     }
 
     /**
+     * An in-place update is the opposite case: GigaMap cannot reject the mutation, it retains the mutated entity when
+     * the index fails, so the store must keep the new vector. Restoring the old one would make the repair index a
+     * vector the entity no longer has.
+     */
+    @Test
+    void failedComputedApplyKeepsTheNewVectorInTheStore()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", withManager(), new ComputedVectorizer());
+        final long    id        = COUNT / 2;
+        final float[] newVector = position(70);
+
+        failOneInsertion(index, (int)id);
+        assertThrows(RuntimeException.class, () -> map.apply(id, doc ->
+        {
+            doc.vector = newVector;
+            return null;
+        }), "precondition: the apply failed during the insertion");
+        final Doc mutated = map.get(id);
+        assertArrayEquals(newVector, mutated.vector, "precondition: GigaMap retains the mutated entity");
+        awaitWorker(index); // the repair rebuilds from the vector store
+
+        assertArrayEquals(newVector, index.getVector(id), "the store lost the vector of the retained mutation");
+        assertTrue(foundExactly(index, mutated, id), "the mutated entity is not found by its new vector");
+    }
+
+    /**
      * The same for an entity without an embedding: the store must not keep the entry the rejected replacement added.
      */
     @Test
