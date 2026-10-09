@@ -528,21 +528,29 @@ class BackgroundTaskManager
         {
             return;
         }
+        // a failed repair is recorded by the index and reported from search(); nothing else to do here
+        this.runGuarded("Graph repair", cb::repairGraph);
+    }
+
+    /**
+     * Runs the body of a background task. A failure is logged and swallowed, so a periodic task keeps its schedule
+     * and a one-off task ends quietly. A {@link VirtualMachineError} is logged and rethrown: the JVM is in trouble,
+     * retrying every tick would only repeat the damage, and the executor would end the periodic task silently.
+     */
+    private void runGuarded(final String task, final Runnable body)
+    {
         try
         {
-            cb.repairGraph();
+            body.run();
         }
         catch(final VirtualMachineError e)
         {
-            // The JVM is in trouble: the index has latched the failure, and the error escapes like it does from
-            // the periodic tasks instead of being swallowed as one more failed repair.
-            LOG.error("Graph repair of '{}' failed with a fatal error: {}", this.name, e.getMessage(), e);
+            LOG.error("{} of '{}' stops after a fatal error: {}", task, this.name, e.getMessage(), e);
             throw e;
         }
         catch(final Throwable t)
         {
-            // The index has recorded the failed repair and reports it from search(); nothing else to do here.
-            LOG.error("Graph repair failed for '{}': {}", this.name, t.getMessage(), t);
+            LOG.error("{} of '{}' failed: {}", task, this.name, t.getMessage(), t);
         }
     }
 
@@ -853,7 +861,9 @@ class BackgroundTaskManager
         LOG.debug("Background optimizing index '{}' with {} changes",
             this.name, this.optimizationChangeCount.get());
 
-        try
+        // Guarded: a throwable escaping a scheduled task cancels the task for good, and an Error out of the inline
+        // drain would silently end background optimization. The drain has already recorded the failure for the repair.
+        this.runGuarded("Background optimization", () ->
         {
             // Drain pending indexing ops inline (same thread, no deadlock)
             this.processAllPendingIndexingOps();
@@ -864,21 +874,7 @@ class BackgroundTaskManager
             this.optimizationCount.incrementAndGet();
 
             LOG.debug("Background optimization completed for '{}'", this.name);
-        }
-        catch(final VirtualMachineError e)
-        {
-            // The JVM is in trouble; retrying every tick would only repeat the damage. The escaping error ends
-            // this periodic task, which is logged here because the executor would do it silently.
-            LOG.error("Background optimization of '{}' stops after a fatal error: {}", this.name, e.getMessage(), e);
-            throw e;
-        }
-        catch(final Throwable t)
-        {
-            // Throwable, not Exception: a throwable escaping a scheduled task cancels the task for good, and
-            // an Error out of the inline drain above would silently end background optimization. The drain
-            // has already recorded the failure for the repair.
-            LOG.error("Background optimization failed for '{}': {}", this.name, t.getMessage(), t);
-        }
+        });
     }
 
     /**
@@ -906,7 +902,7 @@ class BackgroundTaskManager
         LOG.debug("Background persisting index '{}' with {} changes",
             this.name, this.persistenceChangeCount.get());
 
-        try
+        this.runGuarded("Background persistence", () ->
         {
             // Drain pending indexing ops inline (same thread, no deadlock)
             this.processAllPendingIndexingOps();
@@ -916,18 +912,7 @@ class BackgroundTaskManager
             this.persistenceChangeCount.set(0);
 
             LOG.debug("Background persistence completed for '{}'", this.name);
-        }
-        catch(final VirtualMachineError e)
-        {
-            // as on runOptimizationIfDirty: a fatal error ends the task, loudly
-            LOG.error("Background persistence of '{}' stops after a fatal error: {}", this.name, e.getMessage(), e);
-            throw e;
-        }
-        catch(final Throwable t)
-        {
-            // Throwable for the reason given on runOptimizationIfDirty: the periodic task must survive.
-            LOG.error("Background persistence failed for '{}': {}", this.name, t.getMessage(), t);
-        }
+        });
     }
 
     /**

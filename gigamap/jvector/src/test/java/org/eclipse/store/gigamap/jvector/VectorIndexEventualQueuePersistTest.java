@@ -23,7 +23,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -31,6 +30,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import static org.eclipse.store.gigamap.jvector.VectorIndexTestSupport.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -47,23 +47,6 @@ class VectorIndexEventualQueuePersistTest
 {
     private static final int  COUNT      = 50;
     private static final long TIMEOUT_MS = 10_000;
-
-    static class Doc
-    {
-        final int     no;
-        float[] vector; // mutable: the deadlock test updates embeddings in place
-
-        Doc(final int no)
-        {
-            this.no     = no;
-            this.vector = position(no);
-        }
-    }
-
-    static float[] position(final int no)
-    {
-        return new float[]{1.0f + no, 1.0f + no % 7, no * 0.5f, 1.0f + no % 3};
-    }
 
     /**
      * Embedded; pauses {@link #pauseThread} once, inside scoring, until {@link #release} is counted down. Test state
@@ -133,41 +116,11 @@ class VectorIndexEventualQueuePersistTest
         return map;
     }
 
-    @SuppressWarnings("unchecked")
-    private static <T> T internalState(final VectorIndex<?> index, final String fieldName)
-    {
-        try
-        {
-            final Field field = VectorIndex.Default.class.getDeclaredField(fieldName);
-            field.setAccessible(true);
-            return (T)field.get(index);
-        }
-        catch(final ReflectiveOperationException e)
-        {
-            throw new AssertionError("cannot read VectorIndex.Default." + fieldName, e);
-        }
-    }
-
     private static BackgroundTaskManager manager(final VectorIndex<?> index)
     {
         final BackgroundTaskManager manager = internalState(index, "backgroundTaskManager");
         assertNotNull(manager, "precondition: eventual indexing has a background task manager");
         return manager;
-    }
-
-    /**
-     * Waits until the worker has applied every queued operation and any repair those operations requested.
-     */
-    private static void awaitWorker(final VectorIndex<?> index)
-    {
-        final BackgroundTaskManager manager = manager(index);
-        manager.drainQueue();
-        manager.drainQueue();
-    }
-
-    private static boolean foundExactly(final VectorIndex<Doc> index, final Doc doc, final long id)
-    {
-        return index.search(doc.vector, 3).toList().stream().anyMatch(e -> e.entityId() == id && e.score() > 0.99f);
     }
 
     private static Thread daemon(final String name, final Runnable action)

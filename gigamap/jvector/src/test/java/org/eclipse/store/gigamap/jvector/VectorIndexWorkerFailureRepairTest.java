@@ -21,7 +21,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
@@ -32,6 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import static org.eclipse.store.gigamap.jvector.VectorIndexTestSupport.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -59,23 +59,6 @@ class VectorIndexWorkerFailureRepairTest
     private static final AtomicInteger workerFailures = new AtomicInteger();
     /** the entity whose lookup fails on the worker; {@link #POISON} unless a test moves it */
     private static volatile int        poison         = POISON;
-
-    static class Doc
-    {
-        final int     no;
-        final float[] vector;
-
-        Doc(final int no)
-        {
-            this.no     = no;
-            this.vector = position(no);
-        }
-    }
-
-    static float[] position(final int no)
-    {
-        return new float[]{1.0f + no, 1.0f + no % 7, no * 0.5f, 1.0f + no % 3};
-    }
 
     /**
      * Embedded: throws for {@link #POISON} on the worker thread while {@link #failuresLeft} is positive.
@@ -128,19 +111,6 @@ class VectorIndexWorkerFailureRepairTest
         return ids;
     }
 
-    private static Set<Long> foundIds(final VectorIndex<Doc> index)
-    {
-        return foundIds(index, COUNT);
-    }
-
-    /** ids found by a search wide enough to return every one of {@code count} entities */
-    private static Set<Long> foundIds(final VectorIndex<Doc> index, final int count)
-    {
-        final Set<Long> ids = new TreeSet<>();
-        index.search(position(0), count * 2).toList().forEach(e -> ids.add(e.entityId()));
-        return ids;
-    }
-
     private static Set<Long> idsUpTo(final int count)
     {
         final Set<Long> ids = new TreeSet<>();
@@ -157,32 +127,6 @@ class VectorIndexWorkerFailureRepairTest
         {
             map.add(new Doc(i));
         }
-    }
-
-    @SuppressWarnings("unchecked")
-    private static <T> T internalState(final VectorIndex<?> index, final String fieldName)
-    {
-        try
-        {
-            final Field field = VectorIndex.Default.class.getDeclaredField(fieldName);
-            field.setAccessible(true);
-            return (T)field.get(index);
-        }
-        catch(final ReflectiveOperationException e)
-        {
-            throw new AssertionError("cannot read VectorIndex.Default." + fieldName, e);
-        }
-    }
-
-    /**
-     * Waits until the worker has applied every queued operation and run any repair those operations requested.
-     */
-    private static void awaitWorker(final VectorIndex<Doc> index)
-    {
-        final BackgroundTaskManager manager = internalState(index, "backgroundTaskManager");
-        assertNotNull(manager, "precondition: eventual indexing has a background task manager");
-        manager.drainQueue();
-        manager.drainQueue();
     }
 
     /**
@@ -202,7 +146,7 @@ class VectorIndexWorkerFailureRepairTest
             awaitWorker(index);
 
             assertEquals(1, workerFailures.get(), "precondition: one insertion failed on the worker");
-            assertEquals(allIds(), foundIds(index), "entities are missing after a failed worker operation");
+            assertEquals(allIds(), foundIds(index, COUNT), "entities are missing after a failed worker operation");
             assertFalse((boolean)internalState(index, "graphIncomplete"), "the repair did not clear graphIncomplete");
         }
     }
@@ -238,7 +182,7 @@ class VectorIndexWorkerFailureRepairTest
         {
             final GigaMap<Doc>     map   = storage.root();
             final VectorIndex<Doc> index = map.index().get(VectorIndices.class).get("emb");
-            assertEquals(allIds(), foundIds(index), "entities are missing after a restart");
+            assertEquals(allIds(), foundIds(index, COUNT), "entities are missing after a restart");
             assertTrue((boolean)internalState(index, "incrementalMode"),
                 "precondition: the persisted files were accepted after the restart");
         }
@@ -261,7 +205,7 @@ class VectorIndexWorkerFailureRepairTest
             awaitWorker(index);
             assertTrue(workerFailures.get() > 1, "precondition: the worker failed on insertions and on the repair");
 
-            final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index),
+            final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index, COUNT),
                 "a search answered from a graph whose repair failed");
             assertTrue(e.getMessage().contains("incomplete"), e.getMessage());
             assertNotNull(e.getCause(), "the failure is attached as the cause");
@@ -270,7 +214,7 @@ class VectorIndexWorkerFailureRepairTest
             failuresLeft.set(0);
             map.reindex();
             awaitWorker(index);
-            assertEquals(allIds(), foundIds(index), "entities are missing after reindex()");
+            assertEquals(allIds(), foundIds(index, COUNT), "entities are missing after reindex()");
         }
     }
 
@@ -433,7 +377,7 @@ class VectorIndexWorkerFailureRepairTest
             assertEquals(1, workerFailures.get(), "precondition: one insertion failed on the worker");
             assertFalse((boolean)internalState(index, "incrementalMode"),
                 "the repair of a never-persisted index wrote it to disk and switched it to serving from disk");
-            assertEquals(allIds(), foundIds(index), "entities are missing after the repair");
+            assertEquals(allIds(), foundIds(index, COUNT), "entities are missing after the repair");
         }
     }
 
@@ -471,7 +415,7 @@ class VectorIndexWorkerFailureRepairTest
             {
                 expected.add(id);
             }
-            assertEquals(expected, foundIds(index), "entities are missing after the repair");
+            assertEquals(expected, foundIds(index, COUNT), "entities are missing after the repair");
         }
     }
 
@@ -553,7 +497,7 @@ class VectorIndexWorkerFailureRepairTest
 
             assertNull(internalState(index, "graphRepairFailure"), "a stale failure report latched a complete graph");
             assertFalse((boolean)internalState(index, "graphIncomplete"), "a stale failure report flagged a complete graph");
-            assertEquals(COUNT, foundIds(index).size(), "entities are missing");
+            assertEquals(COUNT, foundIds(index, COUNT).size(), "entities are missing");
         }
     }
 
@@ -602,7 +546,7 @@ class VectorIndexWorkerFailureRepairTest
                 searchQueued.countDown();
                 try
                 {
-                    outcome.set(foundIds(index));
+                    outcome.set(foundIds(index, COUNT));
                 }
                 catch(final RuntimeException e)
                 {
@@ -619,7 +563,7 @@ class VectorIndexWorkerFailureRepairTest
             ((VectorIndex.Default<Doc>)index).graphInsertTestHook = null;
             map.reindex();
             awaitWorker(index);
-            assertEquals(allIds(), foundIds(index), "entities are missing after reindex()");
+            assertEquals(allIds(), foundIds(index, COUNT), "entities are missing after reindex()");
         }
     }
 }

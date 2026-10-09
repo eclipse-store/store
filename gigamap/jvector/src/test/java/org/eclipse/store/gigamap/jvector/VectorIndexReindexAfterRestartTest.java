@@ -20,12 +20,13 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
+import static org.eclipse.store.gigamap.jvector.VectorIndexTestSupport.awaitWorker;
+import static org.eclipse.store.gigamap.jvector.VectorIndexTestSupport.internalState;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -90,29 +91,6 @@ class VectorIndexReindexAfterRestartTest
             .onDisk(true)
             .indexDirectory(indexDir)
             .build();
-    }
-
-    @SuppressWarnings("unchecked")
-    private static <T> T internalState(final VectorIndex<?> index, final String fieldName)
-    {
-        try
-        {
-            final Field field = VectorIndex.Default.class.getDeclaredField(fieldName);
-            field.setAccessible(true);
-            return (T)field.get(index);
-        }
-        catch(final ReflectiveOperationException e)
-        {
-            throw new AssertionError("cannot read VectorIndex.Default." + fieldName, e);
-        }
-    }
-
-    private static void awaitWorker(final VectorIndex<?> index)
-    {
-        final BackgroundTaskManager manager = internalState(index, "backgroundTaskManager");
-        assertNotNull(manager, "precondition: eventual indexing has a background task manager");
-        manager.drainQueue();
-        manager.drainQueue();
     }
 
     private static List<Long> missingLiveEntities(final GigaMap<Doc> map, final VectorIndex<Doc> index)

@@ -22,14 +22,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
-import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.eclipse.store.gigamap.jvector.VectorIndexTestSupport.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -53,29 +51,6 @@ class VectorIndexHalfInsertedNodeTest
     private static volatile boolean      failWithError;
     /** the entity whose next vectorization throws an {@link Error}, once, on whichever thread; -1: none */
     private static volatile int          errorOnceFor = -1;
-
-    static class Doc
-    {
-        final int     no;
-        float[] vector;
-
-        Doc(final int no, final float[] vector)
-        {
-            this.no     = no;
-            this.vector = vector;
-        }
-
-        Doc(final int no)
-        {
-            this.no     = no;
-            this.vector = position(no);
-        }
-    }
-
-    static float[] position(final int no)
-    {
-        return new float[]{1.0f + no, 1.0f + no % 7, no * 0.5f, 1.0f + no % 3};
-    }
 
     static class NeighbourFlakyVectorizer extends Vectorizer<Doc>
     {
@@ -139,33 +114,6 @@ class VectorIndexHalfInsertedNodeTest
         return map;
     }
 
-    private static Set<Long> foundIds(final VectorIndex<Doc> index)
-    {
-        final Set<Long> ids = new TreeSet<>();
-        index.search(position(0), COUNT * 4).toList().forEach(e -> ids.add(e.entityId()));
-        return ids;
-    }
-
-    private static boolean foundExactly(final VectorIndex<Doc> index, final Doc doc, final long id)
-    {
-        return index.search(doc.vector, 3).toList().stream().anyMatch(e -> e.entityId() == id && e.score() > 0.99f);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static <T> T internalState(final VectorIndex<?> index, final String fieldName)
-    {
-        try
-        {
-            final Field field = VectorIndex.Default.class.getDeclaredField(fieldName);
-            field.setAccessible(true);
-            return (T)field.get(index);
-        }
-        catch(final ReflectiveOperationException e)
-        {
-            throw new AssertionError("cannot read VectorIndex.Default." + fieldName, e);
-        }
-    }
-
     private static boolean retiredTheId(final Throwable failure)
     {
         return Arrays.stream(failure.getSuppressed()).anyMatch(s -> s.getMessage() != null && s.getMessage().contains("retired"));
@@ -196,7 +144,7 @@ class VectorIndexHalfInsertedNodeTest
         final long nextId = map.add(next);
         assertNotEquals(COUNT, nextId, "the rolled-back add's id was handed out again");
         assertTrue(foundExactly(index, next, nextId), "the entity added after the failed add is not found");
-        assertEquals(COUNT + 1, foundIds(index).size(), "entities missing: found " + foundIds(index));
+        assertEquals(COUNT + 1, foundIds(index, COUNT).size(), "entities missing: found " + foundIds(index, COUNT));
     }
 
     /**
@@ -221,7 +169,7 @@ class VectorIndexHalfInsertedNodeTest
         final long nextId = map.add(next);
         assertTrue(nextId > COUNT, "an id of the rolled-back batch was handed out again: " + nextId);
         assertTrue(foundExactly(index, next, nextId), "the entity added after the failed addAll is not found");
-        assertEquals(COUNT + 1, foundIds(index).size(), "entities missing: found " + foundIds(index));
+        assertEquals(COUNT + 1, foundIds(index, COUNT).size(), "entities missing: found " + foundIds(index, COUNT));
     }
 
     /**
@@ -277,10 +225,10 @@ class VectorIndexHalfInsertedNodeTest
 
             skipCalls  = 1; // the collection pass succeeds, the first neighbour scoring of POISON fails
             failPoison = true;
-            assertThrows(RuntimeException.class, () -> foundIds(index), "the failed rebuild was not loud");
+            assertThrows(RuntimeException.class, () -> foundIds(index, COUNT), "the failed rebuild was not loud");
             failPoison = false;
 
-            assertEquals(COUNT, foundIds(index).size(), "the retried rebuild lost an entity: " + foundIds(index));
+            assertEquals(COUNT, foundIds(index, COUNT).size(), "the retried rebuild lost an entity: " + foundIds(index, COUNT));
         }
     }
 
@@ -307,13 +255,13 @@ class VectorIndexHalfInsertedNodeTest
         assertTrue((long)internalState(index, "structuralModCount") > modCountBefore,
             "a failed update did not move the crash-restart witness although the entity carries the new vector");
 
-        final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index),
+        final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index, COUNT),
             "a search answered from a graph known to be incomplete");
         assertTrue(e.getMessage().contains("incomplete"), e.getMessage());
 
         map.reindex();
         final long withVectors = map.size() - (map.get(noVectorId).vector == null ? 1 : 0);
-        assertEquals(withVectors, foundIds(index).size(), "entities missing after reindex(): " + foundIds(index));
+        assertEquals(withVectors, foundIds(index, COUNT).size(), "entities missing after reindex(): " + foundIds(index, COUNT));
     }
 
     /**
@@ -334,12 +282,12 @@ class VectorIndexHalfInsertedNodeTest
         failPoison = false;
         assertNotNull(internalState(index, "graphRepairFailure"), "the failed reindex was not latched");
 
-        final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index),
+        final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index, COUNT),
             "a search answered from the truncated graph of a failed reindex");
         assertTrue(e.getMessage().contains("incomplete"), e.getMessage());
 
         map.reindex();
-        assertEquals(COUNT, foundIds(index).size(), "entities missing after the second reindex(): " + foundIds(index));
+        assertEquals(COUNT, foundIds(index, COUNT).size(), "entities missing after the second reindex(): " + foundIds(index, COUNT));
     }
 
     /**
@@ -362,11 +310,11 @@ class VectorIndexHalfInsertedNodeTest
         assertEquals(COUNT + 1, map.size(), "precondition: GigaMap does not roll an Error back");
         assertFalse((boolean)internalState(index, "halfInsertedNodePending"), "a retirement stayed armed for an entity that stays");
         assertNotNull(internalState(index, "graphRepairFailure"), "the half-inserted node of a live entity was not recorded");
-        assertThrows(IllegalStateException.class, () -> foundIds(index), "a search answered from the incomplete graph");
+        assertThrows(IllegalStateException.class, () -> foundIds(index, COUNT), "a search answered from the incomplete graph");
 
         assertDoesNotThrow(() -> map.removeById(COUNT), "removing the entity threw the retirement meant for a rollback");
         map.reindex();
-        assertEquals(COUNT, foundIds(index).size(), "entities missing after reindex(): " + foundIds(index));
+        assertEquals(COUNT, foundIds(index, COUNT).size(), "entities missing after reindex(): " + foundIds(index, COUNT));
     }
 
     /**
@@ -393,38 +341,6 @@ class VectorIndexHalfInsertedNodeTest
         }
     }
 
-    private static void failOneInsertion(final VectorIndex<?> index, final int ordinal)
-    {
-        final java.util.concurrent.atomic.AtomicBoolean armed = new java.util.concurrent.atomic.AtomicBoolean(true);
-        ((VectorIndex.Default<?>)index).graphInsertTestHook = o ->
-        {
-            if(o == ordinal && armed.getAndSet(false))
-            {
-                throw new IllegalStateException("simulated engine failure inserting ordinal " + o);
-            }
-        };
-    }
-
-    private static void failOneDeletion(final VectorIndex<?> index, final int ordinal)
-    {
-        final java.util.concurrent.atomic.AtomicBoolean armed = new java.util.concurrent.atomic.AtomicBoolean(true);
-        ((VectorIndex.Default<?>)index).graphDeleteTestHook = o ->
-        {
-            if(o == ordinal && armed.getAndSet(false))
-            {
-                throw new IllegalStateException("simulated engine failure deleting ordinal " + o);
-            }
-        };
-    }
-
-    private static void awaitWorker(final VectorIndex<?> index)
-    {
-        final BackgroundTaskManager manager = internalState(index, "backgroundTaskManager");
-        assertNotNull(manager, "precondition: a background task manager exists");
-        manager.drainQueue();
-        manager.drainQueue();
-    }
-
     @Test
     void failedComputedReindexKeepsEveryVectorForTheRepair()
     {
@@ -433,15 +349,15 @@ class VectorIndexHalfInsertedNodeTest
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", VectorIndexConfiguration.builder().dimension(4).similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
                 .optimizationIntervalMs(60_000).build(), new ComputedVectorizer());
-        assertEquals(COUNT, foundIds(index).size(), "precondition: complete before the reindex");
+        assertEquals(COUNT, foundIds(index, COUNT).size(), "precondition: complete before the reindex");
 
         failOneInsertion(index, COUNT / 2); // the re-add fails at this ordinal, once
         assertThrows(RuntimeException.class, map::reindex, "precondition: the reindex failed during an insertion");
         awaitWorker(index); // the repair rebuilds from the vector store
 
         assertEquals(COUNT, map.size(), "precondition: a failed reindex keeps the entities");
-        assertEquals(COUNT, foundIds(index).size(),
-            "the repair rebuilt a truncated index: the failed reindex had not stored every vector first; found " + foundIds(index));
+        assertEquals(COUNT, foundIds(index, COUNT).size(),
+            "the repair rebuilt a truncated index: the failed reindex had not stored every vector first; found " + foundIds(index, COUNT));
     }
 
     private static VectorIndexConfiguration withManager()
@@ -590,13 +506,13 @@ class VectorIndexHalfInsertedNodeTest
         awaitWorker(index); // the repair rebuilds from the truncated store
         assertEquals(COUNT, map.size(), "precondition: a failed reindex keeps the entities");
 
-        final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index),
+        final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index, COUNT),
             "a search answered from a graph rebuilt from a truncated store");
         assertTrue(e.getMessage().contains("reindex"), e.getMessage());
 
         armed.set(false);
         map.reindex();
-        assertEquals(COUNT, foundIds(index).size(), "entities missing after reindex()");
+        assertEquals(COUNT, foundIds(index, COUNT).size(), "entities missing after reindex()");
     }
 
     /**
@@ -618,7 +534,7 @@ class VectorIndexHalfInsertedNodeTest
 
         assertNull(index.getVector(id), "the store kept the vector of the rejected replacement");
         assertFalse(foundExactly(index, replaced, id), "an entity without an embedding is found by the rejected replacement's vector");
-        assertEquals(COUNT, foundIds(index).size(), "entities missing after the repair: found " + foundIds(index));
+        assertEquals(COUNT, foundIds(index, COUNT).size(), "entities missing after the repair: found " + foundIds(index, COUNT));
     }
 
     /**
@@ -640,8 +556,8 @@ class VectorIndexHalfInsertedNodeTest
         assertEquals(COUNT + 1, map.size(), "precondition: GigaMap keeps the entity after an Error");
         awaitWorker(index);
 
-        assertEquals(COUNT + 1, foundIds(index).size(),
-            "the entity added with an Error is silently missing: found " + foundIds(index));
+        assertEquals(COUNT + 1, foundIds(index, COUNT).size(),
+            "the entity added with an Error is silently missing: found " + foundIds(index, COUNT));
     }
 
     /**
@@ -661,11 +577,11 @@ class VectorIndexHalfInsertedNodeTest
         failPoison = false;
         assertEquals(COUNT + 1, map.size(), "precondition: GigaMap keeps the entity after an Error");
 
-        final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index),
+        final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index, COUNT),
             "a search answered although an entity has no vector in the store");
         assertTrue(e.getMessage().contains("reindex"), e.getMessage());
 
         map.reindex();
-        assertEquals(COUNT + 1, foundIds(index).size(), "entities missing after reindex()");
+        assertEquals(COUNT + 1, foundIds(index, COUNT).size(), "entities missing after reindex()");
     }
 }
