@@ -329,21 +329,64 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
         @Override
         public final void internalAdd(final long entityId, final E entity)
         {
-            for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+            // An index that throws an Error stops nothing: GigaMap rolls an add back on Exception only, so the entity
+            // stays in the map and every remaining index must still see it (the throwing one has recorded its own
+            // failure). An exception aborts, because GigaMap's rollback then removes the entity from every index.
+            // The first Error is rethrown at the end, later ones suppressed; a fatal one at once.
+            Throwable first = null;
+            try
             {
-                index.internalAdd(entityId, entity);
+                for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+                {
+                    try
+                    {
+                        index.internalAdd(entityId, entity);
+                    }
+                    catch(final VirtualMachineError e)
+                    {
+                        throw e;
+                    }
+                    catch(final Error e)
+                    {
+                        first = firstOf(first, e);
+                    }
+                }
             }
-            this.markStateChangeChildren();
+            finally
+            {
+                this.markStateChangeChildren();
+            }
+            rethrow(first);
         }
 
         @Override
         public final void internalAddAll(final long firstEntityId, final Iterable<? extends E> entities)
         {
-            for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+            // an Error stops nothing, an exception aborts: see internalAdd
+            Throwable first = null;
+            try
             {
-                index.internalAddAll(firstEntityId, entities);
+                for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+                {
+                    try
+                    {
+                        index.internalAddAll(firstEntityId, entities);
+                    }
+                    catch(final VirtualMachineError e)
+                    {
+                        throw e;
+                    }
+                    catch(final Error e)
+                    {
+                        first = firstOf(first, e);
+                    }
+                }
             }
-            this.markStateChangeChildren();
+            finally
+            {
+                this.markStateChangeChildren();
+            }
+            rethrow(first);
         }
 
         @Override
@@ -360,11 +403,41 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
             final CustomConstraints<? super E> customConstraints
         )
         {
-            for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+            // A rejected replacement (set/replace pass a new instance) aborts at the first failure: GigaMap keeps the
+            // old entity. A retained in-place update (update/apply pass the same instance) must reach every remaining
+            // index, because GigaMap keeps the mutated entity whatever an index threw; the first failure is rethrown
+            // at the end, later ones suppressed, a fatal Error at once. The mark is in a finally, like GigaIndices:
+            // an index that threw may have moved its persisted restart witness or written its vector store, and the
+            // storer only descends to it through this mark.
+            final boolean retained = replacedEntity == entity;
+            Throwable     first    = null;
+            try
             {
-                index.internalUpdate(entityId, replacedEntity, entity);
+                for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+                {
+                    try
+                    {
+                        index.internalUpdate(entityId, replacedEntity, entity);
+                    }
+                    catch(final VirtualMachineError e)
+                    {
+                        throw e;
+                    }
+                    catch(final RuntimeException | Error e)
+                    {
+                        if(!retained)
+                        {
+                            throw e;
+                        }
+                        first = firstOf(first, e);
+                    }
+                }
             }
-            this.markStateChangeChildren();
+            finally
+            {
+                this.markStateChangeChildren();
+            }
+            rethrow(first);
         }
 
         @Override
@@ -373,14 +446,69 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
             // Nothing to clean up
         }
 
+        /**
+         * Best-effort over every index, like {@code GigaIndices#internalRemove} over the groups: an index that throws
+         * must not keep its siblings from being cleaned up. That matters for GigaMap's rollback of a failed add,
+         * where an index throws on purpose to retire the id (see {@code VectorIndex.Default#halfInsertedOrdinal}).
+         * The first failure is rethrown at the end, later ones are suppressed.
+         */
         @Override
         public final void internalRemove(final long entityId, final E entity)
         {
-            for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+            Throwable first = null;
+            try
             {
-                index.internalRemove(entityId, entity);
+                for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+                {
+                    try
+                    {
+                        index.internalRemove(entityId, entity);
+                    }
+                    catch(final VirtualMachineError e)
+                    {
+                        throw e;
+                    }
+                    catch(final RuntimeException | Error e)
+                    {
+                        // an Error too: the index rethrows one from a failed deletion, and GigaMap has already
+                        // removed the entity, so the remaining indices must still drop their nodes
+                        first = firstOf(first, e);
+                    }
+                }
             }
-            this.markStateChangeChildren();
+            finally
+            {
+                this.markStateChangeChildren();
+            }
+            rethrow(first);
+        }
+
+        /** keeps the first failure of a fan-out and attaches later ones as suppressed */
+        private static Throwable firstOf(final Throwable first, final Throwable next)
+        {
+            if(first == null)
+            {
+                return next;
+            }
+            if(next != first)
+            {
+                // the same instance thrown twice (a shared Error) must not suppress itself, which throws
+                first.addSuppressed(next);
+            }
+            return first;
+        }
+
+        /** rethrows a failure kept by {@link #firstOf}; only unchecked throwables are ever kept */
+        private static void rethrow(final Throwable failure)
+        {
+            if(failure instanceof final RuntimeException e)
+            {
+                throw e;
+            }
+            if(failure instanceof final Error e)
+            {
+                throw e;
+            }
         }
 
         @Override

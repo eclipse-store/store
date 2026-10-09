@@ -65,6 +65,11 @@ class BackgroundTaskManager
 
     /**
      * Sealed interface for indexing operations that can be queued.
+     * <p>
+     * Every operation carries the graph epoch of the index at the time it was enqueued (see
+     * {@code VectorIndex.Default#graphEpoch}). The callbacks drop an operation whose epoch is no longer the
+     * index's: its graph was rebuilt from the source of truth, which already holds the mutation, or replaced by a
+     * new generation, where the ordinal means another entity.
      */
     private static sealed interface IndexingOperation
         permits IndexingOperation.Add,
@@ -74,42 +79,42 @@ class BackgroundTaskManager
     {
         void execute(Callback callback);
 
+        /** the index's graph epoch when this operation was enqueued */
+        long epoch();
+
         /**
          * Add a node to the HNSW graph.
          */
-        record Add(VectorEntry entry) implements IndexingOperation
+        record Add(VectorEntry entry, long epoch) implements IndexingOperation
         {
             @Override
             public void execute(final Callback callback)
             {
-                callback.applyGraphAdd(this.entry);
-                callback.markDirtyForBackgroundManagers(1);
+                callback.applyGraphAdd(this.entry, this.epoch);
             }
         }
 
         /**
          * Update a node in the HNSW graph (delete + re-add).
          */
-        record Update(VectorEntry entry) implements IndexingOperation
+        record Update(VectorEntry entry, long epoch) implements IndexingOperation
         {
             @Override
             public void execute(final Callback callback)
             {
-                callback.applyGraphUpdate(this.entry);
-                callback.markDirtyForBackgroundManagers(1);
+                callback.applyGraphUpdate(this.entry, this.epoch);
             }
         }
 
         /**
          * Remove a node from the HNSW graph.
          */
-        record Remove(int ordinal) implements IndexingOperation
+        record Remove(int ordinal, long epoch) implements IndexingOperation
         {
             @Override
             public void execute(final Callback callback)
             {
-                callback.applyGraphRemove(this.ordinal);
-                callback.markDirtyForBackgroundManagers(1);
+                callback.applyGraphRemove(this.ordinal, this.epoch);
             }
         }
 
@@ -119,13 +124,12 @@ class BackgroundTaskManager
          * Acquires the builder lock once for the entire batch and marks dirty
          * once with the total count, avoiding per-entry overhead.
          */
-        record BatchAdd(List<VectorEntry> entries) implements IndexingOperation
+        record BatchAdd(List<VectorEntry> entries, long epoch) implements IndexingOperation
         {
             @Override
             public void execute(final Callback callback)
             {
-                callback.applyGraphBatchAdd(this.entries);
-                callback.markDirtyForBackgroundManagers(this.entries.size());
+                callback.applyGraphBatchAdd(this.entries, this.epoch);
             }
         }
     }
@@ -140,15 +144,46 @@ class BackgroundTaskManager
      */
     interface Callback
     {
-        void applyGraphAdd(VectorEntry entry);
+        /**
+         * The {@code epoch} of each graph operation is the index's graph epoch when the operation was enqueued;
+         * the implementation drops the operation if the epoch has moved since (see {@link IndexingOperation}).
+         */
+        void applyGraphAdd(VectorEntry entry, long epoch);
 
-        void applyGraphBatchAdd(List<VectorEntry> entries);
+        void applyGraphBatchAdd(List<VectorEntry> entries, long epoch);
 
-        void applyGraphUpdate(VectorEntry entry);
+        void applyGraphUpdate(VectorEntry entry, long epoch);
 
-        void applyGraphRemove(int ordinal);
+        void applyGraphRemove(int ordinal, long epoch);
 
         void markDirtyForBackgroundManagers(int count);
+
+        /**
+         * Records that a graph operation failed after its mutation was counted: the graph is behind its
+         * witnesses until it is rebuilt from the source of truth. Called from the per-operation catch of the
+         * indexing drain (on the worker, or on a persist thread applying the queue inline) and from the index's
+         * own synchronous paths, with any locks held: the implementation only sets fields and submits a task.
+         *
+         * @param cause the failure
+         */
+        void markGraphIncomplete(Throwable cause);
+
+        /**
+         * {@link #markGraphIncomplete(Throwable)} for a failed queued operation, reported after the operation
+         * released the builder lock: the implementation ignores the failure if the graph epoch moved since the
+         * operation was enqueued, because the graph that failed it has been rebuilt or replaced in the meantime.
+         *
+         * @param cause the failure
+         * @param epoch the operation's epoch
+         */
+        void markGraphIncomplete(Throwable cause, long epoch);
+
+        /**
+         * Rebuilds the graph from the source of truth if a graph operation failed since it was last built,
+         * otherwise does nothing. Called on the executor thread after {@link #requestGraphRepair()}, with no
+         * lock held; the implementation takes the locks it needs.
+         */
+        void repairGraph();
 
         /**
          * Whether this index needs an optimization it cannot earn through the change count.
@@ -203,6 +238,19 @@ class BackgroundTaskManager
     private final ConcurrentLinkedQueue<IndexingOperation> indexingQueue         ;
     private final AtomicBoolean                            indexingTaskScheduled ;
 
+    // One repair task at a time: every failed operation of a batch requests one, one rebuild serves them all.
+    private final AtomicBoolean                            repairScheduled       ;
+
+    /**
+     * Operations enqueued and not yet applied, the ones already polled by the worker included (the queue size
+     * misses those). Each one's mutation is already counted in the index's persist witnesses, so while this is not
+     * zero the graph is behind them and a persist must not capture it as current.
+     */
+    private final AtomicInteger                            pendingGraphOps       ;
+
+    // Operations currently executing, on the worker or inline on a persist thread; see hasOpInFlight().
+    private final AtomicInteger                            opsInFlight           ;
+
     // Optimization state
     private final AtomicInteger optimizationChangeCount;
     private final AtomicLong    optimizationCount      ;
@@ -253,6 +301,9 @@ class BackgroundTaskManager
         // Indexing
         this.indexingQueue         = new ConcurrentLinkedQueue<>();
         this.indexingTaskScheduled = new AtomicBoolean(false);
+        this.repairScheduled       = new AtomicBoolean(false);
+        this.pendingGraphOps       = new AtomicInteger(0);
+        this.opsInFlight           = new AtomicInteger(0);
 
         // Optimization
         this.optimizationChangeCount = new AtomicInteger(0);
@@ -309,24 +360,24 @@ class BackgroundTaskManager
     // ========================================================================
 
 
-    void enqueueAdd(final VectorEntry entry)
+    void enqueueAdd(final VectorEntry entry, final long epoch)
     {
-        this.enqueue(new IndexingOperation.Add(entry));
+        this.enqueue(new IndexingOperation.Add(entry, epoch));
     }
 
-    void enqueueBatchAdd(final List<VectorEntry> entries)
+    void enqueueBatchAdd(final List<VectorEntry> entries, final long epoch)
     {
-        this.enqueue(new IndexingOperation.BatchAdd(entries));
+        this.enqueue(new IndexingOperation.BatchAdd(entries, epoch));
     }
 
-    void enqueueUpdate(final VectorEntry entry)
+    void enqueueUpdate(final VectorEntry entry, final long epoch)
     {
-        this.enqueue(new IndexingOperation.Update(entry));
+        this.enqueue(new IndexingOperation.Update(entry, epoch));
     }
 
-    void enqueueRemove(final int ordinal)
+    void enqueueRemove(final int ordinal, final long epoch)
     {
-        this.enqueue(new IndexingOperation.Remove(ordinal));
+        this.enqueue(new IndexingOperation.Remove(ordinal, epoch));
     }
 
     /**
@@ -334,11 +385,47 @@ class BackgroundTaskManager
      */
     private void enqueue(final IndexingOperation op)
     {
+        // Before the queue: a reader of pendingGraphOps must never see the op in the queue but not in the count.
+        this.pendingGraphOps.incrementAndGet();
         this.indexingQueue.add(op);
         if(this.indexingTaskScheduled.compareAndSet(false, true))
         {
             this.executor.submit(this::processIndexingBatch);
         }
+    }
+
+    /**
+     * Returns the number of operations enqueued and not yet applied, the one the worker has polled included.
+     * <p>
+     * Under the index's write lock and monitor nothing is enqueued or applied, so the count is exact up to one:
+     * the decrement runs after the callback released the read lock. An over-count costs one redundant rebuild,
+     * never a missed op.
+     */
+    int pendingGraphOps()
+    {
+        return this.pendingGraphOps.get();
+    }
+
+    /**
+     * Whether the worker has polled an operation and not finished it. Under the index's write lock such an
+     * operation is blocked on the read lock; it cannot be applied inline and is covered by a rebuild instead.
+     */
+    boolean hasOpInFlight()
+    {
+        return this.opsInFlight.get() > 0;
+    }
+
+    /**
+     * Applies the operations still in the queue on the calling thread. For a persist that holds the builder write
+     * lock but not yet the parent-map monitor: the callbacks take the read lock, which a write-lock holder may take
+     * again, and the worker cannot apply anything in the meantime. Must not be called with the monitor held, because
+     * the callbacks are the worker's and may enter a ForkJoinPool whose workers need it (see
+     * {@code VectorIndex.Default#drainDeferredBuilderOps}). Does not cover an operation the worker has already
+     * polled; {@link #pendingGraphOps()} still counts that one afterwards.
+     */
+    void applyQueuedOpsInline()
+    {
+        this.processAllPendingIndexingOps();
     }
 
     /**
@@ -374,8 +461,14 @@ class BackgroundTaskManager
      */
     void discardQueue()
     {
-        final int discarded = this.indexingQueue.size();
-        this.indexingQueue.clear();
+        // Polled one by one, so each discarded op leaves the pending count exactly once, however the worker
+        // interleaves. An op the worker has polled already is not in the queue and stays counted until it ran.
+        int discarded = 0;
+        while(this.indexingQueue.poll() != null)
+        {
+            this.pendingGraphOps.decrementAndGet();
+            discarded++;
+        }
         this.indexingTaskScheduled.set(false);
         if(discarded > 0)
         {
@@ -389,6 +482,76 @@ class BackgroundTaskManager
     int getPendingIndexingCount()
     {
         return this.indexingQueue.size();
+    }
+
+    /**
+     * Schedules one {@link Callback#repairGraph()} on the executor, unless one is already scheduled. Called from any
+     * thread, with any locks held: this only submits a task. The task runs after the batch that is applying
+     * operations now, so one rebuild serves every failure of that batch.
+     *
+     * @return {@code false} if the manager is shut down, so no repair will run on it
+     */
+    boolean requestGraphRepair()
+    {
+        if(this.shutdown)
+        {
+            return false;
+        }
+        if(this.repairScheduled.compareAndSet(false, true))
+        {
+            try
+            {
+                this.executor.submit(this::runGraphRepair);
+            }
+            catch(final RejectedExecutionException e)
+            {
+                // shut down between the flag check above and the submit (close(), removeAll())
+                this.repairScheduled.set(false);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void runGraphRepair()
+    {
+        // Reset first: a failure requested while the repair runs must be able to schedule the next one.
+        this.repairScheduled.set(false);
+        if(this.shutdown)
+        {
+            // A repair is not worth blocking a shutdown; a shutdown persist writes nothing while the graph is
+            // incomplete, and the next load rebuilds from the store.
+            return;
+        }
+        final Callback cb = this.liveCallback();
+        if(cb == null)
+        {
+            return;
+        }
+        // a failed repair is recorded by the index and reported from search(); nothing else to do here
+        this.runGuarded("Graph repair", cb::repairGraph);
+    }
+
+    /**
+     * Runs the body of a background task. A failure is logged and swallowed, so a periodic task keeps its schedule
+     * and a one-off task ends quietly. A {@link VirtualMachineError} is logged and rethrown: the JVM is in trouble,
+     * retrying every tick would only repeat the damage, and the executor would end the periodic task silently.
+     */
+    private void runGuarded(final String task, final Runnable body)
+    {
+        try
+        {
+            body.run();
+        }
+        catch(final VirtualMachineError e)
+        {
+            LOG.error("{} of '{}' stops after a fatal error: {}", task, this.name, e.getMessage(), e);
+            throw e;
+        }
+        catch(final Throwable t)
+        {
+            LOG.error("{} of '{}' failed: {}", task, this.name, t.getMessage(), t);
+        }
     }
 
     // ========================================================================
@@ -579,7 +742,7 @@ class BackgroundTaskManager
     {
         this.shutdown = true;
         this.cancelScheduledTasks();
-        this.indexingQueue.clear();
+        this.discardQueue();
         this.executor.shutdown(); // no awaitTermination: we are on the executor thread
         LOG.info("Background task manager self-terminated for abandoned index '{}'", this.name);
     }
@@ -640,13 +803,31 @@ class BackgroundTaskManager
         IndexingOperation op;
         while((op = this.indexingQueue.poll()) != null)
         {
+            this.opsInFlight.incrementAndGet();
             try
             {
                 op.execute(cb);
             }
-            catch(final Exception e)
+            catch(final Throwable t)
             {
-                LOG.error("Error applying indexing operation for '{}': {}", this.name, e.getMessage(), e);
+                // The op is polled and lost either way, but its mutation was counted when it was enqueued: the
+                // graph is behind its witnesses. Logged first, then recorded so a persist rebuilds instead of
+                // capturing, and a repair can be scheduled. An Error is recorded too and rethrown. With the op's
+                // epoch: the op released the builder lock before this catch, and a rebuild in between already
+                // accounts for its mutation.
+                LOG.error("Error applying indexing operation for '{}', the graph is rebuilt from the source of"
+                    + " truth: {}", this.name, t.getMessage(), t);
+                cb.markGraphIncomplete(t, op.epoch());
+                if(t instanceof Error)
+                {
+                    throw (Error)t;
+                }
+            }
+            finally
+            {
+                // After the op ran, not when it was polled: a polled op blocked on the read lock is still pending.
+                this.opsInFlight.decrementAndGet();
+                this.pendingGraphOps.decrementAndGet();
             }
         }
     }
@@ -680,7 +861,9 @@ class BackgroundTaskManager
         LOG.debug("Background optimizing index '{}' with {} changes",
             this.name, this.optimizationChangeCount.get());
 
-        try
+        // Guarded: a throwable escaping a scheduled task cancels the task for good, and an Error out of the inline
+        // drain would silently end background optimization. The drain has already recorded the failure for the repair.
+        this.runGuarded("Background optimization", () ->
         {
             // Drain pending indexing ops inline (same thread, no deadlock)
             this.processAllPendingIndexingOps();
@@ -691,11 +874,7 @@ class BackgroundTaskManager
             this.optimizationCount.incrementAndGet();
 
             LOG.debug("Background optimization completed for '{}'", this.name);
-        }
-        catch(final Exception e)
-        {
-            LOG.error("Background optimization failed for '{}': {}", this.name, e.getMessage(), e);
-        }
+        });
     }
 
     /**
@@ -723,7 +902,7 @@ class BackgroundTaskManager
         LOG.debug("Background persisting index '{}' with {} changes",
             this.name, this.persistenceChangeCount.get());
 
-        try
+        this.runGuarded("Background persistence", () ->
         {
             // Drain pending indexing ops inline (same thread, no deadlock)
             this.processAllPendingIndexingOps();
@@ -733,11 +912,7 @@ class BackgroundTaskManager
             this.persistenceChangeCount.set(0);
 
             LOG.debug("Background persistence completed for '{}'", this.name);
-        }
-        catch(final Exception e)
-        {
-            LOG.error("Background persistence failed for '{}': {}", this.name, e.getMessage(), e);
-        }
+        });
     }
 
     /**
