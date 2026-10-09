@@ -407,12 +407,18 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      *         and lazy entity access; never null but may contain fewer than k results if the
      *         index has fewer entities
      * @throws IllegalArgumentException if queryVector is null, has wrong dimension, or k &lt;= 0
-     * @throws IllegalStateException if a graph operation failed after its entity was counted and the graph could
-     *         not be rebuilt from the entities or the stored vectors, so the index is known to be incomplete; the
-     *         cause is attached. With eventual indexing the rebuild runs on the background thread as soon as a
-     *         failure is recorded, so this is only thrown when that rebuild failed too (or when the index has no
-     *         background thread). {@link GigaMap#reindex()} or, for an on-disk index, {@link #persistToDisk()}
-     *         rebuilds the graph and clears the condition
+     * @throws IllegalStateException if the index is known to be incomplete; the cause is attached. Two conditions
+     *         raise it. (1) A graph operation failed after its entity was counted and the graph could not be rebuilt
+     *         from the entities or the stored vectors. With eventual indexing the rebuild runs on the background
+     *         thread as soon as a failure is recorded, so this is only thrown when that rebuild failed too (or when
+     *         the index has no background thread); {@link GigaMap#reindex()} or, for an on-disk index,
+     *         {@link #persistToDisk()} rebuilds the graph and clears it. (2) With a computed vectorizer, an
+     *         {@link Error} left an entity in the map whose vector the index never received (GigaMap rolls an add
+     *         back on {@link Exception} only), or a reindex failed while storing the vectors. No rebuild from the
+     *         stored vectors can recover that, so only {@link GigaMap#reindex()}, which vectorizes the entities again,
+     *         clears it; {@link #persistToDisk()} does not. This second condition does not survive a restart: the
+     *         stored vectors are persisted as they are, and a restarted index serves them without this exception
+     *         until a {@link GigaMap#reindex()}
      * @see #search(Object, int)
      * @see VectorSearchResult
      */
@@ -438,7 +444,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * @return the search result
      * @throws IllegalArgumentException if queryVector is null, has wrong dimension, or
      *                                  {@code k} / {@code searchBeamWidth} are not positive
-     * @throws IllegalStateException if the index is known to be incomplete and could not be rebuilt, see
+     * @throws IllegalStateException if the index is known to be incomplete, see
      *                               {@link #search(float[], int)}
      * @see #search(float[], int)
      * @see VectorIndexConfiguration#minSearchBeamWidth()
@@ -477,7 +483,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * @throws IllegalArgumentException if queryEntity is null, k &lt;= 0, or the vectorizer
      *                                  returns null for the entity (an entity without an
      *                                  embedding cannot be used as a similarity query)
-     * @throws IllegalStateException if the index is known to be incomplete and could not be rebuilt, see
+     * @throws IllegalStateException if the index is known to be incomplete, see
      *                               {@link #search(float[], int)}
      * @see #search(float[], int)
      * @see Vectorizer#vectorize(Object)
@@ -500,7 +506,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      *                                  are not positive, or the vectorizer returns null for the
      *                                  entity (an entity without an embedding cannot be used as
      *                                  a similarity query)
-     * @throws IllegalStateException if the index is known to be incomplete and could not be rebuilt, see
+     * @throws IllegalStateException if the index is known to be incomplete, see
      *                               {@link #search(float[], int)}
      * @see #search(float[], int, int)
      */
