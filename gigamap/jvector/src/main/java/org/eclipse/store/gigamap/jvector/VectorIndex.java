@@ -1187,10 +1187,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private transient volatile Throwable              vectorStoreFailure;
 
         /**
-         * Moves on every rebuild from the source of truth and on every new generation ({@link #internalRemoveAll()}).
-         * Each eventual-indexing op carries the epoch it was enqueued with; the callbacks drop an op whose epoch moved,
-         * because the graph that replaced the old one already accounts for its mutation. Not moved by a persist's
-         * {@code reenterIncrementalMode}: ops enqueued during the write are still owed to the incremental builder.
+         * Moves on every rebuild from the source of truth, on every new generation ({@link #internalRemoveAll()}) and
+         * on a published in-memory PQ replacement ({@link #buildAndPublishPqReplacement}, where it is written before
+         * the generation's fields, see there). Each eventual-indexing op carries the epoch it was enqueued with; the
+         * callbacks read the generation and then drop an op whose epoch moved, because the graph that replaced the
+         * old one already accounts for its mutation. Not moved by a persist's {@code reenterIncrementalMode}: ops
+         * enqueued during the write are still owed to the incremental builder.
          */
         private transient volatile long                   graphEpoch;
 
@@ -1573,32 +1575,33 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return false;
             }
 
-            // Publication, and the order matters: the codes first, then the graph, then the
-            // builder that scores from them. All three fields are volatile, which is what makes
-            // that ordering mean anything to another thread.
+            // Publication, and the order matters: the epoch first, then the codes, then the graph, then the
+            // builder that scores from them. All four fields are volatile, which is what makes that ordering
+            // mean anything to another thread.
             //
-            // The codes lead because the replacement builder cannot be used without them. It
-            // scores every incoming node against the code store, and trackPqCode is a no-op while
-            // there are none - so a background callback that reached the new builder first would
-            // insert a node with no code of its own, linking it by a code that is not there and
-            // leaving it that way for good. Nothing else has that dependency: the codes are keyed
-            // by ordinal, ordinals are source entity ids, and both graphs carry the same ones, so
-            // codes that arrive before the graph are already correct for the graph still in place.
-            //
-            // The cost is that isPqCompressionActive() and the search path, which read the codes
-            // with no lock, can see them a few instructions before the new graph. That reports
-            // nothing untrue: at that moment the codes really are what a search would score from,
-            // and it would score correctly, because they describe the old graph's ordinals just as
-            // well as the replacement's.
-            this.inMemoryPqVectors = codes;
-
-            this.index   = (OnHeapGraphIndex)replacement.getGraph();
-            this.builder = replacement;
-
             // The replacement is a new generation of the graph: complete by construction (it holds every stored
             // vector, and the monitor held here kept the store from changing while it was built). Every queued or
             // deferred operation and every late failure report of the old graph is therefore redundant - the epoch
             // drops them - and a record of the old graph as incomplete is obsolete.
+            //
+            // The epoch leads because this publication holds no builder lock, so a worker callback can be between
+            // its epoch check and its work. The callbacks read the builder and the codes BEFORE they check the
+            // epoch, and the epoch is written before either: a callback that passed the check has read the old
+            // generation and mutates only that, and one that read the replacement sees the moved epoch and drops
+            // its operation. Nothing can validate against the old epoch and land in the new generation.
+            //
+            // The codes precede the graph because the replacement builder cannot be used without them. It scores
+            // every incoming node against the code store, and trackPqCode is a no-op while there are none - so a
+            // synchronous insertion that reached the new builder first would insert a node with no code of its
+            // own, linking it by a code that is not there and leaving it that way for good. Nothing else has that
+            // dependency: the codes are keyed by ordinal, ordinals are source entity ids, and both graphs carry
+            // the same ones, so codes that arrive before the graph are already correct for the graph still in
+            // place.
+            //
+            // The cost is that isPqCompressionActive() and the search path, which read the codes with no lock,
+            // can see them a few instructions before the new graph. That reports nothing untrue: at that moment
+            // the codes really are what a search would score from, and it would score correctly, because they
+            // describe the old graph's ordinals just as well as the replacement's.
             this.graphEpoch++;
             this.graphIncomplete    = false;
             this.graphRepairFailure = null ;
@@ -1606,6 +1609,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 this.deferredBuilderOps.clear();
             }
+            this.inMemoryPqVectors = codes;
+
+            this.index   = (OnHeapGraphIndex)replacement.getGraph();
+            this.builder = replacement;
 
             LOG.info("Switched in-memory index '{}' to PQ-compressed scoring ({} codes)",
                 this.name, codes.count());
@@ -1628,7 +1635,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void trackPqCode(final int ordinal, final VectorFloat<?> vf)
         {
-            final MutablePQVectors codes = this.inMemoryPqVectors;
+            this.trackPqCode(this.inMemoryPqVectors, ordinal, vf);
+        }
+
+        /** {@link #trackPqCode(int, VectorFloat)} against the codes of one captured generation (worker callbacks) */
+        private void trackPqCode(final MutablePQVectors codes, final int ordinal, final VectorFloat<?> vf)
+        {
             if(codes != null && vf != null)
             {
                 codes.encodeAndSet(ordinal, vf);
@@ -1647,7 +1659,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void untrackPqCode(final int ordinal)
         {
-            final MutablePQVectors codes = this.inMemoryPqVectors;
+            this.untrackPqCode(this.inMemoryPqVectors, ordinal);
+        }
+
+        /** {@link #untrackPqCode(int)} against the codes of one captured generation (worker callbacks) */
+        private void untrackPqCode(final MutablePQVectors codes, final int ordinal)
+        {
             if(codes != null)
             {
                 codes.setZero(ordinal);
@@ -5316,6 +5333,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.readLock().lock();
             try
             {
+                // The generation this operation is about, read BEFORE the epoch check: the PQ switch moves the
+                // epoch first and publishes its replacement after, holding no builder lock, so an operation that
+                // passed the check has read the generation it validated, and one that read the replacement sees
+                // the moved epoch and is dropped.
+                final GraphIndexBuilder currentBuilder = this.builder;
+                final MutablePQVectors  codes          = this.inMemoryPqVectors;
                 if(this.graphEpochMoved(epoch))
                 {
                     return;
@@ -5325,12 +5348,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
 
                 // Through the idempotent helper rather than addGraphNode directly. This callback is
-                // queued by a mutation and applied later, and in between the in-memory PQ switch can
-                // have replayed the same ordinal into a replacement graph from its own snapshot -
-                // the snapshot is taken after the mutation, so the change counter does not reject
-                // it. Adding an ordinal the graph already holds throws. The helper also reads the
-                // builder once, which matters here for the same reason it does on the sync path.
-                this.internalAddGraphNodeIdempotent(ordinal, vf);
+                // queued by a mutation and applied later, and in between a rebuild can have replayed
+                // the same ordinal into a replacement graph from its own snapshot - the snapshot is
+                // taken after the mutation, so the change counter does not reject it. Adding an
+                // ordinal the graph already holds throws.
+                this.internalAddGraphNodeIdempotent(currentBuilder, codes, ordinal, vf);
             }
             finally
             {
@@ -5345,6 +5367,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.readLock().lock();
             try
             {
+                // the generation before the epoch check, see applyGraphAdd
+                final GraphIndexBuilder currentBuilder = this.builder;
+                final MutablePQVectors  codes          = this.inMemoryPqVectors;
                 if(this.graphEpochMoved(epoch))
                 {
                     return;
@@ -5361,7 +5386,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
 
                     // Idempotent, for the reason given on applyGraphAdd.
-                    this.internalAddGraphNodeIdempotent(ordinal, vf);
+                    this.internalAddGraphNodeIdempotent(currentBuilder, codes, ordinal, vf);
                 }
             }
             finally
@@ -5376,18 +5401,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.readLock().lock();
             try
             {
+                // One generation, captured once and BEFORE the epoch check (see applyGraphAdd). This
+                // callback holds only the read lock, and the in-memory PQ switch publishes a
+                // replacement while holding neither - so reading this.builder or this.index again
+                // further down could land on the other side of that publication. Split across the
+                // two, this method would delete the node from the graph being abandoned and then add
+                // an ordinal the replacement already carries, which throws. The graph and the codes
+                // come from the captured generation for the same reason.
+                final GraphIndexBuilder currentBuilder = this.builder;
+                final MutablePQVectors  codes          = this.inMemoryPqVectors;
                 if(this.graphEpochMoved(epoch))
                 {
                     return;
                 }
                 this.markDirtyForBackgroundManagers(1);
-                // One generation, captured once. This callback holds only the read lock, and the
-                // in-memory PQ switch publishes a replacement while holding neither - so reading
-                // this.builder or this.index again further down could land on the other side of
-                // that publication. Split across the two, this method would delete the node from
-                // the graph being abandoned and then add an ordinal the replacement already carries,
-                // which throws. The graph comes from the captured builder for the same reason.
-                final GraphIndexBuilder currentBuilder = this.builder;
                 if(currentBuilder == null)
                 {
                     return;
@@ -5407,7 +5434,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         // that is still live. The eventual-indexing paths need this as much as the
                         // synchronous ones: without it a deleted node keeps a code traversal can
                         // still score against and waste hops on.
-                        this.untrackPqCode(ordinal);
+                        this.untrackPqCode(codes, ordinal);
                     }
                     return;
                 }
@@ -5420,7 +5447,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     currentBuilder.removeDeletedNodes();
                 }
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
-                this.trackPqCode(ordinal, vf);
+                this.trackPqCode(codes, ordinal, vf);
                 currentBuilder.addGraphNode(ordinal, vf);
             }
             finally
@@ -5435,21 +5462,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.readLock().lock();
             try
             {
+                // One generation, captured before the epoch check, for the reason given on
+                // applyGraphUpdate: the containment test and the delete must be about the same graph.
+                final GraphIndexBuilder currentBuilder = this.builder;
+                final MutablePQVectors  codes          = this.inMemoryPqVectors;
                 if(this.graphEpochMoved(epoch))
                 {
                     return;
                 }
                 this.markDirtyForBackgroundManagers(1);
-                // One generation, for the reason given on applyGraphUpdate: the containment test
-                // and the delete must be about the same graph.
-                final GraphIndexBuilder currentBuilder = this.builder;
 
                 // Guard against removing a never-indexed entity (e.g. one that never had an
                 // embedding): markNodeDeleted on an absent node would fail.
                 if(currentBuilder != null && graphOf(currentBuilder).containsNode(ordinal))
                 {
                     currentBuilder.markNodeDeleted(ordinal);
-                    this.untrackPqCode(ordinal);
+                    this.untrackPqCode(codes, ordinal);
                 }
             }
             finally
@@ -5935,7 +5963,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void internalAddGraphNodeIdempotent(final int ordinal, final VectorFloat<?> vf)
         {
-            final GraphIndexBuilder currentBuilder = this.builder;
+            // The synchronous paths and the drains run under the parent-map monitor, which the PQ switch holds
+            // while it publishes, so reading the generation here is the same as reading it a line earlier.
+            this.internalAddGraphNodeIdempotent(this.builder, this.inMemoryPqVectors, ordinal, vf);
+        }
+
+        /**
+         * {@link #internalAddGraphNodeIdempotent(int, VectorFloat)} against one captured generation. The worker
+         * callbacks read the builder and the codes before they validate their epoch and pass them here, so an
+         * operation that passed the check mutates the generation it validated and never one published in between.
+         */
+        private void internalAddGraphNodeIdempotent(
+            final GraphIndexBuilder currentBuilder,
+            final MutablePQVectors  codes         ,
+            final int               ordinal       ,
+            final VectorFloat<?>    vf
+        )
+        {
             if(currentBuilder == null)
             {
                 return;
@@ -5944,7 +5988,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // The code first, whichever branch follows: it is what the node is scored by once
             // compressed scoring is on, and the insert below reads it while choosing neighbours.
-            this.trackPqCode(ordinal, vf);
+            this.trackPqCode(codes, ordinal, vf);
 
             if(currentIndex.containsNode(ordinal))
             {
