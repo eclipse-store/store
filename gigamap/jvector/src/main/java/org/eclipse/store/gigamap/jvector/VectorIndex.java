@@ -412,9 +412,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      *         from the entities or the stored vectors. With eventual indexing the rebuild runs on the background
      *         thread as soon as a failure is recorded, so this is only thrown when that rebuild failed too (or when
      *         the index has no background thread); {@link GigaMap#reindex()} or, for an on-disk index,
-     *         {@link #persistToDisk()} rebuilds the graph and clears it. (2) With a computed vectorizer, an
-     *         {@link Error} left an entity in the map whose vector the index never received (GigaMap rolls an add
-     *         back on {@link Exception} only), or a reindex failed while storing the vectors. No rebuild from the
+     *         {@link #persistToDisk()} rebuilds the graph and clears it. (2) With a computed vectorizer, the stored
+     *         vectors do not cover every entity: an {@link Error} left an entity in the map whose vector the index
+     *         never received (GigaMap rolls an add back on {@link Exception} only), the vectorizer failed for an
+     *         in-place update GigaMap retained, or a reindex failed while storing the vectors. No rebuild from the
      *         stored vectors can recover that, so only {@link GigaMap#reindex()}, which vectorizes the entities again,
      *         clears it; {@link #persistToDisk()} does not. This second condition does not survive a restart: the
      *         stored vectors are persisted as they are, and a restarted index serves them without this exception
@@ -1593,6 +1594,18 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             this.index   = (OnHeapGraphIndex)replacement.getGraph();
             this.builder = replacement;
+
+            // The replacement is a new generation of the graph: complete by construction (it holds every stored
+            // vector, and the monitor held here kept the store from changing while it was built). Every queued or
+            // deferred operation and every late failure report of the old graph is therefore redundant - the epoch
+            // drops them - and a record of the old graph as incomplete is obsolete.
+            this.graphEpoch++;
+            this.graphIncomplete    = false;
+            this.graphRepairFailure = null ;
+            if(this.deferredBuilderOps != null)
+            {
+                this.deferredBuilderOps.clear();
+            }
 
             LOG.info("Switched in-memory index '{}' to PQ-compressed scoring ({} codes)",
                 this.name, codes.count());
@@ -2803,7 +2816,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
             this.ensureIndexInitialized();
 
-            final float[]  vector   = this.vectorize(entity);
+            final float[] vector;
+            try
+            {
+                vector = this.vectorize(entity);
+            }
+            catch(final RuntimeException | Error e)
+            {
+                // A replacement (set/replace pass a new instance) is rejected before anything changed. An in-place
+                // update (update/apply pass the same instance) GigaMap retains as mutated: the entity now has a state
+                // the index could not derive a vector from, so its stored vector or node is stale until a rebuild
+                // vectorizes it again.
+                if(replacedEntity == entity)
+                {
+                    this.recordVectorMissing(e);
+                }
+                throw e;
+            }
             final int      ordinal  = toOrdinal(entityId);
             final boolean  embedded = this.isEmbedded();
 
@@ -5459,12 +5488,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * An {@link Error} before the graph work of an add left the entity in the map without its vector: GigaMap
-         * rolls back on Exception only. Embedded, the rebuild from the entities recovers it. Computed, the store never
-         * received the vector (or was left half-written), so it is latched in {@link #vectorStoreFailure} until
-         * {@code reindex()}.
+         * The index holds no vector for an entity the map keeps: an {@link Error} before the graph work of an add
+         * (GigaMap rolls back on Exception only), or a vectorizer failing for an in-place update GigaMap retains as
+         * mutated. Embedded, the rebuild from the entities recovers it. Computed, the store never received the vector
+         * (or was left half-written, or holds the one from before the mutation), so it is latched in
+         * {@link #vectorStoreFailure} until {@code reindex()}.
          */
-        private void recordVectorMissing(final Error e)
+        private void recordVectorMissing(final Throwable e)
         {
             if(this.isEmbedded())
             {
@@ -5667,9 +5697,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(storeFailure != null)
             {
                 throw new IllegalStateException(
-                    "Vector index \"" + this.name + "\" is incomplete: an Error left an entity in the map whose"
-                    + " vector the index never received, and no rebuild can recover it. Fix the cause (see the"
-                    + " attached failure) and call GigaMap.reindex().",
+                    "Vector index \"" + this.name + "\" is incomplete: its stored vectors do not cover every entity"
+                    + " (an operation failed after its entity was counted), and no rebuild from them can recover"
+                    + " that. Fix the cause (see the attached failure) and call GigaMap.reindex().",
                     storeFailure
                 );
             }

@@ -327,9 +327,13 @@ class VectorIndexHalfInsertedNodeTest
         @Override
         public float[] vectorize(final Doc d)
         {
-            if(failPoison && failWithError && d.no == POISON)
+            if(failPoison && d.no == POISON)
             {
-                throw new AssertionError("simulated engine failure vectorizing entity " + d.no);
+                if(failWithError)
+                {
+                    throw new AssertionError("simulated engine failure vectorizing entity " + d.no);
+                }
+                throw new IllegalStateException("simulated vectorizer failure for entity " + d.no);
             }
             return d.vector == null ? null : d.vector.clone();
         }
@@ -608,5 +612,37 @@ class VectorIndexHalfInsertedNodeTest
         final java.util.Set<Long> found = foundIds(index, COUNT);
         assertFalse(found.contains(id), "the removed entity is still found: " + found);
         assertEquals(COUNT - 1, found.size(), "entities missing after the repair: " + found);
+    }
+
+    /**
+     * An in-place update whose vectorization fails: GigaMap retains the mutated entity (an indexer failure does not
+     * reject a mutation), so the computed store keeps a vector the entity no longer has. The index must be loud about
+     * it instead of answering with the stale vector, until a reindex() vectorizes the entity again.
+     */
+    @Test
+    void failedVectorizationOfARetainedMutationIsLoudUntilReindex()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", withManager(), new ComputedVectorizer());
+        final long    id        = POISON;
+        final float[] newVector = position(70);
+
+        failPoison = true; // the vectorizer rejects POISON from now on
+        assertThrows(RuntimeException.class, () -> map.apply(id, doc ->
+        {
+            doc.vector = newVector;
+            return null;
+        }), "precondition: the apply failed during the vectorization");
+        assertArrayEquals(newVector, map.get(id).vector, "precondition: GigaMap retains the mutated entity");
+
+        final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index, COUNT),
+            "a search answered with a stored vector the entity no longer has");
+        assertTrue(e.getMessage().contains("reindex"), e.getMessage());
+
+        failPoison = false;
+        map.reindex();
+        awaitWorker(index);
+        assertTrue(foundExactly(index, map.get(id), id), "the entity is not found by its new vector after reindex()");
     }
 }
