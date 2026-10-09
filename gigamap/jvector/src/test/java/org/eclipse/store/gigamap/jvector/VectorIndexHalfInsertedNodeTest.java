@@ -364,6 +364,28 @@ class VectorIndexHalfInsertedNodeTest
             "the repair rebuilt a truncated index: the failed reindex had not stored every vector first; found " + foundIds(index, COUNT));
     }
 
+    /** embedded, never fails: the sibling index in the fan-out tests */
+    static class PlainVectorizer extends Vectorizer<Doc>
+    {
+        @Override
+        public float[] vectorize(final Doc d)
+        {
+            return d.vector;
+        }
+
+        @Override
+        public boolean allowsNullVectors()
+        {
+            return true;
+        }
+
+        @Override
+        public boolean isEmbedded()
+        {
+            return true;
+        }
+    }
+
     private static VectorIndexConfiguration withManager()
     {
         // a background optimization interval creates the manager that runs the repair
@@ -690,5 +712,155 @@ class VectorIndexHalfInsertedNodeTest
             assertTrue(foundExactly(index, map.get(POISON), POISON),
                 "the restarted index accepted the persisted graph, in which the mutated entity has no node");
         }
+    }
+
+    /**
+     * The second vectorization of an embedded in-place update, the one that classifies a null new vector against the
+     * old one, can fail like the first. GigaMap retains the mutation, so the failure must be recorded the same way,
+     * or the old node stays served for an entity that has no embedding any more.
+     */
+    @Test
+    void failedClassificationOfARetainedNullMutationIsLoudUntilReindex()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", withManager(), new NeighbourFlakyVectorizer());
+        final Doc before = new Doc(POISON, position(POISON)); // a probe with the vector the entity had
+
+        failPoison = true;
+        skipCalls  = 1; // the first call (the new, null vector) passes; the second, classifying one throws
+        assertThrows(RuntimeException.class, () -> map.apply((long)POISON, doc ->
+        {
+            doc.vector = null;
+            return null;
+        }), "precondition: the apply failed during the classification");
+        assertNull(map.get(POISON).vector, "precondition: GigaMap retains the mutated entity");
+        awaitWorker(index); // the repair fails too: the vectorizer still rejects POISON
+
+        final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index, COUNT),
+            "a search answered although the mutated entity's old node was never recorded");
+        assertTrue(e.getMessage().contains("incomplete"), e.getMessage());
+
+        failPoison = false;
+        map.reindex();
+        awaitWorker(index);
+        assertFalse(foundExactly(index, before, POISON), "an entity without an embedding is found by its previous vector");
+        assertEquals(COUNT - 1, foundIds(index, COUNT).size(), "entities missing after reindex()");
+    }
+
+    /**
+     * GigaMap rolls an add back on Exception only. An Error from one vector index must not keep its siblings from
+     * seeing the entity that stays in the map; the throwing index is loud on its own.
+     */
+    @Test
+    void errorInOneIndexStillAddsTheEntityToItsSiblings()
+    {
+        final GigaMap<Doc>       map     = populatedMap();
+        final VectorIndices<Doc> group   = map.index().register(VectorIndices.Category());
+        final VectorIndex<Doc>   failing = group.add("failing", inMemory(), new ComputedVectorizer()); // first in the fan-out
+        final VectorIndex<Doc>   sibling = group.add("sibling", inMemory(), new PlainVectorizer());
+
+        failPoison    = true;
+        failWithError = true;
+        assertThrows(AssertionError.class, () -> map.add(new Doc(POISON)), "precondition: the add threw the Error");
+        failPoison = false;
+        assertEquals(COUNT + 1, map.size(), "precondition: GigaMap keeps the entity after an Error");
+
+        assertTrue(foundIds(sibling, COUNT + 1).contains((long)COUNT), "the sibling index never saw the retained entity");
+        assertThrows(IllegalStateException.class, () -> foundIds(failing, COUNT + 1), "the throwing index is not loud");
+    }
+
+    /** The same for a batch: the entities of the batch stay in the map and must reach every sibling. */
+    @Test
+    void errorInOneIndexStillAddsTheBatchToItsSiblings()
+    {
+        final GigaMap<Doc>       map     = populatedMap();
+        final VectorIndices<Doc> group   = map.index().register(VectorIndices.Category());
+        final VectorIndex<Doc>   failing = group.add("failing", inMemory(), new ComputedVectorizer());
+        final VectorIndex<Doc>   sibling = group.add("sibling", inMemory(), new PlainVectorizer());
+
+        failPoison    = true;
+        failWithError = true;
+        assertThrows(AssertionError.class, () -> map.addAll(List.of(new Doc(POISON), new Doc(COUNT + 1))),
+            "precondition: the addAll threw the Error");
+        failPoison = false;
+        assertEquals(COUNT + 2, map.size(), "precondition: GigaMap keeps the batch after an Error");
+
+        final java.util.Set<Long> found = foundIds(sibling, COUNT + 2);
+        assertTrue(found.contains((long)COUNT) && found.contains((long)COUNT + 1),
+            "the sibling index never saw the retained batch: " + found);
+        assertThrows(IllegalStateException.class, () -> foundIds(failing, COUNT + 2), "the throwing index is not loud");
+    }
+
+    /**
+     * GigaMap removes the entity before it asks the indices. An Error from one index's deletion must not keep its
+     * siblings from dropping their nodes for the removed entity.
+     */
+    @Test
+    void errorInOneIndexStillRemovesTheEntityFromItsSiblings()
+    {
+        final GigaMap<Doc>       map     = populatedMap();
+        final VectorIndices<Doc> group   = map.index().register(VectorIndices.Category());
+        final VectorIndex<Doc>   failing = group.add("failing", withManager(), new PlainVectorizer());
+        final VectorIndex<Doc>   sibling = group.add("sibling", inMemory(), new PlainVectorizer());
+        final long               id      = COUNT / 2;
+
+        final java.util.concurrent.atomic.AtomicBoolean armed = new java.util.concurrent.atomic.AtomicBoolean(true);
+        ((VectorIndex.Default<?>)failing).graphDeleteTestHook = o ->
+        {
+            if(o == id && armed.getAndSet(false))
+            {
+                throw new AssertionError("simulated engine error deleting ordinal " + o);
+            }
+        };
+        assertThrows(AssertionError.class, () -> map.removeById(id), "precondition: the removal threw the Error");
+        assertNull(map.get(id), "precondition: GigaMap has removed the entity");
+
+        assertFalse(foundIds(sibling, COUNT).contains(id), "the sibling index still serves the removed entity");
+        awaitWorker(failing); // the throwing index repairs itself
+        assertFalse(foundIds(failing, COUNT).contains(id), "the throwing index still serves the removed entity");
+    }
+
+    /**
+     * The vector store clears its slot before it runs its own indices, so a store removal that throws has removed
+     * the entry. For a rejected replacement the old entity keeps its vector in the map but not in the store: the
+     * store must be latched, or the entity disappears from the next rebuild silently.
+     */
+    @Test
+    void failedStoreRemovalOfARejectedReplacementIsLoudUntilReindex()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", withManager(), new ComputedVectorizer());
+        final long id = COUNT / 2;
+
+        final GigaMap<VectorEntry>                      store = internalState(index, "vectorStore");
+        final java.util.concurrent.atomic.AtomicBoolean armed = new java.util.concurrent.atomic.AtomicBoolean();
+        store.index().bitmap().add(new IndexerString.Abstract<VectorEntry>()
+        {
+            @Override
+            protected String getString(final VectorEntry entry)
+            {
+                if(armed.get() && entry.sourceEntityId == id)
+                {
+                    throw new IllegalStateException("simulated store failure removing the entry of " + id);
+                }
+                return "";
+            }
+        });
+
+        armed.set(true);
+        assertThrows(RuntimeException.class, () -> map.set(id, new Doc((int)id, null)), "precondition: the set failed in the store");
+        armed.set(false);
+        assertNotNull(map.get(id).vector, "precondition: GigaMap keeps the old entity");
+        awaitWorker(index);
+
+        final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index, COUNT),
+            "a search answered although the store lost the retained entity's vector");
+        assertTrue(e.getMessage().contains("reindex"), e.getMessage());
+
+        map.reindex();
+        awaitWorker(index);
+        assertEquals(COUNT, foundIds(index, COUNT).size(), "entities missing after reindex()");
     }
 }

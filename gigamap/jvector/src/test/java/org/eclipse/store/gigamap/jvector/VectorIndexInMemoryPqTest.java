@@ -1318,4 +1318,66 @@ class VectorIndexInMemoryPqTest
             assertEquals(10, index.search(vectors.get(0), 10).toList().size(), "the published replacement does not answer");
         }
     }
+
+    /**
+     * The publication of the replacement holds the monitor, not the builder lock. A failure report of the old graph
+     * that arrives WHILE the switch publishes must wait for the monitor, so that it checks the epoch after the
+     * publication moved it; checking before and recording after would flag the complete replacement.
+     */
+    @Test
+    void aFailureReportDuringTheSwitchWaitsForThePublication() throws InterruptedException
+    {
+        final Random        random  = new Random(2424);
+        final List<float[]> vectors = clusteredVectors(random, 1000);
+        final GigaMap<Doc>  map     = GigaMap.New();
+
+        try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("embeddings", inMemoryPqConfig(), new CountingVectorizer()))
+        {
+            for(int i = 0; i < vectors.size(); i++)
+            {
+                map.add(new Doc("d" + i, vectors.get(i)));
+            }
+            final VectorIndex.Default<Doc> internal   = (VectorIndex.Default<Doc>)index;
+            final AtomicBoolean            wasBlocked = new AtomicBoolean();
+            final Thread[]                 reporter   = new Thread[1];
+
+            internal.pqSwitchPublishTestHook = () ->
+            {
+                // the report of an op of the generation being replaced, sent while the publication is under way
+                final long oldEpoch = internalState(index, "graphEpoch");
+                reporter[0] = new Thread(() -> internal.markGraphIncomplete(
+                    new IllegalStateException("report of an operation of the old graph"), oldEpoch), "pq-late-reporter");
+                reporter[0].start();
+
+                // the reporter must park on the monitor this hook holds; polled rather than slept on
+                final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+                while(System.nanoTime() < deadline)
+                {
+                    final Thread.State state = reporter[0].getState();
+                    if(state == Thread.State.BLOCKED)
+                    {
+                        wasBlocked.set(true);
+                        return;
+                    }
+                    if(state == Thread.State.TERMINATED)
+                    {
+                        return; // it did not wait: the report went through before the publication
+                    }
+                    Thread.onSpinWait();
+                }
+            };
+
+            index.optimize();
+            assertTrue(index.isPqCompressionActive(), "precondition: the optimization switched");
+            assertNotNull(reporter[0], "precondition: the hook ran");
+            reporter[0].join(TimeUnit.SECONDS.toMillis(30));
+            assertFalse(reporter[0].isAlive(), "the report did not complete after the publication");
+
+            assertTrue(wasBlocked.get(), "a failure report during the switch did not wait for the publication");
+            awaitWorker(index);
+            assertNull(internalState(index, "graphRepairFailure"), "the report latched the published replacement");
+            assertFalse((boolean)internalState(index, "graphIncomplete"), "the report flagged the published replacement");
+        }
+    }
 }

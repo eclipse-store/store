@@ -1172,8 +1172,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         /**
          * The failure that left {@link #graphIncomplete} set with no repair in sight (a failed repair, or no thread
          * to run one). While set, {@link #search} throws instead of answering from an incomplete graph. Cleared with
-         * {@link #graphIncomplete}. Not retried on its own: a persistently failing vectorizer would cost one O(n)
-         * rebuild per failed operation.
+         * {@link #graphIncomplete}. Not retried per failed operation: a persistently failing vectorizer would cost one
+         * O(n) rebuild each. The background persistence of an on-disk index retries on its schedule (Phase 1 rebuilds
+         * while the graph is incomplete), as do {@code persistToDisk()} and {@code reindex()} when called.
          */
         private transient volatile Throwable              graphRepairFailure;
 
@@ -2848,13 +2849,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // vectorizes it again.
                 if(replacedEntity == entity)
                 {
-                    // The witnesses first. An update moves neither the entity count nor the highest id, so without
-                    // the counter a restart would accept the persisted graph as current, in which the entity has no
-                    // node or its old one, and the disk search would keep serving that node. The record below is
-                    // transient; the counter is persisted with the index.
-                    this.recordDiskOrdinalSuperseded(ordinal);
-                    this.markContentChanged();
-                    this.recordVectorMissing(e);
+                    this.recordRetainedMutationFailure(ordinal, e);
                 }
                 throw e;
             }
@@ -2883,8 +2878,24 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // A non-null new vector is always a change (null→vec or vec→vec). Only a null new vector
                 // needs the old vector — to tell vec→null (a change) from null→null (the only no-op) —
                 // so re-vectorize replacedEntity solely on that path, not on the common non-null update.
-                contentChanged = vector != null
-                    || (replacedEntity != null && this.vectorize(replacedEntity) != null);
+                boolean oldHadVector = false;
+                if(vector == null && replacedEntity != null)
+                {
+                    try
+                    {
+                        oldHadVector = this.vectorize(replacedEntity) != null;
+                    }
+                    catch(final RuntimeException | Error e)
+                    {
+                        // the same as a failure of the first call: a retained mutation leaves a stale node behind
+                        if(!replacement)
+                        {
+                            this.recordRetainedMutationFailure(ordinal, e);
+                        }
+                        throw e;
+                    }
+                }
+                contentChanged = vector != null || oldHadVector;
             }
             else
             {
@@ -4650,17 +4661,26 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             this.rebuildInMemoryGraph();
 
-            // Close disk manager (its searcher pool is closed by initializeSearcherPool below)
-            if(this.diskManager != null)
-            {
-                this.diskManager.close();
-                this.diskManager = null;
-            }
-
-            // Reset incremental state
-            this.incrementalMode = false;
+            // The incremental state first, then the disk manager: the full graph is complete now, and a disk manager
+            // that fails to close is abandoned either way. Resetting after the close would leave the mode flag set
+            // next to the full graph on such a failure, and the incremental search would answer every entity twice.
+            final DiskIndexManager abandoned = this.diskManager;
+            this.diskManager         = null;
+            this.incrementalMode     = false;
             this.diskDeletedOrdinals = null;
             this.diskGraphMeta       = null;
+            if(abandoned != null)
+            {
+                try
+                {
+                    abandoned.close(); // its searcher pool is closed by initializeSearcherPool below
+                }
+                catch(final RuntimeException e)
+                {
+                    LOG.warn("Closing the disk index of '{}' after leaving incremental mode failed; the index serves"
+                        + " from the rebuilt graph in memory: {}", this.name, e.getMessage(), e);
+                }
+            }
 
             // Again, now for the in-memory-only layout: the rebuild created the pools for the incremental one.
             this.initializeSearcherPool();
@@ -5522,6 +5542,19 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
+         * A vectorizer failing for an in-place update that GigaMap retains as mutated. The witnesses first: an update
+         * moves neither the entity count nor the highest id, so without the counter a restart would accept the
+         * persisted graph as current, in which the entity has no node or its old one, and the disk search would keep
+         * serving that node. The record is transient; the counter is persisted with the index.
+         */
+        private void recordRetainedMutationFailure(final int ordinal, final Throwable e)
+        {
+            this.recordDiskOrdinalSuperseded(ordinal);
+            this.markContentChanged();
+            this.recordVectorMissing(e);
+        }
+
+        /**
          * The index holds no vector for an entity the map keeps: an {@link Error} before the graph work of an add
          * (GigaMap rolls back on Exception only), or a vectorizer failing for an in-place update GigaMap retains as
          * mutated. Embedded, the rebuild from the entities recovers it. Computed, the store never received the vector
@@ -5560,7 +5593,19 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         return new ComputedStoreWrite(ordinal, false, null, OrdinalStoreIdTable.ABSENT, false, false);
                     }
                     final VectorEntry prior = this.vectorStore.get(storeId);
-                    this.vectorStore.removeById(storeId);
+                    try
+                    {
+                        this.vectorStore.removeById(storeId);
+                    }
+                    catch(final RuntimeException | Error e)
+                    {
+                        // The store clears its slot before it runs its own indices, so the entry is gone although
+                        // the removal threw: the mapping must not dangle, and the store no longer covers an entity
+                        // GigaMap may keep (a rejected replacement) - latched, nothing restores it but reindex().
+                        computedIdIndex.remove(ordinal);
+                        this.recordVectorMissing(e);
+                        throw e;
+                    }
                     computedIdIndex.remove(ordinal);
                     return new ComputedStoreWrite(ordinal, true, prior, OrdinalStoreIdTable.ABSENT, true, false);
                 }
@@ -5770,8 +5815,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * The worker reports a failed operation after the callback released the builder lock. A rebuild or a new
          * generation in between moved the epoch and already holds the operation's mutation: recording the failure
          * then would flag a complete graph and, if the needless repair failed, latch searches against it. Under the
-         * builder write lock, which every epoch move holds, so no rebuild completes between the check and the record.
-         * The callers hold no monitor; the persist thread applying the queue inline already holds this lock.
+         * builder write lock and the parent-map monitor, in that order (the persist's order): every epoch move holds
+         * the monitor (a rebuild and a new generation hold the write lock as well, the PQ publication only the
+         * monitor), so nothing moves the epoch between the check and the record. The callers hold no monitor; the
+         * persist thread applying the queue inline holds the write lock and not yet the monitor.
          */
         @Override
         public void markGraphIncomplete(final Throwable cause, final long epoch)
@@ -5779,11 +5826,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.writeLock().lock();
             try
             {
-                if(this.graphEpochMoved(epoch))
+                synchronized(this.parentMap())
                 {
-                    return;
+                    if(this.graphEpochMoved(epoch))
+                    {
+                        return;
+                    }
+                    this.markGraphIncomplete(cause);
                 }
-                this.markGraphIncomplete(cause);
             }
             finally
             {
