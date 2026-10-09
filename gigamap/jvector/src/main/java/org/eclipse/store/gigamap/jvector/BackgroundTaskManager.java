@@ -79,6 +79,9 @@ class BackgroundTaskManager
     {
         void execute(Callback callback);
 
+        /** the index's graph epoch when this operation was enqueued */
+        long epoch();
+
         /**
          * Add a node to the HNSW graph.
          */
@@ -164,6 +167,16 @@ class BackgroundTaskManager
          * @param cause the failure
          */
         void markGraphIncomplete(Throwable cause);
+
+        /**
+         * {@link #markGraphIncomplete(Throwable)} for a failed queued operation, reported after the operation
+         * released the builder lock: the implementation ignores the failure if the graph epoch moved since the
+         * operation was enqueued, because the graph that failed it has been rebuilt or replaced in the meantime.
+         *
+         * @param cause the failure
+         * @param epoch the operation's epoch
+         */
+        void markGraphIncomplete(Throwable cause, long epoch);
 
         /**
          * Rebuilds the graph from the source of truth if a graph operation failed since it was last built,
@@ -784,10 +797,12 @@ class BackgroundTaskManager
             {
                 // The op is polled and lost either way, but its mutation was counted when it was enqueued: the
                 // graph is behind its witnesses. Logged first, then recorded so a persist rebuilds instead of
-                // capturing, and a repair can be scheduled. An Error is recorded too and rethrown.
+                // capturing, and a repair can be scheduled. An Error is recorded too and rethrown. With the op's
+                // epoch: the op released the builder lock before this catch, and a rebuild in between already
+                // accounts for its mutation.
                 LOG.error("Error applying indexing operation for '{}', the graph is rebuilt from the source of"
                     + " truth: {}", this.name, t.getMessage(), t);
-                cb.markGraphIncomplete(t);
+                cb.markGraphIncomplete(t, op.epoch());
                 if(t instanceof Error)
                 {
                     throw (Error)t;

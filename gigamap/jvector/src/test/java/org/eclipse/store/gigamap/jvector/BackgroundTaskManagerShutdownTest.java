@@ -61,6 +61,9 @@ class BackgroundTaskManagerShutdownTest
         public void markGraphIncomplete(final Throwable cause) { /* no-op */ }
 
         @Override
+        public void markGraphIncomplete(final Throwable cause, final long epoch) { /* no-op */ }
+
+        @Override
         public void repairGraph() { /* no-op */ }
 
         @Override

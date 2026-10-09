@@ -256,6 +256,12 @@ class VectorIndexEventualQueuePersistTest
         }
 
         @Override
+        public void markGraphIncomplete(final Throwable cause, final long epoch)
+        {
+            // not used
+        }
+
+        @Override
         public void repairGraph()
         {
             // not used

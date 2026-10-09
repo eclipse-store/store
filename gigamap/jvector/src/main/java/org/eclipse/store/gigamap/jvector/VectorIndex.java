@@ -5435,6 +5435,35 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
+         * {@inheritDoc}
+         * <p>
+         * The worker reports a failed operation after the callback released the builder lock. A rebuild or a new
+         * generation in between moved the epoch and already holds the operation's mutation: recording the failure
+         * then would flag a complete graph and, if the needless repair failed, latch searches against it. Under the
+         * builder write lock, which every epoch move holds, so no rebuild completes between the check and the record.
+         * The callers hold no monitor; the persist thread applying the queue inline already holds this lock.
+         */
+        @Override
+        public void markGraphIncomplete(final Throwable cause, final long epoch)
+        {
+            this.builderLock.writeLock().lock();
+            try
+            {
+                if(epoch != this.graphEpoch)
+                {
+                    LOG.debug("Ignoring a failed graph operation of '{}' from epoch {}: the graph is at epoch {}",
+                        this.name, epoch, this.graphEpoch);
+                    return;
+                }
+                this.markGraphIncomplete(cause);
+            }
+            finally
+            {
+                this.builderLock.writeLock().unlock();
+            }
+        }
+
+        /**
          * Rebuilds the graph from the source of truth if {@link #graphIncomplete} is set. Runs on the background
          * task manager's thread with the same locks and in the same order as persist Phase 1: the builder write
          * lock, then the parent-map monitor. The rebuild replaces the graph only once it is complete
@@ -5455,7 +5484,31 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // because the flag is set, Phase 2 writes, and the index returns to serving from disk instead of
                 // keeping the full graph in heap. An index serving from memory is rebuilt in memory below; the first
                 // write to disk stays the application's (or the shutdown's) call. Takes its own locks; none held here.
-                this.doPersistToDisk(false);
+                try
+                {
+                    this.doPersistToDisk(false);
+                }
+                catch(final Throwable t)
+                {
+                    // The persist can fail before it reaches the rebuild (compression training collects the vectors
+                    // through the vectorizer first): then nothing has latched the failure, and the index would keep
+                    // serving the incomplete graph with no retry in sight. A failure after a completed rebuild is not
+                    // latched: the full in-memory graph it left behind is complete. Under the write lock, which every
+                    // clear of the flag holds, so a reindex() completing right now is not latched against.
+                    this.builderLock.writeLock().lock();
+                    try
+                    {
+                        if(this.graphIncomplete)
+                        {
+                            this.graphRepairFailure = t;
+                        }
+                    }
+                    finally
+                    {
+                        this.builderLock.writeLock().unlock();
+                    }
+                    throw t;
+                }
                 return;
             }
             this.builderLock.writeLock().lock();

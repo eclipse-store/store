@@ -128,8 +128,24 @@ class VectorIndexWorkerFailureRepairTest
 
     private static Set<Long> foundIds(final VectorIndex<Doc> index)
     {
+        return foundIds(index, COUNT);
+    }
+
+    /** ids found by a search wide enough to return every one of {@code count} entities */
+    private static Set<Long> foundIds(final VectorIndex<Doc> index, final int count)
+    {
         final Set<Long> ids = new TreeSet<>();
-        index.search(position(0), COUNT * 2).toList().forEach(e -> ids.add(e.entityId()));
+        index.search(position(0), count * 2).toList().forEach(e -> ids.add(e.entityId()));
+        return ids;
+    }
+
+    private static Set<Long> idsUpTo(final int count)
+    {
+        final Set<Long> ids = new TreeSet<>();
+        for(long id = 0; id < count; id++)
+        {
+            ids.add(id);
+        }
         return ids;
     }
 
@@ -267,6 +283,7 @@ class VectorIndexWorkerFailureRepairTest
         final CountDownLatch applied         = new CountDownLatch(1);
         volatile boolean     failNextApply ;
         volatile boolean     failNextPersist;
+        volatile long        reportedEpoch   = -1;
 
         @Override
         public void applyGraphAdd(final VectorEntry entry, final long epoch)
@@ -307,6 +324,13 @@ class VectorIndexWorkerFailureRepairTest
         public void markGraphIncomplete(final Throwable cause)
         {
             this.incompleteMarks.incrementAndGet();
+        }
+
+        @Override
+        public void markGraphIncomplete(final Throwable cause, final long epoch)
+        {
+            this.reportedEpoch = epoch;
+            this.markGraphIncomplete(cause);
         }
 
         @Override
@@ -353,11 +377,12 @@ class VectorIndexWorkerFailureRepairTest
         try
         {
             callback.failNextApply = true;
-            manager.enqueueAdd(new VectorEntry(0, position(0)), 0);
-            manager.enqueueAdd(new VectorEntry(1, position(1)), 0);
+            manager.enqueueAdd(new VectorEntry(0, position(0)), 7);
+            manager.enqueueAdd(new VectorEntry(1, position(1)), 7);
             assertTrue(callback.applied.await(TIMEOUT_MS, TimeUnit.MILLISECONDS),
                 "the operation behind the failed one was not applied");
             assertEquals(1, callback.incompleteMarks.get(), "the failed operation was not recorded");
+            assertEquals(7, callback.reportedEpoch, "the failed operation was not reported with its epoch");
         }
         finally
         {
@@ -445,6 +470,88 @@ class VectorIndexWorkerFailureRepairTest
                 expected.add(id);
             }
             assertEquals(expected, foundIds(index), "entities are missing after the repair");
+        }
+    }
+
+    /**
+     * The repair of an index serving from disk is a persist, and a persist can fail before it reaches the rebuild:
+     * with PQ compression configured and its training still pending, it first collects the vectors through the
+     * vectorizer, on the worker thread. Such a failure must be latched like one inside the rebuild; otherwise the
+     * index keeps answering from the incomplete graph with no retry in sight.
+     */
+    @Test
+    void failedRepairPersistBeforeTheRebuildMakesSearchesThrow(@TempDir final Path tempDir)
+    {
+        final int                trained = PQCompressionManager.MIN_VECTORS_FOR_PQ_TRAINING + 4;
+        final int                total   = trained + 11;
+        final GigaMap<Doc>       map     = GigaMap.New();
+        final VectorIndices<Doc> vi      = map.index().register(VectorIndices.Category());
+        try(final VectorIndex<Doc> index = vi.add("emb",
+            eventual().onDisk(true).indexDirectory(tempDir.resolve("index"))
+                .enablePqCompression(true).pqSubspaces(1).build(),
+            new WorkerFlakyVectorizer()))
+        {
+            addAll(map);
+            awaitWorker(index);
+            index.persistToDisk(); // too few vectors to train PQ: the training stays pending
+            assertTrue((boolean)internalState(index, "incrementalMode"), "precondition: serving from disk");
+
+            // enough entities for the training to be attempted by the next persist, which is the repair
+            for(int i = COUNT; i < trained; i++)
+            {
+                map.add(new Doc(i));
+            }
+            awaitWorker(index);
+
+            poison = trained; // later insertions score it on the worker; the repair's training collection hits it too
+            failuresLeft.set(Integer.MAX_VALUE);
+            for(int i = trained; i < total; i++)
+            {
+                map.add(new Doc(i));
+            }
+            awaitWorker(index);
+            assertTrue(workerFailures.get() >= 2, "precondition: an insertion and the repair failed on the worker");
+
+            final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index, total),
+                "a search answered from a graph whose repair failed before the rebuild");
+            assertTrue(e.getMessage().contains("incomplete"), e.getMessage());
+
+            failuresLeft.set(0);
+            index.persistToDisk();
+            assertEquals(idsUpTo(total), foundIds(index, total), "entities are missing after the repairing persist");
+            assertTrue((boolean)internalState(index, "incrementalMode"), "the repairing persist left incremental mode");
+        }
+    }
+
+    /**
+     * The worker reports a failed operation after it released the builder lock. A new generation (or a rebuild) in
+     * between moved the epoch and holds nothing of the failed graph: the late report must not flag that graph, and
+     * must not latch searches when the needless repair fails.
+     */
+    @Test
+    void staleFailureReportAfterTheEpochMovedIsIgnored()
+    {
+        final GigaMap<Doc>       map = GigaMap.New();
+        final VectorIndices<Doc> vi  = map.index().register(VectorIndices.Category());
+        try(final VectorIndex<Doc> index = vi.add("emb", eventual().build(), new WorkerFlakyVectorizer()))
+        {
+            addAll(map);
+            awaitWorker(index);
+            final long staleEpoch = internalState(index, "graphEpoch");
+
+            map.removeAll();
+            addAll(map);
+            awaitWorker(index);
+            assertNotEquals(staleEpoch, (long)internalState(index, "graphEpoch"), "precondition: the epoch moved");
+
+            // a repair of this complete graph would fail: the lookup fails on the worker from now on
+            failuresLeft.set(Integer.MAX_VALUE);
+            ((VectorIndex.Default<Doc>)index).markGraphIncomplete(new IllegalStateException("stale"), staleEpoch);
+            awaitWorker(index);
+
+            assertNull(internalState(index, "graphRepairFailure"), "a stale failure report latched a complete graph");
+            assertFalse((boolean)internalState(index, "graphIncomplete"), "a stale failure report flagged a complete graph");
+            assertEquals(COUNT, foundIds(index).size(), "entities are missing");
         }
     }
 }
