@@ -2861,8 +2861,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // graph op below throws: GigaMap then rejects a replacement (set/replace pass a new instance) and keeps
             // the old entity, whose vector the store must hold again; an in-place update (update/apply pass the same
             // instance) it retains as mutated, and the store keeps what was written.
-            final ComputedStoreWrite storeWrite      = embedded ? null : this.updateComputedStore(ordinal, entityId, vector);
             final boolean            replacement     = replacedEntity != entity;
+            final ComputedStoreWrite storeWrite;
+            try
+            {
+                storeWrite = embedded ? null : this.updateComputedStore(ordinal, entityId, vector);
+            }
+            catch(final RuntimeException | Error e)
+            {
+                // The store's own set and add are atomic, so a failed write leaves the store as it was - which for a
+                // retained mutation is a vector the entity no longer has (an Error, or a removal that failed after
+                // the store cleared its slot, is latched inside already; recording twice is harmless).
+                if(!replacement)
+                {
+                    this.recordRetainedMutationFailure(ordinal, e);
+                }
+                throw e;
+            }
             final boolean            vectorUnchanged = storeWrite != null && storeWrite.vectorUnchanged;
             boolean                  changed         = storeWrite != null && storeWrite.changed;
 
@@ -3403,23 +3418,44 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     this.deferredBuilderOps.clear();
                 }
-                // and a failed op of the old generation leaves nothing to repair in the new one
-                this.graphIncomplete         = false;
-                this.graphRepairFailure      = null ;
-                this.vectorStoreFailure      = null ;
                 this.halfInsertedNodePending = false;
                 // An op of the old generation that the worker has polled and is blocked on runs once this lock is
                 // released, against the new builder: the moved epoch makes the callbacks drop it.
                 this.graphEpoch++;
 
-                this.closeInternalResources();
+                try
+                {
+                    this.closeInternalResources();
 
-                // Before initializeIndex(): the bumped counter makes tryLoad() reject the files of the
-                // generation just torn down, instead of adopting them as the new one.
-                this.markContentChanged();
+                    // Before initializeIndex(): the bumped counter makes tryLoad() reject the files of the
+                    // generation just torn down, instead of adopting them as the new one.
+                    this.markContentChanged();
 
-                // Reinitialize the index (this will also restart background managers if configured)
-                this.initializeIndex();
+                    // Reinitialize the index (this will also restart background managers if configured)
+                    this.initializeIndex();
+                }
+                catch(final RuntimeException | Error e)
+                {
+                    // The old generation is torn down and the new one does not exist, while the entities are all still
+                    // in the map: nothing must answer from here. Computed, the emptied store cannot be rebuilt from;
+                    // embedded, no manager is left to repair, so the failure is latched at once. reindex() clears it.
+                    if(this.isEmbedded())
+                    {
+                        this.graphIncomplete    = true;
+                        this.graphRepairFailure = e   ;
+                    }
+                    else
+                    {
+                        this.vectorStoreFailure = e;
+                    }
+                    throw e;
+                }
+
+                // Only now, with the new generation in place: a failed op of the old generation leaves nothing to
+                // repair in the new one, and a store latch of the old generation is answered by the empty new store.
+                this.graphIncomplete    = false;
+                this.graphRepairFailure = null ;
+                this.vectorStoreFailure = null ;
 
                 // The new generation is populated by the re-add of reindex() (or stays empty), like a new index by
                 // its back-fill: the deferred rebuild from the store must not run for it, see the constructor. An

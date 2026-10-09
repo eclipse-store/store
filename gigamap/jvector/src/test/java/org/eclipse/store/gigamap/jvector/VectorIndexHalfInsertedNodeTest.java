@@ -863,4 +863,52 @@ class VectorIndexHalfInsertedNodeTest
         awaitWorker(index);
         assertEquals(COUNT, foundIds(index, COUNT).size(), "entities missing after reindex()");
     }
+
+    /**
+     * The store's own set and add are atomic, so a store write that throws leaves the store as it was. For a retained
+     * in-place update that is a vector the entity no longer has: the failure must be recorded like a failed
+     * vectorization, or searches serve the stale vector silently.
+     */
+    @Test
+    void failedStoreWriteOfARetainedMutationIsLoudUntilReindex()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", withManager(), new ComputedVectorizer());
+        final long    id        = COUNT / 2;
+        final float[] newVector = position(70);
+
+        final GigaMap<VectorEntry>                      store = internalState(index, "vectorStore");
+        final java.util.concurrent.atomic.AtomicBoolean armed = new java.util.concurrent.atomic.AtomicBoolean();
+        store.index().bitmap().add(new IndexerString.Abstract<VectorEntry>()
+        {
+            @Override
+            protected String getString(final VectorEntry entry)
+            {
+                if(armed.get() && entry.sourceEntityId == id && entry.vector[0] == newVector[0])
+                {
+                    throw new IllegalStateException("simulated store failure writing the new vector of " + id);
+                }
+                return "";
+            }
+        });
+
+        armed.set(true);
+        assertThrows(RuntimeException.class, () -> map.apply(id, doc ->
+        {
+            doc.vector = newVector;
+            return null;
+        }), "precondition: the apply failed in the store");
+        armed.set(false);
+        assertArrayEquals(newVector, map.get(id).vector, "precondition: GigaMap retains the mutated entity");
+        awaitWorker(index);
+
+        final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index, COUNT),
+            "a search answered with a stored vector the entity no longer has");
+        assertTrue(e.getMessage().contains("reindex"), e.getMessage());
+
+        map.reindex();
+        awaitWorker(index);
+        assertTrue(foundExactly(index, map.get(id), id), "the entity is not found by its new vector after reindex()");
+    }
 }
