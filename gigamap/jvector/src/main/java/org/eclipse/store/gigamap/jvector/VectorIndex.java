@@ -2833,6 +2833,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
             this.ensureIndexInitialized();
 
+            final int     ordinal  = toOrdinal(entityId);
+            final boolean embedded = this.isEmbedded();
             final float[] vector;
             try
             {
@@ -2846,12 +2848,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // vectorizes it again.
                 if(replacedEntity == entity)
                 {
+                    // The witnesses first. An update moves neither the entity count nor the highest id, so without
+                    // the counter a restart would accept the persisted graph as current, in which the entity has no
+                    // node or its old one, and the disk search would keep serving that node. The record below is
+                    // transient; the counter is persisted with the index.
+                    this.recordDiskOrdinalSuperseded(ordinal);
+                    this.markContentChanged();
                     this.recordVectorMissing(e);
                 }
                 throw e;
             }
-            final int      ordinal  = toOrdinal(entityId);
-            final boolean  embedded = this.isEmbedded();
 
             // Update the computed-mode vector store to reflect the new (possibly absent) vector.
             // Keyed by source entity id (not positionally), so the four vec/null transitions map

@@ -329,21 +329,35 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
         @Override
         public final void internalAdd(final long entityId, final E entity)
         {
-            for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+            // in a finally, see internalUpdateIndices
+            try
             {
-                index.internalAdd(entityId, entity);
+                for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+                {
+                    index.internalAdd(entityId, entity);
+                }
             }
-            this.markStateChangeChildren();
+            finally
+            {
+                this.markStateChangeChildren();
+            }
         }
 
         @Override
         public final void internalAddAll(final long firstEntityId, final Iterable<? extends E> entities)
         {
-            for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+            // in a finally, see internalUpdateIndices
+            try
             {
-                index.internalAddAll(firstEntityId, entities);
+                for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+                {
+                    index.internalAddAll(firstEntityId, entities);
+                }
             }
-            this.markStateChangeChildren();
+            finally
+            {
+                this.markStateChangeChildren();
+            }
         }
 
         @Override
@@ -360,11 +374,19 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
             final CustomConstraints<? super E> customConstraints
         )
         {
-            for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+            // In a finally, like GigaIndices: an index that throws may have moved its persisted restart witness or
+            // written its vector store before the failure, and the storer only descends to it through this mark.
+            try
             {
-                index.internalUpdate(entityId, replacedEntity, entity);
+                for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+                {
+                    index.internalUpdate(entityId, replacedEntity, entity);
+                }
             }
-            this.markStateChangeChildren();
+            finally
+            {
+                this.markStateChangeChildren();
+            }
         }
 
         @Override

@@ -27,6 +27,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -516,6 +517,7 @@ class VectorIndexWorkerFailureRepairTest
             final ReentrantReadWriteLock lock          = internalState(index, "builderLock");
             final CountDownLatch         repairStarted = new CountDownLatch(1);
             final CountDownLatch         searchQueued  = new CountDownLatch(1);
+            final AtomicBoolean          readerQueued  = new AtomicBoolean();
             // Acts once, inside the repair's rebuild (the only insertion under the write lock here): holds the lock
             // until a search is queued behind it, then fails the rebuild.
             ((VectorIndex.Default<Doc>)index).graphInsertTestHook = ordinal ->
@@ -526,12 +528,19 @@ class VectorIndexWorkerFailureRepairTest
                     try
                     {
                         searchQueued.await(TIMEOUT_MS, TimeUnit.MILLISECONDS);
-                        Thread.sleep(300); // the searcher reaches the read lock and blocks on it
                     }
                     catch(final InterruptedException e)
                     {
                         Thread.currentThread().interrupt();
                     }
+                    // Until the searcher is parked on the read lock behind this write lock: observed, not slept for,
+                    // or a descheduled searcher would arrive after the latch and the test would prove nothing.
+                    final long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(TIMEOUT_MS);
+                    while(lock.getQueueLength() == 0 && System.nanoTime() < deadline)
+                    {
+                        Thread.onSpinWait();
+                    }
+                    readerQueued.set(lock.getQueueLength() > 0);
                     throw new IllegalStateException("simulated failure inside the repair");
                 }
             };
@@ -556,6 +565,7 @@ class VectorIndexWorkerFailureRepairTest
             searcher.start();
             searcher.join(TIMEOUT_MS);
             assertFalse(searcher.isAlive(), "the search did not return");
+            assertTrue(readerQueued.get(), "precondition: the searcher was not observed waiting for the read lock");
             assertTrue(outcome.get() instanceof IllegalStateException,
                 "the search queued behind the failing repair answered: " + outcome.get());
             assertTrue(((Throwable)outcome.get()).getMessage().contains("incomplete"), outcome.get().toString());

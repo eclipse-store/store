@@ -645,4 +645,50 @@ class VectorIndexHalfInsertedNodeTest
         awaitWorker(index);
         assertTrue(foundExactly(index, map.get(id), id), "the entity is not found by its new vector after reindex()");
     }
+
+    /**
+     * The same failure on a persisted embedded index, across a restart. An update moves neither the entity count
+     * nor the highest id, so unless the structural witness moves, the restart accepts the persisted graph, in which
+     * the mutated entity has no node (it had no embedding before), and the latch of the session is gone with it.
+     */
+    @Test
+    void failedVectorizationOfARetainedMutationMovesTheRestartWitness(@TempDir final Path dir)
+    {
+        final Path storageDir = dir.resolve("storage");
+        try(EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc> map = GigaMap.New();
+            storage.setRoot(map);
+            storage.storeRoot();
+            for(int i = 0; i < COUNT; i++)
+            {
+                map.add(new Doc(i, i == POISON ? null : position(i))); // POISON without an embedding
+            }
+            final VectorIndex<Doc> index = map.index().register(VectorIndices.Category()).add("emb",
+                VectorIndexConfiguration.builder().dimension(4).similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
+                    .onDisk(true).indexDirectory(dir.resolve("index")).build(),
+                new NeighbourFlakyVectorizer());
+            index.persistToDisk();
+            map.store();
+
+            failPoison = true; // the vectorizer rejects POISON for the rest of the session
+            assertThrows(RuntimeException.class, () -> map.apply((long)POISON, doc ->
+            {
+                doc.vector = position(POISON);
+                return null;
+            }), "precondition: the apply failed during the vectorization");
+            assertArrayEquals(position(POISON), map.get(POISON).vector, "precondition: GigaMap retains the mutated entity");
+            map.store();
+        }
+
+        failPoison = false; // the cause is fixed before the restart
+        try(EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc>     map   = storage.root();
+            final VectorIndex<Doc> index = map.index().get(VectorIndices.class).get("emb");
+            assertArrayEquals(position(POISON), map.get(POISON).vector, "precondition: the mutation is persisted");
+            assertTrue(foundExactly(index, map.get(POISON), POISON),
+                "the restarted index accepted the persisted graph, in which the mutated entity has no node");
+        }
+    }
 }
