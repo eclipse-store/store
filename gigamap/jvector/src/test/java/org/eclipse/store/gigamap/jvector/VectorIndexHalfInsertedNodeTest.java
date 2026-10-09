@@ -50,6 +50,8 @@ class VectorIndexHalfInsertedNodeTest
     private static volatile int          skipCalls;
     /** when set, the poison failure is an {@link Error} instead of an exception (GigaMap rolls back on Exception only) */
     private static volatile boolean      failWithError;
+    /** the entity whose next vectorization throws an {@link Error}, once, on whichever thread; -1: none */
+    private static volatile int          errorOnceFor = -1;
 
     static class Doc
     {
@@ -79,6 +81,11 @@ class VectorIndexHalfInsertedNodeTest
         @Override
         public float[] vectorize(final Doc entity)
         {
+            if(entity.no == errorOnceFor)
+            {
+                errorOnceFor = -1;
+                throw new AssertionError("simulated engine failure vectorizing entity " + entity.no);
+            }
             if(failPoison && entity.no == POISON && poisonCalls.getAndIncrement() >= skipCalls)
             {
                 if(failWithError)
@@ -109,6 +116,7 @@ class VectorIndexHalfInsertedNodeTest
         failPoison = false;
         skipCalls  = 0;
         failWithError = false;
+        errorOnceFor  = -1;
         poisonCalls.set(0);
     }
 
@@ -370,6 +378,10 @@ class VectorIndexHalfInsertedNodeTest
         @Override
         public float[] vectorize(final Doc d)
         {
+            if(failPoison && failWithError && d.no == POISON)
+            {
+                throw new AssertionError("simulated engine failure vectorizing entity " + d.no);
+            }
             return d.vector == null ? null : d.vector.clone();
         }
 
@@ -417,5 +429,111 @@ class VectorIndexHalfInsertedNodeTest
         assertEquals(COUNT, map.size(), "precondition: a failed reindex keeps the entities");
         assertEquals(COUNT, foundIds(index).size(),
             "the repair rebuilt a truncated index: the failed reindex had not stored every vector first; found " + foundIds(index));
+    }
+
+    private static VectorIndexConfiguration withManager()
+    {
+        // a background optimization interval creates the manager that runs the repair
+        return VectorIndexConfiguration.builder()
+            .dimension(4)
+            .similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
+            .optimizationIntervalMs(60_000)
+            .build();
+    }
+
+    /**
+     * A computed set() writes the new vector to the store before the graph insertion. When the inline insertion
+     * throws, GigaMap rejects the replacement and keeps the old entity, so the store must hold the old vector again:
+     * the repair rebuilds the graph from the store, and would otherwise find the old entity by a vector it never
+     * had, with the index reporting healthy.
+     */
+    @Test
+    void failedComputedSetRestoresTheStoredVector()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", withManager(), new ComputedVectorizer());
+        final long id       = COUNT / 2;
+        final Doc  old      = map.get(id);
+        final Doc  replaced = new Doc((int)id, position(50));
+
+        failOneInsertion(index, (int)id);
+        assertThrows(RuntimeException.class, () -> map.set(id, replaced), "precondition: the set failed during the insertion");
+        assertSame(old, map.get(id), "precondition: GigaMap keeps the old entity");
+        awaitWorker(index); // the repair rebuilds from the vector store
+
+        assertArrayEquals(old.vector, index.getVector(id), "the store kept the vector of the rejected replacement");
+        assertTrue(foundExactly(index, old, id), "the old entity is not found by its own vector");
+        assertFalse(foundExactly(index, replaced, id), "the old entity is found by the rejected replacement's vector");
+    }
+
+    /**
+     * The same for an entity without an embedding: the store must not keep the entry the rejected replacement added.
+     */
+    @Test
+    void failedComputedSetFromNullLeavesNoStoredVector()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", withManager(), new ComputedVectorizer());
+        final long id       = map.add(new Doc(COUNT, null)); // opted-in: no embedding
+        final Doc  replaced = new Doc(COUNT, position(60));
+        assertNull(index.getVector(id), "precondition: nothing stored for an entity without an embedding");
+
+        failOneInsertion(index, (int)id);
+        assertThrows(RuntimeException.class, () -> map.set(id, replaced), "precondition: the set failed during the insertion");
+        awaitWorker(index);
+
+        assertNull(index.getVector(id), "the store kept the vector of the rejected replacement");
+        assertFalse(foundExactly(index, replaced, id), "an entity without an embedding is found by the rejected replacement's vector");
+        assertEquals(COUNT, foundIds(index).size(), "entities missing after the repair: found " + foundIds(index));
+    }
+
+    /**
+     * An Error from the vectorizer on add() escapes before the graph work. GigaMap rolls back on Exception only, so
+     * the entity stays in the map, and the index must record that it holds nothing for it. Embedded, the repair
+     * re-vectorizes the entities and recovers it.
+     */
+    @Test
+    void errorVectorizingAnAddedEntityIsRepairedFromTheEntities()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", VectorIndexConfiguration.builder().dimension(4).similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
+                .eventualIndexing(true).build(), new NeighbourFlakyVectorizer());
+        awaitWorker(index);
+
+        errorOnceFor = COUNT; // the new entity's own vectorization, on the caller's thread
+        assertThrows(AssertionError.class, () -> map.add(new Doc(COUNT)));
+        assertEquals(COUNT + 1, map.size(), "precondition: GigaMap keeps the entity after an Error");
+        awaitWorker(index);
+
+        assertEquals(COUNT + 1, foundIds(index).size(),
+            "the entity added with an Error is silently missing: found " + foundIds(index));
+    }
+
+    /**
+     * Computed, the store never received the entity's vector, so no rebuild from the store can recover it: the index
+     * is loud until reindex(), which re-vectorizes the entities.
+     */
+    @Test
+    void errorVectorizingAnAddedEntityIsLoudUntilReindexComputed()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", inMemory(), new ComputedVectorizer());
+
+        failPoison    = true;
+        failWithError = true;
+        assertThrows(AssertionError.class, () -> map.add(new Doc(POISON)));
+        failPoison = false;
+        assertEquals(COUNT + 1, map.size(), "precondition: GigaMap keeps the entity after an Error");
+
+        final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index),
+            "a search answered although an entity has no vector in the store");
+        assertTrue(e.getMessage().contains("reindex"), e.getMessage());
+
+        map.reindex();
+        assertEquals(COUNT + 1, foundIds(index).size(), "entities missing after reindex()");
     }
 }
