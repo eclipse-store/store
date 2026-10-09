@@ -584,4 +584,29 @@ class VectorIndexHalfInsertedNodeTest
         map.reindex();
         assertEquals(COUNT + 1, foundIds(index, COUNT).size(), "entities missing after reindex()");
     }
+
+    /**
+     * GigaMap clears the slot before it asks the indices to remove the entity. A synchronous graph deletion that
+     * throws therefore leaves a live node for an entity the map no longer has; the failure must be recorded so the
+     * repair drops it, instead of the index reporting itself healthy with a ghost in its graph. Embedded: the ghost
+     * node is scored through the parent map, where the entity is gone. (Computed, the same path is taken, but a node
+     * without a store entry cannot score, so the search cannot observe the difference.)
+     */
+    @Test
+    void failedDeletionOfARemovedEntityIsRepaired()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", withManager(), new NeighbourFlakyVectorizer());
+        final long id = COUNT / 2;
+
+        failOneDeletion(index, (int)id);
+        assertThrows(RuntimeException.class, () -> map.removeById(id), "precondition: the removal failed during the deletion");
+        assertNull(map.get(id), "precondition: GigaMap has removed the entity");
+        awaitWorker(index); // the repair rebuilds from the entities
+
+        final java.util.Set<Long> found = foundIds(index, COUNT);
+        assertFalse(found.contains(id), "the removed entity is still found: " + found);
+        assertEquals(COUNT - 1, found.size(), "entities missing after the repair: " + found);
+    }
 }

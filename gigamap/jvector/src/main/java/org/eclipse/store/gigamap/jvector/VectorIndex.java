@@ -3258,7 +3258,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // gating here on the CURRENT builder would queue nothing for a disk-only node, whose
                 // eager diskDeletedOrdinals entry above is then wiped by a concurrent persist's mode
                 // swap, resurrecting the removed entity in search (internal #142).
-                this.executeOrDeferBuilderOp(() -> this.internalMarkOrdinalDeleted(ordinal));
+                try
+                {
+                    this.executeOrDeferBuilderOp(() -> this.internalMarkOrdinalDeleted(ordinal));
+                }
+                catch(final RuntimeException | Error e)
+                {
+                    // Only an inline deletion throws here. GigaMap has already cleared the slot, so the node of the
+                    // removed entity stays live in the graph until the repair: recorded. If this is the rollback of a
+                    // failed add, the throw itself retires the id, so the pending retirement is consumed here.
+                    if(this.halfInsertedNodePending && ordinal == this.halfInsertedOrdinal)
+                    {
+                        this.halfInsertedNodePending = false;
+                    }
+                    this.markGraphIncomplete(e);
+                    throw e;
+                }
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
