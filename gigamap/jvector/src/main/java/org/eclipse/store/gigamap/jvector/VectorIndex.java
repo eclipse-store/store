@@ -3283,7 +3283,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     }
                     computedIdIndex.remove(ordinal);
                 }
-                if(this.vectorStoreFailure != null && ordinal == this.vectorStoreFailureOrdinal)
+                if(ordinal == this.vectorStoreFailureOrdinal)
                 {
                     // the one entity the store did not cover is gone: the store covers every remaining one again
                     this.clearStoreLatch();
@@ -4207,8 +4207,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // workers need it (see drainDeferredBuilderOps). Not when an op is in flight or the index is
                     // incremental: Phase 1 rebuilds then anyway, replacing whatever is applied here.
                     // Read once: close() nulls the field before it takes this lock.
+                    final boolean               eventual          = this.configuration.eventualIndexing();
                     final BackgroundTaskManager preMonitorManager = this.backgroundTaskManager;
-                    if(preMonitorManager != null && this.configuration.eventualIndexing() && !this.incrementalMode
+                    if(eventual && preMonitorManager != null && !this.incrementalMode
                         && preMonitorManager.pendingGraphOps() > 0 && !preMonitorManager.hasOpInFlight())
                     {
                         preMonitorManager.applyQueuedOpsInline();
@@ -4335,8 +4336,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         // mutation and moves the epoch, so the op is dropped when it runs instead of being applied a
                         // second time. Not after an incremental exit: that rebuild moved the epoch already.
                         final BackgroundTaskManager phase1Manager = this.backgroundTaskManager; // read once, see above
-                        if(!rebuilt && phase1Manager != null && this.configuration.eventualIndexing()
-                            && phase1Manager.pendingGraphOps() > 0)
+                        if(!rebuilt && eventual && phase1Manager != null && phase1Manager.pendingGraphOps() > 0)
                         {
                             if(onShutdown)
                             {
@@ -5455,16 +5455,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     return;
                 }
 
-                // vec→vec: delete the stale node then re-add. null→vec: the node is absent,
-                // so add it directly without the (invalid) delete.
-                if(graphOf(currentBuilder).containsNode(ordinal))
-                {
-                    currentBuilder.markNodeDeleted(ordinal);
-                    currentBuilder.removeDeletedNodes();
-                }
-                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
-                this.trackPqCode(codes, ordinal, vf);
-                currentBuilder.addGraphNode(ordinal, vf);
+                // vec→vec: delete the stale node then re-add. null→vec: the node is absent, so add it directly.
+                // Safe for an embedded vectorizer here, unlike on the synchronous path: this thread holds no
+                // parent-map monitor for the ForkJoinPool workers of removeDeletedNodes() to wait for.
+                this.replaceGraphNode(currentBuilder, codes, ordinal, this.vectorTypeSupport.createFloatVector(entry.vector));
             }
             finally
             {
@@ -5613,7 +5607,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final Throwable           e
         )
         {
-            if(this.vectorStore.get(storeId) == null)
+            if(this.storeSlotCleared(storeId))
             {
                 computedIdIndex.remove(ordinal);
                 this.markGraphIncomplete(e);
@@ -5623,6 +5617,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.recordVectorMissing(e);
             }
             this.markOrdinalSuperseded(ordinal);
+        }
+
+        /**
+         * Whether a store removal that threw had cleared its slot first. The store clears the slot before it runs
+         * its own indices, so normally the entry is gone although the removal threw; a store that refuses to mutate
+         * (e.g. a reader held open on this thread) throws before touching it.
+         */
+        private boolean storeSlotCleared(final long storeId)
+        {
+            return this.vectorStore.get(storeId) == null;
         }
 
         /**
@@ -5651,11 +5655,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     }
                     catch(final RuntimeException | Error e)
                     {
-                        // The store clears its slot before it runs its own indices, so the entry is gone although
-                        // the removal threw: the mapping must not dangle, and the store no longer covers an entity
-                        // GigaMap may keep (a rejected replacement) - latched, nothing restores it but reindex().
-                        computedIdIndex.remove(ordinal);
-                        this.recordVectorMissing(ordinal, e);
+                        // Slot cleared (the normal case, see storeSlotCleared): the mapping must not dangle, and the
+                        // store no longer covers an entity GigaMap may keep (a rejected replacement) - latched,
+                        // nothing restores it but reindex(). Slot kept: the store still holds the vector, which is
+                        // the right one for a rejected replacement; a retained mutation is recorded by the caller.
+                        if(this.storeSlotCleared(storeId))
+                        {
+                            computedIdIndex.remove(ordinal);
+                            this.recordVectorMissing(ordinal, e);
+                        }
                         throw e;
                     }
                     computedIdIndex.remove(ordinal);
@@ -6108,23 +6116,38 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private void internalReplaceGraphNode(final int ordinal, final VectorFloat<?> vf)
         {
             this.recordDiskOrdinalSuperseded(ordinal);
-            final GraphIndexBuilder currentBuilder = this.builder;
-            if(currentBuilder == null)
+            // the generation read here is the one the monitor holder published, see internalMarkOrdinalDeleted
+            this.replaceGraphNode(this.builder, this.inMemoryPqVectors, ordinal, vf);
+        }
+
+        /**
+         * {@link #internalReplaceGraphNode} against one captured generation: the removal half if the node is present,
+         * the purge of every layer, and the add. Shared with the worker's update callback, which holds no monitor and
+         * may therefore run it for an embedded vectorizer as well.
+         */
+        private void replaceGraphNode(
+            final GraphIndexBuilder builder,
+            final MutablePQVectors  codes  ,
+            final int               ordinal,
+            final VectorFloat<?>    vf
+        )
+        {
+            if(builder == null)
             {
                 return;
             }
-            final OnHeapGraphIndex currentIndex = graphOf(currentBuilder);
+            final OnHeapGraphIndex currentIndex = graphOf(builder);
             if(currentIndex.containsNode(ordinal))
             {
                 // Repairs the neighbor lists that referenced the node before dropping it.
-                currentBuilder.markNodeDeleted(ordinal);
-                this.untrackPqCode(ordinal);
-                currentBuilder.removeDeletedNodes();
+                builder.markNodeDeleted(ordinal);
+                this.untrackPqCode(codes, ordinal);
+                builder.removeDeletedNodes();
             }
             currentIndex.removeNode(ordinal);
-            this.trackPqCode(ordinal, vf);
+            this.trackPqCode(codes, ordinal, vf);
             this.fireInsertTestHook(ordinal);
-            currentBuilder.addGraphNode(ordinal, vf);
+            builder.addGraphNode(ordinal, vf);
         }
 
         /**

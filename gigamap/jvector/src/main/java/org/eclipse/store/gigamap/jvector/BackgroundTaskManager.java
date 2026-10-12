@@ -941,35 +941,28 @@ class BackgroundTaskManager
             return;
         }
 
+        // Guarded like the periodic tasks: an Error out of the optimization must not skip the persist behind it.
         if(optimizePending && this.optimizationChangeCount.get() > 0)
         {
             LOG.info("Optimizing pending changes for '{}' before shutdown ({} changes)",
                 this.name, this.optimizationChangeCount.get());
-            try
+            this.runGuarded("Shutdown optimization", () ->
             {
                 cb.doOptimize();
                 this.optimizationChangeCount.set(0);
                 this.optimizationCount.incrementAndGet();
-            }
-            catch(final Exception e)
-            {
-                LOG.error("Shutdown optimization failed for '{}': {}", this.name, e.getMessage(), e);
-            }
+            });
         }
 
         if(persistPending && this.persistenceChangeCount.get() > 0)
         {
             LOG.info("Persisting pending changes for '{}' before shutdown ({} changes)",
                 this.name, this.persistenceChangeCount.get());
-            try
+            this.runGuarded("Shutdown persistence", () ->
             {
                 cb.doPersistToDisk(true);
                 this.persistenceChangeCount.set(0);
-            }
-            catch(final Exception e)
-            {
-                LOG.error("Shutdown persistence failed for '{}': {}", this.name, e.getMessage(), e);
-            }
+            });
         }
     }
 
