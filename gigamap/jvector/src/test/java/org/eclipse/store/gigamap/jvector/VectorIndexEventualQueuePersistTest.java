@@ -24,7 +24,6 @@ import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -85,44 +84,6 @@ class VectorIndexEventualQueuePersistTest
         }
     }
 
-    /**
-     * Computed: the index stores a copy of each vector and scores from it, so a stale graph node keeps its position
-     * and can be told apart from the entity that reuses its id.
-     */
-    static class ComputedVectorizer extends Vectorizer<Doc>
-    {
-        @Override
-        public float[] vectorize(final Doc entity)
-        {
-            return entity.vector.clone();
-        }
-    }
-
-    private static VectorIndexConfiguration.Builder eventual()
-    {
-        return VectorIndexConfiguration.builder()
-            .dimension(4)
-            .similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
-            .eventualIndexing(true);
-    }
-
-    private static GigaMap<Doc> populatedMap()
-    {
-        final GigaMap<Doc> map = GigaMap.New();
-        for(int i = 0; i < COUNT; i++)
-        {
-            map.add(new Doc(i));
-        }
-        return map;
-    }
-
-    private static BackgroundTaskManager manager(final VectorIndex<?> index)
-    {
-        final BackgroundTaskManager manager = internalState(index, "backgroundTaskManager");
-        assertNotNull(manager, "precondition: eventual indexing has a background task manager");
-        return manager;
-    }
-
     private static Thread daemon(final String name, final Runnable action)
     {
         final Thread thread = new Thread(action, name);
@@ -159,7 +120,7 @@ class VectorIndexEventualQueuePersistTest
     /**
      * Test double for the manager test: blocks inside the first add until released.
      */
-    static class BlockingCallback implements BackgroundTaskManager.Callback
+    static class BlockingCallback extends NoOpCallback
     {
         final CountDownLatch entered = new CountDownLatch(1);
         final CountDownLatch release = new CountDownLatch(1);
@@ -176,60 +137,6 @@ class VectorIndexEventualQueuePersistTest
             {
                 Thread.currentThread().interrupt();
             }
-        }
-
-        @Override
-        public void applyGraphBatchAdd(final List<VectorEntry> entries, final long epoch)
-        {
-            // not used
-        }
-
-        @Override
-        public void applyGraphUpdate(final VectorEntry entry, final long epoch)
-        {
-            // not used
-        }
-
-        @Override
-        public void applyGraphRemove(final int ordinal, final long epoch)
-        {
-            // not used
-        }
-
-        @Override
-        public void markDirtyForBackgroundManagers(final int count)
-        {
-            // not used
-        }
-
-        @Override
-        public void markGraphIncomplete(final Throwable cause)
-        {
-            // not used
-        }
-
-        @Override
-        public void markGraphIncomplete(final Throwable cause, final long epoch)
-        {
-            // not used
-        }
-
-        @Override
-        public void repairGraph()
-        {
-            // not used
-        }
-
-        @Override
-        public void doOptimize()
-        {
-            // not used
-        }
-
-        @Override
-        public void doPersistToDisk(final boolean onShutdown)
-        {
-            // not used
         }
     }
 
@@ -276,9 +183,9 @@ class VectorIndexEventualQueuePersistTest
     @Order(2)
     void stalePolledOperationIsDroppedAfterRemoveAll() throws Exception
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
-            .add("emb", eventual().build(), new ComputedVectorizer());
+            .add("emb", eventual().build(), new PlainComputedVectorizer());
         awaitWorker(index);
 
         final ReentrantReadWriteLock     lock     = internalState(index, "builderLock");
@@ -369,7 +276,7 @@ class VectorIndexEventualQueuePersistTest
         final long queuedId;
         try(EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
         {
-            final GigaMap<Doc> map = populatedMap();
+            final GigaMap<Doc> map = populatedMap(COUNT);
             storage.setRoot(map);
             storage.storeRoot();
             final PausingVectorizer vectorizer = new PausingVectorizer();
@@ -457,7 +364,7 @@ class VectorIndexEventualQueuePersistTest
     @Order(Integer.MAX_VALUE)
     void embeddedUpdatesQueuedBehindABackgroundPersistDoNotDeadlock(@TempDir final Path tempDir) throws Exception
     {
-        final GigaMap<Doc>      map        = populatedMap();
+        final GigaMap<Doc>      map        = populatedMap(COUNT);
         final PausingVectorizer vectorizer = new PausingVectorizer();
         final VectorIndex<Doc>  index      = map.index().register(VectorIndices.Category()).add("emb",
             eventual().onDisk(true).indexDirectory(tempDir.resolve("index"))

@@ -723,11 +723,7 @@ class BackgroundTaskManager
      */
     void shutdownWithoutWaiting()
     {
-        this.shutdown = true;
-        this.cancelScheduledTasks();
-        this.discardQueue();
-        this.executor.shutdown(); // no awaitTermination, see above
-        LOG.info("Background task manager shut down without waiting for '{}'", this.name);
+        this.stopWithoutWaiting("Background task manager shut down without waiting for '{}'");
     }
 
     /**
@@ -740,11 +736,17 @@ class BackgroundTaskManager
      */
     private void selfTerminate()
     {
+        this.stopWithoutWaiting("Background task manager self-terminated for abandoned index '{}'");
+    }
+
+    /** the body of {@link #shutdownWithoutWaiting()} and {@link #selfTerminate()}: no awaitTermination, see there */
+    private void stopWithoutWaiting(final String logMessage)
+    {
         this.shutdown = true;
         this.cancelScheduledTasks();
         this.discardQueue();
-        this.executor.shutdown(); // no awaitTermination: we are on the executor thread
-        LOG.info("Background task manager self-terminated for abandoned index '{}'", this.name);
+        this.executor.shutdown();
+        LOG.info(logMessage, this.name);
     }
 
     /**

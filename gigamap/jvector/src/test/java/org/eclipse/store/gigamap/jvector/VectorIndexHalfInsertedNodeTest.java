@@ -99,20 +99,7 @@ class VectorIndexHalfInsertedNodeTest
 
     private static VectorIndexConfiguration inMemory()
     {
-        return VectorIndexConfiguration.builder()
-            .dimension(4)
-            .similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
-            .build();
-    }
-
-    private static GigaMap<Doc> populatedMap()
-    {
-        final GigaMap<Doc> map = GigaMap.New();
-        for(int i = 0; i < COUNT; i++)
-        {
-            map.add(new Doc(i));
-        }
-        return map;
+        return config().build();
     }
 
     private static boolean retiredTheId(final Throwable failure)
@@ -128,7 +115,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedSynchronousAddRetiresItsId()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", inMemory(), new NeighbourFlakyVectorizer());
 
@@ -155,7 +142,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedAddAllRetiresTheIds()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", inMemory(), new NeighbourFlakyVectorizer());
 
@@ -181,7 +168,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedReindexDoesNotRetireALaterRemoval()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", inMemory(), new NeighbourFlakyVectorizer());
 
@@ -212,7 +199,7 @@ class VectorIndexHalfInsertedNodeTest
     {
         try(EmbeddedStorageManager storage = EmbeddedStorage.start(tempDir))
         {
-            final GigaMap<Doc> map = populatedMap();
+            final GigaMap<Doc> map = populatedMap(COUNT);
             storage.setRoot(map);
             storage.storeRoot();
             map.index().register(VectorIndices.Category()).add("emb", inMemory(), new NeighbourFlakyVectorizer());
@@ -242,7 +229,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedSynchronousUpdateFlagsTheGraphIncomplete()
     {
-        final GigaMap<Doc> map = populatedMap();
+        final GigaMap<Doc> map = populatedMap(COUNT);
         final long noVectorId = map.add(new Doc(COUNT, null)); // no embedding yet
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", inMemory(), new NeighbourFlakyVectorizer());
@@ -273,7 +260,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedReindexWithoutABackgroundThreadMakesSearchesThrow()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", inMemory(), new NeighbourFlakyVectorizer());
 
@@ -299,7 +286,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void errorDuringAnAddIsRecordedWithoutRetiringTheId()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", inMemory(), new NeighbourFlakyVectorizer());
 
@@ -349,11 +336,10 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedComputedReindexKeepsEveryVectorForTheRepair()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         // a background optimization interval creates the manager that runs the repair
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
-            .add("emb", VectorIndexConfiguration.builder().dimension(4).similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
-                .optimizationIntervalMs(60_000).build(), new ComputedVectorizer());
+            .add("emb", withManager(), new ComputedVectorizer());
         assertEquals(COUNT, foundIds(index, COUNT).size(), "precondition: complete before the reindex");
 
         failOneInsertion(index, COUNT / 2); // the re-add fails at this ordinal, once
@@ -390,11 +376,7 @@ class VectorIndexHalfInsertedNodeTest
     private static VectorIndexConfiguration withManager()
     {
         // a background optimization interval creates the manager that runs the repair
-        return VectorIndexConfiguration.builder()
-            .dimension(4)
-            .similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
-            .optimizationIntervalMs(60_000)
-            .build();
+        return config().optimizationIntervalMs(60_000).build();
     }
 
     /**
@@ -406,7 +388,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedComputedSetRestoresTheStoredVector()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", withManager(), new ComputedVectorizer());
         final long id       = COUNT / 2;
@@ -431,7 +413,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedComputedApplyKeepsTheNewVectorInTheStore()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", withManager(), new ComputedVectorizer());
         final long    id        = COUNT / 2;
@@ -459,7 +441,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedComputedSetToNullKeepsTheStoredVector()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", withManager(), new ComputedVectorizer());
         final long id  = COUNT / 2;
@@ -482,7 +464,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedComputedApplyToNullDropsTheStoredVector()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", withManager(), new ComputedVectorizer());
         final long id       = COUNT / 2;
@@ -509,7 +491,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedReindexStoreWriteIsLoudUntilTheNextReindex()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", withManager(), new ComputedVectorizer());
         // The store is a GigaMap that outlives the generations, so an index on it fails the write of one entry.
@@ -548,7 +530,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedComputedSetFromNullLeavesNoStoredVector()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", withManager(), new ComputedVectorizer());
         final long id       = map.add(new Doc(COUNT, null)); // opted-in: no embedding
@@ -572,7 +554,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void errorVectorizingAnAddedEntityIsRepairedFromTheEntities()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", VectorIndexConfiguration.builder().dimension(4).similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
                 .eventualIndexing(true).build(), new NeighbourFlakyVectorizer());
@@ -594,7 +576,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void errorVectorizingAnAddedEntityIsLoudUntilReindexComputed()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", inMemory(), new ComputedVectorizer());
 
@@ -622,7 +604,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedDeletionOfARemovedEntityIsRepaired()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", withManager(), new NeighbourFlakyVectorizer());
         final long id = COUNT / 2;
@@ -645,7 +627,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedVectorizationOfARetainedMutationIsLoudUntilReindex()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", withManager(), new ComputedVectorizer());
         final long    id        = POISON;
@@ -723,7 +705,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedClassificationOfARetainedNullMutationIsLoudUntilReindex()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", withManager(), new NeighbourFlakyVectorizer());
         final Doc before = new Doc(POISON, position(POISON)); // a probe with the vector the entity had
@@ -756,7 +738,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void errorInOneIndexStillAddsTheEntityToItsSiblings()
     {
-        final GigaMap<Doc>       map     = populatedMap();
+        final GigaMap<Doc>       map     = populatedMap(COUNT);
         final VectorIndices<Doc> group   = map.index().register(VectorIndices.Category());
         final VectorIndex<Doc>   failing = group.add("failing", inMemory(), new ComputedVectorizer()); // first in the fan-out
         final VectorIndex<Doc>   sibling = group.add("sibling", inMemory(), new PlainVectorizer());
@@ -775,7 +757,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void errorInOneIndexStillAddsTheBatchToItsSiblings()
     {
-        final GigaMap<Doc>       map     = populatedMap();
+        final GigaMap<Doc>       map     = populatedMap(COUNT);
         final VectorIndices<Doc> group   = map.index().register(VectorIndices.Category());
         final VectorIndex<Doc>   failing = group.add("failing", inMemory(), new ComputedVectorizer());
         final VectorIndex<Doc>   sibling = group.add("sibling", inMemory(), new PlainVectorizer());
@@ -800,7 +782,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void errorInOneIndexStillRemovesTheEntityFromItsSiblings()
     {
-        final GigaMap<Doc>       map     = populatedMap();
+        final GigaMap<Doc>       map     = populatedMap(COUNT);
         final VectorIndices<Doc> group   = map.index().register(VectorIndices.Category());
         final VectorIndex<Doc>   failing = group.add("failing", withManager(), new PlainVectorizer());
         final VectorIndex<Doc>   sibling = group.add("sibling", inMemory(), new PlainVectorizer());
@@ -830,7 +812,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedStoreRemovalOfARejectedReplacementIsLoudUntilReindex()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", withManager(), new ComputedVectorizer());
         final long id = COUNT / 2;
@@ -873,7 +855,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedStoreWriteOfARetainedMutationIsLoudUntilReindex()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", withManager(), new ComputedVectorizer());
         final long    id        = COUNT / 2;
@@ -921,7 +903,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void removingTheEntityBehindTheStoreLatchClearsIt()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", inMemory(), new ComputedVectorizer());
 
@@ -944,7 +926,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void removingTheEntityBehindARetainedNullMutationLatchClearsIt()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", withManager(), new ComputedVectorizer());
         final long id = COUNT / 2;
@@ -989,7 +971,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedStoreRemovalOfARemovedEntityIsRepaired()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", withManager(), new ComputedVectorizer());
         final long id = COUNT / 2;
@@ -1034,7 +1016,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedStoreRemovalThatKeptTheVectorIsLoudUntilReindex()
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", inMemory(), new ComputedVectorizer());
         final long id = COUNT / 2;
@@ -1058,11 +1040,7 @@ class VectorIndexHalfInsertedNodeTest
 
     private static VectorIndexConfiguration.Builder onDisk(final Path dir)
     {
-        return VectorIndexConfiguration.builder()
-            .dimension(4)
-            .similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
-            .onDisk(true)
-            .indexDirectory(dir.resolve("index"));
+        return config().onDisk(true).indexDirectory(dir.resolve("index"));
     }
 
     /**
@@ -1074,7 +1052,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedCleanupOfAPersistIsLoudUntilThePersistThatRebuilds(@TempDir final Path dir)
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", onDisk(dir).build(), new NeighbourFlakyVectorizer());
         for(int i = 1; i <= 3; i++)
@@ -1106,7 +1084,7 @@ class VectorIndexHalfInsertedNodeTest
     @Test
     void failedCleanupOfAPersistIsRepaired(@TempDir final Path dir)
     {
-        final GigaMap<Doc>     map   = populatedMap();
+        final GigaMap<Doc>     map   = populatedMap(COUNT);
         final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
             .add("emb", onDisk(dir).optimizationIntervalMs(60_000).build(), new NeighbourFlakyVectorizer());
         for(int i = 1; i <= 3; i++)

@@ -22,7 +22,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.CountDownLatch;
@@ -94,24 +93,6 @@ class VectorIndexWorkerFailureRepairTest
         poison = POISON;
     }
 
-    private static VectorIndexConfiguration.Builder eventual()
-    {
-        return VectorIndexConfiguration.builder()
-            .dimension(4)
-            .similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
-            .eventualIndexing(true);
-    }
-
-    private static Set<Long> allIds()
-    {
-        final Set<Long> ids = new TreeSet<>();
-        for(long id = 0; id < COUNT; id++)
-        {
-            ids.add(id);
-        }
-        return ids;
-    }
-
     private static Set<Long> idsUpTo(final int count)
     {
         final Set<Long> ids = new TreeSet<>();
@@ -120,14 +101,6 @@ class VectorIndexWorkerFailureRepairTest
             ids.add(id);
         }
         return ids;
-    }
-
-    private static void addAll(final GigaMap<Doc> map)
-    {
-        for(int i = 0; i < COUNT; i++)
-        {
-            map.add(new Doc(i));
-        }
     }
 
     /**
@@ -143,11 +116,11 @@ class VectorIndexWorkerFailureRepairTest
         try(final VectorIndex<Doc> index = vi.add("emb", eventual().build(), new WorkerFlakyVectorizer()))
         {
             failuresLeft.set(1);
-            addAll(map);
+            addDocs(map, COUNT);
             awaitWorker(index);
 
             assertEquals(1, workerFailures.get(), "precondition: one insertion failed on the worker");
-            assertEquals(allIds(), foundIds(index, COUNT), "entities are missing after a failed worker operation");
+            assertEquals(idsUpTo(COUNT), foundIds(index, COUNT), "entities are missing after a failed worker operation");
             assertFalse((boolean)internalState(index, "graphIncomplete"), "the repair did not clear graphIncomplete");
         }
     }
@@ -171,7 +144,7 @@ class VectorIndexWorkerFailureRepairTest
                     new WorkerFlakyVectorizer());
 
             failuresLeft.set(1);
-            addAll(map);
+            addDocs(map, COUNT);
             awaitWorker(index);
             assertEquals(1, workerFailures.get(), "precondition: one insertion failed on the worker");
 
@@ -183,7 +156,7 @@ class VectorIndexWorkerFailureRepairTest
         {
             final GigaMap<Doc>     map   = storage.root();
             final VectorIndex<Doc> index = map.index().get(VectorIndices.class).get("emb");
-            assertEquals(allIds(), foundIds(index, COUNT), "entities are missing after a restart");
+            assertEquals(idsUpTo(COUNT), foundIds(index, COUNT), "entities are missing after a restart");
             assertTrue((boolean)internalState(index, "incrementalMode"),
                 "precondition: the persisted files were accepted after the restart");
         }
@@ -202,7 +175,7 @@ class VectorIndexWorkerFailureRepairTest
         try(final VectorIndex<Doc> index = vi.add("emb", eventual().build(), new WorkerFlakyVectorizer()))
         {
             failuresLeft.set(Integer.MAX_VALUE);
-            addAll(map);
+            addDocs(map, COUNT);
             awaitWorker(index);
             assertTrue(workerFailures.get() > 1, "precondition: the worker failed on insertions and on the repair");
 
@@ -215,14 +188,14 @@ class VectorIndexWorkerFailureRepairTest
             failuresLeft.set(0);
             map.reindex();
             awaitWorker(index);
-            assertEquals(allIds(), foundIds(index, COUNT), "entities are missing after reindex()");
+            assertEquals(idsUpTo(COUNT), foundIds(index, COUNT), "entities are missing after reindex()");
         }
     }
 
     /**
      * Test double for the two manager tests below: records the calls the tests assert on.
      */
-    static class RecordingCallback implements BackgroundTaskManager.Callback
+    static class RecordingCallback extends NoOpCallback
     {
         final AtomicInteger  persists        = new AtomicInteger();
         final AtomicInteger  incompleteMarks = new AtomicInteger();
@@ -244,30 +217,6 @@ class VectorIndexWorkerFailureRepairTest
         }
 
         @Override
-        public void applyGraphBatchAdd(final List<VectorEntry> entries, final long epoch)
-        {
-            // not used
-        }
-
-        @Override
-        public void applyGraphUpdate(final VectorEntry entry, final long epoch)
-        {
-            // not used
-        }
-
-        @Override
-        public void applyGraphRemove(final int ordinal, final long epoch)
-        {
-            // not used
-        }
-
-        @Override
-        public void markDirtyForBackgroundManagers(final int count)
-        {
-            // not used
-        }
-
-        @Override
         public void markGraphIncomplete(final Throwable cause)
         {
             this.incompleteMarks.incrementAndGet();
@@ -278,18 +227,6 @@ class VectorIndexWorkerFailureRepairTest
         {
             this.reportedEpoch = epoch;
             this.markGraphIncomplete(cause);
-        }
-
-        @Override
-        public void repairGraph()
-        {
-            // not used
-        }
-
-        @Override
-        public void doOptimize()
-        {
-            // not used
         }
 
         @Override
@@ -372,13 +309,13 @@ class VectorIndexWorkerFailureRepairTest
             eventual().onDisk(true).indexDirectory(tempDir.resolve("index")).build(), new WorkerFlakyVectorizer()))
         {
             failuresLeft.set(1);
-            addAll(map);
+            addDocs(map, COUNT);
             awaitWorker(index);
 
             assertEquals(1, workerFailures.get(), "precondition: one insertion failed on the worker");
             assertFalse((boolean)internalState(index, "incrementalMode"),
                 "the repair of a never-persisted index wrote it to disk and switched it to serving from disk");
-            assertEquals(allIds(), foundIds(index, COUNT), "entities are missing after the repair");
+            assertEquals(idsUpTo(COUNT), foundIds(index, COUNT), "entities are missing after the repair");
         }
     }
 
@@ -395,7 +332,7 @@ class VectorIndexWorkerFailureRepairTest
         try(final VectorIndex<Doc> index = vi.add("emb",
             eventual().onDisk(true).indexDirectory(tempDir.resolve("index")).build(), new WorkerFlakyVectorizer()))
         {
-            addAll(map);
+            addDocs(map, COUNT);
             awaitWorker(index);
             index.persistToDisk();
             assertTrue((boolean)internalState(index, "incrementalMode"), "precondition: serving from disk");
@@ -411,7 +348,7 @@ class VectorIndexWorkerFailureRepairTest
             assertEquals(1, workerFailures.get(), "precondition: one insertion failed on the worker");
             assertTrue((boolean)internalState(index, "incrementalMode"),
                 "the repair of an index serving from disk left the full graph in heap instead of persisting it");
-            final java.util.Set<Long> expected = allIds();
+            final java.util.Set<Long> expected = idsUpTo(COUNT);
             for(long id = COUNT; id < COUNT + 10; id++)
             {
                 expected.add(id);
@@ -438,7 +375,7 @@ class VectorIndexWorkerFailureRepairTest
                 .enablePqCompression(true).pqSubspaces(1).build(),
             new WorkerFlakyVectorizer()))
         {
-            addAll(map);
+            addDocs(map, COUNT);
             awaitWorker(index);
             index.persistToDisk(); // too few vectors to train PQ: the training stays pending
             assertTrue((boolean)internalState(index, "incrementalMode"), "precondition: serving from disk");
@@ -482,12 +419,12 @@ class VectorIndexWorkerFailureRepairTest
         final VectorIndices<Doc> vi  = map.index().register(VectorIndices.Category());
         try(final VectorIndex<Doc> index = vi.add("emb", eventual().build(), new WorkerFlakyVectorizer()))
         {
-            addAll(map);
+            addDocs(map, COUNT);
             awaitWorker(index);
             final long staleEpoch = internalState(index, "graphEpoch");
 
             map.removeAll();
-            addAll(map);
+            addDocs(map, COUNT);
             awaitWorker(index);
             assertNotEquals(staleEpoch, (long)internalState(index, "graphEpoch"), "precondition: the epoch moved");
 
@@ -546,7 +483,7 @@ class VectorIndexWorkerFailureRepairTest
             };
 
             failuresLeft.set(1);
-            addAll(map); // one insertion fails on the worker: the repair follows on the worker thread
+            addDocs(map, COUNT); // one insertion fails on the worker: the repair follows on the worker thread
             assertTrue(repairStarted.await(TIMEOUT_MS, TimeUnit.MILLISECONDS), "precondition: the repair did not run");
 
             final AtomicReference<Object> outcome  = new AtomicReference<>();
@@ -573,7 +510,7 @@ class VectorIndexWorkerFailureRepairTest
             ((VectorIndex.Default<Doc>)index).graphInsertTestHook = null;
             map.reindex();
             awaitWorker(index);
-            assertEquals(allIds(), foundIds(index, COUNT), "entities are missing after reindex()");
+            assertEquals(idsUpTo(COUNT), foundIds(index, COUNT), "entities are missing after reindex()");
         }
     }
 }

@@ -58,6 +58,7 @@ import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
+import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
 import static org.eclipse.serializer.math.XMath.positive;
@@ -1616,8 +1617,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // the codes really are what a search would score from, and it would score correctly, because they
             // describe the old graph's ordinals just as well as the replacement's.
             this.graphEpoch++;
-            this.graphIncomplete    = false;
-            this.graphRepairFailure = null ;
+            this.clearGraphIncomplete();
             if(this.deferredBuilderOps != null)
             {
                 this.deferredBuilderOps.clear();
@@ -1851,6 +1851,18 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * {@link #computedIdIndex} and a direct, lazy {@code vectorStore.get(internalId)} — no index
          * query on the hot scoring path. Returns {@code null} if the entity has no stored vector.
          */
+        /**
+         * Adds a vector to the computed store and maps its ordinal (source entity id) to the store id.
+         *
+         * @return the store id
+         */
+        private long storeVector(final OrdinalStoreIdTable computedIdIndex, final VectorEntry entry)
+        {
+            final long storeId = this.vectorStore.add(entry);
+            computedIdIndex.put(toOrdinal(entry.sourceEntityId), storeId);
+            return storeId;
+        }
+
         private float[] lookupComputedVector(final int ordinal)
         {
             final OrdinalStoreIdTable index = this.computedIdIndex();
@@ -1958,14 +1970,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // Try to load from disk if on-disk mode is enabled
             if(this.configuration.onDisk())
             {
-                this.diskManager = new DiskIndexManager.Default(
-                    this,
-                    this.name,
-                    this.indexDirectoryForDisk(),
-                    this.configuration.dimension(),
-                    GraphFormat.of(this.configuration),
-                    this.configuration.parallelOnDiskWrite()
-                );
+                this.diskManager = this.newDiskManager();
                 final DiskIndexManager.MetaState liveMeta = this.currentMetaState();
                 if(this.diskManager.tryLoad(liveMeta))
                 {
@@ -2069,6 +2074,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
+         * A disk manager for this index's directory and graph format.
+         */
+        private DiskIndexManager newDiskManager()
+        {
+            return new DiskIndexManager.Default(
+                this,
+                this.name,
+                this.indexDirectoryForDisk(),
+                this.configuration.dimension(),
+                GraphFormat.of(this.configuration),
+                this.configuration.parallelOnDiskWrite()
+            );
+        }
+
+        /**
          * Initializes the in-memory graph builder.
          */
         private void initializeInMemoryBuilder()
@@ -2119,65 +2139,47 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // Incremental mode: two pools — disk searcher for existing data,
                 // in-memory searcher for newly added data
                 final var diskIndex = this.diskManager.getDiskIndex();
-                this.diskSearcherPool = ExplicitThreadLocal.withInitial(() ->
-                {
-                    try
-                    {
-                        return new GraphSearcher(diskIndex);
-                    }
-                    catch(final Exception e)
-                    {
-                        throw new RuntimeException("Failed to create GraphSearcher for disk index", e);
-                    }
-                });
+                this.diskSearcherPool = searcherPool(() -> diskIndex, "disk");
 
                 // In-memory pool for the builder's graph (new mutations)
                 if(this.index != null)
                 {
-                    this.inMemorySearcherPool = ExplicitThreadLocal.withInitial(() ->
-                    {
-                        try
-                        {
-                            return new GraphSearcher(this.index);
-                        }
-                        catch(final Exception e)
-                        {
-                            throw new RuntimeException("Failed to create GraphSearcher for in-memory index", e);
-                        }
-                    });
+                    this.inMemorySearcherPool = searcherPool(() -> this.index, "in-memory");
                 }
             }
             else if(diskLoaded && this.diskManager.getDiskIndex() != null)
             {
                 // Non-incremental disk mode: single pool for disk index
                 final var diskIndex = this.diskManager.getDiskIndex();
-                this.inMemorySearcherPool = ExplicitThreadLocal.withInitial(() ->
-                {
-                    try
-                    {
-                        return new GraphSearcher(diskIndex);
-                    }
-                    catch(final Exception e)
-                    {
-                        throw new RuntimeException("Failed to create GraphSearcher for disk index", e);
-                    }
-                });
+                this.inMemorySearcherPool = searcherPool(() -> diskIndex, "disk");
             }
             else if(this.index != null)
             {
                 // In-memory only pool
-                this.inMemorySearcherPool = ExplicitThreadLocal.withInitial(() ->
-                {
-                    try
-                    {
-                        return new GraphSearcher(this.index);
-                    }
-                    catch(final Exception e)
-                    {
-                        throw new RuntimeException("Failed to create GraphSearcher for in-memory index", e);
-                    }
-                });
+                this.inMemorySearcherPool = searcherPool(() -> this.index, "in-memory");
             }
+        }
+
+        /**
+         * A thread-local pool of searchers over a graph. The graph is resolved when a thread first takes its
+         * searcher, not when the pool is created, so the in-memory pools follow the {@code index} field.
+         */
+        private static ExplicitThreadLocal<GraphSearcher> searcherPool(
+            final Supplier<? extends ImmutableGraphIndex> graph,
+            final String                                  kind
+        )
+        {
+            return ExplicitThreadLocal.withInitial(() ->
+            {
+                try
+                {
+                    return new GraphSearcher(graph.get());
+                }
+                catch(final Exception e)
+                {
+                    throw new RuntimeException("Failed to create GraphSearcher for " + kind + " index", e);
+                }
+            });
         }
 
         /**
@@ -2364,6 +2366,30 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.markStateChangeChildren();
         }
 
+        /**
+         * {@link #markContentChanged()} for a change to an ordinal that may have a version on disk: the disk-resident
+         * node is masked as well ({@link #recordDiskOrdinalSuperseded}).
+         */
+        private void markOrdinalSuperseded(final int ordinal)
+        {
+            this.recordDiskOrdinalSuperseded(ordinal);
+            this.markContentChanged();
+        }
+
+        /** the graph holds every counted mutation again: a rebuild completed, or a new generation exists */
+        private void clearGraphIncomplete()
+        {
+            this.graphIncomplete    = false;
+            this.graphRepairFailure = null ;
+        }
+
+        /** the computed store covers every entity of the map again */
+        private void clearStoreLatch()
+        {
+            this.vectorStoreFailure        = null;
+            this.vectorStoreFailureOrdinal = UNKNOWN_ORDINAL;
+        }
+
         @Override
         public VectorIndices<E> parent()
         {
@@ -2538,7 +2564,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     if(entry.vector != null)
                     {
-                        computedIdIndex.put(toOrdinal(entry.sourceEntityId), this.vectorStore.add(entry));
+                        this.storeVector(computedIdIndex, entry);
                     }
                 }
             }
@@ -2768,8 +2794,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 try
                 {
-                    final long storeId = this.vectorStore.add(vectorEntry);
-                    this.computedIdIndex().put(toOrdinal(vectorEntry.sourceEntityId), storeId);
+                    this.storeVector(this.computedIdIndex(), vectorEntry);
                 }
                 catch(final Error e)
                 {
@@ -2846,34 +2871,18 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
             this.ensureIndexInitialized();
 
-            final int     ordinal  = toOrdinal(entityId);
-            final boolean embedded = this.isEmbedded();
-            final float[] vector;
-            try
-            {
-                vector = this.vectorize(entity);
-            }
-            catch(final RuntimeException | Error e)
-            {
-                // A replacement (set/replace pass a new instance) is rejected before anything changed. An in-place
-                // update (update/apply pass the same instance) GigaMap retains as mutated: the entity now has a state
-                // the index could not derive a vector from, so its stored vector or node is stale until a rebuild
-                // vectorizes it again.
-                if(replacedEntity == entity)
-                {
-                    this.recordRetainedMutationFailure(ordinal, e);
-                }
-                throw e;
-            }
+            final int     ordinal     = toOrdinal(entityId);
+            final boolean embedded    = this.isEmbedded();
+            // set/replace pass a new instance, update/apply the same one: see vectorizeForUpdate
+            final boolean replacement = replacedEntity != entity;
+            final float[] vector      = this.vectorizeForUpdate(entity, ordinal, replacement);
 
             // Update the computed-mode vector store to reflect the new (possibly absent) vector.
             // Keyed by source entity id (not positionally), so the four vec/null transitions map
             // cleanly onto add / replace / remove.
             // The computed store is written before the graph work. The write knows how to undo itself if the inline
-            // graph op below throws: GigaMap then rejects a replacement (set/replace pass a new instance) and keeps
-            // the old entity, whose vector the store must hold again; an in-place update (update/apply pass the same
-            // instance) it retains as mutated, and the store keeps what was written.
-            final boolean            replacement     = replacedEntity != entity;
+            // graph op below throws: GigaMap then rejects a replacement and keeps the old entity, whose vector the
+            // store must hold again; an in-place update it retains as mutated, and the store keeps what was written.
             final ComputedStoreWrite storeWrite;
             try
             {
@@ -2891,8 +2900,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
                 throw e;
             }
-            final boolean            vectorUnchanged = storeWrite != null && storeWrite.vectorUnchanged;
-            boolean                  changed         = storeWrite != null && storeWrite.changed;
+            final boolean            vectorUnchanged = storeWrite != null && storeWrite.vectorUnchanged();
+            boolean                  changed         = storeWrite != null && storeWrite.changed();
 
             // Persisted structural-change witness: driven by the logical (id→vector) transition,
             // NOT the in-memory graph op below. In incremental mode an embedded vec→null removes a
@@ -2906,24 +2915,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // A non-null new vector is always a change (null→vec or vec→vec). Only a null new vector
                 // needs the old vector — to tell vec→null (a change) from null→null (the only no-op) —
                 // so re-vectorize replacedEntity solely on that path, not on the common non-null update.
-                boolean oldHadVector = false;
-                if(vector == null && replacedEntity != null)
-                {
-                    try
-                    {
-                        oldHadVector = this.vectorize(replacedEntity) != null;
-                    }
-                    catch(final RuntimeException | Error e)
-                    {
-                        // the same as a failure of the first call: a retained mutation leaves a stale node behind
-                        if(!replacement)
-                        {
-                            this.recordRetainedMutationFailure(ordinal, e);
-                        }
-                        throw e;
-                    }
-                }
-                contentChanged = vector != null || oldHadVector;
+                // A failure here is the same as a failure of the first call: a retained mutation leaves a stale node.
+                contentChanged = vector != null
+                    || (replacedEntity != null && this.vectorizeForUpdate(replacedEntity, ordinal, replacement) != null);
             }
             else
             {
@@ -2935,11 +2929,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // Gated on contentChanged: a null→null no-op has no stale disk version to exclude.
             if(contentChanged)
             {
-                this.recordDiskOrdinalSuperseded(ordinal);
                 // Before the graph work, like internalAdd and internalRemove: the store or the entity already carries
                 // the new vector, so a failed insertion must still move the witness, or a restart after a crash would
                 // accept the old disk graph. null→null is the only case that skips this.
-                this.markContentChanged();
+                this.markOrdinalSuperseded(ordinal);
             }
 
             if(this.isEventualIndexing())
@@ -2988,58 +2981,35 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // classify (a null replacedEntity) still clears the node it can see.
                     if(contentChanged || inGraph)
                     {
-                        try
-                        {
-                            this.executeOrDeferBuilderOp(() -> this.internalMarkOrdinalDeleted(ordinal));
-                        }
-                        catch(final RuntimeException | Error e)
-                        {
-                            // Only an inline op throws here. The entity stays (rejected replacement or retained
-                            // mutation) with its node in an unknown state: recorded for the repair. A rejected
-                            // replacement keeps its vector, so the computed store must hold it again - if it was
-                            // removed at all (null→null writes nothing).
-                            this.markGraphIncomplete(e);
-                            if(replacement && storeWrite != null && storeWrite.changed)
-                            {
-                                storeWrite.undo(e);
-                            }
-                            throw e;
-                        }
+                        this.runUpdateGraphOp(() -> this.internalMarkOrdinalDeleted(ordinal), storeWrite, replacement);
                         changed = true;
                     }
                 }
                 else if(embedded)
                 {
-                    // Three distinct embedded, non-null transitions, distinguished by graph state.
-                    // Note containsNode() alone is NOT enough: jvector's markNodeDeleted() only sets
-                    // a deleted bit and leaves the node in layer 0, so containsNode() stays true for
-                    // a marked-deleted node. A prior vec→null in this same session (without an
-                    // intervening optimize) leaves the node present-but-deleted, which is a third
-                    // case the plain !inGraph guard would silently mis-handle.
+                    // Two embedded, non-null transitions, distinguished by graph state. Note containsNode()
+                    // alone is NOT enough: jvector's markNodeDeleted() only sets a deleted bit and leaves
+                    // the node in layer 0, so containsNode() stays true for a marked-deleted node. A prior
+                    // vec→null in this same session (without an intervening optimize) leaves the node
+                    // present-but-deleted, which the plain !inGraph guard would silently mis-handle.
                     //
                     // The classification below only selects WHICH op to enqueue; each op re-derives
                     // the graph state itself when it runs, because a deferred op can be drained into
                     // a builder that was swapped in the meantime (internal #142).
-                    if(!inGraph)
+                    if(!inGraph || currentGraph.getDeletedNodes().get(ordinal))
                     {
-                        // null→vec: the node was never added (or a prior optimize physically removed
-                        // it) — add it now. addGraphNode alone is monitor-safe (no removeDeletedNodes),
-                        // the same call internalAdd makes.
+                        // null→vec: the node was never added (or a prior optimize physically removed it) -
+                        // add it now, with addGraphNode alone, which is monitor-safe (no removeDeletedNodes).
+                        // vec→null→vec on the SAME entity: the node is still present but marked deleted.
+                        // Resurrect it by clearing the deleted bit - monitor-safe (no ForkJoinPool), unlike
+                        // removeDeletedNodes()+addGraphNode, whose workers call parentMap.get() and would
+                        // deadlock with the GigaMap monitor we hold. The node keeps its (now stale) neighbor
+                        // links and search re-scores it live from the entity via EntityBackedVectorValues -
+                        // identical to the vec→vec "leave as-is" contract below; the next optimize/persist
+                        // rebuilds connections. Without this, the entity would stay excluded from liveNodes()
+                        // forever. internalReaddGraphNode tells the two apart when it runs.
                         final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                        this.executeOrDeferUpdateInsertion(() -> this.internalReaddGraphNode(ordinal, vf));
-                    }
-                    else if(currentGraph.getDeletedNodes().get(ordinal))
-                    {
-                        // vec→null→vec on the SAME entity: the node is still present but marked
-                        // deleted. Resurrect it by clearing the deleted bit — monitor-safe (no
-                        // ForkJoinPool), unlike removeDeletedNodes()+addGraphNode, whose workers
-                        // call parentMap.get() and would deadlock with the GigaMap monitor we hold.
-                        // The node keeps its (now stale) neighbor links and search re-scores it live
-                        // from the entity via EntityBackedVectorValues — identical to the vec→vec
-                        // "leave as-is" contract below; the next optimize/persist rebuilds connections.
-                        // Without this, the entity would stay excluded from liveNodes() forever.
-                        final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                        this.executeOrDeferUpdateInsertion(() -> this.internalResurrectGraphNode(ordinal, vf));
+                        this.runUpdateGraphOp(() -> this.internalReaddGraphNode(ordinal, vf), storeWrite, replacement);
                     }
                     else
                     {
@@ -3076,19 +3046,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // stored separately, so removeDeletedNodes() won't call parentMap.get().
                     // Safe to inline.
                     final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                    try
-                    {
-                        this.executeOrDeferUpdateInsertion(() -> this.internalReplaceGraphNode(ordinal, vf));
-                    }
-                    catch(final RuntimeException | Error e)
-                    {
-                        // only an inline insertion throws here; a retained in-place update keeps the new vector
-                        if(replacement)
-                        {
-                            storeWrite.undo(e);
-                        }
-                        throw e;
-                    }
+                    this.runUpdateGraphOp(() -> this.internalReplaceGraphNode(ordinal, vf), storeWrite, replacement);
                     changed = true;
                 }
 
@@ -3157,8 +3115,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     for(final VectorEntry entry : entries)
                     {
-                        final long storeId = this.vectorStore.add(entry);
-                        computedIdIndex.put(toOrdinal(entry.sourceEntityId), storeId);
+                        this.storeVector(computedIdIndex, entry);
                     }
                 }
                 catch(final Error e)
@@ -3329,17 +3286,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 if(this.vectorStoreFailure != null && ordinal == this.vectorStoreFailureOrdinal)
                 {
                     // the one entity the store did not cover is gone: the store covers every remaining one again
-                    this.vectorStoreFailure        = null;
-                    this.vectorStoreFailureOrdinal = UNKNOWN_ORDINAL;
+                    this.clearStoreLatch();
                 }
             }
-
-            this.markContentChanged();
 
             // In incremental mode, mark the ordinal as deleted from disk graph
             // so disk search excludes it immediately, even before background
             // processing has updated the on-disk graph.
-            this.recordDiskOrdinalSuperseded(ordinal);
+            this.markOrdinalSuperseded(ordinal);
+
+            // GigaMap's rollback of an add whose insertion failed removes the entity again: the pending retirement is
+            // consumed here, whether the graph op below throws (the throw itself retires the id) or the throw at the
+            // end does.
+            final boolean retiring = this.halfInsertedNodePending && ordinal == this.halfInsertedOrdinal;
+            if(retiring)
+            {
+                this.halfInsertedNodePending = false;
+            }
 
             if(this.isEventualIndexing())
             {
@@ -3370,12 +3333,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 catch(final RuntimeException | Error e)
                 {
                     // Only an inline deletion throws here. GigaMap has already cleared the slot, so the node of the
-                    // removed entity stays live in the graph until the repair: recorded. If this is the rollback of a
-                    // failed add, the throw itself retires the id, so the pending retirement is consumed here.
-                    if(this.halfInsertedNodePending && ordinal == this.halfInsertedOrdinal)
-                    {
-                        this.halfInsertedNodePending = false;
-                    }
+                    // removed entity stays live in the graph until the repair: recorded.
                     this.markGraphIncomplete(e);
                     throw e;
                 }
@@ -3384,13 +3342,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.markDirtyForBackgroundManagers(1);
             }
 
-            if(this.halfInsertedNodePending && ordinal == this.halfInsertedOrdinal)
+            if(retiring)
             {
                 // This is GigaMap's rollback of the add whose insertion failed. The node is marked deleted above;
                 // throwing now makes GigaMap retire the id (its rollback reclaims ids only while every removal
                 // succeeds), so no later entity can inherit the half-inserted node. GigaMap attaches this to the
                 // insertion failure as a suppressed exception.
-                this.halfInsertedNodePending = false;
                 throw new IllegalStateException(
                     "Vector index \"" + this.name + "\": the graph node of entity id " + entityId + " was left"
                     + " half-inserted by its failed insertion and is marked deleted; the id is retired so that no"
@@ -3480,10 +3437,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                 // Only now, with the new generation in place: a failed op of the old generation leaves nothing to
                 // repair in the new one, and a store latch of the old generation is answered by the empty new store.
-                this.graphIncomplete           = false;
-                this.graphRepairFailure        = null ;
-                this.vectorStoreFailure        = null ;
-                this.vectorStoreFailureOrdinal = UNKNOWN_ORDINAL;
+                this.clearGraphIncomplete();
+                this.clearStoreLatch();
 
                 // The new generation is populated by the re-add of reindex() (or stays empty), like a new index by
                 // its back-fill: the deferred rebuild from the store must not run for it, see the constructor. An
@@ -4136,17 +4091,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         }
                         else
                         {
-                            try
-                            {
-                                capturedBuilder.cleanup();
-                            }
-                            catch(final RuntimeException | Error e)
-                            {
-                                // cleanup mutates the live graph (it removes deleted nodes and relinks their
-                                // neighbours): a throw partway leaves it in an unknown state, like a failed insertion
-                                this.markGraphIncomplete(e);
-                                throw e;
-                            }
+                            this.cleanupOrRecord(capturedBuilder);
                         }
                     }
                     finally
@@ -4165,6 +4110,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
 
             this.markStateChangeChildren();
+        }
+
+        /**
+         * Runs the builder's cleanup, which mutates the live graph (it removes deleted nodes and relinks their
+         * neighbours): a throw partway leaves it in an unknown state, like a failed insertion, and is recorded as such.
+         */
+        private void cleanupOrRecord(final GraphIndexBuilder builder)
+        {
+            try
+            {
+                builder.cleanup();
+            }
+            catch(final RuntimeException | Error e)
+            {
+                this.markGraphIncomplete(e);
+                throw e;
+            }
         }
 
         @Override
@@ -4413,14 +4375,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         // Initialize disk manager if needed
                         if(this.diskManager == null)
                         {
-                            this.diskManager = new DiskIndexManager.Default(
-                                this,
-                                this.name,
-                                this.indexDirectoryForDisk(),
-                                this.configuration.dimension(),
-                                GraphFormat.of(this.configuration),
-                                this.configuration.parallelOnDiskWrite()
-                            );
+                            this.diskManager = this.newDiskManager();
                         }
 
                         // An empty graph cannot be written: jvector's header writer dereferences
@@ -4474,17 +4429,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         hook.run();
                     }
 
-                    try
-                    {
-                        capturedBuilder.cleanup();
-                    }
-                    catch(final RuntimeException | Error e)
-                    {
-                        // cleanup mutates the live graph (it removes deleted nodes and relinks their neighbours): a
-                        // throw partway leaves it in an unknown state, like a failed insertion - see doOptimize
-                        this.markGraphIncomplete(e);
-                        throw e;
-                    }
+                    this.cleanupOrRecord(capturedBuilder);
                     capturedDiskMgr.writeIndex(
                         capturedIndex, capturedRavv, capturedPqMgr, capturedNvqMgr, capturedMeta);
 
@@ -4869,8 +4814,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.closeBuilderQuietly(oldBuilder, oldIndex, null);
             // existing searchers hold the old graph: re-create the pools before the lock is released
             this.initializeSearcherPool();
-            this.graphIncomplete    = false;
-            this.graphRepairFailure = null ;
+            this.clearGraphIncomplete();
             // The new graph holds every mutation made before now: ops enqueued before are redundant, see graphEpoch.
             this.graphEpoch++;
 
@@ -4941,14 +4885,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
 
             // Recreate disk manager and load the just-written index
-            this.diskManager = new DiskIndexManager.Default(
-                this,
-                this.name,
-                this.indexDirectoryForDisk(),
-                this.configuration.dimension(),
-                GraphFormat.of(this.configuration),
-                this.configuration.parallelOnDiskWrite()
-            );
+            this.diskManager = this.newDiskManager();
 
             if(this.diskManager.tryLoad(writtenMeta))
             {
@@ -5443,17 +5380,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.readLock().lock();
             try
             {
-                // The generation this operation is about, read BEFORE the epoch check: the PQ switch moves the
-                // epoch first and publishes its replacement after, holding no builder lock, so an operation that
-                // passed the check has read the generation it validated, and one that read the replacement sees
-                // the moved epoch and is dropped.
-                final GraphIndexBuilder currentBuilder = this.builder;
-                final MutablePQVectors  codes          = this.inMemoryPqVectors;
-                if(this.graphEpochMoved(epoch))
+                final Generation generation = this.captureGeneration(epoch, 1);
+                if(generation == null)
                 {
                     return;
                 }
-                this.markDirtyForBackgroundManagers(1); // after the epoch check: a dropped op is not a change
                 final int ordinal = toOrdinal(entry.sourceEntityId);
                 final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
 
@@ -5462,7 +5393,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // the same ordinal into a replacement graph from its own snapshot - the snapshot is
                 // taken after the mutation, so the change counter does not reject it. Adding an
                 // ordinal the graph already holds throws.
-                this.internalAddGraphNodeIdempotent(currentBuilder, codes, ordinal, vf);
+                this.internalAddGraphNodeIdempotent(generation.builder(), generation.codes(), ordinal, vf);
             }
             finally
             {
@@ -5477,14 +5408,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.readLock().lock();
             try
             {
-                // the generation before the epoch check, see applyGraphAdd
-                final GraphIndexBuilder currentBuilder = this.builder;
-                final MutablePQVectors  codes          = this.inMemoryPqVectors;
-                if(this.graphEpochMoved(epoch))
+                final Generation generation = this.captureGeneration(epoch, entries.size());
+                if(generation == null)
                 {
                     return;
                 }
-                this.markDirtyForBackgroundManagers(entries.size());
                 for(final var entry : entries)
                 {
                     if(entry.vector == null)
@@ -5496,7 +5424,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
 
                     // Idempotent, for the reason given on applyGraphAdd.
-                    this.internalAddGraphNodeIdempotent(currentBuilder, codes, ordinal, vf);
+                    this.internalAddGraphNodeIdempotent(generation.builder(), generation.codes(), ordinal, vf);
                 }
             }
             finally
@@ -5511,47 +5439,25 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.readLock().lock();
             try
             {
-                // One generation, captured once and BEFORE the epoch check (see applyGraphAdd). This
-                // callback holds only the read lock, and the in-memory PQ switch publishes a
-                // replacement while holding neither - so reading this.builder or this.index again
-                // further down could land on the other side of that publication. Split across the
-                // two, this method would delete the node from the graph being abandoned and then add
-                // an ordinal the replacement already carries, which throws. The graph and the codes
-                // come from the captured generation for the same reason.
-                final GraphIndexBuilder currentBuilder = this.builder;
-                final MutablePQVectors  codes          = this.inMemoryPqVectors;
-                if(this.graphEpochMoved(epoch))
+                final Generation generation = this.captureGeneration(epoch, 1);
+                if(generation == null || generation.builder() == null)
                 {
                     return;
                 }
-                this.markDirtyForBackgroundManagers(1);
-                if(currentBuilder == null)
-                {
-                    return;
-                }
-                final OnHeapGraphIndex currentIndex = graphOf(currentBuilder);
-
-                final int ordinal = toOrdinal(entry.sourceEntityId);
-                final boolean inGraph = currentIndex != null && currentIndex.containsNode(ordinal);
+                final GraphIndexBuilder currentBuilder = generation.builder();
+                final MutablePQVectors  codes          = generation.codes();
+                final int               ordinal        = toOrdinal(entry.sourceEntityId);
 
                 if(entry.vector == null)
                 {
                     // vec→null / null→null: remove the node if present, otherwise nothing to do.
-                    if(inGraph)
-                    {
-                        currentBuilder.markNodeDeleted(ordinal);
-                        // After the delete, so no in-flight scorer sees a zeroed code for a node
-                        // that is still live. The eventual-indexing paths need this as much as the
-                        // synchronous ones: without it a deleted node keeps a code traversal can
-                        // still score against and waste hops on.
-                        this.untrackPqCode(codes, ordinal);
-                    }
+                    this.deleteGraphNode(currentBuilder, codes, ordinal);
                     return;
                 }
 
                 // vec→vec: delete the stale node then re-add. null→vec: the node is absent,
                 // so add it directly without the (invalid) delete.
-                if(inGraph)
+                if(graphOf(currentBuilder).containsNode(ordinal))
                 {
                     currentBuilder.markNodeDeleted(ordinal);
                     currentBuilder.removeDeletedNodes();
@@ -5572,28 +5478,50 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.readLock().lock();
             try
             {
-                // One generation, captured before the epoch check, for the reason given on
-                // applyGraphUpdate: the containment test and the delete must be about the same graph.
-                final GraphIndexBuilder currentBuilder = this.builder;
-                final MutablePQVectors  codes          = this.inMemoryPqVectors;
-                if(this.graphEpochMoved(epoch))
+                final Generation generation = this.captureGeneration(epoch, 1);
+                if(generation == null)
                 {
                     return;
                 }
-                this.markDirtyForBackgroundManagers(1);
-
-                // Guard against removing a never-indexed entity (e.g. one that never had an
-                // embedding): markNodeDeleted on an absent node would fail.
-                if(currentBuilder != null && graphOf(currentBuilder).containsNode(ordinal))
-                {
-                    currentBuilder.markNodeDeleted(ordinal);
-                    this.untrackPqCode(codes, ordinal);
-                }
+                this.deleteGraphNode(generation.builder(), generation.codes(), ordinal);
             }
             finally
             {
                 this.builderLock.readLock().unlock();
             }
+        }
+
+        /**
+         * The builder and the codes a worker callback mutates: one generation, captured once, because the callback
+         * holds only the read lock and the in-memory PQ switch publishes a replacement holding neither. Split across
+         * two reads, a callback could delete a node from the graph being abandoned and then add an ordinal the
+         * replacement already carries, which throws.
+         */
+        private record Generation(GraphIndexBuilder builder, MutablePQVectors codes)
+        {
+            // nothing to add
+        }
+
+        /**
+         * The generation an eventual-indexing operation enqueued at {@code epoch} is about, or {@code null} if the
+         * epoch moved and the operation is to be dropped (see {@link #graphEpoch}). Must be called with the builder read
+         * lock held. The generation is read BEFORE the epoch check: the PQ switch moves the epoch first and publishes
+         * its replacement after, holding no builder lock, so an operation that passed the check has read the
+         * generation it validated, and one that read the replacement sees the moved epoch and is dropped. The change
+         * count is marked after the check: a dropped operation is not a change.
+         *
+         * @param changes the number of changes the operation makes to the graph
+         */
+        private Generation captureGeneration(final long epoch, final int changes)
+        {
+            final GraphIndexBuilder currentBuilder = this.builder;
+            final MutablePQVectors  codes          = this.inMemoryPqVectors;
+            if(this.graphEpochMoved(epoch))
+            {
+                return null;
+            }
+            this.markDirtyForBackgroundManagers(changes);
+            return new Generation(currentBuilder, codes);
         }
 
         /**
@@ -5633,8 +5561,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void recordRetainedMutationFailure(final int ordinal, final Throwable e)
         {
-            this.recordDiskOrdinalSuperseded(ordinal);
-            this.markContentChanged();
+            this.markOrdinalSuperseded(ordinal);
             this.recordVectorMissing(ordinal, e);
         }
 
@@ -5695,8 +5622,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 this.recordVectorMissing(e);
             }
-            this.markContentChanged();
-            this.recordDiskOrdinalSuperseded(ordinal);
+            this.markOrdinalSuperseded(ordinal);
         }
 
         /**
@@ -5716,7 +5642,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     // vec→null: drop the stored entry so the entity is no longer indexed. null→null: nothing to do.
                     if(!mapped)
                     {
-                        return new ComputedStoreWrite(ordinal, false, null, OrdinalStoreIdTable.ABSENT, false, false);
+                        return new ComputedStoreWrite(StoreTransition.NONE, ordinal, OrdinalStoreIdTable.ABSENT, null);
                     }
                     final VectorEntry prior = this.vectorStore.get(storeId);
                     try
@@ -5733,7 +5659,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         throw e;
                     }
                     computedIdIndex.remove(ordinal);
-                    return new ComputedStoreWrite(ordinal, true, prior, OrdinalStoreIdTable.ABSENT, true, false);
+                    return new ComputedStoreWrite(StoreTransition.REMOVED, ordinal, OrdinalStoreIdTable.ABSENT, prior);
                 }
                 if(mapped)
                 {
@@ -5748,15 +5674,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     final VectorEntry existing = this.vectorStore.get(storeId);
                     if(existing != null && Arrays.equals(existing.vector, vector))
                     {
-                        return new ComputedStoreWrite(ordinal, true, existing, storeId, false, true);
+                        return new ComputedStoreWrite(StoreTransition.UNCHANGED, ordinal, storeId, existing);
                     }
                     this.vectorStore.set(storeId, new VectorEntry(entityId, vector));
-                    return new ComputedStoreWrite(ordinal, true, existing, storeId, true, false);
+                    return new ComputedStoreWrite(StoreTransition.REPLACED, ordinal, storeId, existing);
                 }
                 // null→vec: the entity gains an embedding.
-                final long newStoreId = this.vectorStore.add(new VectorEntry(entityId, vector));
-                computedIdIndex.put(ordinal, newStoreId);
-                return new ComputedStoreWrite(ordinal, false, null, newStoreId, true, false);
+                final long newStoreId = this.storeVector(computedIdIndex, new VectorEntry(entityId, vector));
+                return new ComputedStoreWrite(StoreTransition.ADDED, ordinal, newStoreId, null);
             }
             catch(final Error e)
             {
@@ -5764,6 +5689,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.recordVectorMissing(ordinal, e);
                 throw e;
             }
+        }
+
+        /** the id→vector transition one update applied to the computed store, see {@link ComputedStoreWrite} */
+        private enum StoreTransition
+        {
+            /** null→null: nothing stored, nothing written */
+            NONE,
+            /** vec→vec with the same vector: no store write, no graph work */
+            UNCHANGED,
+            /** null→vec: an entry and its mapping were added */
+            ADDED,
+            /** vec→null: the entry and its mapping were removed */
+            REMOVED,
+            /** vec→vec: the entry was replaced in its slot */
+            REPLACED
         }
 
         /**
@@ -5774,62 +5714,74 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private final class ComputedStoreWrite
         {
-            final int         ordinal        ;
-            /** whether the ordinal was mapped to a store id before the write */
-            final boolean     mapped         ;
-            /** the entry stored before; {@code null} if none was (unmapped, or the defensive case of a mapping to an empty slot) */
-            final VectorEntry prior          ;
+            final StoreTransition transition;
+            final int             ordinal   ;
             /** the store id the write went to; {@code ABSENT} for a removal or no write */
-            final long        writtenStoreId ;
-            /** whether the store changed at all; what {@link #undo} has to undo */
-            final boolean     changed        ;
-            /** vec→vec with the same vector: no store write, no graph work */
-            final boolean     vectorUnchanged;
+            final long            storeId   ;
+            /** the entry stored before; {@code null} if none was (unmapped, or the defensive case of a mapping to an empty slot) */
+            final VectorEntry     prior     ;
 
             ComputedStoreWrite(
-                final int         ordinal        ,
-                final boolean     mapped         ,
-                final VectorEntry prior          ,
-                final long        writtenStoreId ,
-                final boolean     changed        ,
-                final boolean     vectorUnchanged
+                final StoreTransition transition,
+                final int             ordinal   ,
+                final long            storeId   ,
+                final VectorEntry     prior
             )
             {
-                this.ordinal         = ordinal        ;
-                this.mapped          = mapped         ;
-                this.prior           = prior          ;
-                this.writtenStoreId  = writtenStoreId ;
-                this.changed         = changed        ;
-                this.vectorUnchanged = vectorUnchanged;
+                this.transition = transition;
+                this.ordinal    = ordinal   ;
+                this.storeId    = storeId   ;
+                this.prior      = prior     ;
+            }
+
+            /** whether the store changed at all; what {@link #undo} has to undo */
+            boolean changed()
+            {
+                return this.transition != StoreTransition.NONE && this.transition != StoreTransition.UNCHANGED;
+            }
+
+            boolean vectorUnchanged()
+            {
+                return this.transition == StoreTransition.UNCHANGED;
             }
 
             void undo(final Throwable failure)
             {
                 try
                 {
-                    if(!this.mapped)
+                    switch(this.transition)
                     {
-                        // null→vec: drop the entry and the mapping the write added
-                        Default.this.vectorStore.removeById(this.writtenStoreId);
-                        Default.this.computedIdIndex().remove(this.ordinal);
-                    }
-                    else if(this.writtenStoreId == OrdinalStoreIdTable.ABSENT)
-                    {
-                        // vec→null: the entry and its mapping were removed; a new store id is fine, nothing refers to it
-                        if(this.prior != null)
+                        case ADDED ->
                         {
-                            Default.this.computedIdIndex().put(this.ordinal, Default.this.vectorStore.add(this.prior));
+                            // drop the entry and the mapping the write added
+                            Default.this.vectorStore.removeById(this.storeId);
+                            Default.this.computedIdIndex().remove(this.ordinal);
                         }
-                    }
-                    else if(this.prior != null)
-                    {
-                        // vec→vec: the same slot, the old entry
-                        Default.this.vectorStore.set(this.writtenStoreId, this.prior);
-                    }
-                    else
-                    {
-                        // vec→vec onto an empty slot: empty it again, the mapping stays as it was
-                        Default.this.vectorStore.removeById(this.writtenStoreId);
+                        case REMOVED ->
+                        {
+                            // a new store id is fine, nothing refers to it
+                            if(this.prior != null)
+                            {
+                                Default.this.storeVector(Default.this.computedIdIndex(), this.prior);
+                            }
+                        }
+                        case REPLACED ->
+                        {
+                            if(this.prior != null)
+                            {
+                                // the same slot, the old entry
+                                Default.this.vectorStore.set(this.storeId, this.prior);
+                            }
+                            else
+                            {
+                                // onto an empty slot: empty it again, the mapping stays as it was
+                                Default.this.vectorStore.removeById(this.storeId);
+                            }
+                        }
+                        case NONE, UNCHANGED ->
+                        {
+                            // nothing was written
+                        }
                     }
                 }
                 catch(final RuntimeException | Error e)
@@ -5860,13 +5812,41 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * {@link #executeOrDeferBuilderOp} for the graph insertions of a synchronous update ({@code null→vec},
-         * resurrect, computed {@code vec→vec}). A failure partway leaves a half-inserted node for an entity that stays
-         * in the map; GigaMap does not roll an update back, so there is no removal to retire the id through. The graph
-         * is recorded as incomplete instead ({@link #markGraphIncomplete}): repaired by the background task manager
-         * if there is one, otherwise latched for {@code search()} until the next persist or {@code reindex()}.
+         * Vectorizes an entity for a synchronous update. A replacement (set/replace pass a new instance) that fails
+         * is rejected before anything changed. An in-place update (update/apply pass the same instance) GigaMap
+         * retains as mutated: the entity now has a state the index could not derive a vector from, so its stored
+         * vector or node is stale until a rebuild vectorizes it again - recorded.
          */
-        private void executeOrDeferUpdateInsertion(final Runnable op)
+        private float[] vectorizeForUpdate(final E entity, final int ordinal, final boolean replacement)
+        {
+            try
+            {
+                return this.vectorize(entity);
+            }
+            catch(final RuntimeException | Error e)
+            {
+                if(!replacement)
+                {
+                    this.recordRetainedMutationFailure(ordinal, e);
+                }
+                throw e;
+            }
+        }
+
+        /**
+         * {@link #executeOrDeferBuilderOp} for the graph op of a synchronous update. Only an inline op throws here; a
+         * deferred one is recorded by the drain that runs it. The entity stays in the map either way (a rejected
+         * replacement or a retained mutation; GigaMap does not roll an update back, so no removal retires the id) with
+         * its node in an unknown state: recorded as incomplete ({@link #markGraphIncomplete}), repaired by the
+         * background task manager if there is one, otherwise latched for {@code search()} until the next persist or
+         * {@code reindex()}. GigaMap keeps the old entity of a rejected replacement, so the computed store must hold
+         * its vector again - if the write changed it at all (null→null writes nothing).
+         */
+        private void runUpdateGraphOp(
+            final Runnable           op         ,
+            final ComputedStoreWrite storeWrite ,
+            final boolean            replacement
+        )
         {
             try
             {
@@ -5874,8 +5854,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             catch(final RuntimeException | Error e)
             {
-                // only an inline insertion throws here; a deferred one is recorded by the drain that runs it
                 this.markGraphIncomplete(e);
+                if(replacement && storeWrite != null && storeWrite.changed())
+                {
+                    storeWrite.undo(e);
+                }
                 throw e;
             }
         }
@@ -6045,12 +6028,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private void internalMarkOrdinalDeleted(final int ordinal)
         {
             this.recordDiskOrdinalSuperseded(ordinal);
-            final GraphIndexBuilder currentBuilder = this.builder;
-            if(currentBuilder != null && graphOf(currentBuilder).containsNode(ordinal))
+            // the synchronous paths and the drains run under the parent-map monitor, which the PQ switch holds while
+            // it publishes, so reading the generation here is the same as reading it a line earlier
+            this.deleteGraphNode(this.builder, this.inMemoryPqVectors, ordinal);
+        }
+
+        /**
+         * Marks the node of {@code ordinal} deleted in one captured generation, if it is present there (a never-indexed
+         * entity, or a disk-only node, has none and markNodeDeleted would fail). The code is dropped after the delete,
+         * so no in-flight scorer sees a zeroed code for a node that is still live.
+         */
+        private void deleteGraphNode(final GraphIndexBuilder builder, final MutablePQVectors codes, final int ordinal)
+        {
+            if(builder != null && graphOf(builder).containsNode(ordinal))
             {
                 this.fireDeleteTestHook(ordinal);
-                currentBuilder.markNodeDeleted(ordinal);
-                this.untrackPqCode(ordinal);
+                builder.markNodeDeleted(ordinal);
+                this.untrackPqCode(codes, ordinal);
             }
         }
 
@@ -6186,8 +6180,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // would churn the entire graph and lose nodes out of it.
                 //
                 // Clearing a deleted bit is kept, because an add for an ordinal that is present
-                // but marked deleted does mean "this entity is back" - the same thing the resurrect
-                // path does, and for the same reason.
+                // but marked deleted does mean "this entity is back" (the embedded vec→null→vec
+                // update). The code above is written before the bit is cleared, not after: this
+                // path may hold no builderLock, so a search can be traversing concurrently, and a
+                // node made reachable before its code is written would be scored against whatever
+                // the code used to be - the old embedding, or zero.
                 currentIndex.getDeletedNodes().clear(ordinal);
                 return;
             }
@@ -6203,56 +6200,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         /**
          * {@link #internalAddGraphNodeIdempotent} for an ordinal that may already have a version on
-         * disk, i.e. the embedded {@code null→vec} update path. Masks the disk-resident node first so
-         * search does not answer from both copies.
+         * disk, i.e. the embedded {@code null→vec} and {@code vec→null→vec} update paths. Masks the
+         * disk-resident node first so search does not answer from both copies. Which of the two it is
+         * is decided from CURRENT state at execution time: a node marked deleted only carries a bit
+         * (it stays in every layer), so clearing that bit is enough and keeps the op monitor-safe; a
+         * node that is gone entirely - e.g. because the builder was swapped between deferral and
+         * drain - is added instead, otherwise the entity silently disappears from the graph.
          */
         private void internalReaddGraphNode(final int ordinal, final VectorFloat<?> vf)
         {
             this.recordDiskOrdinalSuperseded(ordinal);
             this.internalAddGraphNodeIdempotent(ordinal, vf);
-        }
-
-        /**
-         * Re-adds or resurrects an embedded-mode node, deciding from CURRENT state at execution time.
-         * A node marked deleted only carries a bit (it stays in every layer), so clearing that bit is
-         * enough and keeps the op monitor-safe; a node that is gone entirely - e.g. because the
-         * builder was swapped between deferral and drain - must be added instead, otherwise the
-         * entity silently disappears from the graph.
-         */
-        private void internalResurrectGraphNode(final int ordinal, final VectorFloat<?> vf)
-        {
-            this.recordDiskOrdinalSuperseded(ordinal);
-            final GraphIndexBuilder currentBuilder = this.builder;
-            if(currentBuilder == null)
-            {
-                return;
-            }
-            final OnHeapGraphIndex currentIndex = graphOf(currentBuilder);
-            if(currentIndex.containsNode(ordinal))
-            {
-                // The node keeps its place in the graph, but its vector may not be the one it was
-                // inserted with - this path also serves an update whose embedding changed. Exact
-                // scoring never notices, because it reads the vector live from the GigaMap. A PQ
-                // code is a copy, so leaving it stale would keep scoring this node by the embedding
-                // it used to have, and it would stop being findable by its new one.
-                //
-                // Before the node becomes visible, not after. This path holds no builderLock, so a
-                // search can be traversing concurrently: clearing the deleted bit first would make
-                // the node reachable for the instant before its code is written, and it would be
-                // scored against whatever the code used to be - the old embedding, or zero. Every
-                // add path already writes the code before the node becomes reachable; this is the
-                // same rule for the resurrect path.
-                this.trackPqCode(ordinal, vf);
-
-                currentIndex.getDeletedNodes().clear(ordinal);
-                return;
-            }
-            // containsNode only inspects layer 0, so "absent" can still mean "present in an upper
-            // layer" after an earlier interleaved add/remove. Purge all layers before adding, or the
-            // add throws the very IllegalStateException this change is about.
-            currentIndex.removeNode(ordinal);
-            this.trackPqCode(ordinal, vf);
-            currentBuilder.addGraphNode(ordinal, vf);
         }
 
         private static OnHeapGraphIndex graphOf(final GraphIndexBuilder builder)
