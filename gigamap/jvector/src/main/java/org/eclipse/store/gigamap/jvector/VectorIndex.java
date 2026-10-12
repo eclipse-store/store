@@ -1590,13 +1590,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
 
             // Publication, and the order matters: the epoch first, then the codes, then the graph, then the
-            // builder that scores from them. All four fields are volatile, which is what makes that ordering
-            // mean anything to another thread.
+            // builder that scores from them, and the record of the old graph as incomplete cleared last. All
+            // fields are volatile, which is what makes that ordering mean anything to another thread.
             //
             // The replacement is a new generation of the graph: complete by construction (it holds every stored
             // vector, and the monitor held here kept the store from changing while it was built). Every queued or
             // deferred operation and every late failure report of the old graph is therefore redundant - the epoch
-            // drops them - and a record of the old graph as incomplete is obsolete.
+            // drops them - and a record of the old graph as incomplete is obsolete. That record is cleared after
+            // the graph, not before: a search holds the read lock and not this monitor, so one can read the latch
+            // between the clear and the publication and traverse the old, incomplete graph as if it were healthy.
+            // Cleared last, a search that read the latch too early throws for a graph that is complete by now, which
+            // is the harmless side.
             //
             // The epoch leads because this publication holds no builder lock, so a worker callback can be between
             // its epoch check and its work. The callbacks read the builder and the codes BEFORE they check the
@@ -1617,7 +1621,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // the codes really are what a search would score from, and it would score correctly, because they
             // describe the old graph's ordinals just as well as the replacement's.
             this.graphEpoch++;
-            this.clearGraphIncomplete();
             if(this.deferredBuilderOps != null)
             {
                 this.deferredBuilderOps.clear();
@@ -1626,6 +1629,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             this.index   = (OnHeapGraphIndex)replacement.getGraph();
             this.builder = replacement;
+            this.clearGraphIncomplete();
 
             LOG.info("Switched in-memory index '{}' to PQ-compressed scoring ({} codes)",
                 this.name, codes.count());
