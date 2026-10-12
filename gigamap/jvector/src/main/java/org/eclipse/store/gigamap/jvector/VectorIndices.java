@@ -332,14 +332,14 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
             // An exception aborts: GigaMap's rollback then removes the entity from every index. An Error stops
             // nothing: GigaMap rolls an add back on Exception only, so the entity stays in the map and every remaining
             // index must still see it (the throwing one has recorded its own failure).
-            this.fanOut(index -> index.internalAdd(entityId, entity), false);
+            this.fanOut(index -> index.internalAdd(entityId, entity), Failures.ABORT_ON_EXCEPTION);
         }
 
         @Override
         public final void internalAddAll(final long firstEntityId, final Iterable<? extends E> entities)
         {
             // an exception aborts, an Error stops nothing: see internalAdd
-            this.fanOut(index -> index.internalAddAll(firstEntityId, entities), false);
+            this.fanOut(index -> index.internalAddAll(firstEntityId, entities), Failures.ABORT_ON_EXCEPTION);
         }
 
         @Override
@@ -356,11 +356,15 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
             final CustomConstraints<? super E> customConstraints
         )
         {
-            // A rejected replacement (set/replace pass a new instance) aborts at the first exception: GigaMap keeps
-            // the old entity. A retained in-place update (update/apply pass the same instance) must reach every
-            // remaining index, because GigaMap keeps the mutated entity whatever an index threw.
+            // A rejected replacement (set/replace pass a new instance) aborts at the first failure, an Error included:
+            // GigaMap keeps the old entity, so no remaining index may be updated to the replacement. A retained
+            // in-place update (update/apply pass the same instance) must reach every remaining index, because GigaMap
+            // keeps the mutated entity whatever an index threw.
             final boolean retained = replacedEntity == entity;
-            this.fanOut(index -> index.internalUpdate(entityId, replacedEntity, entity), retained);
+            this.fanOut(
+                index -> index.internalUpdate(entityId, replacedEntity, entity),
+                retained ? Failures.COLLECT : Failures.ABORT
+            );
         }
 
         @Override
@@ -379,17 +383,27 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
         @Override
         public final void internalRemove(final long entityId, final E entity)
         {
-            this.fanOut(index -> index.internalRemove(entityId, entity), true);
+            this.fanOut(index -> index.internalRemove(entityId, entity), Failures.COLLECT);
+        }
+
+        /** what a failure of one index does to the fan-out over the others, see {@link #fanOut} */
+        private enum Failures
+        {
+            /** any failure stops the fan-out */
+            ABORT,
+            /** an exception stops the fan-out, an {@link Error} is kept and the fan-out goes on */
+            ABORT_ON_EXCEPTION,
+            /** every failure is kept and the fan-out goes on */
+            COLLECT
         }
 
         /**
-         * Calls every index. A {@link VirtualMachineError} is rethrown at once. An {@link Error} stops nothing, and
-         * neither does an exception if {@code collectExceptions}; otherwise an exception aborts the fan-out. The first
-         * kept failure is rethrown at the end, later ones attached to it as suppressed. The mark is in a finally, like
-         * GigaIndices: an index that threw may have moved its persisted restart witness or written its vector store,
-         * and the storer only descends to it through this mark.
+         * Calls every index. A {@link VirtualMachineError} is rethrown at once; what another failure does depends on
+         * {@code failures}. The first kept failure is rethrown at the end, later ones attached to it as suppressed. The
+         * mark is in a finally, like GigaIndices: an index that threw may have moved its persisted restart witness or
+         * written its vector store, and the storer only descends to it through this mark.
          */
-        private void fanOut(final Consumer<? super VectorIndex.Internal<E>> call, final boolean collectExceptions)
+        private void fanOut(final Consumer<? super VectorIndex.Internal<E>> call, final Failures failures)
         {
             Throwable first = null;
             try
@@ -406,7 +420,7 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
                     }
                     catch(final RuntimeException e)
                     {
-                        if(!collectExceptions)
+                        if(failures != Failures.COLLECT)
                         {
                             throw e;
                         }
@@ -414,6 +428,10 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
                     }
                     catch(final Error e)
                     {
+                        if(failures == Failures.ABORT)
+                        {
+                            throw e;
+                        }
                         first = firstOf(first, e);
                     }
                 }
