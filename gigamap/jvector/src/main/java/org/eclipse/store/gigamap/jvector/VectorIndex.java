@@ -1183,10 +1183,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         /**
          * An {@link Error} left an entity in the map whose vector the computed store never received (GigaMap rolls
-         * an add back on Exception only), or the store could not be restored after a failed update. No rebuild from
-         * the store can recover that, and every rebuild clears {@link #graphRepairFailure}, so this latch is its own:
-         * {@link #search} throws while it is set, and only a new generation ({@code reindex()}) clears it. An
-         * embedded index has no such state: its rebuild reads the entities.
+         * an add back on Exception only), the store could not be restored after a failed update, or a failed removal
+         * left it holding the vector of an entity the map no longer has. No rebuild from the store can recover that,
+         * and every rebuild clears {@link #graphRepairFailure}, so this latch is its own: {@link #search} throws while
+         * it is set, and only a new generation ({@code reindex()}) clears it. An embedded index has no such state:
+         * its rebuild reads the entities.
          */
         private transient volatile Throwable              vectorStoreFailure;
 
@@ -2882,7 +2883,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 // The store's own set and add are atomic, so a failed write leaves the store as it was - which for a
                 // retained mutation is a vector the entity no longer has (an Error, or a removal that failed after
-                // the store cleared its slot, is latched inside already; recording twice is harmless).
+                // the store cleared its slot, is latched inside already; recording the same entity twice keeps its
+                // ordinal, so removing it still clears the latch).
                 if(!replacement)
                 {
                     this.recordRetainedMutationFailure(ordinal, e);
@@ -3313,7 +3315,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 final long storeId = computedIdIndex.get(ordinal);
                 if(storeId != OrdinalStoreIdTable.ABSENT)
                 {
-                    this.vectorStore.removeById(storeId);
+                    try
+                    {
+                        this.vectorStore.removeById(storeId);
+                    }
+                    catch(final RuntimeException | Error e)
+                    {
+                        this.recordFailedStoreRemoval(computedIdIndex, ordinal, storeId, e);
+                        throw e;
+                    }
                     computedIdIndex.remove(ordinal);
                 }
                 if(this.vectorStoreFailure != null && ordinal == this.vectorStoreFailureOrdinal)
@@ -4464,7 +4474,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         hook.run();
                     }
 
-                    capturedBuilder.cleanup();
+                    try
+                    {
+                        capturedBuilder.cleanup();
+                    }
+                    catch(final RuntimeException | Error e)
+                    {
+                        // cleanup mutates the live graph (it removes deleted nodes and relinks their neighbours): a
+                        // throw partway leaves it in an unknown state, like a failed insertion - see doOptimize
+                        this.markGraphIncomplete(e);
+                        throw e;
+                    }
                     capturedDiskMgr.writeIndex(
                         capturedIndex, capturedRavv, capturedPqMgr, capturedNvqMgr, capturedMeta);
 
@@ -5641,9 +5661,42 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.markGraphIncomplete(e);
                 return;
             }
-            // a second entity while the first is still latched: no single removal can clear this any more
-            this.vectorStoreFailureOrdinal = this.vectorStoreFailure == null ? ordinal : UNKNOWN_ORDINAL;
+            // A second entity while the first is still latched: no single removal can clear this any more. The same
+            // entity recorded twice (a failed store removal is recorded inside the write and again by the update)
+            // keeps its ordinal.
+            this.vectorStoreFailureOrdinal = this.vectorStoreFailure == null || this.vectorStoreFailureOrdinal == ordinal
+                ? ordinal
+                : UNKNOWN_ORDINAL
+            ;
             this.vectorStoreFailure        = e;
+        }
+
+        /**
+         * A synchronous removal whose store removal threw, after GigaMap removed the entity. The store clears its slot
+         * before it runs its own indices, so normally the entry is gone although the removal threw: the mapping must
+         * not dangle, and the node, still live in the graph, is dropped by the repair's rebuild from the store. If the
+         * throw came before the slot was cleared (e.g. the store refusing to mutate), the store holds the vector of an
+         * entity the map no longer has, and a rebuild from it would resurrect the entity: latched until
+         * {@code reindex()}. The witnesses move either way, as they do for a removal that succeeds.
+         */
+        private void recordFailedStoreRemoval(
+            final OrdinalStoreIdTable computedIdIndex,
+            final int                 ordinal        ,
+            final long                storeId        ,
+            final Throwable           e
+        )
+        {
+            if(this.vectorStore.get(storeId) == null)
+            {
+                computedIdIndex.remove(ordinal);
+                this.markGraphIncomplete(e);
+            }
+            else
+            {
+                this.recordVectorMissing(e);
+            }
+            this.markContentChanged();
+            this.recordDiskOrdinalSuperseded(ordinal);
         }
 
         /**
@@ -5849,7 +5902,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(storeFailure != null)
             {
                 throw new IllegalStateException(
-                    "Vector index \"" + this.name + "\" is incomplete: its stored vectors do not cover every entity"
+                    "Vector index \"" + this.name + "\" is incomplete: its stored vectors do not match the entities"
                     + " (an operation failed after its entity was counted), and no rebuild from them can recover"
                     + " that. Fix the cause (see the attached failure) and call GigaMap.reindex().",
                     storeFailure

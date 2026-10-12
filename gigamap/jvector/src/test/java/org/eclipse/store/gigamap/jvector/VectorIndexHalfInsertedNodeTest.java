@@ -14,6 +14,7 @@ package org.eclipse.store.gigamap.jvector;
  * #L%
  */
 
+import org.eclipse.store.gigamap.types.GigaIterator;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.IndexerString;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
@@ -933,5 +934,199 @@ class VectorIndexHalfInsertedNodeTest
         map.removeById(COUNT); // the entity the store never received
         assertEquals(COUNT, map.size(), "precondition: the entity is removed");
         assertEquals(COUNT, foundIds(index, COUNT).size(), "the store latch survived the removal of its entity");
+    }
+
+    /**
+     * The same holds when the entity behind the latch was recorded twice: a retained in-place update to a null vector
+     * whose store removal threw is recorded by the store write and again by the update. The second record must keep
+     * the entity's ordinal, or the removal no longer clears the latch.
+     */
+    @Test
+    void removingTheEntityBehindARetainedNullMutationLatchClearsIt()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", withManager(), new ComputedVectorizer());
+        final long id = COUNT / 2;
+
+        final GigaMap<VectorEntry>                      store = internalState(index, "vectorStore");
+        final java.util.concurrent.atomic.AtomicBoolean armed = new java.util.concurrent.atomic.AtomicBoolean();
+        store.index().bitmap().add(new IndexerString.Abstract<VectorEntry>()
+        {
+            @Override
+            protected String getString(final VectorEntry entry)
+            {
+                if(armed.get() && entry.sourceEntityId == id)
+                {
+                    throw new IllegalStateException("simulated store failure removing the vector of " + id);
+                }
+                return "";
+            }
+        });
+
+        armed.set(true);
+        assertThrows(RuntimeException.class, () -> map.apply(id, doc ->
+        {
+            doc.vector = null;
+            return null;
+        }), "precondition: the apply failed in the store");
+        armed.set(false);
+        assertNull(map.get(id).vector, "precondition: GigaMap retains the mutated entity");
+        assertThrows(IllegalStateException.class, () -> foundIds(index, COUNT), "precondition: the store is latched");
+
+        map.removeById(id); // the one entity the store does not cover
+        awaitWorker(index);
+        assertEquals(COUNT - 1, foundIds(index, COUNT).size(), "the store latch survived the removal of its entity");
+        assertFalse(foundIds(index, COUNT).contains(id), "the removed entity is still found");
+    }
+
+    /**
+     * A synchronous removal whose store removal throws, after GigaMap removed the entity. The store clears its slot
+     * before it runs its own indices, so the vector is gone, but the mapping, the restart witness and the graph node
+     * were left as they were: the removed entity stayed searchable with nothing recorded. The failure must be
+     * recorded like a failed graph deletion, and the repair drops the node.
+     */
+    @Test
+    void failedStoreRemovalOfARemovedEntityIsRepaired()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", withManager(), new ComputedVectorizer());
+        final long id = COUNT / 2;
+
+        final GigaMap<VectorEntry>                      store = internalState(index, "vectorStore");
+        final java.util.concurrent.atomic.AtomicBoolean armed = new java.util.concurrent.atomic.AtomicBoolean();
+        store.index().bitmap().add(new IndexerString.Abstract<VectorEntry>()
+        {
+            @Override
+            protected String getString(final VectorEntry entry)
+            {
+                if(armed.get() && entry.sourceEntityId == id)
+                {
+                    throw new IllegalStateException("simulated store failure removing the vector of " + id);
+                }
+                return "";
+            }
+        });
+        final long witnessBefore = internalState(index, "structuralModCount");
+
+        armed.set(true);
+        assertThrows(RuntimeException.class, () -> map.removeById(id), "precondition: the removal failed in the store");
+        armed.set(false);
+        assertNull(map.get(id), "precondition: GigaMap removed the entity");
+        assertNull(index.getVector(id), "precondition: the store cleared its slot although the removal threw");
+
+        final OrdinalStoreIdTable mapping = internalState(index, "computedIdIndex");
+        assertEquals(OrdinalStoreIdTable.ABSENT, mapping.get(id), "the mapping of the removed entity dangles");
+        assertTrue((long)internalState(index, "structuralModCount") > witnessBefore, "the restart witness did not move");
+
+        awaitWorker(index); // the repair rebuilds from the store, which no longer holds the entity
+        assertFalse((boolean)internalState(index, "graphIncomplete"), "the failed removal was not repaired");
+        assertFalse(foundIds(index, COUNT).contains(id), "the removed entity is still found");
+        assertEquals(COUNT - 1, foundIds(index, COUNT).size(), "entities are missing after the repair");
+    }
+
+    /**
+     * The store can also refuse the removal before it clears its slot (here: it is read-only for an iterator open on
+     * the mutating thread). Then it holds the vector of an entity the map no longer has, and a rebuild from it would
+     * resurrect the entity: no automatic repair can be right, so the index must be loud until reindex().
+     */
+    @Test
+    void failedStoreRemovalThatKeptTheVectorIsLoudUntilReindex()
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", inMemory(), new ComputedVectorizer());
+        final long id = COUNT / 2;
+
+        final GigaMap<VectorEntry> store = internalState(index, "vectorStore");
+        try(GigaIterator<VectorEntry> reader = store.iterator())
+        {
+            assertThrows(IllegalStateException.class, () -> map.removeById(id), "precondition: the store refused the removal");
+        }
+        assertNull(map.get(id), "precondition: GigaMap removed the entity");
+        assertNotNull(index.getVector(id), "precondition: the store still holds the vector of the removed entity");
+
+        final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index, COUNT),
+            "a search answered from a store holding the vector of a removed entity");
+        assertTrue(e.getMessage().contains("reindex"), e.getMessage());
+
+        map.reindex();
+        assertFalse(foundIds(index, COUNT).contains(id), "the removed entity survived the reindex");
+        assertEquals(COUNT - 1, foundIds(index, COUNT).size(), "entities are missing after the reindex");
+    }
+
+    private static VectorIndexConfiguration.Builder onDisk(final Path dir)
+    {
+        return VectorIndexConfiguration.builder()
+            .dimension(4)
+            .similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
+            .onDisk(true)
+            .indexDirectory(dir.resolve("index"));
+    }
+
+    /**
+     * Persist Phase 2 runs {@code cleanup()} on the captured graph, which removes the deleted nodes and relinks their
+     * neighbours, scoring through the vectorizer in embedded mode. A throw partway leaves the live graph in an unknown
+     * state, exactly as it does in {@code optimize()}, and must be recorded the same way: without a background thread
+     * the index is loud until the next persist rebuilds the graph from the entities before it writes.
+     */
+    @Test
+    void failedCleanupOfAPersistIsLoudUntilThePersistThatRebuilds(@TempDir final Path dir)
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", onDisk(dir).build(), new NeighbourFlakyVectorizer());
+        for(int i = 1; i <= 3; i++)
+        {
+            map.removeById(COUNT - i); // deleted nodes: cleanup() relinks their neighbours
+        }
+
+        ((VectorIndex.Default<?>)index).persistPhase2TestHook = () -> failPoison = true;
+        assertThrows(RuntimeException.class, index::persistToDisk, "precondition: the persist failed");
+        ((VectorIndex.Default<?>)index).persistPhase2TestHook = null;
+        assertTrue(poisonCalls.get() > 0, "precondition: cleanup() scored the poison entity");
+        failPoison = false; // the cause is fixed
+
+        assertTrue((boolean)internalState(index, "graphIncomplete"), "the failed cleanup was not recorded");
+        final IllegalStateException e = assertThrows(IllegalStateException.class, () -> foundIds(index, COUNT),
+            "a search answered from the graph cleanup() left behind");
+        assertTrue(e.getMessage().contains("incomplete"), e.getMessage());
+
+        index.persistToDisk(); // Phase 1 rebuilds from the entities, then writes
+        assertEquals(COUNT - 3, foundIds(index, COUNT).size(), "entities are missing after the rebuilding persist");
+        assertTrue((boolean)internalState(index, "incrementalMode"), "the rebuilding persist did not write");
+        index.close();
+    }
+
+    /**
+     * {@link #failedCleanupOfAPersistIsLoudUntilThePersistThatRebuilds}, with a background thread: the recorded
+     * failure is repaired from the entities, and searches answer from the rebuilt graph.
+     */
+    @Test
+    void failedCleanupOfAPersistIsRepaired(@TempDir final Path dir)
+    {
+        final GigaMap<Doc>     map   = populatedMap();
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("emb", onDisk(dir).optimizationIntervalMs(60_000).build(), new NeighbourFlakyVectorizer());
+        for(int i = 1; i <= 3; i++)
+        {
+            map.removeById(COUNT - i);
+        }
+
+        final Object builderBefore = internalState(index, "builder");
+
+        ((VectorIndex.Default<?>)index).persistPhase2TestHook = () -> failPoison = true;
+        assertThrows(RuntimeException.class, index::persistToDisk, "precondition: the persist failed");
+        ((VectorIndex.Default<?>)index).persistPhase2TestHook = null;
+        assertTrue(poisonCalls.get() > 0, "precondition: cleanup() scored the poison entity");
+        failPoison = false;
+
+        awaitWorker(index); // the repair
+        assertNotSame(builderBefore, internalState(index, "builder"), "the graph cleanup() left behind was not rebuilt");
+        assertFalse((boolean)internalState(index, "graphIncomplete"), "the failed cleanup was not repaired");
+        assertNull(internalState(index, "graphRepairFailure"), "the repair failed");
+        assertEquals(COUNT - 3, foundIds(index, COUNT).size(), "entities are missing after the repair");
+        index.close();
     }
 }
