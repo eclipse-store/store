@@ -17,7 +17,6 @@ package org.eclipse.store.gigamap.jvector;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -37,28 +36,10 @@ class BackgroundTaskManagerShutdownTest
      * time but returns cooperatively when interrupted (mirrors how the real persist unwinds when the
      * executor is interrupted mid-write).
      */
-    private static final class SlowPersistCallback implements BackgroundTaskManager.Callback
+    private static final class SlowPersistCallback extends VectorIndexTestSupport.NoOpCallback
     {
         final CountDownLatch persistStarted     = new CountDownLatch(1);
         final AtomicBoolean  persistInterrupted = new AtomicBoolean(false);
-
-        @Override
-        public void applyGraphAdd(final VectorEntry entry) { /* no-op */ }
-
-        @Override
-        public void applyGraphBatchAdd(final List<VectorEntry> entries) { /* no-op */ }
-
-        @Override
-        public void applyGraphUpdate(final VectorEntry entry) { /* no-op */ }
-
-        @Override
-        public void applyGraphRemove(final int ordinal) { /* no-op */ }
-
-        @Override
-        public void markDirtyForBackgroundManagers(final int count) { /* no-op */ }
-
-        @Override
-        public void doOptimize() { /* no-op */ }
 
         @Override
         public void doPersistToDisk(final boolean onShutdown)

@@ -37,6 +37,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static org.eclipse.store.gigamap.jvector.VectorIndexTestSupport.awaitWorker;
+import static org.eclipse.store.gigamap.jvector.VectorIndexTestSupport.failOneInsertion;
+import static org.eclipse.store.gigamap.jvector.VectorIndexTestSupport.internalState;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -1273,5 +1276,108 @@ class VectorIndexInMemoryPqTest
             nb  += b[i] * b[i];
         }
         return (float)(dot / (Math.sqrt(na) * Math.sqrt(nb)));
+    }
+
+    /**
+     * A failure report of the old graph that arrives after the switch published its replacement must not flag the
+     * replacement: it holds every stored vector, and the monitor held during the switch kept the store from
+     * changing, so every queued operation and every late report of the old graph is redundant. Flagging it would
+     * request a repair of a complete graph; here that repair fails, which would latch searches against it.
+     */
+    @Test
+    void aLateFailureReportOfTheOldGraphDoesNotFlagThePublishedReplacement()
+    {
+        final Random        random  = new Random(4242);
+        final List<float[]> vectors = clusteredVectors(random, 1000);
+        final GigaMap<Doc>  map     = GigaMap.New();
+
+        try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("embeddings", inMemoryPqConfig(), new CountingVectorizer()))
+        {
+            for(int i = 0; i < vectors.size(); i++)
+            {
+                map.add(new Doc("d" + i, vectors.get(i)));
+            }
+            final VectorIndex.Default<Doc> internal = (VectorIndex.Default<Doc>)index;
+            final AtomicLong               oldEpoch = new AtomicLong(-1L);
+            internal.pqSwitchPublishTestHook = () -> oldEpoch.set(internalState(index, "graphEpoch"));
+
+            index.optimize();
+            assertTrue(index.isPqCompressionActive(), "precondition: the optimization switched");
+            assertTrue(oldEpoch.get() >= 0L, "precondition: the hook saw the epoch before the publication");
+
+            failOneInsertion(index, 0); // a repair of the replacement would fail here, and latch
+            internal.markGraphIncomplete(
+                new IllegalStateException("late report of an operation of the old graph"), oldEpoch.get());
+            awaitWorker(index);
+
+            assertNull(internalState(index, "graphRepairFailure"),
+                "a late report of the old graph latched the published replacement");
+            assertFalse((boolean)internalState(index, "graphIncomplete"),
+                "a late report of the old graph flagged the published replacement");
+            assertEquals(10, index.search(vectors.get(0), 10).toList().size(), "the published replacement does not answer");
+        }
+    }
+
+    /**
+     * The publication of the replacement holds the monitor, not the builder lock. A failure report of the old graph
+     * that arrives WHILE the switch publishes must wait for the monitor, so that it checks the epoch after the
+     * publication moved it; checking before and recording after would flag the complete replacement.
+     */
+    @Test
+    void aFailureReportDuringTheSwitchWaitsForThePublication() throws InterruptedException
+    {
+        final Random        random  = new Random(2424);
+        final List<float[]> vectors = clusteredVectors(random, 1000);
+        final GigaMap<Doc>  map     = GigaMap.New();
+
+        try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("embeddings", inMemoryPqConfig(), new CountingVectorizer()))
+        {
+            for(int i = 0; i < vectors.size(); i++)
+            {
+                map.add(new Doc("d" + i, vectors.get(i)));
+            }
+            final VectorIndex.Default<Doc> internal   = (VectorIndex.Default<Doc>)index;
+            final AtomicBoolean            wasBlocked = new AtomicBoolean();
+            final Thread[]                 reporter   = new Thread[1];
+
+            internal.pqSwitchPublishTestHook = () ->
+            {
+                // the report of an op of the generation being replaced, sent while the publication is under way
+                final long oldEpoch = internalState(index, "graphEpoch");
+                reporter[0] = new Thread(() -> internal.markGraphIncomplete(
+                    new IllegalStateException("report of an operation of the old graph"), oldEpoch), "pq-late-reporter");
+                reporter[0].start();
+
+                // the reporter must park on the monitor this hook holds; polled rather than slept on
+                final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+                while(System.nanoTime() < deadline)
+                {
+                    final Thread.State state = reporter[0].getState();
+                    if(state == Thread.State.BLOCKED)
+                    {
+                        wasBlocked.set(true);
+                        return;
+                    }
+                    if(state == Thread.State.TERMINATED)
+                    {
+                        return; // it did not wait: the report went through before the publication
+                    }
+                    Thread.onSpinWait();
+                }
+            };
+
+            index.optimize();
+            assertTrue(index.isPqCompressionActive(), "precondition: the optimization switched");
+            assertNotNull(reporter[0], "precondition: the hook ran");
+            reporter[0].join(TimeUnit.SECONDS.toMillis(30));
+            assertFalse(reporter[0].isAlive(), "the report did not complete after the publication");
+
+            assertTrue(wasBlocked.get(), "a failure report during the switch did not wait for the publication");
+            awaitWorker(index);
+            assertNull(internalState(index, "graphRepairFailure"), "the report latched the published replacement");
+            assertFalse((boolean)internalState(index, "graphIncomplete"), "the report flagged the published replacement");
+        }
     }
 }

@@ -141,6 +141,9 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * again during cleanup), those are attached as suppressed exceptions and the affected id is
 	 * "burned", i.e. skipped for future additions, so that possibly remaining stale index entries
 	 * can never refer to another entity. Such remainders are cleaned up by {@link #reindex()}.
+	 * A vector index uses this on purpose: when the graph insertion of the new element fails partway, its
+	 * removal during the rollback throws (attached as a suppressed exception) so that the id is skipped and
+	 * no later element can inherit the partially inserted graph node.
 	 *
 	 * @param element the element to add, not <code>null</code>
 	 * @return the assigned id
@@ -682,10 +685,14 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * entities again, so it holds no copy. Only a failure
 	 * during the rebuild that follows can leave it partial: in embedded mode the rebuild calls the vectorizer again,
 	 * for each entity and for its neighbours while scoring, so a vectorizer that fails only then, an
-	 * {@link OutOfMemoryError} or a failure inside the graph library does. Such an index stays partial until the next successful call of this
-	 * method, and a following {@link #store()} can make that survive a restart: the stored vectors of a computed
-	 * index, and an on-disk graph written by a persist in between, are loaded again. An embedded in-memory graph
-	 * is rebuilt from the entities on load.
+	 * {@link OutOfMemoryError} or a failure inside the graph library does. Such an index records its graph as
+	 * incomplete: with a background task manager it is rebuilt from the entities or the stored vectors on that
+	 * thread, otherwise its searches throw an {@link IllegalStateException} naming the failure until the next
+	 * successful call of this method or, for an on-disk index, {@code persistToDisk()}. A computed index whose
+	 * failure struck while it was storing the vectors is recovered by this method only: no rebuild from the stored
+	 * vectors can supply what they lack. The persisted state is never taken from an incomplete graph; the stored
+	 * vectors of a computed index, however, are persisted as they are, so a store left short by such a failure is
+	 * served short after a restart, without the exception, until this method succeeds.
 	 * A Lucene index discards a failed rebuild and rebuilds itself on its next use in this session; until that
 	 * succeeds, its queries fail, and with {@code LuceneContext.autoCommit} {@code false} so does storing the
 	 * map. That mark does not survive a restart: afterwards the index serves its last commit, without the

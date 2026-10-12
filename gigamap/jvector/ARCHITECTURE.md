@@ -580,32 +580,36 @@ After background shutdown, `close()` acquires `builderLock.writeLock()` and tear
 
 ## 8. Background task subsystem
 
-`BackgroundTaskManager` consolidates three workloads onto a single daemon thread named `VectorIndex-Background-{name}`:
+`BackgroundTaskManager` consolidates four workloads onto a single daemon thread named `VectorIndex-Background-{name}`:
 
 1. Draining the indexing queue
 2. Scheduled optimization (`runOptimizationIfDirty`)
 3. Scheduled persistence (`runPersistenceIfDirty`)
+4. Graph repair (`runGraphRepair`), one-shot, requested by a failed graph operation (see **Failure handling**)
 
-The three never run concurrently because they all execute on the same `ScheduledExecutorService`, and they all eventually contend for `builderLock.writeLock()` anyway — a single thread is therefore sufficient.
+The four never run concurrently because they all execute on the same `ScheduledExecutorService`, and they all eventually contend for `builderLock.writeLock()` anyway — a single thread is therefore sufficient.
 
 ### `IndexingOperation` sealed family
 
 Defined in [`BackgroundTaskManager.java:53`](src/main/java/org/eclipse/store/gigamap/jvector/BackgroundTaskManager.java):
 
-- `Add(VectorEntry entry)` → `callback.applyGraphAdd(entry)` + dirty-mark 1
-- `Update(VectorEntry entry)` → `callback.applyGraphUpdate(entry)` + dirty-mark 1
-- `Remove(int ordinal)` → `callback.applyGraphRemove(ordinal)` + dirty-mark 1
-- `BatchAdd(List<VectorEntry> entries)` → single `applyGraphBatchAdd` call + dirty-mark `entries.size()` (acquires `builderLock` once for the entire batch — see commit `e7c306e5`)
+- `Add(VectorEntry entry, long epoch)` → `callback.applyGraphAdd(entry, epoch)`
+- `Update(VectorEntry entry, long epoch)` → `callback.applyGraphUpdate(entry, epoch)`
+- `Remove(int ordinal, long epoch)` → `callback.applyGraphRemove(ordinal, epoch)`
+- `BatchAdd(List<VectorEntry> entries, long epoch)` → single `applyGraphBatchAdd` call (acquires `builderLock` once for the entire batch — see commit `e7c306e5`)
+
+Every operation carries the index's **graph epoch** at the time it was enqueued. The epoch moves on every rebuild from the source of truth, on every new generation (`internalRemoveAll`) and on a published in-memory PQ replacement; the callback drops an operation whose epoch has moved, because the graph that replaced the old one already accounts for its mutation. Dirty marking for optimization/persistence happens inside the callback, after the epoch check, so a dropped operation does not count as a change.
 
 ### Enqueue protocol
 
 `enqueue(op)`:
 
-1. `indexingQueue.add(op)` — non-blocking `ConcurrentLinkedQueue`.
-2. `indexingTaskScheduled.compareAndSet(false, true)` — at-most-one-active-task latch.
-3. On CAS success: `executor.submit(this::processIndexingBatch)`.
+1. `pendingGraphOps.incrementAndGet()` — the count of operations the graph is still behind, decremented only after an operation ran (or was discarded), not when it was polled.
+2. `indexingQueue.add(op)` — non-blocking `ConcurrentLinkedQueue`.
+3. `indexingTaskScheduled.compareAndSet(false, true)` — at-most-one-active-task latch.
+4. On CAS success: `executor.submit(this::processIndexingBatch)`.
 
-`processIndexingBatch` polls the queue dry, then in `finally` resets `indexingTaskScheduled = false` and re-checks the queue (a producer who arrived between the last poll and the flag reset would otherwise be stranded).
+`processIndexingBatch` polls the queue dry, then in `finally` resets `indexingTaskScheduled = false` and re-checks the queue (a producer who arrived between the last poll and the flag reset would otherwise be stranded). While an operation runs, `opsInFlight` is positive. A persist consults both counters under the write lock: with pending operations and none in flight it applies the queue inline before taking the monitor; with an operation in flight it cannot know what the graph holds and rebuilds from the source of truth instead of capturing a graph behind its queue.
 
 ### Drain triggers
 
@@ -627,7 +631,11 @@ Defined in [`BackgroundTaskManager.java:53`](src/main/java/org/eclipse/store/gig
 
 ### Failure handling
 
-`processAllPendingIndexingOps` wraps each `op.execute()` in a `try { } catch(Exception)` that logs and continues. Likewise `runOptimizationIfDirty`/`runPersistenceIfDirty` log and swallow. **This is intentional**: re-throwing would kill the executor and orphan the rest of the queue, which is worse than dropping a single bad op. The trade-off is that a buggy `Vectorizer` could silently desync the graph from the source — covered by integration tests and documented in §13.
+`processAllPendingIndexingOps` wraps each `op.execute()` in a `catch(Throwable)` that logs, **records the failure** and continues with the next operation: re-throwing would kill the executor and orphan the rest of the queue. The record is `Callback.markGraphIncomplete(cause, epoch)`: the operation's mutation was counted when it was enqueued, so the graph is behind its witnesses, and the index must not persist or serve it as complete. The report carries the operation's epoch and is ignored if the epoch moved, since the operation released the builder lock before the catch and a rebuild in between already holds its mutation. An `Error` is recorded too and rethrown.
+
+The index answers a record by requesting a **graph repair** (`requestGraphRepair`, at most one scheduled at a time, run after the batch that is applying operations now so one rebuild serves every failure of that batch). The repair rebuilds the graph from the source of truth under the builder write lock and the map monitor; an index serving from disk is repaired by a persist. If the repair fails, or if no background thread can run one, the failure is latched and every `search()` throws `IllegalStateException` until `GigaMap.reindex()` (or `persistToDisk()` for an on-disk index) rebuilds the graph. The synchronous mutation paths record their own inline failures the same way; a failed synchronous `add()` additionally retires the entity id through GigaMap's rollback, so no later entity inherits a half-inserted node.
+
+The three task runners share `runGuarded`: a failure is logged and swallowed so a periodic task keeps its schedule, a `VirtualMachineError` is logged and rethrown. A computed index has a second latch, `vectorStoreFailure`, for a vector store that does not cover every entity (an `Error` during an add, a failed reindex store write, a failed store restore); no rebuild from the store can recover that, so only `reindex()` clears it, and it does not survive a restart.
 
 ---
 
