@@ -23,8 +23,6 @@ public final class MigrationFixtures
     public static final int    COUNT     = 300;
     public static final int    DIMENSION = 8;
     public static final String INDEX     = "vectors";
-    /** named index location of the on-disk fixtures, bound by the generator and by the test */
-    public static final String LOCATION  = "migration-vectors";
 
     /**
      * The vector of entity {@code no}. Component 0 is the number itself, so every entity has a distinct vector

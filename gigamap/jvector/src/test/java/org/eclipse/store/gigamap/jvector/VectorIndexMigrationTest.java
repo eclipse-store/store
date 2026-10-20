@@ -18,7 +18,6 @@ import org.eclipse.store.gigamap.jvector.migration.MigrationComputedVectorizer;
 import org.eclipse.store.gigamap.jvector.migration.MigrationDoc;
 import org.eclipse.store.gigamap.jvector.migration.MigrationFixtures;
 import org.eclipse.store.gigamap.types.GigaMap;
-import org.eclipse.store.gigamap.types.IndexLocations;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.AfterEach;
@@ -30,6 +29,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -40,11 +40,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Storages persisted before the vector file load, serve, persist the current layout and serve again after a
- * restart. The fixtures under {@code src/test/resources/migration} were generated on the last main commit
- * before the port (the 4.2.0 layout of {@code VectorIndex.Default}, with named index locations) and with the
- * 4.1.0 release (the layout without {@code structuralModCount}); each holds 300 {@link MigrationDoc} entities
- * whose vectors are {@link MigrationFixtures#position(int)}. The on-disk fixtures carry the single-file index
- * layout of graph file version 5, which the segment layout ignores.
+ * restart. The fixtures under {@code src/test/resources/migration} were written by the 4.1.0 release (the layout
+ * without {@code structuralModCount}) and the 4.2.0 release (with it; the configuration also persists
+ * {@code shutdownPersistTimeoutMillis}, but none of the options added since); each holds 300 {@link MigrationDoc}
+ * entities whose vectors are {@link MigrationFixtures#position(int)}. The on-disk fixtures carry the single-file
+ * index layout of graph file version 5, which the segment layout ignores. 4.2.0 persists the index directory as
+ * a string, here the relative {@value #INDEX_ROOT}{@code <fixture>}, which resolves against the module directory,
+ * the test's working directory; the test copies the fixture's index files there.
  * <p>
  * What the migration must not do: call the vectorizer of a computed index. Its vectors were persisted in the
  * index's vector store, and the legacy handler imports them into the vector file
@@ -56,12 +58,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class VectorIndexMigrationTest
 {
-    private static final Path FIXTURES = Path.of("src", "test", "resources", "migration");
+    private static final Path   FIXTURES   = Path.of("src", "test", "resources", "migration");
+    private static final String INDEX_ROOT = "target/migration-index/";
 
     @AfterEach
     void reset()
     {
-        IndexLocations.unbind(MigrationFixtures.LOCATION);
         MigrationComputedVectorizer.CALLS.set(0);
     }
 
@@ -77,13 +79,15 @@ class VectorIndexMigrationTest
     void fixtureLoadsServesPersistsAndRestarts(final String fixture, @TempDir final Path tempDir)
     {
         final Path    storageDir = tempDir.resolve("storage");
-        final Path    indexDir   = tempDir.resolve("index");
+        final Path    indexDir   = Path.of(INDEX_ROOT + fixture).toAbsolutePath();
         final boolean computed   = fixture.startsWith("computed");
         final boolean onDisk     = fixture.contains("ondisk");
-        copyTree(FIXTURES.resolve(fixture), tempDir);
+        copyTree(FIXTURES.resolve(fixture).resolve("storage"), storageDir);
         if(onDisk)
         {
-            IndexLocations.bind(MigrationFixtures.LOCATION, indexDir);
+            // where the persisted relative directory resolves; cleared of an earlier run's files first
+            deleteTree(indexDir);
+            copyTree(FIXTURES.resolve(fixture).resolve("index"), indexDir);
             assertTrue(Files.isRegularFile(indexDir.resolve(MigrationFixtures.INDEX + ".graph")),
                 "precondition: the fixture carries the single-file layout");
         }
@@ -169,6 +173,25 @@ class VectorIndexMigrationTest
             final int expected = no;
             assertTrue(index.search(MigrationFixtures.position(no), 1).toList().stream()
                 .anyMatch(e -> e.entity().no == expected), "entity " + no + " is not found by its own vector");
+        }
+    }
+
+    private static void deleteTree(final Path root)
+    {
+        if(!Files.exists(root))
+        {
+            return;
+        }
+        try(final Stream<Path> files = Files.walk(root))
+        {
+            for(final Path p : files.sorted(Comparator.reverseOrder()).toList())
+            {
+                Files.delete(p);
+            }
+        }
+        catch(final IOException e)
+        {
+            throw new UncheckedIOException(e);
         }
     }
 

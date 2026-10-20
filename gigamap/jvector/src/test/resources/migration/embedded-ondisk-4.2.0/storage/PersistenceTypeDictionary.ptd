@@ -584,9 +584,6 @@
 0000000000001000096 org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default{
 	org.eclipse.store.gigamap.jvector.VectorSimilarityFunction org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#similarityFunction            ,
 	java.lang.String                                           org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#indexDirectory                ,
-	java.lang.String                                           org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#indexLocationName             ,
-	org.eclipse.store.gigamap.jvector.VectorStorage            org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#vectorStorage                 ,
-	org.eclipse.store.gigamap.jvector.ApproximateScoring       org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#approximateScoring            ,
 	int                                                        org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#dimension                     ,
 	int                                                        org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#maxDegree                     ,
 	int                                                        org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#beamWidth                     ,
@@ -594,7 +591,6 @@
 	float                                                      org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#neighborOverflow              ,
 	float                                                      org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#alpha                         ,
 	boolean                                                    org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#onDisk                        ,
-	int                                                        org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#nvqSubvectors                 ,
 	boolean                                                    org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#enablePqCompression           ,
 	int                                                        org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#pqSubspaces                   ,
 	long                                                       org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#persistenceIntervalMs         ,
@@ -615,30 +611,13 @@
 	int              java.lang.Enum#ordinal,
 	int              java.lang.Enum#hash   ,
 }
-0000000000001000098 org.eclipse.store.gigamap.jvector.VectorStorage{
-	enum INLINE,
-	enum NVQ,
-	java.lang.String java.lang.Enum                                 #name   ,
-	int              java.lang.Enum                                 #ordinal,
-	int              java.lang.Enum                                 #hash   ,
-	int              org.eclipse.store.gigamap.jvector.VectorStorage#code   ,
-}
-0000000000001000099 org.eclipse.store.gigamap.jvector.ApproximateScoring{
-	enum NONE,
-	enum FUSED_PQ,
-	enum PQ_IN_MEMORY,
-	java.lang.String java.lang.Enum                                      #name   ,
-	int              java.lang.Enum                                      #ordinal,
-	int              java.lang.Enum                                      #hash   ,
-	int              org.eclipse.store.gigamap.jvector.ApproximateScoring#code   ,
-}
-0000000000001000100 org.eclipse.store.gigamap.jvector.migration.MigrationEmbeddedVectorizer{}
-0000000000001000102 org.eclipse.store.gigamap.types.GigaLevel1{
+0000000000001000098 org.eclipse.store.gigamap.jvector.migration.MigrationEmbeddedVectorizer{}
+0000000000001000100 org.eclipse.store.gigamap.types.GigaLevel1{
 	[list] entities(
 		java.lang.Object entity,
 	),
 }
-0000000000001000103 org.eclipse.store.gigamap.jvector.migration.MigrationDoc{
+0000000000001000101 org.eclipse.store.gigamap.jvector.migration.MigrationDoc{
 	[F  org.eclipse.store.gigamap.jvector.migration.MigrationDoc#vector,
 	int org.eclipse.store.gigamap.jvector.migration.MigrationDoc#no    ,
 }
