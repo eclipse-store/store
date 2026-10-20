@@ -272,12 +272,16 @@ The graph file has no checksum. Damage that `OnDiskGraphIndex.load` and the node
 | `name` | reference (`String`) | index name, file prefix |
 | `configuration` | reference (`VectorIndexConfiguration`) | persisted by the default handler |
 | `vectorizer` | reference (`Vectorizer`) | user class; whatever `vectorize` needs must be reachable from it |
+| `format` | reference (`VectorIndexFormat`) | the format of the build that stored the record; always `VectorIndexFormat.CURRENT` when written |
 | `structuralModCount` | `long` | count of graph-affecting mutations; part of the manifest witness |
 | `vectorFileNonce` | `long` | identity of the vector file this record describes, `0` for none |
 | `vectorFileEpoch` | `long` | the store epoch E sealed into this record |
 | `vectorCount` | `long` | number of entities with a vector; part of the manifest witness |
 
 - `complete()` calls `initializeAfterLoad()`.
+- `BinaryHandlerVectorIndexFormat` persists `VectorIndexFormat` as two `int`s, `version` and `minimumReaderVersion`. It refuses a format whose `minimumReaderVersion` is above this build's `VERSION` when it creates the instance, i.e. when the record is loaded, before any index file is opened: a later file format would otherwise read as damage and be rebuilt or reaped.
+- The format type also keeps out the builds without it. The legacy type mapping of such a build would map this record onto its own layout, drop the vector state, and serve an empty index without an error. Because the type has entities in the storage and no runtime class there, they fail at start with a missing runtime type instead.
+- `VERSION` is raised with every change of the record or of a file format; `MINIMUM_READER_VERSION` only when older builds can no longer read what this build writes.
 - `BinaryHandlerVectorIndicesDefault` persists `VectorIndices.Default` as `parent` and the `vectorIndices` table. The table is stored eagerly.
 - Everything else of `VectorIndex.Default` is transient: graphs, sources, managers, locks, pools and the vector file handle.
 

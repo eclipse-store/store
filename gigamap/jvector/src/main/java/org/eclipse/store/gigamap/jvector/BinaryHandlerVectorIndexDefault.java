@@ -46,7 +46,8 @@ implements PersistenceLegacyTypeHandlerSupplier<Binary, VectorIndex.Default<?>>
         BINARY_OFFSET_name               = BINARY_OFFSET_parent               + Binary.objectIdByteLength(),
         BINARY_OFFSET_configuration      = BINARY_OFFSET_name                 + Binary.objectIdByteLength(),
         BINARY_OFFSET_vectorizer         = BINARY_OFFSET_configuration        + Binary.objectIdByteLength(),
-        BINARY_OFFSET_structuralModCount = BINARY_OFFSET_vectorizer           + Binary.objectIdByteLength(),
+        BINARY_OFFSET_format             = BINARY_OFFSET_vectorizer           + Binary.objectIdByteLength(),
+        BINARY_OFFSET_structuralModCount = BINARY_OFFSET_format               + Binary.objectIdByteLength(),
         BINARY_OFFSET_vectorFileNonce    = BINARY_OFFSET_structuralModCount   + Long.BYTES                  ,
         BINARY_OFFSET_vectorFileEpoch    = BINARY_OFFSET_vectorFileNonce      + Long.BYTES                  ,
         BINARY_OFFSET_vectorCount        = BINARY_OFFSET_vectorFileEpoch      + Long.BYTES                  ,
@@ -88,6 +89,7 @@ implements PersistenceLegacyTypeHandlerSupplier<Binary, VectorIndex.Default<?>>
                 CustomField(String.class                  , "name"              ),
                 CustomField(VectorIndexConfiguration.class, "configuration"     ),
                 CustomField(Vectorizer.class              , "vectorizer"        ),
+                CustomField(VectorIndexFormat.class       , "format"            ),
                 CustomField(long.class                    , "structuralModCount"),
                 CustomField(long.class                    , "vectorFileNonce"   ),
                 CustomField(long.class                    , "vectorFileEpoch"   ),
@@ -143,6 +145,7 @@ implements PersistenceLegacyTypeHandlerSupplier<Binary, VectorIndex.Default<?>>
         data.storeReference(BINARY_OFFSET_name         , handler, instance.name         );
         data.storeReference(BINARY_OFFSET_configuration, handler, instance.configuration);
         data.storeReference(BINARY_OFFSET_vectorizer   , handler, instance.vectorizer   );
+        data.storeReference(BINARY_OFFSET_format       , handler, VectorIndexFormat.CURRENT);
         data.store_long    (BINARY_OFFSET_structuralModCount, instance.structuralModCount);
         data.store_long    (BINARY_OFFSET_vectorFileNonce   , instance.vectorFileNonce   );
         data.store_long    (BINARY_OFFSET_vectorFileEpoch   , instance.vectorFileEpoch   );
@@ -245,6 +248,7 @@ implements PersistenceLegacyTypeHandlerSupplier<Binary, VectorIndex.Default<?>>
         iterator.apply(instance.name         );
         iterator.apply(instance.configuration);
         iterator.apply(instance.vectorizer   );
+        iterator.apply(VectorIndexFormat.CURRENT);
     }
 
     @Override
@@ -257,6 +261,7 @@ implements PersistenceLegacyTypeHandlerSupplier<Binary, VectorIndex.Default<?>>
         iterator.acceptObjectId(data.readObjectId(BINARY_OFFSET_name         ));
         iterator.acceptObjectId(data.readObjectId(BINARY_OFFSET_configuration));
         iterator.acceptObjectId(data.readObjectId(BINARY_OFFSET_vectorizer   ));
+        iterator.acceptObjectId(data.readObjectId(BINARY_OFFSET_format       ));
     }
 
 }

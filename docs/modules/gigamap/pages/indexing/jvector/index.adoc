@@ -336,7 +336,7 @@ The vectors of an index now live in the vector file instead of a persisted vecto
 * A computed index imports the vectors of its old vector store into the vector file at its first use, *without calling the vectorizer*. An embedded index reads its vectors from the entities as before.
 * The next store of the map persists the index in the current layout; the old vector store becomes unreferenced and is reclaimed by the storage's housekeeping.
 * The old graph files of an on-disk index are ignored, logged once at the first load, and can be removed. The graph is rebuilt from the vector file and persisted as segments beside them at the next persist, which is scheduled even if the index is only searched.
-* *One way:* a storage stored by this version cannot be opened by 4.x any more. Back up the storage before upgrading.
+* *One way:* a storage stored by this version cannot be opened by 4.x, or by an earlier build without the vector file, any more: they fail at start with `Missing runtime type ... VectorIndexFormat` (4.2.0 already at `VectorStorage`). Until the first store on this version, the storage still opens with the old version. Back up the storage before upgrading.
 
 IMPORTANT: A 4.x *in-memory index with a computed vectorizer and no directory* imports its persisted vectors into a temporary vector file, and the next store drops them together with the old vector store. Configure `indexDirectory` or `indexLocation` for such an index (see xref:indexing/index-locations.adoc[Index Locations]) before the first store on this version to keep them; otherwise every later start vectorizes every entity.
 
