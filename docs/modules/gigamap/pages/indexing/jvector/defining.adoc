@@ -33,7 +33,7 @@ public class Product
 |Whether the annotated member may be `null` for some entities. When `true`, an entity with a `null` vector has no embedding: it stays in the `GigaMap` but is excluded from the vector index and never appears in search results. Defaults to `false` (a `null` vector throws). See xref:indexing/jvector/advanced.adoc[Advanced Topics].
 |===
 
-The vector is read from the entity on demand (embedded mode), so it is not stored a second time by the index.
+The vector is read from the entity when it is added or updated (embedded mode), and the index keeps a copy of it in its memory-mapped vector file, off the heap; plan disk space for that copy. An in-memory index uses a temporary vector file and re-reads every vector from the entities at each start; an on-disk index keeps the file in its index directory. See xref:indexing/jvector/index.adoc#where-the-vectors-live[Where the Vectors Live].
 
 Register the `VectorAnnotationHandler` with annotation-based generation and pass the `GigaMap`:
 
@@ -61,4 +61,4 @@ A vector index can also be added to a GigaMap that already holds entities — th
 
 The back-fill is the only step that runs your vectorizer over existing data, so it can fail when, for example, an embedding service times out. If the vectorizer throws, registration is all-or-nothing: the index is built before it becomes part of the map, so nothing is registered, the other indices remain untouched, and the next `store()` persists nothing from the attempt. Simply repeat the call; `ensure` then creates the index anew instead of returning a partially filled one.
 
-With xref:indexing/jvector/configuration.adoc#_eventual_indexing[eventual indexing], the vectors of all existing entities are computed before registration, but the graph is built in the background afterwards, as for any later add. A vectorizer failure for an entity's own vector is still reported by the call; failures while building the graph in the background are not — in embedded mode that includes the vectorizer being called there to score neighbours.
+With xref:indexing/jvector/configuration.adoc#_eventual_indexing[eventual indexing], the vectors of all existing entities are computed before registration, but the graph is built in the background afterwards, as for any later add. A vectorizer failure for an entity's own vector is still reported by the call; failures while building the graph in the background are not — they are logged. The background build reads the vectors from the vector file and does not call the vectorizer.

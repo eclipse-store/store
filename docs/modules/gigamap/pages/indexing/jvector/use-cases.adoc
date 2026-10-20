@@ -217,7 +217,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .beamWidth(150)
     .onDisk(true)
     .indexDirectory(Path.of("/data/customer-embeddings"))
-    .approximateScoring(ApproximateScoring.FUSED_PQ) // Large customer bases benefit from compression
+    .approximateScoring(ApproximateScoring.FUSED_PQ) // Only once the graph exceeds the page cache
     .pqSubspaces(32)
     .persistenceIntervalMs(30_000)
     .build();
@@ -243,7 +243,7 @@ List<Customer> lookalikes = behaviorIndex.search(targetCustomer.getBehaviorEmbed
 |Behavioral embeddings from matrix factorization work well with dot product
 
 |PQ compression
-|Customer databases can be very large, and PQ keeps per-hop I/O low
+|Customer databases can be very large; once the graph exceeds the page cache, PQ keeps per-hop I/O low at some recall cost. While it fits, keep `NONE`
 
 |Compact dimension (128)
 |Behavioral features don't need high dimensionality
@@ -320,8 +320,8 @@ List<SupportTicket> matches = ticketIndex.search(newTicketEmbedding, 5)
 |High maxDegree (48)
 |Accurate matching is critical for support quality
 
-|Frequent persistence
-|New tickets are created continuously
+|Background persistence
+|New tickets are created continuously; their graph is written to disk in the background without blocking
 |===
 
 === Content Recommendations
@@ -351,7 +351,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .beamWidth(200)
     .onDisk(true)
     .indexDirectory(Path.of("/data/content-embeddings"))
-    .optimizationIntervalMs(300_000)
+    .persistenceIntervalMs(60_000)
     .build();
 
 // Find related articles
@@ -445,12 +445,10 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .beamWidth(300)
     .onDisk(true)
     .indexDirectory(Path.of("/data/rag-index"))
-    .approximateScoring(ApproximateScoring.FUSED_PQ)
+    .approximateScoring(ApproximateScoring.FUSED_PQ) // Only once the graph exceeds the page cache
     .pqSubspaces(64)                      // 768 / 64 = 12 dims per subspace
     .persistenceIntervalMs(30_000)
     .minChangesBetweenPersists(100)
-    .optimizationIntervalMs(300_000)      // Every 5 minutes
-    .minChangesBetweenOptimizations(500)
     .build();
 ----
 
@@ -465,10 +463,10 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |Better index quality for precise matching
 
 |PQ compression
-|Faster traversal over large knowledge bases
+|Fewer reads per hop over knowledge bases whose graph exceeds the page cache, at some recall cost. For a knowledge base that fits in memory, keep `NONE`, which is faster and more accurate there
 
-|Background optimization
-|Maintains query performance as knowledge base grows
+|Background persistence
+|Writes the growing graph to disk as segments without blocking; background merges keep the segment count low
 |===
 
 == Real-Time Recommendations
@@ -504,12 +502,12 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |Balanced for speed over maximum recall
 
 |Frequent persistence
-|Minimizes data loss on unexpected shutdown
+|Keeps the on-disk graph close to the live state; the vectors themselves are in the vector file and survive an unexpected shutdown either way
 |===
 
 == Large-Scale Vector Database
 
-For datasets with millions of vectors where on-disk search latency is critical. On-disk mode is what lets the index exceed available memory; PQ then reduces the I/O per traversal hop, at the cost of a larger graph file, and NVQ storage brings the file back down well below where it started.
+For datasets with millions of vectors where on-disk search latency is critical. On-disk mode is what lets the index exceed available memory; once the graph is larger than the page cache, PQ reduces the I/O per traversal hop, at the cost of a larger graph file and some recall, and NVQ storage brings the file back down well below where it started.
 
 [source, java]
 ----
@@ -526,9 +524,6 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .parallelOnDiskWrite(true)            // Absorbs almost all of the NVQ encode cost
     .persistenceIntervalMs(60_000)
     .minChangesBetweenPersists(1000)
-    .optimizationIntervalMs(600_000)      // Every 10 minutes
-    .minChangesBetweenOptimizations(5000)
-    .optimizeOnShutdown(false)            // Faster shutdown
     .build();
 ----
 
@@ -537,22 +532,19 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |Setting |Rationale
 
 |`FUSED_PQ` scoring
-|Speeds up traversal on a large on-disk index (at the cost of a larger graph file)
+|Speeds up traversal on an on-disk graph larger than the page cache (at the cost of a larger graph file and some recall)
 
 |`NVQ` storage
-|Shrinks the vector block about 3.8x, but the fused codes above are unaffected, so the node as a whole goes from 4,744 to 2,472 bytes -- about 1.9x. Drop `FUSED_PQ` as well and it is 936 bytes, about 3.4x smaller than a plain `INLINE` node. Here the fused codes drive traversal, so quantizing the block does not change which candidates are found; it costs footprint only, and the rerank reads the GigaMap rather than the graph. Scores stay exact
+|Shrinks the vector block about 3.8x, but the fused codes above are unaffected, so the node as a whole goes from 4,744 to 2,472 bytes -- about 1.9x. Drop `FUSED_PQ` as well and it is 936 bytes, about 3.4x smaller than a plain `INLINE` node. Here the fused codes drive traversal, so quantizing the block does not change which candidates are found; it costs footprint only, and the rerank reads the vector file rather than the graph. Scores stay exact
 
 |Parallel on-disk write
-|The NVQ encode runs per node on the writer's threads; without this the persist takes about 3x as long rather than about 1.2x
+|The NVQ encode runs per node on the writer's threads; without this a segment write takes about 3x as long rather than about 1.2x
 
-|High change thresholds
+|High change threshold
 |Reduces I/O overhead for bulk operations
 
-|Infrequent optimization
-|Avoids CPU spikes during high-load periods
-
-|No optimization on shutdown
-|Faster application restarts
+|No background optimization
+|An on-disk index needs none: every persist cleans up the graph it writes as a segment
 |===
 
 == High-Precision Matching
@@ -567,9 +559,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .maxDegree(64)
     .beamWidth(500)
     .neighborOverflow(1.5f)
-    .onDisk(true)
-    .indexDirectory(Path.of("/data/precision-index"))
-    .optimizationIntervalMs(120_000)
+    .optimizationIntervalMs(120_000)      // In-memory: background optimization applies
     .minChangesBetweenOptimizations(200)
     .build();
 ----
@@ -588,10 +578,10 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |Thorough index construction
 
 |Higher neighborOverflow
-|Retains more candidates during search
+|Retains more candidates during construction
 
-|Frequent optimization
-|Keeps graph structure optimal for precision
+|In-memory with frequent optimization
+|Exact scoring from memory, and the graph structure kept optimal for precision. Background optimization applies to in-memory indices only
 |===
 
 == Image Similarity Search
@@ -607,7 +597,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .beamWidth(150)
     .onDisk(true)
     .indexDirectory(Path.of("/data/image-index"))
-    .approximateScoring(ApproximateScoring.FUSED_PQ)
+    .approximateScoring(ApproximateScoring.FUSED_PQ) // Only once the graph exceeds the page cache
     .pqSubspaces(32)                      // 512 / 32 = 16 dims per subspace
     .persistenceIntervalMs(30_000)
     .minChangesBetweenPersists(100)
@@ -622,7 +612,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |Standard for normalized image embeddings
 
 |PQ compression
-|Keeps queries fast over large image collections
+|Keeps queries fast over image collections whose graph exceeds the page cache, at some recall cost. While it fits, keep `NONE`
 
 |Moderate maxDegree (32)
 |Good balance for visual similarity
@@ -717,7 +707,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |Continuous data ingestion from sensors
 
 |Low change threshold
-|Minimize data loss for streaming scenarios
+|Keeps the on-disk graph close to the live state, at the cost of more write amplification. No data depends on it: the vectors are in the vector file
 |===
 
 == Maximum Inner Product Search (MIPS)
@@ -782,7 +772,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |Yes
 |FUSED_PQ
 |INLINE
-|Both
+|Persistence
 
 |Recommendations
 |DOT_PRODUCT
@@ -800,13 +790,13 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |Yes
 |FUSED_PQ
 |NVQ
-|Both
+|Persistence
 
 |High-Precision
 |EUCLIDEAN
 |64
 |500
-|Yes
+|No
 |NONE
 |INLINE
 |Optimization
@@ -890,5 +880,5 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 |Yes
 |NONE
 |INLINE
-|Optimization
+|Persistence
 |===
