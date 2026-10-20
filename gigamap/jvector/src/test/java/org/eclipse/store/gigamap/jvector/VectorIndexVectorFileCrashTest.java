@@ -142,7 +142,9 @@ class VectorIndexVectorFileCrashTest
             .dimension(DIMENSION)
             .similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
             // the smallest chunks allowed
-            .vectorChunkBytes((long)VectorFile.MIN_SLOTS_PER_CHUNK * VectorFile.strideOf(DIMENSION));
+            .vectorChunkBytes((long)VectorFile.MIN_SLOTS_PER_CHUNK * VectorFile.strideOf(DIMENSION))
+            // a crash persists nothing; tests that need segments persist explicitly
+            .persistOnShutdown(false);
         if(indexDirectory != null)
         {
             builder.onDisk(true).indexDirectory(indexDirectory);

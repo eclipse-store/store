@@ -105,10 +105,12 @@ class VectorIndexComputedInMemoryVectorFileTest
 
     private static void assertEveryEntityFound(final VectorIndex<Doc> index)
     {
+        // A beam over every node: what this checks is that every entity is indexed with its vector, not recall.
+        final int beam = COUNT + 50;
         for(int no = 0; no < COUNT; no++)
         {
             final int expected = no;
-            assertTrue(index.search(position(no), 1).toList().stream().anyMatch(e -> e.entity().no == expected),
+            assertTrue(index.search(position(no), 1, beam).toList().stream().anyMatch(e -> e.entity().no == expected),
                 "entity " + no + " is not found by its own vector");
         }
     }

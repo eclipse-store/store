@@ -329,15 +329,10 @@ class VectorIndexConcurrentStressTest
                                     final float[] vector = randomVector(random, dimension);
                                     synchronized (gigaMap)
                                     {
-                                        try
-                                        {
-                                            gigaMap.set(targetId, new Document(
-                                                "updated_" + targetId, vector
-                                            ));
-                                        } catch (final Exception e)
-                                        {
-                                            // Entity may have been removed by another thread — acceptable
-                                        }
+                                        // set() refills the slot of a removed id: no exception is expected
+                                        gigaMap.set(targetId, new Document(
+                                            "updated_" + targetId, vector
+                                        ));
                                     }
                                 } else if (action < 45)
                                 {
@@ -345,13 +340,8 @@ class VectorIndexConcurrentStressTest
                                     final long targetId = random.nextInt(seedCount);
                                     synchronized (gigaMap)
                                     {
-                                        try
-                                        {
-                                            gigaMap.removeById(targetId);
-                                        } catch (final Exception e)
-                                        {
-                                            // Entity may already be removed — acceptable
-                                        }
+                                        // a removed id is a no-op: no exception is expected
+                                        gigaMap.removeById(targetId);
                                     }
                                 } else if (action < 55)
                                 {
@@ -681,16 +671,11 @@ class VectorIndexConcurrentStressTest
                                     final long targetId = random.nextInt(seedCount);
                                     synchronized (gigaMap)
                                     {
-                                        try
-                                        {
-                                            gigaMap.set(targetId, new Document(
-                                                "upd_" + targetId,
-                                                randomVector(random, dimension)
-                                            ));
-                                        }
-                                        catch(final Exception ignored)
-                                        {
-                                        }
+                                        // set() refills the slot of a removed id: no exception is expected
+                                        gigaMap.set(targetId, new Document(
+                                            "upd_" + targetId,
+                                            randomVector(random, dimension)
+                                        ));
                                     }
                                 } else if (action < 40)
                                 {
@@ -698,13 +683,8 @@ class VectorIndexConcurrentStressTest
                                     final long targetId = random.nextInt(seedCount);
                                     synchronized (gigaMap)
                                     {
-                                        try
-                                        {
-                                            gigaMap.removeById(targetId);
-                                        }
-                                        catch(final Exception ignored)
-                                        {
-                                        }
+                                        // a removed id is a no-op: no exception is expected
+                                        gigaMap.removeById(targetId);
                                     }
                                 } else if (action < 50)
                                 {
@@ -864,16 +844,11 @@ class VectorIndexConcurrentStressTest
                                     final long targetId = random.nextInt(seedCount);
                                     synchronized (gigaMap)
                                     {
-                                        try
-                                        {
-                                            gigaMap.set(targetId, new Document(
-                                                "upd_" + targetId,
-                                                randomVector(random, dimension)
-                                            ));
-                                        }
-                                        catch(final Exception ignored)
-                                        {
-                                        }
+                                        // set() refills the slot of a removed id: no exception is expected
+                                        gigaMap.set(targetId, new Document(
+                                            "upd_" + targetId,
+                                            randomVector(random, dimension)
+                                        ));
                                     }
                                 } else if (action < 50)
                                 {
@@ -881,13 +856,8 @@ class VectorIndexConcurrentStressTest
                                     final long targetId = random.nextInt(seedCount);
                                     synchronized (gigaMap)
                                     {
-                                        try
-                                        {
-                                            gigaMap.removeById(targetId);
-                                        }
-                                        catch(final Exception ignored)
-                                        {
-                                        }
+                                        // a removed id is a no-op: no exception is expected
+                                        gigaMap.removeById(targetId);
                                     }
                                 } else
                                 {
@@ -1043,16 +1013,10 @@ class VectorIndexConcurrentStressTest
                                     final float[] vector = randomVector(random, dimension);
                                     synchronized (gigaMap)
                                     {
-                                        try
-                                        {
-                                            gigaMap.set(targetId, new Document(
-                                                "updated_" + targetId, vector
-                                            ));
-                                        }
-                                        catch (final Exception e)
-                                        {
-                                            // Entity may have been removed — acceptable
-                                        }
+                                        // set() refills the slot of a removed id: no exception is expected
+                                        gigaMap.set(targetId, new Document(
+                                            "updated_" + targetId, vector
+                                        ));
                                     }
                                 }
                                 else if (action < 50)
@@ -1061,14 +1025,8 @@ class VectorIndexConcurrentStressTest
                                     final long targetId = random.nextInt(seedCount);
                                     synchronized (gigaMap)
                                     {
-                                        try
-                                        {
-                                            gigaMap.removeById(targetId);
-                                        }
-                                        catch (final Exception e)
-                                        {
-                                            // Entity may already be removed — acceptable
-                                        }
+                                        // a removed id is a no-op: no exception is expected
+                                        gigaMap.removeById(targetId);
                                     }
                                 }
                                 else

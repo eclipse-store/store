@@ -348,6 +348,8 @@ class VectorIndexOptimizeTest
                     {
                         index.optimize();
                         optimizations.incrementAndGet();
+                        // A pause, so that the mutations do not each queue behind back-to-back passes.
+                        Thread.sleep(2);
                     }
                 }
                 catch(final Throwable t)
@@ -355,44 +357,54 @@ class VectorIndexOptimizeTest
                     failure.set(t);
                 }
             }, "optimizer");
+            optimizer.setDaemon(true);
             optimizer.start();
 
-            final Random random = new Random(3);
-            for(int op = 0; op < 300; op++)
+            try
             {
-                if(op % 50 == 0)
+                final Random random = new Random(3);
+                for(int op = 0; op < 300; op++)
                 {
-                    // Interleaves the mutations with optimizations that start while they go on.
-                    awaitAnotherOptimization(optimizations, failure);
-                }
-                final int  seed   = 20_000 + op;
-                final long target = seeds.keySet().stream()
-                    .skip(random.nextInt(seeds.size()))
-                    .findFirst()
-                    .orElseThrow();
-                switch(op % 3)
-                {
-                    case 0 -> seeds.put(map.add(new Doc("a" + seed, vec(seed, DIM))), seed);
-                    case 1 ->
+                    if(op % 50 == 0)
                     {
-                        map.set(target, new Doc("u" + seed, vec(seed, DIM)));
-                        seeds.put(target, seed);
+                        // Interleaves the mutations with optimizations that start while they go on.
+                        awaitAnotherOptimization(optimizations, failure);
                     }
-                    default ->
+                    final int  seed   = 20_000 + op;
+                    final long target = seeds.keySet().stream()
+                        .skip(random.nextInt(seeds.size()))
+                        .findFirst()
+                        .orElseThrow();
+                    switch(op % 3)
                     {
-                        map.removeById(target);
-                        seeds.remove(target);
+                        case 0 -> seeds.put(map.add(new Doc("a" + seed, vec(seed, DIM))), seed);
+                        case 1 ->
+                        {
+                            map.set(target, new Doc("u" + seed, vec(seed, DIM)));
+                            seeds.put(target, seed);
+                        }
+                        default ->
+                        {
+                            map.removeById(target);
+                            seeds.remove(target);
+                        }
                     }
                 }
             }
-            running.set(false);
-            optimizer.join(TimeUnit.SECONDS.toMillis(60));
+            finally
+            {
+                running.set(false);
+                optimizer.join(TimeUnit.SECONDS.toMillis(60));
+            }
             assertFalse(optimizer.isAlive(), "the optimizer did not finish");
             assertNull(failure.get(), () -> "optimize failed: " + failure.get());
 
+            // A beam over every node: the graph's shape depends on how the threads interleaved, and what this
+            // checks is that each entity's node carries its latest vector, not the recall of that shape.
+            final int beam = seeds.size() + 50;
             for(final Map.Entry<Long, Integer> entry : seeds.entrySet())
             {
-                final VectorSearchResult<Doc> result = index.search(vec(entry.getValue(), DIM), 1);
+                final VectorSearchResult<Doc> result = index.search(vec(entry.getValue(), DIM), 1, beam);
                 assertEquals(entry.getKey(), result.toList().get(0).entityId(),
                     "entity " + entry.getKey() + " must be found by its latest vector");
             }

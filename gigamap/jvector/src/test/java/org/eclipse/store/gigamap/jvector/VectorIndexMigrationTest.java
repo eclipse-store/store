@@ -168,10 +168,13 @@ class VectorIndexMigrationTest
 
     private static void assertEveryEntityFound(final VectorIndex<MigrationDoc> index)
     {
+        // A beam over every node: the fixture's vectors have many near ties, so a default beam can end in a local
+        // optimum of the rebuilt graph. What this checks is that every entity is indexed with its vector.
+        final int beam = MigrationFixtures.COUNT + 50;
         for(int no = 0; no < MigrationFixtures.COUNT; no++)
         {
             final int expected = no;
-            assertTrue(index.search(MigrationFixtures.position(no), 1).toList().stream()
+            assertTrue(index.search(MigrationFixtures.position(no), 1, beam).toList().stream()
                 .anyMatch(e -> e.entity().no == expected), "entity " + no + " is not found by its own vector");
         }
     }

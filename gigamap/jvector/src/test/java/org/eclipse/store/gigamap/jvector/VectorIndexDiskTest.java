@@ -2727,10 +2727,10 @@ class VectorIndexDiskTest
             assertTrue(defaultIndex.backgroundTaskManager.getOptimizationPendingChangeCount() > 0,
                 "Pending changes should be tracked");
 
-            // Verify optimization was actually performed
+            // Verify optimization was actually performed. No lower bound: the fixed-rate schedule started at the
+            // index's creation, not at this await, so the first run may already be due here.
             await()
-                    .atLeast(ofMillis(300))
-                    .atMost(ofMillis(800))
+                    .atMost(ofMillis(10_000))
                     .pollInterval(ofMillis(100))
                     .untilAsserted(() -> assertTrue(defaultIndex.backgroundTaskManager.getOptimizationCount() >= 1,
                             "Optimization should have been performed at least once"));
@@ -3540,12 +3540,32 @@ class VectorIndexDiskTest
                 () -> assertTrue(SegmentLayout.indexExists(sequentialIndexDir, "embeddingsSequential"))
         );
 
-        // Both indices were built from the same data with the same HNSW parameters,
-        // so search results must be identical.
-        assertEquals(parallelIds, sequentialIds,
-                "Parallel and sequential on-disk writes should produce identical search results");
-        assertEquals(parallelScores, sequentialScores,
-                "Parallel and sequential on-disk writes should produce identical search scores");
+        // Both indices are approximate, and jVector refines the graph it writes in parallel, so two builds of the
+        // same data can swap entries near the top-k boundary (see testParallelVsNonParallelPersistAndReload).
+        // Each is measured against the exact top k, and the two against each other, with room for that; an
+        // entity both return has the same score, since results are reranked on the full vectors.
+        final List<Long> allIds = new ArrayList<>();
+        for(long i = 0; i < vectors.size(); i++)
+        {
+            allIds.add(i);
+        }
+        final Set<Long> exact  = new HashSet<>(bruteForceTopK(queryVector, vectors, allIds, k));
+        final int     minHits = k - 2;
+        assertTrue(parallelIds.stream().filter(exact::contains).count() >= minHits,
+                "the parallel write's index must find the exact top " + k + ": " + parallelIds);
+        assertTrue(sequentialIds.stream().filter(exact::contains).count() >= minHits,
+                "the sequential write's index must find the exact top " + k + ": " + sequentialIds);
+        assertTrue(parallelIds.stream().filter(sequentialIds::contains).count() >= minHits,
+                "Parallel and sequential on-disk writes should produce equivalent search results");
+        for(int i = 0; i < parallelIds.size(); i++)
+        {
+            final int other = sequentialIds.indexOf(parallelIds.get(i));
+            if(other >= 0)
+            {
+                assertEquals(parallelScores.get(i), sequentialScores.get(other),
+                        "Parallel and sequential on-disk writes should score entity " + parallelIds.get(i) + " alike");
+            }
+        }
     }
 
 

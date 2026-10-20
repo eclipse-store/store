@@ -4456,6 +4456,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     this.reloadingAfterRemoveAll = false;
                 }
+                // The vector file was emptied above, so the empty graph is complete: no rebuild is due, and a
+                // reindex that re-adds right after must not trigger one.
+                this.graphRebuilt = true;
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
@@ -8605,6 +8608,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.index.close();
                 this.index = null;
             }
+
+            // The graph went with the builder. A re-initialization that loads no segments, e.g. the next access
+            // after a failed close, must rebuild it from the vector file instead of serving the empty builder.
+            this.graphRebuilt = false;
 
             // The disk manager holds no file open; the segments it opened went with the sources.
             this.diskManager      = null;
