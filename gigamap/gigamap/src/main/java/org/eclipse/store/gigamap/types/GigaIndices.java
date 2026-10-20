@@ -231,6 +231,30 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 			}
 		}
 
+		/**
+		 * See {@link IndexGroup.Internal#internalPrepareStore(Storer)}, for every group.
+		 * 
+		 * @param storer the storer of the store
+		 */
+		final void internalPrepareStore(final Storer storer)
+		{
+			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			{
+				indexGroup.internalPrepareStore(storer);
+			}
+		}
+
+		/**
+		 * See {@link IndexGroup.Internal#internalPrepareMutation()}, for every group.
+		 */
+		final void internalPrepareMutation()
+		{
+			for(final IndexGroup.Internal<E> indexGroup : this.indexGroups)
+			{
+				indexGroup.internalPrepareMutation();
+			}
+		}
+		
 		protected final void internalAdd(final long entityId, final E entity)
 		{
 			notNull(entity);

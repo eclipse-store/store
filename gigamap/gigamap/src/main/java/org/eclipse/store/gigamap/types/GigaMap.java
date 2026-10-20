@@ -682,10 +682,10 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * entities again, so it holds no copy. Only a failure
 	 * during the rebuild that follows can leave it partial: in embedded mode the rebuild calls the vectorizer again,
 	 * for each entity and for its neighbours while scoring, so a vectorizer that fails only then, an
-	 * {@link OutOfMemoryError} or a failure inside the graph library does. Such an index stays partial until the next successful call of this
-	 * method, and a following {@link #store()} can make that survive a restart: the stored vectors of a computed
-	 * index, and an on-disk graph written by a persist in between, are loaded again. An embedded in-memory graph
-	 * is rebuilt from the entities on load.
+	 * {@link OutOfMemoryError}, an I/O error of the vector file or a failure inside the graph library does. Such an
+	 * index stays partial until the next successful call of this method, and a following {@link #store()} makes that
+	 * survive a restart: the index's vector file, in embedded and computed mode alike, then holds only the vectors
+	 * re-added before the failure, and it is loaded as it is.
 	 * A Lucene index discards a failed rebuild and rebuilds itself on its next use in this session; until that
 	 * succeeds, its queries fail, and with {@code LuceneContext.autoCommit} {@code false} so does storing the
 	 * map. That mark does not survive a restart: afterwards the index serves its last commit, without the
@@ -1998,6 +1998,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				return null;
 			}
 			
+			this.indices.internalPrepareMutation();
+			
 			// actual removal including change marking
 			this.baseSize--;
 			level1.entities[level1Index] = null;
@@ -2122,6 +2124,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		private void internalRemoveAllEntities()
 		{
 			this.ensureMutability();
+			this.indices.internalPrepareMutation();
 			this.ensureClearedAddingState();
 			
 			this.baseSize         = 0;
@@ -2465,8 +2468,9 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		 * with the locks those need besides this map's monitor ({@link IndexGroup.Internal#internalTryLockExclusive()}).
 		 * <p>
 		 * Must be called while holding the monitor. It never waits for such a lock while holding it: their
-		 * holders may need the monitor (a vector index's persist takes it while holding its builder lock, and an
-		 * embedded-mode search reads entities via {@link #get(long)} while holding it). It tries them without
+		 * holders may need the monitor (an embedded-mode vector search reads entities via {@link #get(long)} while
+		 * holding its index's builder lock; a vector index's persist and close take the monitor first and only try
+		 * that lock, for the same reason). It tries them without
 		 * waiting and, while one is held elsewhere, waits on the monitor, which lets the holders finish, as
 		 * {@link #ensureMutability()} does for open readers. The caller's critical section is therefore
 		 * interrupted at this point, before the operation has read or changed anything.
@@ -2799,6 +2803,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		{
 			this.validateForCRUD(element);
 			this.ensureMutability();
+			this.indices.internalPrepareMutation();
 
 			final long entityId = this.nextFreeId();
 			try
@@ -2903,6 +2908,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		public final synchronized long addAll(final Iterable<? extends E> entities)
 		{
 			this.ensureMutability();
+			this.indices.internalPrepareMutation();
 
 			final long currentId = this.nextFreeId();
 			try
@@ -3104,6 +3110,10 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		
 		public final void internalRegisterChangeStores(final Storer storer)
 		{
+			// First, so the index groups fix the state they describe before any entity segment is written: the
+			// storer writes the registered components after this method, without this map's monitor.
+			this.indices.internalPrepareStore(storer);
+			
 			if(this.indices.isChangedAndNotNew())
 			{
 				storer.store(this.indices);
