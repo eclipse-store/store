@@ -18,18 +18,27 @@ import io.github.jbellis.jvector.graph.RandomAccessVectorValues;
 import io.github.jbellis.jvector.vector.VectorizationProvider;
 import io.github.jbellis.jvector.vector.types.VectorFloat;
 import io.github.jbellis.jvector.vector.types.VectorTypeSupport;
-import org.eclipse.store.gigamap.types.GigaMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicIntegerArray;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for {@link ListRandomAccessVectorValues} and {@link GigaMapBackedVectorValues}.
+ * Tests for {@link ListRandomAccessVectorValues}, {@link MappedVectorValues}, {@link NullSafeVectorValues} and
+ * {@link ParallelGraphInsertion}.
  */
 class VectorValuesTest
 {
@@ -166,450 +175,396 @@ class VectorValuesTest
         }
     }
 
-    // ==================== GigaMapBackedVectorValues Tests ====================
+    // ==================== MappedVectorValues Tests ====================
+
+    private VectorFile.Default openFile(final Path directory)
+    {
+        final VectorFile.Default file = VectorFile.Default.open(directory, "values", 3, 256L, 0L, 0L, "test");
+        file.recovered();
+        return file;
+    }
 
     @Nested
-    class GigaMapBackedVectorValuesTests
+    class MappedVectorValuesTests
     {
+        @TempDir
+        Path directory;
+
         @Test
-        void testSize()
+        void getVector_writtenOrdinal_returnsACopyOfTheVector()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
-                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
-                .build();
-            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
-            vectorStore.add(new VectorEntry(1L, new float[]{4.0f, 5.0f, 6.0f}));
-            vectorStore.add(new VectorEntry(2L, new float[]{7.0f, 8.0f, 9.0f}));
+            try(final VectorFile file = openFile(this.directory))
+            {
+                file.write(2, new float[]{1f, 2f, 3f}, Vectorizer.NO_KEY);
+                final MappedVectorValues values = new MappedVectorValues(file, vectorTypeSupport);
 
-            final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
-                vectorStore, 3, vectorTypeSupport
-            );
-
-            assertEquals(3, values.size());
+                final VectorFloat<?> vector = values.getVector(2);
+                assertEquals(3, vector.length());
+                assertEquals(2f, vector.get(1));
+                vector.set(1, 99f);
+                assertEquals(2f, values.getVector(2).get(1), "each read is a copy");
+            }
         }
 
         @Test
-        void testSizeEmptyStore()
+        void getVector_absentOrdinal_returnsNull()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
-                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
-                .build();
+            try(final VectorFile file = openFile(this.directory))
+            {
+                file.write(0, new float[]{1f, 2f, 3f}, Vectorizer.NO_KEY);
+                final MappedVectorValues values = new MappedVectorValues(file, vectorTypeSupport);
 
-            final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
-                vectorStore, 3, vectorTypeSupport
-            );
-
-            assertEquals(0, values.size());
+                assertNull(values.getVector(1));
+                assertNull(values.getVector(1_000));
+                file.write(0, null, Vectorizer.NO_KEY);
+                assertNull(values.getVector(0));
+            }
         }
 
         @Test
-        void testDimension()
+        void size_isAnUpperBoundOfTheWrittenOrdinals_andIsNotShared()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
-                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
-                .build();
+            try(final VectorFile file = openFile(this.directory))
+            {
+                final MappedVectorValues values = new MappedVectorValues(file, vectorTypeSupport);
+                assertEquals(0, values.size());
 
-            final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
-                vectorStore, 128, vectorTypeSupport
-            );
+                file.write(9, new float[]{1f, 2f, 3f}, Vectorizer.NO_KEY);
 
-            assertEquals(128, values.dimension());
+                assertTrue(values.size() >= 10);
+                assertEquals(3, values.dimension());
+                assertFalse(values.isValueShared());
+                assertSame(values, values.copy(), "stateless, so one instance serves every thread");
+            }
+        }
+
+        /**
+         * The index accepts Integer.MAX_VALUE as an ordinal; the dense bound one above it does not fit an int and
+         * must fail as such rather than wrap to a negative size.
+         */
+        @Test
+        void size_highestOrdinalIsMaxValue_failsInsteadOfWrapping()
+        {
+            // 65,536 slots per chunk, so the chunk table stays small at the top of the ordinal space.
+            try(final VectorFile file = VectorFile.Default.open(this.directory, "max", 3, 64L << 16, 0L, 0L, "test"))
+            {
+                file.write(Integer.MAX_VALUE, new float[]{1f, 2f, 3f}, Vectorizer.NO_KEY);
+                final MappedVectorValues values = new MappedVectorValues(file, vectorTypeSupport);
+
+                assertEquals(3f, values.getVector(Integer.MAX_VALUE).get(2));
+                assertThrows(ArithmeticException.class, values::size);
+            }
+        }
+
+        /**
+         * The last chunk of the ordinal space reaches Integer.MAX_VALUE. A reopened file must bound its ordinals by
+         * the highest slot written, not by the end of that chunk, or a valid index fails on restart.
+         */
+        @Test
+        void size_reopenedWithHighestOrdinalInTheLastChunk_isTheDenseBound()
+        {
+            final int  ordinal = Integer.MAX_VALUE - 100;
+            final long nonce;
+            final long epoch;
+            try(final VectorFile file = VectorFile.Default.open(this.directory, "top", 3, 64L << 16, 0L, 0L, "test"))
+            {
+                file.recovered();
+                nonce = file.nonce();
+                file.write(ordinal, new float[]{1f, 2f, 3f}, Vectorizer.NO_KEY);
+                epoch = file.seal();
+                file.committed(epoch);
+            }
+
+            try(final VectorFile file = VectorFile.Default.open(this.directory, "top", 3, 64L << 16, nonce, epoch,
+                "test"))
+            {
+                final MappedVectorValues values = new MappedVectorValues(file, vectorTypeSupport);
+
+                assertEquals(ordinal + 1, values.size());
+                assertEquals(2f, values.getVector(ordinal).get(1));
+            }
         }
 
         @Test
-        void testGetVectorValidOrdinal()
+        void getVectorInto_copiesStraightIntoTheDestination()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
-                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
-                .build();
-            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
-            vectorStore.add(new VectorEntry(1L, new float[]{4.0f, 5.0f, 6.0f}));
+            try(final VectorFile file = openFile(this.directory))
+            {
+                file.write(1, new float[]{4f, 5f, 6f}, Vectorizer.NO_KEY);
+                final MappedVectorValues values      = new MappedVectorValues(file, vectorTypeSupport);
+                final VectorFloat<?>     destination = vectorTypeSupport.createFloatVector(new float[5]);
 
-            final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
-                vectorStore, 3, vectorTypeSupport
-            );
+                values.getVectorInto(1, destination, 2);
 
-            // Entity IDs in GigaMap start at 0
-            final VectorFloat<?> result0 = values.getVector(0);
-            final VectorFloat<?> result1 = values.getVector(1);
-
-            assertNotNull(result0);
-            assertNotNull(result1);
-            assertEquals(1.0f, result0.get(0), 0.001f);
-            assertEquals(4.0f, result1.get(0), 0.001f);
+                assertEquals(0f, destination.get(1));
+                assertEquals(4f, destination.get(2));
+                assertEquals(6f, destination.get(4));
+            }
         }
 
         @Test
-        void testGetVectorNonExistentOrdinalReturnsNull()
+        void nullSafe_getVectorInto_absentOrdinal_copiesThePlaceholder()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
-                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
-                .build();
-            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
+            try(final VectorFile file = openFile(this.directory))
+            {
+                final NullSafeVectorValues values = new NullSafeVectorValues(
+                    new MappedVectorValues(file, vectorTypeSupport), 3, vectorTypeSupport
+                );
+                final VectorFloat<?> destination = vectorTypeSupport.createFloatVector(new float[3]);
 
-            final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
-                vectorStore, 3, vectorTypeSupport
-            );
+                values.getVectorInto(7, destination, 0);
 
-            // Ordinal 100 doesn't exist in the GigaMap
-            assertNull(values.getVector(100));
+                assertEquals(1e-6f, destination.get(0));
+            }
         }
 
         @Test
-        void testGetVectorConvertsToVectorFloat()
+        void getVector_concurrentReadersAndAWriter_readOnlyWholeVectors() throws Exception
         {
-            final VectorEntry originalVector = new VectorEntry(0L, new float[]{1.5f, 2.5f, 3.5f});
-            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
-                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
-                .build();
-            vectorStore.add(originalVector);
-
-            final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
-                vectorStore, 3, vectorTypeSupport
-            );
-
-            final VectorFloat<?> result = values.getVector(0);
-
-            assertNotNull(result);
-            assertEquals(3, result.length());
-            assertEquals(1.5f, result.get(0), 0.001f);
-            assertEquals(2.5f, result.get(1), 0.001f);
-            assertEquals(3.5f, result.get(2), 0.001f);
-        }
-
-        @Test
-        void testIsValueSharedReturnsFalse()
-        {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
-                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
-                .build();
-
-            final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
-                vectorStore, 3, vectorTypeSupport
-            );
-
-            assertFalse(values.isValueShared());
-        }
-
-        @Test
-        void testCopyReturnsNewInstance()
-        {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
-                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
-                .build();
-            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
-
-            final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
-                vectorStore, 3, vectorTypeSupport
-            );
-            final RandomAccessVectorValues copy = values.copy();
-
-            assertNotSame(values, copy);
-            assertTrue(copy instanceof GigaMapBackedVectorValues);
-            assertEquals(values.size(), copy.size());
-            assertEquals(values.dimension(), copy.dimension());
-        }
-
-        @Test
-        void testCopySharesUnderlyingStore()
-        {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
-                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
-                .build();
-            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
-
-            final GigaMapBackedVectorValues values = new GigaMapBackedVectorValues(
-                vectorStore, 3, vectorTypeSupport
-            );
-            final GigaMapBackedVectorValues copy = (GigaMapBackedVectorValues) values.copy();
-
-            // The copy shares the same underlying lookup, so it resolves the same vectors.
-            assertNotSame(values, copy);
-            assertEquals(values.getVector(0).get(0), copy.getVector(0).get(0), 0.001f);
-
-            // Mutate the backing store AFTER copying: both instances must observe the new
-            // entry, proving the copy shares the live store rather than a snapshot.
-            vectorStore.add(new VectorEntry(1L, new float[]{4.0f, 5.0f, 6.0f}));
-            assertNotNull(values.getVector(1));
-            assertNotNull(copy.getVector(1));
-            assertEquals(4.0f, values.getVector(1).get(0), 0.001f);
-            assertEquals(4.0f, copy.getVector(1).get(0), 0.001f);
+            try(final VectorFile file = openFile(this.directory))
+            {
+                file.write(0, new float[]{0f, 1f, 2f}, Vectorizer.NO_KEY);
+                final MappedVectorValues values   = new MappedVectorValues(file, vectorTypeSupport);
+                final ExecutorService    executor = Executors.newFixedThreadPool(3);
+                try
+                {
+                    final List<Future<Boolean>> readers = new ArrayList<>();
+                    for(int r = 0; r < 3; r++)
+                    {
+                        readers.add(executor.submit(() ->
+                        {
+                            for(int i = 0; i < 50_000; i++)
+                            {
+                                final VectorFloat<?> vector = values.getVector(0);
+                                if(vector.get(1) != vector.get(0) + 1f || vector.get(2) != vector.get(0) + 2f)
+                                {
+                                    return false;
+                                }
+                            }
+                            return true;
+                        }));
+                    }
+                    for(int i = 0; i < 50_000; i++)
+                    {
+                        file.write(0, new float[]{i, i + 1f, i + 2f}, Vectorizer.NO_KEY);
+                    }
+                    for(final Future<Boolean> reader : readers)
+                    {
+                        assertTrue(reader.get(60, TimeUnit.SECONDS), "a reader saw a torn vector");
+                    }
+                }
+                finally
+                {
+                    executor.shutdownNow();
+                }
+            }
         }
     }
 
-    // ==================== GigaMapBackedVectorValues.Caching Tests ====================
-
     @Nested
-    class GigaMapBackedVectorValuesCachingTests
+    class MappedVectorValuesCachingTests
     {
+        @TempDir
+        Path directory;
+
         @Test
-        void testCachingInheritsBaseProperties()
+        void getVector_sameOrdinal_returnsTheCachedInstance()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
-                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
-                .build();
-            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
-            vectorStore.add(new VectorEntry(1L, new float[]{4.0f, 5.0f, 6.0f}));
+            try(final VectorFile file = openFile(this.directory))
+            {
+                file.write(0, new float[]{1f, 2f, 3f}, Vectorizer.NO_KEY);
+                file.write(1, new float[]{4f, 5f, 6f}, Vectorizer.NO_KEY);
+                final MappedVectorValues.Caching values = new MappedVectorValues.Caching(file, vectorTypeSupport, 4);
 
-            final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
-                vectorStore, 3, vectorTypeSupport
-            );
-
-            assertEquals(2, values.size());
-            assertEquals(3, values.dimension());
-            assertFalse(values.isValueShared());
+                final VectorFloat<?> first = values.getVector(1);
+                assertSame(first, values.getVector(1));
+                assertNotSame(first, values.getVector(0));
+                assertNull(values.getVector(2));
+                assertNull(values.getVector(2), "a hole is cached as one as well");
+            }
         }
 
         @Test
-        void testGetVectorCachesResult()
+        void copy_startsWithAnEmptyCache()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
-                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
-                .build();
-            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
+            try(final VectorFile file = openFile(this.directory))
+            {
+                file.write(0, new float[]{1f, 2f, 3f}, Vectorizer.NO_KEY);
+                final MappedVectorValues.Caching values = new MappedVectorValues.Caching(file, vectorTypeSupport, 4);
+                final VectorFloat<?>             cached = values.getVector(0);
 
-            final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
-                vectorStore, 3, vectorTypeSupport
-            );
+                final RandomAccessVectorValues copy = values.copy();
 
-            // First call should create and cache the VectorFloat
-            final VectorFloat<?> first = values.getVector(0);
-            // Second call should return the cached instance
-            final VectorFloat<?> second = values.getVector(0);
-
-            assertSame(first, second, "Caching should return the same VectorFloat instance");
+                assertNotSame(values, copy);
+                assertNotSame(cached, copy.getVector(0));
+            }
         }
 
         @Test
-        void testGetVectorCachesMultipleOrdinals()
+        void getVectorInto_readsThroughTheCache()
         {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
-                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
-                .build();
-            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
-            vectorStore.add(new VectorEntry(1L, new float[]{4.0f, 5.0f, 6.0f}));
-            vectorStore.add(new VectorEntry(2L, new float[]{7.0f, 8.0f, 9.0f}));
+            try(final VectorFile file = openFile(this.directory))
+            {
+                file.write(0, new float[]{1f, 2f, 3f}, Vectorizer.NO_KEY);
+                final MappedVectorValues.Caching values      =
+                    new MappedVectorValues.Caching(file, vectorTypeSupport, 4);
+                final VectorFloat<?>             destination = vectorTypeSupport.createFloatVector(new float[3]);
 
-            final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
-                vectorStore, 3, vectorTypeSupport
-            );
+                values.getVectorInto(0, destination, 0);
 
-            // Access ordinals in different order
-            final VectorFloat<?> v1First = values.getVector(1);
-            final VectorFloat<?> v0First = values.getVector(0);
-            final VectorFloat<?> v2First = values.getVector(2);
-
-            // Access again - should return cached instances
-            final VectorFloat<?> v0Second = values.getVector(0);
-            final VectorFloat<?> v1Second = values.getVector(1);
-            final VectorFloat<?> v2Second = values.getVector(2);
-
-            assertSame(v0First, v0Second);
-            assertSame(v1First, v1Second);
-            assertSame(v2First, v2Second);
-        }
-
-        @Test
-        void testGetVectorNonExistentReturnsNull()
-        {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
-                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
-                .build();
-            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
-
-            final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
-                vectorStore, 3, vectorTypeSupport
-            );
-
-            assertNull(values.getVector(100));
-        }
-
-        @Test
-        void testCopyReturnsNewCachingInstance()
-        {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
-                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
-                .build();
-            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
-
-            final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
-                vectorStore, 3, vectorTypeSupport
-            );
-            final RandomAccessVectorValues copy = values.copy();
-
-            assertNotSame(values, copy);
-            assertTrue(copy instanceof GigaMapBackedVectorValues.Caching);
-            assertEquals(values.size(), copy.size());
-            assertEquals(values.dimension(), copy.dimension());
-        }
-
-        @Test
-        void testCopyHasIndependentCache()
-        {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
-                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
-                .build();
-            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
-
-            final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
-                vectorStore, 3, vectorTypeSupport
-            );
-
-            // Cache a vector in the original
-            final VectorFloat<?> originalVector = values.getVector(0);
-
-            // Create a copy
-            final GigaMapBackedVectorValues.Caching copy =
-                (GigaMapBackedVectorValues.Caching) values.copy();
-
-            // The copy should create a new VectorFloat (independent cache)
-            final VectorFloat<?> copyVector = copy.getVector(0);
-
-            // Values should be equal but not the same instance (new cache lookup)
-            assertNotSame(originalVector, copyVector,
-                "Copy should have independent cache creating new VectorFloat instances");
-            assertEquals(originalVector.get(0), copyVector.get(0), 0.001f);
-        }
-
-        @Test
-        void testCachingSharesUnderlyingStore()
-        {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
-                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
-                .build();
-            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
-
-            final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
-                vectorStore, 3, vectorTypeSupport
-            );
-            final GigaMapBackedVectorValues.Caching copy =
-                (GigaMapBackedVectorValues.Caching) values.copy();
-
-            // The copy shares the same underlying lookup, so it resolves the same vectors.
-            assertNotSame(values, copy);
-            assertEquals(values.getVector(0).get(0), copy.getVector(0).get(0), 0.001f);
-
-            // Mutate the backing store AFTER copying: both instances must observe the new
-            // entry, proving the copy shares the live store rather than a snapshot. Use an
-            // ordinal neither instance has resolved yet, so per-instance caches don't mask
-            // the lookup.
-            vectorStore.add(new VectorEntry(1L, new float[]{4.0f, 5.0f, 6.0f}));
-            assertNotNull(values.getVector(1));
-            assertNotNull(copy.getVector(1));
-            assertEquals(4.0f, values.getVector(1).get(0), 0.001f);
-            assertEquals(4.0f, copy.getVector(1).get(0), 0.001f);
-        }
-
-        @Test
-        void testCachingExtendsGigaMapBackedVectorValues()
-        {
-            final GigaMap<VectorEntry> vectorStore = GigaMap.<VectorEntry>Builder()
-                .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
-                .build();
-            vectorStore.add(new VectorEntry(0L, new float[]{1.0f, 2.0f, 3.0f}));
-
-            final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
-                vectorStore, 3, vectorTypeSupport
-            );
-
-            assertTrue(values instanceof GigaMapBackedVectorValues);
-        }
-
-        @Test
-        void testGetVectorCachesMissingOrdinal()
-        {
-            final int[] lookups = new int[1];
-            final GigaMapBackedVectorValues.Caching values = new GigaMapBackedVectorValues.Caching(
-                ordinal ->
-                {
-                    lookups[0]++;
-                    return ordinal == 0 ? new float[]{1.0f, 2.0f, 3.0f} : null;
-                },
-                () -> 2,
-                3,
-                vectorTypeSupport,
-                GigaMapBackedVectorValues.Caching.DEFAULT_EXPECTED_SIZE
-            );
-
-            // A deleted or vector-less node is visited repeatedly during a traversal; it must
-            // be resolved once per query like any other node, not on every visit.
-            assertNull(values.getVector(1));
-            assertNull(values.getVector(1));
-            assertNotNull(values.getVector(0));
-            assertNotNull(values.getVector(0));
-
-            assertEquals(2, lookups[0]);
+                assertEquals(3f, destination.get(2));
+            }
         }
     }
 
-    // ==================== EntityBackedVectorValues.Caching Tests ====================
+    // ==================== NullSafeVectorValues Tests ====================
 
     @Nested
-    class EntityBackedVectorValuesCachingTests
+    class NullSafeVectorValuesTests
     {
         @Test
-        void testGetVectorCachesResultAndMisses()
+        void getVector_holeFromManyThreadsAndCopies_returnsOneFullyInitializedPlaceholder() throws Exception
         {
-            final GigaMap<float[]> entityMap = GigaMap.New();
-            entityMap.add(new float[]{1.0f, 2.0f, 3.0f});
-            entityMap.add(new float[0]); // id 1: the vectorizer yields no vector for it
-            final int[] vectorizations = new int[1];
-            final Vectorizer<float[]> vectorizer = new Vectorizer<>()
+            final List<VectorFloat<?>> one = new ArrayList<>();
+            one.add(vectorTypeSupport.createFloatVector(new float[]{1, 1, 1}));
+            final RandomAccessVectorValues holes = new ListRandomAccessVectorValues(one, 3)
             {
                 @Override
-                public float[] vectorize(final float[] entity)
+                public VectorFloat<?> getVector(final int ordinal)
                 {
-                    vectorizations[0]++;
-                    return entity.length == 0 ? null : entity;
+                    return ordinal == 0 ? super.getVector(0) : null;
                 }
             };
+            final NullSafeVectorValues values = new NullSafeVectorValues(holes, 3, vectorTypeSupport);
 
-            final EntityBackedVectorValues.Caching<float[]> values = new EntityBackedVectorValues.Caching<>(
-                entityMap,
-                vectorizer,
-                3,
-                vectorTypeSupport,
-                16
-            );
+            // Shared by the parallel rebuild's workers: once created on the first hole, every thread and every copy
+            // sees the same, completely published placeholder.
+            final VectorFloat<?> placeholder = values.getVector(5);
+            assertNotNull(placeholder);
+            assertEquals(3, placeholder.length());
+            for(int i = 0; i < 3; i++)
+            {
+                assertEquals(1e-6f, placeholder.get(i));
+            }
+            assertSame(placeholder, values.copy().getVector(7));
 
-            final VectorFloat<?> first = values.getVector(0);
-            assertSame(first, values.getVector(0));
-            assertNull(values.getVector(1));
-            assertNull(values.getVector(1));
-            // Id 2 does not exist: no entity, so no vectorization, but still cached as missing.
-            assertNull(values.getVector(2));
-            assertNull(values.getVector(2));
+            final ExecutorService executor = Executors.newFixedThreadPool(4);
+            try
+            {
+                final List<Future<VectorFloat<?>>> results = new ArrayList<>();
+                for(int i = 0; i < 16; i++)
+                {
+                    final int ordinal = 1 + i;
+                    results.add(executor.submit(() -> values.getVector(ordinal)));
+                }
+                for(final Future<VectorFloat<?>> result : results)
+                {
+                    assertSame(placeholder, result.get(10, TimeUnit.SECONDS));
+                }
+            }
+            finally
+            {
+                executor.shutdownNow();
+            }
+        }
+    }
 
-            assertEquals(2, vectorizations[0]);
+    // ==================== ParallelGraphInsertion Tests ====================
+
+    @Nested
+    class ParallelGraphInsertionTests
+    {
+        @Test
+        void forEach_largeCount_visitsEveryIndexOnce()
+        {
+            final int                       count   = ParallelGraphInsertion.MIN_PARALLEL_NODES * 8;
+            final AtomicIntegerArray        visits  = new AtomicIntegerArray(count);
+            final Set<String>               threads = ConcurrentHashMap.newKeySet();
+
+            ParallelGraphInsertion.forEach(count, i ->
+            {
+                visits.incrementAndGet(i);
+                threads.add(Thread.currentThread().getName());
+            }, "parallel-insertion-test");
+
+            for(int i = 0; i < count; i++)
+            {
+                assertEquals(1, visits.get(i), "index " + i);
+            }
+            if(ParallelGraphInsertion.parallelism() > 1)
+            {
+                assertTrue(threads.stream().allMatch(name -> name.startsWith("parallel-insertion-test-")),
+                    "ran on " + threads);
+            }
         }
 
         @Test
-        void testCopyHasIndependentCache()
+        void forEach_smallCount_runsOnCallingThread()
         {
-            final GigaMap<float[]> entityMap = GigaMap.New();
-            entityMap.add(new float[]{1.0f, 2.0f, 3.0f});
-            final Vectorizer<float[]> vectorizer = new Vectorizer<>()
+            final String      caller  = Thread.currentThread().getName();
+            final Set<String> threads = ConcurrentHashMap.newKeySet();
+            final int[]       visited = {0};
+
+            ParallelGraphInsertion.forEach(ParallelGraphInsertion.MIN_PARALLEL_NODES - 1, i ->
             {
-                @Override
-                public float[] vectorize(final float[] entity)
+                threads.add(Thread.currentThread().getName());
+                visited[0]++;
+            }, "parallel-insertion-test");
+
+            assertEquals(ParallelGraphInsertion.MIN_PARALLEL_NODES - 1, visited[0]);
+            assertEquals(Set.of(caller), threads);
+        }
+
+        @Test
+        void forEach_parallelismOne_runsLargeCountOnCallingThread()
+        {
+            final String      caller  = Thread.currentThread().getName();
+            final Set<String> threads = ConcurrentHashMap.newKeySet();
+            final int         count   = ParallelGraphInsertion.MIN_PARALLEL_NODES * 4;
+            final int[]       visited = {0};
+
+            ParallelGraphInsertion.forEach(count, i ->
+            {
+                threads.add(Thread.currentThread().getName());
+                visited[0]++;
+            }, "parallel-insertion-test", 1);
+
+            assertEquals(count, visited[0]);
+            assertEquals(Set.of(caller), threads);
+        }
+
+        @Test
+        void forEach_parallelismTwo_usesAtMostTwoWorkers()
+        {
+            final Set<String> threads = ConcurrentHashMap.newKeySet();
+
+            ParallelGraphInsertion.forEach(ParallelGraphInsertion.MIN_PARALLEL_NODES * 8,
+                i -> threads.add(Thread.currentThread().getName()), "parallel-insertion-test", 2);
+
+            assertTrue(threads.size() <= 2, "ran on " + threads);
+        }
+
+        @Test
+        void forEach_actionThrows_propagates()
+        {
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> ParallelGraphInsertion.forEach(ParallelGraphInsertion.MIN_PARALLEL_NODES * 2, i ->
                 {
-                    return entity;
-                }
-            };
-            final EntityBackedVectorValues.Caching<float[]> values = new EntityBackedVectorValues.Caching<>(
-                entityMap,
-                vectorizer,
-                3,
-                vectorTypeSupport,
-                16
-            );
-            final VectorFloat<?> original = values.getVector(0);
+                    if(i == 300)
+                    {
+                        throw new IllegalStateException("boom");
+                    }
+                }, "parallel-insertion-test"));
 
-            final RandomAccessVectorValues copy = values.copy();
-
-            assertTrue(copy instanceof EntityBackedVectorValues.Caching);
-            assertNotSame(original, copy.getVector(0));
-            assertSame(copy.getVector(0), copy.getVector(0));
+            // ForkJoinTask.join and the parallel stream may each rethrow a copy of a worker's exception that carries
+            // the previous one as its cause, so the original can sit more than one level down.
+            Throwable original = failure;
+            while(!"boom".equals(original.getMessage()) && original.getCause() != null)
+            {
+                original = original.getCause();
+            }
+            assertInstanceOf(IllegalStateException.class, original);
+            assertEquals("boom", original.getMessage());
         }
     }
 }

@@ -20,6 +20,12 @@ import org.eclipse.store.gigamap.types.GigaMap;
 import java.util.Arrays;
 import java.util.Objects;
 
+/**
+ * The entry of the vector store that computed-mode indices persisted before the vector file (a {@code GigaMap} of
+ * these, one per entity with a vector). Kept, with its reflective layout and its anonymous indexer class, only so
+ * that such a store still loads: the legacy handlers of {@link VectorIndex.Default} hand it to the index, which
+ * imports its vectors into the vector file at its first access and drops it (see {@code importLegacyVectorStore}).
+ */
 final class VectorEntry
 {
     /*

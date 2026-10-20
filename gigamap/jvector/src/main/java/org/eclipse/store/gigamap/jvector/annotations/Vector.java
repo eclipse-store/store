@@ -30,8 +30,9 @@ import static java.lang.annotation.RetentionPolicy.RUNTIME;
  * An entity type carrying a {@code @Vector} member can be wired into annotation-based index
  * generation via
  * {@code IndexerGenerator.AnnotationBased(EntityType.class).register(VectorAnnotationHandler.New()).generateIndices(map)}.
- * The vector is read from the entity on demand (embedded mode), so it is not stored a second time
- * by the index.
+ * The vector is read from the entity when it is added or updated (embedded mode), and the index
+ * keeps a copy of it in its memory-mapped vector file, off the heap, which searches read instead
+ * of the entity.
  *
  * @see org.eclipse.store.gigamap.jvector.VectorAnnotationHandler
  */

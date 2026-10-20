@@ -25,7 +25,19 @@
         <module>codegen</module>
         <module>codegen-test</module>
         <module>lucene</module>
-        <module>jvector</module>
     </modules>
+
+    <profiles>
+        <profile>
+            <!-- gigamap-jvector compiles at release 22 (foreign memory API); older JDKs build the store without it -->
+            <id>java22-plus-jvector</id>
+            <activation>
+                <jdk>[22,)</jdk>
+            </activation>
+            <modules>
+                <module>jvector</module>
+            </modules>
+        </profile>
+    </profiles>
 
 </project>

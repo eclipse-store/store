@@ -25,12 +25,18 @@ import org.junit.jupiter.api.io.TempDir;
 import java.lang.ref.WeakReference;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Regression tests for the JVector background-index lifecycle: a background-enabled {@link VectorIndex}
@@ -47,6 +53,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class VectorIndexAbandonmentLeakTest
 {
 	private static final String BG_THREAD_PREFIX = "VectorIndex-Background-";
+
+	private static final String INSERT_THREAD_PREFIX = "vector-insert-";
 
 	static final class Doc
 	{
@@ -139,6 +147,76 @@ class VectorIndexAbandonmentLeakTest
 	}
 
 	/**
+	 * Like {@link #buildAndAbandon}, for an on-disk index whose background persistence has flushed its
+	 * in-memory graph on the flush thread, requested by reaching the flush threshold, before every strong
+	 * reference goes out of scope.
+	 *
+	 * @param flushThread receives the name of the thread the flush ran on
+	 */
+	private static WeakReference<Object> buildFlushAndAbandon(
+		final Path                    indexDir   ,
+		final AtomicReference<String> flushThread
+	)
+		throws InterruptedException
+	{
+		final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+			.dimension(3)
+			.similarityFunction(VectorSimilarityFunction.COSINE)
+			.onDisk(true)
+			.indexDirectory(indexDir)
+			.persistenceIntervalMs(600_000L) // only the requested flush runs within the test
+			.flushThreshold(10)
+			.build();
+		final GigaMap<Doc>       map = GigaMap.New();
+		final VectorIndices<Doc> vi  = map.index().register(VectorIndices.Category());
+		final VectorIndex.Default<Doc> index = (VectorIndex.Default<Doc>)vi.add("emb", config, new EmbeddingVectorizer());
+		index.flushStageTestHook = stage ->
+		{
+			if(stage == VectorIndex.Default.FlushStage.PUBLISHED)
+			{
+				flushThread.set(Thread.currentThread().getName());
+			}
+		};
+
+		final Random random = new Random(5);
+		for(int i = 0; i < 30; i++)
+		{
+			map.add(new Doc(new float[]{random.nextFloat(), random.nextFloat(), random.nextFloat()}));
+		}
+		// Waits for the hook rather than the flush count, which is counted before the hook runs.
+		final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30L);
+		while(flushThread.get() == null && System.nanoTime() < deadline)
+		{
+			Thread.sleep(20L);
+		}
+		assertTrue(index.flushCount() > 0, "precondition: the threshold must have requested a flush");
+		return new WeakReference<>(index);
+	}
+
+	/**
+	 * Waits until no more background threads than {@code before} are alive, or the timeout elapses.
+	 * <p>
+	 * Closing an index shuts its executor down and awaits termination, but the worker thread may still be
+	 * listed by {@link Thread#getAllStackTraces()} for a moment after that, so a check at a single instant
+	 * is racy on a busy machine. A leaked thread stays alive for good, so a bounded wait tells the two apart.
+	 *
+	 * @return {@code true} if the count dropped to {@code before} or below within the timeout
+	 */
+	private static boolean awaitBackgroundThreadsReleased(final int before) throws InterruptedException
+	{
+		final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10L);
+		while(backgroundThreadCount() > before)
+		{
+			if(System.nanoTime() >= deadline)
+			{
+				return false;
+			}
+			Thread.sleep(50L);
+		}
+		return true;
+	}
+
+	/**
 	 * Repeatedly triggers GC and waits until {@code condition} holds or the timeout elapses.
 	 *
 	 * @return {@code true} if the condition became true within the timeout
@@ -172,6 +250,57 @@ class VectorIndexAbandonmentLeakTest
 		assertNull(backgroundRef.get());
 	}
 
+	private static int insertThreadCount()
+	{
+		return (int)Thread.getAllStackTraces().keySet().stream()
+			.filter(t -> t.getName().startsWith(INSERT_THREAD_PREFIX))
+			.filter(Thread::isAlive)
+			.count();
+	}
+
+	/**
+	 * Builds an index whose batch was large enough to start the workers of its insert pool, then lets
+	 * every strong reference go out of scope on return.
+	 */
+	private static void buildInsertAndAbandon(final int seed)
+	{
+		final GigaMap<Doc>       map = GigaMap.New();
+		final VectorIndices<Doc> vi  = map.index().register(VectorIndices.Category());
+		vi.add("emb" + seed, plainConfig(), new EmbeddingVectorizer());
+		final Random    random = new Random(seed);
+		final List<Doc> docs   = new ArrayList<>();
+		for(int i = 0; i < 2 * ParallelGraphInsertion.MIN_PARALLEL_NODES; i++)
+		{
+			docs.add(new Doc(new float[]{random.nextFloat(), random.nextFloat(), random.nextFloat()}));
+		}
+		map.addAll(docs);
+	}
+
+	/**
+	 * The workers of an index's insert pool outlive its batches by design, so an index abandoned without a
+	 * {@code close()} has to shut them down once it is collected, or they stay alive for good.
+	 */
+	@Test
+	@Timeout(value = 120, unit = TimeUnit.SECONDS)
+	void abandonedVectorIndicesReleaseInsertThreads() throws Exception
+	{
+		assumeTrue(ParallelGraphInsertion.parallelism() >= 2, "needs at least two cores to start the pool");
+		final int n      = 10;
+		final int before = insertThreadCount();
+
+		for(int i = 0; i < n; i++)
+		{
+			buildInsertAndAbandon(i);
+		}
+		assertTrue(insertThreadCount() > before, "precondition: the batches must have started insert workers");
+
+		final boolean released = awaitGc(() -> insertThreadCount() <= before, 60_000L);
+
+		assertTrue(released,
+			"abandoning " + n + " vector indices without close() leaked "
+				+ (insertThreadCount() - before) + " '" + INSERT_THREAD_PREFIX + "' threads");
+	}
+
 	@Test
 	@Timeout(value = 120, unit = TimeUnit.SECONDS)
 	void abandonedVectorIndicesReleaseBackgroundThreads() throws Exception
@@ -191,6 +320,27 @@ class VectorIndexAbandonmentLeakTest
 			"abandoning " + n + " background-enabled vector indices without close() leaked "
 				+ (backgroundThreadCount() - before) + " '" + BG_THREAD_PREFIX + "' threads; the "
 				+ "BackgroundTaskManager must self-terminate when its index is garbage-collected");
+	}
+
+	/**
+	 * The flush thread of an on-disk index holds nothing of the index while idle, and ends on its own
+	 * shortly after its last flush, so an abandoned index is collected and leaves no thread behind.
+	 */
+	@Test
+	@Timeout(value = 120, unit = TimeUnit.SECONDS)
+	void abandonedOnDiskIndexAfterABackgroundFlushIsCollectable(@TempDir final Path dir) throws Exception
+	{
+		final int                     before      = backgroundThreadCount();
+		final AtomicReference<String> flushThread = new AtomicReference<>();
+
+		final WeakReference<Object> ref = buildFlushAndAbandon(dir.resolve("index"), flushThread);
+
+		assertEquals(BG_THREAD_PREFIX + "emb-flush", flushThread.get(), "the flush must run on the flush thread");
+		assertTrue(awaitGc(() -> ref.get() == null, 30_000L),
+			"an abandoned on-disk index must not be pinned by its flush thread or background task manager");
+		assertTrue(awaitGc(() -> backgroundThreadCount() <= before, 60_000L),
+			"abandoning an on-disk index leaked " + (backgroundThreadCount() - before) + " '"
+				+ BG_THREAD_PREFIX + "' threads");
 	}
 
 	@Test
@@ -213,7 +363,7 @@ class VectorIndexAbandonmentLeakTest
 		// Shut down storage WITHOUT ever calling index.close(); the shutdown hook must close the groups.
 		storage.shutdown();
 
-		assertTrue(backgroundThreadCount() <= before,
+		assertTrue(awaitBackgroundThreadsReleased(before),
 			"EmbeddedStorageManager.shutdown() must close vector index groups so no '"
 				+ BG_THREAD_PREFIX + "' thread survives");
 	}
@@ -244,7 +394,7 @@ class VectorIndexAbandonmentLeakTest
 		assertTimeoutPreemptively(Duration.ofSeconds(30), () -> { storage.shutdown(); },
 			"storage.shutdown() dead-locked closing the on-disk background index");
 
-		assertTrue(backgroundThreadCount() <= before,
+		assertTrue(awaitBackgroundThreadsReleased(before),
 			"shutdown must close the on-disk background index without dead-locking");
 	}
 
@@ -271,7 +421,7 @@ class VectorIndexAbandonmentLeakTest
 				"removeIndex() dead-locked closing the on-disk background index");
 
 			assertNull(vi.get("emb"), "index must be removed");
-			assertTrue(backgroundThreadCount() <= before, "removeIndex must close the background index");
+			assertTrue(awaitBackgroundThreadsReleased(before), "removeIndex must close the background index");
 		}
 	}
 
@@ -300,7 +450,7 @@ class VectorIndexAbandonmentLeakTest
 				"index group removal dead-locked closing the on-disk background index");
 
 			assertNull(map.index().get(VectorIndices.Category()), "group must be removed");
-			assertTrue(backgroundThreadCount() <= before, "group removal must close the background index");
+			assertTrue(awaitBackgroundThreadsReleased(before), "group removal must close the background index");
 		}
 	}
 }

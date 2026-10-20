@@ -24,9 +24,11 @@ import java.lang.reflect.Method;
  * {@link org.eclipse.store.gigamap.jvector.annotations.Vector} annotation.
  * <p>
  * Operates in embedded mode ({@link #isEmbedded()} returns {@code true}): the vector is read from
- * the entity on demand and not stored a second time by the index. Only the entity type and member
- * identity are held as persistent state; the reflective member is re-resolved lazily so the
- * vectorizer stays cheap to (de)serialize as part of a stored {@code VectorIndex}.
+ * the entity when it is added or updated, and the index keeps a copy of it in its memory-mapped
+ * vector file, off the heap, which every search and graph build reads instead of the entity. Plan
+ * disk space for that copy. Only the entity type and member identity are held as persistent state;
+ * the reflective member is re-resolved lazily so the vectorizer stays cheap to (de)serialize as
+ * part of a stored {@code VectorIndex}.
  *
  * @param <E> the entity type
  */

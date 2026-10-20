@@ -9,14 +9,16 @@ package org.eclipse.store.gigamap.jvector;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- *
+ * 
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
 
+
 import io.github.jbellis.jvector.graph.GraphIndexBuilder;
 import io.github.jbellis.jvector.graph.OnHeapGraphIndex;
 import io.github.jbellis.jvector.graph.RandomAccessVectorValues;
+import io.github.jbellis.jvector.graph.disk.AbstractGraphIndexWriter;
 import io.github.jbellis.jvector.graph.disk.OnDiskGraphIndex;
 import io.github.jbellis.jvector.graph.disk.OnDiskGraphIndexWriter;
 import io.github.jbellis.jvector.graph.disk.OnDiskParallelGraphIndexWriter;
@@ -38,23 +40,22 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumMap;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.function.IntFunction;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Holds {@link IdentityOrdinalMapper} to the {@code Map}-based identity mapping it replaced: the
- * same answers for every ordinal, and byte-identical files from every writer the persist uses.
+ * Holds {@link DenseOrdinalMapper} to jVector's own {@code sequentialRenumbering} map: the same
+ * answers for every ordinal, and byte-identical files from every writer the persist uses.
  */
-class IdentityOrdinalMapperTest
+class DenseOrdinalMapperTest
 {
     private static final VectorTypeSupport VECTOR_TYPE_SUPPORT =
         VectorizationProvider.getInstance().getVectorTypeSupport();
@@ -107,19 +108,21 @@ class IdentityOrdinalMapperTest
     }
 
     @Test
-    void mapping_graphWithHoles_matchesMapBasedIdentity()
+    void mapping_graphWithHoles_matchesSequentialRenumbering()
     {
-        final OrdinalMapper reference = new OrdinalMapper.MapMapper(this.identityMap());
+        final OrdinalMapper reference = new OrdinalMapper.MapMapper(this.sequentialMap());
 
-        final IdentityOrdinalMapper mapper = new IdentityOrdinalMapper(this.index);
+        final DenseOrdinalMapper mapper = DenseOrdinalMapper.of(this.index);
 
-        assertFalse(this.index.containsNode(this.index.getIdUpperBound() - 1),
-            "precondition: the highest allocated id must be removed");
         assertEquals(reference.maxOrdinal(), mapper.maxOrdinal());
-        assertEquals(NODE_COUNT - 4, mapper.maxOrdinal());
+        assertEquals(NODE_COUNT - REMOVED.length - 1, mapper.maxOrdinal(),
+            "dense: one local ordinal per present node and none for a hole");
+        for(int local = -1; local <= this.index.getIdUpperBound(); local++)
+        {
+            assertEquals(reference.newToOld(local), mapper.newToOld(local), "newToOld(" + local + ")");
+        }
         for(int ordinal = 0; ordinal < this.index.getIdUpperBound(); ordinal++)
         {
-            assertEquals(reference.newToOld(ordinal), mapper.newToOld(ordinal), "newToOld(" + ordinal + ")");
             if(this.index.containsNode(ordinal))
             {
                 assertEquals(reference.oldToNew(ordinal), mapper.oldToNew(ordinal), "oldToNew(" + ordinal + ")");
@@ -128,12 +131,35 @@ class IdentityOrdinalMapperTest
     }
 
     @Test
+    void localToGlobal_graphWithHoles_isAscendingPresentOrdinals()
+    {
+        final int[] localToGlobal = DenseOrdinalMapper.of(this.index).localToGlobal();
+
+        assertEquals(NODE_COUNT - REMOVED.length, localToGlobal.length);
+        assertEquals(1, localToGlobal[0], "ordinal 0 is removed, so local 0 is ordinal 1");
+        assertEquals(NODE_COUNT - 4, localToGlobal[localToGlobal.length - 1]);
+        for(final int removed : REMOVED)
+        {
+            assertTrue(Arrays.binarySearch(localToGlobal, removed) < 0, "removed ordinal " + removed);
+        }
+    }
+
+    @Test
     void oldToNew_removedOrdinal_throws()
     {
-        final IdentityOrdinalMapper mapper = new IdentityOrdinalMapper(this.index);
+        final DenseOrdinalMapper mapper = DenseOrdinalMapper.of(this.index);
 
         assertThrows(IllegalStateException.class, () -> mapper.oldToNew(150));
-        assertEquals(OrdinalMapper.OMITTED, mapper.newToOld(150));
+        assertThrows(IllegalStateException.class, () -> mapper.oldToNew(0));
+        assertThrows(IllegalStateException.class, () -> mapper.oldToNew(NODE_COUNT - 1));
+    }
+
+    @Test
+    void constructor_unsortedOrDuplicateOrdinals_throws()
+    {
+        assertThrows(IllegalArgumentException.class, () -> new DenseOrdinalMapper(new int[]{3, 2}));
+        assertThrows(IllegalArgumentException.class, () -> new DenseOrdinalMapper(new int[]{2, 2}));
+        assertThrows(IllegalArgumentException.class, () -> new DenseOrdinalMapper(new int[]{-1, 2}));
     }
 
     @Test
@@ -149,7 +175,7 @@ class IdentityOrdinalMapperTest
             true
         );
 
-        final IdentityOrdinalMapper mapper = new IdentityOrdinalMapper((OnHeapGraphIndex)builder.getGraph());
+        final DenseOrdinalMapper mapper = DenseOrdinalMapper.of((OnHeapGraphIndex)builder.getGraph());
 
         assertEquals(-1, mapper.maxOrdinal());
     }
@@ -160,8 +186,8 @@ class IdentityOrdinalMapperTest
         final Path expected = this.directory.resolve("expected.graph");
         final Path actual   = this.directory.resolve("actual.graph");
 
-        OnDiskGraphIndex.write(this.index, this.ravv, this.identityMap(), expected);
-        DiskIndexManager.Default.writePlainIndex(this.index, this.ravv, actual);
+        OnDiskGraphIndex.write(this.index, this.ravv, this.sequentialMap(), expected);
+        DiskIndexManager.Default.writePlainIndex(this.index, this.ravv, DenseOrdinalMapper.of(this.index), actual);
 
         assertFilesIdentical(expected, actual);
     }
@@ -174,14 +200,14 @@ class IdentityOrdinalMapperTest
         final Path           actual   = this.directory.resolve("actual.graph");
 
         try(final OnDiskGraphIndexWriter writer = new OnDiskGraphIndexWriter.Builder(this.index, expected)
-            .withMap(this.identityMap())
+            .withMap(this.sequentialMap())
             .with(new NVQ(nvq))
             .build())
         {
             writer.write(this.nvqSuppliers(nvq));
         }
         try(final OnDiskGraphIndexWriter writer = new OnDiskGraphIndexWriter.Builder(this.index, actual)
-            .withMapper(new IdentityOrdinalMapper(this.index))
+            .withMapper(DenseOrdinalMapper.of(this.index))
             .with(new NVQ(nvq))
             .build())
         {
@@ -197,8 +223,8 @@ class IdentityOrdinalMapperTest
         final Path expected = this.directory.resolve("expected.graph");
         final Path actual   = this.directory.resolve("actual.graph");
 
-        this.writeParallel(expected, new OrdinalMapper.MapMapper(this.identityMap()));
-        this.writeParallel(actual, new IdentityOrdinalMapper(this.index));
+        this.writeParallel(expected, new OrdinalMapper.MapMapper(this.sequentialMap()));
+        this.writeParallel(actual, DenseOrdinalMapper.of(this.index));
 
         assertFilesIdentical(expected, actual);
     }
@@ -229,20 +255,11 @@ class IdentityOrdinalMapperTest
     }
 
     /**
-     * The mapping {@code DiskIndexManager} used to build on every persist: one identity entry per
-     * present node.
+     * jVector's default mapping, which the dense mapper reproduces without a boxed entry per node.
      */
-    private Map<Integer, Integer> identityMap()
+    private Map<Integer, Integer> sequentialMap()
     {
-        final Map<Integer, Integer> map = new HashMap<>();
-        for(int ordinal = 0; ordinal < this.index.getIdUpperBound(); ordinal++)
-        {
-            if(this.index.containsNode(ordinal))
-            {
-                map.put(ordinal, ordinal);
-            }
-        }
-        return map;
+        return AbstractGraphIndexWriter.sequentialRenumbering(this.index);
     }
 
     private static void assertFilesIdentical(

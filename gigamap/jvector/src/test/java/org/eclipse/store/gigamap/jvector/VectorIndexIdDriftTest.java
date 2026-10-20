@@ -21,8 +21,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -187,49 +185,6 @@ class VectorIndexIdDriftTest
     }
 
     // ==================== C. Both computedIdIndex build paths agree ====================
-
-    /**
-     * The {@code sourceEntityId -> storeId} map is normally reconstructed from the identity index
-     * bitmaps, and only during the {@code complete()} deserialization window by a positional store
-     * scan. Nothing else asserts the two paths produce the same mapping, so a divergence would only
-     * ever surface as wrong vectors after a reload.
-     */
-    @Test
-    @SuppressWarnings("unchecked")
-    void bothComputedIdIndexBuildPaths_produceTheSameMapping()
-    {
-        final GigaMap<Doc> map = GigaMap.New();
-        final long[]       ids = driftedMap(map);
-
-        // Drift plus vector-less entities: those get no store entry at all, widening the offset.
-        final VectorIndex<Doc> index = registerIndex(map, new NullableComputedVectorizer());
-        map.add(new Doc("noVector", null));
-        final long withVector = map.add(new Doc("vLate", basis(1)));
-        map.set(ids[0], new Doc("v0-nulled", null));
-
-        final VectorIndex.Default<Doc> def       = (VectorIndex.Default<Doc>)index;
-        final OrdinalStoreIdTable     fromIndexTable = def.buildComputedIdIndexFromIndex();
-        assertNotNull(fromIndexTable, "the identity index must be queryable on a live map");
-        final Map<Long, Long>         fromIndex = toMap(fromIndexTable);
-        final Map<Long, Long>         byScan    = toMap(def.buildComputedIdIndexByScan());
-
-        assertFalse(fromIndex.isEmpty(), "guard against both paths agreeing on an empty mapping");
-        assertEquals(byScan, fromIndex, "identity-index reconstruction must match the positional scan");
-
-        // Sanity: the mapping covers exactly the entities that have a stored vector.
-        assertTrue(fromIndex.containsKey(ids[2]));
-        assertTrue(fromIndex.containsKey(ids[4]));
-        assertTrue(fromIndex.containsKey(withVector));
-        assertFalse(fromIndex.containsKey(ids[0]), "entity whose vector became null has no entry");
-        assertFalse(fromIndex.containsKey(ids[1]), "entity removed before registration has no entry");
-    }
-
-    private static Map<Long, Long> toMap(final OrdinalStoreIdTable table)
-    {
-        final Map<Long, Long> map = new HashMap<>();
-        table.forEach(map::put);
-        return map;
-    }
 
     // ==================== D. Drift survives a persistence round-trip ====================
 

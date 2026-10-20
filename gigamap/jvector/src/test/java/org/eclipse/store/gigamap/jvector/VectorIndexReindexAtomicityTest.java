@@ -24,16 +24,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.lang.reflect.Field;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Queue;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -200,24 +196,14 @@ class VectorIndexReindexAtomicityTest
             .orElse(-1.0f);
     }
 
-    @SuppressWarnings("unchecked")
-    private static <T> T internalState(final VectorIndex<?> index, final String fieldName)
+    /**
+     * Whether the index answers from a persisted segment: a reindex or a failed consolidation must not drop or
+     * re-adopt one, and a persist must write one.
+     */
+    private static boolean isServingFromSegments(final VectorIndex<?> index)
     {
-        try
-        {
-            final Field field = VectorIndex.Default.class.getDeclaredField(fieldName);
-            field.setAccessible(true);
-            return (T)field.get(index);
-        }
-        catch(final ReflectiveOperationException e)
-        {
-            throw new AssertionError("cannot read VectorIndex.Default." + fieldName, e);
-        }
-    }
-
-    private static boolean isIncrementalMode(final VectorIndex<?> index)
-    {
-        return internalState(index, "incrementalMode");
+        final SourceSet set = ((VectorIndex.Default<?>)index).sourceSet();
+        return set != null && !set.segments().isEmpty();
     }
 
     /**
@@ -317,12 +303,12 @@ class VectorIndexReindexAtomicityTest
             "emb", onDisk(tempDir.resolve("index"), ApproximateScoring.FUSED_PQ), new EmbeddedVectorizer()))
         {
             index.persistToDisk();
-            assertTrue(isIncrementalMode(index), "precondition: the persisted graph is in use");
+            assertTrue(isServingFromSegments(index), "precondition: the persisted graph is in use");
 
             map.get(MOVED).vector = NEW_POS.clone();
             map.reindex();
 
-            assertFalse(isIncrementalMode(index), "reindex() reloaded the persisted disk graph");
+            assertFalse(isServingFromSegments(index), "reindex() reloaded the persisted disk graph");
             final float staleScore = scoreOfMovedAtOldPosition(index);
             assertTrue(staleScore < 0.5f, "entity " + MOVED + " is still found at its old position (score "
                 + staleScore + "): the persisted disk graph was re-adopted");
@@ -356,12 +342,12 @@ class VectorIndexReindexAtomicityTest
             final GigaMap<Doc>     map   = storage.root();
             final VectorIndex<Doc> index = map.index().get(VectorIndices.class).get("emb");
             index.search(NEW_POS, 1); // initializes the index from disk
-            assertTrue(isIncrementalMode(index), "precondition: the persisted graph was loaded");
+            assertTrue(isServingFromSegments(index), "precondition: the persisted graph was loaded");
 
             map.get(MOVED).vector = NEW_POS.clone();
             map.reindex();
 
-            assertFalse(isIncrementalMode(index), "reindex() reloaded the persisted disk graph");
+            assertFalse(isServingFromSegments(index), "reindex() reloaded the persisted disk graph");
             assertEquals(MOVED, topHit(index, NEW_POS));
             assertEquals(COUNT, ids(index, COUNT).size());
         }
@@ -418,332 +404,39 @@ class VectorIndexReindexAtomicityTest
         }
     }
 
-    /**
-     * Runs a persist on its own thread while a synchronous add() is deferred: a search held inside scoring keeps the
-     * read lock, the persist sets {@code cleanupInProgress} and queues on the write lock, the add runs, the search is
-     * released. The vectorizer throws on the persist thread {@code failures} times, starting with the deferred add's
-     * neighbour scoring in the persist's Phase-1 drain.
-     *
-     * @return the id of the added entity
-     */
-    private static long persistWhileAnAddIsDeferred(
-        final GigaMap<Doc>               map           ,
-        final VectorIndex<Doc>           index         ,
-        final PausableVectorizer         vectorizer    ,
-        final Doc                        late          ,
-        final int                        failures      ,
-        final AtomicReference<Throwable> persistFailure
-    )
-        throws InterruptedException
-    {
-        final long lateId;
-        final Thread searcher  = daemon("searcher", () -> index.search(position(10), 5));
-        final Thread persister = daemon("persister", () ->
-        {
-            try
-            {
-                index.persistToDisk();
-            }
-            catch(final Throwable t)
-            {
-                persistFailure.set(t);
-            }
-        });
-        try
-        {
-            // a search holds the read lock, paused inside scoring
-            vectorizer.pauseThread = searcher;
-            searcher.start();
-            assertTrue(vectorizer.paused.await(TIMEOUT_MS, TimeUnit.MILLISECONDS), "search did not reach scoring");
-
-            // the persist sets cleanupInProgress and queues on the write lock
-            vectorizer.failThread   = persister;
-            vectorizer.failuresLeft = failures;
-            persister.start();
-            awaitQueued(internalState(index, "builderLock"), persister);
-
-            // a synchronous add in that window: its graph op is deferred
-            lateId = map.add(late);
-            final Queue<?> deferred = internalState(index, "deferredBuilderOps");
-            assertEquals(1, deferred.size(), "precondition: the add's graph op was deferred");
-        }
-        finally
-        {
-            // also when the test failed: a held search would block the storage shutdown
-            vectorizer.resume.countDown();
-        }
-        searcher.join(TIMEOUT_MS);
-        persister.join(TIMEOUT_MS);
-        assertFalse(persister.isAlive(), "the persist did not finish");
-        vectorizer.failuresLeft = 0;
-        return lateId;
-    }
 
     private static boolean foundExactly(final VectorIndex<Doc> index, final Doc doc, final long id)
     {
         return index.search(doc.vector, 3).toList().stream().anyMatch(e -> e.entityId() == id && e.score() > 0.99f);
     }
 
-    /**
-     * A persist sets {@code cleanupInProgress} before it waits for the write lock. An add() in that window defers
-     * its graph op but counts at once in the {@code .meta} witnesses, so the persist must apply the op before it
-     * captures the graph: otherwise the written files claim to be current, a restart accepts them, and the entity
-     * is missing.
-     */
-    @Test
-    @Order(Integer.MAX_VALUE - 2)
-    void addDeferredWhileAPersistWaitsIsPersisted(@TempDir final Path tempDir) throws Exception
-    {
-        assertDeferredAddPersisted(tempDir, 0);
-    }
+    // The tests of the deferral protocol (a sync mutation deferred while a persist waited for the write lock, its
+    // failed op forcing a rebuild before the persist captured the graph) went with that protocol: a persist now
+    // freezes the live graph and writes it as a segment with no lock held, mutations insert into the live graph
+    // at once, and a failed graph operation makes the next persist consolidate (VectorIndexPersistWindowConcurrencyTest,
+    // VectorIndexEventualIndexingTest, VectorIndexParallelRebuildTest#consolidation_workerFailure_keepsTheSourcesAndRetries).
+    // What stays here is the property those tests shared with the two below: a persist whose rebuild fails publishes
+    // nothing and leaves the index serving complete results.
 
     /**
-     * The deferred add's graph op throws in the persist's Phase-1 drain (the vectorizer fails once while it scores
-     * neighbours). The op is lost, but its add is already counted in the witnesses, so the persist must rebuild the
-     * graph from the entities before it captures it instead of writing a graph that misses the entity.
-     */
-    @Test
-    @Order(Integer.MAX_VALUE - 1)
-    void failedDeferredOpIsRebuiltBeforeThePersistCaptures(@TempDir final Path tempDir) throws Exception
-    {
-        assertDeferredAddPersisted(tempDir, 1);
-    }
-
-    private static void assertDeferredAddPersisted(final Path tempDir, final int failures) throws Exception
-    {
-        final Path storageDir = tempDir.resolve("storage");
-        final Doc  late       = new Doc(COUNT + 7);
-        final long lateId;
-        try(EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
-        {
-            final GigaMap<Doc> map = populatedMap(COUNT);
-            storage.setRoot(map);
-            storage.storeRoot();
-            final PausableVectorizer vectorizer = new PausableVectorizer();
-            final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
-                .add("emb", onDisk(tempDir.resolve("index"), ApproximateScoring.NONE), vectorizer);
-            map.store();
-
-            final AtomicReference<Throwable> persistFailure = new AtomicReference<>();
-            lateId = persistWhileAnAddIsDeferred(map, index, vectorizer, late, failures, persistFailure);
-            assertNull(persistFailure.get(), "the persist failed");
-            assertTrue(foundExactly(index, late, lateId), "the deferred entity is missing in the session");
-            map.store();
-        }
-
-        try(EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
-        {
-            final GigaMap<Doc>     map   = storage.root();
-            final VectorIndex<Doc> index = map.index().get(VectorIndices.class).get("emb");
-            index.search(late.vector, 1); // initializes the index from disk
-            assertTrue(isIncrementalMode(index), "precondition: the written files were accepted after the restart");
-            assertTrue(foundExactly(index, late, lateId),
-                "the entity added while the persist waited for the write lock is missing after a restart");
-        }
-    }
-
-    /**
-     * The vectorizer keeps failing on the persist thread, so the rebuild that the failed deferred op calls for fails
-     * too: the persist must fail and write nothing. The next persist, with a working vectorizer, rebuilds and writes
-     * the complete graph.
+     * A persist that has to consolidate (a graph operation failed since the last persist, which only a rebuild
+     * from the store repairs; the index holds a segment and entities added since) fails while the new graph is
+     * built: a rebuild worker throws. (The rebuild reads the vectors from the vector file and scores from them,
+     * so the vectorizer cannot fail it.) The consolidation must publish nothing: the new, partial graph is
+     * discarded, the index keeps serving complete results from the segment plus the live graph, and the next
+     * persist consolidates and succeeds.
      */
     @Test
     @Order(Integer.MAX_VALUE)
-    void persistFailsWithoutWritingWhileTheRebuildFails(@TempDir final Path tempDir) throws Exception
+    void failedConsolidationRebuildKeepsTheSources(@TempDir final Path tempDir) throws Exception
     {
-        assertFailedPersistWritesNothingAndTheNextRepairs(tempDir, Integer.MAX_VALUE, false);
-    }
-
-    /**
-     * An {@link Error} from the deferred add's graph op (thrown once by the vectorizer in the Phase-1 drain) fails the
-     * persist, but the op is lost all the same: it must mark the graph incomplete like any other failure, so the next
-     * persist rebuilds the graph instead of capturing it without the entity.
-     */
-    @Test
-    @Order(Integer.MAX_VALUE)
-    void errorInADeferredOpAlsoForcesTheRebuild(@TempDir final Path tempDir) throws Exception
-    {
-        assertFailedPersistWritesNothingAndTheNextRepairs(tempDir, 1, true);
-    }
-
-    private static void assertFailedPersistWritesNothingAndTheNextRepairs(
-        final Path    tempDir      ,
-        final int     failures     ,
-        final boolean failWithError
-    )
-        throws Exception
-    {
-        final Path storageDir = tempDir.resolve("storage");
-        final Path indexDir   = tempDir.resolve("index");
-        final Doc  late       = new Doc(COUNT + 7);
-        final long lateId;
-        try(EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
-        {
-            final GigaMap<Doc> map = populatedMap(COUNT);
-            storage.setRoot(map);
-            storage.storeRoot();
-            final PausableVectorizer vectorizer = new PausableVectorizer();
-            final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
-                .add("emb", onDisk(indexDir, ApproximateScoring.NONE), vectorizer);
-            map.store();
-
-            final AtomicReference<Throwable> persistFailure = new AtomicReference<>();
-            vectorizer.failWithError = failWithError;
-            lateId = persistWhileAnAddIsDeferred(map, index, vectorizer, late, failures, persistFailure);
-            final Throwable failure = persistFailure.get();
-            assertNotNull(failure, "the persist succeeded although the deferred op failed");
-            // Where it failed matters: a failure anywhere else (e.g. in the disk write, which also vectorizes on the
-            // persist thread) would let the deferred op be applied afterwards, and the test would pass for nothing.
-            if(failWithError)
-            {
-                assertInstanceOf(Error.class, failure, "the Error from the deferred op did not propagate");
-                assertTrue(thrownFrom(failure, "runDeferredBuilderOps") && !thrownFrom(failure, "drainDeferredBuilderOps"),
-                    "the Error was not thrown by the deferred op in the persist's Phase-1 drain");
-            }
-            else
-            {
-                assertTrue(thrownFrom(failure, "rebuildInMemoryGraph"), "the persist did not fail in the rebuild");
-            }
-            assertFalse(Files.exists(indexDir.resolve("emb.meta")), "the failed persist wrote index files");
-
-            assertNull(persistWithinTimeout(index), "the next persist failed");
-            assertTrue(foundExactly(index, late, lateId), "the next persist did not rebuild the graph");
-            map.store();
-        }
-
-        try(EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
-        {
-            final GigaMap<Doc>     map   = storage.root();
-            final VectorIndex<Doc> index = map.index().get(VectorIndices.class).get("emb");
-            index.search(late.vector, 1); // initializes the index from disk
-            assertTrue(isIncrementalMode(index), "precondition: the written files were accepted after the restart");
-            assertTrue(foundExactly(index, late, lateId), "the entity is missing after a restart");
-        }
-    }
-
-    /**
-     * A computed-mode update deferred while a persist waits for the write lock, with the index in incremental
-     * mode: the persist rebuilds the graph from the vector store, which already holds the update, and drops the
-     * deferred op instead of replaying it onto the rebuilt graph. After a restart the entity is found at its new
-     * position only. Guards the correctness of dropping the queue after a rebuild; replaying it was idempotent.
-     */
-    @Test
-    @Order(Integer.MAX_VALUE)
-    void updateDeferredWhileAnIncrementalPersistWaitsIsPersisted(@TempDir final Path tempDir) throws Exception
-    {
-        final Path storageDir = tempDir.resolve("storage");
-        try(EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
-        {
-            final GigaMap<Doc> map = populatedMap(COUNT);
-            storage.setRoot(map);
-            storage.storeRoot();
-            final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
-                .add("emb", onDisk(tempDir.resolve("index"), ApproximateScoring.NONE), new ComputedVectorizer());
-            map.store();
-            index.persistToDisk();
-            assertTrue(isIncrementalMode(index), "precondition: the first persist entered incremental mode");
-            map.add(new Doc(COUNT)); // so the next persist has to leave incremental mode
-
-            // a reader holds the read lock (computed-mode searches call no vectorizer that could be paused)
-            final ReentrantReadWriteLock lock     = internalState(index, "builderLock");
-            final CountDownLatch         release  = new CountDownLatch(1);
-            final CountDownLatch         held     = new CountDownLatch(1);
-            final Thread reader = daemon("reader", () ->
-            {
-                lock.readLock().lock();
-                try
-                {
-                    held.countDown();
-                    release.await(TIMEOUT_MS, TimeUnit.MILLISECONDS);
-                }
-                catch(final InterruptedException e)
-                {
-                    Thread.currentThread().interrupt();
-                }
-                finally
-                {
-                    lock.readLock().unlock();
-                }
-            });
-            final AtomicReference<Throwable> persistFailure = new AtomicReference<>();
-            final Thread persister = daemon("persister", () ->
-            {
-                try
-                {
-                    index.persistToDisk();
-                }
-                catch(final Throwable t)
-                {
-                    persistFailure.set(t);
-                }
-            });
-            try
-            {
-                reader.start();
-                assertTrue(held.await(TIMEOUT_MS, TimeUnit.MILLISECONDS));
-                persister.start();
-                awaitQueued(lock, persister);
-
-                // the update changes the stored vector at once and defers its graph op
-                map.update(MOVED, doc -> doc.vector = NEW_POS.clone());
-                final Queue<?> deferred = internalState(index, "deferredBuilderOps");
-                assertEquals(1, deferred.size(), "precondition: the update's graph op was deferred");
-            }
-            finally
-            {
-                release.countDown();
-            }
-            reader.join(TIMEOUT_MS);
-            persister.join(TIMEOUT_MS);
-            assertFalse(persister.isAlive(), "the persist did not finish");
-            assertNull(persistFailure.get(), "the persist failed");
-            map.store();
-        }
-
-        try(EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
-        {
-            final GigaMap<Doc>     map   = storage.root();
-            final VectorIndex<Doc> index = map.index().get(VectorIndices.class).get("emb");
-            index.search(NEW_POS, 1); // initializes the index from disk
-            assertTrue(isIncrementalMode(index), "precondition: the written files were accepted after the restart");
-            assertEquals(MOVED, topHit(index, NEW_POS), "the updated entity is not found at its new position");
-            assertTrue(scoreOfMovedAtOldPosition(index) < 0.5f, "the updated entity is still found at its old position");
-            assertEquals(COUNT + 1, ids(index, COUNT + 1).size());
-        }
-    }
-
-    /**
-     * A persist that has to leave incremental mode (the index was persisted before, entities were added since)
-     * fails while it collects the vectors for the full graph: the vectorizer throws once on the persist thread,
-     * on the first of its calls, i.e. in the collection pass. The index must stay in incremental mode, serving
-     * complete results from the disk graph plus the incremental builder, and the next persist must succeed.
-     * Before, the disk manager was closed and incremental mode left before the rebuild, so searches silently
-     * ran on the incremental builder alone, i.e. returned only the entities added since the last persist.
-     */
-    @Test
-    @Order(Integer.MAX_VALUE)
-    void failedIncrementalExitKeepsServingCompleteResults(@TempDir final Path tempDir) throws Exception
-    {
-        assertFailedIncrementalExitRestoresTheIndex(tempDir, 0, "collectStoredVectors");
-    }
-
-    /**
-     * The same, failing after the collection pass, while the new graph is built (the vectorizer throws once
-     * during neighbour scoring). The new, partial graph must be discarded and the old state restored.
-     */
-    @Test
-    @Order(Integer.MAX_VALUE)
-    void failedRebuildDuringTheBuildRestoresTheOldGraph(@TempDir final Path tempDir) throws Exception
-    {
-        // the collection pass vectorizes every entity once; the next call scores a neighbour in the build
-        assertFailedIncrementalExitRestoresTheIndex(tempDir, COUNT + ADDED, "addGraphNodesSequential");
+        assertFailedConsolidationPublishesNothing(tempDir, "consolidate");
     }
 
     private static final int ADDED = 5;
 
-    private static void assertFailedIncrementalExitRestoresTheIndex(
-        final Path   tempDir       ,
-        final int    skipCalls     ,
+    private static void assertFailedConsolidationPublishesNothing(
+        final Path   tempDir      ,
         final String failingMethod
     )
         throws Exception
@@ -761,7 +454,7 @@ class VectorIndexReindexAtomicityTest
                 .add("emb", onDisk(tempDir.resolve("index"), ApproximateScoring.NONE), vectorizer);
             map.store();
             index.persistToDisk();
-            assertTrue(isIncrementalMode(index), "precondition: the first persist entered incremental mode");
+            assertTrue(isServingFromSegments(index), "precondition: the first persist wrote a segment");
 
             firstAddedId = map.add(added[0] = new Doc(COUNT));
             for(int i = 1; i < ADDED; i++)
@@ -770,7 +463,9 @@ class VectorIndexReindexAtomicityTest
             }
             map.store();
 
-            // the persist has to leave incremental mode, and fails doing so
+            // the next persist has to consolidate, and fails doing so
+            final VectorIndex.Default<Doc> def = (VectorIndex.Default<Doc>)index;
+            def.graphOperationFailed(new IllegalStateException("simulated graph operation failure"));
             final AtomicReference<Throwable> persistFailure = new AtomicReference<>();
             final Thread persister = daemon("persister", () ->
             {
@@ -783,27 +478,30 @@ class VectorIndexReindexAtomicityTest
                     persistFailure.set(t);
                 }
             });
-            vectorizer.failThread             = persister;
-            vectorizer.skipCallsBeforeFailing = skipCalls;
-            vectorizer.failuresLeft           = 1;
+            def.rebuildWorkerTestHook = () ->
+            {
+                throw new IllegalStateException("simulated worker failure on persister");
+            };
             persister.start();
             persister.join(TIMEOUT_MS);
+            def.rebuildWorkerTestHook = null;
             assertFalse(persister.isAlive(), "the persist did not finish");
             final Throwable failure = persistFailure.get();
-            assertNotNull(failure, "the persist succeeded although the vectorizer failed");
+            assertNotNull(failure, "the persist succeeded although the rebuild failed");
             assertTrue(thrownFrom(failure, failingMethod), "the persist did not fail in " + failingMethod + ": " + failure);
 
-            // the index is as it was: incremental, not marked incomplete, and every entity is found
-            assertTrue(isIncrementalMode(index), "the failed persist left incremental mode");
-            assertFalse((boolean)internalState(index, "graphIncomplete"),
-                "the failed persist left the graph marked incomplete although it was not changed");
+            // every source as it was: the segment and the live graph, nothing published
+            assertEquals(0, def.consolidationCount(), "the failed consolidation published a generation");
+            assertTrue(isServingFromSegments(index), "the failed consolidation dropped the segment");
+            assertEquals(ADDED, def.inMemoryGraphNodeCount(), "the failed consolidation changed the live graph");
             assertEquals(COUNT + ADDED, ids(index, COUNT + ADDED).size(),
                 "searches after the failed persist do not see every entity");
             assertTrue(foundExactly(index, added[0], firstAddedId), "an entity added since the last persist is missing");
-            assertTrue(foundExactly(index, map.get(MOVED), MOVED), "an entity of the disk graph is missing");
+            assertTrue(foundExactly(index, map.get(MOVED), MOVED), "an entity of the segment is missing");
 
-            // the next persist, with a working vectorizer, rebuilds and writes the complete graph
+            // the next persist, with a working vectorizer, consolidates and writes the complete graph
             assertNull(persistWithinTimeout(index), "the next persist failed");
+            assertEquals(1, def.consolidationCount(), "the next persist did not consolidate");
             assertEquals(COUNT + ADDED, ids(index, COUNT + ADDED).size(), "the next persist lost entities");
             map.store();
         }
@@ -813,7 +511,7 @@ class VectorIndexReindexAtomicityTest
             final GigaMap<Doc>     map   = storage.root();
             final VectorIndex<Doc> index = map.index().get(VectorIndices.class).get("emb");
             index.search(added[0].vector, 1); // initializes the index from disk
-            assertTrue(isIncrementalMode(index), "precondition: the written files were accepted after the restart");
+            assertTrue(isServingFromSegments(index), "precondition: the written segment was accepted after the restart");
             assertEquals(COUNT + ADDED, ids(index, COUNT + ADDED).size(), "entities are missing after a restart");
             assertTrue(foundExactly(index, added[0], firstAddedId));
         }
@@ -862,15 +560,5 @@ class VectorIndexReindexAtomicityTest
         final Thread thread = new Thread(action, name);
         thread.setDaemon(true);
         return thread;
-    }
-
-    private static void awaitQueued(final ReentrantReadWriteLock lock, final Thread thread) throws InterruptedException
-    {
-        final long until = System.currentTimeMillis() + TIMEOUT_MS;
-        while(!lock.hasQueuedThread(thread) && System.currentTimeMillis() < until)
-        {
-            Thread.sleep(5);
-        }
-        assertTrue(lock.hasQueuedThread(thread), thread.getName() + " did not queue on the write lock");
     }
 }

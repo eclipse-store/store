@@ -15,9 +15,12 @@ package org.eclipse.store.gigamap.jvector;
  */
 
 import org.eclipse.serializer.exceptions.NumberRangeException;
+import org.eclipse.store.gigamap.types.IndexLocation;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -51,6 +54,9 @@ class VectorIndexConfigurationTest
         assertTrue(config.persistOnShutdown());
         assertEquals(30_000L, config.shutdownPersistTimeoutMillis());
         assertEquals(100, config.minChangesBetweenPersists());
+        assertEquals(100_000, config.flushThreshold());
+        assertEquals(32, config.maxSegments());
+        assertEquals(4, config.segmentMergeFactor());
         assertFalse(config.backgroundOptimization());
         assertEquals(0L, config.optimizationIntervalMs());
         assertEquals(1000, config.minChangesBetweenOptimizations());
@@ -87,6 +93,162 @@ class VectorIndexConfigurationTest
         assertThrows(NumberRangeException.class, () ->
             VectorIndexConfiguration.builder().dimension(64).shutdownPersistTimeoutMillis(-1).build()
         );
+    }
+
+    @Test
+    void testBuilderFlushThreshold()
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .flushThreshold(1)
+            .build();
+        assertEquals(1, config.flushThreshold());
+
+        assertThrows(NumberRangeException.class, () ->
+            VectorIndexConfiguration.builder().dimension(64).flushThreshold(0)
+        );
+        assertThrows(NumberRangeException.class, () ->
+            VectorIndexConfiguration.builder().dimension(64).flushThreshold(-1)
+        );
+    }
+
+    @Test
+    void testBuilderMaxSegmentsRange()
+    {
+        assertEquals(2, VectorIndexConfiguration.builder().dimension(64).maxSegments(2).build().maxSegments());
+        assertEquals(240, VectorIndexConfiguration.builder().dimension(64).maxSegments(240).build().maxSegments());
+
+        assertThrows(IllegalArgumentException.class, () ->
+            VectorIndexConfiguration.builder().dimension(64).maxSegments(1)
+        );
+        assertThrows(IllegalArgumentException.class, () ->
+            VectorIndexConfiguration.builder().dimension(64).maxSegments(241)
+        );
+    }
+
+    @Test
+    void testBuilderSegmentMergeFactorRange()
+    {
+        assertEquals(2, VectorIndexConfiguration.builder().dimension(64).segmentMergeFactor(2).build()
+            .segmentMergeFactor());
+        assertEquals(240, VectorIndexConfiguration.builder().dimension(64).segmentMergeFactor(240).build()
+            .segmentMergeFactor());
+
+        assertThrows(IllegalArgumentException.class, () ->
+            VectorIndexConfiguration.builder().dimension(64).segmentMergeFactor(1)
+        );
+        assertThrows(IllegalArgumentException.class, () ->
+            VectorIndexConfiguration.builder().dimension(64).segmentMergeFactor(241)
+        );
+    }
+
+    /**
+     * A configuration stored before the two segment settings existed comes back with both fields
+     * zero-filled by schema evolution, and must read as the defaults rather than as a threshold that
+     * flushes on every persist and a cap that consolidates on every one.
+     */
+    @Test
+    void testLegacyConfigWithoutSegmentSettingsFallsBackToDefaults() throws Exception
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .flushThreshold(500)
+            .maxSegments(4)
+            .segmentMergeFactor(3)
+            .build();
+        setField(config, "flushThreshold"    , 0);
+        setField(config, "maxSegments"       , 0);
+        setField(config, "segmentMergeFactor", 0);
+
+        assertEquals(100_000, config.flushThreshold()    );
+        assertEquals(32     , config.maxSegments()       );
+        assertEquals(4      , config.segmentMergeFactor());
+    }
+
+    @Test
+    void testBuilderVectorFileSettings()
+    {
+        final VectorIndexConfiguration defaults = VectorIndexConfiguration.builder().dimension(64).build();
+        assertEquals(30_000L   , defaults.vectorCheckpointIntervalMs());
+        assertEquals(64L << 20 , defaults.vectorChunkBytes()          );
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .vectorCheckpointIntervalMs(1_000L)
+            .vectorChunkBytes(1L << 20)
+            .build();
+        assertEquals(1_000L , config.vectorCheckpointIntervalMs());
+        assertEquals(1L << 20, config.vectorChunkBytes()          );
+
+        assertThrows(IllegalArgumentException.class, () ->
+            VectorIndexConfiguration.builder().dimension(64).vectorCheckpointIntervalMs(0L)
+        );
+        assertThrows(IllegalArgumentException.class, () ->
+            VectorIndexConfiguration.builder().dimension(64).vectorChunkBytes(0L)
+        );
+        // A chunk must hold 2048 slots of 32 header bytes and 4 per dimension, rounded up to 64: 320 at 64.
+        assertThrows(IllegalArgumentException.class, () ->
+            VectorIndexConfiguration.builder().dimension(64).vectorChunkBytes(320L * 2047).build()
+        );
+        assertEquals(320L * 2048, VectorIndexConfiguration.builder().dimension(64).vectorChunkBytes(320L * 2048)
+            .build().vectorChunkBytes());
+        // A dimension too large for the default chunk gets the minimum instead.
+        assertEquals(32_832L * 2048, VectorIndexConfiguration.builder().dimension(8_192).build().vectorChunkBytes());
+    }
+
+    /**
+     * An implementation that inherits the default must get a chunk large enough for the minimum slot count too,
+     * not only the builder's configuration.
+     */
+    @Test
+    void vectorChunkBytes_inheritedDefaultAtLargeDimension_holdsTheMinimumSlots()
+    {
+        final VectorIndexConfiguration custom = (VectorIndexConfiguration)Proxy.newProxyInstance(
+            VectorIndexConfiguration.class.getClassLoader(),
+            new Class<?>[]{VectorIndexConfiguration.class},
+            (proxy, method, args) -> switch(method.getName())
+            {
+                case "dimension"        -> 8_192;
+                case "vectorChunkBytes" -> InvocationHandler.invokeDefault(proxy, method, args);
+                default                 -> throw new UnsupportedOperationException(method.getName());
+            }
+        );
+
+        assertEquals(32_832L * 2048, custom.vectorChunkBytes());
+    }
+
+    @Test
+    void testLegacyConfigWithoutVectorFileSettingsFallsBackToDefaults() throws Exception
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .vectorCheckpointIntervalMs(5L)
+            .vectorChunkBytes(1L << 20)
+            .build();
+        setField(config, "vectorCheckpointIntervalMs", 0L);
+        setField(config, "vectorChunkBytes"          , 0L);
+
+        assertEquals(30_000L  , config.vectorCheckpointIntervalMs());
+        assertEquals(64L << 20, config.vectorChunkBytes()          );
+    }
+
+    @Test
+    void testWithIndexLocationKeepsSegmentSettings(@TempDir final Path tempDir)
+    {
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(64)
+            .onDisk(true)
+            .indexDirectory(tempDir.resolve("a"))
+            .flushThreshold(500)
+            .maxSegments(4)
+            .segmentMergeFactor(3)
+            .build();
+
+        final VectorIndexConfiguration moved = config.withIndexLocation(IndexLocation.Absolute(tempDir.resolve("b")));
+
+        assertEquals(500, moved.flushThreshold());
+        assertEquals(4  , moved.maxSegments()       );
+        assertEquals(3  , moved.segmentMergeFactor());
     }
 
     @Test
@@ -879,6 +1041,8 @@ class VectorIndexConfigurationTest
         assertSame(builder, builder.persistenceIntervalMs(30_000));
         assertSame(builder, builder.persistOnShutdown(true));
         assertSame(builder, builder.minChangesBetweenPersists(100));
+        assertSame(builder, builder.flushThreshold(1_000));
+        assertSame(builder, builder.maxSegments(8));
         assertSame(builder, builder.optimizationIntervalMs(60_000));
         assertSame(builder, builder.minChangesBetweenOptimizations(1000));
         assertSame(builder, builder.optimizeOnShutdown(false));
@@ -1561,6 +1725,8 @@ class VectorIndexConfigurationTest
         assertEquals(VectorStorage.INLINE   , pqOff.vectorStorage()     );
         assertEquals(ApproximateScoring.NONE, pqOff.approximateScoring());
         assertEquals(1                      , pqOff.nvqSubvectors()     );
+        assertEquals(100_000                , pqOff.flushThreshold()    );
+        assertEquals(32                     , pqOff.maxSegments()       );
 
         final VectorIndexConfiguration pqOn = new LegacyConfiguration(true);
 
@@ -1581,6 +1747,8 @@ class VectorIndexConfigurationTest
         assertThrows(UnsupportedOperationException.class, () -> legacyBuilder.vectorStorage(VectorStorage.NVQ));
         assertThrows(UnsupportedOperationException.class, () -> legacyBuilder.approximateScoring(ApproximateScoring.NONE));
         assertThrows(UnsupportedOperationException.class, () -> legacyBuilder.nvqSubvectors(1));
+        assertThrows(UnsupportedOperationException.class, () -> legacyBuilder.flushThreshold(1));
+        assertThrows(UnsupportedOperationException.class, () -> legacyBuilder.maxSegments(2));
     }
 
     /**

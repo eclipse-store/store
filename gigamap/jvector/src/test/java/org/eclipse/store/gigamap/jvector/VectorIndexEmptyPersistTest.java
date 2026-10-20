@@ -87,8 +87,8 @@ class VectorIndexEmptyPersistTest
 
     private static boolean indexFilesExist(final Path indexDirectory)
     {
-        return Files.exists(indexDirectory.resolve(INDEX_NAME + DiskIndexManager.GRAPH_FILE_EXT))
-            || Files.exists(indexDirectory.resolve(INDEX_NAME + DiskIndexManager.META_FILE_EXT ));
+        return SegmentLayout.indexExists(indexDirectory, INDEX_NAME)
+            || !SegmentLayout.graphFiles(indexDirectory, INDEX_NAME).isEmpty();
     }
 
     private static List<String> backgroundThreadNames()
