@@ -504,8 +504,22 @@ class VectorIndexParallelRebuildTest
 
         try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
         {
-            final GigaMap<Doc>     map   = rootOf(storage);
-            final VectorIndex<Doc> index = lookup(map);
+            final GigaMap<Doc>             map   = rootOf(storage);
+            final VectorIndex.Default<Doc> index = (VectorIndex.Default<Doc>)lookup(map);
+
+            // The first worker holds the rebuild until the contender queues for the monitor the rebuild holds, so
+            // the workers provably run while it waits.
+            final CountDownLatch workerEntered = new CountDownLatch(1);
+            final CountDownLatch release       = new CountDownLatch(1);
+            final AtomicBoolean  first         = new AtomicBoolean();
+            index.rebuildWorkerTestHook = () ->
+            {
+                if(first.compareAndSet(false, true))
+                {
+                    workerEntered.countDown();
+                    awaitLatch(release);
+                }
+            };
 
             final AtomicReference<Throwable> failure = new AtomicReference<>();
             final AtomicReference<Double>    recall  = new AtomicReference<>();
@@ -534,8 +548,18 @@ class VectorIndexParallelRebuildTest
             searcher.setDaemon(true);
             contender.setDaemon(true);
 
-            searcher.start();
-            contender.start();
+            try
+            {
+                searcher.start();
+                awaitLatch(workerEntered);
+                contender.start();
+                awaitBlocked(contender);
+            }
+            finally
+            {
+                release.countDown();
+                index.rebuildWorkerTestHook = null;
+            }
             searcher.join(TimeUnit.SECONDS.toMillis(90));
             contender.join(TimeUnit.SECONDS.toMillis(10));
 
@@ -695,7 +719,8 @@ class VectorIndexParallelRebuildTest
             awaitLatch(workerEntered);
             closer.start();
 
-            // The close holds the write lock and waits for the monitor the rebuild holds: no teardown yet.
+            // The close waits for the monitor the rebuild holds (it takes the monitor before the write lock): no
+            // teardown yet.
             awaitBlocked(closer);
             assertTrue(rebuilder.isAlive());
 

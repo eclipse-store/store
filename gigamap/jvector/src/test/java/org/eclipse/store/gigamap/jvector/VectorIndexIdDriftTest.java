@@ -30,14 +30,13 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Regression cover for computed-mode entity-id drift: the vector store's own id allocator diverging
- * from the parent {@link GigaMap}'s id space.
+ * Regression cover for computed-mode entity-id drift: an index whose vectors are not addressed by the parent
+ * {@link GigaMap}'s entity ids.
  * <p>
- * Computed-mode lookups used to be positional ({@code vectorStore.get(entityId)}), which silently
- * assumed the two id spaces stayed in lockstep. They resolve by {@link VectorEntry#sourceEntityId}
- * through the store's identity index instead, so drift is expected rather than merely tolerated.
- * These tests force drift deliberately - by registering an index onto a parent map that already has
- * deletion holes - where the existing null-embedding tests only produce it incidentally.
+ * Computed-mode vectors once lived in a store of their own, whose id allocator drifted away from the parent's ids.
+ * Now the graph ordinals and the vector-file slots are the parent entity ids themselves, so nothing may number
+ * the entries on its own. These tests create the conditions under which a second numbering would show: an index
+ * registered onto a parent map that already has deletion holes, and entities without a vector.
  */
 class VectorIndexIdDriftTest
 {
@@ -63,7 +62,7 @@ class VectorIndexIdDriftTest
         }
     }
 
-    /** Computed-mode vectorizer: vectors live in the index's own vector store. */
+    /** Computed-mode vectorizer: the index keeps the vectors itself. */
     static class ComputedVectorizer extends Vectorizer<Doc>
     {
         @Override
@@ -104,9 +103,8 @@ class VectorIndexIdDriftTest
 
     /**
      * Adds five docs with basis vectors 0..4, then removes two of them - all before any vector index
-     * exists. Registering the index afterwards backfills via
-     * {@code parent.iterateIndexed(index::internalAdd)}, so the store's allocator hands out ids
-     * 0,1,2 to the surviving parent ids 0,2,4: the two id spaces are now permanently offset.
+     * exists. Registering the index afterwards backfills only the survivors, parent ids 0,2,4: an index
+     * that numbered its entries itself would give them 0,1,2.
      *
      * @return the parent entity ids 0..4, the removed ones included
      */
@@ -132,8 +130,8 @@ class VectorIndexIdDriftTest
 
         final VectorIndex<Doc> index = registerIndex(map, new ComputedVectorizer());
 
-        // Positional access would return null here (the store has no id 4) and, worse, would hand
-        // back v4's vector for parent id 2 (store id 2). Both must resolve by source entity id.
+        // A numbering of its own would have no entry 4 and would hand back v4's vector for parent id 2
+        // (its entry 2). Both must resolve by the parent entity id.
         assertArrayEquals(basis(0), index.getVector(ids[0]), "surviving entity 0");
         assertArrayEquals(basis(2), index.getVector(ids[2]), "surviving entity 2 must not read v4");
         assertArrayEquals(basis(4), index.getVector(ids[4]), "highest parent id exceeds the store's");
@@ -141,7 +139,7 @@ class VectorIndexIdDriftTest
         assertNull(index.getVector(ids[1]), "removed before registration, never indexed");
         assertNull(index.getVector(ids[3]), "removed before registration, never indexed");
 
-        // The hot scoring path (lookupComputedVector) is only exercised by an actual search.
+        // The scoring path reads the vectors by graph ordinal, which only an actual search exercises.
         assertEquals(3, index.search(basis(0), 10).size(), "exactly the three survivors are indexed");
         assertEquals(ids[0], topHit(index, basis(0)));
         assertEquals(ids[2], topHit(index, basis(2)));
@@ -158,20 +156,20 @@ class VectorIndexIdDriftTest
 
         final VectorIndex<Doc> index = registerIndex(map, new ComputedVectorizer());
 
-        // set() on a drifted id: internalUpdate must resolve the store id, not reuse the parent's.
+        // set() on an id above a hole must overwrite that entity's own vector.
         // basis(1) is free again - entity 1 was removed before the index existed.
         map.set(ids[2], new Doc("v2-changed", basis(1)));
         assertArrayEquals(basis(1), index.getVector(ids[2]), "set must write through to the right entry");
         assertEquals(ids[2], topHit(index, basis(1)));
         assertArrayEquals(basis(4), index.getVector(ids[4]), "neighbouring entries untouched");
 
-        // add() on a drifted map: the parent may reuse a freed id while the store allocator marches on.
+        // add() on a map with holes: the new entity's vector goes under the id the parent assigns.
         final long idNew = map.add(new Doc("vNew", basis(3)));
         assertArrayEquals(basis(3), index.getVector(idNew), "newly added entity resolves");
         assertEquals(idNew, topHit(index, basis(3)));
         assertEquals(4, index.search(basis(0), 10).size());
 
-        // removeById() on a drifted id: only that entry may disappear.
+        // removeById() above a hole: only that entry may disappear.
         map.removeById(ids[4]);
         assertNull(index.getVector(ids[4]), "removed entity has no vector");
         assertEquals(3, index.search(basis(0), 10).size());
@@ -184,13 +182,36 @@ class VectorIndexIdDriftTest
         assertArrayEquals(basis(3), index.getVector(idNew));
     }
 
-    // ==================== C. Both computedIdIndex build paths agree ====================
+    // ==================== C. Entities without a vector widen the holes ====================
+
+    @Test
+    void vectorLessEntities_leaveOnlyHoles()
+    {
+        final GigaMap<Doc> map = GigaMap.New();
+        final long[]       ids = driftedMap(map);
+
+        final VectorIndex<Doc> index = registerIndex(map, new NullableComputedVectorizer());
+        final long noVector   = map.add(new Doc("noVector", null));
+        final long withVector = map.add(new Doc("vLate", basis(1)));
+        map.set(ids[0], new Doc("v0-nulled", null));
+
+        assertNull(index.getVector(noVector), "an entity without a vector has none");
+        assertNull(index.getVector(ids[0]), "a vector set to null is gone");
+        assertArrayEquals(basis(1), index.getVector(withVector), "the entity after the vector-less one");
+        assertArrayEquals(basis(2), index.getVector(ids[2]));
+        assertArrayEquals(basis(4), index.getVector(ids[4]));
+
+        assertEquals(3, index.search(basis(0), 10).size(), "exactly the entities with a vector are indexed");
+        assertEquals(withVector, topHit(index, basis(1)));
+        assertEquals(ids[2], topHit(index, basis(2)));
+        assertEquals(ids[4], topHit(index, basis(4)));
+    }
 
     // ==================== D. Drift survives a persistence round-trip ====================
 
     /**
-     * On reload the mapping is rebuilt from the persisted identity-index bitmaps rather than
-     * accumulated by mutations, which is the path a positional implementation got wrong silently.
+     * After a reload nothing is accumulated by mutations: the index is restored from what was persisted,
+     * so the holes must come back as holes rather than be numbered away.
      */
     @Test
     void driftedStoreIds_surviveReload(@TempDir final Path dir)

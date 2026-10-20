@@ -39,6 +39,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashSet;
@@ -2062,7 +2063,8 @@ class VectorIndexDiskTest
     // ========================================================================
 
     /**
-     * Test that background persistence triggers after the configured interval.
+     * Test that background persistence triggers after the configured interval: the scheduled persist commits
+     * the deletions made after a persist, which nothing else commits before the interval.
      */
     @Test
     void testBackgroundPersistenceTriggersAfterInterval(@TempDir final Path tempDir) throws Exception
@@ -2082,7 +2084,6 @@ class VectorIndexDiskTest
             .indexDirectory(indexDir)
             .persistenceIntervalMs(500) // 500ms for fast test
             .minChangesBetweenPersists(1) // Persist on any change
-            .flushThreshold(1) // Flush any live graph
             .build();
 
         final VectorIndex<Document> index = vectorIndices.add(
@@ -2093,20 +2094,32 @@ class VectorIndexDiskTest
 
         try
         {
-            // Add vectors to trigger dirty state. With a flush threshold of one, the first one also
-            // requests a persist ahead of the interval, so the files may appear at once.
-            addRandomDocuments(gigaMap, random, dimension, 50, "doc_");
+            // A segment write is requested as soon as the in-memory graph reaches the flush threshold, not at
+            // the interval. What only the scheduled persist commits is a manifest whose witness moved while
+            // the in-memory graph stayed empty: removes after a persist. No mutation requests that commit.
+            final List<Long> ids = new ArrayList<>();
+            for(int i = 0; i < 50; i++)
+            {
+                ids.add(gigaMap.add(new Document("doc_" + i, randomVector(random, dimension))));
+            }
+            index.persistToDisk();
+            final Path   manifest = indexDir.resolve(SegmentFiles.manifestFileName("embeddings"));
+            final byte[] before   = Files.readAllBytes(manifest);
+            final int    graphs   = SegmentLayout.graphFiles(indexDir, "embeddings").size();
 
-            // Wait for background persistence to trigger (interval + some buffer)
+            for(int i = 0; i < 5; i++)
+            {
+                gigaMap.removeById(ids.get(i));
+            }
+
+            // Wait for the scheduled persist to commit the deletions (interval + generous buffer)
             await()
-                    .atMost(ofMillis(1500))
+                    .atMost(ofMillis(10_000))
                     .pollInterval(ofMillis(100))
-                    .untilAsserted(() -> assertAll(
-                            () -> assertFalse(SegmentLayout.graphFiles(indexDir, "embeddings").isEmpty(),
-                                    "Graph file should exist after background persistence"),
-                            () -> assertTrue(SegmentLayout.indexExists(indexDir, "embeddings"),
-                                    "Meta file should exist after background persistence")));
-
+                    .untilAsserted(() -> assertFalse(Arrays.equals(before, Files.readAllBytes(manifest)),
+                            "the scheduled persist must commit the manifest of the deletions"));
+            assertEquals(graphs, SegmentLayout.graphFiles(indexDir, "embeddings").size(),
+                    "a commit of deletions alone writes no segment");
         }
         finally
         {
@@ -2135,6 +2148,9 @@ class VectorIndexDiskTest
             .indexDirectory(indexDir)
             .persistenceIntervalMs(200) // Short interval to trigger during test
             .minChangesBetweenPersists(1)
+            // A flush writes a segment once the in-memory graph holds this many nodes; the default is far
+            // above anything this test adds, so no background persist would run at all.
+            .flushThreshold(50)
             .build();
 
         final VectorIndex<Document> index = vectorIndices.add(
@@ -2142,13 +2158,37 @@ class VectorIndexDiskTest
             config,
             new ComputedDocumentVectorizer()
         );
+        final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
 
         try
         {
             // Add initial vectors
             addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
 
-            // Run concurrent searches while background persistence may be running
+            // A writer keeps adding during the searches, so that flushes are written while they run.
+            final long           flushesBefore = defaultIndex.flushCount();
+            final AtomicBoolean  writing       = new AtomicBoolean(true);
+            final Thread         writer        = new Thread(() ->
+            {
+                final Random writerRandom = new Random(7);
+                for(int i = 0; writing.get() && i < 1_000; i++)
+                {
+                    gigaMap.add(new Document("w_" + i, randomVector(writerRandom, dimension)));
+                    try
+                    {
+                        Thread.sleep(2);
+                    }
+                    catch(final InterruptedException e)
+                    {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+            }, "writer");
+            writer.setDaemon(true);
+            writer.start();
+
+            // Run concurrent searches while background persistence runs
             final int numSearches = 50;
             final AtomicInteger successfulSearches = new AtomicInteger(0);
             final AtomicBoolean hasError = new AtomicBoolean(false);
@@ -2184,13 +2224,23 @@ class VectorIndexDiskTest
             }
 
             // Wait for all searches to complete
-            assertTrue(latch.await(30, TimeUnit.SECONDS), "Searches should complete within timeout");
-            executor.shutdown();
+            try
+            {
+                assertTrue(latch.await(30, TimeUnit.SECONDS), "Searches should complete within timeout");
+            }
+            finally
+            {
+                executor.shutdownNow();
+                writing.set(false);
+                writer.join(TimeUnit.SECONDS.toMillis(30));
+            }
 
-            // Verify all searches succeeded
+            // Verify all searches succeeded, while flushes were written
             assertFalse(hasError.get(), "No errors should occur during concurrent search");
             assertEquals(numSearches, successfulSearches.get(),
                 "All searches should return expected number of results");
+            assertTrue(defaultIndex.flushCount() > flushesBefore,
+                "background flushes must have been written while the searches ran");
         }
         finally
         {
@@ -2824,11 +2874,10 @@ class VectorIndexDiskTest
         final GigaMap<Document> gigaMap = GigaMap.New();
         final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
 
+        // In memory: an on-disk index has nothing to optimize, every flush cleans up the graph it writes.
         final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
             .dimension(dimension)
             .similarityFunction(VectorSimilarityFunction.COSINE)
-            .onDisk(true)
-            .indexDirectory(indexDir)
             .optimizationIntervalMs(60_000) // Long interval - won't trigger during test
             .minChangesBetweenOptimizations(1)
             .optimizeOnShutdown(true) // Should optimize on close
@@ -2856,12 +2905,13 @@ class VectorIndexDiskTest
         final VectorSearchResult<Document> resultBefore = index.search(randomVector(random, dimension), 10);
         assertEquals(10, resultBefore.size());
 
-        // Close the index (should trigger optimize due to optimizeOnShutdown=true)
+        // Close the index (should trigger optimize due to optimizeOnShutdown=true). The manager is read
+        // before, since close() drops the index's reference to it.
+        final BackgroundTaskManager manager = defaultIndex.backgroundTaskManager;
         index.close();
 
-        // Note: After close(), we can't verify the count changed because the manager is shutdown.
-        // But we verified above that pending changes existed and the interval hadn't triggered.
-        // The fact that close() completed without error indicates optimization was attempted.
+        assertEquals(1, manager.getOptimizationCount(), "close() must optimize the pending changes");
+        assertEquals(0, manager.getOptimizationPendingChangeCount(), "the optimization must consume them");
     }
 
     /**
@@ -2878,11 +2928,10 @@ class VectorIndexDiskTest
         final GigaMap<Document> gigaMap = GigaMap.New();
         final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
 
+        // In memory, as in testShutdownOptimizesPendingChanges.
         final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
             .dimension(dimension)
             .similarityFunction(VectorSimilarityFunction.COSINE)
-            .onDisk(true)
-            .indexDirectory(indexDir)
             .optimizationIntervalMs(60_000) // Long interval - won't trigger during test
             .minChangesBetweenOptimizations(1)
             .optimizeOnShutdown(false) // Should NOT optimize on close
@@ -2907,14 +2956,12 @@ class VectorIndexDiskTest
         assertEquals(0, defaultIndex.backgroundTaskManager.getOptimizationCount(),
             "Optimization count should be 0 before close");
 
-        // Close the index (should NOT trigger optimize)
+        // Close the index (should NOT trigger optimize). The manager is read before, as above.
+        final BackgroundTaskManager manager = defaultIndex.backgroundTaskManager;
         index.close();
 
-        // Note: After close(), we can't access the manager. But we verified:
-        // 1. Pending changes existed
-        // 2. No background optimization had run
-        // 3. optimizeOnShutdown=false was set
-        // So the pending changes should remain unoptimized.
+        assertEquals(0, manager.getOptimizationCount(), "close() must not optimize with optimizeOnShutdown=false");
+        assertEquals(vectorCount, manager.getOptimizationPendingChangeCount(), "the pending changes stay unoptimized");
     }
 
     /**
@@ -2931,11 +2978,10 @@ class VectorIndexDiskTest
         final GigaMap<Document> gigaMap = GigaMap.New();
         final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
 
+        // In memory: an on-disk index has nothing to optimize, every flush cleans up the graph it writes.
         final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
             .dimension(dimension)
             .similarityFunction(VectorSimilarityFunction.COSINE)
-            .onDisk(true)
-            .indexDirectory(indexDir)
             .optimizationIntervalMs(150) // Short interval to trigger during test
             .minChangesBetweenOptimizations(1)
             .build();
@@ -2945,13 +2991,38 @@ class VectorIndexDiskTest
             config,
             new ComputedDocumentVectorizer()
         );
+        final BackgroundTaskManager manager = ((VectorIndex.Default<Document>)index).backgroundTaskManager;
 
         try
         {
             // Add initial vectors
             addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
 
-            // Run concurrent searches while background optimization may be running
+            // A writer keeps adding during the searches, so that the scheduled optimizations have changes to
+            // work on while they run, rather than one optimization before the first search.
+            final long           optimizationsBefore = manager.getOptimizationCount();
+            final AtomicBoolean  writing             = new AtomicBoolean(true);
+            final Thread         writer              = new Thread(() ->
+            {
+                final Random writerRandom = new Random(7);
+                for(int i = 0; writing.get() && i < 1_000; i++)
+                {
+                    gigaMap.add(new Document("w_" + i, randomVector(writerRandom, dimension)));
+                    try
+                    {
+                        Thread.sleep(2);
+                    }
+                    catch(final InterruptedException e)
+                    {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+            }, "writer");
+            writer.setDaemon(true);
+            writer.start();
+
+            // Run concurrent searches while background optimization runs
             final int numSearches = 50;
             final AtomicInteger successfulSearches = new AtomicInteger(0);
             final AtomicBoolean hasError = new AtomicBoolean(false);
@@ -2987,13 +3058,23 @@ class VectorIndexDiskTest
             }
 
             // Wait for all searches to complete
-            assertTrue(latch.await(30, TimeUnit.SECONDS), "Searches should complete within timeout");
-            executor.shutdown();
+            try
+            {
+                assertTrue(latch.await(30, TimeUnit.SECONDS), "Searches should complete within timeout");
+            }
+            finally
+            {
+                executor.shutdownNow();
+                writing.set(false);
+                writer.join(TimeUnit.SECONDS.toMillis(30));
+            }
 
-            // Verify all searches succeeded
+            // Verify all searches succeeded, while optimizations ran
             assertFalse(hasError.get(), "No errors should occur during concurrent search with optimization");
             assertEquals(numSearches, successfulSearches.get(),
                 "All searches should return expected number of results");
+            assertTrue(manager.getOptimizationCount() > optimizationsBefore,
+                "background optimizations must have run while the searches did");
         }
         finally
         {
@@ -3014,11 +3095,10 @@ class VectorIndexDiskTest
         final GigaMap<Document> gigaMap = GigaMap.New();
         final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
 
+        // In memory: an on-disk index has nothing to optimize, every flush cleans up the graph it writes.
         final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
             .dimension(dimension)
             .similarityFunction(VectorSimilarityFunction.COSINE)
-            .onDisk(true)
-            .indexDirectory(indexDir)
             .optimizationIntervalMs(300)
             .minChangesBetweenOptimizations(100)
             .build();
@@ -3028,6 +3108,7 @@ class VectorIndexDiskTest
             config,
             new ComputedDocumentVectorizer()
         );
+        final BackgroundTaskManager manager = ((VectorIndex.Default<Document>)index).backgroundTaskManager;
 
         try
         {
@@ -3039,8 +3120,13 @@ class VectorIndexDiskTest
             }
             gigaMap.addAll(documents);
 
-            // Wait for optimization
-            Thread.sleep(500);
+            // One addAll of 150 entities must count as 150 changes, above the threshold of 100, so a
+            // scheduled optimization runs.
+            await()
+                    .atMost(ofMillis(10_000))
+                    .pollInterval(ofMillis(50))
+                    .untilAsserted(() -> assertTrue(manager.getOptimizationCount() >= 1,
+                            "the bulk add must reach the optimization threshold"));
 
             // Search should still work
             final VectorSearchResult<Document> result = index.search(randomVector(random, dimension), 10);

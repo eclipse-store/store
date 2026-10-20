@@ -23,6 +23,7 @@ import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -190,6 +191,23 @@ class VectorIndexLockOrderTest
      * A thread that has already finished never waited: the interleaving the test builds is then not in place,
      * so that fails instead of letting the test go on without it.
      */
+    /**
+     * Waits until {@code thread} waits for the map's open readers. GigaMap waits for them without a timeout
+     * ({@code ensureMutability}), while it retries the index locks with a timed wait, so the untimed wait inside
+     * {@code ensureMutability} tells the two phases apart.
+     */
+    private static void awaitWaitingForReaders(final Thread thread) throws InterruptedException
+    {
+        final long deadline = System.currentTimeMillis() + TIMEOUT_MS;
+        while(thread.getState() != Thread.State.WAITING
+            || Arrays.stream(thread.getStackTrace()).noneMatch(e -> e.getMethodName().equals("ensureMutability")))
+        {
+            assertTrue(thread.isAlive(), thread.getName() + " finished before it waited for the readers");
+            assertTrue(System.currentTimeMillis() < deadline, thread.getName() + " never waited for the readers");
+            Thread.sleep(5);
+        }
+    }
+
     private static void awaitWaiting(final Thread thread) throws InterruptedException
     {
         final long deadline = System.currentTimeMillis() + TIMEOUT_MS;
@@ -448,7 +466,8 @@ class VectorIndexLockOrderTest
             {
                 iterator.hasNext();
                 readerOpen.countDown();
-                Thread.sleep(200);
+                // Searches only once reindex() got past the lock and waits for this reader.
+                awaitWaitingForReaders(reindexer);
                 index.search(query(), 5);
             }
             catch(final InterruptedException e)

@@ -17,22 +17,28 @@ package org.eclipse.store.gigamap.jvector;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Nodes inserted in parallel into an empty graph must all stay reachable. jVector sets the entry node only when an
  * insert completes, so every insert that starts before that searches an empty graph and links only to the inserts
  * in progress at its start; one that finds none gets no edge from any node a search reaches, and the live graph,
- * which never runs jVector's cleanup, keeps that orphan for good. Observed on this machine in about one of five
- * parallel builds of 300 nodes before the graph was seeded with one node inserted on the calling thread
- * (see {@code VectorIndex.Default#seedIfEmpty}); never with single-threaded insertion.
+ * which never runs jVector's cleanup, would keep that orphan for good. Two mechanisms prevent it: the graph is
+ * seeded with one node inserted on the calling thread ({@code VectorIndex.Default#seedIfEmpty}), and every parallel
+ * insertion ends with a reachability repair, which also reconnects the nodes that concurrent inserts leave
+ * unreachable in a graph that is not empty. This checks their result: no orphan survives a parallel build. Each
+ * mechanism alone keeps it green, so it does not tell which one did the work.
  * <p>
  * Reachability is checked with a wide beam, so a node the narrow top-1 search merely passes by does not count: a
  * search for a node's own vector with a beam as wide as the graph finds every node a path from the entry reaches.
@@ -145,8 +151,16 @@ class VectorIndexParallelInsertOrphanTest
         return unreachable;
     }
 
+    @BeforeEach
+    void requireTheParallelPath()
+    {
+        // Below two physical cores the insertion runs sequentially, which cannot leave such an orphan.
+        assumeTrue(ParallelGraphInsertion.parallelism() >= 2, "needs at least two cores for the parallel insertion");
+    }
+
     /** a batch added at once goes through the parallel batch insertion into the empty live graph */
     @Test
+    @Timeout(value = 300, unit = TimeUnit.SECONDS)
     void batchIntoAnEmptyGraph_leavesNoOrphan()
     {
         for(int round = 0; round < ROUNDS; round++)
@@ -154,17 +168,25 @@ class VectorIndexParallelInsertOrphanTest
             final GigaMap<Doc>     map   = GigaMap.New();
             final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
                 .add("emb", inMemory(), new EmbeddedVectorizer());
-            map.addAll(docs());
-            final List<Integer> orphans = unreachable(index);
-            final int           r       = round;
-            assertEquals(List.of(), orphans, () -> "round " + r + ": nodes no search reaches; first: "
-                + describe(index, orphans.get(0)) + "; predecessor: " + describe(index, orphans.get(0) - 1));
-            index.close();
+            try
+            {
+                map.addAll(docs());
+                final int           r       = round;
+                final List<Integer> orphans = unreachable(index);
+                assertEquals(List.of(), orphans, () -> "round " + r + ": nodes no search reaches; first: "
+                    + describe(index, orphans.get(0)) + "; predecessor: "
+                    + describe(index, Math.max(0, orphans.get(0) - 1)));
+            }
+            finally
+            {
+                index.close();
+            }
         }
     }
 
     /** the first access after a load rebuilds the graph from the vector file in parallel */
     @Test
+    @Timeout(value = 300, unit = TimeUnit.SECONDS)
     void rebuildAfterLoad_leavesNoOrphan(@TempDir final Path tempDir)
     {
         final Path storageDir = tempDir.resolve("storage");
@@ -184,6 +206,7 @@ class VectorIndexParallelInsertOrphanTest
                 final GigaMap<Doc> map = (GigaMap<Doc>)storage.root();
                 @SuppressWarnings("unchecked")
                 final VectorIndex<Doc> index = map.index().get(VectorIndices.class).get("emb");
+                // the first search runs the parallel rebuild
                 assertEquals(List.of(), unreachable(index), "restart " + round + ": nodes no search reaches");
             }
         }
