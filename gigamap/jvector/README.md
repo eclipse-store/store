@@ -19,7 +19,7 @@ A Java library that integrates [JVector](https://github.com/datastax/jvector) (h
 
 ## Requirements
 
-- Java 22+ (the module compiles at release 22; the rest of Eclipse Store stays at 17, and a build on an older JDK skips this module)
+- Java 25+ (the module compiles at release 25; the rest of Eclipse Store stays at 17)
 - Maven 3.6+
 - JVM flags: `--add-modules jdk.incubator.vector` for SIMD scoring, `--enable-native-access=ALL-UNNAMED` for jVector's memory-mapped reader. On the module path jVector is the automatic module `jvector`, so use `--enable-native-access=jvector` there
 
@@ -53,7 +53,7 @@ JVector leverages the [Panama Vector API](https://openjdk.org/jeps/338) (`jdk.in
 | without `--add-modules jdk.incubator.vector` | Functional, but **not optimized** (scalar fallback) |
 | with `--add-modules jdk.incubator.vector` | **Full SIMD acceleration** via Panama Vector API |
 
-JVector uses a multi-release JAR structure; on the Java 22+ JVM this module requires, the optimized vector code activates as soon as the incubator module is resolved, and jVector's memory-mapped reader uses the foreign memory API (`--enable-native-access=ALL-UNNAMED`).
+JVector uses a multi-release JAR structure; on the Java 25+ JVM this module requires, the optimized vector code activates as soon as the incubator module is resolved, and jVector's memory-mapped reader uses the foreign memory API (`--enable-native-access=ALL-UNNAMED`).
 
 ### JVM Parameters
 
@@ -105,7 +105,7 @@ java --add-modules jdk.incubator.vector \
 
 ### Recommendation
 
-Run on **Java 22 or later** (required by this module) with `--add-modules jdk.incubator.vector` to benefit from full SIMD acceleration. The performance difference can be substantial for large-scale vector operations.
+Run on **Java 25 or later** (required by this module) with `--add-modules jdk.incubator.vector` to benefit from full SIMD acceleration. The performance difference can be substantial for large-scale vector operations.
 
 ## Installation
 
@@ -370,7 +370,7 @@ To benchmark with real SIFT data:
 
 - **Null vectors are rejected unless opted into**: `Vectorizer.vectorize()` returning `null` throws an `IllegalStateException` by default. Override `Vectorizer.allowsNullVectors()` to return `true` for a corpus where some entities legitimately have no embedding; they are then skipped rather than indexed, leaving holes in the ordinal space that the index handles.
 - **~2.1 billion vectors per index**: JVector uses `int` for graph node ordinals. For larger datasets, implement sharding across multiple indices.
-- **Java 22 or later**: the module uses the foreign memory API for its vector file; a build on an older JDK skips it.
+- **Java 25 or later**: the module targets Java 25 and uses the foreign memory API for its vector file.
 - **The vector file must stay with its storage**: it is a cache derived from the entities, rebuilt (one vectorizer call per entity) when it is missing or does not match the stored index. Back up and restore the index directory together with the storage.
 - **`FUSED_PQ` scoring enlarges the index**: it stores each node's neighbour codes inline, on top of whatever the storage mode holds. It saves reads on a graph larger than the page cache, not disk space, and it costs recall. To make the index *smaller*, set `vectorStorage` to `NVQ`, which is the other dimension of the format entirely.
 - **The in-memory switch to `PQ_IN_MEMORY` stops the whole GigaMap while it runs**: reads, writes and searches all wait for it, on every index on that map. It is a full rebuild under the map's lock, close to linear in the vector count - about 4 s at 10,000 vectors, 6-9 s at 20,000, 14-19 s at 50,000, several minutes at a million (dimension 64). It happens at most once per index generation, but it is triggered by the *background* optimization, so on a large index call `optimize()` at a quiet moment rather than letting the scheduler pick one.

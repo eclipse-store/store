@@ -20,9 +20,9 @@
 
     <properties>
         <jvector.version>4.0.1</jvector.version>
-        <!-- memory-mapped vector file (foreign memory API, final in 22) and jVector's MemorySegmentReader; the module is
-             listed in the gigamap reactor only under a JDK-22+ profile, so older JDKs build the store without it -->
-        <maven.compiler.release>22</maven.compiler.release>
+        <!-- memory-mapped vector file (foreign memory API) and jVector's MemorySegmentReader need Java 22+;
+             this module and the modules that use it target Java 25, the rest of Eclipse Store stays at 17 -->
+        <maven.compiler.release>25</maven.compiler.release>
     </properties>
 
     <dependencies>

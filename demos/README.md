@@ -19,7 +19,7 @@ Demonstrates **GigaMap with Vector Index** for semantic product similarity searc
 Uses LangChain4j with a local Ollama embedding model to vectorize products and find matches via cosine similarity.
 
 - **Port:** 8080
-- **Prerequisites:** Java 22+ (required by `gigamap-jvector`; a build on an older JDK leaves this demo out), Ollama with `all-minilm` model
+- **Prerequisites:** Java 25+ (required by `gigamap-jvector`), Ollama with `all-minilm` model
 - **Key features:** Vector similarity search, HNSW indexing, embedding generation
 
 ## Quick Start
