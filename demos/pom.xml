@@ -18,20 +18,8 @@
 
     <modules>
         <module>country-explorer</module>
+        <module>product-recommendations</module>
     </modules>
-
-    <profiles>
-        <profile>
-            <!-- uses gigamap-jvector, which is built from JDK 22 on (see gigamap/pom.xml) -->
-            <id>java22-plus-jvector</id>
-            <activation>
-                <jdk>[22,)</jdk>
-            </activation>
-            <modules>
-                <module>product-recommendations</module>
-            </modules>
-        </profile>
-    </profiles>
 
     <name>EclipseStore Demos</name>
     <description>Demos for EclipseStore</description>

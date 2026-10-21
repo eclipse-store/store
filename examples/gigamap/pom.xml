@@ -19,6 +19,11 @@
 	<description>EclipseStore GigaMap Example</description>
 	<url>https://projects.eclipse.org/projects/technology.store</url>
 
+	<properties>
+		<!-- uses gigamap-jvector, which targets Java 25 -->
+		<maven.compiler.release>25</maven.compiler.release>
+	</properties>
+
 	<dependencies>
 		<dependency>
 			<groupId>org.eclipse.store</groupId>

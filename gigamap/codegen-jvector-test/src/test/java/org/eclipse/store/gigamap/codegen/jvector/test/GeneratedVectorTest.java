@@ -1,4 +1,4 @@
-package org.eclipse.store.gigamap.codegen.test;
+package org.eclipse.store.gigamap.codegen.jvector.test;
 
 /*-
  * #%L
@@ -16,7 +16,6 @@ package org.eclipse.store.gigamap.codegen.test;
 
 import org.eclipse.store.gigamap.jvector.VectorAnnotationHandler;
 import org.eclipse.store.gigamap.jvector.VectorIndices;
-import org.eclipse.store.gigamap.lucene.LuceneAnnotationHandler;
 import org.eclipse.store.gigamap.lucene.LuceneIndex;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.IndexerGenerator;
@@ -31,29 +30,16 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+
 /**
- * Verifies that the generated metamodels wire up Lucene full-text ({@code @FullText}) and JVector
- * ({@code @Vector}) indices: their {@code registerIndices} create queryable indices, survive reload,
- * and match the runtime annotation handlers.
+ * Verifies that the generated metamodels wire up JVector ({@code @Vector}) indices, alone and combined with
+ * bitmap and Lucene full-text indices: their {@code registerIndices} create queryable indices, survive reload,
+ * and match the runtime annotation handler. Lives in its own module because gigamap-jvector targets Java 25.
  */
-public class GeneratedLuceneVectorTest
+public class GeneratedVectorTest
 {
 	@TempDir
 	Path tempDir;
-
-	@Test
-	void luceneFullTextViaGeneratedMetamodel()
-	{
-		final GigaMap<Doc> map = GigaMap.New();
-		Doc_.registerIndices(map);
-		map.add(new Doc("hello world", "news"));
-		map.add(new Doc("another text", "blog"));
-
-		final LuceneIndex<Doc> index = map.index().get(LuceneIndex.class);
-		final List<Doc> hits = index.query("title:hello");
-		assertEquals(1, hits.size());
-		assertEquals("hello world", hits.get(0).getTitle());
-	}
 
 	@Test
 	void vectorSearchViaGeneratedMetamodel()
@@ -91,25 +77,6 @@ public class GeneratedLuceneVectorTest
 	}
 
 	@Test
-	void luceneReloadSafe()
-	{
-		final GigaMap<Doc> map = GigaMap.New();
-		Doc_.registerIndices(map);
-		map.add(new Doc("hello world", "news"));
-
-		try(final EmbeddedStorageManager sm = EmbeddedStorage.start(map, this.tempDir))
-		{
-			// store
-		}
-		try(final EmbeddedStorageManager sm = EmbeddedStorage.start(this.tempDir))
-		{
-			final GigaMap<Doc> reloaded = sm.root();
-			Doc_.registerIndices(reloaded); // idempotent on the reloaded, already-indexed map
-			assertEquals(1, reloaded.index().get(LuceneIndex.class).query("title:hello").size());
-		}
-	}
-
-	@Test
 	void vectorReloadSafe()
 	{
 		final GigaMap<VectorItem> map = GigaMap.New();
@@ -135,26 +102,9 @@ public class GeneratedLuceneVectorTest
 	}
 
 	@Test
-	void matchesRuntimeHandlers()
+	void matchesRuntimeHandler()
 	{
-		// Lucene: generated registration vs runtime LuceneAnnotationHandler
-		final GigaMap<Doc> runtimeLucene = GigaMap.New();
-		IndexerGenerator.AnnotationBased(Doc.class)
-			.register(LuceneAnnotationHandler.New())
-			.generateIndices(runtimeLucene);
-		final GigaMap<Doc> genLucene = GigaMap.New();
-		Doc_.registerIndices(genLucene);
-		for(final GigaMap<Doc> m : List.of(runtimeLucene, genLucene))
-		{
-			m.add(new Doc("hello world", "news"));
-			m.add(new Doc("hello there", "blog"));
-		}
-		assertEquals(
-			runtimeLucene.index().get(LuceneIndex.class).query("title:hello").size(),
-			genLucene.index().get(LuceneIndex.class).query("title:hello").size()
-		);
-
-		// Vector: generated registration vs runtime VectorAnnotationHandler
+		// generated registration vs runtime VectorAnnotationHandler
 		final GigaMap<VectorItem> runtimeVector = GigaMap.New();
 		IndexerGenerator.AnnotationBased(VectorItem.class)
 			.register(VectorAnnotationHandler.New())

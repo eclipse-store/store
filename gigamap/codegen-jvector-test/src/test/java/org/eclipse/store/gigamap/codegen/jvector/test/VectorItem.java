@@ -1,4 +1,4 @@
-package org.eclipse.store.gigamap.codegen.test;
+package org.eclipse.store.gigamap.codegen.jvector.test;
 
 /*-
  * #%L

@@ -13,17 +13,13 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # 25 builds everything; 17 runs the Java 17 baseline, which leaves out gigamap-jvector (JDK 22+) and its dependents
-        java: [ '17', '25' ]
     steps:
+      #Build with java 25; the modules target Java 17 via maven.compiler.release, gigamap-jvector and its dependents Java 25
     - uses: actions/checkout@v6
-    - name: Set up JDK ${{ matrix.java }}
+    - name: Set up JDK 25
       uses: actions/setup-java@v5
       with:
-        java-version: ${{ matrix.java }}
+        java-version: '25'
         distribution: 'temurin'
         cache: 'maven'
     - name: Align serializer version to matching branch snapshot
@@ -37,7 +33,7 @@ jobs:
       if: always()
       uses: dorny/test-reporter@v2
       with:
-        name: "GigaMap - CI Test result without slow (JDK ${{ matrix.java }})"
+        name: "GigaMap - CI Test result without slow"
         path: '**/target/**/surefire-reports/*.xml'
         reporter: java-junit
         fail-on-error: false
