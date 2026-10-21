@@ -17,6 +17,7 @@ package org.eclipse.store.gigamap.jvector;
 
 import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -1024,6 +1025,7 @@ class VectorFileTest
     }
 
     @Test
+    @Tag("slow")
     void open_growingHeader_keepsTheNewestRecord()
     {
         final long nonce;

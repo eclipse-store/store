@@ -24,6 +24,7 @@ import io.github.jbellis.jvector.graph.NodesIterator;
 import io.github.jbellis.jvector.graph.OnHeapGraphIndex;
 import io.github.jbellis.jvector.graph.disk.OnDiskGraphIndex;
 import io.github.jbellis.jvector.util.FixedBitSet;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -145,6 +146,7 @@ class VectorIndexReachabilityTest
     }
 
     @Test
+    @Tag("slow")
     @Timeout(value = 300, unit = TimeUnit.SECONDS)
     void set_nearDuplicatesReplacedOneByOne_everyNodeReachable()
     {
@@ -167,6 +169,7 @@ class VectorIndexReachabilityTest
     }
 
     @Test
+    @Tag("slow")
     @Timeout(value = 300, unit = TimeUnit.SECONDS)
     void persistToDisk_replacesMovedIntoFrozenGeneration_segmentEveryNodeReachable()
         throws InterruptedException, IOException

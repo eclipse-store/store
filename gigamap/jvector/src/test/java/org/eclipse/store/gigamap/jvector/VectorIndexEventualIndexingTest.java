@@ -18,6 +18,7 @@ import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -526,6 +527,7 @@ class VectorIndexEventualIndexingTest
      * stays as it was, the restart finds it stale, rebuilds, and finds everything.
      */
     @Test
+    @Tag("slow")
     @Timeout(value = 60, unit = TimeUnit.SECONDS)
     void testShutdownAfterAFailedGraphOperationCommitsNothing(@TempDir final Path tempDir) throws IOException
     {
@@ -846,6 +848,7 @@ class VectorIndexEventualIndexingTest
     // ==================== Background Persistence + Eventual Indexing ====================
 
     @Test
+    @Tag("slow")
     @Timeout(value = 30, unit = TimeUnit.SECONDS)
     void testBackgroundPersistenceWithEventualIndexing(@TempDir final Path tempDir) throws Exception
     {
