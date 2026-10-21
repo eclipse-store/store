@@ -384,6 +384,17 @@
 
     <profiles>
         <profile>
+            <!-- From JDK 23 on, javac runs annotation processors found on the class path only when asked to;
+                 modules such as examples/layered-entities rely on that discovery -->
+            <id>jdk23-annotation-processing</id>
+            <activation>
+                <jdk>[23,)</jdk>
+            </activation>
+            <properties>
+                <maven.compiler.proc>full</maven.compiler.proc>
+            </properties>
+        </profile>
+        <profile>
             <id>examples</id>
             <modules>
                 <module>examples</module>

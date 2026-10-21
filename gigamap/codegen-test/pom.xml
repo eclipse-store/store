@@ -49,12 +49,6 @@
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>org.eclipse.store</groupId>
-            <artifactId>gigamap-jvector</artifactId>
-            <version>${project.version}</version>
-            <scope>test</scope>
-        </dependency>
         <!-- Lucene is 'provided' in gigamap-lucene (not transitive), so pull it in for the tests -->
         <dependency>
             <groupId>org.apache.lucene</groupId>
@@ -102,5 +96,52 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <!-- gigamap-jvector is built from JDK 22 on (see gigamap/pom.xml) -->
+            <id>java22-plus-jvector</id>
+            <activation>
+                <jdk>[22,)</jdk>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>org.eclipse.store</groupId>
+                    <artifactId>gigamap-jvector</artifactId>
+                    <version>${project.version}</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <!-- below JDK 22 the reactor has no gigamap-jvector: leave out the @Vector tests rather than
+                 resolve a stale or wrong-version jar from a repository -->
+            <id>without-jvector</id>
+            <activation>
+                <jdk>(,22)</jdk>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>default-testCompile</id>
+                                <configuration>
+                                    <testExcludes>
+                                        <testExclude>**/GeneratedLuceneVectorTest.java</testExclude>
+                                        <testExclude>**/MixedDoc.java</testExclude>
+                                        <testExclude>**/OnDiskItem.java</testExclude>
+                                        <testExclude>**/VectorItem.java</testExclude>
+                                    </testExcludes>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
 </project>

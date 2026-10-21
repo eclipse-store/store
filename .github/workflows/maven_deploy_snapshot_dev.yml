@@ -18,7 +18,7 @@ jobs:
       - name: Set up Java for publishing to Maven Central Snapshot Repository
         uses: actions/setup-java@v5
         with:
-          java-version: '17'
+          java-version: '25'
           distribution: 'temurin'
           cache: 'maven'
           server-id: ossrh
