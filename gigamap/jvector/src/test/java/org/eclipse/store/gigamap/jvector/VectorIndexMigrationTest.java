@@ -18,6 +18,7 @@ import org.eclipse.store.gigamap.jvector.migration.MigrationComputedVectorizer;
 import org.eclipse.store.gigamap.jvector.migration.MigrationDoc;
 import org.eclipse.store.gigamap.jvector.migration.MigrationFixtures;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.IndexLocation;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.AfterEach;
@@ -36,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -52,8 +54,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * index's vector store, and the legacy handler imports them into the vector file
  * ({@link BinaryLegacyTypeHandlerVectorIndexDefault}); before the port, a restart made no vectorizer call either.
  * For a vectorizer backed by an embedding service that is one request per entity saved per migration. A
- * computed in-memory fixture has no index directory, so its vector file is temporary: the import saves the calls
- * once, and later restarts vectorize again until a directory is configured (see
+ * computed in-memory fixture has no index directory, so its vector file is temporary: storing it is refused until
+ * it gets a location, which keeps the imported vectors there, so that no later restart vectorizes either (see
  * {@link VectorIndex#keepsIndexFiles()}).
  */
 class VectorIndexMigrationTest
@@ -100,8 +102,22 @@ class VectorIndexMigrationTest
             final VectorIndex.Default<MigrationDoc> index = index(map);
             assertEquals(MigrationFixtures.COUNT, map.size());
             assertEveryEntityFound(index);
-            assertNull(index.legacyVectorStore, "the imported vector store must be dropped");
             assertEquals(MigrationFixtures.COUNT, index.getExpectedVectorCount(), "the count follows the imported vectors");
+            if(computed && !index.keepsIndexFiles())
+            {
+                // The vectors are only in a temporary file: the store is kept, and storing is refused until the
+                // index has a location, which keeps them without a vectorizer call.
+                assertNotNull(index.legacyVectorStore, "the vector store is kept while the index has no location");
+                final IllegalStateException refused = assertThrows(IllegalStateException.class, map::store);
+                assertTrue(String.valueOf(rootCauseMessage(refused)).contains("changeIndexLocation"),
+                    () -> "the refusal names the way out: " + rootCauseMessage(refused));
+                map.index().get(VectorIndices.class).changeIndexLocation(
+                    MigrationFixtures.INDEX, IndexLocation.Absolute(tempDir.resolve("vectors"))
+                );
+                assertTrue(index.keepsIndexFiles(), "the index keeps its vector file at the location now");
+                assertEveryEntityFound(index);
+            }
+            assertNull(index.legacyVectorStore, "the imported vector store must be dropped");
             if(computed)
             {
                 assertEquals(0, MigrationComputedVectorizer.CALLS.get(),
@@ -138,20 +154,26 @@ class VectorIndexMigrationTest
                 assertNotNull(set);
                 assertFalse(set.segments().isEmpty(), "served from the persisted segment");
             }
-            if(computed && index.keepsIndexFiles())
+            if(computed)
             {
+                assertTrue(index.keepsIndexFiles(), "a computed index has a location after the migration");
                 assertEquals(0, MigrationComputedVectorizer.CALLS.get(), "the vectors come from the vector file");
-            }
-            else if(computed)
-            {
-                // no index directory: the vector file is temporary and every start vectorizes (keepsIndexFiles)
-                assertEquals(MigrationFixtures.COUNT, MigrationComputedVectorizer.CALLS.get());
             }
             // a mutation after the migration works and is found
             final long added = map.add(new MigrationDoc(MigrationFixtures.COUNT));
             assertTrue(index.search(MigrationFixtures.position(MigrationFixtures.COUNT), 1).toList().stream()
                 .anyMatch(e -> e.entityId() == added));
         }
+    }
+
+    private static String rootCauseMessage(final Throwable thrown)
+    {
+        Throwable cause = thrown;
+        while(cause.getCause() != null && cause.getCause() != cause)
+        {
+            cause = cause.getCause();
+        }
+        return cause.getMessage();
     }
 
     @SuppressWarnings("unchecked")

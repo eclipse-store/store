@@ -747,7 +747,7 @@ Nonce, epoch and count stay 0, so the open replaces any vector file.
 
 A consistent store costs no vectorizer call. An embedded index has no store and recovers from the entities (a full rebuild of the file, which reads fields). After the import:
 
-- `legacyVectorStore` is dropped;
+- `legacyVectorStore` is dropped, except for a computed index without a location (see below);
 - the nonce is set;
 - `structuralModCount` is bumped.
 
@@ -757,7 +757,13 @@ A consistent store costs no vectorizer call. An embedded index has no store and 
 
 **Old files.** The old `<name>.graph/.meta/.pqv` files are ignored and logged once. An on-disk index finds no manifest, rebuilds from the vector file, and schedules a persist as segments.
 
-**Computed in-memory index without a directory.** It imports into a temporary file. Its vectors are lost with the old store at the next store unless a directory is configured before that store.
+**Computed in-memory index without a directory.** It imports into a temporary file, which the current layout cannot keep, so it holds on to `legacyVectorStore`, and `BinaryHandlerVectorIndexDefault.store` refuses the record (`legacyVectorStoreRefusal`) until one of these happens:
+
+- `changeIndexLocation` gives it a location. For an index that keeps no files this is effective at once (`internalAssignFirstLocation`, under the monitor and the exclusive lock, which `VectorIndices.runExclusive` acquires the way `GigaMap` does for `removeAll`): a fresh vector file is opened at the location with the record's store epoch, every present vector is copied into it by repairs with its key, and the index is re-initialized on it, as `removeAll` does, so the graph is rebuilt from it at the next access. No vectorizer call. The same applies to a computed in-memory index created on this version without a location.
+- `removeAll` or `reindex` drops or recomputes the vectors anyway.
+- The system property `DROP_LEGACY_VECTORS_PROPERTY` (`org.eclipse.store.gigamap.jvector.dropLegacyVectorsWithoutLocation=true`) lets the import drop the store at once, as before; every later start then vectorizes every entity.
+
+A restart before a successful store loads the 4.x record again and imports again, without a vectorizer call.
 
 **One way.** After the next store the old vector store is unreferenced and reclaimed by the storage's housekeeping. A storage stored by this version cannot be opened by 4.x.
 
@@ -802,7 +808,7 @@ Builder methods of `VectorIndexConfiguration.Builder` (defaults in parentheses):
 | `optimizationIntervalMs` (0 = off), `minChangesBetweenOptimizations` (1000), `optimizeOnShutdown` (false) | in-memory maintenance and PQ switch; no effect on an on-disk index |
 | `parallelOnDiskWrite` (false) | parallel segment graph writer |
 
-System property: `org.eclipse.store.gigamap.jvector.temporaryRoot` (section 3.1).
+System properties: `org.eclipse.store.gigamap.jvector.temporaryRoot` (section 3.1), `org.eclipse.store.gigamap.jvector.dropLegacyVectorsWithoutLocation` (section 9, the import of a computed in-memory index without a location).
 
 ---
 

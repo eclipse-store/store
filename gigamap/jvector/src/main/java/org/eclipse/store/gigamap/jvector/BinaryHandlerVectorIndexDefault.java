@@ -121,12 +121,13 @@ implements PersistenceLegacyTypeHandlerSupplier<Binary, VectorIndex.Default<?>>
         {
             hook.run();
         }
-        if(instance.legacyVectorStore != null)
+        final String refusal = instance.legacyVectorStoreRefusal();
+        if(refusal != null)
         {
             // This layout has no field for the vector store: written now, the record would lose the only
-            // reference to the vectors. The first access imports them (ensureVectorsRecovered).
-            throw new IllegalStateException("Vector index \"" + instance.name() + "\" still carries the vector"
-                + " store of its 4.x layout; it must be searched or mutated once before it is stored.");
+            // reference to the vectors. The first access imports them (ensureVectorsRecovered); an index that keeps
+            // no files holds on to the store until it gets a location.
+            throw new IllegalStateException(refusal);
         }
         instance.internalSealVectorEpochOnStore(handler);
         super.store(data, instance, objectId, handler);

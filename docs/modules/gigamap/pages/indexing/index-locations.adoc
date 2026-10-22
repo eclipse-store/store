@@ -93,7 +93,9 @@ gigaMap.index().get(LuceneIndex.class).changeIndexLocation(IndexLocation.Named("
 gigaMap.store();   // the change reaches the storage with the next store
 ----
 
-The change takes effect from the next start; the running index keeps using the directory it opened. No files are moved, copied or deleted. It is refused for in-memory vector indices, Lucene indices without an MMap directory, Lucene indices with their own `LuceneContext` implementation (including subclasses of `LuceneContext.Default`), and read-only maps.
+The change takes effect from the next start; the running index keeps using the directory it opened. No files are moved, copied or deleted. It is refused for in-memory vector indices with an embedded vectorizer (their vectors are in the entities), Lucene indices without an MMap directory, Lucene indices with their own `LuceneContext` implementation (including subclasses of `LuceneContext.Default`), and read-only maps.
+
+An in-memory vector index with a computed vectorizer and no location yet keeps its vectors in a temporary file. For it the change takes effect at once, unlike the case above: its vectors are copied into a new vector file at the new location, without a vectorizer call, and from the next store on every start reads them there instead of vectorizing every entity. A vector file of an index of the same name already in that directory is replaced, so the location must not be shared with another index of that name. On a read-only map neither the change nor a store is possible.
 
 To migrate an existing storage to named locations *without a rebuild*:
 

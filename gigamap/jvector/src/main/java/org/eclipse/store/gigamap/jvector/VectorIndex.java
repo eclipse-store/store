@@ -895,6 +895,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         public void internalReplaceConfiguration(VectorIndexConfiguration configuration);
 
         /**
+         * Gives an in-memory index with a computed vectorizer and no index location its first one, effective at
+         * once: its vectors move from the temporary vector file into a vector file at the new location, without a
+         * vectorizer call, and its graph is rebuilt from that file at the next access. Must be called like
+         * {@link #internalRemoveAll()}: with the parent-map monitor and the lock of
+         * {@link #internalTryLockExclusive()} held.
+         *
+         * @param configuration the index's configuration with the new location
+         */
+        public default void internalAssignFirstLocation(final VectorIndexConfiguration configuration)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        /**
          * Seals the vector file's writes into the store epoch when the GigaMap is stored, before any entity
          * segment of that store is written, see {@link IndexGroup.Internal#internalPrepareStore(Storer)}.
          *
@@ -994,6 +1008,16 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                DiskIndexManager.IndexStateProvider
     {
         private static final Logger LOG = LoggerFactory.getLogger(Default.class);
+
+        /**
+         * System property ({@code true}/{@code false}, default {@code false}) that lets a computed in-memory index
+         * without an index location, loaded from a 4.x storage, drop the vectors of its 4.x vector store at the
+         * next store, so that every later start vectorizes every entity. Without it such a store is refused until
+         * the index has a location ({@link VectorIndices#changeIndexLocation(String, IndexLocation)}), since the
+         * current layout keeps no vectors in the storage.
+         */
+        public static final String DROP_LEGACY_VECTORS_PROPERTY =
+            "org.eclipse.store.gigamap.jvector.dropLegacyVectorsWithoutLocation";
 
         // Shuts down the insert pool of an index that was dropped without a close(): its workers outlive the
         // batches by design and hold nothing of the index, so nothing else would ever stop them.
@@ -1100,7 +1124,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // The vector store of a computed index persisted before the vector file, handed over by the legacy
         // handler and imported into the file at the index's first access (or with a sibling's import), in
         // place of the file's recovery, which would re-vectorize every entity (see ensureVectorsRecovered and
-        // importLegacyVectorStore). Null otherwise, and again once imported.
+        // importLegacyVectorStore). Null otherwise, and again once imported, except for a computed index that
+        // keeps no files: its vectors would only be in a temporary file, so the store stays until the index gets
+        // a location or the vectors are dropped deliberately, and a store of the record is refused meanwhile.
         transient GigaMap<VectorEntry> legacyVectorStore;
 
         // Set by the legacy handler for every index loaded from a layout before the vector file: once its vectors
@@ -2652,7 +2678,18 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             file.recovered();
 
-            this.legacyVectorStore = null;
+            if(this.keepsIndexFiles() || this.vectorizer.isEmbedded() || Boolean.getBoolean(DROP_LEGACY_VECTORS_PROPERTY))
+            {
+                this.legacyVectorStore = null;
+            }
+            else
+            {
+                LOG.warn("Vector index '{}' imported the vectors of its 4.x vector store into a temporary file: it"
+                    + " has no index directory or location, and the current layout keeps no vectors in the storage."
+                    + " Storing it is refused until it has one (VectorIndices.changeIndexLocation), or until the"
+                    + " system property {}=true lets the store drop them, after which every start vectorizes every"
+                    + " entity.", this.name, DROP_LEGACY_VECTORS_PROPERTY);
+            }
             this.vectorCount       = inconsistent ? countPresent(file) : imported[0];
             if(this.keepsIndexFiles())
             {
@@ -3473,6 +3510,109 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.ensureVectorsRecovered();
             this.configuration = notNull(configuration);
             this.markStateChangeInstance();
+        }
+
+        @Override
+        public void internalAssignFirstLocation(final VectorIndexConfiguration configuration)
+        {
+            notNull(configuration);
+            if(!this.builderLock.isWriteLockedByCurrentThread())
+            {
+                throw new IllegalStateException("Vector index \"" + this.name + "\": internalAssignFirstLocation()"
+                    + " must be called via VectorIndices.changeIndexLocation, which acquires its write lock first.");
+            }
+            if(this.vectorizer.isEmbedded() || this.keepsIndexFiles())
+            {
+                throw new IllegalStateException("Vector index \"" + this.name + "\" is no computed in-memory index"
+                    + " without an index location.");
+            }
+            if(this.closed || this.closeRequested)
+            {
+                // Before anything is initialized: an access would bring the closed index back.
+                throw new IllegalStateException("Vector index \"" + this.name + "\" is closed.");
+            }
+            this.ensureIndexInitialized();
+            this.ensureVectorsRecovered();
+
+            final VectorIndexConfiguration previous  = this.configuration;
+            final VectorFile               temporary = this.vectorFile;
+            this.configuration     = configuration;
+            this.resolvedDirectory = null;
+            final VectorFile relocated;
+            try
+            {
+                // A fresh file at the store epoch the record carries, as the import of a 4.x store into an index
+                // directory makes it: written by repairs at that epoch, it is consistent with the record the next
+                // store writes, which carries its nonce. An older file of the index there is replaced.
+                relocated = VectorFile.open(
+                    this.indexDirectoryForDisk(),
+                    this.name,
+                    this.configuration.dimension(),
+                    this.checkedVectorChunkBytes(),
+                    0L,
+                    this.vectorFileEpoch,
+                    "vector index '" + this.name + "'"
+                );
+            }
+            catch(final RuntimeException | Error e)
+            {
+                this.configuration     = previous;
+                this.resolvedDirectory = null;
+                throw e;
+            }
+            try
+            {
+                copyVectors(temporary, relocated);
+            }
+            catch(final RuntimeException | Error e)
+            {
+                this.configuration     = previous;
+                this.resolvedDirectory = null;
+                relocated.closeAndDelete();
+                throw e;
+            }
+            relocated.checkpointInterval(this.configuration.vectorCheckpointIntervalMs());
+
+            // From here on the index runs on the relocated file. Like removeAll: the pending operations are stale,
+            // and the graph, built on the temporary file, is rebuilt from the relocated one at the next access.
+            if(this.backgroundTaskManager != null)
+            {
+                this.backgroundTaskManager.shutdownWithoutWaiting();
+                this.backgroundTaskManager = null;
+            }
+            this.closeInternalResources();
+            this.vectorFile        = relocated;
+            this.vectorsRecovered  = true;
+            this.vectorFileNonce   = relocated.nonce();
+            this.legacyVectorStore = null;
+            temporary.close();
+            this.initializeIndex();
+            this.markStateChangeInstance();
+        }
+
+        /**
+         * Copies every present vector with its key from {@code source} into {@code target} by repairs, chunk by
+         * chunk, and ends the target's recovery.
+         */
+        private static void copyVectors(final VectorFile source, final VectorFile target)
+        {
+            final int   perChunk = target.slotsPerChunk();
+            final int[] chunk    = {-1};
+            source.forEachPresent(ordinal ->
+            {
+                if(chunk[0] >= 0 && ordinal / perChunk != chunk[0])
+                {
+                    target.repaired(chunk[0]);
+                }
+                chunk[0] = ordinal / perChunk;
+                target.repair(ordinal, source.read(ordinal), source.key(ordinal));
+                return true;
+            });
+            if(chunk[0] >= 0)
+            {
+                target.repaired(chunk[0]);
+            }
+            target.recovered();
         }
 
         private io.github.jbellis.jvector.vector.VectorSimilarityFunction jvectorSimilarityFunction()
@@ -4436,6 +4576,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // Every vector goes, in place: the file is never unmapped while open, so a reader that read the
                 // chunk table before this sees absent slots rather than unmapped memory.
                 this.removeAllVectors(this.vectorFile);
+                // The vectors a 4.x store still held are gone with the entities, or recomputed by a reindex.
+                this.legacyVectorStore = null;
 
                 // Shut the background task manager down and discard its pending ops, they are stale. Without
                 // waiting for its thread: a task of it may be waiting for the write lock or the monitor held here.
@@ -4527,7 +4669,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 throw new IllegalStateException("Vector index \"" + this.name + "\" is closed");
             }
-            return file.read((int)entityId);
+            try
+            {
+                return file.read((int)entityId);
+            }
+            catch(final IllegalStateException e)
+            {
+                // Read without a lock: a first location (internalAssignFirstLocation) may have replaced and closed
+                // the file meanwhile. The replacement holds the same vectors.
+                final VectorFile current = this.vectorFile;
+                if(current == null || current == file)
+                {
+                    throw e;
+                }
+                return current.read((int)entityId);
+            }
         }
 
         @Override
@@ -8329,6 +8485,46 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         protected void storeChangedChildren(final Storer storer)
         {
             // No children: the vectors are in the vector file, which the store never writes.
+        }
+
+        /**
+         * Why this record must not be stored, or {@code null} if it may be: it still holds the vector store of its
+         * 4.x layout, which the current layout has no field for, so a store would drop those vectors. Reads
+         * {@link #DROP_LEGACY_VECTORS_PROPERTY} here as well as at the import, so setting it while the storage runs
+         * lets the next store drop them.
+         */
+        String legacyVectorStoreRefusal()
+        {
+            if(this.legacyVectorStore == null)
+            {
+                return null;
+            }
+            if(!this.vectorsRecovered)
+            {
+                return "Vector index \"" + this.name + "\" still carries the vector store of its 4.x layout; it must"
+                    + " be searched or mutated once before it is stored.";
+            }
+            if(Boolean.getBoolean(DROP_LEGACY_VECTORS_PROPERTY))
+            {
+                LOG.warn("Vector index '{}': dropping the vectors of its 4.x vector store ({}=true); every later"
+                    + " start vectorizes every entity.", this.name, DROP_LEGACY_VECTORS_PROPERTY);
+                this.legacyVectorStore = null;
+                return null;
+            }
+            if(this.closed)
+            {
+                return "Vector index \"" + this.name + "\" is closed and holds the vectors of its 4.x vector store only"
+                    + " in a temporary file, which the current layout cannot keep, so this store would drop them for"
+                    + " good. Restart and give the index a location with VectorIndices.changeIndexLocation, remove it"
+                    + " with VectorIndices.removeIndex, or set the system property " + DROP_LEGACY_VECTORS_PROPERTY
+                    + "=true to drop them.";
+            }
+            return "Vector index \"" + this.name + "\" holds the vectors of its 4.x vector store only in a temporary"
+                + " file: it has no index directory or location, and the current layout keeps no vectors in the"
+                + " storage, so this store would drop them for good. Give the index a location with"
+                + " VectorIndices.changeIndexLocation, which keeps them without a vectorizer call, or set the system"
+                + " property " + DROP_LEGACY_VECTORS_PROPERTY + "=true to drop them and vectorize every entity at"
+                + " every start.";
         }
 
         /**

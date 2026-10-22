@@ -338,7 +338,7 @@ The vectors of an index now live in the vector file instead of a persisted vecto
 * The old graph files of an on-disk index are ignored, logged once at the first load, and can be removed. The graph is rebuilt from the vector file and persisted as segments beside them at the next persist, which is scheduled even if the index is only searched.
 * *One way:* a storage stored by this version cannot be opened by 4.x, or by an earlier build without the vector file, any more: they fail at start with `Missing runtime type ... VectorIndexFormat` (4.2.0 already at `VectorStorage`). Until the first store on this version, the storage still opens with the old version. Back up the storage before upgrading.
 
-IMPORTANT: A 4.x *in-memory index with a computed vectorizer and no directory* imports its persisted vectors into a temporary vector file, and the next store drops them together with the old vector store. Configure `indexDirectory` or `indexLocation` for such an index (see xref:indexing/index-locations.adoc[Index Locations]) before the first store on this version to keep them; otherwise every later start vectorizes every entity.
+IMPORTANT: A 4.x *in-memory index with a computed vectorizer and no directory* imports its persisted vectors into a temporary vector file, which the current layout cannot keep. Storing the map is therefore refused until the index has a location: give it one with `VectorIndices.changeIndexLocation` (see xref:indexing/index-locations.adoc[Index Locations]), which moves the imported vectors there at once, without a vectorizer call. To drop them deliberately instead, set the system property `org.eclipse.store.gigamap.jvector.dropLegacyVectorsWithoutLocation=true`; every later start then vectorizes every entity.
 
 == Examples
 

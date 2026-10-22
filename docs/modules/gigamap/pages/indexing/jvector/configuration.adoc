@@ -64,17 +64,26 @@ tasks.withType<Test> {
 }
 ----
 
-=== Physical Core Configuration
+[#system-properties]
+=== System Properties
 
-Intensive SIMD operations can saturate memory bandwidth during indexing and PQ computation. JVector mitigates this by using a `PhysicalCoreExecutor` that limits concurrency to physical cores rather than logical cores (hyperthreads).
+Set with `-D<property>=<value>` on the JVM command line.
 
-[options="header",cols="1,1,3"]
+[options="header",cols="2,1,3"]
 |===
 |Property |Default |Description
 
 |`jvector.physical_core_count`
 |Half of available processors
-|Override the detected physical core count for parallel operations
+|Overrides the detected physical core count for parallel operations. Intensive SIMD operations can saturate memory bandwidth during indexing and PQ computation, so jVector's `PhysicalCoreExecutor` limits concurrency to physical cores rather than logical cores (hyperthreads). A property of the jVector library.
+
+|`org.eclipse.store.gigamap.jvector.temporaryRoot`
+|`java.io.tmpdir`
+|The directory under which in-memory indices without an index directory create their temporary vector files, in its subdirectory `eclipsestore-vectors`. Only that subdirectory is written and cleaned up.
+
+|`org.eclipse.store.gigamap.jvector.dropLegacyVectorsWithoutLocation`
+|`false`
+|Lets an in-memory index with a computed vectorizer and no index location, loaded from a 4.x storage, drop the vectors of its 4.x vector store at the next store; every later start then vectorizes every entity. Without it, storing such an index is refused until it has a location, see xref:indexing/jvector/index.adoc#upgrading-from-4x[Upgrading from 4.x].
 |===
 
 NOTE: The `jdk.incubator.vector` module is still an incubator module on Java 22 and later. JVector's multi-release JAR handles the API differences automatically, but the module must still be explicitly enabled.

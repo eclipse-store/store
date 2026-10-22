@@ -181,13 +181,20 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
      * start. From then on, the binding decides where the index lives. If the name is bound to a
      * directory without the index files instead, the vector file is rebuilt there from the entities, one
      * vectorizer call per entity, and the graph from it.
+     * <p>
+     * An in-memory index with a computed vectorizer and no location yet keeps no index files: its vectors are
+     * in a temporary file. For it the change is <b>effective at once</b>: the vectors move into a vector file
+     * at the new location without a vectorizer call, the graph is rebuilt from that file at the next access,
+     * and from the next store of the parent {@link GigaMap} on, every start finds them there. This is also
+     * how an index of this kind loaded from a 4.x storage keeps the vectors its 4.x vector store held; until
+     * then, storing it is refused (see {@link VectorIndex.Default#DROP_LEGACY_VECTORS_PROPERTY}).
      *
      * @param name     the name of the index
      * @param location the new location
      * @throws IllegalArgumentException if there is no index of that name
-     * @throws IllegalStateException    if the index keeps no index files (see
-     *                                  {@link VectorIndex#keepsIndexFiles()}), or the parent {@link GigaMap}
-     *                                  is not mutable
+     * @throws IllegalStateException    if the index is an in-memory one with an embedded vectorizer, which
+     *                                  keeps no index files (see {@link VectorIndex#keepsIndexFiles()}), or the
+     *                                  parent {@link GigaMap} is not mutable
      */
     public void changeIndexLocation(String name, IndexLocation location);
 
@@ -308,6 +315,55 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
         protected final EqHashTable<String, VectorIndex.Internal<E>> vectorIndices()
         {
             return this.vectorIndices;
+        }
+
+        /**
+         * Runs an operation that needs the lock {@link VectorIndex.Internal#internalRemoveAll()} takes besides the
+         * parent-map monitor, which the caller holds, the way the parent map runs removeAll and reindex: it tries
+         * the lock without waiting and, while it is held elsewhere, waits on the monitor, which lets the holder
+         * finish. New searches are kept out between the tries, but not while open readers are waited for, whose
+         * threads may search.
+         *
+         * @param operation description of the operation, used to build the error message
+         * @param body      the operation
+         */
+        private void runExclusive(final String operation, final Runnable body)
+        {
+            boolean locked = false;
+            try
+            {
+                while(true)
+                {
+                    this.internalCancelExclusive();
+                    this.ensureMutable(operation);
+                    if(this.internalTryLockExclusive())
+                    {
+                        locked = true;
+                        break;
+                    }
+                    this.parentMap().wait(1);
+                }
+            }
+            catch(final InterruptedException e)
+            {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while waiting to " + operation + ".", e);
+            }
+            finally
+            {
+                if(!locked)
+                {
+                    this.internalCancelExclusive();
+                }
+            }
+            try
+            {
+                body.run();
+            }
+            finally
+            {
+                this.internalUnlockExclusive();
+            }
         }
 
         /**
@@ -692,9 +748,35 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
                 final VectorIndexConfiguration current = index.configuration();
                 if(!index.keepsIndexFiles())
                 {
-                    throw new IllegalStateException(
-                        "Vector index \"" + name + "\" keeps no index files and has no index location."
-                    );
+                    if(index.vectorizer().isEmbedded())
+                    {
+                        throw new IllegalStateException("Vector index \"" + name + "\" has an embedded vectorizer and"
+                            + " keeps no index files: its vectors are in the entities.");
+                    }
+                    // Its first location, effective at once: a restart would otherwise find no vector file there.
+                    this.runExclusive("give vector index \"" + name + "\" its first location", () ->
+                    {
+                        // The wait for the lock may have released the monitor: the index is looked up again.
+                        final VectorIndex.Internal<E> locked = this.internalGet(name);
+                        if(locked != index)
+                        {
+                            throw new IllegalStateException("Vector index \"" + name + "\" was removed or replaced"
+                                + " while its location was being changed.");
+                        }
+                        if(!locked.keepsIndexFiles())
+                        {
+                            locked.internalAssignFirstLocation(locked.configuration().withIndexLocation(location));
+                            LOG.info("Vector index '{}': keeps its vectors at {} from now on.", name, location);
+                        }
+                        else if(!location.equals(locked.configuration().indexLocation()))
+                        {
+                            // given a location meanwhile: an ordinary change, effective from the next load
+                            locked.internalReplaceConfiguration(locked.configuration().withIndexLocation(location));
+                        }
+                    });
+                    this.markStateChangeChildren();
+                    this.parent.internalReportIndexGroupStateChange(this);
+                    return;
                 }
                 if(location.equals(current.indexLocation()))
                 {
