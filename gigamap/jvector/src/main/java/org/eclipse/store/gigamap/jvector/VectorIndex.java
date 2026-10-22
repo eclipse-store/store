@@ -60,6 +60,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -1389,6 +1390,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // Test-only seam: run before each eventual-indexing operation a flush applies to the graph it froze;
         // a hook that throws makes that operation fail. Null (and a no-op) in production.
         transient volatile Runnable movedOpTestHook;
+
+        // Test-only seam: run before the purge of a frozen graph's deleted nodes after its moved operations; not
+        // before the purge an insert runs when the entry node is marked deleted. No-op in prod.
+        transient volatile Runnable frozenPurgeTestHook;
 
         // Test-only seam: handed each stage a flush reaches, on the thread doing the flush - the flush
         // writer for a background persist, the persisting thread otherwise - with no lock held. A hook
@@ -7524,7 +7529,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     try
                     {
-                        this.purgeAndRepairFrozen(frozen);
+                        this.purgeAndRepairFrozen(frozen, Set.of());
                     }
                     catch(final RuntimeException e)
                     {
@@ -7534,7 +7539,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
                 return;
             }
-            final GraphIndexBuilder target = frozen.builder();
+            final GraphIndexBuilder      target   = frozen.builder();
+            final GenerationVectorValues vectors  = frozen.vectorValues();
+            // The nodes a moved update replaces: marked deleted now, re-inserted after one purge of all of them.
+            // Every operation of an entity reads the same freeze-time vector, so only its last one decides.
+            final Set<Integer>           replaced = new LinkedHashSet<>();
             try
             {
                 for(final IndexingOperation op : frozen.movedOps())
@@ -7544,24 +7553,27 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     {
                         hook.run();
                     }
-                    final GenerationVectorValues vectors = frozen.vectorValues();
                     switch(op)
                     {
                         case IndexingOperation.Add      add    ->
-                            this.applyAdd(target, add.ordinal(), vectors.read(add.ordinal()));
+                            this.applyMovedAdd(target, add.ordinal(), vectors, replaced);
                         case IndexingOperation.BatchAdd batch  ->
                         {
                             for(final int ordinal : batch.ordinals())
                             {
-                                this.applyAdd(target, ordinal, vectors.read(ordinal));
+                                this.applyMovedAdd(target, ordinal, vectors, replaced);
                             }
                         }
                         case IndexingOperation.Update   update ->
-                            this.applyUpdate(target, update.ordinal(), vectors.read(update.ordinal()));
-                        case IndexingOperation.Remove   remove -> this.applyRemove(target, remove.ordinal());
+                            this.applyMovedUpdate(target, update.ordinal(), vectors, replaced);
+                        case IndexingOperation.Remove   remove ->
+                        {
+                            replaced.remove(remove.ordinal());
+                            this.applyRemove(target, remove.ordinal());
+                        }
                     }
                 }
-                this.purgeAndRepairFrozen(frozen);
+                this.purgeAndRepairFrozen(frozen, replaced);
             }
             catch(final RuntimeException e)
             {
@@ -7572,21 +7584,78 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Purges the nodes the moved operations deleted from a frozen graph and reconnects every node left
-         * unreachable, once, after all of them: the replaces' purges and inserts and the removes' purge all prune
-         * neighbor lists. Once rather than per operation, which would walk the whole graph for
-         * each of a backlog of hundreds. Here rather than in the {@code cleanup()} before the write, whose own purge
-         * then finds nothing left to strand a node with. Re-inserts with the generation's own vectors, the
-         * freeze-time ones of nodes a mutation has rewritten in the file since (see {@link GenerationVectorValues}),
-         * which are the vectors the frozen graph's nodes were inserted with.
+         * A moved add, on a frozen graph. An entity whose node a moved update replaces gets its node back from
+         * the re-insert after the purge: through the idempotent add it would clear the deleted bit and keep the
+         * links of its old vector.
+         */
+        private void applyMovedAdd(
+            final GraphIndexBuilder      target  ,
+            final int                    ordinal ,
+            final GenerationVectorValues vectors ,
+            final Set<Integer>           replaced
+        )
+        {
+            if(replaced.contains(ordinal))
+            {
+                return;
+            }
+            final float[]          vector = vectors.read(ordinal);
+            final OnHeapGraphIndex graph  = graphOf(target);
+            if(vector != null && graph.containsNode(ordinal) && graph.getDeletedNodes().get(ordinal))
+            {
+                // A node marked deleted, by a moved update or remove before this add: back through the re-insert
+                // with this vector, not through the idempotent add, which would keep the links of the node's old one.
+                replaced.add(ordinal);
+                return;
+            }
+            this.applyAdd(target, ordinal, vector);
+        }
+
+        /**
+         * A moved update, on a frozen graph: like {@link #applyUpdate}, except that a replaced node is only marked
+         * deleted here and re-inserted by {@link #purgeAndRepairFrozen}, after one purge for all of them.
+         */
+        private void applyMovedUpdate(
+            final GraphIndexBuilder      target  ,
+            final int                    ordinal ,
+            final GenerationVectorValues vectors ,
+            final Set<Integer>           replaced
+        )
+        {
+            final float[] vector = vectors.read(ordinal);
+            if(vector == null || !graphOf(target).containsNode(ordinal))
+            {
+                // vec→null removes the node, null→vec adds it: neither purges.
+                replaced.remove(ordinal);
+                this.applyUpdate(target, ordinal, vector);
+                return;
+            }
+            if(replaced.add(ordinal))
+            {
+                target.markNodeDeleted(ordinal);
+            }
+        }
+
+        /**
+         * Purges the nodes the moved operations deleted from a frozen graph, re-inserts the nodes moved updates
+         * replace, and reconnects every node left unreachable, each once, after all operations: the purge and
+         * the inserts prune neighbor lists. Once rather than per operation, which would purge and walk the whole
+         * graph for each of a backlog of thousands. Here rather than in the {@code cleanup()} before the write,
+         * whose own purge then finds nothing left to strand a node with. Inserts with the generation's own
+         * vectors, the freeze-time ones of nodes a mutation has rewritten in the file since (see
+         * {@link GenerationVectorValues}), which are the vectors the frozen graph's nodes were inserted with.
          * <p>
          * Also without moved operations, as long as the graph holds nodes marked deleted: a remove with sync
          * indexing only marks its node, and the live graph is frozen with those marks, which the purge of the
          * {@code cleanup()} would otherwise take out without a repair.
          *
-         * @param frozen the frozen generation about to be written, its moved operations applied
+         * @param frozen   the frozen generation about to be written, its moved operations applied
+         * @param replaced the ordinals whose nodes moved updates marked deleted for a re-insert
          */
-        private void purgeAndRepairFrozen(final HeapGeneration frozen)
+        private void purgeAndRepairFrozen(
+            final HeapGeneration frozen  ,
+            final Set<Integer>   replaced
+        )
         {
             if(frozen.movedOps().isEmpty() && frozen.graph().getDeletedNodes().cardinality() == 0)
             {
@@ -7599,9 +7668,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // whole purge and walk.
             final GraphIndexBuilder      target  = frozen.builder();
             final GenerationVectorValues vectors = frozen.vectorValues();
-            target.removeDeletedNodes();
+            this.purgeFrozen(target);
+            for(final int ordinal : replaced)
+            {
+                this.insertSingle(target, ordinal, this.vectorTypeSupport.createFloatVector(vectors.read(ordinal)));
+            }
             final int[] nodes = graphOf(target).nodeStream(0).toArray();
             GraphReachability.repair(target, nodes, nodes.length, vectors::getVector, this.name);
+        }
+
+        private void purgeFrozen(final GraphIndexBuilder target)
+        {
+            final Runnable hook = this.frozenPurgeTestHook;
+            if(hook != null)
+            {
+                hook.run();
+            }
+            target.removeDeletedNodes();
         }
 
         /**

@@ -14,6 +14,7 @@ package org.eclipse.store.gigamap.jvector;
  * #L%
  */
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -113,7 +114,10 @@ public abstract class Vectorizer<E>
     /**
      * Converts a list of entities into their respective numerical vector representations.
      * <p>
-     * This default implementation just delegates to {@link #vectorize(Object)} for each entity.
+     * This default implementation delegates to {@link #vectorize(Object)} for each entity. For a computed
+     * vectorizer it copies each result, so a {@code vectorize} that reuses one buffer for every call still yields a
+     * vector per entity; the vectors of an {@linkplain #isEmbedded() embedded} one are the entities' own arrays,
+     * which a copy of a whole batch would only duplicate.
      * <p>
      * If you want to implement an optimized custom batch vectorization logic, override this method.
      * <p>
@@ -121,16 +125,22 @@ public abstract class Vectorizer<E>
      * correspondence (element <i>i</i> is the vector of entity <i>i</i>). When
      * {@link #allowsNullVectors()} returns {@code true}, individual elements may be {@code null}
      * (meaning the corresponding entity has no embedding); otherwise every element must be non-null.
+     * Each element must hold its entity's vector when the list is returned: the index copies the vectors
+     * only then, so an implementation must not reuse one array for the vectors of several entities.
      *
      * @param entities a list of entities of type E to be vectorized
      * @return a list of float arrays, where each array represents the numerical vector of the corresponding entity
      */
     public List<float[]> vectorizeAll(final List<? extends E> entities)
     {
-        return entities.stream()
-            .map(this::vectorize)
-            .toList()
-        ;
+        final boolean       copy    = !this.isEmbedded();
+        final List<float[]> vectors = new ArrayList<>(entities.size());
+        for(final E entity : entities)
+        {
+            final float[] vector = this.vectorize(entity);
+            vectors.add(copy && vector != null ? vector.clone() : vector);
+        }
+        return vectors;
     }
 
     /**
