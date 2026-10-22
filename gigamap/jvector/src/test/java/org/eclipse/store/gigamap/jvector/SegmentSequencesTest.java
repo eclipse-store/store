@@ -21,7 +21,6 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -56,7 +55,7 @@ class SegmentSequencesTest
     }
 
     @Test
-    void protectedSequences_coverWrittenAndOpenSegmentsUntilReleased(@TempDir final Path directory)
+    void isProtected_coversWrittenAndOpenSegmentsUntilReleased(@TempDir final Path directory)
         throws IOException
     {
         final SegmentSequences sequences = new SegmentSequences();
@@ -64,14 +63,37 @@ class SegmentSequencesTest
         sequences.opened(20);
         sequences.opened(20);
 
-        assertEquals(Set.of(writing, 20L), sequences.protectedSequences());
+        assertTrue(sequences.isProtected(writing));
+        assertTrue(sequences.isProtected(20));
+        assertFalse(sequences.isProtected(21));
 
         sequences.written(writing);
+        assertFalse(sequences.isProtected(writing));
         assertFalse(sequences.closed(20), "still open once");
-        assertEquals(Set.of(20L), sequences.protectedSequences(), "opened twice, closed once");
+        assertTrue(sequences.isProtected(20), "opened twice, closed once");
 
         assertTrue(sequences.closed(20), "the last close leaves nothing protecting it");
-        assertTrue(sequences.protectedSequences().isEmpty());
+        assertFalse(sequences.isProtected(20));
+    }
+
+    @Test
+    void deleteIfUnprotected_keepsTheFilesOfProtectedSequencesOnly(@TempDir final Path directory)
+        throws IOException
+    {
+        final SegmentSequences sequences = new SegmentSequences();
+        final long             writing   = sequences.reserve(directory, "idx");
+        sequences.opened(20);
+        final Path reserved = Files.createFile(directory.resolve(SegmentFiles.graphFileName("idx", writing)));
+        final Path open     = Files.createFile(directory.resolve(SegmentFiles.graphFileName("idx", 20)));
+        final Path leftover = Files.createFile(directory.resolve(SegmentFiles.graphFileName("idx", 21)));
+
+        assertFalse(sequences.deleteIfUnprotected(writing, reserved));
+        assertFalse(sequences.deleteIfUnprotected(20, open));
+        assertTrue(sequences.deleteIfUnprotected(21, leftover));
+
+        assertTrue(Files.exists(reserved));
+        assertTrue(Files.exists(open));
+        assertFalse(Files.exists(leftover));
     }
 
 }

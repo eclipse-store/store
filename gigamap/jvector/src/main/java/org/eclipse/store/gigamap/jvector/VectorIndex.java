@@ -1444,6 +1444,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // prod.
         transient volatile Consumer<DiskIndexManager.CommitStage> commitStageTestHook;
 
+        // Test-only seam: read by every disk manager this index creates, through reapListingTestHook(),
+        // right before a cleanup of unlisted files lists the index directory. No-op in prod.
+        transient volatile Runnable reapListingTestHook;
+
 
         ///////////////////////////////////////////////////////////////////////////
         // constructors //
@@ -8774,6 +8778,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         public Consumer<DiskIndexManager.CommitStage> commitStageTestHook()
         {
             return this.commitStageTestHook;
+        }
+
+        @Override
+        public Runnable reapListingTestHook()
+        {
+            return this.reapListingTestHook;
         }
 
         // ================================================================

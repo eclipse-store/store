@@ -33,7 +33,8 @@ import java.util.Set;
  * <p>
  * Two kinds of sequence are protected from the cleanup of unlisted files: the ones a flush is writing
  * and has not committed yet, and the ones of segments still open, which a search may still be
- * traversing after a newer manifest dropped them. Both are listed by {@link #protectedSequences()}.
+ * traversing after a newer manifest dropped them. A cleanup deletes only through
+ * {@link #deleteIfUnprotected(long, Path)}, which checks both under the lock a reservation takes.
  * <p>
  * Thread-safe.
  */
@@ -146,16 +147,33 @@ final class SegmentSequences
     }
 
     /**
-     * Returns the sequences whose files must survive a cleanup of unlisted files: those being
-     * written and those of open segments.
+     * Returns whether the files of a sequence must survive a cleanup of unlisted files: it is being
+     * written, or a segment of it is open.
      *
-     * @return a snapshot of the protected sequences
+     * @param sequence the sequence
+     * @return whether the sequence is protected
      */
-    synchronized Set<Long> protectedSequences()
+    synchronized boolean isProtected(final long sequence)
     {
-        final Set<Long> sequences = new HashSet<>(this.writing);
-        sequences.addAll(this.openings.keySet());
-        return sequences;
+        return this.writing.contains(sequence) || this.openings.containsKey(sequence);
+    }
+
+    /**
+     * Deletes a file of a segment unless its sequence is protected, deciding and deleting under the lock
+     * {@link #reserve(Path, String)} takes. A cleanup lists the directory before it deletes, and a merge
+     * reserves, writes and opens its segment without the flush permit, so a protection read before the
+     * listing could miss a segment reserved after it.
+     *
+     * @param sequence the sequence the file carries
+     * @param file     the file
+     * @return whether the file was deleted
+     */
+    synchronized boolean deleteIfUnprotected(
+        final long sequence,
+        final Path file
+    )
+    {
+        return !this.isProtected(sequence) && SegmentFiles.deleteQuietly(file);
     }
 
 }

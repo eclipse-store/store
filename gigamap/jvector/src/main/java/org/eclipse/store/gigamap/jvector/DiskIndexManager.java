@@ -402,6 +402,16 @@ interface DiskIndexManager
         {
             return null;
         }
+
+        /**
+         * Test-only: run by a cleanup of unlisted files right before it lists the index directory.
+         *
+         * @return the hook, {@code null} in production
+         */
+        public default Runnable reapListingTestHook()
+        {
+            return null;
+        }
     }
 
 
@@ -810,6 +820,9 @@ interface DiskIndexManager
         /**
          * The open files of one segment, before it is decided whether the segment is flagged.
          */
+        /** A file of the layout a cleanup found unlisted, with the segment sequence it carries, if any. */
+        private record UnlistedFile(Path path, OptionalLong sequence) {}
+
         private record LoadedFiles(
             SegmentManifest.Segment segment       ,
             OnDiskGraphIndex        graph         ,
@@ -931,17 +944,20 @@ interface DiskIndexManager
         @Override
         public void reapUnlistedFiles(final Set<Long> keep)
         {
-            final Set<Long> protectedSequences = this.sequences.protectedSequences();
-            protectedSequences.addAll(keep);
-            this.deleteUnlistedFiles(protectedSequences);
+            this.deleteUnlistedFiles(keep);
         }
 
         /**
          * Deletes every file of the layout in the index directory that does not belong to a segment in
-         * {@code listed}: segments a crash left uncommitted or a commit superseded, and the manifest's
-         * temp file. The manifest itself is never deleted here, and neither is any file outside the
-         * layout, such as the files of another index sharing the directory or of the single-file layout
-         * of earlier versions, which persisted data need not survive.
+         * {@code listed} and is not protected: segments a crash left uncommitted or a commit superseded,
+         * and the manifest's temp file. The manifest itself is never deleted here, and neither is any
+         * file outside the layout, such as the files of another index sharing the directory or of the
+         * single-file layout of earlier versions, which persisted data need not survive.
+         * <p>
+         * The protection of a segment file is decided when it is deleted, not before the listing: a merge
+         * reserves, writes and opens its segment without the flush permit, possibly after the listing
+         * began, and must find its files in place. The manifest's temp file is written only by a commit,
+         * which holds the flush permit like every cleanup that runs while the index is live.
          * <p>
          * Keeps going after a failed delete, which is logged; the next load tries again.
          */
@@ -951,8 +967,13 @@ interface DiskIndexManager
             {
                 return;
             }
-            final Pattern pattern = SegmentFiles.layoutFilePattern(this.name);
-            final List<Path> unlisted = new ArrayList<>();
+            final Runnable hook = this.provider.reapListingTestHook();
+            if(hook != null)
+            {
+                hook.run();
+            }
+            final Pattern            pattern  = SegmentFiles.layoutFilePattern(this.name);
+            final List<UnlistedFile> unlisted = new ArrayList<>();
             try(final Stream<Path> files = Files.list(this.indexDirectory))
             {
                 for(final Path file : (Iterable<Path>)files::iterator)
@@ -964,7 +985,7 @@ interface DiskIndexManager
                         final OptionalLong sequence = SegmentFiles.sequenceOf(matcher);
                         if(sequence.isEmpty() || !listed.contains(sequence.getAsLong()))
                         {
-                            unlisted.add(file);
+                            unlisted.add(new UnlistedFile(file, sequence));
                         }
                     }
                 }
@@ -976,9 +997,13 @@ interface DiskIndexManager
                 return;
             }
             int deleted = 0;
-            for(final Path file : unlisted)
+            for(final UnlistedFile file : unlisted)
             {
-                if(SegmentFiles.deleteQuietly(file))
+                final boolean gone = file.sequence().isEmpty()
+                    ? SegmentFiles.deleteQuietly(file.path())
+                    : this.sequences.deleteIfUnprotected(file.sequence().getAsLong(), file.path())
+                ;
+                if(gone)
                 {
                     deleted++;
                 }

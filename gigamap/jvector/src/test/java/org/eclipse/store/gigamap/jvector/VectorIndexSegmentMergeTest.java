@@ -29,7 +29,9 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
+import java.io.IOException;
 import java.lang.reflect.Field;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -173,6 +175,88 @@ class VectorIndexSegmentMergeTest
             assertTrue(def.awaitMergesIdle(AWAIT_MS));
             assertTrue(def.mergeCount() >= 1L, "the failed run looked again for the merge the flush asked for");
             assertEachEntityLiveInOneSource(index, map.size());
+        }
+    }
+
+    /**
+     * A merge reserves, writes and opens its segment without the flush permit, so it can do so while a flush cleans
+     * up the files the manifest does not list. The cleanup must leave the merged segment's files in place: deleted,
+     * the merge fails reading them back, or, once open, the next persist commits a manifest naming files that are
+     * gone, and the next load rebuilds the graph.
+     */
+    @Test
+    @Timeout(value = 120, unit = TimeUnit.SECONDS)
+    void merge_writtenWhileAFlushCleansUp_keepsItsFilesThroughTheNextCommit(@TempDir final Path tempDir)
+        throws InterruptedException, IOException
+    {
+        final Path              indexDir = tempDir.resolve("index");
+        final GigaMap<Document> map      = GigaMap.New();
+        final Random            random   = new Random(7);
+
+        try(final VectorIndex<Document> index = register(map, configuration(indexDir, Format.INLINE, 2)))
+        {
+            final VectorIndex.Default<Document> def = (VectorIndex.Default<Document>)index;
+            addRandom(map, random, 300);
+            index.persistToDisk();
+            addRandom(map, random, 200);
+
+            final CountDownLatch built        = new CountDownLatch(1);
+            final CountDownLatch cleanupBegan = new CountDownLatch(1);
+            final CountDownLatch written      = new CountDownLatch(1);
+            def.mergeStageTestHook = stage ->
+            {
+                if(stage == VectorIndex.Default.MergeStage.BUILT)
+                {
+                    built.countDown();
+                    awaitQuietly(cleanupBegan);
+                }
+                else if(stage == VectorIndex.Default.MergeStage.WRITTEN)
+                {
+                    def.mergeStageTestHook = null;
+                    // No second merge: it would replace the merged segment and hide what the cleanup did.
+                    def.mergesSuspended = true;
+                    written.countDown();
+                }
+            };
+            // The second segment makes the merge due; it waits before reserving its sequence.
+            index.persistToDisk();
+            assertTrue(built.await(AWAIT_MS, TimeUnit.MILLISECONDS), "the merge must reach BUILT");
+
+            addRandom(map, random, 100);
+            def.reapListingTestHook = () ->
+            {
+                def.reapListingTestHook = null;
+                cleanupBegan.countDown();
+                // The merge reserves, writes and opens its segment before this cleanup lists the directory.
+                awaitQuietly(written);
+            };
+            index.persistToDisk();
+
+            assertTrue(def.awaitMergesIdle(AWAIT_MS));
+            assertEquals(1L, def.mergeCount(), "the merge must publish its segment");
+            for(final DiskSegment segment : segments(index))
+            {
+                assertSegmentFilesExist(indexDir, segment.sequence(), "an open segment's files must survive the cleanup");
+            }
+
+            // Commits the merged segment.
+            index.persistToDisk();
+            final SegmentManifest manifest = SegmentManifest.read(SegmentLayout.manifest(indexDir, NAME));
+            for(final SegmentManifest.Segment listed : manifest.segments())
+            {
+                assertSegmentFilesExist(indexDir, listed.sequence(), "the manifest must not list deleted files");
+            }
+            assertEachEntityLiveInOneSource(index, map.size());
+        }
+    }
+
+    /** the graph and the ordinal map, which every segment has */
+    private static void assertSegmentFilesExist(final Path indexDir, final long sequence, final String message)
+    {
+        for(final String file : List.of(
+            SegmentFiles.graphFileName(NAME, sequence), SegmentFiles.ordinalMapFileName(NAME, sequence)))
+        {
+            assertTrue(Files.exists(indexDir.resolve(file)), message + ": " + file);
         }
     }
 
