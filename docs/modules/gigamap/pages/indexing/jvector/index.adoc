@@ -64,7 +64,7 @@ You can combine vector search with bitmap indices for hybrid queries - for examp
 
 == Requirements
 
-* Java 22+. The module uses the foreign memory API for its vector file and is compiled for Java 22; the rest of {product-name} stays at Java 17.
+* Java 25+. The module uses the foreign memory API for its vector file and is compiled for Java 25; the rest of {product-name} stays at Java 17.
 * JVM flags:
 ** `--add-modules jdk.incubator.vector` for SIMD scoring (without it, jVector falls back to scalar code).
 ** `--enable-native-access=ALL-UNNAMED` for jVector's memory-mapped graph reader. On the module path jVector is the automatic module `jvector`, so use `--enable-native-access=jvector` there.
@@ -93,7 +93,7 @@ JVector leverages the https://openjdk.org/jeps/338[Panama Vector API] (`jdk.incu
 |*Full SIMD acceleration* via Panama Vector API
 |===
 
-JVector uses a multi-release JAR structure. On the Java 22+ JVM this module requires, the optimized vector code activates as soon as the incubator module is resolved.
+JVector uses a multi-release JAR structure. On the Java 25+ JVM this module requires, the optimized vector code activates as soon as the incubator module is resolved.
 
 === JVM Parameters
 
@@ -323,7 +323,7 @@ VectorIndex<Document> index = vectorIndices.get("embeddings");
 
 * *Null vectors are rejected by default*: `Vectorizer.vectorize()` must not return `null` unless the vectorizer opts in via `Vectorizer.allowsNullVectors()`. By default a `null` vector throws an `IllegalStateException`. When opted in, a `null` vector means the entity has no embedding: it stays in the GigaMap but is excluded from the vector index and never appears in search results (see xref:indexing/jvector/advanced.adoc[Advanced Topics]).
 * *~2.1 billion vectors per index*: JVector uses `int` for graph node ordinals. For larger datasets, implement sharding across multiple indices.
-* *Java 22 or later*: the module uses the foreign memory API for its vector file.
+* *Java 25 or later*: the module targets Java 25 and uses the foreign memory API for its vector file.
 * *The vector file must stay with its storage*: it is a cache derived from the entities, rebuilt (one vectorizer call per entity) when it is missing or does not match the stored index.
 * *`FUSED_PQ` scoring enlarges the index*: it stores each node's neighbour codes inline, on top of whatever the storage mode holds. It saves reads on a graph larger than the page cache, not disk space, and it costs recall. To make the index *smaller*, set `vectorStorage` to `NVQ`.
 * *`NVQ` storage never costs score accuracy*: the graph keeps no full-precision copy, but reranking reads the full-precision vectors of the vector file, so the scores and the ordering a search returns are exact. With `approximateScoring(NONE)` it does change which candidates traversal finds, since traversal reads the quantized vectors; with `FUSED_PQ` the codes drive traversal and candidate selection is unchanged.

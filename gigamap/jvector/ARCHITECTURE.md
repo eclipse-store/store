@@ -808,7 +808,7 @@ System property: `org.eclipse.store.gigamap.jvector.temporaryRoot` (section 3.1)
 
 ## 12. Build and runtime requirements
 
-- **Java 22+.** The module compiles at `maven.compiler.release` 22 because it maps the vector file through the foreign memory API (`Arena`, `MemorySegment`). It is part of the reactor only under JDK 22 or newer (profile `java22-plus-jvector` in `gigamap/pom.xml`); the rest of Eclipse Store stays at Java 17.
+- **Java 25+.** The module maps the vector file through the foreign memory API (`Arena`, `MemorySegment`, final in Java 22) and compiles at `maven.compiler.release` 25, like the modules that use it. The build requires JDK 25 (enforcer); the rest of Eclipse Store stays at `maven.compiler.release` 17.
 - **jVector** `io.github.jbellis:jvector` `4.0.1`.
 - **Module.** `module-info.java` declares `org.eclipes.store.gigamap.jvector` (the typo is kept for compatibility). It `requires transitive org.eclipse.store.gigamap` and `requires jvector`, exports `org.eclipse.store.gigamap.jvector` and `org.eclipse.store.gigamap.jvector.annotations`, and opens the main package to `org.eclipse.serializer.persistence`.
 - **JVM flags.**

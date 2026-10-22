@@ -5,7 +5,7 @@ The `VectorIndexConfiguration` builder provides various options to tune the inde
 [#jvm-configuration]
 == JVM Configuration
 
-The module requires Java 22 or later. Configure your JVM with the following parameters:
+The module requires Java 25 or later. Configure your JVM with the following parameters:
 
 * `--add-modules jdk.incubator.vector` enables SIMD acceleration via the Panama Vector API. Without it, jVector falls back to scalar code.
 * `--enable-native-access=ALL-UNNAMED` allows jVector's memory-mapped graph reader, which makes a restricted call on Java 22+. On the module path jVector is the automatic module `jvector`, so name it there: `--enable-native-access=jvector`.
