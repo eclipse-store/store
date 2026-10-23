@@ -83,8 +83,15 @@ public abstract class Vectorizer<E>
      * Converts the given entity into its numerical vector representation.
      * <p>
      * Must reproduce the committed vector of a persisted entity, see the class comment: the index calls this
-     * again for entities loaded from the storage whenever it has to repair its vector file. The index copies
-     * the result, so it may be the entity's own array.
+     * again for entities loaded from the storage whenever it has to repair its vector file.
+     * <p>
+     * The index is done with a computed vectorizer's result, or has copied it, before it calls the vectorizer
+     * again, so the result may be a buffer the vectorizer reuses. An
+     * {@linkplain #isEmbedded() embedded} vectorizer returns the entity's own array, which is not copied. The
+     * index calls this concurrently, though: a search by entity
+     * ({@link VectorIndex#search(Object, int)}) runs alongside mutations of the map and other searches. A
+     * reused buffer must therefore be one per thread, e.g. held in a {@link ThreadLocal}; a single shared
+     * buffer lets one call overwrite the vector another call is still returning.
      *
      * @param entity the entity of type E to be vectorized
      * @return a float array representing the numerical vector of the entity
